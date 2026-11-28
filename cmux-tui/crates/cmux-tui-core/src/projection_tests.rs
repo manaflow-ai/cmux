@@ -77,7 +77,7 @@ fn a_revision_in_the_store_is_fetched_and_assembled() {
     let split = cmux_projection::revision::split(&manifest).unwrap();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    let pieces: std::collections::HashMap<String, Vec<u8>> =
+    let pieces: HashMap<String, Vec<u8>> =
         split.pieces.iter().map(|piece| (piece.sha256.clone(), piece.bytes.clone())).collect();
     let served = std::thread::spawn(move || {
         // One request per connection, until the test drops the last reference.
@@ -443,7 +443,7 @@ fn the_away_notice_names_the_folder_the_mac_and_the_failed_reads() {
          - README.md\n\
          - src/main.rs"
     );
-    let capped = Report { paths: vec!["a".into()], failed: 9, ..report.clone() };
+    let capped = Report { paths: vec!["a".into()], failed: 9, ..report };
     let (title, body) = away_notice(at, &capped);
     assert_eq!(title, "The Mac is away: 9 reads in a projected folder failed");
     assert!(body.ends_with("Reads that failed (9):\n- a\n- and 8 more"), "{body}");
@@ -455,7 +455,7 @@ fn the_away_notice_names_the_folder_the_mac_and_the_failed_reads() {
 
 #[test]
 fn brought_back_and_release_are_projection_frames() {
-    for op in [BROUGHT_BACK, RELEASE, LAYER, FILES, DROP, PIN, UNPIN, PINS, WARM] {
+    for op in [BROUGHT_BACK, RELEASE, LAYER, FILES, DROP, PIN, UNPIN, PINS, WARM, UNSYNCED] {
         let line = json!({"id": 1, "cmd": op, "name": "a"}).to_string();
         assert_eq!(frame_command(&line), Some(op));
     }
@@ -485,7 +485,26 @@ fn control_line(name: &str, mark: Option<&str>, why: Option<&str>) -> WayBackLin
         why: why.map(str::to_owned),
         path: None,
         paths: Vec::new(),
+        prune: false,
     }
+}
+
+/// `projection.unsynced`: what Bring Back would carry and what stays on the machine, counted.
+#[test]
+fn unsynced_counts_the_changes_and_what_stays_on_the_machine() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let (state, _) = projected_state(home.path(), "p-count");
+    std::fs::create_dir_all(state.join("upper/node_modules/x")).unwrap();
+    std::fs::write(state.join("upper/node_modules/x/i.js"), b"1;").unwrap();
+    std::fs::write(state.join("upper/node_modules/x/package.json"), b"{}").unwrap();
+    assert_eq!(
+        unsynced(&state, true).unwrap(),
+        json!({"files": 1, "bytes": 23, "deleted": 1,
+               "kept_on_machine": {"folders": 1, "files": 2, "bytes": 4,
+                                   "paths": ["node_modules"]}})
+    );
+    // Unpruned (the caller's manifest holds `node_modules`): its edits count.
+    assert_eq!(unsynced(&state, false).unwrap(), json!({"files": 3, "bytes": 27, "deleted": 1}));
 }
 
 /// RFD 0007: Bring Back's upper layer is "brought back at the mark it read

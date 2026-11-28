@@ -95,6 +95,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .cloudEnvironment: "cloudEnvironment"
         case .tryAnotherApproach: "tryAnotherApproach"
         case .cloudTurnRewind(let request): request.method
+        case .cloudFolderAdd: AgentPaneModel.cloudFolderAddMethod
         case .appAction: "appAction"
         case .paneAction, .moveToMachine, .diffTurn, .diffPatch: "paneAction"
         case .preview: "preview"

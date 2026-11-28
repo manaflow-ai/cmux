@@ -35,13 +35,13 @@ import {
   isEmptyFooter,
   isStopped,
   offersRetry,
+  turnTimeKey,
   workedCallsText,
   workedLabel,
   workedMessagesText,
-  turnTimeKey,
+  formatDuration,
   FOLD_COUNTS_SWITCH,
   workedCountsText,
-  formatDuration,
 } from "./turns";
 import { FailedCount } from "./FailedCount";
 import { useExperimentSwitch } from "../../../experiments/switches";
@@ -51,7 +51,7 @@ import { turnCopyText } from "./turnCopy";
 import { workedLine } from "./workedLine.experiment";
 import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, type WorkedPart } from "./workedOutcome";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, Retry, Close } from "./icons";
+import { AlertCircle, Close, Retry } from "./icons";
 import { DisclosureChevron } from "./DisclosureChevron";
 import {
   ForkButton,
@@ -210,6 +210,7 @@ export function WorkedFor({
     <button
       type="button"
       className="cv-worked has-divider is-toggle"
+      data-alone={row.workedAlone ? "" : undefined}
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}
@@ -551,6 +552,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           setRetryNote(note);
           setRetryWent(note === undefined ? true : undefined);
         },
+        // retry-prompt-ok: the resend the person clicked did not go; another resend is a paid model request.
         () => setRetryNote("retry.failed"),
       )
       .finally(() => setRetrying(false));
@@ -569,6 +571,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             // A chat without acpmux's retry sends the prompt again; a send that did not go says so.
             if (retrying) return;
             const rowId = row.retryRowId!;
+            // retry-prompt-ok: sends the prompt again, a paid model request.
             runRetry(async () => ((await retry(rowId, prompt)) === false ? "retry.failed" : undefined), "retry");
           }
         : undefined;
@@ -579,6 +582,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     offersRetry(row) &&
     !isEmptyFooter(row);
   const footerRetry = failedRetry;
+  // retry-prompt-ok: the turn's Retry sends the prompt again, a paid model request (and may change files again).
   const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
   const retryModels = failed && prompt && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
@@ -653,6 +657,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                   <button
                     type="button"
                     className="cv-iconbtn cv-iconbtn--compact"
+                    // retry-prompt-ok: sends the turn's prompt again, a paid model request.
                     aria-label={t("turn.retry")}
                     title={retryTitle}
                     disabled={retrying}
@@ -915,6 +920,7 @@ function TurnFailure({
         )}
         {signInFirst && (
           <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={reauthenticate}>
+            {/* retry-prompt-ok: a sign-in the person does. */}
             {t("turn.signInAgain")}
           </button>
         )}
@@ -930,6 +936,7 @@ function TurnFailure({
             disabled={retrying}
             onClick={goOn}
           >
+            {/* retry-prompt-ok: sends the failed turn again, a paid model request. */}
             {goOnLabel === "continue" ? t("turn.continue") : t("turn.retry")}
           </button>
         )}

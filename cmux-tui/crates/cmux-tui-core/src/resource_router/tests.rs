@@ -208,8 +208,7 @@ fn catalog_validation_refuses_unknown_parameters_where_the_catalog_opts_in() {
         }),
         Some("close-with-unknown"),
     ))
-    .err()
-    .expect("terminal.close refuses an unknown param");
+    .expect_err("terminal.close refuses an unknown param");
     assert_eq!(refused.code, "validation.invalid", "{refused:?}");
     assert_eq!(refused.message, "request contains unknown parameters", "{refused:?}");
 }

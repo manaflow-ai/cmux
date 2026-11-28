@@ -6,13 +6,15 @@ import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
 import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineStopFields, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
+import { rpcFailureReason } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { saveSendTrace, SEND_TRACE_SETTLE_MS } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
+import { carrierScrollProbe, parseScrollReport, scrollDetail } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
@@ -443,6 +445,15 @@ describe("cloud journey", () => {
     // No baseline: every failed step counts.
     expect(newReds(null, after).map((s) => s.step)).toEqual(["health", "running (status)"]);
   });
+  test("capacityOnly: no machine or a rate limit is never the deploy's red", () => {
+    const red = (detail: string) => ({ step: "create machine", status: "fail" as const, ms: 1, detail });
+    expect(capacityOnly([red("POST /v1/cloud/machines: HTTP 429 Too Many Requests")])).toBe(true);
+    expect(capacityOnly([red("no machine available in any region"), red("rate limited, retry after 30 s")])).toBe(true);
+    // A machine given and then broken is the build's: vm_unavailable on its first exec, a crash, a timeout.
+    expect(capacityOnly([red("the machine did not take its first exec (vm_unavailable)")])).toBe(false);
+    expect(capacityOnly([red("HTTP 429"), red("reply timed out")])).toBe(false);
+    expect(capacityOnly([])).toBe(false);
+  });
   test("the login copy runs the Mac installer's own programs", () => {
     expect(swiftRawString('  static let x = #"""\n      a\n        b\n      """#', "x")).toBe("a\n  b");
     const programs = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"));
@@ -682,9 +693,16 @@ describe("cloud journey: leaked machine sweep", () => {
       const isLong = /--resume-matrix|--wake-echo/.test(text);
       if (isLong) long.push(f);
       const bound = isLong ? LONG_JOURNEY_MS : STALE_JOURNEY_MS;
-      // Every timeout in such a file, a superset of the journey jobs' own.
-      for (const m of text.matchAll(/timeout-minutes:\s*(\d+)/g)) {
-        expect({ f, fits: Number(m[1]) * 60_000 * 2 <= bound }).toEqual({ f, fits: true });
+      // Every timeout in a job that runs a journey (its block names the script); a file that names it but no job
+      // that does (a matrix that runs it through another script) holds every job. A job that runs none, like
+      // backend.yml's `test` (95 min, #56565), makes no journey machine and so needs no age bound.
+      const jobs = (text.split(/^jobs:\s*$/m)[1] ?? text).split(/^(?=  [A-Za-z0-9_-]+:\s*$)/m);
+      const journeyJobs = jobs.filter((j) => /cloud-journey(\.ts|-ci\.sh)/.test(j));
+      for (const job of journeyJobs.length ? journeyJobs : jobs) {
+        const name = /^  ([A-Za-z0-9_-]+):/.exec(job)?.[1] ?? "?";
+        for (const m of job.matchAll(/timeout-minutes:\s*(\d+)/g)) {
+          expect({ f, name, fits: Number(m[1]) * 60_000 * 2 <= bound }).toEqual({ f, name, fits: true });
+        }
       }
     }
     expect(seen).toContain("cmux-vm.yml");
@@ -3446,10 +3464,139 @@ open(out, 'w').write(json.dumps(seen))
     expect(r.status).toBe(2);
     expect(seen.filter((m: any) => m.method === "session/new")).toHaveLength(1);
   });
-  test("no acpmux socket is a failed start that names the paths it tried", () => {
+  // Run 45881843733 (own-host microVM, 2026-11-26): session/new came back daemon.restarting, retryable, "Send the
+  // request again in a few seconds", and the start gave up as @@nostart. It sends again now, and still stops on a
+  // refusal that is not retryable.
+  const FAKE_ACPMUX_RESTARTING = String.raw`
+import json, os, socket, sys, time
+path, out, mode = sys.argv[1], sys.argv[2], sys.argv[3]
+if mode == 'late':
+    # acpmux mid-restart: a socket file nobody listens on (ECONNREFUSED, run 45882763507), then the new daemon.
+    stale = socket.socket(socket.AF_UNIX); stale.bind(path); stale.close()
+    time.sleep(1.5)
+    os.unlink(path)
+srv = socket.socket(socket.AF_UNIX); srv.bind(path); srv.listen(4)
+seen = []
+news = 0
+while True:
+    c, _ = srv.accept(); f = c.makefile('r')
+    def send(m): c.sendall((json.dumps(m) + '\n').encode())
+    done = False
+    for line in f:
+        m = json.loads(line); seen.append(m['method'])
+        if m['method'] == 'session/prompt':
+            # Run 45883411021: acpmux restarted between the start and its first prompt.
+            seen[-1] += ':' + m['params']['_meta']['acpmux']['promptId']
+            prompts = sum(1 for x in seen if x.startswith('session/prompt'))
+            if prompts == 1:
+                send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32000, 'message': 'acpmux is restarting', 'data': {'errorKind': 'daemon.restarting', 'retryable': True}}})
+                break
+            send({'jsonrpc': '2.0', 'method': '_acpmux/prompt_accepted', 'params': {'sessionId': 's-2', 'promptId': m['params']['_meta']['acpmux']['promptId']}})
+            done = True
+            break
+        if m['method'] == '_acpmux/resolve':
+            send({'jsonrpc': '2.0', 'id': m['id'], 'result': {'session': {'sessionId': 's-1', 'name': m['params']['query']}}})
+            done = True
+            break
+        if m['method'] == 'session/new':
+            news += 1
+            if mode == 'made-then-cut':
+                # Run 45885585817: the first start made the session, then acpmux restarted before it answered.
+                if news == 1:
+                    send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32000, 'message': 'acpmux is restarting', 'data': {'errorKind': 'daemon.restarting', 'retryable': True}}})
+                else:
+                    send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32602, 'message': 'session name "s" is taken'}})
+                continue
+            if mode == 'taken':
+                send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32602, 'message': 'session name "s" is taken'}})
+                done = True
+                break
+            if news == 1 and mode not in ('late', 'prompt-cut'):
+                data = {'errorKind': 'daemon.restarting', 'retryable': True} if mode == 'retryable' else {'errorKind': 'refused', 'retryable': False}
+                send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32000, 'message': 'acpmux is restarting', 'data': data}})
+                done = mode != 'retryable'
+                break
+            send({'jsonrpc': '2.0', 'id': m['id'], 'result': {'sessionId': 's-2'}})
+            done = mode != 'prompt-cut'
+            if done:
+                break
+            continue
+        send({'jsonrpc': '2.0', 'id': m['id'], 'result': {}})
+    c.close()
+    if done:
+        break
+open(out, 'w').write(json.dumps(seen))
+`;
+  const runRestarting = (mode: "retryable" | "refused" | "late" | "prompt-cut" | "made-then-cut" | "taken") => {
+    const home = mkdtempSync("/tmp/jr-");
+    try {
+      mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
+      writeFileSync(join(home, "fake.py"), FAKE_ACPMUX_RESTARTING);
+      const sock = join(home, ".cmux/acpmux/acpmux.sock");
+      const program = launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x", mode === "prompt-cut" ? "hi" : undefined);
+      const script = `python3 -I fake.py ${sock} seen.json ${mode} & for i in $(seq 50); do [ -S ${sock} ] && break; sleep 0.1; done\n${program}\nrc=$?\nwait\nexit $rc`;
+      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8", timeout: 20_000 });
+      return { r, seen: JSON.parse(readFileSync(join(home, "seen.json"), "utf8")) as string[] };
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  };
+  test("a start cut by acpmux's restart (retryable) is sent again and starts", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("retryable");
+    expect(r.stdout).toContain("@@retry ");
+    expect(r.stdout).toContain("@@session s-2");
+    expect(r.status).toBe(0);
+    expect(seen.filter((m) => m === "session/new")).toHaveLength(2);
+  });
+  test("a start refused for good (not retryable) is never sent again", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("refused");
+    expect(r.stdout).not.toContain("@@retry");
+    expect(r.stdout).toContain("@@nostart");
+    expect(r.status).toBe(1);
+    expect(seen.filter((m) => m === "session/new")).toHaveLength(1);
+  });
+  // Run 45882763507 (own-host microVM, 2026-11-26): the socket refused the connection while acpmux restarted, and the
+  // start gave up as @@nostart. A refused connect or a missing socket cannot have made a session; it is sent again.
+  test("a socket that refuses while acpmux restarts is tried again and starts", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("late");
+    expect(r.stdout).toContain("@@retry ");
+    expect(r.stdout).toContain("Connection refused");
+    expect(r.stdout).toContain("@@session s-2");
+    expect(r.status).toBe(0);
+    expect(seen.filter((m) => m === "session/new")).toHaveLength(1);
+  });
+  test("a first prompt cut by acpmux's restart is sent again with the same promptId", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("prompt-cut");
+    expect(r.stdout).toContain("@@session s-2");
+    expect(r.stdout).toContain("@@retry session/prompt");
+    expect(r.stdout).toContain("@@prompted");
+    expect(r.status).toBe(0);
+    expect(seen.filter((m) => m === "session/new")).toHaveLength(1);
+    const prompts = seen.filter((m) => m.startsWith("session/prompt:"));
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]).toBe(prompts[1]);
+  });
+  test("a start whose session was made before acpmux's restart cut its answer takes that session", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("made-then-cut");
+    expect(r.stdout).toContain("@@retry ");
+    expect(r.stdout).toContain("@@adopted s-1");
+    expect(r.stdout).toContain("@@session s-1");
+    expect(r.status).toBe(0);
+    expect(seen.filter((m) => m === "session/new")).toHaveLength(2);
+    expect(seen.filter((m) => m === "_acpmux/resolve")).toHaveLength(1);
+  });
+  test("a taken name with no cut start before it stays a failed start", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("taken");
+    expect(r.stdout).toContain("@@nostart");
+    expect(r.stdout).not.toContain("@@adopted");
+    expect(r.status).toBe(1);
+    expect(seen).not.toContain("_acpmux/resolve");
+  });
+  test("no acpmux socket is a failed start that names the paths it tried, after the retry window", { timeout: 30_000 }, () => {
     const home = mkdtempSync(join(tmpdir(), "journey-launch-"));
     try {
-      const r = spawnSync("bash", ["-c", launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x")], { env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8" });
+      const r = spawnSync("bash", ["-c", launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x")], { env: { PATH: process.env.PATH, HOME: home, CMUX_JOURNEY_START_RETRY_S: "3" }, encoding: "utf8" });
+      expect(r.stdout).toContain("@@retry no acpmux socket at");
       expect(r.status).toBe(1);
       expect(r.stdout).toContain("@@nostart no acpmux socket at");
     } finally {
@@ -3568,6 +3715,67 @@ describe("listedMachine (run 45174448964: `vm_... missing from 49 machines` on a
   });
 });
 
+describe("terminal scroll leg (carrier serve + __scroll-probe)", () => {
+  const report = (o: Record<string, unknown> = {}) => JSON.stringify({
+    surface: "cloud", bad: 1, seconds: 41.27, stream: { lines: 9000 },
+    views: { mirror: { blank_rows: 0, missing_rows: 0, jumps: 1, bad: 1, samples: 80 }, daemon: { blank_rows: 0, missing_rows: 0, jumps: 0, bad: 0 } }, ...o,
+  });
+
+  test("keeps only the counts of both views and the seconds", () => {
+    expect(parseScrollReport(`noise\n${report()}\n`)).toEqual({
+      surface: "cloud", bad: 1, seconds: 41.3,
+      views: { mirror: { blank_rows: 0, missing_rows: 0, jumps: 1 }, daemon: { blank_rows: 0, missing_rows: 0, jumps: 0 } },
+    });
+    expect(scrollDetail(parseScrollReport(report()))).toBe("bad 1 (mirror: 0 blank, 0 missing, 1 jumps; daemon: 0 blank, 0 missing, 0 jumps), 41.3 s");
+  });
+
+  test("a report that is not whole is refused, never read as 0", () => {
+    expect(() => parseScrollReport("")).toThrow("not a JSON report");
+    expect(() => parseScrollReport(report({ views: { mirror: { blank_rows: 0, missing_rows: 0, jumps: 0 } } }))).toThrow("daemon view");
+    expect(() => parseScrollReport(report({ bad: 0 }))).toThrow("bad is not the sum");
+    expect(() => parseScrollReport(report({ views: { mirror: { blank_rows: -1, missing_rows: 0, jumps: 0 }, daemon: { blank_rows: 0, missing_rows: 0, jumps: 0 } } }))).toThrow("mirror view");
+  });
+
+  // One stand-in for both verbs: `carrier serve` writes its ready line and waits for stdin to end; `__scroll-probe`
+  // records its arguments and prints PROBE_OUT.
+  const fake = (probe: string, serve = `echo '{"ok":true,"socket":"'"$6"'","route":"carrier"}' >&2; cat >/dev/null; echo served-out > "$D/serve-ended"`) => {
+    const dir = mkdtempSync(join(tmpdir(), "journey-scroll-"));
+    const bin = join(dir, "cmux");
+    writeFileSync(bin, `#!/bin/bash\nD="${dir}"\nif [ "$1" = carrier ]; then printf '%s\\n' "$*" > "$D/serve-args"; printf '%s\\n' "$CMUX_CLOUD_API_URL $CMUX_CLOUD_ACCESS_TOKEN" > "$D/serve-env"; ${serve}; exit 0; fi\nprintf '%s\\n' "$*" > "$D/probe-args"\n${probe}\n`, { mode: 0o755 });
+    return { dir, bin };
+  };
+  const api = { origin: "https://api.example", bearer: "session-value", team: "team_0123456789abcdef0123" };
+
+  test("serves the machine on a private socket and runs the probe against it as the cloud surface", async () => {
+    const { dir, bin } = fake(`echo '${report()}'`);
+    const t = await carrierScrollProbe(bin, api, "vm_abcdefghij0123456789", 5);
+    expect(t.bad).toBe(1);
+    const serveArgs = readFileSync(join(dir, "serve-args"), "utf8").trim().split(" ");
+    expect(serveArgs.slice(0, 5)).toEqual(["carrier", "serve", "--machine", "vm_abcdefghij0123456789", "--socket"]);
+    expect(serveArgs.slice(6)).toEqual(["--team", "team_0123456789abcdef0123"]);
+    const socket = serveArgs[5];
+    expect(readFileSync(join(dir, "serve-env"), "utf8").trim()).toBe("https://api.example session-value");
+    expect(readFileSync(join(dir, "probe-args"), "utf8").trim()).toBe(`__scroll-probe --socket ${socket} --surface-label cloud --json --timeout-seconds 5`);
+    // The state dir (and the socket in it) goes with the step.
+    expect(existsSync(dirname(socket))).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a serve that refuses before its ready line is the step's reason, and no probe runs", async () => {
+    const { dir, bin } = fake(`echo '${report()}'`, `echo '{"ok":false,"error_code":"device_key","route":"carrier"}' >&2; exit 5`);
+    await expect(carrierScrollProbe(bin, api, "vm_abcdefghij0123456789", 5)).rejects.toThrow('carrier serve: {"ok":false,"error_code":"device_key"');
+    expect(existsSync(join(dir, "probe-args"))).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a probe that fails names its stderr and the serve's connection lines", async () => {
+    const { dir, bin } = fake(`sleep 0.3; echo 'scroll-probe: identify: no answer' >&2; exit 1`,
+      `echo '{"ok":true,"socket":"x","route":"carrier"}' >&2; echo '{"ok":false,"error_code":"relay","route":"carrier"}' >&2; cat >/dev/null`);
+    await expect(carrierScrollProbe(bin, api, "vm_abcdefghij0123456789", 5)).rejects.toThrow(/exit 1: scroll-probe: identify: no answer; carrier serve: .*relay/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
 describe("guestTimed", () => {
   const { guestTimed, guestMs, guestDetail } = require("./cloud-journey");
   test("times a heredoc command on its own lines and keeps its output and exit marker", () => {
@@ -3610,5 +3818,40 @@ describe("requestTimedOut", () => {
     expect(requestTimedOut(new DOMException("aborted", "AbortError"))).toBe(false);
     expect(requestTimedOut(Object.assign(new Error("reset"), { code: "ECONNRESET" }))).toBe(false);
     expect(requestTimedOut(undefined)).toBe(false);
+  });
+});
+
+describe("a machine create with one overall deadline (run 45874526877: cold create waited 847 s)", () => {
+  /** A local API that records each request's bearer, and answers a create only after `holdMs`. */
+  async function api<T>(holdMs: number, run: (url: string, bearers: string[], creates: () => number) => Promise<T>): Promise<T> {
+    const bearers: string[] = [];
+    let creates = 0;
+    const server = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(req) {
+      bearers.push(req.headers.get("authorization") ?? "");
+      const body: any = await req.json().catch(() => ({}));
+      if (body?.op === "cloud.machine.create") { creates++; await Bun.sleep(holdMs); }
+      return Response.json({ ok: true, value: { host: "h" } });
+    } });
+    try { return await run(`http://127.0.0.1:${server.port}`, bearers, () => creates); } finally { server.stop(true); }
+  }
+
+  test("an op with a deadline is not sent again past it (the cold create's 2 x 300 s, run 45874526877)", async () => {
+    await api(3_000, async (url, _b, creates) => {
+      const a = new Api(url);
+      const t0 = Date.now();
+      await expect(a.op("cloud.machine.create", {}, "k", {}, 1_000, Date.now() + 1_500)).rejects.toThrow("no answer within its bound");
+      expect(Date.now() - t0).toBeLessThan(2_500);
+      expect(creates()).toBeLessThanOrEqual(2);
+    });
+  });
+});
+
+describe("rpcFailureReason", () => {
+  test("a 503 vm_unavailable says which Durable Object failure it was, and only the three fixed words", () => {
+    expect(rpcFailureReason("restarted")).toBe(" (restarted)");
+    expect(rpcFailureReason("overloaded")).toBe(" (overloaded)");
+    expect(rpcFailureReason("unreachable")).toBe(" (unreachable)");
+    expect(rpcFailureReason("Error: secret text")).toBe("");
+    expect(rpcFailureReason(undefined)).toBe("");
   });
 });

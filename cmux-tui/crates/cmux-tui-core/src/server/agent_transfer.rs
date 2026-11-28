@@ -100,6 +100,8 @@ pub mod access_requests;
 pub mod agent_update;
 mod ask_first;
 mod askable;
+/// `chat-folder-add-v1`: a folder put among a running chat's folders.
+pub mod chat_folders;
 mod history_later;
 mod landed;
 pub(super) mod state_file;
@@ -674,6 +676,7 @@ pub(super) fn try_handle(
     writer: &MessageWriter,
 ) -> Option<bool> {
     if let Some(keep_open) = access_requests::try_handle(mux, client, message, writer)
+        .or_else(|| chat_folders::try_handle(mux, client, message, writer))
         .or_else(|| agent_update::try_handle(mux, client, message, writer))
     {
         return Some(keep_open);

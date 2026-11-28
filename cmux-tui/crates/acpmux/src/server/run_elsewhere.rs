@@ -89,6 +89,9 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         if let Some(why) = why {
             reply.insert("why".into(), json!(why));
         }
+        if let Some(kind) = re::fetch_kind(command) {
+            reply.insert("fetch".into(), json!(kind));
+        }
         if let Ok(plan) = &plan {
             reply.insert("tree".into(), plan.view());
         }
