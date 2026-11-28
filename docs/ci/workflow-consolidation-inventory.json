@@ -17,6 +17,7 @@
     "app-store-shelf.yml",
     "auto-resume-nightly-notarization.yml",
     "billing-nightly.yml",
+    "chat-move-nightly-readback.yml",
     "cloud-mvp-nightly-readback.yml",
     "cloud-vm-image-promote.yml",
     "cmux-art-publish.yml",
@@ -86,6 +87,7 @@
         "ci-cloud-overflow-probe.yml",
         "cloud-devbox-image-rebake.yml",
         "cloud-journey-prod.yml",
+        "chat-move-nightly-readback.yml",
         "cloud-mvp-nightly-readback.yml",
         "cloud-vm-image-bake.yml",
         "cloud-vm-image-promote.yml",
@@ -836,6 +838,12 @@
       "path": ".github/workflows/cloud-machine-count-probe.yml",
       "area": "cloud-backend",
       "disposition": "consolidate-or-retire-after-proof",
+      "telemetry_30d": "not established by this plan"
+    },
+    {
+      "path": ".github/workflows/chat-move-nightly-readback.yml",
+      "area": "delivery-protected",
+      "disposition": "retain",
       "telemetry_30d": "not established by this plan"
     },
     {
