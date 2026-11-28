@@ -84,6 +84,9 @@ jobs:
           # The drill jobs run this binary on other runners: libghostty-vt for any x86-64 CPU, not this
           # runner's (Zig's default is the build host's CPU; run 45151030154's drills died on SIGILL).
           CMUX_GHOSTTY_VT_ZIG_CPU: baseline
+          # No debug info at all: the step strips it below anyway, and emitting it is what got rustc for the
+          # acpmux lib SIGKILLed (signal 9, no diagnostic) in run 46147427150 on two pools (w4a-0121, w1c-0247).
+          CARGO_PROFILE_DEV_DEBUG: "0"
         run: |
           set -euo pipefail
           cargo build -p cmux-tui --bin cmux-tui --locked
