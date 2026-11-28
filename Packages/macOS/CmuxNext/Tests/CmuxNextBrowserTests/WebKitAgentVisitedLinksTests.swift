@@ -20,6 +20,18 @@ import WebKit
         #expect(WebKitVisitedLinks.adds(page.webView) == false)
     }
 
+    /// The mark itself turns the switch off through WebKit's own setter. #64709 set it by KVC
+    /// (`setValue(false, forKey: "_addsVisitedLinks")`), which looks for `set_addsVisitedLinks:`, not WebKit's
+    /// `_setAddsVisitedLinks:`, and raised NSUnknownKeyException: an agent's mark on any WebKit tab ended the app.
+    @Test func theAgentMarkTurnsVisitedLinksOffWithoutAnException() throws {
+        let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
+        defer { page.close() }
+        try #require(WebKitVisitedLinks.adds(page.webView) != nil, "this WebKit has no _addsVisitedLinks")
+        print("BENCH webkit visited links: a new tab adds visited links: \(String(describing: WebKitVisitedLinks.adds(page.webView)))")
+        page.markAgentDriven()
+        #expect(WebKitVisitedLinks.adds(page.webView) == false)
+    }
+
     @Test func aReadMarksThePageToo() {
         let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
         defer { page.close() }
