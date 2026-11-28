@@ -254,10 +254,10 @@ async fn a_watch_turned_off_stops_waking_for_other_chats_changes() {
     assert_eq!(changed_of(&resumed, &s, "renamed"), 1, "a resumed watch hears the next change");
 }
 
-/// A paged list reader (leo-workspace `tools/acpmux_ls_paged.py`) stamps the list's position with
+/// A paged list reader stamps the list's position with
 /// a paused one-row watch before it reads the pages, caches the rows at it, and later calls follow
 /// from it. Answered `{}` (#55402) the stamp had no position: no cache was kept and every call read
-/// each page of the list again (1,938 rows, 4.0 MB a call on a lane VM, 2026-11-28). Counted in
+/// each page of the list again (1,938 rows, 4.0 MB a call, 2026-11-28). Counted in
 /// rows: the stamp sends none, and the follow after one chat changed sends that one row, not the
 /// list.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
