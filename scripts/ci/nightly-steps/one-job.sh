@@ -9,8 +9,9 @@
 #                        the release notes cover, beside the verify steps, the launch smoke and the size budget
 #   one-job.sh deltas-join    after them: waits for both; a failed or late one only leaves its work to the
 #                        steps that did it before (the keyed appcast step, the release notes step). With
-#                        NIGHTLY_NEXT_DELTAS_AFTER_FEED=true the feed needs no delta: it waits for the notes only and
-#                        stops an unfinished prebuild, whose work the post-feed delta step then does itself
+#                        NIGHTLY_NEXT_DELTAS_AFTER_FEED=true it gives an unfinished prebuild a bounded grace
+#                        (NIGHTLY_NEXT_PREBUILD_GRACE_SECONDS, 150) so the feed's first item carries its deltas,
+#                        then stops it; the post-feed delta step then does its work itself
 #   one-job.sh final-dmg the final DMG where verify-final-dmg.sh, the launch smoke and the size budget read it
 #   one-job.sh final-feed after the keyed appcast step: this build's appcast and deltas beside it
 #   one-job.sh source    publish-nightly's "Select the build to publish", for this job's own build only
@@ -60,6 +61,12 @@ case "${1:-}" in
     for name in nearest-deltas notes-span; do
       [ -f "$state/$name.pid" ] || continue
       if [ "$name" = nearest-deltas ] && [ "${NIGHTLY_NEXT_DELTAS_AFTER_FEED:-}" = true ] && [ ! -f "$state/$name.status" ]; then
+        # A bounded grace, so the pushed build carries its nearest deltas (ask-1f1e9b8ec5): stopped at once, the
+        # prebuild never made the feed (job 140827486829: stopped 98 s in, about 1 min short).
+        if python3 "$PUBLISH_TOOLING/ci/background_build.py" join --state "$state" "$name" \
+            --timeout "${NIGHTLY_NEXT_PREBUILD_GRACE_SECONDS:-150}" 2>&1 | sed 's/^::error::/::notice::/'; then
+          continue
+        fi
         python3 "$PUBLISH_TOOLING/ci/background_build.py" stop --state "$state" "$name"
         echo "::notice title=nightly-next $name::the prebuild did not finish beside the checks; the deltas after the feed build it"
         continue

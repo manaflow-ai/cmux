@@ -54,7 +54,9 @@ class DeltasBesideChecksTest(unittest.TestCase):
         files = {
             ci / "nightly_next_previous_dmgs.py": FETCH,
             ci / "drop-previous-nightlies-with-other-sparkle-key.sh": "#!/usr/bin/env bash\necho drop >> \"$LOG\"\n",
-            ci / "nightly_next_delta_check.py": "#!/usr/bin/env python3\n",
+            # `check` (does the live item list a delta?) answers CHECK_EXIT, no by default; the rest succeed.
+            ci / "nightly_next_delta_check.py": "#!/usr/bin/env python3\nimport os, sys\n"
+            "sys.exit(int(os.environ.get('CHECK_EXIT', '1')) if sys.argv[1] == 'check' else 0)\n",
             ci / "nightly-sparkle-key.sh": "#!/usr/bin/env bash\necho THE-KEY\n",
             self.tmp / "scripts/sparkle_generate_appcast.sh": SPARKLE,
         }
@@ -130,7 +132,8 @@ class DeltasBesideChecksTest(unittest.TestCase):
         tooling.mkdir(parents=True)
         (tooling / "background_build.py").write_text(
             "#!/usr/bin/env python3\nimport os, sys\n"
-            "open(os.environ['LOG'], 'a').write(sys.argv[1] + ' ' + sys.argv[-1] + '\\n')\n")
+            "open(os.environ['LOG'], 'a').write(sys.argv[1] + ' ' + sys.argv[-1] + '\\n')\n"
+            "sys.exit(1 if sys.argv[1] == 'join' and os.environ.get('JOIN_FAILS') == sys.argv[-3] else 0)\n")
         state = self.tmp / "temp/nightly-helper-builds"
         state.mkdir(parents=True)
         for name in ("nearest-deltas", "notes-span"):
@@ -146,10 +149,43 @@ class DeltasBesideChecksTest(unittest.TestCase):
 
         self.assertEqual(join(), ["join 900", "join 900"], "the split path waits for both")
         # stop's last argument is the name; join's is the timeout, and the notes are the second name.
-        self.assertEqual(join(NIGHTLY_NEXT_DELTAS_AFTER_FEED="true"), ["stop nearest-deltas", "join 900"])
+        # An unfinished prebuild gets a bounded grace (ask-1f1e9b8ec5), so the feed's first item carries its deltas.
+        self.assertEqual(join(NIGHTLY_NEXT_DELTAS_AFTER_FEED="true"), ["join 150", "join 900"])
+        self.assertEqual(join(NIGHTLY_NEXT_DELTAS_AFTER_FEED="true", NIGHTLY_NEXT_PREBUILD_GRACE_SECONDS="60"),
+                         ["join 60", "join 900"])
+        # Past the grace it is stopped and the deltas follow the feed.
+        self.assertEqual(join(NIGHTLY_NEXT_DELTAS_AFTER_FEED="true", JOIN_FAILS="nearest-deltas"),
+                         ["join 150", "stop nearest-deltas", "join 900"])
         (state / "nearest-deltas.status").write_text("0")
         self.assertEqual(join(NIGHTLY_NEXT_DELTAS_AFTER_FEED="true"), ["join 900", "join 900"],
-                         "a prebuild that finished in time is joined, and its work signed after the feed")
+                         "a prebuild that finished in time is joined, and its work signed before the feed")
+
+    def test_the_feed_item_carries_a_finished_prebuilds_deltas(self) -> None:
+        # The release push fires on the feed's first write, so a pushed Mac gets a delta only when that item has one.
+        self.assertEqual(self.run_script("prebuild").returncode, 0)
+        self.log.unlink()
+        keyed = self.run_script(NIGHTLY_NEXT_DELTAS_AFTER_FEED="true")
+        self.assertEqual(keyed.returncode, 0, keyed.stderr)
+        self.assertNotIn("full-only", keyed.stdout)
+        self.assertIn("Taking the bases and deltas the keyless prebuild made for 400", keyed.stdout)
+        self.assertIn("sparkle:deltas", (self.tmp / "appcast-arm64.xml").read_text())
+        self.assertEqual(sorted(p.name for p in self.tmp.glob("*-400-*.delta")),
+                         ["cmux-nightly-next-macos-arm64-400-200.delta", "cmux-nightly-next-macos-arm64-400-300.delta"])
+
+    def test_the_feed_item_is_full_only_without_a_finished_prebuild(self) -> None:
+        keyed = self.run_script(NIGHTLY_NEXT_DELTAS_AFTER_FEED="true")
+        # (The stub appcast writer always writes sparkle:deltas, which full_only then refuses: its exit is not read.)
+        self.assertIn("full-only; its deltas follow the feed", keyed.stdout)
+        self.assertNotIn("fetch", self.calls(), "no base is fetched before the feed")
+
+    def test_the_deltas_after_the_feed_add_nothing_to_an_item_that_has_them(self) -> None:
+        self.assertEqual(self.run_script("prebuild").returncode, 0)
+        self.log.unlink()
+        after = self.run_script("after-feed", CHECK_EXIT="0")
+        self.assertEqual(after.returncode, 0, after.stderr)
+        self.assertIn("went out with its deltas", after.stdout)
+        self.assertEqual(self.calls(), ["save"])
+        self.assertFalse((self.tmp / "nightly-deltas").exists())
 
     def test_the_prebuild_refuses_a_key(self) -> None:
         pre = self.run_script("prebuild", SPARKLE_PRIVATE_KEY="leaked")
