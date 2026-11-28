@@ -200,16 +200,30 @@ impl Hub {
         // one is kept in memory alone, its record the one trace of it. The save stays: it
         // journals nothing when the image is unchanged (`store/journal_store/meta.rs`), and it
         // keeps a harness's move that lands between this read and the writes below.
-        let unchanged = session.read_meta(|m| {
-            m.modes.as_ref().and_then(|modes| modes.get("currentModeId")).and_then(Value::as_str)
-                == Some(mode_id)
-        });
+        let recorded_mode = |m: &SessionMeta| {
+            m.modes
+                .as_ref()
+                .and_then(|modes| modes.get("currentModeId"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        };
+        let before = session.read_meta(recorded_mode);
         let r = self
             .forward_as(session, method::SESSION_SET_MODE, json!({"modeId": mode_id}), granted)
             .await?;
-        self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode_id))]);
-        if !unchanged {
-            self.append(session, "mux", "mode", json!({"modeId": mode_id}));
+        // forward_as applied the harness's answer (or the requested mode for an empty ACP
+        // acknowledgement). Never replace a different reported mode with the request here.
+        let applied = session
+            .read_meta(recorded_mode)
+            .or_else(|| {
+                r.get("currentModeId")
+                    .or_else(|| r.get("modeId"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| mode_id.to_owned());
+        if before.as_deref() != Some(applied.as_str()) {
+            self.append(session, "mux", "mode", json!({"modeId": applied}));
         }
         self.save_meta_answered(session)?;
         Ok(r)
@@ -255,6 +269,27 @@ impl Hub {
             )
             .await?;
         self.append(session, "mux", "config", json!({"configId": config_id, "value": value}));
+        // A harness that reports its model both ways (Codex: a `model` option and ACP `models`)
+        // runs the one this option set: the report says so too. Left behind, it stayed on the
+        // model the chat started on, and every fork and restart (`replay_config`, where the
+        // report wins) ran that one: a Codex chat on gpt-6-luna forked onto gpt-6.2-sol.
+        if config_id == "model"
+            && let Some(model) = value.as_str()
+        {
+            let changed =
+                match session.meta.lock().unwrap_or_else(|e| e.into_inner()).models.as_mut() {
+                    Some(Value::Object(models))
+                        if models.get("currentModelId").and_then(Value::as_str) != Some(model) =>
+                    {
+                        models.insert("currentModelId".into(), json!(model));
+                        true
+                    }
+                    _ => false,
+                };
+            if changed {
+                self.save_meta_answered(session)?;
+            }
+        }
         {
             let mut applied =
                 session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

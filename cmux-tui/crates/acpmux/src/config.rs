@@ -1823,6 +1823,16 @@ pub struct Config {
     /// Set with `acpmux config --set direct_port=PORT`; the carrier takes it at its start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direct_port: Option<u16>,
+    /// `irohDirect`: the hub carrier's iroh path (`hub_carrier_iroh.rs`), for two machines with
+    /// no private network between them. On, the carrier binds one iroh endpoint (both ends dial
+    /// out over QUIC, hole punched where the NATs let it), and a machine's dials upgrade to it
+    /// once its kept circuit there is open, with the relay as the first dial's path and the
+    /// fallback. The same Noise XX and node keys as a relay circuit admit it. Unset: on where
+    /// `directPort` names a port (a machine that already opted into direct links, as every
+    /// lane VM has), else off; `false` turns it off there too ([`Self::iroh_on`]). Set with
+    /// `acpmux config --set iroh_direct=true|false|none`; the carrier takes it at its start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iroh_direct: Option<bool>,
     /// `sendRelay`: `{"argv": [...]}`, the command `acpmux send` hands a message to when its
     /// target names no session here and no peer lists it (`cli/send_relay.rs`). Unset (the
     /// default): such a send is refused as before.
@@ -2106,7 +2116,8 @@ pub(crate) use nested_env::inherited_caller_scoped_keys;
 pub(crate) use nested_env::nested_claude_keys;
 pub use nested_env::{
     CHIEF_CREDENTIAL_ENV, LAUNCH_CREDENTIAL_ENV, scrub_nested_claude_env,
-    scrub_nested_claude_env_for, scrub_nested_claude_env_tokio, scrub_nested_claude_env_tokio_for,
+    scrub_nested_claude_env_for, scrub_nested_claude_env_process, scrub_nested_claude_env_tokio,
+    scrub_nested_claude_env_tokio_for,
 };
 pub use nested_env::{is_caller_scoped_key, is_nested_claude_key};
 mod launchers;
@@ -2126,7 +2137,7 @@ mod start_check;
 mod store_config;
 pub use store_config::{StoreConfig, StoreMode};
 mod pool;
-pub use pool::{PoolConfig, spare_personal_enabled};
+pub use pool::{PoolConfig, spare_personal_enabled, spare_warm_enabled};
 mod btw;
 pub use btw::BtwConfig;
 mod auto_evacuate;

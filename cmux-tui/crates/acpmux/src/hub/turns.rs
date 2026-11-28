@@ -1396,6 +1396,15 @@ impl Hub {
         } else {
             *session.prefetch.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
+        // A person's first prompt that is a task asks for a plan and a stop (`plan_first.rs`).
+        if !resumed
+            && person
+            && session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_count == 1
+            && super::forum::slash_command(&blocks).is_none()
+            && let Some(block) = super::plan_first::start(&session.id, &turn_id, &text)
+        {
+            blocks.push(block);
+        }
         // A turn rule that matches this prompt, and the end rule the last turn left (`turn_rules.rs`).
         if !resumed && let Some(said) = self.turn_rules_start(session, &text) {
             blocks.push(
@@ -1421,6 +1430,8 @@ impl Hub {
             .seq;
         // The chat's page before the turn changes it (`turn_shots.rs`), off the turn's path.
         super::turn_shots::turn_began(session, &turn_id);
+        // The gap it ends joins the chat's rhythm (`residency.rs`).
+        self.rhythm_turn_began(session);
         // Its frames as the page forms (`turn_frames.rs`), at no agent tokens.
         super::turn_frames::turn_began(session, &turn_id);
         // The prompt as the agent gets it, before the checks below: making its model-sized copies

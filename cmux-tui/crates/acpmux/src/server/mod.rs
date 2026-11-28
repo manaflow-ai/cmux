@@ -175,6 +175,7 @@ mod outbound;
 mod outbound_queue_tests;
 pub(crate) mod outbox;
 mod pairing;
+mod parked_waits;
 mod paused_files;
 pub mod peer_auth;
 mod peer_demand_wait;
@@ -195,6 +196,7 @@ mod processes;
 mod project_new;
 mod prompt_cancel;
 mod prompt_coach;
+mod pull_request_actions;
 pub(crate) mod queue_gauge;
 mod races;
 #[cfg(all(test, target_os = "linux"))]

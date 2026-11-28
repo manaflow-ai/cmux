@@ -565,6 +565,18 @@
               ]
             },
             "required": false
+          },
+          {
+            "name": "x-cmux-create-deadline",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 20 character(s) long",
+              "title": "maxLength(20)",
+              "maxLength": 20
+            },
+            "required": false,
+            "description": "a string at most 20 character(s) long"
           }
         ],
         "security": [
@@ -1584,6 +1596,17 @@
             },
             "required": false,
             "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "x-cmux-create-priority",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "background"
+              ]
+            },
+            "required": false
           }
         ],
         "security": [
@@ -1704,6 +1727,17 @@
             },
             "required": false,
             "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "x-cmux-create-priority",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "background"
+              ]
+            },
+            "required": false
           }
         ],
         "security": [
@@ -1824,6 +1858,17 @@
             },
             "required": false,
             "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "x-cmux-create-priority",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "background"
+              ]
+            },
+            "required": false
           }
         ],
         "security": [
@@ -1944,6 +1989,17 @@
             },
             "required": false,
             "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "x-cmux-create-priority",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "background"
+              ]
+            },
+            "required": false
           }
         ],
         "security": [
