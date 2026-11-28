@@ -31,6 +31,7 @@ on every pass).
 from __future__ import annotations
 
 import io
+import os
 import sys
 import time
 import urllib.error
@@ -46,10 +47,26 @@ BUDGET_S = 110.0
 MAX_WAIT_S = 60.0
 RATE_MAX_WAIT_S = 900.0
 RATE_BUDGET_S = 1200.0
+# A job shorter than RATE_MAX_WAIT_S sets GH_HTTP_RATE_BUDGET_S (0: give up on a named rate limit at once, so the
+# caller's fallback runs) in its env, so every reader in it stops sleeping past the job's timeout-minutes without a
+# per-caller patch. cmux pr-pipeline's 5-min `ios fast verdict runner` slept 900 s on its run token's statuses 403 in
+# `ios_fast_verdict.py plan` and was cancelled at its timeout (~70 runner-h/day of cancelled-after-start, 11-28 04Z).
+# Unset or unparsable: RATE_BUDGET_S. An explicit rate_budget_s argument wins.
+RATE_BUDGET_ENV = "GH_HTTP_RATE_BUDGET_S"
 BACKOFF_S = (5.0, 15.0, 30.0)
 CALL_S = 30.0
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 READS = frozenset({"GET", "HEAD"})
+
+
+def env_rate_budget_s(default: float = RATE_BUDGET_S) -> float:
+    """GH_HTTP_RATE_BUDGET_S as seconds (>= 0), else DEFAULT."""
+    raw = os.environ.get(RATE_BUDGET_ENV, "").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value >= 0 else default
 
 
 def refusal_wait(status: int, headers, body: bytes, attempt: int, now: float) -> float | None:
@@ -92,12 +109,14 @@ def limited_until(headers, now: float | None = None) -> str | None:
 
 def request(req: urllib.request.Request | str, seconds: float = CALL_S, *, raise_errors: bool = False,
             follow_redirects: bool = True, max_bytes: int | None = None, tries: int = TRIES,
-            budget_s: float = BUDGET_S, rate_budget_s: float = RATE_BUDGET_S, sleep: Callable[[float], None] = time.sleep,
+            budget_s: float = BUDGET_S, rate_budget_s: float | None = None, sleep: Callable[[float], None] = time.sleep,
             clock: Callable[[], float] = time.monotonic, now: Callable[[], float] = time.time,
             log: Callable[[str], None] | None = None) -> tuple[int, bytes, deadline_http.Headers]:
     """deadline_http.request(REQ, SECONDS, ...), asked again on a refusal that can change (module doc).
     Returns the last answer; with raise_errors a final HTTP error status raises urllib's HTTPError. A
     timeout or network error that outlasts the tries is raised."""
+    if rate_budget_s is None:
+        rate_budget_s = env_rate_budget_s()
     if isinstance(req, str):
         req = urllib.request.Request(req)
     method = req.get_method()
