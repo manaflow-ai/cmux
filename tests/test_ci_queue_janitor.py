@@ -2740,7 +2740,8 @@ class ReadTokenSplitTests(unittest.TestCase):
     def test_the_sweep_leaves_a_3000_call_floor_by_default(self):
         self.assertEqual(janitor.READ_TOKEN_FLOOR, 3000)
         text = (ROOT / ".github/workflows/ci-queue-janitor.yml").read_text()
-        self.assertIn("READ_TOKEN_FLOOR: ${{ vars.CI_JANITOR_READ_TOKEN_FLOOR }}", text)
+        self.assertIn("READ_TOKEN_FLOOR: ${{ steps.pool-read.outputs.token != '' && '500' || vars.CI_JANITOR_READ_TOKEN_FLOOR }}",
+                      text)
 
     def test_no_read_token_or_one_of_the_sweeps_own_changes_nothing(self):
         for read in ("", "bot", "workflow"):
@@ -2763,11 +2764,12 @@ class ReadTokenSplitTests(unittest.TestCase):
                     self.assertEqual(janitor.main(argv), 0)
             self.assertEqual(taken, want)
 
-    def test_the_workflow_passes_glaeda_route_as_the_read_token_only_beside_cmux_bot(self):
+    def test_the_workflow_passes_a_pool_or_glaeda_route_read_token_only_beside_cmux_bot(self):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         step = next(s for s in workflow["jobs"]["sweep"]["steps"] if s.get("name") == "Cancel wasted macOS runs")
         self.assertEqual(step["env"]["READ_TOKEN"],
-                         "${{ steps.cmux-bot-token.outputs.token && steps.glaeda-token.outputs.token || '' }}")
+                         "${{ steps.cmux-bot-token.outputs.token && (steps.pool-read.outputs.token || "
+                         "steps.glaeda-token.outputs.token) || '' }}")
         self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || "
                                                   "steps.glaeda-token.outputs.token || github.token }}")
 
