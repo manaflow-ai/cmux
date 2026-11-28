@@ -4,6 +4,12 @@ Run workspaces on cloud machines.
 
 A cloud machine is a remote computer that cmux sets up for you. Run a workspace there, or move one over and bring it back.
 
+## Pick the level you need
+
+- One chat: use New Cloud Chat in the app or paste the setup prompt below into Chief. cmux prepares the machine and keeps the conversation in one place.
+- Repeatable setup: use the CLI commands on this page. They expose machine ids, workspace ids, and session ids so a script or another agent can continue the same work.
+- Team and integration work: describe the checkout in .cmux/machine.toml, list secret names under [secrets], and store each value on your Mac with cmux cloud secret set (Secrets and the vault). Use MCP or acpmux when another client needs to drive the session.
+
 ## Paste this into your agent
 
 Copy this into any agent chat in cmux, opened on the folder you want to work on. It signs you in, makes a machine if you have none, and starts an agent there. New to cmux? The prompt on Getting started installs it first.
@@ -39,6 +45,19 @@ Start a Claude or Codex session on a cloud machine. Name the machine with --targ
 cmux cloud start-session --target machine:<id> --agent claude
 cmux cloud start-session --name dev --agent codex
 ```
+
+## Check and recover a session
+
+A Cloud machine can be running while its chat is waiting, paused, or unreachable. Check the machine and the session separately so a network problem does not look like lost work.
+
+```bash
+cmux cloud diagnostics
+cmux acp machine status
+cmux acp ls
+cmux cloud list-machines
+```
+
+Use the machine or session id named by those commands when you retry. A paused machine resumes when you open a terminal or start a chat; pause it again when you are done to stop its hourly cost.
 
 ## Fork, snapshot, hand off
 

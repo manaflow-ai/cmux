@@ -163,6 +163,7 @@ jobs:
             /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
             /examples/gallery/
             /examples/looks/
+            /examples/setups/
             /scripts/
             /.github/
             /config/vite-plus/

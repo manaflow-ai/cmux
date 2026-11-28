@@ -17,11 +17,17 @@ impl Hub {
     pub async fn load_store_async(self: &Arc<Self>) {
         let hub = self.clone();
         let result = tokio::task::spawn_blocking(move || {
+            tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store load");
             hub.load_from_store(true);
+            tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store installed");
             // Before spawns are released, after the index is complete. This sweep must never
             // mistake the initially empty in-memory session map for an empty store.
             #[cfg(unix)]
             hub.sweep_session_tmp();
+            // The moves and scratch a daemon before this one left in `transfers/`: its scratch
+            // goes now (`transfer_out.rs` `scratch_dir`), not at the next move.
+            super::transfer_out::note_started();
+            hub.sweep();
         })
         .await;
         if let Err(error) = result {
@@ -29,6 +35,7 @@ impl Hub {
         }
         self.watch_orphans();
         self.store_load.ready.send_replace(true);
+        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store loaded");
         // Chats read now get the synced winners kept for them (`synced.rs`).
         self.synced_after_start();
         // Chats with no agent may leave memory (`evict.rs`): the reaper runs for them too.
@@ -81,7 +88,11 @@ impl Hub {
             let Ok(Some(meta)) = hub.store.load_startup(&id) else {
                 return false;
             };
-            if meta.id != id || (meta.permission_policy.is_some() && meta.policy_source.is_none()) {
+            // A deleted chat stays out of the map: the whole read holds it (`soft_delete.rs`).
+            if meta.id != id
+                || super::soft_delete::deleted_until(&meta).is_some()
+                || (meta.permission_policy.is_some() && meta.policy_source.is_none())
+            {
                 return false;
             }
             // Unknown liveness is kept for adoption; it never turns a possibly running turn

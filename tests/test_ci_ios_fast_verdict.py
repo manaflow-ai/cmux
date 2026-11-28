@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import ios_fast_verdict as fv  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+import test_ci_edit_events_start_no_runner as gh_expr  # noqa: E402  (its GitHub expression evaluator)
 
 KIT = "cmux-next-ios/CmuxMobileKit/"
 
@@ -47,15 +50,93 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(p["build"])
         self.assertTrue(p["app"])
 
-    def test_a_rust_crate_the_ffi_compiles_builds_the_kit_and_the_app(self) -> None:
-        # cmux#55399: a cmux-tui crate change broke the iOS build and nothing iOS ran.
-        for path in ("cmux-tui/crates/cmux-wg/src/wireguard_dormant.rs", "cmux-tui/Cargo.lock",
-                     "cmux-tui/vendor/smoltcp/src/lib.rs"):
+    def rust_root(self, files: dict[str, str]) -> Path:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        for rel, text in files.items():
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text(text)
+        return root
+
+    def test_rust_the_swift_surface_sees_builds_the_kit_and_the_app(self) -> None:
+        # cmux#55399: a cmux-tui crate change can break the iOS build; one that names the bindings, a C export or an
+        # Apple target, a build.rs, or a file the planner cannot read (deleted) still takes the Mac.
+        files = {
+            "cmux-tui/crates/cmux-mobile-core/src/api.rs": "#[uniffi::export]\npub fn ping() {}\n",
+            "cmux-tui/crates/cmux-rd-ffi/src/lib.rs": '#[no_mangle]\npub extern "C" fn rd() {}\n',
+            "cmux-tui/crates/cmux-wg/src/tun.rs": '#[cfg(target_os = "ios")]\nfn tun() {}\n',
+            "cmux-tui/crates/cmux-wg/Cargo.toml": "[target.'cfg(target_vendor = \"apple\")'.dependencies]\n",
+            "cmux-next-ios/rust/crates/cmux-mobile-link-ffi/Cargo.toml": "[dependencies]\nuniffi = \"0.29\"\n",
+            "cmux-tui/crates/cmux-wg/build.rs": "fn main() {}\n",
+        }
+        root = self.rust_root(files)
+        for path in [*files, "cmux-tui/crates/cmux-wg/src/gone.rs", "cmux-tui/rust-toolchain.toml"]:
             with self.subTest(path=path):
-                p = self.plan(path)
+                p = fv.plan([path], root=root)
                 self.assertTrue(p["build"])
                 self.assertTrue(p["app"])
-                self.assertTrue(fv.affects([path]))
+                self.assertTrue(p["proof"])
+                self.assertTrue(fv.affects([path], root=root))
+
+    def test_rust_the_swift_surface_cannot_see_plans_nothing(self) -> None:
+        # 11-27 22:00-23:30Z: 7 of 10 sampled Mac runs (about 14 min each) were these: a lock bump, a crate's
+        # internals, its tests. The Linux Rust steps compile and test them; the bindings are the same.
+        files = {
+            "cmux-tui/Cargo.lock": "[[package]]\nname = \"uniffi\"\n",
+            "cmux-tui/Cargo.toml": "[workspace]\nmembers = [\"crates/*\"]\n",
+            "cmux-tui/crates/cmux-cloud-wire/src/lib.rs": "pub fn wire() -> u8 { 1 }\n",
+            "cmux-tui/crates/cmux-cloud-wire/src/tests.rs": "#[test]\nfn t() {}\n",
+            "cmux-next-ios/rust/crates/cmux-mobile-host/tests/relay.rs": "#[test]\nfn relay() {}\n",
+            "cmux-tui/vendor/smoltcp/src/lib.rs": "pub mod iface;\n",
+        }
+        root = self.rust_root(files)
+        p = fv.plan(list(files), root=root)
+        self.assertFalse(p["run"], p)
+        self.assertFalse(p["proof"])
+        self.assertFalse(fv.affects(list(files), root=root))
+        # With a Swift change beside them, only the Swift plans.
+        p = fv.plan([*files, KIT + "Tests/CmuxMobileVoiceTests/VoiceTests.swift"], root=root)
+        self.assertEqual(p["tests"], ["CmuxMobileVoiceTests"])
+        self.assertFalse(p["app"])
+
+    def test_the_matrix_cells_run_the_tests_that_read_them(self) -> None:
+        p = self.plan("cmux-next-ios/reliability-matrix/cells.json")
+        self.assertEqual(p["tests"], ["CmuxMobileLiveTests"])
+        self.assertFalse(p["app"])
+        self.assertFalse(p["build"])
+
+    def test_a_base_that_named_the_bindings_builds(self) -> None:
+        # A removed uniffi export changes the bindings though the head no longer names it.
+        path = "cmux-tui/crates/cmux-mobile-core/src/api.rs"
+        root = self.rust_root({path: "pub fn ping() {}\n"})
+        self.assertFalse(fv.plan([path], root=root)["run"])
+        self.assertTrue(fv.plan([path], root=root, base_marked={path})["build"])
+
+    def test_the_base_grep_reads_the_base_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.email=t@t", "-c", "user.name=t"]
+            subprocess.run([*git, "init", "-q"], check=True)
+            marked, plain = "cmux-tui/crates/a/src/lib.rs", "cmux-tui/crates/b/src/lib.rs"
+            for rel, text in ((marked, "#[uniffi::export]\nfn f() {}\n"), (plain, "fn g() {}\n")):
+                (Path(tmp) / rel).parent.mkdir(parents=True, exist_ok=True)
+                (Path(tmp) / rel).write_text(text)
+            subprocess.run([*git, "add", "-A"], check=True)
+            subprocess.run([*git, "commit", "-qm", "base"], check=True)
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                got = fv.base_marked_paths([marked, plain, "cmux-tui/Cargo.lock", "docs/a.md"], base="HEAD")
+            finally:
+                os.chdir(cwd)
+            self.assertEqual(got, {marked})
+
+    def test_the_ere_and_the_regex_agree(self) -> None:
+        for text in ("uniffi::Record", 'extern "C" fn', "#[no_mangle]", 'cfg(target_os = "macos")',
+                     'cfg(target_vendor="apple")', "fn plain()", 'target_os = "linux"'):
+            with self.subTest(text=text):
+                ere = subprocess.run(["grep", "-qE", fv.RUST_SWIFT_MARK_ERE], input=text, text=True).returncode == 0
+                self.assertEqual(bool(fv.RUST_SWIFT_MARK.search(text)), ere)
 
     def test_a_rust_crate_the_ffi_does_not_compile_plans_nothing(self) -> None:
         import ios_link_ffi_key
@@ -121,6 +202,20 @@ class PlanTest(unittest.TestCase):
         for path in fv.SELF:
             with self.subTest(path=path):
                 self.assertTrue(self.plan(path)["build"])
+
+    def test_only_its_own_files_need_no_flow_proof(self) -> None:
+        # cmux#62950 changed only ios_fast_verdict.sh: the kit built, then cmux/ios-fast waited on an ios-flows record
+        # that `cmux ios verify` never posts for a diff no flow reads, so the status stayed pending for good.
+        self.assertFalse(self.plan(*fv.SELF)["proof"])
+        self.assertTrue(self.plan(fv.SELF[0], KIT + "Sources/CmuxMobileKit/A.swift")["proof"])
+        self.assertFalse(self.plan("docs/a.md")["proof"])
+        for wf in ("pr-router.yml", "ios-fast-verdict-dispatch.yml"):
+            with self.subTest(workflow=wf):
+                text = (ROOT / ".github/workflows" / wf).read_text()
+                self.assertIn("PROOF: ${{ needs.pipeline.outputs.ios_fast_proof }}", text)
+                self.assertIn('[ "$PROOF" != false ] && [ "$NEED_PROOF" = true ]', text)
+        pipeline = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        self.assertEqual(pipeline["jobs"]["ios-fast-runner"]["outputs"]["proof"], "${{ steps.plan.outputs.proof }}")
 
     def test_many_targets_fall_back_to_a_build(self) -> None:
         have = sorted(fv.test_targets(fv.ROOT) - fv.SKIPPED_TESTS)
@@ -234,10 +329,73 @@ class RouterStatusTest(unittest.TestCase):
             self.assertLessEqual(len(self.status(self.event(), *args)[1]), 140)
 
 
+class LandAffectedRouteTest(unittest.TestCase):
+    """pr_router.route on a landing head the hourly full tier rule keeps on the affected tier: an iOS-affecting one
+    starts pr-pipeline.yml for the ios fast verdict alone, so nothing iOS merges uncompiled (Leo, 2026-11-27: "like
+    idk if he just kept getting bottled on random stuff that we can juts fix fundamentally")."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import head_tier
+        import pr_router
+        cls.router = pr_router
+        cls.callees = pr_router.load_manifest()
+        cls.affected = ("cheap", head_tier.LAND_AFFECTED_REASON + ": the full tier runs once an hour")
+
+    def event(self) -> dict:
+        return {"action": "synchronize", "pull_request": {
+            "draft": False, "labels": [{"name": "ready-to-land"}],
+            "base": {"ref": "feat-cmux-next", "repo": {"full_name": "o/r"}},
+            "head": {"ref": "lane/x", "repo": {"full_name": "o/r"}}}}
+
+    def route(self, files: list[str] | None, decided: tuple[str, str] | None = None) -> tuple[list[str], dict]:
+        return self.router.route(self.event(), self.callees, files, decided=decided or self.affected)
+
+    def test_an_ios_landing_head_starts_the_verdict(self) -> None:
+        start, why = self.route([KIT + "Tests/CmuxMobileKitTests/A.swift"])
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertIn("ios fast verdict", why["pr-pipeline.yml"])
+        # No table job: linux, web-browser, ios and mac stay off (pr-pipeline.yml's job ifs read `[]`).
+        self.assertEqual(self.router.table_jobs_routed(self.callees, [KIT + "Package.swift"], full=False), [])
+        self.assertEqual(self.router.ios_status(self.event(), [KIT + "Package.swift"], start, "success")[0],
+                         "pending")
+
+    def test_an_ffi_crate_landing_head_starts_the_verdict(self) -> None:
+        self.assertIn("pr-pipeline.yml", self.route(["cmux-tui/crates/cmux-wg/src/a.rs"])[0])
+
+    def test_unknown_files_start_the_verdict(self) -> None:
+        self.assertIn("pr-pipeline.yml", self.route(None)[0])
+
+    def test_a_landing_head_off_ios_starts_nothing(self) -> None:
+        self.assertNotIn("pr-pipeline.yml", self.route(["web/app/page.tsx"])[0])
+
+    def test_a_cheap_head_not_landing_still_waits(self) -> None:
+        start, why = self.route([KIT + "Package.swift"], decided=("cheap", "ready head before ready-to-land"))
+        self.assertNotIn("pr-pipeline.yml", start)
+
+    def test_the_switch_off_starts_nothing(self) -> None:
+        old = os.environ.get("CI_IOS_FAST_VERDICT")
+        os.environ["CI_IOS_FAST_VERDICT"] = "0"
+        try:
+            self.assertNotIn("pr-pipeline.yml", self.route([KIT + "Package.swift"])[0])
+        finally:
+            if old is None:
+                os.environ.pop("CI_IOS_FAST_VERDICT")
+            else:
+                os.environ["CI_IOS_FAST_VERDICT"] = old
+
+
 class WorkflowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.jobs = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())["jobs"]
+
+    def test_the_default_on_switch_normalizes_an_unset_variable(self) -> None:
+        # GitHub coerces null and '0' to numeric zero. String normalization keeps an
+        # unset switch enabled and still lets an explicit '0' disable the verdict.
+        # The hosted control probe is recorded in the 2026-11-27-ios-fast-unset-switch workflow note.
+        self.assertEqual(self.jobs["ios-fast-runner"]["if"],
+                         "${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}")
 
     def test_the_picker_plans_then_picks_only_when_a_target_changed(self) -> None:
         runner = self.jobs["ios-fast-runner"]
@@ -257,11 +415,17 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("--device-family iphone", pick["run"])
         self.assertEqual(runner["runs-on"], self.jobs["ios-runner"]["runs-on"])
 
+    def test_a_skipped_caller_need_never_skips_the_picker(self) -> None:
+        # pr-router.yml's pipeline needs fast-gates, which skips on a landing head; the implicit success() reads the
+        # caller's needs too, so without !cancelled() the picker skipped and cmux/ios-fast stayed pending (cmux#57755).
+        self.assertTrue(self.jobs["ios-fast-runner"]["if"].startswith("${{ !cancelled() && "))
+
     def test_the_mac_job_runs_the_plan_warm(self) -> None:
         job = self.jobs["ios-fast"]
         self.assertEqual(job["name"], "ios fast verdict")
         self.assertEqual(job["needs"], ["ios-fast-runner"])
-        self.assertEqual(job["if"], "${{ needs.ios-fast-runner.outputs.run == 'true' }}")
+        # A pass on the same inputs (ios-fast-runner's reuse lookup) skips the Mac.
+        self.assertEqual(job["if"], "${{ needs.ios-fast-runner.outputs.run == 'true' && needs.ios-fast-runner.outputs.reused != 'true' }}")
         self.assertIn("needs.ios-fast-runner.outputs.runs_on", job["runs-on"])
         self.assertIs(job["steps"][0]["with"]["clean"], False)
         names = [s.get("name") for s in job["steps"]]
@@ -283,7 +447,9 @@ class WorkflowTest(unittest.TestCase):
     def test_the_verdict_reaches_the_router(self) -> None:
         call = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
         outputs = call.get("on", call.get(True))["workflow_call"]["outputs"]
-        self.assertEqual(outputs["ios_fast_verdict"]["value"], "${{ jobs.ios-fast.outputs.verdict }}")
+        # A reused pass reads success; else the Mac job's own verdict.
+        self.assertEqual(outputs["ios_fast_verdict"]["value"],
+                         "${{ jobs.ios-fast.outputs.verdict || (jobs.ios-fast-runner.outputs.reused == 'true' && 'success' || '') }}")
         self.assertEqual(outputs["ios_fast_run"]["value"], "${{ jobs.ios-fast-runner.outputs.run }}")
         record = next(s for s in self.jobs["ios-fast"]["steps"] if s.get("id") == "verdict")
         self.assertIn("success() || failure()", record["if"])
@@ -295,6 +461,60 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("scripts/ci/ios_fast_verdict.py", router["route"]["steps"][0]["with"]["sparse-checkout"])
         post = next(s for s in router["route"]["steps"] if s.get("name") == "Post the iOS fast verdict status")
         self.assertIn("ios_fast_verdict.py status", post["run"])
+
+    def test_an_unset_switch_runs_the_picker(self) -> None:
+        # GitHub compares null to '0' as numbers, 0 == 0: the bare comparison skipped the picker
+        # with the variable unset, so a landing head's pipeline skipped whole and `cmux/ios-fast` stayed pending
+        # (cmux#57010, run 45957942340). Only the switch's own '0' turns it off.
+        cond = gh_expr.condition(self.jobs["ios-fast-runner"]["if"])
+        for value, runs in ((None, True), ("", True), ("1", True), ("0", False)):
+            with self.subTest(value=value):
+                self.assertIs(gh_expr.truthy(gh_expr.evaluate(cond, {"vars": {"CI_IOS_FAST_VERDICT": value}}, {"cancelled": False})), runs)
+
+    def test_a_pending_the_route_started_is_always_answered(self) -> None:
+        # The route posted pending because it started pr-pipeline.yml: a skipped pipeline (red fast gates, or a job
+        # if that skipped it whole) still gets an error post, never a silent pending. One the route did not start
+        # stays pending for the land handoff's run.
+        router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())["jobs"]
+        cond = gh_expr.condition(router["ios-fast-status"]["if"])
+        same = {"full_name": "o/r"}
+
+        def runs(pipeline: str, start: list[str]) -> bool:
+            context = {"needs": {"route": {"outputs": {"ios_status": "pending", "start": json.dumps(start)}},
+                                 "pipeline": {"result": pipeline}},
+                       "github": {"repository": "o/r", "event": {"pull_request": {"head": {"repo": same}}}}}
+            return gh_expr.truthy(gh_expr.evaluate(cond, context, {"cancelled": False}))
+
+        self.assertTrue(runs("skipped", ["pr-pipeline.yml"]))
+        self.assertTrue(runs("success", ["pr-pipeline.yml"]))
+        self.assertFalse(runs("skipped", ["cmux-next-fast-gates.yml"]))
+        post = next(s for s in router["ios-fast-status"]["steps"] if s.get("name") == "Post the verdict")
+        self.assertEqual(post["env"]["PIPELINE"], "${{ needs.pipeline.result }}")
+        out = subprocess.run(["bash", "-c", post["run"].replace("python3 -I scripts/ci/ios_fast_verdict.py status",
+                                                                "echo")],
+                             env={"PATH": os.environ["PATH"], "PIPELINE": "skipped", "RUN": "", "VERDICT": "",
+                                  "NEED_PROOF": "true"}, capture_output=True, text=True, check=True).stdout
+        self.assertTrue(out.startswith("error No verdict: the pr pipeline did not start"), out)
+        self.assertLessEqual(len(out.split(" ", 1)[1].strip()), 140)
+
+    # Bare `vars.NAME == '0'` / `!= '0'` reads an unset variable as '0' (null coerces to 0). These predate the guard;
+    # each one's unset behavior is its effective default today, so a fix there is a default change for its owner.
+    BARE_ZERO_SWITCHES = frozenset({
+        "CI_FAST_TIER_CARGO_BOT_READ",
+        "CI_FAST_TIER_PR_SCOPE",
+        "CI_REACT_SHARD_RECEIPT",
+        "CI_SKIP_WHILE_BASE_RED",
+        "CMUX_NEXT_LANGUAGE_PACKS",
+        "CMUX_NEXT_TOOL_PACKS",
+        "FIXIT_HANDOFF",
+        "IOS_BASE_BISECT",
+    })
+
+    def test_no_new_switch_reads_unset_as_zero(self) -> None:
+        bare = re.compile(r"(?<!format\('\{0\}', )\bvars\.([A-Z0-9_]+) *(?:!=|==) *'0'")
+        found = {m.group(1) for f in (ROOT / ".github/workflows").glob("*.y*ml") for m in bare.finditer(f.read_text())}
+        self.assertEqual(found - self.BARE_ZERO_SWITCHES, set(),
+                         "use format('{0}', vars.NAME) != '0' (or (vars.NAME || '1') == '0'): unset reads as '0'")
 
     def test_the_runner_script_parses(self) -> None:
         subprocess.run(["bash", "-n", str(ROOT / "scripts/ci/ios_fast_verdict.sh")], check=True)
