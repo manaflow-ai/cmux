@@ -1,47 +1,44 @@
 import CmuxHomeCore
 import CmuxNextDaemon
+import CmuxNextHomeModel
 import Foundation
 
 nonisolated extension CloudHomeSource {
     // MARK: Subscriptions
 
+    // The decisions are the Rust rules' (`cloud.subs_*`, cmux-home-rules
+    // `cloud/subscriptions.rs`); the lock, the daemon calls and `reached()` stay here.
+
     /// Subscribes once per conversation; the least recently used of 64 makes room.
     func subscribe(_ conversation: ConversationID, commands: any CloudConversationCommands, generation: UInt64) async {
         let sent = state.withLock { state -> Task<Result<CloudSubscription, any Error>, Never>? in
-            guard state.generation == generation else { return nil }
-            if state.targets[conversation] != nil {
-                state.recent.removeAll { $0 == conversation }
-                state.recent.append(conversation)
-                return nil
-            }
-            if state.recent.count >= CloudConversationSubscribeRequest.maxSubscriptions {
-                let oldest = state.recent.removeFirst()
-                state.targets[oldest] = nil
-                // Queued with the others, so opening it again at once subscribes after this ends it.
-                state.chainUnsubscribes([oldest], commands: commands)
-            }
-            state.targets[conversation] = CloudHomeState.Target(state: "connecting")
-            state.recent.append(conversation)
-            return state.chainSubscribe(conversation, commands: commands)
+            let request = SubsSubscribeRequest(state: SubsState(state), conversation: conversation.rawValue, generation: generation,
+                                               max: CloudConversationSubscribeRequest.maxSubscriptions)
+            guard let reply: SubsSubscribeReply = try? HomeRules.call("cloud.subs_subscribe", request) else { return nil }
+            reply.state.apply(to: &state)
+            // Queued with the others, so opening it again at once subscribes after this ends it.
+            if !reply.unsubscribe.isEmpty { state.chainUnsubscribes(reply.unsubscribe.map(ConversationID.init(rawValue:)), commands: commands) }
+            return reply.subscribe ? state.chainSubscribe(conversation, commands: commands) : nil
         }
         guard let sent else { return }
         do {
             let reply = try await sent.value.get()
             let live = state.withLock { state -> Bool in
-                // A socket on another account's lease is not this account's state.
-                if let account = reply.account, state.identity?.cloudID != CloudIdentity.cloudID(stackUserID: account) { return false }
-                // The state event that follows the reply (or raced it) wins.
-                guard state.generation == generation, state.targets[conversation]?.fromEvent == false else { return false }
-                state.targets[conversation]?.state = reply.state
-                return reply.state == "live"
+                // A socket on another account's lease is not this account's state; the state
+                // event that follows the reply (or raced it) wins.
+                let request = SubsRepliedRequest(state: SubsState(state), conversation: conversation.rawValue, generation: generation,
+                                                 replyState: reply.state, account: reply.account, identityCloudId: state.identity?.cloudID)
+                guard let replied: SubsRepliedReply = try? HomeRules.call("cloud.subs_replied", request) else { return false }
+                replied.state.apply(to: &state)
+                return replied.live
             }
             // Edits refused while it connected go again.
             if live { reached() }
         } catch {
             state.withLock { state in
-                guard state.generation == generation, state.targets[conversation]?.fromEvent == false else { return }
-                state.targets[conversation] = nil
-                state.recent.removeAll { $0 == conversation }
+                let request = SubsFailedRequest(state: SubsState(state), conversation: conversation.rawValue, generation: generation)
+                guard let subs: SubsState = try? HomeRules.call("cloud.subs_failed", request) else { return }
+                subs.apply(to: &state)
             }
         }
     }
@@ -54,17 +51,23 @@ nonisolated extension CloudHomeSource {
     /// without subscribing again. A conversation without a subscription is
     /// subscribed first, so its socket can go live and its echo can settle the intent.
     func requireEditable(_ conversation: ConversationID, commands: any CloudConversationCommands, generation: UInt64) throws {
-        let (target, closed) = state.withLock { state in
-            let target = state.targets[conversation], closed = state.closed.contains(conversation)
-            if !closed, target?.state != "live" { state.degraded = true }
-            return (target, closed)
+        let editable = state.withLock { state -> SubsEditable? in
+            let request = SubsEditableRequest(target: state.targets[conversation]?.state, closed: state.closed.contains(conversation))
+            guard let editable: SubsEditable = try? HomeRules.call("cloud.subs_editable", request) else { return nil }
+            if editable.degraded { state.degraded = true }
+            return editable
         }
-        if closed { throw HomeRejection.notAuthorized }
-        if target == nil {
+        // No answer from the rules: the edit waits, as for a socket not live yet.
+        guard let editable else { throw HomeRejection.ownerUnreachable }
+        if editable.subscribe {
             // task-owner: one subscribe; ends with its reply
             Task { [weak self] in await self?.subscribe(conversation, commands: commands, generation: generation) }
         }
-        guard target?.state == "live" else { throw HomeRejection.ownerUnreachable }
+        switch editable.error {
+        case nil: return
+        case "notAuthorized": throw HomeRejection.notAuthorized
+        default: throw HomeRejection.ownerUnreachable
+        }
     }
 
     /// Ends subscriptions of conversations the inbox no longer lists.
@@ -72,4 +75,73 @@ nonisolated extension CloudHomeSource {
         guard let commands, !ids.isEmpty else { return }
         state.withLock { $0.chainUnsubscribes(ids, commands: commands) }
     }
+}
+
+/// The subscription part of `CloudHomeState` on the `cloud.subs_*` wire.
+private nonisolated struct SubsState: Codable {
+    struct Target: Codable {
+        var state: String
+        var fromEvent: Bool
+    }
+
+    var generation: UInt64
+    var targets: [String: Target]
+    var recent: [String]
+
+    init(_ state: CloudHomeState) {
+        generation = state.generation
+        targets = Dictionary(uniqueKeysWithValues: state.targets.map { ($0.key.rawValue, Target(state: $0.value.state, fromEvent: $0.value.fromEvent)) })
+        recent = state.recent.map(\.rawValue)
+    }
+
+    func apply(to state: inout CloudHomeState) {
+        state.targets = Dictionary(uniqueKeysWithValues: targets.map {
+            (ConversationID(rawValue: $0.key), CloudHomeState.Target(state: $0.value.state, fromEvent: $0.value.fromEvent))
+        })
+        state.recent = recent.map(ConversationID.init(rawValue:))
+    }
+}
+
+private nonisolated struct SubsSubscribeRequest: Encodable {
+    var state: SubsState
+    var conversation: String
+    var generation: UInt64
+    var max: Int
+}
+
+private nonisolated struct SubsSubscribeReply: Decodable {
+    var state: SubsState
+    var subscribe: Bool
+    var unsubscribe: [String]
+}
+
+private nonisolated struct SubsRepliedRequest: Encodable {
+    var state: SubsState
+    var conversation: String
+    var generation: UInt64
+    var replyState: String
+    var account: String?
+    var identityCloudId: String?
+}
+
+private nonisolated struct SubsRepliedReply: Decodable {
+    var state: SubsState
+    var live: Bool
+}
+
+private nonisolated struct SubsFailedRequest: Encodable {
+    var state: SubsState
+    var conversation: String
+    var generation: UInt64
+}
+
+private nonisolated struct SubsEditableRequest: Encodable {
+    var target: String?
+    var closed: Bool
+}
+
+private nonisolated struct SubsEditable: Decodable {
+    var degraded: Bool
+    var subscribe: Bool
+    var error: String?
 }

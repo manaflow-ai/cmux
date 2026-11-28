@@ -312,6 +312,14 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         &c,
     );
     if let Some(changed) = changed_rows {
+        // Per-frame work (cmux-view-rows frame_work): the rows the cache rebuilt, and their text
+        // copied; a frame with no change to the transcript has none.
+        #[cfg(test)]
+        {
+            let rebuilt = app.transcript_cache.rows.len().saturating_sub(changed);
+            cmux_view_rows::frame_work::built(rebuilt);
+            cmux_view_rows::frame_work::cloned(rebuilt);
+        }
         app.rows_cache.truncate(changed);
         app.row_meta.truncate(changed);
         app.rows_cache
@@ -368,6 +376,8 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     let sel = app.selection.as_ref().filter(|s| s.session == id).cloned();
     app.transcript_hitboxes.clear();
     for (i, row) in rows.iter().enumerate().skip(offset).take(inner.height as usize) {
+        #[cfg(test)]
+        cmux_view_rows::frame_work::walked(1);
         let y = inner.y + (i - offset) as u16;
         let row_width = row.line.width().min(inner.width as usize) as u16;
         if row_width > 0 {

@@ -1,3 +1,4 @@
+import type { InspectorHistory } from "./InspectorTiming";
 import type { BrowserWorkspaces } from "./browser/workspaces";
 import {
   browserDeviceError,
@@ -284,6 +285,7 @@ import { promptCoachEnabled } from "./chatDisplay";
 import { afterNextPaint } from "./afterNextPaint";
 import { PromptHeads, type PromptHead } from "./promptHeads";
 import { ADMISSION_WAITING_METHOD, PLACE_CHAT_METHOD } from "./autoWhereModel";
+import { noteDeviceKinds } from "../../ui/deviceKinds";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -515,6 +517,7 @@ export async function inflateFrame(data: ArrayBuffer | ArrayBufferView | Blob): 
     bytes += value.byteLength;
     if (bytes > MAX_INFLATED_BYTES) {
       void reader.cancel();
+      // l10n-allow: an internal protocol error, not shown
       throw new Error("compressed frame too large");
     }
     text += decoder.decode(value, { stream: true });
@@ -2574,20 +2577,26 @@ export class AcpmuxDirectClient {
 
   /// Every recorded transcript event of a session, oldest first, for session replay.
   async recordedEvents(sessionId: string): Promise<EventRecord[]> {
-    const events: EventRecord[] = [];
-    // ends: `after` moves to the page's newest seq each pass; it returns on no more, an empty page or no move
+    // Keep journal reads aligned with the Rust replay adapter's bounded page. The daemon's
+    // cursor may repeat a boundary record while a page cache catches up, so merge by seq before
+    // handing the replay reducer its source of truth.
+    const events = new Map<number, EventRecord>();
     for (let after = 0; ;) {
       const page = await this.typed("_acpmux/events", {
         sessionId,
         afterSeq: after,
-        limit: 2000,
+        limit: 400,
         kinds: ["transcript"],
       });
       const batch = records(page?.events);
-      events.push(...batch);
-      const last = batch.at(-1)?.seq;
-      if (!page?.hasMore || last === undefined || last <= after) return events;
-      after = last;
+      let through = Math.max(after, page.pageThrough ?? 0);
+      for (const event of batch) {
+        if (event.seq > 0 && !events.has(event.seq)) events.set(event.seq, event);
+        through = Math.max(through, event.seq);
+      }
+      if (!page.hasMore) return [...events.values()].sort((a, b) => a.seq - b.seq);
+      if (through <= after) throw new Error("journal_replay_cursor_stalled");
+      after = through;
     }
   }
 
@@ -5910,42 +5919,45 @@ export class AcpmuxDirectClient {
 
   /// Subagent `subagent`'s own records of the selected chat, oldest first (acpmux `_acpmux/events
   /// {subagent}`): what a subagent's pane draws when the chat's loaded page no longer holds that
-  /// subagent (subagents/subagentOwnLog.ts). At most `SUBAGENT_LOG_PAGES` pages from its start; a
-  /// longer log adds its newest page, which holds its end and last reply, so the fold never reads a
-  /// finished subagent as running.
-  async readSubagentLog(subagent: string): Promise<EventRecord[]> {
+  /// subagent (subagents/subagentOwnLog.ts). Its newest page first: a subagent whose records fit one
+  /// page (most) is read in one ask, and a longer one hands that page to `onNewest` to draw while
+  /// at most `SUBAGENT_LOG_PAGES` pages from its start are read, so the pane holds its end and last
+  /// reply from its first frame and the fold never reads a finished subagent as running. It read
+  /// up to eight pages from its start before drawing anything (Leo, 2026-11-27: "these take way
+  /// too long to load i feel like.. regardless these needs to be faster").
+  async readSubagentLog(subagent: string, onNewest?: (records: EventRecord[]) => void): Promise<EventRecord[]> {
     const sessionId = this.selectedSessionId;
     // l10n-allow: internal selection race; the subagent pane renders its own localized state.
     if (!sessionId) throw new Error("No chat");
-    const found: EventRecord[] = [];
-    let after = 0;
-    for (let page = 0; page < SUBAGENT_LOG_PAGES; page += 1) {
-      const result = await this.typed("_acpmux/events", {
+    const page = (from: { afterSeq: number } | { beforeSeq: number }) =>
+      this.typed("_acpmux/events", {
         sessionId,
         subagent,
-        afterSeq: after,
+        ...from,
         limit: KEPT_EVENTS,
         maxBytes: OLDER_PAGE_BYTES,
         kinds: ["transcript"],
       });
-      // l10n-allow: internal selection race; the subagent pane renders its own localized state.
-      if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
-      const events = records(result?.events);
-      found.push(...events);
-      if (result?.hasMore !== true || events.length === 0) return found;
-      after = Math.max(...events.map((event) => event.seq));
-    }
-    const newest = await this.typed("_acpmux/events", {
-      sessionId,
-      subagent,
-      beforeSeq: Number.MAX_SAFE_INTEGER,
-      limit: KEPT_EVENTS,
-      maxBytes: OLDER_PAGE_BYTES,
-      kinds: ["transcript"],
-    });
+    const newestResult = await page({ beforeSeq: Number.MAX_SAFE_INTEGER });
     // l10n-allow: internal selection race; the subagent pane renders its own localized state.
     if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
-    return [...found, ...records(newest?.events).filter((event) => event.seq > after)];
+    const newest = records(newestResult?.events);
+    if (newestResult?.hasMore !== true || newest.length === 0) return newest;
+    onNewest?.(newest);
+    const newestStart = Math.min(...newest.map((event) => event.seq));
+    const found: EventRecord[] = [];
+    let after = 0;
+    for (let n = 0; n < SUBAGENT_LOG_PAGES; n += 1) {
+      const result = await page({ afterSeq: after });
+      // l10n-allow: internal selection race; the subagent pane renders its own localized state.
+      if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
+      const events = records(result?.events).filter((event) => event.seq < newestStart);
+      found.push(...events);
+      if (result?.hasMore !== true || events.length === 0) break;
+      after = Math.max(...events.map((event) => event.seq));
+      if (after >= newestStart - 1) break;
+    }
+    return [...found, ...newest];
   }
 
   /// Every running subagent of the selected chat and its latest ended ones, from acpmux's subagent
@@ -6210,6 +6222,23 @@ export class AcpmuxDirectClient {
   gitPullRequest(params: { action?: "threads" | "merge"; number?: number; url?: string } = {}): Promise<unknown> {
     if (this.gitRoute === "daemon") return Promise.reject(new Error(translate("error.noFolderChanges")));
     return this.git("git.pullRequest", params);
+  }
+
+  /// Rust reads the selected chat's PR and returns bounded prompt context. This does not send
+  /// a prompt or merge; the caller's explicit action supplies the former through chat.send.
+  async pullRequestAction(params: { url: string; headSha?: string; action: string }): Promise<unknown> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    const generation = this.selectionGeneration;
+    const result = await this.request(
+      "_acpmux/pull_request_action",
+      { sessionId, ...params },
+      95_000,
+      () => generation === this.selectionGeneration && sessionId === this.selectedSessionId,
+    );
+    if (this.closed || generation !== this.selectionGeneration || sessionId !== this.selectedSessionId)
+      throw new Error(translate("error.notOpen"));
+    return result;
   }
 
   /// acpmux serves no git methods: the native host runs them on the session host in the selected
@@ -16908,6 +16937,7 @@ export class AcpmuxDirectClient {
     const sessionId = this.actingSessionId;
     // l10n-allow: a developer error; the caller shows notice.forkFailed.
     if (!this.canFork || !sessionId || this.capabilities?.has(SUBAGENT_FORK_CAPABILITY) !== true)
+      // l10n-allow: an internal protocol error, not shown
       throw new Error("acpmux cannot fork a subagent");
     // l10n-allow: as above.
     if (this.forking) throw new Error("a fork is already running");
@@ -17036,6 +17066,11 @@ export class AcpmuxDirectClient {
   /// One page of the approvals audit trail (`_acpmux/audit`): `{entries, next?}`.
   async audit(params: Record<string, unknown> = {}): Promise<unknown> {
     return this.request("_acpmux/audit", params, 15_000);
+  }
+  /// A chat's recorded turn timings for the inspector's Timing tab (`_acpmux/history`, acpmux
+  /// hub/history_timing.rs); read only when that tab opens, the latest 100 turns.
+  async inspectorHistory(sessionId: string): Promise<InspectorHistory> {
+    return this.request("_acpmux/history", { sessionId, limit: 100 }, 15_000);
   }
   /// The chat's effective prompt context for the Context screen (`_acpmux/context`, acpmux
   /// context_inventory.rs): what cmux adds in full, the harness's own parts as counts.
@@ -17225,6 +17260,7 @@ export class AcpmuxDirectClient {
           .filter((peer: string | undefined): peer is string => Boolean(peer))
       : [];
     this.peerKinds = peerKindsFromStatus(status);
+    noteDeviceKinds(status);
     this.peerCloudRegistries = peerCloudRegistriesFromStatus(status);
     this.peerConnected = peerConnectedFromStatus(status);
     this.peerAgentLogin = peerAgentLoginFromStatus(status);
@@ -17385,6 +17421,8 @@ export class AcpmuxDirectClient {
                 at: event.at,
                 text: String(event.msg?.text ?? "").slice(0, 240),
                 ...(promptId ? { promptId } : {}),
+                // acpmux marks a prompt the person did not type (hub/paging.rs `prompt_index_msg`).
+                ...(event.msg?.others === true ? { others: true as const } : {}),
               });
             }
             if (page.length > 0) pages.push(page);

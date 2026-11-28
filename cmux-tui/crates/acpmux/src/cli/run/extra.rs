@@ -1187,6 +1187,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
+        Command::DaemonExpectRelaunch { within, reason } => {
+            let home = crate::config::home();
+            crate::daemon::owner_relaunch::expect_in(
+                &home,
+                std::time::Duration::from_secs(within),
+                &reason,
+            )?;
+            let path = crate::daemon::owner_relaunch::path_in(&home);
+            if json_out {
+                println!("{}", serde_json::json!({"marker": path, "within": within.min(300)}));
+            } else {
+                println!("relaunch expected within {}s ({})", within.min(300), path.display());
+            }
+            Ok(())
+        }
         Command::DaemonFelt => crate::cli::daemon_felt::run(json_out).await,
         Command::DaemonWatchdogHold => crate::cli::watchdog_hold::run().await,
         Command::DaemonPlacement { message } => crate::cli::daemon_placement::run(&message).await,
@@ -1595,6 +1610,29 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             print_json(&serde_json::to_value(&load)?);
             Ok(())
         }
+        // Writes only the named cgroup's memory.reclaim; no daemon (`working_set.rs`).
+        Command::Host(PeerCmd::WorkingSet {
+            cgroup,
+            step_permille,
+            refault_permille,
+            settle_ms,
+            max_steps,
+            floor_mb,
+        }) => {
+            let probe = crate::working_set::Probe {
+                step_permille,
+                refault_permille,
+                settle_ms,
+                max_steps,
+                floor_bytes: floor_mb.saturating_mul(1 << 20),
+                ..crate::working_set::Probe::default()
+            };
+            let report =
+                tokio::task::spawn_blocking(move || crate::working_set::cli(cgroup, probe))
+                    .await??;
+            print_json(&serde_json::to_value(&report)?);
+            Ok(())
+        }
         // Reads the home directory and writes one file; no daemon (`disk_usage.rs`).
         Command::Host(PeerCmd::DiskWalk) => crate::disk_usage::walk_and_store(),
         // Reads the fleet listing and the registry; changes nothing (`cell_report.rs`).
@@ -1768,6 +1806,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 | PeerCmd::Cells
                 | PeerCmd::Unreachable { .. }
                 | PeerCmd::DiskWalk
+                | PeerCmd::WorkingSet { .. }
                 | PeerCmd::Verdict
                 | PeerCmd::Notice { .. } => {
                     return Err(anyhow!(
@@ -1830,6 +1869,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         allow_downgrade,
                         caller,
                         now,
+                        same_build_installed: false,
                     };
                     return crate::cli::hosts::update(client, name, all, opts, json_out).await;
                 }

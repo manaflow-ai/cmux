@@ -74,6 +74,26 @@ fn browser_rules_tab_state_apply_ignores_a_superseded_loads_late_failure() {
 }
 
 #[test]
+fn browser_rules_input_key_stroke_gives_a_meta_shortcut_its_editing_command() {
+    let request = json!({"key": "z", "code": "KeyZ", "modifiers": ["Meta", "Shift"]});
+    let (code, body) =
+        call("browser_rules_input_key_stroke", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body["keyCode"], json!(6));
+    assert_eq!(body["modifierFlags"], json!((1u64 << 20) | (1u64 << 17)));
+    assert_eq!(body["editingCommand"], json!("redo:"));
+}
+
+#[test]
+fn browser_rules_input_mouse_event_drags_while_a_button_is_held() {
+    let request = json!({"held": ["left"], "type": "move", "button": "left"});
+    let (code, body) =
+        call("browser_rules_input_mouse_event", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"eventType": "leftMouseDragged", "held": ["left"]}));
+}
+
+#[test]
 fn browser_rules_refuse_a_request_that_is_not_their_json() {
     let (code, _) = call("browser_rules_link_action", br#"{"gesture": "wave"}"#);
     assert_eq!(code, ERR_INVALID);
@@ -149,4 +169,25 @@ fn browser_rules_automation_frame_tree_flattens_parents_first() {
         body[1],
         json!({"frameId": "8", "parentFrameId": "7", "url": "https://a.test/", "isMain": false})
     );
+}
+
+#[test]
+fn browser_rules_automation_dialog_respond_types_the_prompt_text() {
+    let request = json!({
+        "params": {"dialogId": "1", "accept": true, "promptText": "hi"},
+        "held": {"kind": "textInput", "message": "name?", "defaultText": "d"},
+    });
+    let (code, body) =
+        call("browser_rules_automation_dialog_respond", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"answer": {"kind": "text", "text": "hi"}}));
+}
+
+#[test]
+fn browser_rules_automation_console_event_maps_a_pageerror() {
+    let request = json!({"body": {"kind": "pageerror", "message": "boom"}});
+    let (code, body) =
+        call("browser_rules_automation_console_event", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"name": "pageerror", "payload": {"message": "boom", "stack": "boom"}}));
 }

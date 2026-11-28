@@ -1,5 +1,6 @@
 use super::*;
 use std::cell::Cell;
+use std::collections::BTreeMap;
 
 use serde_json::json;
 
@@ -105,11 +106,376 @@ fn a_fork_into_another_folder_derives_its_own() {
 #[test]
 fn a_folder_that_changed_under_the_record_is_derived_again() {
     let calls = Cell::new(0);
-    let kept = SessionManifest { folder: "/old".into(), all_tools: true, servers: Vec::new() };
+    let kept = SessionManifest {
+        folder: "/old".into(),
+        all_tools: true,
+        servers: Vec::new(),
+        codex: None,
+        env: Vec::new(),
+        ports: Vec::new(),
+    };
     let all = all_tools_with(true, Some(&kept), std::path::Path::new("/new"), || {
         calls.set(calls.get() + 1);
         false
     });
     assert!(!all);
     assert_eq!(calls.get(), 1);
+}
+
+/// One Claude Code start of `meta`'s agent through its command build: the hub marks the profile
+/// env, the build reads the mark or derives (counted in `derives`), and the first start records.
+fn claude_start(on: bool, meta: &mut SessionMeta, derives: &Cell<u32>) {
+    let cwd = meta.cwd.clone();
+    let mut env = BTreeMap::new();
+    mark_with(on, &mut env, meta.manifest.as_ref(), &cwd);
+    let all = claude_all_tools(&env, || {
+        derives.set(derives.get() + 1);
+        true
+    });
+    if let Some(m) = to_record(on, meta.manifest.as_ref(), &cwd, all, None) {
+        meta.manifest = Some(m);
+    }
+}
+
+#[test]
+fn claude_stdio_moves_and_forks_re_deriving_before_and_after() {
+    for (on, want) in [(false, (1, 1, 1)), (true, (1, 0, 0))] {
+        let derives = Cell::new(0);
+        let mut chat = meta("/home/a/repo");
+        claude_start(on, &mut chat, &derives);
+        let first = derives.get();
+        let mut there = moved(&chat, "/home/b/checkouts/repo");
+        claude_start(on, &mut there, &derives);
+        let after_move = derives.get() - first;
+        let mut fork = forked(&there, "/home/b/checkouts/repo");
+        claude_start(on, &mut fork, &derives);
+        let after_fork = derives.get() - first - after_move;
+        assert_eq!((first, after_move, after_fork), want, "switch on: {on}");
+    }
+}
+
+#[test]
+fn the_mark_holds_only_for_its_folder_and_replaces_a_profiles_own() {
+    let m = SessionManifest {
+        folder: "/repo".into(),
+        all_tools: false,
+        servers: Vec::new(),
+        codex: None,
+        env: Vec::new(),
+        ports: Vec::new(),
+    };
+    let mut env = BTreeMap::from([(RECORDED_ENV.to_owned(), "1".to_owned())]);
+    mark_with(true, &mut env, Some(&m), std::path::Path::new("/repo"));
+    assert_eq!(env.get(RECORDED_ENV).map(String::as_str), Some("0"));
+    // The recorded answer wins without reading settings.
+    assert!(!claude_all_tools(&env, || panic!("derived although marked")));
+    mark_with(true, &mut env, Some(&m), std::path::Path::new("/elsewhere"));
+    assert!(env.get(RECORDED_ENV).is_none());
+    mark_with(false, &mut env, Some(&m), std::path::Path::new("/repo"));
+    assert!(env.get(RECORDED_ENV).is_none());
+}
+
+/// A Codex chat's folder and its fake Codex (`agent_tools_tests.rs`), with its own `CODEX_HOME`.
+#[cfg(unix)]
+struct CodexChat {
+    root: tempfile::TempDir,
+    codex: std::path::PathBuf,
+    env: BTreeMap<String, String>,
+}
+
+#[cfg(unix)]
+impl CodexChat {
+    fn new() -> Self {
+        let root = tempfile::tempdir().unwrap();
+        for dir in ["work", "there", "codex-home"] {
+            std::fs::create_dir_all(root.path().join(dir)).unwrap();
+        }
+        std::fs::write(root.path().join("codex-home/config.toml"), "model = \"a\"\n").unwrap();
+        let codex = crate::agent_tools::tests_support::fake_codex(root.path());
+        crate::agent_tools::tests_support::codex_answers(root.path(), Some("/opt/x"));
+        let home = root.path().join("codex-home").to_string_lossy().into_owned();
+        let env = BTreeMap::from([("CODEX_HOME".to_owned(), home)]);
+        CodexChat { root, codex, env }
+    }
+
+    fn dir(&self, name: &str) -> String {
+        self.root.path().join(name).to_string_lossy().into_owned()
+    }
+
+    /// How many times Codex was asked.
+    fn asks(&self) -> usize {
+        std::fs::read_to_string(self.root.path().join("calls")).unwrap_or_default().lines().count()
+    }
+
+    /// One start (or wake) of `meta`'s Codex agent: the hub marks its profile env, the start asks
+    /// Codex or reads the mark, and `note_launch` keeps what it asked.
+    fn start(&self, on: bool, meta: &mut SessionMeta) -> crate::codex_cmux_entry::CmuxEntry {
+        let cwd = meta.cwd.clone();
+        let mut env = self.env.clone();
+        mark_with(on, &mut env, meta.manifest.as_ref(), &cwd);
+        let argv = vec![self.codex.to_string_lossy().into_owned(), "app-server".to_owned()];
+        let answer = crate::agent_tools::CodexAnswer::default();
+        let launch =
+            crate::agent_tools::CodexLaunch { cwd: &cwd, argv: &argv, answer: Some(&answer) };
+        let entry = crate::agent_tools::persons_cmux_entry_under(on, launch, &env);
+        if let Some(m) = to_record(on, meta.manifest.as_ref(), &cwd, false, None) {
+            meta.manifest = Some(m);
+        }
+        keep_codex(on, &mut meta.manifest, &cwd, answer.get().and_then(|a| a.record.clone()));
+        entry
+    }
+}
+
+/// Start, wake (an idle chat's agent started again), fork in the same folder: how many of them
+/// asked Codex (`codex mcp get cmux`, up to 2 s each).
+#[cfg(unix)]
+#[test]
+fn codex_starts_wakes_and_forks_asking_codex_before_and_after() {
+    for (on, want) in [(false, (1, 1, 1)), (true, (1, 0, 0))] {
+        let chat = CodexChat::new();
+        let mut meta = meta(&chat.dir("work"));
+        chat.start(on, &mut meta);
+        let first = chat.asks();
+        chat.start(on, &mut meta);
+        let wake = chat.asks() - first;
+        let mut fork = forked(&meta, &chat.dir("work"));
+        chat.start(on, &mut fork);
+        let after_fork = chat.asks() - first - wake;
+        assert_eq!((first, wake, after_fork), want, "switch on: {on}");
+    }
+}
+
+/// A move to another folder asks once there (the folder is in the digest: Codex's trust and
+/// project files are the folder's), and a fork there reads that answer.
+#[cfg(unix)]
+#[test]
+fn a_moved_codex_chat_asks_once_in_its_new_folder() {
+    let chat = CodexChat::new();
+    let mut meta = meta(&chat.dir("work"));
+    chat.start(true, &mut meta);
+    let mut there = moved(&meta, &chat.dir("there"));
+    chat.start(true, &mut there);
+    assert_eq!(chat.asks(), 2);
+    let mut fork = forked(&there, &chat.dir("there"));
+    chat.start(true, &mut fork);
+    assert_eq!(chat.asks(), 2);
+}
+
+/// The recorded answer is read only while nothing it depends on changed: the person's config,
+/// a project file, the env Codex finds its config with.
+#[cfg(unix)]
+#[test]
+fn a_changed_config_asks_codex_again() {
+    let mut chat = CodexChat::new();
+    let mut meta = meta(&chat.dir("work"));
+    assert!(matches!(
+        chat.start(true, &mut meta),
+        crate::codex_cmux_entry::CmuxEntry::Stdio { .. }
+    ));
+    chat.start(true, &mut meta);
+    assert_eq!(chat.asks(), 1);
+    // The person's config changes: asked again, and the new answer is the one kept.
+    std::fs::write(chat.root.path().join("codex-home/config.toml"), "model = \"b\"\n").unwrap();
+    crate::agent_tools::tests_support::codex_answers(chat.root.path(), Some("http"));
+    assert_eq!(chat.start(true, &mut meta), crate::codex_cmux_entry::CmuxEntry::Http);
+    assert_eq!(chat.asks(), 2);
+    assert_eq!(chat.start(true, &mut meta), crate::codex_cmux_entry::CmuxEntry::Http);
+    assert_eq!(chat.asks(), 2);
+    // A project file appears.
+    std::fs::create_dir_all(chat.root.path().join("work/.codex")).unwrap();
+    std::fs::write(chat.root.path().join("work/.codex/config.toml"), "model = \"c\"\n").unwrap();
+    chat.start(true, &mut meta);
+    assert_eq!(chat.asks(), 3);
+    // The env Codex reads its config with; any other key is not in the digest.
+    chat.env.insert("UNRELATED".to_owned(), "1".to_owned());
+    chat.start(true, &mut meta);
+    assert_eq!(chat.asks(), 3);
+    chat.env.insert("CODEX_PROFILE".to_owned(), "work".to_owned());
+    chat.start(true, &mut meta);
+    assert_eq!(chat.asks(), 4);
+}
+
+/// No answer and doubt are never kept (skip on doubt, `codex_cmux_entry.rs`): the next start
+/// asks again.
+#[cfg(unix)]
+#[test]
+fn no_answer_and_doubt_are_never_recorded() {
+    use crate::codex_cmux_entry::CmuxEntry;
+    assert_eq!(CodexRecord::of("k".into(), &CmuxEntry::Unknown), None);
+    assert_eq!(CodexRecord::of("k".into(), &CmuxEntry::Doubt("why".into())), None);
+    for sure in [
+        CmuxEntry::None,
+        CmuxEntry::Http,
+        CmuxEntry::Stdio { command: "c".into(), args: vec!["a".into()] },
+    ] {
+        assert_eq!(CodexRecord::of("k".into(), &sure).unwrap().entry(), sure);
+    }
+    let chat = CodexChat::new();
+    // A project file defining `cmux` that the answer does not show it loads: doubt.
+    crate::agent_tools::tests_support::codex_answers(chat.root.path(), Some("/opt/x"));
+    std::fs::create_dir_all(chat.root.path().join("there/.codex")).unwrap();
+    std::fs::write(
+        chat.root.path().join("there/.codex/config.toml"),
+        "[mcp_servers.cmux]\ncommand = \"/other\"\n",
+    )
+    .unwrap();
+    let mut doubted = meta(&chat.dir("there"));
+    assert!(matches!(chat.start(true, &mut doubted), CmuxEntry::Doubt(_)));
+    assert_eq!(doubted.manifest.as_ref().and_then(|m| m.codex.clone()), None);
+    let before = chat.asks();
+    chat.start(true, &mut doubted);
+    assert_eq!(chat.asks(), before + 1);
+}
+
+/// The marker never reaches the Codex agent or the question's env, and a profile's own is
+/// replaced; it holds only for the manifest's folder.
+#[test]
+fn the_codex_mark_holds_only_for_its_folder() {
+    let record = CodexRecord { key: "k".into(), entry: RecordedEntry::Http };
+    let m = SessionManifest {
+        folder: "/repo".into(),
+        all_tools: false,
+        servers: Vec::new(),
+        codex: Some(record.clone()),
+        env: Vec::new(),
+        ports: Vec::new(),
+    };
+    let mut env = BTreeMap::from([(CODEX_ENV.to_owned(), "forged".to_owned())]);
+    mark_with(true, &mut env, Some(&m), std::path::Path::new("/repo"));
+    assert_eq!(take_codex(&mut env), Some(record));
+    assert!(!env.contains_key(CODEX_ENV));
+    env.insert(CODEX_ENV.to_owned(), "forged".to_owned());
+    mark_with(true, &mut env, Some(&m), std::path::Path::new("/elsewhere"));
+    assert!(!env.contains_key(CODEX_ENV));
+    env.insert(CODEX_ENV.to_owned(), "forged".to_owned());
+    mark_with(false, &mut env, Some(&m), std::path::Path::new("/repo"));
+    assert!(!env.contains_key(CODEX_ENV));
+    // A forged marker that does not parse is no record.
+    let mut forged = BTreeMap::from([(CODEX_ENV.to_owned(), "{".to_owned())]);
+    assert_eq!(take_codex(&mut forged), None);
+}
+
+fn env(names: &[&str]) -> BTreeMap<String, String> {
+    names.iter().map(|n| ((*n).to_owned(), format!("value-of-{n}"))).collect()
+}
+
+/// The first start records its env's names, never a value or the hub's markers; a later start
+/// keeps the first one's (recorded once); off, nothing is kept.
+#[test]
+fn the_first_start_records_env_names_not_values() {
+    let derives = Cell::new(0);
+    let mut chat = meta("/repo");
+    start(true, &mut chat, &derives);
+    let cwd = chat.cwd.clone();
+    let mut first = env(&["ANTHROPIC_API_KEY", "CMUX_SOCKET", RECORDED_ENV, CODEX_ENV]);
+    first.insert("ANTHROPIC_API_KEY".into(), "sk-secret".into());
+    keep_env(true, &mut chat.manifest, &cwd, Some(&first));
+    let m = chat.manifest.as_ref().unwrap();
+    assert_eq!(m.env, ["ANTHROPIC_API_KEY", "CMUX_SOCKET"]);
+    let json = serde_json::to_string(&chat).unwrap();
+    assert!(!json.contains("sk-secret"), "{json}");
+    assert!(!json.contains("value-of-"), "{json}");
+    keep_env(true, &mut chat.manifest, &cwd, Some(&env(&["OTHER"])));
+    assert_eq!(chat.manifest.as_ref().unwrap().env, ["ANTHROPIC_API_KEY", "CMUX_SOCKET"]);
+    // Off, or for another folder, nothing is kept.
+    let mut off = meta("/repo");
+    start(true, &mut off, &derives);
+    keep_env(false, &mut off.manifest, &cwd, Some(&first));
+    keep_env(true, &mut off.manifest, std::path::Path::new("/elsewhere"), Some(&first));
+    assert!(off.manifest.as_ref().unwrap().env.is_empty());
+}
+
+/// A move and a fork carry the names: a start there that has them all lacks none; one on a
+/// machine without the chat's key names it, and is counted.
+#[test]
+fn a_move_or_fork_start_names_the_env_it_lacks() {
+    let derives = Cell::new(0);
+    let mut chat = meta("/home/a/repo");
+    start(true, &mut chat, &derives);
+    let cwd = chat.cwd.clone();
+    keep_env(true, &mut chat.manifest, &cwd, Some(&env(&["ANTHROPIC_API_KEY", "CMUX_SOCKET"])));
+    let there = moved(&chat, "/home/b/repo");
+    let here = std::path::Path::new("/home/b/repo");
+    assert_eq!(there.manifest.as_ref().unwrap().env, ["ANTHROPIC_API_KEY", "CMUX_SOCKET"]);
+    let full = env(&["ANTHROPIC_API_KEY", "CMUX_SOCKET", "EXTRA"]);
+    assert!(check_env_with(true, there.manifest.as_ref(), here, &full).is_empty());
+    let before = env_missing();
+    let lacking = env(&["CMUX_SOCKET"]);
+    assert_eq!(
+        check_env_with(true, there.manifest.as_ref(), here, &lacking),
+        ["ANTHROPIC_API_KEY"]
+    );
+    assert!(env_missing() > before);
+    let fork = forked(&there, "/home/b/repo");
+    assert_eq!(check_env_with(true, fork.manifest.as_ref(), here, &lacking), ["ANTHROPIC_API_KEY"]);
+    // Off, or a fork into another folder, checks nothing.
+    assert!(check_env_with(false, there.manifest.as_ref(), here, &lacking).is_empty());
+    let other = forked(&there, "/home/b/other");
+    assert!(other.manifest.is_none());
+}
+
+/// A preview's port is kept once, in order, while the manifest holds for the folder and has room;
+/// off, or for another folder, nothing is kept.
+#[test]
+fn a_preview_port_is_kept_once_in_order() {
+    let derives = Cell::new(0);
+    let mut chat = meta("/repo");
+    start(true, &mut chat, &derives);
+    let cwd = chat.cwd.clone();
+    let cwd = std::path::Path::new(&cwd);
+    assert!(keep_port(true, &mut chat.manifest, cwd, 5173));
+    assert!(keep_port(true, &mut chat.manifest, cwd, 3000));
+    assert!(!keep_port(true, &mut chat.manifest, cwd, 5173));
+    assert_eq!(chat.manifest.as_ref().unwrap().ports, [3000, 5173]);
+    let json = serde_json::to_string(&chat).unwrap();
+    assert!(json.contains("\"ports\":[3000,5173]"));
+    // No more than MAX_PORTS.
+    for port in 0..(MAX_PORTS as u16 + 4) {
+        keep_port(true, &mut chat.manifest, cwd, 8000 + port);
+    }
+    assert_eq!(chat.manifest.as_ref().unwrap().ports.len(), MAX_PORTS);
+    // Off, or for another folder, nothing is kept.
+    let mut off = meta("/repo");
+    start(true, &mut off, &derives);
+    assert!(!keep_port(false, &mut off.manifest, cwd, 3000));
+    assert!(!keep_port(true, &mut off.manifest, std::path::Path::new("/elsewhere"), 3000));
+    assert!(off.manifest.as_ref().unwrap().ports.is_empty());
+    // A manifest without ports reads back as before.
+    assert!(!serde_json::to_string(&off).unwrap().contains("ports"));
+}
+
+/// A move and a fork carry the ports: a start there names the ones something else holds, never
+/// the session's own running servers, and is counted.
+#[test]
+fn a_move_or_fork_start_names_a_taken_port() {
+    let derives = Cell::new(0);
+    let mut chat = meta("/home/a/repo");
+    start(true, &mut chat, &derives);
+    let cwd = chat.cwd.clone();
+    keep_port(true, &mut chat.manifest, std::path::Path::new(&cwd), 3000);
+    keep_port(true, &mut chat.manifest, std::path::Path::new(&cwd), 5173);
+    let there = moved(&chat, "/home/b/repo");
+    let here = std::path::Path::new("/home/b/repo");
+    assert_eq!(there.manifest.as_ref().unwrap().ports, [3000, 5173]);
+    assert!(check_ports_with(true, there.manifest.as_ref(), here, &[], |_| false).is_empty());
+    let before = ports_taken();
+    assert_eq!(check_ports_with(true, there.manifest.as_ref(), here, &[], |p| p == 5173), [5173]);
+    assert!(ports_taken() > before);
+    // Its own running server holds the port: not a conflict.
+    assert_eq!(check_ports_with(true, there.manifest.as_ref(), here, &[5173], |_| true), [3000]);
+    let fork = forked(&there, "/home/b/repo");
+    assert_eq!(check_ports_with(true, fork.manifest.as_ref(), here, &[], |p| p == 3000), [3000]);
+    // Off, or a fork into another folder, checks nothing.
+    assert!(check_ports_with(false, there.manifest.as_ref(), here, &[], |_| true).is_empty());
+    assert!(forked(&there, "/home/b/other").manifest.is_none());
+}
+
+/// The loopback probe sees a listener this test holds and not one it closed.
+#[test]
+fn the_loopback_probe_sees_a_held_port() {
+    let held = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let port = held.local_addr().unwrap().port();
+    assert!(loopback_taken(port));
+    drop(held);
+    assert!(!loopback_taken(port));
 }
