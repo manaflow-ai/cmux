@@ -540,6 +540,12 @@ public final class HoverCardCoordinator {
         // Each step of a live resize posts the window's resize, and the card waits for the resize's end
         // (`geometryChanged`): no step looks for the window among every source's.
         guard let changed, liveResizeEnded || !Motion.isLiveResizing(changed) else { return }
+        // A move that cannot change a card reads no source (a divider drag moves windows no source lives in on every
+        // frame, a page's window or a catcher panel, with the button held). Under a held button `geometryChanged` only
+        // syncs the card's mouse, which reads no window; with nothing hovered it looks only when the pointer is in the
+        // window that moved.
+        if mouseButtonDown() { updateCardMouse(); return }
+        if machine.phase == .idle, machine.lastHit == nil, !changed.frame.contains(currentPointer()) { return }
         let number = changed.windowNumber
         guard number != panel?.windowNumber,
               let window = sources.values.lazy.compactMap({ $0.source?.hoverCardWindow }).first(where: { $0.windowNumber == number })

@@ -71,19 +71,44 @@ extension LayoutRootView {
     /// ``whenStill(_:on:_:)`` once `delay` passed with no later call for `key`. For hidden content that follows changes
     /// which come in every frame with no spring (a sidebar drag or reveal, a window resized in steps): it lays out once,
     /// after the last change, never in a motion's frames. Hidden work only: the wait delays nothing the person sees.
+    /// A call during a layout motion (a divider drag asks once per moved pane per frame) only replaces the waiting work:
+    /// nothing can run before the layout is still, so the delay counts from the motion's landing (`runStillWork`), and
+    /// the motion's frames arm and cancel no timer. A window's live resize holds no timer: its end has no call that
+    /// reliably comes last (AppKit can still report the resize in `viewDidEndLiveResize`, and the last drag event's
+    /// layout can come after it), so a call during one arms the timer, as before, and `whenStill` holds the work.
     public func whenSettled(_ key: String, after delay: Duration, on queue: FrameBatchQueue, _ work: @escaping @MainActor () -> Void) {
-        let timer = settlingWork[key]?.timer ?? DemandTimer(owner: key)
-        settlingWork[key] = (timer, queue, work)
+        let previous = settlingWork[key]
+        let timer = previous?.timer ?? DemandTimer(owner: key)
+        guard !isInLayoutMotion else {
+            if previous?.armed == true { timer.cancel() }
+            settlingWork[key] = SettlingWork(timer: timer, delay: delay, queue: queue, work: work, armed: false)
+            return
+        }
+        settlingWork[key] = SettlingWork(timer: timer, delay: delay, queue: queue, work: work, armed: true)
+        armSettle(key, timer: timer, after: delay)
+    }
+
+    private func armSettle(_ key: String, timer: DemandTimer, after delay: Duration) {
         timer.schedule(after: delay) { @MainActor [weak self] in
             guard let self, let entry = self.settlingWork.removeValue(forKey: key) else { return }
             self.whenStill(key, on: entry.queue, entry.work)
         }
     }
 
+    /// The layout motion landed: the settles asked for during it start counting now.
+    private func armWaitingSettles() {
+        for (key, entry) in settlingWork where !entry.armed {
+            settlingWork[key]?.armed = true
+            armSettle(key, timer: entry.timer, after: entry.delay)
+        }
+    }
+
     private var isStill: Bool { !isInLayoutMotion && window?.inLiveResize != true }
 
-    /// Queues the waiting ``whenStill(_:on:_:)`` work when the layout is still.
+    /// Queues the waiting ``whenStill(_:on:_:)`` work when the layout is still, and starts the settles a layout motion
+    /// held once it landed (every landing calls this).
     func runStillWork() {
+        if !isInLayoutMotion { armWaitingSettles() }
         guard isStill, !stillWork.isEmpty else { return }
         let ready = stillWork
         stillWork.removeAll()
@@ -148,4 +173,14 @@ extension LayoutRootView: PaneCardSource {
     }
 
     public func observePaneCards(_ block: @escaping () -> Void) -> AnyObject { observeOverlaySync(block) }
+}
+
+/// ``LayoutRootView/whenSettled(_:after:on:_:)`` work waiting for its settle: its timer, the delay it counts, the queue
+/// it runs on, and whether the timer runs now (false while a layout motion holds it).
+struct SettlingWork {
+    let timer: DemandTimer
+    let delay: Duration
+    let queue: FrameBatchQueue
+    let work: @MainActor () -> Void
+    var armed: Bool
 }

@@ -108,8 +108,10 @@ import Testing
         defer { close(h) }
         let field = h.chrome.field.frame
         for (name, glass) in [("+", h.chrome.plusGlass), ("emoji", h.chrome.emojiGlass)] where !glass.isHidden {
-            #expect(!glass.frame.intersects(field), "the \(name) button covers the field at \(width) pt")
-            #expect(glass.frame.minX >= 0 && glass.frame.maxX <= CGFloat(width), "the \(name) button is outside the pane at \(width) pt")
+            // A button's glass is placed in its own container (FieldChrome.placeButton): its rect in the bar.
+            let rect = h.chrome.rect(of: glass)
+            #expect(!rect.intersects(field), "the \(name) button covers the field at \(width) pt")
+            #expect(rect.minX >= 0 && rect.maxX <= CGFloat(width), "the \(name) button is outside the pane at \(width) pt")
         }
         #expect(field.minX >= 0 && field.maxX <= CGFloat(width), "the field is outside the pane at \(width) pt")
     }

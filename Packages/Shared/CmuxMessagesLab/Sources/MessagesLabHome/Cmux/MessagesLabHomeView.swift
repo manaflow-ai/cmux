@@ -156,6 +156,10 @@ public final class MessagesLabHomeView: NSView {
 
     // MARK: Host API
 
+    /// cmux: a person's drag of this pane's divider or edge began (true) or ended and landed (false): the transcript
+    /// follows it as it follows its window's live resize.
+    public func followPaneResize(_ active: Bool) { controller.host.followPaneResize(active) }
+
     /// The host's notice, the transcript's system row under the newest message (nil: none).
     public var notice: String? {
         get { projection.notice }
