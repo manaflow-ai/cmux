@@ -461,6 +461,105 @@ struct AgentLaunchSanitizerTests {
         }
     }
 
+    @Test("Preserves Antigravity value options instead of truncating at their values")
+    func preservesAntigravityValueOptionsWithoutTruncating() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "agy",
+                    "--dangerously-skip-permissions",
+                    "--model",
+                    "gemini-2.5-pro",
+                    "--effort",
+                    "xhigh",
+                    "initial prompt should not replay",
+                ],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == [
+                "agy",
+                "--dangerously-skip-permissions",
+                "--model",
+                "gemini-2.5-pro",
+                "--effort",
+                "xhigh",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "agy",
+                    "--agent",
+                    "reviewer",
+                    "--mode",
+                    "auto",
+                    "--project",
+                    "demo",
+                    "--settings",
+                    "/tmp/settings.json",
+                    "--input-format",
+                    "text",
+                    "--output-format",
+                    "text",
+                    "--json-schema",
+                    "/tmp/schema.json",
+                ],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == [
+                "agy",
+                "--agent",
+                "reviewer",
+                "--mode",
+                "auto",
+                "--project",
+                "demo",
+                "--settings",
+                "/tmp/settings.json",
+                "--input-format",
+                "text",
+                "--output-format",
+                "text",
+                "--json-schema",
+                "/tmp/schema.json",
+            ]
+        )
+    }
+
+    @Test("Drops Antigravity resume aliases and rejects non-restorable subcommands")
+    func dropsAntigravityResumeAliasesAndRejectsManagementSubcommands() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "--resume", "old-conversation", "--model", "gemini-2.5-pro", "--effort", "high"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == ["agy", "--model", "gemini-2.5-pro", "--effort", "high"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "-r", "old-conversation", "--dangerously-skip-permissions", "--model", "gemini-2.5-pro"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == ["agy", "--dangerously-skip-permissions", "--model", "gemini-2.5-pro"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "--resume=old-conversation", "-r=other-conversation", "--mode", "plan"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == ["agy", "--mode", "plan"]
+        )
+        for subcommand in ["acp", "agent", "agents", "mcp", "mic-serve", "models", "remote-control"] {
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    ["agy", subcommand],
+                    launcher: "antigravity",
+                    fallbackKind: "antigravity"
+                ) == nil
+            )
+        }
+    }
+
     @Test("Drops Grok optional selectors without swallowing later options")
     func dropsGrokOptionalSelectorsWithoutSwallowingLaterOptions() {
         #expect(
