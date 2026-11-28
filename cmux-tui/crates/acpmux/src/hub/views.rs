@@ -5,6 +5,7 @@ use cmux_json::JsonSet as _;
 
 mod host_build;
 mod host_load;
+mod reserve_shadow;
 
 pub(crate) use host_build::{
     host_build_differs, live_host_build, other_build_host_line, other_build_hosts_line,

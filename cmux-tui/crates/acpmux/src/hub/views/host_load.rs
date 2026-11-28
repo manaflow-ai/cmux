@@ -84,12 +84,12 @@ impl Hub {
         }
         // The agents' own cores and memory (RFD 0072 piece 2), read off the runtime and at most
         // once per `session_usage::MIN_INTERVAL`; then Auto on reserve judges them in shadow
-        // (RFD 0072 stage 1, `reserve_shadow.rs`): `reserve` says what it would move, nothing moves.
+        // (RFD 0072 stage 1, `views/reserve_shadow.rs`): `reserve` says what it would move, nothing moves.
         let judged = verdict;
         let read = tokio::task::spawn_blocking(move || {
             let agents = crate::hub::session_usage::sample(roots);
             let sample = Meter::shared().last_sample();
-            let reserve = crate::hub::reserve_shadow::judge_now(
+            let reserve = super::reserve_shadow::judge_now(
                 crate::store::now_ms(),
                 sample.as_ref(),
                 judged.as_ref(),
