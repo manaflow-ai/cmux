@@ -83,6 +83,8 @@ pub mod desktop_center;
 pub mod editors;
 pub mod empty_workspace;
 pub mod files;
+pub mod handlers_close;
+pub mod handlers_placement;
 pub mod handlers_verbs;
 pub mod history;
 pub mod keybind_route;

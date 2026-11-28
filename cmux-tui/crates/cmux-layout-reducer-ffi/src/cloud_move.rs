@@ -11,9 +11,10 @@ use serde_json::{Value, json};
 
 use crate::ERR_INVALID;
 
-/// Whether `operation` is one of this module's.
+/// Whether `operation` is one of this module's: `cloud_move_*` but for `cloud_move_host`'s
+/// `cloud_move_host_*`.
 pub(crate) fn handles(operation: &[u8]) -> bool {
-    operation.starts_with(b"cloud_move_")
+    operation.starts_with(b"cloud_move_") && !operation.starts_with(b"cloud_move_host_")
 }
 
 fn read<'a, T: Deserialize<'a>>(request: &'a [u8]) -> Result<T, i32> {

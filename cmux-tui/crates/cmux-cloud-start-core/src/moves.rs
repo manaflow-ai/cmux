@@ -10,6 +10,7 @@ pub mod chat_moves;
 pub mod cli;
 pub mod folder;
 pub mod handoff;
+pub mod host;
 pub mod landed;
 pub mod ledger;
 pub mod login;
