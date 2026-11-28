@@ -72,15 +72,13 @@ public struct AgentInspectorEvent: Identifiable, Hashable, Sendable {
     public let update: String?
     /// The record as it came (encoded only when a person reads it).
     public let record: JSONValue
-    /// The record as one compact JSON line, encoded once (filter, export, the byte budget).
-    public let line: String
+    /// The bytes of ``line``, counted from the record without encoding it (the byte budget).
+    public let size: Int
 
     public init(id: Int, record: JSONValue) {
         self.id = id
         self.record = record
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        line = (try? encoder.encode(record)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        size = record.compactJSONSize
         seq = Int(record["seq"]?.numberValue ?? 0)
         at = record["at"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
         dir = record["dir"]?.stringValue ?? ""
@@ -88,6 +86,18 @@ public struct AgentInspectorEvent: Identifiable, Hashable, Sendable {
         let msg = record["msg"]
         method = msg?["method"]?.stringValue
         update = (msg?["params"]?["update"] ?? msg?["update"])?["sessionUpdate"]?.stringValue
+    }
+
+    /// The record as one compact JSON line (filter, export), encoded on each read: the
+    /// inspector reads it through ``AgentEventJournal/line(of:)``, which encodes each row once,
+    /// only while the inspector is open.
+    public var line: String { Self.encodeLine(record) }
+
+    /// The compact JSON line of `record` (sorted keys, slashes as they are).
+    static func encodeLine(_ record: JSONValue) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return (try? encoder.encode(record)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
     }
 
     /// The row's title, as the Mac's inspector names a record.
@@ -109,14 +119,62 @@ public struct AgentInspectorEvent: Identifiable, Hashable, Sendable {
 
     /// Whether the filter text matches the row (case-insensitive; its name, kind or body).
     public func matches(_ filter: String) -> Bool {
+        matches(filter, line: line)
+    }
+
+    /// ``matches(_:)`` with the row's line given (``AgentEventJournal/line(of:)``): read only
+    /// when the name, kind and direction don't match.
+    public func matches(_ filter: String, line: @autoclosure () -> String) -> Bool {
         let query = filter.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return true }
         return [title, kind, dir].contains { $0.localizedCaseInsensitiveContains(query) }
-            || line.localizedCaseInsensitiveContains(query)
+            || line().localizedCaseInsensitiveContains(query)
     }
 }
 
-/// The newest raw records of one chat, kept while its source lives (bounded).
+extension JSONValue {
+    /// The bytes of this value as compact JSON from `JSONEncoder` (`.sortedKeys`,
+    /// `.withoutEscapingSlashes`), counted without encoding: a walk over the value and one pass
+    /// over each string's UTF-8 for the characters JSON escapes. A number counts as the
+    /// encoder writes it (its shortest form, an integral one without ".0").
+    public var compactJSONSize: Int {
+        switch self {
+        case .null: return 4
+        case .bool(let value): return value ? 4 : 5
+        case .number(let value):
+            guard value.isFinite else { return 0 }
+            var text = "\(value)"
+            if text.hasSuffix(".0") { text.removeLast(2) }
+            return text.utf8.count
+        case .string(let value): return Self.quotedSize(value)
+        case .array(let values):
+            return 2 + max(0, values.count - 1) + values.reduce(0) { $0 + $1.compactJSONSize }
+        case .object(let members):
+            // `{` `}`, a comma between members, and each `"key":value`.
+            return 2 + max(0, members.count - 1)
+                + members.reduce(0) { $0 + Self.quotedSize($1.key) + 1 + $1.value.compactJSONSize }
+        }
+    }
+
+    /// A JSON string's bytes with its quotes: `"` and `\` and the short control escapes (\b \t
+    /// \n \f \r) take two, any other control character six (\u00XX).
+    static func quotedSize(_ string: String) -> Int {
+        var size = 2
+        for byte in string.utf8 {
+            switch byte {
+            case 0x22, 0x5C, 0x08, 0x09, 0x0A, 0x0C, 0x0D: size += 2
+            case 0x00..<0x20: size += 6
+            default: size += 1
+            }
+        }
+        return size
+    }
+}
+
+/// The newest raw records of one chat, kept while its source lives (bounded). A record is
+/// kept as it came: its JSON line is encoded only when the inspector reads it (its filter,
+/// Copy as JSON Lines), at most once per row, so a chat whose inspector stays closed (almost
+/// every chat) encodes nothing.
 @MainActor
 @Observable
 public final class AgentEventJournal {
@@ -134,29 +192,34 @@ public final class AgentEventJournal {
     /// Rows dropped for the limit since the last Clear.
     public private(set) var dropped = 0
     @ObservationIgnored private var next = 0
+    /// The rows' JSON lines encoded so far, by row id (only while the inspector reads them).
+    @ObservationIgnored private var lines: [Int: String] = [:]
+    /// JSON lines encoded (tests and measurements): the inspector's reads only.
+    @ObservationIgnored public private(set) var linesEncoded = 0
 
     public init() {}
 
     public func record(_ record: JSONValue) {
         var event = AgentInspectorEvent(id: next, record: record)
-        if event.line.utf8.count > Self.maxRecordBytes {
-            let size = event.line.utf8.count
+        if event.size > Self.maxRecordBytes {
+            let size = event.size
             var kept: [String: JSONValue] = ["cut": .string("\(size) bytes; only its kind and seq are kept on iPhone")]
             for key in ["seq", "at", "dir", "kind", "sessionId"] { if let value = record[key] { kept[key] = value } }
             event = AgentInspectorEvent(id: next, record: .object(kept))
         }
         events.append(event)
-        bytes += event.line.utf8.count
+        bytes += event.size
         next += 1
         // The oldest go first, past the row limit or the byte budget (the newest always stays).
         var over = 0
         var kept = bytes
         while over < events.count - 1, events.count - over > Self.limit || kept > Self.maxBytes {
-            kept -= events[over].line.utf8.count
+            kept -= events[over].size
             over += 1
         }
         if over > 0 {
             bytes = kept
+            if !lines.isEmpty { for event in events[..<over] { lines[event.id] = nil } }
             events.removeFirst(over)
             dropped += over
         }
@@ -166,11 +229,43 @@ public final class AgentEventJournal {
         events = []
         dropped = 0
         bytes = 0
+        lines = [:]
+    }
+
+    /// The row's compact JSON line, encoded the first time the inspector reads it.
+    public func line(of event: AgentInspectorEvent) -> String {
+        if let line = lines[event.id] { return line }
+        let line = AgentInspectorEvent.encodeLine(event.record)
+        linesEncoded += 1
+        lines[event.id] = line
+        return line
+    }
+
+    /// The rows the inspector's filter keeps, oldest first.
+    public func rows(matching filter: String) -> [AgentInspectorEvent] {
+        events.filter { event in event.matches(filter, line: line(of: event)) }
+    }
+
+    /// Encodes the lines of the rows not encoded yet off the main actor, so the inspector's
+    /// first filter or export reads them from memory (up to ``maxBytes`` of JSON: too much to
+    /// encode on the main actor). The inspector calls it when it opens.
+    public func prepareLines() async {
+        let pending = events.filter { lines[$0.id] == nil }.map { (id: $0.id, record: $0.record) }
+        guard !pending.isEmpty else { return }
+        let encoded = await Task.detached(priority: .userInitiated) {
+            pending.map { (id: $0.id, line: AgentInspectorEvent.encodeLine($0.record)) }
+        }.value
+        // Rows dropped or cleared meanwhile are not kept.
+        let kept = Set(events.map(\.id))
+        for row in encoded where kept.contains(row.id) && lines[row.id] == nil {
+            lines[row.id] = row.line
+            linesEncoded += 1
+        }
     }
 
     /// The rows as JSON Lines (the Mac's Export).
     public func jsonLines(_ rows: [AgentInspectorEvent]) -> String {
-        rows.map(\.line).joined(separator: "\n")
+        rows.map { line(of: $0) }.joined(separator: "\n")
     }
 }
 

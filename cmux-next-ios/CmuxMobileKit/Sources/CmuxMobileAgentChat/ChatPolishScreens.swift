@@ -248,7 +248,7 @@ struct EventInspectorScreen: View {
     var body: some View {
         Group {
             if let journal {
-                let rows = journal.events.filter { $0.matches(filter) }
+                let rows = journal.rows(matching: filter)
                 List {
                     Section {
                         ForEach(rows.reversed()) { event in
@@ -300,6 +300,9 @@ struct EventInspectorScreen: View {
         }
         .searchable(text: $filter, prompt: "Filter")
         .cmuxMobileSensoryFeedback(.success, trigger: copied)
+        // The rows' JSON lines (the filter and Copy read them) are encoded off the main actor as
+        // the inspector opens, never while it is closed.
+        .task { await journal?.prepareLines() }
         .navigationTitle("Event Inspector")
         .navigationBarTitleDisplayMode(.inline)
     }
