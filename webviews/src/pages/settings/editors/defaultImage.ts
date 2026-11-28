@@ -33,3 +33,8 @@ export function defaultImageStatus(
   const status = environments.find((environment) => environment.id === selected)?.status;
   return status ? STATUS[status] : undefined;
 }
+
+/** How long the menu waits before each read again when one failed or the list was not available yet (signed in a
+ * moment ago, the host still reading): the hq start-matrix-gui probe (run 46109146613) opened Settings right after
+ * sign-in and the menu kept only Auto for good, while the account had its environment. Mutable for tests. */
+export const defaultImageRetry = { delaysMs: [1_000, 2_000, 4_000, 8_000, 15_000] };

@@ -1,7 +1,6 @@
 # Functions the React Compiler skips, per file, from before the rule (scripts/check-compiler-bails.mjs). Only moves down.
 src/agent-session/acpmux/AddAccountDialog.tsx	1
 src/agent-session/acpmux/App.tsx	1
-src/agent-session/acpmux/ChiefDock.tsx	1
 src/agent-session/acpmux/CloudStartView.tsx	1
 src/agent-session/acpmux/ComposerBox.tsx	1
 src/agent-session/acpmux/ComposerContext.tsx	1
@@ -125,7 +124,6 @@ src/agent-session/acpmux/session-info/SessionInfoPresence.tsx	1
 src/agent-session/acpmux/session-info/SourcesSection.tsx	1
 src/agent-session/acpmux/session-info/SubagentsSection.tsx	1
 src/agent-session/acpmux/session-info/TasksSection.tsx	1
-src/agent-session/acpmux/session-info/WindowedRows.tsx	1
 src/agent-session/acpmux/session-info/foldMotion.ts	1
 src/agent-session/acpmux/session-info/imessage.ts	1
 src/agent-session/acpmux/session-info/native/NativeSessionInfo.tsx	2
@@ -160,7 +158,6 @@ src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx	2
 src/agent-session/acpmux/threadMinimap/useRailPlacement.ts	1
 src/agent-session/acpmux/trustHeld.ts	1
 src/agent-session/acpmux/uiPointer/UiPointerStage.tsx	1
-src/agent-session/acpmux/useClaudeConnectFlow.tsx	1
 src/agent-session/acpmux/useCloudChatRecovery.ts	1
 src/agent-session/acpmux/useFolderTrustAsk.ts	1
 src/agent-session/acpmux/worktreeSetup.tsx	1
