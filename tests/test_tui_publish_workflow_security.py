@@ -1713,7 +1713,14 @@ def test_cmux_next_daemon_tests_take_linux_and_the_mac_shadow_never_the_promote_
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     daemon_cells = workflow_jobs.runs_on_cells(jobs["cmux-next-daemon-tests"])
-    assert daemon_cells == ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"]
+    # #64136: a nightly-ref rerun leaves the cmux-linux box that failed it for the reserved GCP Linux
+    # pool (tests/test_cmux_tui_daemon_tests_gate.py routes every context); still never the promote pool.
+    assert daemon_cells == [
+        "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && "
+        "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || "
+        "github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
+    ], daemon_cells
+    assert "PROMOTE" not in daemon_cells[0], daemon_cells
     assert "cmux-next-daemon-macos-shadow" not in jobs
     shadow_doc = yaml.load(workflow("cmux-next-daemon-macos-shadow.yml"), Loader=yaml.BaseLoader)
     shadow_cells = workflow_jobs.runs_on_cells(shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"])
