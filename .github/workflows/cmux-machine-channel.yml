@@ -572,6 +572,62 @@ jobs:
           rm -rf "$dir/binaries"
           scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
 
+  # MACHINE_ROLL_REQUEST: the Cloud VM image roll as soon as this commit's x86_64 machine build is written (write-once,
+  # under cmux-tui/<commit>/machine/) and the channel points at it. The image lock pins exactly those two x86_64 musl
+  # programs (images/cmux-vm/pin-cmux-tui.ts machinePins; a commit with no manifest.json is pinned from machine/), so the
+  # roll waits for no macOS, aarch64, Windows or fallback leg. cmux-tui-artifacts.yml's publish and request-image-roll
+  # still dispatch for a full build; a second request for a commit the lock already carries ends in "keep"
+  # (auto-roll.ts plan), and a newer request replaces a waiting roll. Before: a merge's roll waited for publish, which
+  # needs build and darwin-fallback (macos-26 queue 78 min, 2026-11-28) and a green Linux build: 1 of 14 real builds
+  # 05:26-12:40Z reached it, and no roll was asked for after 09:00Z. A failed dispatch leaves this run green.
+  request-image-roll:
+    name: request the Cloud VM image roll from the x86_64 machine build
+    needs: [point-x86_64]
+    if: ${{ !cancelled() && needs.point-x86_64.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    # Secrets only: no deployment. The spare token is the cmux-bot App's (as cmux-tui-artifacts.yml request-image-roll).
+    environment:
+      name: ci-routing-agent
+      deployment: false
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Repair a reused self-hosted checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
+          fi
+
+      - name: Mint the dispatch's spare token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+      - name: Dispatch the image roll
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_BUDGET_WAIT_MAX_SECONDS: 180
+        run: bash scripts/ci/gh_budget_wait.sh workflow run cloud-vm-image-roll.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f commit="$GITHUB_SHA"
+
   # The Cloud machine channel's journey verdict, minutes after point-x86_64 moves it, and its rollback to the
   # last proven build: .github/workflows/cloud-machine-channel-journey.yml (a baseline while this commit builds,
   # the verdict once the channel names it, then the settle). Its own file keeps the journey's leaked-machine age
