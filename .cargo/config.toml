@@ -8,3 +8,16 @@
 # (2026-11-14 profile). Without it each connection keeps its own page cache. Nothing here calls
 # sqlite3_release_memory or a heap limit, the only users of that option.
 LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_MEMORY_MANAGEMENT"
+
+# Apple targets: compact unwind for Rust functions too (CMUX-570, "decreasing bundle size"). LLVM gives
+# compact unwind only to functions whose personality is ___gxx_personality_v0; every Rust function with
+# a landing pad uses rust_eh_personality, so it got a DWARF FDE in __eh_frame instead (bin/cmux:
+# 149,064 of 245,950 functions, 8.73 MB of __eh_frame). This flag encodes them in __unwind_info, where
+# ld64 records the personality per entry. Unwinding (panics, catch_unwind, backtraces) is unchanged:
+# scripts/measure/bin-cmux-compact-unwind.sh checks it. A RUSTFLAGS variable replaces this list, so
+# scripts/cmux-next/build-app-ffi.sh (which sets one) does not get it yet.
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "llvm-args=--emit-compact-unwind-non-canonical"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "llvm-args=--emit-compact-unwind-non-canonical"]
