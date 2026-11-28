@@ -85,17 +85,25 @@ PROBE_NAMES = ("probe.rs", "Cargo.toml", "Cargo.lock", "Probe.swift", "probe.py"
 
 
 def router_ignores(root: Path):
-    """A predicate: True for a path pr_router.json's compile preflight `paths-ignore` ignores (GitHub's filter
-    semantics, scripts/ci/workflow_paths_cover_inputs.py admits, as pr_router.py matches_filter reads them)."""
+    """A predicate: True for a path pr_router.json's compile preflight entry does not route (GitHub's filter
+    semantics, scripts/ci/workflow_paths_cover_inputs.py admits, as pr_router.py matches_filter and affects read
+    them): one its `affects` list does not admit, or one its `paths-ignore` ignores.
+
+    `affects` names the web bundle inputs' trees narrowly (Packages/macOS's string catalogs, not its Swift), so a
+    webviews source that starts importing a file outside them must fail here, at the head that adds the import:
+    before this the check read only `paths-ignore`, which #61854 replaced with `affects`, and it passed every head."""
     import json
 
-    patterns = json.loads((root / ROUTER_MANIFEST).read_text())["callees"][PREFLIGHT_CALLEE].get("paths-ignore") or []
+    config = json.loads((root / ROUTER_MANIFEST).read_text())["callees"][PREFLIGHT_CALLEE]
+    patterns = config.get("paths-ignore") or []
+    affects = config.get("affects")
     spec = importlib.util.spec_from_file_location("workflow_paths_cover_inputs",
                                                   root / "scripts/ci/workflow_paths_cover_inputs.py")
     filters = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = filters  # its dataclasses look their module up here
     spec.loader.exec_module(filters)
-    return lambda path: bool(patterns) and not filters.admits("paths-ignore", patterns, path)
+    return lambda path: ((affects is not None and not filters.admits("paths", affects, path))
+                         or (bool(patterns) and not filters.admits("paths-ignore", patterns, path)))
 
 
 def never_web_problems(root: Path, routed: list[str], ignored) -> list[str]:
@@ -114,8 +122,9 @@ def cmd_never_web_check(root: Path) -> int:
     routed = key_module(root).routed_inputs(str(root))
     problems = never_web_problems(root, routed, router_ignores(root))
     for path in problems[:MAX_ANNOTATIONS]:
-        print(f"::error title=compile preflight paths-ignore::{path} is a web bundle input (web-bundle-key.py --routed) "
-              f"that {ROUTER_MANIFEST}'s {PREFLIGHT_CALLEE} paths-ignore skips; add a `!{path}` line there")
+        print(f"::error title=compile preflight routing::{path} is a web bundle input (web-bundle-key.py --routed) "
+              f"that {ROUTER_MANIFEST}'s {PREFLIGHT_CALLEE} entry does not route; add it to `affects` (or a `!{path}` "
+              f"line to `paths-ignore`)")
     if problems:
         print(f"compile preflight: {len(problems)} web bundle input(s) the router would skip", file=sys.stderr)
         return 1
@@ -153,7 +162,9 @@ def cmd_merge_live_base(root: Path, base_ref: str, pr: str) -> int:
         return 0
     head_sha = head.stdout.strip()
     old_base = git_run(root, "rev-parse", "HEAD^1").stdout.strip()
-    git_run(root, "fetch", "--no-tags", "--depth=1", "origin", f"+refs/heads/{base_ref}:refs/remotes/origin/{base_ref}")
+    # Only a shallow checkout fetches shallow: a full clone must not turn shallow.
+    shallow = git_run(root, "rev-parse", "--is-shallow-repository", check=False).stdout.strip() == "true"
+    git_run(root, "fetch", "--no-tags", *(["--depth=1"] if shallow else []), "origin", f"+refs/heads/{base_ref}:refs/remotes/origin/{base_ref}")
     tip = git_run(root, "rev-parse", f"refs/remotes/origin/{base_ref}").stdout.strip()
     if tip == old_base:
         print(f"merge-live-base: the merge commit's base {tip[:12]} is the live tip", file=sys.stderr)
@@ -161,7 +172,7 @@ def cmd_merge_live_base(root: Path, base_ref: str, pr: str) -> int:
     git_run(root, "checkout", "-q", "--detach", tip)
     merged = None
     for depth in DEPTHS:
-        git_run(root, "fetch", "--no-tags", f"--depth={depth}", "origin", tip, f"+refs/pull/{pr}/head:refs/remotes/pull/{pr}/head")
+        git_run(root, "fetch", "--no-tags", *([f"--depth={depth}"] if shallow else []), "origin", tip, f"+refs/pull/{pr}/head:refs/remotes/pull/{pr}/head")
         merged = git_run(root, "-c", "user.name=cmux-ci", "-c", "user.email=ci@cmux.invalid", "merge", "--no-ff",
                          "--no-edit", "-m", f"Merge {head_sha} into {tip}", head_sha, check=False)
         if merged.returncode == 0 or "unrelated histories" not in (merged.stderr + merged.stdout):
