@@ -254,7 +254,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         };
         let mut connection = BufReader::new(stream);
         let deadline = Instant::now() + Duration::from_secs(10);
-        let identity = match exchange(&mut connection, json!({"id":1,"cmd":"identify"}), deadline) {
+        // `restore_progress`: an owner still restoring answers it at once
+        // (`lifecycle_ready: false` with its restore phase) instead of parking
+        // the request until the restore ends, which read as a busy session.
+        let request = json!({"id":1,"cmd":"identify","restore_progress":true});
+        let identity = match exchange(&mut connection, request, deadline) {
             Ok(identity) => identity,
             // A timeout is a busy session, not a foreign one: say so, or the
             // reader restarts a healthy session with another build.
@@ -298,7 +302,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             }
             let message = crate::localization::catalog().local_server.starting;
             // Still retryable for a program that can wait longer.
-            let error = json!({"code":"server.unavailable","message":message,"details":{"reason":"starting"},"retryable":true});
+            let mut details = json!({"reason":"starting"});
+            if let Some(restore) = identity.get("restore") {
+                details["restore"] = restore.clone();
+            }
+            let error = json!({"code":"server.unavailable","message":message,"details":details,"retryable":true});
             return super::wire::print_local_error(&error, global.output, 3);
         }
         break (connection, identity, deadline);
