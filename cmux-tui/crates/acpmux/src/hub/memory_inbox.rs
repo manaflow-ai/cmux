@@ -51,14 +51,24 @@ impl Hub {
                 tokio::task::spawn_blocking(move || {
                     let existing = crate::memory_inbox::read(&cwd, file);
                     let dismissed = dismissed().of(&cwd);
-                    (existing, dismissed)
+                    let index = crate::cited_memory::enabled()
+                        .then(|| crate::cited_memory::Index::of(&cwd));
+                    (existing, dismissed, index)
                 })
                 .await
             };
-            let Ok((Ok(existing), dismissed)) = read else { return };
+            let Ok((Ok(existing), dismissed, index)) = read else { return };
             let created = existing.is_none();
             let existing = existing.unwrap_or_default();
             let facts = crate::memory_inbox::fresh(&learned, &existing, &dismissed);
+            // RFD 0158 §13: a fact whose cited lines are all gone is not offered.
+            let (facts, cited) = match &index {
+                Some(index) => {
+                    let (kept, cited) = crate::cited_memory::screen(facts, index);
+                    (kept, Some(cited))
+                }
+                None => (facts, None),
+            };
             if facts.is_empty() {
                 return;
             }
@@ -74,6 +84,7 @@ impl Hub {
                     "facts": facts,
                     "heading": heading,
                     "created": created,
+                    "cited": cited,
                 }),
             );
         });

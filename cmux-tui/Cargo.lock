@@ -1399,6 +1399,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-agent-screen-detection"
+version = "0.1.0"
+dependencies = [
+ "cmux-sdk",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "toml",
+]
+
+[[package]]
 name = "cmux-api-compat"
 version = "0.1.0"
 dependencies = [
@@ -1434,6 +1447,14 @@ dependencies = [
  "regex",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "cmux-app-workspace-creation"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1564,11 +1585,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-browser-grants"
+version = "0.1.0"
+dependencies = [
+ "psl",
+ "url",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
  "base64",
  "chacha20poly1305",
+ "cmux-browser-grants",
  "cmux-embed",
  "cmux-json",
  "cmux-process",
@@ -1718,6 +1748,21 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "cmux-cloud"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-cloud-client",
+ "cmux-cloud-disk",
+ "cmux-cloud-wire",
+ "cmux-terminal-iface",
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -2196,6 +2241,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-feed-push-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-felt"
 version = "0.1.0"
 dependencies = [
@@ -2604,6 +2659,7 @@ name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-conversation",
+ "cmux-feed-push-core",
  "cmux-mobile-core",
  "cmux-rd-screen",
  "serde_json",
@@ -3508,6 +3564,7 @@ dependencies = [
  "cmux-action-catalog",
  "cmux-agent-customize",
  "cmux-agent-pane-policy",
+ "cmux-agent-screen-detection",
  "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
@@ -3521,6 +3578,7 @@ dependencies = [
  "cmux-bytes",
  "cmux-cas",
  "cmux-chat-index",
+ "cmux-cloud",
  "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-cloud-config",
@@ -3697,6 +3755,7 @@ dependencies = [
  "cmux-app-manifest",
  "cmux-bookmarks-core",
  "cmux-bookmarks-ops",
+ "cmux-browser-grants",
  "cmux-browser-import",
  "cmux-build-space",
  "cmux-classic-import",
@@ -8390,6 +8449,21 @@ dependencies = [
  "regex-syntax",
  "unarray",
 ]
+
+[[package]]
+name = "psl"
+version = "2.1.265"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6872c2df60248a709a9a1bda933f7db785147afcb3e5e6a892a3cc613f576c9c"
+dependencies = [
+ "psl-types",
+]
+
+[[package]]
+name = "psl-types"
+version = "2.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
 
 [[package]]
 name = "pulldown-cmark"

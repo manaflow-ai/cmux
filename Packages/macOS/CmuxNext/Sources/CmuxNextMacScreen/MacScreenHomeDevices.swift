@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextDevices
+import CmuxNextWakeups
 import Foundation
 
 /// What the home page reads of the device hub: the hub (while signed in),
@@ -162,7 +164,8 @@ struct MacScreenHomeSnapshot: Equatable {
                                   accessibilityGranted: home.host.accessibilityGranted,
                                   session: hubHost.session, lastError: hubHost.lastError,
                                   showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing),
-                                  hubNote: registered ? nil : Self.hubNote(hub.status))
+                                  hubNote: home.hubNoteShows(registered: registered, status: hub.status)
+                                      ? Self.hubNote(hub.status) : nil)
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
                                                                                                restoring: source.box.restoring || source.box.connecting)
@@ -184,6 +187,13 @@ struct MacScreenHomeSnapshot: Equatable {
         case let .failed(reason, detail):
             return reason.words(detail: detail)
         }
+    }
+
+    /// The hold on "Connecting this Mac to the device hub…": a join that lands under ``NoticeTiming/connectionQuiet``
+    /// says nothing; a failure (its own words, `thisMacHubFailed`) shows at once.
+    @MainActor
+    static func hubJoiningHold() -> QuietHold {
+        QuietHold(owner: "macScreen.home.hubJoining", delay: NoticeTiming.connectionQuiet)
     }
 
     /// What This Mac says while this device is not on the hub yet: connecting, or why it could not register.
