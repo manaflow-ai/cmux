@@ -78,3 +78,12 @@ fn a_bitrate_cut_applies_at_once_and_a_small_rise_waits() {
     assert!(bitrate_change_applies(10_000, 10_500), "a 5% rise");
     assert!(!bitrate_change_applies(10_000, 10_000));
 }
+
+#[test]
+fn the_power_hint_is_set_only_when_a_measurement_asks() {
+    assert_eq!(power_efficiency(None), None);
+    assert_eq!(power_efficiency(Some("")), None);
+    assert_eq!(power_efficiency(Some("1")), Some(true));
+    assert_eq!(power_efficiency(Some(" 0\n")), Some(false));
+    assert_eq!(power_efficiency(Some("yes")), None);
+}
