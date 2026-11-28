@@ -252,6 +252,11 @@ async function stalledStream(options: {
   };
 }
 
+/// Connected again after the Stop check's reconnect. Each socket here is a new mock host whose
+/// journal starts over, so the pane reads the reconnect as a journal that went back and ends on the
+/// rewind's read on ("resynced"), its link up all the same.
+const connectedAgain = (connection: unknown) => connection === "connected" || connection === "resynced";
+
 test("Stop in a chat whose events stopped reaching the pane connects again, and the chat stops stopping", async () => {
   const run = await stalledStream({ deafOn: "cancel" });
   try {
@@ -260,7 +265,7 @@ test("Stop in a chat whose events stopped reaching the pane connects again, and 
     await run.client.cancel();
     expect(run.snapshot()?.stopping).toBe(true);
     expect(await settle(() => run.sockets() > 1, 10_000)).toBe(true);
-    expect(await settle(() => run.snapshot()?.connection === "connected" && run.snapshot()?.stopping !== true)).toBe(
+    expect(await settle(() => connectedAgain(run.snapshot()?.connection) && run.snapshot()?.stopping !== true)).toBe(
       true,
     );
     expect(run.errors.some((line) => line.includes("agent pane stall") && line.includes("a Stop has not ended"))).toBe(
@@ -355,7 +360,7 @@ test("a Stop whose check came due while the pane was hidden runs it once the pan
     state = "visible";
     dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
     expect(await settle(() => run.sockets() > 1, 10_000)).toBe(true);
-    expect(await settle(() => run.snapshot()?.connection === "connected" && run.snapshot()?.stopping !== true)).toBe(
+    expect(await settle(() => connectedAgain(run.snapshot()?.connection) && run.snapshot()?.stopping !== true)).toBe(
       true,
     );
   } finally {

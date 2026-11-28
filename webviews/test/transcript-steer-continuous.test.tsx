@@ -76,6 +76,10 @@ async function clientOf(
 ) {
   let socket: any;
   const promptRequests: string[] = [];
+  // The newest record streamed live (`push`): acpmux's log holds it, so its attach and reads end
+  // there, or a reconnect reads as a journal that went back (direct.ts `rewoundTo`).
+  let streamedThrough = 0;
+  const logEnd = () => Math.max(history.at(-1)?.seq ?? 0, streamedThrough);
   let promptSent!: () => void;
   const firstPrompt = new Promise<void>((resolve) => (promptSent = resolve));
   const session = {
@@ -98,14 +102,14 @@ async function clientOf(
       case "_acpmux/attach":
         return {
           session,
-          lastSeq: history.at(-1)?.seq ?? 0,
+          lastSeq: logEnd(),
           events: history.slice(-page),
           hasMore: page < history.length,
         };
       case "_acpmux/events": {
         const before = params?.beforeSeq ?? Infinity;
         const events = params?.kinds?.includes("transcript") ? history.filter((event) => event.seq < before) : [];
-        return { events, hasMore: false, more: false, lastSeq: history.at(-1)?.seq ?? 0 };
+        return { events, hasMore: false, more: false, lastSeq: logEnd() };
       }
       default:
         return null;
@@ -142,8 +146,10 @@ async function clientOf(
   await new Promise((resolve) => setTimeout(resolve, 0));
   /// Live records after the attach, as acpmux streams them.
   const push = (events: ReturnType<typeof record>) => {
-    for (const event of events)
+    for (const event of events) {
+      streamedThrough = Math.max(streamedThrough, event.seq);
       socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
+    }
   };
   /// The socket closes, as when acpmux restarts or the network drops.
   const drop = () => {
