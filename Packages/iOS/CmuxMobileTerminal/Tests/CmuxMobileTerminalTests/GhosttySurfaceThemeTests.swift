@@ -158,14 +158,16 @@ import UIKit
         terminalConfigTheme: rawConfig
     )
     defer { view.prepareForDismantle() }
-    let resetWhileReversed = Data(
-        ("\u{1B}]10;#123456\u{1B}\\" +
-            "\u{1B}]11;#654321\u{1B}\\" +
-            "\u{1B}]4;200;rgb:ab/cd/ef\u{1B}\\" +
-            "\u{1B}[?5h" +
-            "\u{1B}]110\u{1B}\\" +
-            "\u{1B}]111\u{1B}\\").utf8
-    )
+    // One string per sequence, joined: a six-way `+` chain of literals took the type checker past its limit.
+    let resetSequences: [String] = [
+        "\u{1B}]10;#123456\u{1B}\\",
+        "\u{1B}]11;#654321\u{1B}\\",
+        "\u{1B}]4;200;rgb:ab/cd/ef\u{1B}\\",
+        "\u{1B}[?5h",
+        "\u{1B}]110\u{1B}\\",
+        "\u{1B}]111\u{1B}\\",
+    ]
+    let resetWhileReversed = Data(resetSequences.joined().utf8)
 
     try #require(await view.processOutputAndWaitWithTestDeadline(resetWhileReversed))
     let frame = try exportThemeFrame(from: view)
