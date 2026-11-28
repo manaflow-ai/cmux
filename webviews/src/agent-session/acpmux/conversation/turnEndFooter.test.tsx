@@ -50,6 +50,7 @@ const summary = (id: string, at: number, fields: Partial<AcpmuxRow> = {}): Acpmu
 /// The footer's action row alone (Copy, Retry, Fork, the time): the error card above it keeps its own
 /// circled !, so a check for the row's failed mark reads only the row.
 const actionRow = (markup: string) => markup.slice(markup.indexOf("cv-turn-actions"));
+const errorCard = (markup: string) => markup.slice(0, markup.indexOf("cv-turn-actions"));
 const footerOf = (rows: AcpmuxRow[], family = "claude") =>
   turnView(rows, new Set(), { ...options, agentFamily: family }).filter((row) => row.kind === "turnSummary");
 
@@ -75,7 +76,7 @@ for (const family of ["claude", "codex"]) {
     expect(markup).toContain('aria-label="Copy"');
     // The error card says the turn failed (Leo, 2026-11-27: "remove the extraneous error icon in the
     // bottom area it's not important"): the row draws no failed mark, and never a done check.
-    expect(markup).toContain("cv-turn-error");
+    expect(errorCard(markup)).toContain("cv-turn-error__icon");
     expect(actionRow(markup)).not.toContain('aria-label="Failed"');
     expect(actionRow(markup)).not.toContain('data-icon="status.failure"');
     expect(markup).not.toContain('data-icon="action.confirm"');
@@ -89,6 +90,7 @@ test("a turn that failed before it did anything draws no failed mark and no Copy
   ]);
   const markup = renderToStaticMarkup(<TurnFooter row={footer!} />);
   expect(markup).toContain("cv-turn-actions--failed");
+  expect(errorCard(markup)).toContain("cv-turn-error__icon");
   expect(actionRow(markup)).not.toContain('aria-label="Failed"');
   expect(actionRow(markup)).not.toContain('data-icon="status.failure"');
   expect(markup).not.toContain('aria-label="Copy"');
