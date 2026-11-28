@@ -102,7 +102,7 @@
 2026-11-28T04:20:34.4279619Z ##[endgroup]
 2026-11-28T04:22:23.6333340Z ##[group]Run python3 -m unittest discover -s tools/own-machines -p 'test_*.py' -v $K
 2026-11-28T04:22:23.6358556Z ##[endgroup]
-2026-11-28T04:22:23.8187896Z ##[group]Run python3 -m unittest discover -s build-fleet/swift-linux-builder/gha-runners/service -p '*_test.py' -v $K
+2026-11-28T04:22:23.8187896Z ##[group]Run python3 -m unittest discover -s build-fleet/runner-pool/service -p '*_test.py' -v $K
 2026-11-28T04:22:23.8227121Z ##[endgroup]
 2026-11-28T04:22:24.1466149Z ##[group]Run python3 -m unittest discover -s build-fleet/codex-lane-reconciler -p '*_test.py' -v $K
 2026-11-28T04:22:24.1492342Z ##[endgroup]

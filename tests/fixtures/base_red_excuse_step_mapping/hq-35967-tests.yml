@@ -35,7 +35,7 @@ jobs:
         run: "python3 -m unittest discover -s tools/own-machines -p 'test_*.py' -v $K"
       - name: "runner-pool self-deploy suite"
         if: "${{ !cancelled() && steps.select.outputs.run_runner_pool != 'false' }}"
-        run: "python3 -m unittest discover -s build-fleet/swift-linux-builder/gha-runners/service -p '*_test.py' -v $K"
+        run: "python3 -m unittest discover -s build-fleet/runner-pool/service -p '*_test.py' -v $K"
       - name: "codex-lane-reconciler suite"
         if: "${{ !cancelled() && steps.select.outputs.run_codex_lane != 'false' }}"
         run: "python3 -m unittest discover -s build-fleet/codex-lane-reconciler -p '*_test.py' -v $K"
