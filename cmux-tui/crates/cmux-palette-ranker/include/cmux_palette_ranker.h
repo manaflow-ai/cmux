@@ -48,4 +48,23 @@ int32_t cmux_palette_ranker_rank(
     const uint8_t **response,
     size_t *response_len);
 
+/* The palette's scope graph and navigation reducer (cmux-palette-ranker src/nav): one handle
+ * holds the graph, the entry config and the navigation state. Requests are JSON objects with an
+ * "op": "graph" {root, scopes, install} answers the registered graph and its problems; "config"
+ * {config} answers it normalized; "reduce" {events, full} applies the events and answers
+ * {effects, state}, whose levels carry "rows" only when they changed since the last answer (all
+ * of them when "full"); "state" {full} answers the state; "tabSearchRows" {entries, style,
+ * strings} answers Search Tabs rows (src/tab_search.rs) and leaves the state alone. Return codes are the ranker's; the
+ * response bytes stay valid until the next call on `nav`. A handle is not thread-safe. */
+typedef struct CmuxPaletteNav CmuxPaletteNav;
+
+CmuxPaletteNav *cmux_palette_nav_new(void);
+void cmux_palette_nav_free(CmuxPaletteNav *nav);
+int32_t cmux_palette_nav_call(
+    CmuxPaletteNav *nav,
+    const uint8_t *request,
+    size_t request_len,
+    const uint8_t **response,
+    size_t *response_len);
+
 #endif

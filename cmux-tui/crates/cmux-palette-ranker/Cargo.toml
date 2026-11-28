@@ -5,13 +5,14 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "The shared command-palette ranker (match tiers, typos, aliases, pins, learned picks, frecency) and its C ABI"
+description = "The shared command-palette core: the ranker (match tiers, typos, aliases, pins, learned picks, frecency), the scope graph and navigation reducer, and their C ABI"
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 unicode-normalization = { workspace = true }
 unicode-general-category = "1.1"
+unicode-segmentation = { workspace = true }
 
 [lints]
 workspace = true

@@ -180,3 +180,80 @@ pub unsafe extern "C" fn cmux_palette_ranker_rank(
     }
     code
 }
+
+/// The opaque navigation handle: the palette's scope graph, entry config and navigation state
+/// (`crate::nav::Nav`), with the last response.
+pub struct CmuxPaletteNav {
+    nav: crate::nav::Nav,
+    response: Vec<u8>,
+}
+
+/// Creates a navigation handle with the root-only graph and the default config. Free it with
+/// [`cmux_palette_nav_free`].
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_palette_nav_new() -> *mut CmuxPaletteNav {
+    Box::into_raw(Box::new(CmuxPaletteNav {
+        nav: crate::nav::Nav::default(),
+        response: Vec::new(),
+    }))
+}
+
+/// Frees a handle from [`cmux_palette_nav_new`]. Null is ignored.
+///
+/// # Safety
+///
+/// `nav` is null or a live handle from `cmux_palette_nav_new`, not used afterwards.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_palette_nav_free(nav: *mut CmuxPaletteNav) {
+    if !nav.is_null() {
+        // SAFETY: the caller hands back a handle from `cmux_palette_nav_new` once.
+        drop(unsafe { Box::from_raw(nav) });
+    }
+}
+
+/// Answers one JSON request (`crate::nav::Request`: `graph`, `config`, `reduce`, `state`). On `OK`
+/// the response is the answer's JSON; on `ERR_INVALID` or `ERR_PANIC` it is a message; on
+/// `ERR_NULL` it is null with length 0 (nothing is written when an out pointer is null). The bytes
+/// stay valid until the next call on this handle. A handle is not thread-safe: one caller at a
+/// time.
+///
+/// # Safety
+///
+/// `nav` is a live handle; `request` points to `request_len` readable bytes; `response` and
+/// `response_len` are writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_palette_nav_call(
+    nav: *mut CmuxPaletteNav,
+    request: *const u8,
+    request_len: usize,
+    response: *mut *const u8,
+    response_len: *mut usize,
+) -> i32 {
+    if response.is_null() || response_len.is_null() {
+        return ERR_NULL;
+    }
+    // SAFETY: both out pointers were checked non-null and are writable by the caller.
+    unsafe {
+        *response = std::ptr::null();
+        *response_len = 0;
+    }
+    if nav.is_null() {
+        return ERR_NULL;
+    }
+    let Some(request) = (unsafe { input(request, request_len) }) else { return ERR_NULL };
+    // SAFETY: a live handle, used by one caller at a time.
+    let handle = unsafe { &mut *nav };
+    let result = catch_unwind(AssertUnwindSafe(|| match handle.nav.call(request) {
+        Ok(bytes) => (OK, bytes),
+        Err(message) => (ERR_INVALID, message.into_bytes()),
+    }));
+    let (code, bytes) =
+        result.unwrap_or_else(|_| (ERR_PANIC, b"palette navigation panicked".to_vec()));
+    handle.response = bytes;
+    // SAFETY: both out pointers were checked non-null and are writable by the caller.
+    unsafe {
+        *response = handle.response.as_ptr();
+        *response_len = handle.response.len();
+    }
+    code
+}

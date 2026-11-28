@@ -19,8 +19,10 @@
 
 pub mod ffi;
 pub mod filter;
+pub mod nav;
 mod rank;
 mod shortcut;
+pub mod tab_search;
 mod text;
 mod tier;
 
