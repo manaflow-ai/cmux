@@ -2751,8 +2751,8 @@ enum Pushed {
     TimedOut,
 }
 
-/// A pushed turn's end: its stop reason, its last reply, and when (the records' own `at`, ms) its prompt went
-/// in, its first agent output came and it ended.
+/// A pushed turn's end: stop reason, last reply, and when (records' `at`, ms) its prompt went in (`prompt_at`,
+/// set against the gateway call line's `at`), its first output came and it ended.
 #[derive(Debug)]
 struct PushedTurn {
     stop: String,
@@ -2760,6 +2760,7 @@ struct PushedTurn {
     seq: u64,
     first_output_ms: Option<u64>,
     turn_ms: Option<u64>,
+    prompt_at: Option<u64>,
     /// A failed turn's record (`turn_error`, or a failed `turn_result`): its `msg`.
     failure: Option<Value>,
 }
@@ -2816,6 +2817,7 @@ impl PushedTurn {
             seq,
             first_output_ms: since(first_at),
             turn_ms: since(end_at),
+            prompt_at,
             failure,
         })
     }
@@ -2825,8 +2827,14 @@ impl PushedTurn {
             if FAILED_STOPS.contains(&self.stop.as_str()) { "failed" } else { "completed" };
         answer.set("turn", json!({"seq": self.seq, "status": status, "stop_reason": self.stop}));
         answer.set("wait_route", json!("link"));
-        // Felt time on the machine's clock: the prompt to the agent's first output, and to the turn's end.
-        answer.set("turn_ms", json!({"first_output": self.first_output_ms, "end": self.turn_ms}));
+        // Felt time (machine clock): prompt to first output and to the turn's end.
+        answer.set(
+            "turn_ms",
+            json!({"first_output": self.first_output_ms, "end": self.turn_ms, "prompt_at": self.prompt_at}),
+        );
+        if let Some(text) = &self.reply {
+            answer.set("reply", json!(text));
+        }
         if let Some(failure) = self.failure {
             // The agent's own error, typed as acpmux types it (`errorKind`, `recovery`) when it is.
             let message = failure
@@ -2839,33 +2847,26 @@ impl PushedTurn {
                     answer.set(key, value.clone());
                 }
             }
-            if let Some(text) = self.reply {
-                answer.set("reply", json!(text));
-            }
             return Outcome::Failed {
                 error: json!({"code": "chat.turn_failed", "message": message, "details": answer, "retryable": false}),
                 exit: 1,
             };
         }
         if status == "failed" {
-            if let Some(text) = self.reply {
-                answer.set("reply", json!(text));
-            }
             return Outcome::Failed {
                 error: json!({"code": "chat.turn_failed", "message": format!("the turn ended {}", self.stop),
                               "details": answer, "retryable": false}),
                 exit: 1,
             };
         }
-        let Some(text) = self.reply else {
+        if self.reply.is_none() {
             return failed(
                 "chat.read_failed",
                 "the turn ended, but its reply could not be read; read it with the answer's follow_up.last",
                 json!({"answer": answer}),
                 1,
             );
-        };
-        answer.set("reply", json!(text));
+        }
         Outcome::Done(answer)
     }
 }
