@@ -271,7 +271,7 @@ pub(crate) fn prune(dir: &Path, keep: usize) {
 /// macOS: `sample` of this process for 2 s, every thread's stack with its counts.
 #[cfg(target_os = "macos")]
 fn write_stacks(file: &Path) -> std::io::Result<()> {
-    // A cmux_process Child: a daemon that drops it mid-capture ends `sample` too (check-spawn-owner).
+    // cmux-process (cmuxterm-hq#9096): the sampler ends with this handle if the capture returns early.
     let mut child = cmux_process::Command::new("/usr/bin/sample")
         .arg(std::process::id().to_string())
         .args(["2", "10", "-mayDie", "-file"])
@@ -280,16 +280,19 @@ fn write_stacks(file: &Path) -> std::io::Result<()> {
         .stdout(cmux_process::Stdio::null())
         .stderr(cmux_process::Stdio::piped())
         .spawn()?;
-    // The exit is waited on (kqueue on macOS), not polled; CAPTURE_BOUND only bounds it.
-    if let Some(status) = child.wait_timeout(CAPTURE_BOUND)? {
-        if status.success() {
-            return Ok(());
+    let deadline = Instant::now() + CAPTURE_BOUND;
+    while Instant::now() < deadline {
+        if let Some(status) = child.try_wait()? {
+            if status.success() {
+                return Ok(());
+            }
+            let mut err = String::new();
+            if let Some(mut stderr) = child.stderr.take() {
+                let _ = std::io::Read::read_to_string(&mut stderr, &mut err);
+            }
+            return Err(std::io::Error::other(format!("sample exited {status}: {}", err.trim())));
         }
-        let mut err = String::new();
-        if let Some(mut stderr) = child.stderr.take() {
-            let _ = std::io::Read::read_to_string(&mut stderr, &mut err);
-        }
-        return Err(std::io::Error::other(format!("sample exited {status}: {}", err.trim())));
+        std::thread::sleep(Duration::from_millis(100));
     }
     let _ = child.kill();
     let _ = child.wait();

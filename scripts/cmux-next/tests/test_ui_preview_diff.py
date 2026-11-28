@@ -42,5 +42,72 @@ class PixelDiff(unittest.TestCase):
             self.assertEqual(upw.pixel_diff(a, c), {"size": [[100, 50], [2, 2]]})
 
 
+class StubGallery(upw.Gallery):
+    """A gallery whose vite and shooters are recorded calls: the first resident shot fails as on a stale module graph
+    (fs-agent-lane rescue pushes, 11-28 00-12Z), the cold shot after a vite restart lands."""
+
+    def __init__(self, out: Path, stale: bool) -> None:
+        self.name, self.port, self.out, self.stale, self.calls = "g0", 5199, out, stale, []
+
+    def stop_shooter(self) -> None:
+        self.calls.append("stop_shooter")
+
+    def stop(self) -> None:
+        self.calls.append("stop")
+
+    def start(self) -> None:
+        self.calls.append("start")
+
+    def shoot_resident(self, spec):
+        self.calls.append("resident")
+        return [{"name": "pages.home", "error": "TypeError: Failed to fetch dynamically imported module: "
+                                                "http://127.0.0.1:5199/src/x.tsx?t=1764300000" if self.stale else "boom"}]
+
+    def shoot_once(self, spec, out):
+        self.calls.append("cold")
+        (out / "pages.home.png").write_bytes(b"png")
+        return [{"name": "pages.home", "file": "pages.home.png"}]
+
+    def scenes(self, files):
+        return ["gallery.warm"]
+
+    def entry_ids(self):
+        return {"agent-pane.b", "agent-pane.a", "pages.home", "gallery.warm"}
+
+
+class StaleModuleRetry(unittest.TestCase):
+    def shoot(self, stale: bool):
+        with tempfile.TemporaryDirectory() as tmp:
+            g = StubGallery(Path(tmp), stale)
+            try:
+                return g.shoot(["pages.home"], Path(tmp, "shots"), {}), g.calls
+            except upw.LookError as err:
+                return str(err), g.calls
+
+    def test_stale_module_restarts_vite_and_shoots_cold(self) -> None:
+        shots, calls = self.shoot(True)
+        self.assertEqual(shots, {"pages.home": "pages.home.png"})
+        self.assertEqual(calls, ["resident", "stop_shooter", "stop", "start", "cold"])
+
+    def test_other_errors_do_not_restart(self) -> None:
+        err, calls = self.shoot(False)
+        self.assertIn("took no shot: boom", err)
+        self.assertEqual(calls, ["resident"])
+
+
+class EveryScreen(unittest.TestCase):
+    def test_config_and_dev_server_files(self) -> None:
+        for f in ("webviews/vite.config.acpmux-pane.mjs", "webviews/vite.config.ts",
+                  "webviews/dev-server/hotSwapTiming.ts"):
+            self.assertTrue(upw.EVERY_SCREEN.match(f), f)
+        for f in ("webviews/src/vite.config.ts", "webviews/src/pages/Home.tsx"):
+            self.assertFalse(upw.EVERY_SCREEN.match(f), f)
+
+    def test_representative_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(StubGallery(Path(tmp), False).representative_entries(),
+                             ["gallery.warm", "agent-pane.a", "pages.home"])
+
+
 if __name__ == "__main__":
     unittest.main()
