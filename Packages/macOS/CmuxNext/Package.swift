@@ -38,7 +38,7 @@ import PackageDescription
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CCmuxAppFFI (phone host model, pairing and the mobile.* compat adapter; no UI; the rules in Rust)
 //   CmuxNextUpdater -> Design, Icons, CmuxUpdater, Sparkle, CCmuxAppFFI (the pre-warm record, the install gate) (update checks, appcast probe, update sheet; no daemon)
-//   CmuxNextNativeTranscript -> Compat, Design, Settings, Wakeups, CCmuxAppFFI (RFD 0121 native transcript: Metal view, own render thread; read-only, debug-gated)
+//   CmuxNextNativeTranscript -> Compat, Control, Design, Settings, Wakeups, CCmuxAppFFI (RFD 0121 native transcript: Metal view, own render thread; read-only, debug-gated)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextRemoteLayer -> QuartzCore only (ObjC header: CALayerHost, the remote layer a layer-hosted
