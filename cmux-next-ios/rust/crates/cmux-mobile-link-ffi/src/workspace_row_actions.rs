@@ -46,10 +46,10 @@ pub fn workspace_row_placements(
 }
 
 /// `rows` that pass `keep`, in the Mac's sidebar order (no index last; ties in list order).
-fn sidebar_order<'a>(
-    rows: &'a [WorkspaceRowFacts],
+fn sidebar_order(
+    rows: &[WorkspaceRowFacts],
     keep: impl Fn(&WorkspaceRowFacts) -> bool,
-) -> Vec<&'a WorkspaceRowFacts> {
+) -> Vec<&WorkspaceRowFacts> {
     let mut kept: Vec<(usize, &WorkspaceRowFacts)> =
         rows.iter().enumerate().filter(|(_, r)| keep(r)).collect();
     kept.sort_by_key(|(offset, r)| (r.sidebar_index.unwrap_or(i64::MAX), *offset));

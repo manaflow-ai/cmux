@@ -519,6 +519,10 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
         # with BASE from git objects: a key the base already misses is a note, not this PR's failure.
         ("settings catalog keys", [py, "-I", "scripts/ci/settings_catalog_keys.py", "--root", str(repo),
                                    "--base-rev", base]),
+        # Every pull request, text only: a scripts/measure/*.sh under `set -u` expands no array that starts empty
+        # bare (macOS bash 3.2 aborts on it). tooling-tests' tt-measure-tests runs this too, but feat-cmux-next
+        # pull requests skip tooling-tests, so #64030 and #64588 landed it and the post-merge batch went red.
+        ("measure bash 3.2 arrays", [py, "-I", "scripts/measure/tests/empty-array-bash32.test.py"]),
     ]
     if tier == "pr":
         if deferred is not None:
