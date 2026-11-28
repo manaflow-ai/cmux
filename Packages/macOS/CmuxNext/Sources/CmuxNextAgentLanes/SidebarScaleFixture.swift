@@ -33,6 +33,7 @@ public enum SidebarScaleFixture {
         if params.clear == true {
             store.lanes = lanes.filter { !$0.key.hasPrefix(prefix) && $0.value.parent?.hasPrefix(childrenPrefix) != true }
         } else if let ticks = params.tick {
+            // fleet-only-ok: whole file is #if DEBUG || CMUX_BENCH_HOOKS; runs only when the scale bench calls debug.scale_fixture
             let fixture = lanes.compactMap { $0.value.parent?.hasPrefix(childrenPrefix) == true ? $0.key : nil }
             for id in fixture.shuffled().prefix(max(0, ticks)) {
                 guard let lane = lanes[id] else { continue }
