@@ -127,4 +127,13 @@ import Testing
         #expect(prewarm.cwd == nil && prewarm.harness == "claude")
         #expect(CloudAgentPrewarm(cwd: nil, harness: "claude", model: nil, mode: nil, served: false, servesChatFolder: true) == nil)
     }
+
+    /// A Claude Cloud start names its auth choice, which keys the warmed agent: it is warmed with that choice where the
+    /// daemon keys by it, and not at all where an older one would warm the plain agent it never takes.
+    @Test func aClaudeAuthStartIsWarmedWithItsChoiceWhereServed() throws {
+        let team = try #require(CloudAgentPrewarm(cwd: "/home/cmux/chats/app-1", harness: "claude", model: nil, mode: nil, served: true,
+                                                  claudeAuth: .team, servesClaudeAuth: true))
+        #expect(team.claudeAuth == .team)
+        #expect(CloudAgentPrewarm(cwd: "/home/cmux/chats/app-1", harness: "claude", model: nil, mode: nil, served: true, claudeAuth: .own) == nil)
+    }
 }

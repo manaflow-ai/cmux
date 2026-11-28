@@ -391,6 +391,11 @@ public actor AgentSessionAttachClient {
     /// daemon refuses a prewarm without a folder, so none is sent to it.
     public static let prewarmChatFolderCapability = "agent-session-prewarm-chat-folder-v1"
 
+    /// ``prewarm(cwd:harness:ownerLink:model:permissionMode:startMode:credentials:launchEndpoint:claudeAuth:)`` with the start's Claude auth
+    /// choice, which the machine's acpmux keys the warmed agent by: every Claude Cloud start names one, so a prewarm without it warmed
+    /// an agent that start never took. An older daemon would warm the plain agent instead, so none is sent to it.
+    public static let prewarmClaudeAuthCapability = "agent-session-prewarm-claude-auth-v1"
+
     /// Warms the agent a coming ``start(cwd:harness:homeConfirmed:personKey:ownerLink:model:permissionMode:startMode:credentials:)``
     /// of this tab will run, on the owner's own Cloud VM. The hint uses the start's launch inputs (``startParams``), so
     /// the machine's acpmux keys the warmed agent as that start's `session/new`. A start with different inputs starts cold.
@@ -398,7 +403,8 @@ public actor AgentSessionAttachClient {
     /// Saved API keys and Claude setup tokens go only to the bound start so withdrawal can reach them.
     /// Only over the owner answer of the link (``ownedConnection(_:check:)``), as the start: never to a teammate's machine.
     public func prewarm(cwd: String?, harness: String?, ownerLink: @escaping OwnerLink, model: String? = nil, permissionMode: String? = nil,
-                        startMode: String? = nil, credentials: [String: String]? = nil, launchEndpoint: LaunchEndpoint? = nil) async throws -> Bool {
+                        startMode: String? = nil, credentials: [String: String]? = nil, launchEndpoint: LaunchEndpoint? = nil,
+                        claudeAuth: ClaudeAuth? = nil) async throws -> Bool {
         guard mode == .attach, !Self.needsKeyWithdrawal(launchEndpoint, credentials),
               credentials?["ANTHROPIC_AUTH_TOKEN"] == nil, credentials?["CLAUDE_CODE_OAUTH_TOKEN"] == nil else { return false }
         let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
@@ -406,13 +412,14 @@ public actor AgentSessionAttachClient {
                 throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve this start")
             }
         }
-        guard callerOwnsVM, !Self.needsSubscriptionCapability(credentials) || served.subscriptionCredentials else { return false }
+        guard callerOwnsVM, !Self.needsSubscriptionCapability(credentials) || served.subscriptionCredentials,
+              claudeAuth == nil || (credentials == nil && served.vmKind) else { return false }
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: false, personKey: nil,
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
                                       model: model, servesModel: served.model, servesPermissionMode: served.permissionMode, permissionMode: permissionMode,
                                       startMode: startMode, servesStartMode: served.startMode,
                                       servesCredentials: served.credentials, credentials: credentials, servesBoundCredentials: served.boundCredentials,
-                                      servesEndpointCredentials: served.endpointCredentials, launchEndpoint: launchEndpoint)
+                                      servesEndpointCredentials: served.endpointCredentials, launchEndpoint: launchEndpoint, claudeAuth: claudeAuth)
         let data = try await call("agent-session-prewarm", params, timeout: requestTimeout, on: transport)
         return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["accepted"] as? Bool == true
     }

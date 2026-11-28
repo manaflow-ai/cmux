@@ -34,29 +34,36 @@ public struct CloudAgentPrewarm: Sendable, Equatable {
     public let harness: String?
     public let model: String?
     public let mode: String?
+    /// The start's Claude auth choice (own machine login or team route), which keys the warmed agent; nil for none.
+    public let claudeAuth: AgentSessionAttachClient.ClaudeAuth?
 
     /// What the chat's first start will run: the seed's agent, model and mode in the folder `cwd`. Nil when there is
     /// nothing to warm: a daemon that does not serve the verb (`served`, ``AgentSessionAttachClient/prewarmCapability``),
     /// a folder that is not absolute, or no folder on a daemon that cannot warm the chat's own `~/chats/<id>`
     /// (`servesChatFolder`, ``AgentSessionAttachClient/prewarmChatFolderCapability``).
-    public init?(cwd: String?, harness: String?, model: String?, mode: String?, served: Bool, servesChatFolder: Bool = false) {
-        guard served else { return nil }
+    /// A start with a Claude auth choice is warmed only where the daemon keys by it (`servesClaudeAuth`,
+    /// ``AgentSessionAttachClient/prewarmClaudeAuthCapability``).
+    public init?(cwd: String?, harness: String?, model: String?, mode: String?, served: Bool, servesChatFolder: Bool = false,
+                 claudeAuth: AgentSessionAttachClient.ClaudeAuth? = nil, servesClaudeAuth: Bool = false) {
+        guard served, claudeAuth == nil || servesClaudeAuth else { return nil }
         if let cwd {
             guard cwd.hasPrefix("/") else { return nil }
         } else if !servesChatFolder {
             return nil
         }
-        (self.cwd, self.harness, self.model, self.mode) = (cwd, harness, model, mode)
+        (self.cwd, self.harness, self.model, self.mode, self.claudeAuth) = (cwd, harness, model, mode, claudeAuth)
     }
 
     /// The prewarm of a start of `cwd`, `harness`, `model` and `mode` on a daemon that serves what `supports` answers, begun
     /// with nothing waiting for it (``begin(surface:endpoint:ownerLink:permissionMode:credentials:done:)``); nothing when
     /// there is nothing to warm there. `done` gets the outcome and its time, for the log.
-    public static func begin(cwd: String?, harness: String?, model: String?, mode: String?, supports: (String) -> Bool, surface: UInt64,
+    public static func begin(cwd: String?, harness: String?, model: String?, mode: String?, claudeAuth: AgentSessionAttachClient.ClaudeAuth? = nil,
+                             supports: (String) -> Bool, surface: UInt64,
                              endpoint: @escaping AgentSessionAttachClient.EndpointProvider, ownerLink: @escaping AgentSessionAttachClient.OwnerLink, permissionMode: String?,
                              credentials: @escaping @MainActor @Sendable () async throws -> Credential?, done: @escaping @Sendable (String) -> Void) {
         guard let prewarm = CloudAgentPrewarm(cwd: cwd, harness: harness, model: model, mode: mode, served: supports(AgentSessionAttachClient.prewarmCapability),
-                                              servesChatFolder: supports(AgentSessionAttachClient.prewarmChatFolderCapability)) else { return }
+                                              servesChatFolder: supports(AgentSessionAttachClient.prewarmChatFolderCapability),
+                                              claudeAuth: claudeAuth, servesClaudeAuth: supports(AgentSessionAttachClient.prewarmClaudeAuthCapability)) else { return }
         let began = ContinuousClock.now
         prewarm.begin(surface: surface, endpoint: endpoint, ownerLink: ownerLink, permissionMode: permissionMode, credentials: credentials) { outcome in
             done("\(outcome) in \(CloudStartSteps.milliseconds(began.duration(to: .now))) ms")
@@ -86,7 +93,10 @@ public struct CloudAgentPrewarm: Sendable, Equatable {
         let client = AgentSessionAttachClient(surface: surface, endpoint: endpoint), outcome: String
         do {
             let accepted = try await client.prewarm(cwd: cwd, harness: credentials?.harness ?? harness, ownerLink: ownerLink, model: credentials?.model ?? model,
-                                                    permissionMode: permissionMode, startMode: mode, credentials: credentials?.env, launchEndpoint: credentials?.endpoint)
+                                                    permissionMode: permissionMode, startMode: mode,
+                                                    // A Claude auth choice carries no delivered credential, as its start sends none.
+                                                    credentials: claudeAuth == nil ? credentials?.env : nil, launchEndpoint: claudeAuth == nil ? credentials?.endpoint : nil,
+                                                    claudeAuth: claudeAuth)
             outcome = accepted ? "accepted" : "not accepted"
         } catch {
             outcome = "not sent (\(String(describing: error)))"
