@@ -284,7 +284,9 @@ fn rank_request(
 /// ([`cmux_palette_ranker::Ranker`]). The answer is the one [`ranked`] gives.
 #[derive(Default)]
 pub struct RankCache(
-    std::sync::Mutex<HashMap<String, (Vec<cmux_palette_ranker::Entry>, cmux_palette_ranker::Ranker)>>,
+    std::sync::Mutex<
+        HashMap<String, (Vec<cmux_palette_ranker::Entry>, cmux_palette_ranker::Ranker)>,
+    >,
 );
 
 /// The windows a [`RankCache`] keeps rankers for; past it, the cache starts over.

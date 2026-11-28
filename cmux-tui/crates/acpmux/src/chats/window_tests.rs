@@ -218,3 +218,50 @@ fn a_replaced_spec_sends_every_row_again_with_a_later_revision() {
     assert_eq!(full["full"], true);
     assert_eq!(full["revision"], 2);
 }
+
+/// A window's kept ranker gives every keystroke the order a fresh rank gives: while the query
+/// grows (it narrows from the last hits), when it shrinks or changes, and when a chat is added or
+/// renamed between keys (the ranker installs the new chats).
+#[test]
+fn a_kept_ranker_ranks_every_keystroke_like_a_fresh_one() {
+    let base: Vec<_> = (0..300)
+        .map(|i| {
+            let title = match i % 4 {
+                0 => format!("Fix the flaky build {i}"),
+                1 => format!("Port the parser to rust {i}"),
+                2 => format!("Write the build docs {i}"),
+                _ => format!("Review pull request {i}"),
+            };
+            let harness = if i % 3 == 0 { "codex" } else { "claude-code" };
+            entry(&title, &format!("/Users/me/repo{}", i % 7), harness)
+        })
+        .collect();
+    let mut renamed = base.clone();
+    renamed[5] = entry("Fix the parser build", "/Users/me/repo1", "codex");
+    renamed.push(entry("Fix build flake for good", "/Users/me/cmux", "claude-code"));
+    let frecency: cmux_palette_ranker::Frecency = serde_json::from_value(json!({
+        "entries": {"chat:codex:Port the parser to rust 9": {"score": 3.0, "lastUsed": 990.0}},
+        "halfLife": 259_200.0
+    }))
+    .unwrap();
+    let cache = RankCache::default();
+    let typed = ["f", "fi", "fix", "fix ", "fix b", "fix bu", "fix build", "fix", "p", "pa", "par"];
+    for (entries, history) in [(&base, None), (&renamed, None), (&base, Some((1_000.0, frecency)))]
+    {
+        for query in typed.iter().chain(["", "codex", "repo3", "zzz"].iter()) {
+            assert_eq!(
+                cache.ranked("all", query, entries.clone(), history.clone()),
+                ranked(query, entries.clone(), history.clone()),
+                "query {query:?}"
+            );
+        }
+    }
+    for window in 0..=RANK_CACHE_WINDOWS {
+        let query = typed[window % typed.len()];
+        assert_eq!(
+            cache.ranked(&format!("w{window}"), query, base.clone(), None),
+            ranked(query, base.clone(), None),
+            "past the window bound, window {window}"
+        );
+    }
+}
