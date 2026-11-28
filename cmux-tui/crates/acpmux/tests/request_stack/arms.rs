@@ -454,7 +454,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Run(json!({"provider": "anthropic", "secret": "not-an-anthropic-key"})),
         ),
         (method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD, Run(json!({"secret": "keychain:lso-token"}))),
-        (method::MUX_CONNECTIONS_REMOVE, Run(json!({"id": "anthropic-key"}))),
+        (
+            method::MUX_CONNECTIONS_REMOVE,
+            Run(json!({"id": "lso-no-connection", "instance": "lso-no-instance"})),
+        ),
         (method::MUX_CONNECTIONS_CHATGPT_BEGIN, Run(json!({"id": "lso-no-connection"}))),
         (method::MUX_CONNECTIONS_CHATGPT_WAIT, Run(json!({"attempt": "lso-no-attempt"}))),
         (method::MUX_CONNECTIONS_CHATGPT_CANCEL, Run(json!({"attempt": "lso-no-attempt"}))),
