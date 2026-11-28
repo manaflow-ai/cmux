@@ -18,7 +18,16 @@ use crate::crypto::ServiceAuthority;
 use crate::service::{ServiceMultiplexer, SessionEndpoint};
 use crate::session::ReceivedFrame;
 
+#[cfg(test)]
+#[path = "wire_lockstep.rs"]
+mod wire_lockstep;
+
+#[cfg(all(test, unix))]
+#[path = "wire_lockstep_mux.rs"]
+mod wire_lockstep_mux;
+
 pub(super) struct TestEndpoint {
+    probe: Option<wire_lockstep::FrameProbe>,
     outgoing: mpsc::Sender<ReceivedFrame>,
     incoming: Mutex<mpsc::Receiver<ReceivedFrame>>,
     sequence: AtomicU64,
@@ -42,6 +51,9 @@ impl SessionEndpoint for TestEndpoint {
         payload: Bytes,
         flags: FrameFlags,
     ) -> Result<u64, ServiceError> {
+        if let Some(probe) = &self.probe {
+            probe.observe(lane, stream, flags, &payload);
+        }
         let sequence = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
         self.outgoing
             .send(ReceivedFrame { generation: 0, lane, stream, sequence, flags, payload })
@@ -64,18 +76,27 @@ impl SessionEndpoint for TestEndpoint {
 }
 
 pub(super) fn endpoint_pair() -> (Arc<TestEndpoint>, Arc<TestEndpoint>) {
+    endpoints(None, None)
+}
+
+fn endpoints(
+    client_probe: Option<wire_lockstep::FrameProbe>,
+    daemon_probe: Option<wire_lockstep::FrameProbe>,
+) -> (Arc<TestEndpoint>, Arc<TestEndpoint>) {
     let (left_tx, left_rx) = mpsc::channel(64);
     let (right_tx, right_rx) = mpsc::channel(64);
     let (left_generation, _) = watch::channel(0);
     let (right_generation, _) = watch::channel(0);
     (
         Arc::new(TestEndpoint {
+            probe: client_probe,
             outgoing: left_tx,
             incoming: Mutex::new(right_rx),
             sequence: AtomicU64::new(0),
             generation: left_generation,
         }),
         Arc::new(TestEndpoint {
+            probe: daemon_probe,
             outgoing: right_tx,
             incoming: Mutex::new(left_rx),
             sequence: AtomicU64::new(0),

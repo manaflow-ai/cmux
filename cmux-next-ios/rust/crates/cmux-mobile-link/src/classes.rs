@@ -93,16 +93,16 @@ pub enum Delivery {
 }
 
 /// The datagram kind of a class message fragment (liveness pings are 1, pongs 2).
-pub(crate) const DATAGRAM_CLASS: u8 = 3;
+pub const DATAGRAM_CLASS: u8 = 3;
 /// The datagram kind of a class-1 (screen) message fragment, for
 /// [`Delivery::Latest`] and [`Delivery::Screen`] channels alike: the same
 /// header as [`DATAGRAM_CLASS`]. The tunnel sends it as
 /// `cmux_wg::Priority::Screen`, repaired only above 1 % loss. A screen
 /// channel's payload starts with its base (see [`screen_wire`]).
-pub(crate) const DATAGRAM_SCREEN: u8 = 4;
+pub const DATAGRAM_SCREEN: u8 = 4;
 /// A screen acknowledgement: kind, channel (4), the newest message number
 /// delivered (8).
-pub(crate) const DATAGRAM_SCREEN_ACK: u8 = 5;
+pub const DATAGRAM_SCREEN_ACK: u8 = 5;
 pub(crate) const SCREEN_ACK_LEN: usize = 13;
 /// A screen message's base when the sender holds none the peer acknowledged:
 /// the message is a whole state (a keyframe).

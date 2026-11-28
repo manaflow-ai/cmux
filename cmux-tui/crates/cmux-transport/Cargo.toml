@@ -18,6 +18,7 @@ blake3 = "1"
 chacha20poly1305 = "0.10"
 
 [dev-dependencies]
+cmux-wire-lockstep.workspace = true
 proptest = { version = "1", default-features = false, features = ["std"] }
 
 [lints]

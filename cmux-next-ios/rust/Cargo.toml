@@ -18,6 +18,7 @@ redundant_clone = "warn"
 
 [workspace.dependencies]
 cmux-mobile-link = { path = "crates/cmux-mobile-link" }
+cmux-wire-lockstep = { path = "../../cmux-tui/crates/cmux-wire-lockstep" }
 # The phone's app-level API: method list, schemas, strict request check, discovery (contract/README.md).
 cmux-mobile-api = { path = "crates/cmux-mobile-api" }
 cmux-api-compat = { path = "../../cmux-tui/crates/cmux-api-compat" }
