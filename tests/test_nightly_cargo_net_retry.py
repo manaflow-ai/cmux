@@ -5,24 +5,23 @@ retries all timed out on index.crates.io and failed the NEXT nightly).
 """
 from pathlib import Path
 import re
+import unittest
 
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def top_env(text: str) -> str:
-    m = re.search(r"^env:\n((?:[ #].*\n|\n)*)", text, re.M)
-    assert m, "nightly.yml has no workflow-level env"
-    return m.group(1)
+NIGHTLY = Path(__file__).resolve().parents[1] / ".github/workflows/nightly.yml"
 
 
-def test_workflow_env_sets_cargo_network_resilience():
-    env = top_env((ROOT / ".github/workflows/nightly.yml").read_text())
-    assert 'CARGO_NET_RETRY: "10"' in env
-    assert 'CARGO_HTTP_TIMEOUT: "120"' in env
-    assert 'CARGO_HTTP_MULTIPLEXING: "false"' in env
+class NightlyCargoNetRetry(unittest.TestCase):
+    def test_workflow_env_sets_cargo_network_resilience(self) -> None:
+        m = re.search(r"^env:\n((?:[ #].*\n|\n)*)", NIGHTLY.read_text(), re.M)
+        self.assertIsNotNone(m, "nightly.yml has no workflow-level env")
+        env = m.group(1)
+        for line in ('CARGO_NET_RETRY: "10"', 'CARGO_HTTP_TIMEOUT: "120"', 'CARGO_HTTP_MULTIPLEXING: "false"'):
+            self.assertIn(line, env)
+
+    def test_no_step_turns_retries_back_down(self) -> None:
+        for m in re.finditer(r"CARGO_NET_RETRY:\s*\"?(\d+)", NIGHTLY.read_text()):
+            self.assertGreaterEqual(int(m.group(1)), 10, f"a step lowers CARGO_NET_RETRY to {m.group(1)}")
 
 
-def test_no_job_turns_retries_back_down():
-    text = (ROOT / ".github/workflows/nightly.yml").read_text()
-    for m in re.finditer(r"CARGO_NET_RETRY:\s*\"?(\d+)", text):
-        assert int(m.group(1)) >= 10, f"a step lowers CARGO_NET_RETRY to {m.group(1)}"
+if __name__ == "__main__":
+    unittest.main()
