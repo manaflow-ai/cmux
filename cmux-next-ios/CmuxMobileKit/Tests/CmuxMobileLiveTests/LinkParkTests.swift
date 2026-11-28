@@ -110,11 +110,28 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
         return controller
     }
 
-    private func eventually(_ condition: () -> Bool, within: Duration = .seconds(20),
+    /// On a timeout the failure says what the link was doing and how often this wait ran: few
+    /// polls in 20 s is a starved main actor, many polls with the dial never adopted is a starved
+    /// task pool or a lost transition (kit jobs 140846163318, 140932566951).
+    private func eventually(_ state: @autoclosure () -> String, _ condition: () -> Bool, within: Duration = .seconds(20),
                             sourceLocation: SourceLocation = #_sourceLocation) async throws {
-        let deadline = ContinuousClock.now + within
-        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
-        try #require(condition(), "Timed out waiting for test setup or transition", sourceLocation: sourceLocation)
+        let start = ContinuousClock.now
+        let deadline = start + within
+        var polls = 0
+        while !condition(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+            polls += 1
+        }
+        let waited = start.duration(to: .now)
+        try #require(condition(), "Timed out waiting for test setup or transition after \(waited), \(polls) polls: \(state())",
+                     sourceLocation: sourceLocation)
+    }
+
+    private func state(_ controller: LinkController, _ dialer: ParkingDialer) -> String {
+        "phase=\(controller.phase) parked=\(controller.isParked) beating=\(controller.isBeating) "
+            + "generation=\(controller.dialGeneration) dials=\(dialer.dials) probes=\(dialer.first.probeCount) "
+            + "parks=\(dialer.first.parkCount) resumes=\(dialer.first.resumeCount) closed=\(dialer.first.isClosed) "
+            + "heartbeats=\(controller.heartbeatStarts)/\(controller.heartbeatsBegun)/\(controller.heartbeatSleeps)"
     }
 
     /// The partial link: the app leaves with a live link, the Mac parks it,
@@ -125,11 +142,11 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
         let clock = LinkTestClock()
         let controller = controller(dialer, clock: clock)
         defer { controller.send(.target(nil)); clock.stop() }
-        try await eventually { dialer.first.probeCount == 1 && controller.phase.isConnected }
+        try await eventually(state(controller, dialer)) { dialer.first.probeCount == 1 && controller.phase.isConnected }
         let generation = controller.dialGeneration
 
         controller.send(.background)
-        try await eventually { controller.isParked }
+        try await eventually(state(controller, dialer)) { controller.isParked }
         #expect(dialer.first.parkCount == 1)
         // No heartbeat is left to probe the parked link while away.
         #expect(!controller.isBeating, "a parked link keeps its heartbeat")
@@ -137,7 +154,7 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
         #expect(dialer.first.probeCount == 1, "a parked link was probed while away")
 
         controller.send(.resume)
-        try await eventually { dialer.first.probeCount == 2 }
+        try await eventually(state(controller, dialer)) { dialer.first.probeCount == 2 }
         #expect(dialer.first.resumeCount == 1)
         #expect(dialer.dials == 1, "a parked link was redialed")
         #expect(!dialer.first.isClosed)
@@ -155,13 +172,13 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
         let clock = LinkTestClock()
         let controller = controller(dialer, clock: clock)
         defer { controller.send(.target(nil)); clock.stop() }
-        try await eventually { dialer.first.probeCount == 1 && controller.phase.isConnected }
+        try await eventually(state(controller, dialer)) { dialer.first.probeCount == 1 && controller.phase.isConnected }
 
         controller.send(.background)
         // Give a park that does not wait for the probe the time to go out.
         await settle(within: .seconds(2)) { dialer.first.parkCount > 0 }
         dialer.first.releaseProbe()
-        try await eventually { controller.isParked }
+        try await eventually(state(controller, dialer)) { controller.isParked }
         #expect(!dialer.first.parkedWhileProbing, "the park went out while a probe was in flight")
         #expect(dialer.first.parkCount == 1)
         #expect(dialer.first.probeCount == 1, "a probe started while the park was being asked for")
@@ -183,18 +200,18 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
         let clock = LinkTestClock()
         let controller = controller(dialer, clock: clock)
         defer { controller.send(.target(nil)); clock.stop() }
-        try await eventually { dialer.first.probeCount == 1 && controller.phase.isConnected }
+        try await eventually(state(controller, dialer)) { dialer.first.probeCount == 1 && controller.phase.isConnected }
         controller.send(.background)
-        try await eventually { controller.isParked }
+        try await eventually(state(controller, dialer)) { controller.isParked }
 
         let hold = controller.holdAwake()
         #expect(!controller.isParked)
         #expect(dialer.first.resumeCount == 1)
-        try await eventually { dialer.first.probeCount == 2 }
+        try await eventually(state(controller, dialer)) { dialer.first.probeCount == 2 }
         #expect(controller.isBeating, "a link resumed in the background is left unwatched")
 
         hold.release()
-        try await eventually { controller.isParked }
+        try await eventually(state(controller, dialer)) { controller.isParked }
         #expect(dialer.first.parkCount == 2)
         #expect(dialer.dials == 1, "the parked link was redialed")
         hold.release()
@@ -208,12 +225,12 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
         let clock = LinkTestClock()
         let controller = controller(dialer, clock: clock)
         defer { controller.send(.target(nil)); clock.stop() }
-        try await eventually { dialer.first.probeCount == 1 && controller.phase.isConnected }
+        try await eventually(state(controller, dialer)) { dialer.first.probeCount == 1 && controller.phase.isConnected }
         controller.send(.background)
-        try await eventually { dialer.first.parkCount == 1 }
+        try await eventually(state(controller, dialer)) { dialer.first.parkCount == 1 }
         #expect(!controller.isParked)
         controller.send(.resume)
-        try await eventually { dialer.dials == 2 && dialer.first.isClosed }
+        try await eventually(state(controller, dialer)) { dialer.dials == 2 && dialer.first.isClosed }
         #expect(dialer.first.resumeCount == 0)
     }
 }
