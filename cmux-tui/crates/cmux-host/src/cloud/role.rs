@@ -536,6 +536,13 @@ fn bind_retry_wait(backoff: &mut Backoff, network_changed: bool) -> u64 {
     if network_changed { 0 } else { backoff.next(0, random_unit()) }
 }
 
+/// When an unbound worker's bind retries after a resume at `now` (monotonic ms): at once when a
+/// retry was waiting (`retry_at` later than now), else as it was (None: nothing to move).
+/// A bound worker has no bind to retry; its session's own resume runs instead.
+fn bind_retry_after_resume(bound: bool, retry_at: Option<u64>, now: u64) -> Option<u64> {
+    (!bound && retry_at.is_some_and(|at| at > now)).then_some(now)
+}
+
 struct Client {
     stream: UnixStream,
     buf: Vec<u8>,
@@ -825,6 +832,16 @@ impl Worker {
                     if let Some(live) = self.live.as_mut() {
                         let reqs = live.session.resume(now, wall_ms());
                         self.drive(reqs);
+                    }
+                    // A bind waiting out its backoff from before the stop retries now: the
+                    // stop froze the monotonic clock its retry runs on, and what failed it
+                    // (the network, a clock set to the snapshot's time) changed with the resume.
+                    if let Some(at) =
+                        bind_retry_after_resume(self.live.is_some(), self.bind_retry_at, now)
+                    {
+                        self.bind_backoff.reset();
+                        // This pass's `fire_deadlines` binds.
+                        self.bind_retry_at = Some(at);
                     }
                 }
                 _ => {}
