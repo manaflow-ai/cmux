@@ -144,6 +144,8 @@ describe("localized pricing page", () => {
       expect(first.includes("$50") && first.includes("$200")).toBe(true);
       expect(first.includes("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM")).toBe(true);
       expect(first.includes("animate-pulse")).toBe(false);
+      // Plus is in the first paint, so its card does not pop in later.
+      expect(first.includes("Get Plus") && first.includes("$15")).toBe(true);
       expect(first.includes("Current plan")).toBe(false);
     } finally {
       release();

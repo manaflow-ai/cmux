@@ -131,7 +131,9 @@ export default async function PricingPage({
     t,
     query: {},
     snapshot: unknownPlan,
-    goPlanEnabled: false,
+    // Web Plus does not depend on the visitor, so the fallback shows it too;
+    // otherwise the Plus card pops in when the personalized content streams.
+    goPlanEnabled: await isGoPlanEnabled(),
     pending: true,
   };
   const personalize = (section: "individual" | "team" | "comparison") => (
