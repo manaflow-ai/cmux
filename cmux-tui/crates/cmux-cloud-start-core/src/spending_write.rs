@@ -119,7 +119,6 @@ fn refusal_message(code: &str) -> &'static str {
         "auth.unauthenticated" | "auth.sso_required" => {
             "Sign in again to change the overage limit."
         }
-        "client.too_old" => "Update cmux to change the overage limit.",
         "validation.invalid" => {
             "Cloud did not take that amount. Enter dollars and cents, like 40 or 40.50."
         }
