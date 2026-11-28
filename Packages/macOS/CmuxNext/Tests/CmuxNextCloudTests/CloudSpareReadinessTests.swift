@@ -661,10 +661,32 @@ import Testing
         await readiness.settled("vm_spare")
         #expect(world.links == ["vm_spare"], "no second link after the claim took the first")
         #expect(world.dials.isEmpty)
-        // The next prime (another spare's warm, or this machine's next one) links again.
+        // The machine is its session's now: a later warm naming it links nothing beside the session's.
         readiness.prime("vm_spare", dials: true)
         await readiness.settled("vm_spare")
-        #expect(world.links == ["vm_spare", "vm_spare"])
+        #expect(world.links == ["vm_spare"])
+        // Another machine still primes.
+        readiness.prime("vm_next", dials: true)
+        await readiness.settled("vm_next")
+        #expect(world.links == ["vm_spare", "vm_next"])
+    }
+
+    /// A warm that names the machine a session already linked (its answer lagged the claim) primes nothing: a second
+    /// link made ahead is a second carrier supervisor beside the session's, and their fight for the connection
+    /// socket ends the session's desktop stream after 0 bytes. A reset (another account) forgets it.
+    @Test func aMachineItsSessionLinkedIsNeverPrimedAgain() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        world.dialed = true
+        #expect(readiness.link(for: "vm_session", team: "team_a") == nil)
+        readiness.prime("vm_session", team: "team_a", dials: true)
+        await readiness.settled("vm_session")
+        #expect(world.links.isEmpty)
+        #expect(world.dials.isEmpty)
+        #expect(!readiness.holdsLink("vm_session"))
+        readiness.reset()
+        readiness.prime("vm_session", team: "team_a")
+        await readiness.settled("vm_session")
+        #expect(world.links == ["vm_session"])
     }
 
     /// A dialing prime whose team could not be read keeps the link held for the spare's team.
