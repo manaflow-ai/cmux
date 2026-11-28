@@ -69,7 +69,6 @@ struct AgentTabContent {
     /// Install the incoming page's cover only after the pane has retired the outgoing page's cover.
     func prepareToShow(_ key: String, view: AgentPaneView?) {
         guard let view else { drawLastPage(key, until: nil); return }
-        let services = pane.services
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         // A hold that gives up on the page before it paints (a workspace switch's two frames) asks for its picture again.
         view.drawsLastPage = { [weak pane, weak view] in guard let pane, let view, pane.currentTabKey == key else { return false }; if pane.view.launchImageView == nil { AgentTabContent(pane: pane).drawLastPage(key, until: view) }; return pane.view.launchImageView != nil }
