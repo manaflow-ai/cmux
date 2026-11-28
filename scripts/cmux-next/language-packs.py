@@ -11,7 +11,7 @@ pak in APP/Contents/Resources/ChromiumLocales (minus --keep). Only the CmuxNext 
 resource bundles (APP/Contents/Resources/CmuxNext_*.bundle) and those paks are split; every other
 bundle, framework, Sparkle and uBlock stays in the app. Inside those bundles it takes each L.lproj
 and each web page string table split per language (.../locales/L.js, the Settings page and the agent
-pane; English and loader.js stay).
+pane, and .../pane-locales/L.js, Home's subset of the agent pane's; English and loader.js stay).
 
 Chromium locale paks: scripts/cmux-next/embed-cef.sh moves every Chromium locale but en (en-US, the
 fallback, stays in the framework) out of the framework to ChromiumLocales/<catalog>.lproj/locale.pak
@@ -55,9 +55,10 @@ import tarfile
 
 BUNDLE_GLOB = "CmuxNext_*.bundle"
 # Web page string tables split one file per language (webviews/scripts/pages/split-strings.mjs):
-# BUNDLE/Contents/Resources/<...>/locales/<lang>.js. The page's loader asks for its language's file
+# BUNDLE/Contents/Resources/<...>/locales/<lang>.js, and pane-locales/<lang>.js for a page that also
+# carries a subset of the agent pane's table (Home). The page's loader asks for its language's file
 # and the app serves it from the active pack (Bundle.languagePackFile); English and loader.js stay.
-WEB_LOCALES_DIR = "locales"
+WEB_LOCALES_DIRS = ("locales", "pane-locales")
 CHROMIUM_DIR = "ChromiumLocales"
 # The cmux languages whose Chromium catalog is not their own tag with "_" for "-".
 CHROMIUM_CATALOG = {"zh-Hans": "zh_CN", "zh-Hant": "zh_TW"}
@@ -172,7 +173,8 @@ def selection(app: Path, keep: list[str]):
                 chosen[lang].append((bundle, lproj, lproj_files(lproj)))
             else:
                 left.add(lang)
-        for locales in sorted(p for p in resources.rglob(WEB_LOCALES_DIR) if p.is_dir() and not p.is_symlink()):
+        tables = (p for name in WEB_LOCALES_DIRS for p in resources.rglob(name))
+        for locales in sorted(p for p in tables if p.is_dir() and not p.is_symlink()):
             for lang in chosen:
                 web = locales / f"{lang}.js"
                 if web.is_symlink():
@@ -295,7 +297,7 @@ def split(args) -> None:
     for lang, items in chosen.items():
         pak = chromium.get(lang)
         if not items and pak is None:
-            print(f"==> {lang}: no {lang}.lproj or {WEB_LOCALES_DIR}/{lang}.js in any {BUNDLE_GLOB} and no Chromium pak; no pack")
+            print(f"==> {lang}: no {lang}.lproj or {'|'.join(WEB_LOCALES_DIRS)}/{lang}.js in any {BUNDLE_GLOB} and no Chromium pak; no pack")
             continue
         # Packed from the app (the same entries measure reads), then moved out of it.
         data = zstd_compress(tar_bytes(pack_entries(items, pak)))
