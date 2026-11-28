@@ -17,7 +17,8 @@ A tour is a JSON file with a `title` and `steps`, and optionally `settings`:
 the cmux-next.json the app launches with (`CMUX_NEXT_CONFIG_FILE`), a private
 file in the tour's work directory, so a tour can show a setting (background
 art, a theme) and `cmux settings set` writes there, never to the runner's own
-settings. `launch_args` are arguments the app launches with (`--showcase`). `customize: true` gives the launch its own empty customize folder
+settings. `launch_args` are arguments the app launches with (`--showcase`); first-run onboarding is skipped
+(`CMUX_NEXT_SKIP_ONBOARDING=1`) unless they include `--onboarding`. `customize: true` gives the launch its own empty customize folder
 (`CMUX_CUSTOMIZE_DIR`, `local/customize`'s folder, in the tour's work directory,
 which every terminal of the app has too), so a step can write a customize app
 there and the daemon installs and reloads it; every tour gets its own folder either
@@ -880,6 +881,10 @@ class App:
                  f"CMUX_CAPTURE_SHELL_HOME={self.write_shell_home()}"]
         if self.settings_path:
             knobs.append(f"CMUX_NEXT_CONFIG_FILE={self.settings_path}")
+        # A fresh profile shows first-run onboarding (Chief's "Meet Chief" sheet) over the window, which hid
+        # every tour's subject; a tour that shows onboarding itself launches with `--onboarding`.
+        if "--onboarding" not in self.launch_args and "CMUX_NEXT_ONBOARDING" not in self.launch_env:
+            knobs.append("CMUX_NEXT_SKIP_ONBOARDING=1")
         knobs += [f"{key}={value}" for key, value in sorted(self.launch_env.items())]
         argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES",
                                       *self.launch_args]
