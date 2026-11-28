@@ -63,3 +63,9 @@
 - Cleanup superseded old e2e5d producer artifact.tgz/cache.000 only:112,140,013bytes. Manifest/logs/hashes retained; cleanup-receipt.json. New producer inputs untouched.
 
 - Consumer submitbg-263e5a2ad4fb exited0; accepted cdb7df4c2d52289bf3200a41, request b468975a3b3acc19df40d7a1, exact source/cache input receipts. Sole wait900s started, see parent message for background id.
+
+## Consumer proof and documentation descendant
+
+- Consumer cdb7df4c2d52289bf3200a41 terminaldone; artifactbg-84b0e22ef518 exit0, SHAee107926f169e18d31fb580f093750009dc154b5da7d45cf0f8f5134df132d3f verified. Internal exit0 exact7498893c; accepted Fresh sys+transport65native+7dependency hashes unchanged. First offline2.068187672wall/5.189906CPU; separate source-only fetch3.721887523wall/2.413992CPU. Overall22.388751235wall, queue/input transfer excluded. Different producer/consumer workers, identity equality verified.
+- Docs-only descendant476d4df58d712cefb6976d295c8aff8a3023f7cb adds README+portability-receipt; no executable changes. Parent primary evidencePASS; review_mergeSHIP README32d7226583fd0915ed26df7ee151c7d836349aa17f5f8d090044f4d1e999ea0b and receipt109fe819d62361264aea9aebcf1879cae395129052efbdb418edb0acad190e1d. Measurements remain credited to original testedSHAs, no rerun claim. No physical calibration, cold-registry or production R2 proof.
+- Normal pushbg-74017cdae484 PID3975757 active; root callback forwarding. Need check terminal push, then ready draft and exact-head CI/landing loop. No land queued. Final body source PR-body-final.md and PR-body-final-owned-path.
