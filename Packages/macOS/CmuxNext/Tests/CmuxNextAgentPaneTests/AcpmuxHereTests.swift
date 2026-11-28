@@ -14,6 +14,17 @@ struct AcpmuxHereTests {
         #expect(try decode(#"{"here":[],"sync":[]}"#).sync == [])
     }
 
+    @Test func summaryDecodesAndOlderDaemonsOmitIt() throws {
+        #expect(try decode(#"{"here":[],"sync":[]}"#).summary == nil)
+        let summary = try #require(try decode(#"{"here":[],"sync":[],"summary":{"sync":"offline","pendingEdits":5,"others":1,"agents":2}}"#).summary)
+        #expect(summary.sync == .offline && summary.pendingEdits == 5 && summary.others == 1 && summary.agents == 2)
+    }
+
+    @Test func newerSummarySyncStateIsUnknownNotOffline() throws {
+        let summary = try #require(try decode(#"{"here":[],"summary":{"sync":"future-state","pendingEdits":0,"others":0,"agents":0}}"#).summary)
+        #expect(summary.sync == .unknown)
+    }
+
     @Test func acknowledgementDoesNotImplyConnectivity() throws {
         let result = try decode(#"{"here":[],"sync":[{"peer":"phone","connected":false,"acknowledged":true,"unacknowledgedEdits":0},{"peer":"mac","connected":true,"acknowledged":false,"unacknowledgedEdits":12}]}"#)
         let peers = try #require(result.sync)

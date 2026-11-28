@@ -6,6 +6,9 @@ public nonisolated struct AcpmuxHere: Decodable, Sendable, Equatable {
     /// Nil means unavailable (including older daemons). Empty means no peer has
     /// exchanged state yet; neither value proves that all replicas are synced.
     public let sync: [SyncPeer]?
+    /// The daemon's one reduction of `here` and `sync` for the sidebar's status icon (RFD 0140).
+    /// Nil from a daemon that predates it; clients draw it and never re-derive it from `sync`.
+    public let summary: Summary?
 
     init(result: [String: Any]) throws {
         self = try JSONDecoder().decode(Self.self, from: JSONSerialization.data(withJSONObject: result))
@@ -37,6 +40,24 @@ public nonisolated struct AcpmuxHere: Decodable, Sendable, Equatable {
         public let acknowledged: Bool
         /// Local edit sequences not covered by the peer's last acknowledgement.
         public let unacknowledgedEdits: UInt64
+    }
+
+    public nonisolated struct Summary: Decodable, Sendable, Equatable {
+        public let sync: SyncState
+        /// Offline: the most edits any peer misses. Syncing: the most any connected peer misses. Else 0.
+        public let pendingEdits: UInt64
+        /// People here besides this machine's own person.
+        public let others: UInt32
+        public let agents: UInt32
+    }
+
+    public nonisolated enum SyncState: String, Decodable, Sendable {
+        case offline, syncing, synced, alone, unknown
+
+        public init(from decoder: any Decoder) throws {
+            let value = try decoder.singleValueContainer().decode(String.self)
+            self = Self(rawValue: value) ?? .unknown
+        }
     }
 
     // The daemon can update before the app. New string values must not discard
