@@ -190,6 +190,26 @@ jobs:
       - name: Validate Wrangler deployment bundle
         run: npx --no-install wrangler deploy --dry-run --outdir "$RUNNER_TEMP/cmux-cloudflare-relay"
 
+      # RFD 0163 row 34: the edge build hashes. The Worker bundle (script and wasm) this commit builds,
+      # as sha256 lines in the run summary and in an artifact, next to the relay binaries' manifest.json
+      # hashes (cmux-tui artifacts). A client or auditor compares these with the bundle Cloudflare serves.
+      - name: Publish edge build hashes
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/cmux-cloudflare-relay"
+          mkdir -p "$RUNNER_TEMP/edge-hashes"
+          (cd "$out" && find . -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.wasm' \) -print0 | sort -z | xargs -0 sha256sum) > "$RUNNER_TEMP/edge-hashes/SHA256SUMS"
+          test -s "$RUNNER_TEMP/edge-hashes/SHA256SUMS"
+          bash scripts/ci/check-edge-hashes.sh "$out" "$RUNNER_TEMP/edge-hashes/SHA256SUMS"
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/edge-hashes/SOURCE_SHA"
+          { echo "### cmux-cloudflare-relay edge build hashes ($GITHUB_SHA)"; echo '```'; cat "$RUNNER_TEMP/edge-hashes/SHA256SUMS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-cloudflare-relay-edge-hashes-${{ github.sha }}
+          path: ${{ runner.temp }}/edge-hashes
+          if-no-files-found: error
+          retention-days: 90
+
       # The built Worker under `wrangler dev`, driven over its wire by tests/relay_do_behavior.mjs: the
       # Router and both Durable Objects as the runtime runs them, which `cargo test` cannot reach. Without
       # it a Router that errors on every Register and Connect (cmux#54175, headers_mut on the runtime's
@@ -462,8 +482,9 @@ jobs:
     # runner's disk (run 45710386290, "No space left on device"), so the journeys and production never ran.
     # It now builds as cloud-journey-pr.yml's journey does: the same profile env (so the R2 key below matches
     # the one its `seed` job saves on feat-cmux-next) and its compiled dependencies restored from R2.
-    # tests/test_ci_relay_journey_build_cache.py keeps the two in step.
-    timeout-minutes: 50
+    # tests/test_ci_relay_journey_build_cache.py keeps the two in step. 70 minutes: a cold build at -j2 (6 GiB a job
+    # in a 14 GiB cmux-linux slot; -j4 SIGKILLed the acpmux rustc 24 min in, runs 46160737133 and 46163835969).
+    timeout-minutes: 70
     env:
       CARGO_PROFILE_DEV_OPT_LEVEL: "0"
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
@@ -547,7 +568,7 @@ jobs:
         run: |
           set -euo pipefail
           target_dir="${CARGO_TARGET_DIR:-target}"
-          # One job per 3 GiB of a memory-capped pool slot: -j at every host thread SIGKILLed rustc (job 140983092431).
+          # One job per 6 GiB of a memory-capped pool slot (scripts/ci/cargo-mem-jobs.sh): -j at every host thread, and -j4 in 14 GiB, SIGKILLed rustc.
           CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh" 2>/dev/null || true)}"
           if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
           cargo build -p cmux-tui --bin cmux-tui --locked
