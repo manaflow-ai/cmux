@@ -70,6 +70,46 @@ const SPLIT = process.env.SPLIT === "1";
 /// RESTYLE=1 (Chromium): a timeline trace of the run, and the elements each frame restyled (UpdateLayoutTree's
 /// elementCount, summed per painted frame), unminified so each forced pass names its forcer. Its own runs: the trace slows the page, so read no frame times there.
 const RESTYLE = process.env.RESTYLE === "1";
+/// Rows mounted per 1,000 px the view moved, over frames that moved with no older page landing, and the px a
+/// moving frame scrolled (p50): a window that mounts what scrolls into it keeps the first flat at any chat length.
+function mountsPerScroll(
+  frames: readonly { scrollTop: number; mounted: number; shifted: number; again: number; live: number }[],
+) {
+  let moved = 0;
+  let mounted = 0;
+  let again = 0;
+  const live = frames.map((frame) => frame.live).sort((a, b) => a - b);
+  const steps: number[] = [];
+  for (let index = 1; index < frames.length; index += 1) {
+    const step = Math.abs(frames[index]!.scrollTop - frames[index - 1]!.scrollTop);
+    if (step < 1 || frames[index]!.shifted > 0) continue;
+    moved += step;
+    mounted += frames[index]!.mounted;
+    again += frames[index]!.again;
+    steps.push(step);
+  }
+  steps.sort((a, b) => a - b);
+  return {
+    mountedRowsPerKpx: moved ? Math.round((mounted / moved) * 100_000) / 100 : 0,
+    movingFrames: steps.length,
+    remountedRowsPerKpx: moved ? Math.round((again / moved) * 100_000) / 100 : 0,
+    remountedRowsAll: frames.reduce((sum, frame) => sum + frame.again, 0),
+    liveRowsP50: live[Math.floor(live.length / 2)] ?? 0,
+    liveRowsP95: live[Math.floor(live.length * 0.95)] ?? 0,
+    scrolledPxPerMovingFrameP50: steps.length ? Math.round(steps[Math.floor(steps.length / 2)]!) : 0,
+  };
+}
+type SelectorTiming = {
+  selector?: string;
+  elapsed?: number;
+  "elapsed (us)"?: number;
+  match_attempts?: number;
+  match_count?: number;
+  fast_reject_count?: number;
+};
+/// SELECTORS=1 with RESTYLE=1: the selectors that cost the run's style passes most, by match time, attempts and
+/// matches (Chromium's selector stats), so a restyle's cost per element names the rules it goes to.
+const SELECTORS = process.env.SELECTORS === "1";
 const PROFILE = process.env.PROFILE === "1" || SPLIT;
 
 // The chat: the generated ordinary log at TURNS turns, its records as the stand-in daemon's lead steps; the
@@ -100,6 +140,9 @@ type Frame = {
   clientHeight: number;
   paint: number;
   mounted: number;
+  /// Of `mounted`, rows whose id had been mounted before in the run, and the rows in the DOM after the frame.
+  again: number;
+  live: number;
   shifted: number;
 };
 
@@ -266,6 +309,13 @@ async function run(name: string, engine: BrowserType) {
       // Rows mounted since the last painted frame: each `.acpmux-row` added under the scroller.
       let mounted = 0;
       let shifted = 0;
+      // A row id mounted a second time (the window let it go and took it back, or a key changed), and the rows
+      // the DOM holds after each frame: an overshooting window holds more, a churning one mounts ids again.
+      const seen = new Set<string>(
+        [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].map((row) => row.dataset.rowId ?? ""),
+      );
+      let again = 0;
+      let live = seen.size;
       const rowsIn = new MutationObserver((records) => {
         for (const record of records) {
           if (record.type === "attributes") {
@@ -278,7 +328,15 @@ async function run(name: string, engine: BrowserType) {
             continue;
           }
           for (const node of record.addedNodes)
-            if (node instanceof HTMLElement && node.classList.contains("acpmux-row")) mounted += 1;
+            if (node instanceof HTMLElement && node.classList.contains("acpmux-row")) {
+              mounted += 1;
+              const id = node.dataset.rowId ?? "";
+              if (seen.has(id)) again += 1;
+              seen.add(id);
+              live += 1;
+            }
+          for (const node of record.removedNodes)
+            if (node instanceof HTMLElement && node.classList.contains("acpmux-row")) live -= 1;
         }
       });
       rowsIn.observe(scroller, {
@@ -296,7 +354,10 @@ async function run(name: string, engine: BrowserType) {
           clientHeight: scroller.clientHeight,
           mounted,
           shifted,
+          again,
+          live,
         });
+        again = 0;
         mounted = 0;
         shifted = 0;
       });
@@ -329,7 +390,12 @@ async function run(name: string, engine: BrowserType) {
         transferMode: "ReturnAsStream",
         traceConfig: {
           recordMode: "recordAsMuchAsPossible",
-          includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.stack"],
+          includedCategories: [
+            "devtools.timeline",
+            "disabled-by-default-devtools.timeline.stack",
+            // SELECTORS=1: each style pass's per-selector match time (DevTools' "selector stats").
+            ...(SELECTORS ? ["disabled-by-default-blink.debug"] : []),
+          ],
         },
       });
     if (tracer)
@@ -439,7 +505,11 @@ async function run(name: string, engine: BrowserType) {
           if (rule instanceof CSSStyleRule) {
             rules += 1;
             for (const selector of rule.selectorText.split(/,(?![^(]*\))/)) {
-              const subject = selector.trim().split(/\s*[\s>+~]\s*(?![^(]*\))/).pop() ?? "";
+              const subject =
+                selector
+                  .trim()
+                  .split(/\s*[\s>+~]\s*(?![^(]*\))/)
+                  .pop() ?? "";
               const bare = subject.replace(/\([^)]*\)/g, "()");
               if (!/[.#]|^[a-z]/i.test(bare)) universal.push(selector.trim());
             }
@@ -541,13 +611,13 @@ async function run(name: string, engine: BrowserType) {
       const self = new Map<string, number>();
       const total = new Map<string, number>();
       const callers = new Map<string, number>();
+      const label = (each: Node) =>
+        `${each.callFrame.functionName || "(anon)"} ${each.callFrame.url.split("/").pop()?.split("?")[0] ?? ""}:${each.callFrame.lineNumber + 1}`;
       profile.samples.forEach((id, index) => {
         const ms = (profile.timeDeltas[index] ?? 0) / 1000;
         clock += ms;
         const node = byId.get(id)!;
         if (node.callFrame.functionName === "(idle)") return;
-        const label = (each: Node) =>
-          `${each.callFrame.functionName || "(anon)"} ${each.callFrame.url.split("/").pop()?.split("?")[0] ?? ""}:${each.callFrame.lineNumber + 1}`;
         self.set(label(node), (self.get(label(node)) ?? 0) + ms);
         const at = profiledAt + clock;
         if (watched.spans.some(([from, to]) => at >= from && at <= to)) {
@@ -715,6 +785,27 @@ async function run(name: string, engine: BrowserType) {
       }
       for (const [key, count] of [...forcers].sort((a, b) => b[1] - a[1]).slice(0, 20))
         console.log(`transcript-scroll-up ${name} forced ${count} ${key}`);
+      const selectors = new Map<string, { us: number; attempts: number; matches: number; rejects: number }>();
+      for (const event of events as { args?: { selector_stats?: { selector_timings?: SelectorTiming[] } } }[]) {
+        for (const timing of event.args?.selector_stats?.selector_timings ?? []) {
+          const key = timing.selector ?? "";
+          const sum = selectors.get(key) ?? { us: 0, attempts: 0, matches: 0, rejects: 0 };
+          sum.us += timing.elapsed ?? timing["elapsed (us)"] ?? 0;
+          sum.attempts += timing.match_attempts ?? 0;
+          sum.matches += timing.match_count ?? 0;
+          sum.rejects += timing.fast_reject_count ?? 0;
+          selectors.set(key, sum);
+        }
+      }
+      const selectorUs = [...selectors.values()].reduce((total, each) => total + each.us, 0);
+      if (selectors.size)
+        console.log(
+          `transcript-scroll-up ${name} selectors ${selectors.size} ${Math.round(selectorUs / 1000)} ms matching`,
+        );
+      for (const [key, sum] of [...selectors].sort((a, b) => b[1].us - a[1].us).slice(0, 40))
+        console.log(
+          `transcript-scroll-up ${name} selector ${Math.round(sum.us / 1000)} ms ${sum.attempts} tried ${sum.matches} matched ${sum.rejects} rejected ${key.slice(0, 160)}`,
+        );
       const styleEvents = events.filter((event) => event.name === "UpdateLayoutTree" && event.ph === "X");
       const passes = events
         .filter((event) => event.name === "UpdateLayoutTree" && (event.ph === "X" || event.ph === "E"))
@@ -731,7 +822,13 @@ async function run(name: string, engine: BrowserType) {
         // objects each layout walked (`totalObjects`) against those it had to lay out (`dirtyObjects`).
         stylePassesPerFrame: round2(styleEvents.length / painted),
         styleMsPerFrame: round2(ms(styleEvents) / painted),
-        styleUsPerElement: round2((ms(styleEvents) * 1000) / Math.max(1, passes.reduce((sum, count) => sum + count, 0))),
+        styleUsPerElement: round2(
+          (ms(styleEvents) * 1000) /
+            Math.max(
+              1,
+              passes.reduce((sum, count) => sum + count, 0),
+            ),
+        ),
         layoutsPerFrame: round2(layouts.length / painted),
         layoutMsPerFrame: round2(ms(layouts) / painted),
         layoutTotalObjectsP95: percentile(
@@ -842,6 +939,10 @@ async function run(name: string, engine: BrowserType) {
       mountedRowsPerFrame: round2(
         watched.frames.reduce((sum, frame) => sum + frame.mounted, 0) / Math.max(1, watched.frames.length),
       ),
+      // The same per pixel scrolled: a painted frame of a slow fling scrolls more, so per frame alone reads a slow
+      // frame's extra step as rows the window mounted for nothing. Frames where an older page landed (rows shifted,
+      // the offset moved by the page's height) are left out, and so are frames that did not move.
+      ...mountsPerScroll(watched.frames),
       ...(restyled
         ? {
             restyledPerFrame: restyled.perFrame,
