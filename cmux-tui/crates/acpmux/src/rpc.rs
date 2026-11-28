@@ -926,7 +926,11 @@ pub mod method {
     /// unix socket, the local app and the owner's own peer daemon.
     pub const MUX_AGENT_LOGIN_START: &str = "_acpmux/agent_login/start";
     pub const MUX_AGENT_LOGIN_FINISH: &str = "_acpmux/agent_login/finish";
+    pub const MUX_AGENT_LOGIN_RECOVER_START: &str = "_acpmux/agent_login/recover_start";
+    pub const MUX_AGENT_LOGIN_RECOVER_FINISH: &str = "_acpmux/agent_login/recover_finish";
     pub const MUX_AGENT_LOGIN_CANCEL: &str = "_acpmux/agent_login/cancel";
+    pub const MUX_AGENT_LOGIN_STATUS: &str = "_acpmux/agent_login/status";
+    pub const MUX_AGENT_LOGIN_LOGOUT: &str = "_acpmux/agent_login/logout";
     pub const MUX_AGENT_LOGIN_API_KEY: &str = "_acpmux/agent_login/api_key";
     /// Local socket only: bounded, cached inventory snapshots; no health control.
     pub const MUX_HARNESS_INVENTORY_WATCH: &str = "_acpmux/harness/inventory/watch";
@@ -989,9 +993,24 @@ pub mod method {
     pub const MUX_CONNECTIONS_KEY_ADD: &str = "_acpmux/connections/key.add";
     /// Asks a provider whether a pasted API key (by its reference) is good, before `key.add`.
     pub const MUX_CONNECTIONS_KEY_CHECK: &str = "_acpmux/connections/key.check";
+    /// `{account, label, secret}`: the daemon writes a pasted key or token into the login Keychain
+    /// (`cmux-model-key`/ACCOUNT) itself, so the item trusts acpmux and not `/usr/bin/security`;
+    /// answers `{secret: "keychain:cmux-model-key/ACCOUNT"}`. The unix socket only.
+    pub const MUX_CONNECTIONS_SECRET_STORE: &str = "_acpmux/connections/secret.store";
+    /// `{account}`: removes a `cmux-model-key` item `secret.store` wrote (a refused add's rollback).
+    pub const MUX_CONNECTIONS_SECRET_DELETE: &str = "_acpmux/connections/secret.delete";
     pub const MUX_CONNECTIONS_CHATGPT_BEGIN: &str = "_acpmux/connections/chatgpt.begin";
     pub const MUX_CONNECTIONS_CHATGPT_WAIT: &str = "_acpmux/connections/chatgpt.wait";
     pub const MUX_CONNECTIONS_CHATGPT_CANCEL: &str = "_acpmux/connections/chatgpt.cancel";
+    pub const MUX_CONNECTIONS_CHATGPT_DEVICE_BEGIN: &str =
+        "_acpmux/connections/chatgpt.device.begin";
+    pub const MUX_CONNECTIONS_CHATGPT_DEVICE_WAIT: &str = "_acpmux/connections/chatgpt.device.wait";
+    pub const MUX_CONNECTIONS_CHATGPT_DEVICE_CANCEL: &str =
+        "_acpmux/connections/chatgpt.device.cancel";
+    pub const MUX_CONNECTIONS_SUBSCRIPTION_BEGIN: &str = "_acpmux/connections/subscription.begin";
+    pub const MUX_CONNECTIONS_SUBSCRIPTION_WAIT: &str = "_acpmux/connections/subscription.wait";
+    pub const MUX_CONNECTIONS_SUBSCRIPTION_CANCEL: &str = "_acpmux/connections/subscription.cancel";
+    pub const MUX_CONNECTIONS_GROK_HOOK: &str = "_acpmux/connections/grok.hook";
     pub const MUX_CONNECTIONS_CHATGPT_TOKEN: &str = "_acpmux/connections/chatgpt.token";
     /// CI only: a Codex auth.json as a `chatgpt-plan` connection, local socket and an env switch.
     pub const MUX_CONNECTIONS_CHATGPT_IMPORT: &str = "_acpmux/connections/chatgpt.import";
