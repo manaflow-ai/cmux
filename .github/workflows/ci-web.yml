@@ -56,9 +56,9 @@ permissions:
   contents: read
 
 env:
-  # Match the producer toolchain even when verifying an older merge-parent tree.
+  # Match the producer toolchain even when verifying an older merge-parent tree. Node is not typed
+  # here: web-bundle-key.py reads the tree's .node-version, as the producer does.
   CMUX_WEB_BUN_VERSION: "1.4.4"
-  CMUX_WEB_NODE_VERSION: "24.22.1"
   # Style guards (lint, format, size, drift) warn everywhere but main and release tags, which stay strict (Leo
   # 2026-10-19, #22396). Keyed on the strict refs, not on feat-cmux-next, so a stacked pull request (base: another
   # lane branch) warns like its parent instead of failing on findings feat-cmux-next already has (#54185).

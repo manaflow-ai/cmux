@@ -400,7 +400,7 @@ jobs:
           fi
 
       # The webviews app's `vp build` must run on node (build-web-bundles.sh).
-      - name: Restore pinned Node ${{ env.CMUX_WEB_NODE_VERSION }} from the CI cache bucket
+      - name: Restore pinned Node from the CI cache bucket
         if: steps.key.outputs.published != 'true'
         shell: bash
         continue-on-error: true
