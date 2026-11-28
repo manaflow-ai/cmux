@@ -9,7 +9,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { MockAppPanelsClient } from "../../../apps/scene/panelsMock";
 import { setExperimentSwitches } from "../../../experiments/switches";
-import { ChatWidgetClientContext, widgetTool } from "./ToolWidget";
+import { ChatWidgetClientContext, widgetTool } from "./toolWidgetModel";
 import { ChatWidgetMount } from "../../../apps/scene/chatWidgetClient";
 import { ToolRow } from "./ToolRow";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";

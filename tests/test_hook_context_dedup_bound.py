@@ -85,6 +85,18 @@ class BoundTests(unittest.TestCase):
             result = bound.measure(snapshot, root / "workspace")
             self.assertEqual(result["session"]["duplicate_bytes"], 4)
             self.assertFalse(result["conservation_claim"])
+            receipt.update(status="subset-exploratory", diagnostics={"malformed_json": 1},
+                           coverage={"source_files": 2, "excluded_files": 1,
+                                     "excluded_captured_bytes": 17, "excluded": [{"id": "opaque-excluded"}]})
+            (snapshot / "receipt.json").write_text(json.dumps(receipt))
+            subset = bound.measure(snapshot, root / "workspace")
+            self.assertEqual(subset["status"], "subset-exploratory")
+            self.assertEqual(subset["analysis"], "theoretical-bound")
+            self.assertEqual(subset["parent_status"], receipt["status"])
+            self.assertEqual(subset["parent_diagnostics"], receipt["diagnostics"])
+            self.assertEqual(subset["parent_coverage"], receipt["coverage"])
+            self.assertFalse(subset["conservation_claim"])
+            self.assertEqual(subset["snapshot_receipt_sha256"], bound.digest((snapshot / "receipt.json").read_bytes()))
             transcript.write_bytes(data + b"{}\n")
             with self.assertRaisesRegex(ValueError, "transcript hash mismatch"):
                 bound.measure(snapshot, root / "workspace")
