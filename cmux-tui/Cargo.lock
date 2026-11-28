@@ -4032,6 +4032,7 @@ dependencies = [
  "axum",
  "base64",
  "chrono",
+ "cmux-egress",
  "cmux-process",
  "cmux-scope",
  "cmux-tui-machine-protocol",
