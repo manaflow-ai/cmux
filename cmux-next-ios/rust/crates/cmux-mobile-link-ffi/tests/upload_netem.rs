@@ -449,7 +449,8 @@ async fn upload_netem_cell() {
     let connect_ms = ms(connect_started);
     let (mut yes_workers, stop) = (Vec::new(), Arc::new(AtomicBool::new(false)));
     let progress = Arc::new(Progress::default());
-    let (mut finished, mut code, mut capped) = (false, String::new(), false);
+    let (mut finished, mut capped) = (false, false);
+    let code: String;
     let mut total_ms = 0;
     let started = Instant::now();
     match connected {
