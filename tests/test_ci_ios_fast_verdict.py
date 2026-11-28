@@ -723,5 +723,16 @@ class WorkflowTest(unittest.TestCase):
         self.assertNotIn("xcodebuild test \"", run)
 
 
+    def test_the_kit_test_run_streams_so_a_hang_is_named(self) -> None:
+        # cmux#59376 run 46185679058: -quiet left the watchdog "Testing started" only, 15 min, no test named.
+        text = (ROOT / "scripts/ci/ios_fast_verdict.sh").read_text()
+        run = text[text.index('if [[ -n "$tests" ]]; then'):text.index('phase "kit tests')]
+        test_run = run[run.index("hung_test_watchdog.py"):]
+        self.assertIn('"${test_common[@]}"', test_run)
+        self.assertNotIn('"${common[@]}"', test_run)
+        self.assertIn('[[ "$arg" == -quiet ]] ||', run)
+        self.assertIn("--stall-seconds", test_run)
+        self.assertIn("--sample-also", test_run)
+
 if __name__ == "__main__":
     unittest.main()
