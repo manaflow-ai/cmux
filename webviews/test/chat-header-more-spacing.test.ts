@@ -43,7 +43,7 @@ test("every tool is one square from the grid tokens, the ⋯ included, with a to
   expect(tool.get("padding")).toBe("0");
   expect(tool.get("justify-content")).toBe("center");
   expect(tool.get("align-items")).toBe("center");
-  expect(tool.get("border-radius")).toBe("var(--ds-radius-md,6px)");
+  expect(tool.get("border-radius")).toBe("var(--ds-radius-control)");
   // No rule gives the ⋯ its own box or margin.
   expect(css).not.toMatch(/\.acpmux-header-more\s*\{/);
   const gap = "var(--acpmux-header-tool-gap,var(--grid-half-step))";
