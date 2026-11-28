@@ -201,6 +201,13 @@ fn an_ask_previews_through_a_chat_and_the_next_ask_refines_in_it() {
     };
     assert_eq!(applied.generation.label, "make the sidebar compact; and a night theme");
     assert_eq!(applied.generation.n, 2);
+    // Its Undo chip goes back to the generation before it, by number (wow-20 idea 15).
+    assert_eq!(applied.before, Some(1));
+    let said = Answer::Applied(applied).human(5_000);
+    assert!(
+        said.contains(r#"wrap_up actions: [{"label":"Undo","run":{"customize":"undo","to":1}}]"#),
+        "{said}"
+    );
 }
 
 #[test]

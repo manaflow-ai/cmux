@@ -227,6 +227,33 @@ const tryOn = (target: string): NextStepAsk => ({
     { label: "Not now", key: "recap.notNow" },
   ],
 });
+// wow-20 idea 15, "Make me a panel": a chat made a sidebar panel and applied it; the card's Undo
+// (`cmux customize apply` prints it) rolls back to the generation before, by number.
+const madePanel = (options: NextStepAsk["options"]): NextStepAsk => ({
+  tag: "wrap_up",
+  rest: "",
+  recap: "Your open PRs are a section at the bottom of the sidebar now, saved as generation 5 of your setup.",
+  question: "Keep the panel?",
+  options,
+});
+const UNDO = { label: "Undo", run: { customize: "undo", to: 4 } } as const;
+const undoVariant = (note: string, options: NextStepAsk["options"], customize: Customize, press?: boolean) => ({
+  note,
+  height: 360,
+  props: { look: "box" as Look, text: "", given: madePanel(options), customize },
+  ...(press
+    ? {
+        play: async (ctx: PlayContext) => {
+          await ctx.click({ role: "button", name: /Undo/ });
+          await ctx.waitFor(() =>
+            Array.from(ctx.document.querySelectorAll("output.acpmux-next-step__detail")).some((output) =>
+              /Undone|Couldn/.test(output.textContent ?? ""),
+            ),
+          );
+        },
+      }
+    : {}),
+});
 const PR = "pr:59387";
 const PROFILE = "calm-sidebar";
 const FOLDER = "dir:/Users/you/src/cmux-sidebar";
@@ -384,6 +411,22 @@ export default componentEntry({
     "consent-choices": variant("consent", CHOICES, undefined, "Alternative: the consent card, buttons right-aligned."),
     "consent-yes-no": variant("consent", YES_NO, undefined, "Alternative: the consent card, yes or no."),
     "list-choices": variant("list", CHOICES, undefined, "Alternative: answers stacked as rows, the question card's."),
+    "panel-undo-only": undoVariant(
+      "Proposed (wow-20 idea 15): a made panel's card offers Undo alone; the panel is already on screen.",
+      [UNDO],
+      {},
+    ),
+    "panel-undo-and-more": undoVariant(
+      "Alternative: Undo first, then the agent's own follow-ups as typed answers.",
+      [UNDO, { label: "Show only my drafts" }, { label: "Move it to the top" }],
+      {},
+    ),
+    "panel-keep-first": undoVariant(
+      "Alternative: Keep it (an answer) first, Undo second, so Enter keeps.",
+      [{ label: "Keep it" }, UNDO],
+      {},
+    ),
+    "panel-undone": undoVariant("Proposed: after Undo, the setup before the panel is back.", [UNDO], {}, true),
     "customize-offered": customizeVariant(
       "Shipped (RFD 0150): a wrap-up offers its change; Try it on runs `cmux customize try`, Not now answers.",
       PR,

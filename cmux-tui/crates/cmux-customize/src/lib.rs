@@ -155,6 +155,10 @@ pub struct Applied {
     /// The library entry this apply was saved as (`cmux customize library`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub library: Option<String>,
+    /// The generation that was current before this apply: an Undo rolls back to it
+    /// (`cmux customize rollback N`), so a later apply in between is never the one undone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

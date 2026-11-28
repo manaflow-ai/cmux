@@ -96,3 +96,19 @@ fn anything_else_is_refused() {
     }
     assert!(valid_target("branch:lane/live-artifacts-chat") && valid_target("dir:/tmp/my dir"));
 }
+
+#[test]
+fn undo_rolls_back_to_the_generation_before_the_apply() {
+    assert_eq!(
+        argv(&json!({"customize": "undo", "to": 7})).unwrap(),
+        ["customize", "rollback", "7"]
+    );
+    for bad in [
+        json!({"customize": "undo"}),
+        json!({"customize": "undo", "to": "7"}),
+        json!({"customize": "undo", "to": -1}),
+        json!({"customize": "undo", "to": 1u64 << 40}),
+    ] {
+        assert!(argv(&bad).is_err(), "{bad}");
+    }
+}

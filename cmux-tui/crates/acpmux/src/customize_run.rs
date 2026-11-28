@@ -48,6 +48,16 @@ pub(crate) fn argv(run: &Value) -> Result<Vec<String>, String> {
     let mut out = vec!["customize".to_owned(), verb.to_owned()];
     match verb {
         "keep" | "revert" => {}
+        // Undo: an apply's own chip (wow-20 idea 15, "Make me a panel"), back to the generation
+        // that was current before it, by number, so an apply in between is never the one undone.
+        "undo" => {
+            let to = run
+                .get("to")
+                .and_then(Value::as_u64)
+                .filter(|n| *n <= u64::from(u32::MAX))
+                .ok_or_else(|| "undo takes the generation to go back to: to: N".to_owned())?;
+            out = vec!["customize".to_owned(), "rollback".to_owned(), to.to_string()];
+        }
         "go" => {
             let target = run.get("target").and_then(Value::as_str).unwrap_or_default();
             match target.split_once(':') {
@@ -73,7 +83,7 @@ pub(crate) fn argv(run: &Value) -> Result<Vec<String>, String> {
                 out.extend(["--minutes".to_owned(), minutes.to_string()]);
             }
         }
-        _ => return Err("customize is try, keep, revert or go".into()),
+        _ => return Err("customize is try, keep, revert, undo or go".into()),
     }
     Ok(out)
 }

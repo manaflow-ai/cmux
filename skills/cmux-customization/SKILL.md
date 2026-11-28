@@ -352,6 +352,19 @@ install click.
   slot gets the new view inside its existing render; add each new name to the one
   `__cmuxAppExports` object.
 
+### Make me a panel (one ask, on screen, undoable)
+
+"Show my open PRs in the sidebar" is the ask and the consent: build it, save it, offer Undo.
+
+1. `cmux customize brief 'their words'`, then `cmux customize paths` for the `views` folder.
+2. Start from the closest template (`my-prs` for PRs, `sidebar-section`, `pane`, `threads`) or
+   add the view to the `main.js` already there, keeping every existing view. Each save reloads it.
+3. `cmux customize check` until clean, then `cmux customize apply 'panel: their words'`. Its
+   last line is a `wrap_up actions` line with one Undo (`{"customize":"undo","to":N}`): the
+   generation before this apply, by number, so a later change is never the one undone.
+4. End the turn with `wrap_up` and that action; the recap says where the panel is. Undo runs
+   `cmux customize rollback N`; nothing else is touched.
+
 ### Matching the app
 
 Build a pane only from the kit so it looks like cmux in every theme: `Panel`

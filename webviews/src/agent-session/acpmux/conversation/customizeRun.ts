@@ -8,6 +8,9 @@ export type CustomizeRun =
   | { customize: "try"; target: string; minutes?: number }
   | { customize: "keep" }
   | { customize: "revert" }
+  // Undo: an apply's own chip (`cmux customize apply` prints it), back to the generation current
+  // before it, by number. wow-20 idea 15, "Make me a panel": the panel an agent made is undoable.
+  | { customize: "undo"; to: number }
   // Go: the PR tried on is merge-ready at the head the person saw (`cmux customize go pr:N`).
   // Leo, 2026-11-25: "have that one click merge ready, or like one click readiness to merge, like
   // the go button for that to happen".
@@ -25,6 +28,12 @@ export function readRun(value: unknown): CustomizeRun | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const { customize, target, minutes } = value as Record<string, unknown>;
   if (customize === "keep" || customize === "revert") return { customize };
+  if (customize === "undo") {
+    const { to } = value as Record<string, unknown>;
+    return typeof to === "number" && Number.isInteger(to) && to >= 0 && to <= 0xffffffff
+      ? { customize, to }
+      : undefined;
+  }
   if (customize === "go")
     return typeof target === "string" && /^pr:\d{1,9}$/.test(target) ? { customize, target } : undefined;
   if (customize !== "try" || typeof target !== "string" || target.length > 400 || !TARGET.test(target))
@@ -37,7 +46,7 @@ export function readRun(value: unknown): CustomizeRun | undefined {
 
 /// Where a card's customize buttons stand. After a try-on succeeds the card offers Keep and
 /// Revert, and Go first when what was tried is a PR; any of them ends it.
-export type RunPhase = "idle" | "running" | "tried" | "kept" | "reverted" | "went";
+export type RunPhase = "idle" | "running" | "tried" | "kept" | "reverted" | "went" | "undone";
 export type RunState = {
   phase: RunPhase;
   /** the phase to return to when the run fails */ back: RunPhase;
@@ -63,7 +72,14 @@ export function runReducer(state: RunState, event: RunEvent): RunState {
     const pr = /^pr:\d+$/.test(run.target) ? { pr: run.target } : {};
     return { phase: "tried", back: "tried", failed: false, target: run.target, ...pr };
   }
-  const phase: RunPhase = run.customize === "keep" ? "kept" : run.customize === "go" ? "went" : "reverted";
+  const phase: RunPhase =
+    run.customize === "keep"
+      ? "kept"
+      : run.customize === "go"
+        ? "went"
+        : run.customize === "undo"
+          ? "undone"
+          : "reverted";
   return { phase, back: phase, failed: false, ...kept };
 }
 
