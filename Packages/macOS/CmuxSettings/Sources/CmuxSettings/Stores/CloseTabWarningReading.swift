@@ -68,13 +68,14 @@ extension CloseTabWarningReading {
     }
 
     /// Whether a close should be gated by either the user's warning setting or
-    /// an active process that must never be killed silently.
+    /// an active process. The process safety prompt follows
+    /// ``warnsBeforeClosingTab``: turning that off closes busy tabs without asking.
     public func shouldConfirmCloseIncludingSafety(
         requiresConfirmation: Bool,
         source: CloseTabCloseSource,
         isAgentSession: Bool = false
     ) -> Bool {
-        (!isAgentSession && requiresConfirmation) || shouldConfirmClose(
+        (!isAgentSession && requiresConfirmation && warnsBeforeClosingTab) || shouldConfirmClose(
             requiresConfirmation: requiresConfirmation,
             source: source,
             isAgentSession: isAgentSession
@@ -91,7 +92,7 @@ extension CloseTabWarningReading {
             source: source,
             isAgentSession: isAgentSession
         )
-        if requiresConfirmation && !isAgentSession { kinds.insert(.safety) }
+        if requiresConfirmation && !isAgentSession && warnsBeforeClosingTab { kinds.insert(.safety) }
         return kinds
     }
 }
