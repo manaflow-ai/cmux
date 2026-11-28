@@ -395,9 +395,6 @@ impl Hub {
         provenance: Option<&Value>,
         now: u64,
     ) -> u64 {
-        if due_wake(provenance) {
-            return 0;
-        }
         self.cold_batch_due(session, &session.meta(), now).map_or(0, |due| due.saturating_sub(now))
     }
 

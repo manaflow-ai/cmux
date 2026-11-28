@@ -1,7 +1,6 @@
 //! Request and notification handlers for one client connection.
 
 use super::shutdown_reason::shutdown_reason;
-use super::shutdown_reason::shutdown_reason;
 use super::*;
 use crate::heap_future::heap;
 use crate::no_panic::{JsonExt, LockExt};
