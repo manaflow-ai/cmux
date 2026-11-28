@@ -21,6 +21,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { chromium } from "playwright";
+import { isDynamicImportFailure, optimizerSettled } from "./hot-reload-proof-load.mjs";
 
 const ownWebviews = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // What the pane's dev server reads from the repository: webviews and the files outside it that
@@ -86,6 +87,8 @@ const results = [];
 // A cold first load's bound: 142 s on a GCP lane VM on 2026-11-24; the proof's own timeout in CI is 360 s.
 const COLD_LOAD_MS = 240_000;
 let coldLoadMs;
+const coldLoadRetries = [];
+
 try {
   const root = path.dirname(ownWebviews);
   const skip = new Set([path.join(ownWebviews, "node_modules"), path.join(ownWebviews, "dist")]);
@@ -241,11 +244,41 @@ try {
   // outgrew Playwright's 30 s navigation and the 60 s composer wait on 2026-11-24 (the probe read "report.json
   // unreadable" from 14:06Z). It is not what the probe measures (save to shown), so it gets its own bound and its time
   // goes in the report.
+  // Vite's dependency optimizer can bundle again while that load runs: the entry's dynamic import of
+  // acpmux/main.tsx then fails ("Failed to fetch dynamically imported module") and the page never mounts
+  // the composer (the probe's 08:11Z run and three of four local runs on 2026-11-27 waited out all 240 s).
+  // The gallery's warm-up meets the same race (test/support/galleryFrame.ts): load again once the
+  // optimizer has settled, within the same bound. The failed loads' errors are the cold load's, not the
+  // probes'.
   const loadStarted = performance.now();
-  await page.goto(`http://127.0.0.1:${port}/agent-pane/?mock`, { timeout: COLD_LOAD_MS });
-  await page.locator(".ProseMirror").first().waitFor({ timeout: COLD_LOAD_MS });
+  const coldLeft = () => Math.max(1, COLD_LOAD_MS - (performance.now() - loadStarted));
+  for (;;) {
+    const errorsAtLoad = errors.length;
+    let importFailed;
+    const failed = new Promise((resolve) => {
+      importFailed = (error) => isDynamicImportFailure(error.message) && resolve("import failed");
+      page.on("pageerror", importFailed);
+    });
+    try {
+      await page.goto(`http://127.0.0.1:${port}/agent-pane/?mock`, { timeout: coldLeft() });
+      const outcome = await Promise.race([
+        page
+          .locator(".ProseMirror")
+          .first()
+          .waitFor({ timeout: coldLeft() })
+          .then(() => "mounted"),
+        failed,
+      ]);
+      if (outcome === "mounted") break;
+    } finally {
+      page.off("pageerror", importFailed);
+    }
+    coldLoadRetries.push(...errors.splice(errorsAtLoad));
+    console.log(`cold load: the pane's entry failed to import (the optimizer bundled again); loading again`);
+    await optimizerSettled(server, coldLeft);
+  }
   coldLoadMs = Math.round(performance.now() - loadStarted);
-  console.log(`cold load: ${coldLoadMs} ms`);
+  console.log(`cold load: ${coldLoadMs} ms${coldLoadRetries.length ? ` (${coldLoadRetries.length} reloads)` : ""}`);
   const reloadsBefore = reloads;
   const editor = () => page.locator(".ProseMirror").first();
   // A full reload destroys the page's context mid-read: wait for the new page, then read again.
@@ -449,7 +482,16 @@ try {
     console.log(`replay ${replay}: ${hot.length} of ${counted.length} saves the page loads hot-applied`);
   }
 
-  const report = { port, coldLoadMs, live, audit: auditRows, replay: replayRows, pageErrors: errors, vite };
+  const report = {
+    port,
+    coldLoadMs,
+    coldLoadRetries,
+    live,
+    audit: auditRows,
+    replay: replayRows,
+    pageErrors: errors,
+    vite,
+  };
   await fs.writeFile(path.join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   console.log(out);
   const ok = replay
