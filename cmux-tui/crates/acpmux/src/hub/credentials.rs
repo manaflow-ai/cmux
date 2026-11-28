@@ -556,7 +556,7 @@ pub(super) fn claude_login_needs_restart(meta: &SessionMeta) -> bool {
 
 pub(super) fn claude_login_busy() -> RpcError {
     RpcError::invalid_params(
-        "This chat is moving to this machine's Claude sign-in. Send again when its background work ends.",
+        "Moving to this machine's Claude sign-in. Resend when background work ends.",
     )
     .with_data(json!({"reason": "credentials.claude_login_busy"}))
 }
