@@ -11,15 +11,54 @@
 # Prints "BENCH-AT <sha>" then `BENCH baseline|duress n=… p50=…ns p99=…ns p999=…ns max=…ns` per SHA, and the load average.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+root=$PWD
 source scripts/measure/fetch-commit.sh
 pkg=Packages/macOS/CmuxNext
 src=$pkg/Sources/CmuxNextHangReports/HangReportCollector.swift
-bench=$pkg/Tests/CmuxNextHangReportsTests/NoteStallBench.swift
 [ $# -ge 1 ] || { echo "usage: $0 SHA..." >&2; exit 2; }
-[ ! -e "$bench" ] || { echo "refusing to overwrite $bench" >&2; exit 2; }
-git diff --quiet -- "$src" || { echo "refusing to overwrite modified $src" >&2; exit 2; }
-cleanup() { git checkout -q HEAD -- "$src"; rm -f "$bench"; }
+# The bench builds in a throwaway package of its own: CmuxNextCompat, CmuxNextHangReports (the --ref's sources, with
+# HangReportCollector.swift from each SHA) and one test target, NoteStallBench. A `swift test` in the CmuxNext package
+# compiles every test target there, so an unrelated broken test at the --ref stopped the bench before it measured:
+# three exclusive runs died that way on 2026-11-27/28 (launchRun in CloudStartSessionRequest.swift, a compiler crash
+# at AgentPaneVideoInfoTests.swift:640), after 3-4 h each in the queue. Same compiler flags and same pinned
+# swift-atomics, so the measured code is the same as in the full package.
+work=$(mktemp -d "${TMPDIR:-/tmp}/note-stall-bench.XXXXXX")
+cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
+mkdir -p "$work/Sources" "$work/Tests/NoteStallBenchTests"
+cp -R "$pkg/Sources/CmuxNextCompat" "$pkg/Sources/CmuxNextHangReports" "$work/Sources/"
+# swift-atomics at the CmuxNext package's pin (its Package.resolved lists every package there; only this one is needed).
+atomics=$(awk '/"identity" : "swift-atomics"/ { f = 1 } f && /"version"/ { gsub(/[",]/, ""); print $3; exit }' "$pkg/Package.resolved")
+[ -n "$atomics" ] || { echo "no swift-atomics pin in $pkg/Package.resolved" >&2; exit 1; }
+cat > "$work/Package.swift" <<SWIFT
+// swift-tools-version: 6.2
+import PackageDescription
+let settings: [SwiftSetting] = [ // = daemonSwiftSettings in $pkg/Package.swift
+    .swiftLanguageMode(.v6),
+    .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+    .enableUpcomingFeature("InferIsolatedConformances"),
+    .enableUpcomingFeature("ExistentialAny"),
+    .enableUpcomingFeature("InternalImportsByDefault"),
+]
+let package = Package(
+    name: "NoteStallBench",
+    platforms: [.macOS(.v14)],
+    dependencies: [
+        .package(path: "$root/Packages/Shared/CmuxEgress"),
+        .package(url: "https://github.com/apple/swift-atomics.git", exact: "$atomics"),
+    ],
+    targets: [
+        .target(name: "CmuxNextCompat", dependencies: [.product(name: "Atomics", package: "swift-atomics")],
+                swiftSettings: settings),
+        .target(name: "CmuxNextHangReports",
+                dependencies: ["CmuxNextCompat", .product(name: "CmuxEgress", package: "CmuxEgress")],
+                swiftSettings: settings),
+        .testTarget(name: "NoteStallBenchTests", dependencies: ["CmuxNextCompat", "CmuxNextHangReports"],
+                    swiftSettings: settings),
+    ]
+)
+SWIFT
+bench=$work/Tests/NoteStallBenchTests/NoteStallBench.swift
 cat > "$bench" <<'SWIFT'
 import Foundation
 import CmuxNextCompat
@@ -87,12 +126,12 @@ ncpu=$(sysctl -n hw.ncpu 2>/dev/null || nproc)
 echo "host: $(uname -sm) ncpu=$ncpu"
 for sha in "$@"; do
   measure_fetch_commit . "$sha" || exit 1
-  git show "$sha:$src" > "$src" || { echo "no $src at $sha" >&2; exit 1; }
+  git show "$sha:$src" > "$work/Sources/CmuxNextHangReports/HangReportCollector.swift" || { echo "no $src at $sha" >&2; exit 1; }
   echo "BENCH-AT $(git rev-parse --short "$sha")"
-  # package-test-lane.sh's release suite build: @testable needs -enable-testing, DEBUG stays defined so the package's
-  # DEBUG-only test helpers build (without it the build failed on them, 2026-11-27), and the Xcode 26.6 optimizer's
-  # CopyPropagation crash is avoided. CmuxNextHangReports has no #if, so the measured code is the same.
-  (cd "$pkg" && NOTE_STALL_BENCH=1 swift test -c release -Xswiftc -enable-testing -Xswiftc -DDEBUG \
+  # package-test-lane.sh's release suite build: @testable needs -enable-testing, DEBUG stays defined as it was in the
+  # full-package runs, and the Xcode 26.6 optimizer's CopyPropagation crash is avoided. CmuxNextHangReports has no #if,
+  # so the measured code is the same.
+  (cd "$work" && NOTE_STALL_BENCH=1 swift test -c release -Xswiftc -enable-testing -Xswiftc -DDEBUG \
     -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation --filter NoteStallBench)
   echo "load: $(uptime | sed 's/.*load average[s]*: //')"
 done

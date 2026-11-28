@@ -11,7 +11,18 @@ import { Effect, FiberRef } from "effect";
 export interface UpstreamTally {
   ms: number;
   calls: number;
+  /**
+   * cmux-vm's own serial steps on the request's path, by name (ms): `own` the caller gate (scope, rate limit and the
+   * ownership read), `admit` the wait for a provider operation slot. Inside `own`, which waits for two reads at once,
+   * `rate` is the tenant limits object's rate spend and `read` the Postgres ownership read, so the slower one is named. The caller's trace reads which of cmux-vm's
+   * steps holds its time past the provider's (cmuxterm-hq goals/cloud-resume-gap.md). Numbers only.
+   */
+  steps?: Record<string, number>;
 }
+
+/** cmux-vm's own steps a caller's trace can name (fixed tokens, never ids). */
+export type StepName = "own" | "rate" | "read" | "admit";
+const STEP_ORDER: ReadonlyArray<StepName> = ["own", "rate", "read", "admit"];
 
 /** The request's tally; null outside a request (cron, tests that call the client directly). */
 export const UpstreamTime: FiberRef.FiberRef<UpstreamTally | null> = FiberRef.unsafeMake<UpstreamTally | null>(null);
@@ -25,6 +36,23 @@ export const noteUpstream = (ms: number): Effect.Effect<void> =>
       tally.calls += 1;
     }),
   );
+
+/** Names one of cmux-vm's own steps on the running request's answer (`server-timing: NAME;dur=MS`); `name` is a fixed token. */
+export const noteStep = (name: StepName, ms: number): Effect.Effect<void> =>
+  Effect.flatMap(FiberRef.get(UpstreamTime), (tally) =>
+    Effect.sync(() => {
+      if (tally === null) return;
+      const steps = (tally.steps ??= {});
+      steps[name] = (steps[name] ?? 0) + Math.max(0, ms);
+    }),
+  );
+
+/** `effect`, one of cmux-vm's own steps, named on the request's answer however it ends. */
+export const timedStep = <A, E, R>(name: StepName, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+  Effect.suspend(() => {
+    const start = Date.now();
+    return Effect.ensuring(effect, Effect.suspend(() => noteStep(name, Date.now() - start)));
+  });
 
 /**
  * Adds `ms` spent reading an upstream answer's body after its headers (the same call, so no new call is counted) to the
@@ -52,7 +80,14 @@ export const timedUpstream = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.E
   });
 
 export const serverTiming = (tally: UpstreamTally): string =>
-  `upstream;dur=${Math.round(tally.ms)};desc="${tally.calls} call${tally.calls === 1 ? "" : "s"}"`;
+  [
+    `upstream;dur=${Math.round(tally.ms)};desc="${tally.calls} call${tally.calls === 1 ? "" : "s"}"`,
+    // In path order, not in the order the steps finished (`rate` and `read` run at once and end before `own`).
+    ...STEP_ORDER.flatMap((name) => {
+      const ms = tally.steps?.[name];
+      return ms === undefined ? [] : [`${name};dur=${Math.round(ms)}`];
+    }),
+  ].join(", ");
 
 /**
  * Runs `app` with a fresh tally and names it on the answer when any upstream call was made. The header goes on as the
