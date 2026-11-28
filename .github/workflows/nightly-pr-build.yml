@@ -68,7 +68,9 @@ jobs:
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # The client waits up to QUEUE_WAIT_S (20 min) queued plus 3600 s running, with slack.
     timeout-minutes: 90
-    permissions: {}
+    # checks: read lets the job see the fleet verdict already posted on its head (the step below).
+    permissions:
+      checks: read
     strategy:
       # One arch's red cancels the other's wait. The reds seen are arch-independent: a Swift error in the
       # head or base, or the fleet refusing the step (source depot full), so the second arch only repeats it
@@ -109,8 +111,35 @@ jobs:
           path: ${{ runner.temp }}/nightly-pr-build-pass
           key: ${{ env.KEY }}
           lookup-only: true
-      - name: Compile the app the Nightly's way (fleet job)
+      - name: Skip a head the fleet already passed
+        # A detached run (the default) never records the input-key pass above: its verdict lands later as the
+        # check run REPORT_CHECK. So a re-run on the same head (a ready-to-land or full-ci label maps to
+        # ready_for_review) compiled it again, cold. 2026-11-27 20:05-21:34Z: 17 of 74 head-arch pairs ran
+        # more than once, 392 of 1,468 job-min. A success verdict for this arch on this head is the pass.
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        id: verdict
+        env:
+          SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          name="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$REPORT_CHECK")"
+          body="$(curl -fsS --max-time 20 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "${GITHUB_API_URL:-https://api.github.com}/repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?check_name=$name&filter=all" || true)"
+          passed="$(printf '%s' "$body" | python3 -c '
+          import json, sys
+          try:
+              runs = json.load(sys.stdin).get("check_runs", [])
+          except ValueError:
+              runs = []
+          print("true" if any(r.get("conclusion") == "success" for r in runs) else "false")
+          ')"
+          if [[ "$passed" == true ]]; then
+            echo "::notice title=nightly app compile::$REPORT_CHECK already passed on ${SHA:0:12}; not compiling it again"
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Compile the app the Nightly's way (fleet job)
+        if: ${{ steps.cache.outputs.cache-hit != 'true' && steps.verdict.outputs.passed != 'true' }}
         id: compile
         env:
           SHA: ${{ github.event.pull_request.head.sha }}
@@ -162,6 +191,10 @@ jobs:
           fi
           if [[ "$DETACH" != 0 && "$usage" == *--detach* ]]; then
             detach=(--report-check "$REPORT_CHECK" --detach)
+          elif [[ "$DETACH" != 0 ]]; then
+            # This runner's cmux-ci cannot detach, so the job holds the runner for the whole fleet wait.
+            # Name the runner and client so the stale installs can be counted and updated.
+            echo "::warning title=nightly app compile::cmux-ci on runner $RUNNER_NAME has no --detach ($("$client" --version 2>&1 | head -1)); this job waits on the fleet"
           fi
           "$client" run --class isolated --script scripts/cmux-next/check-release-compile.sh --ref "$SHA" \
             --repo "$GITHUB_REPOSITORY" --arg=--archs --arg="$ARCH" --arg=--nightly \
@@ -191,7 +224,7 @@ jobs:
           esac
       - name: Cancel the fleet step of a cancelled job
         # fail-fast (or a newer push) cancelled this job: its fleet step, queued or building, has no reader.
-        if: ${{ cancelled() && steps.cache.outputs.cache-hit != 'true' }}
+        if: ${{ cancelled() && steps.cache.outputs.cache-hit != 'true' && steps.verdict.outputs.passed != 'true' }}
         env:
           ARCH: ${{ matrix.arch }}
         run: |
@@ -202,10 +235,10 @@ jobs:
             "$client" cancel "$step" --reason "nightly pr build: job cancelled" || true
           fi
       - name: Record the pass
-        if: ${{ steps.compile.outputs.passed == 'true' }}
+        if: ${{ steps.compile.outputs.passed == 'true' || steps.verdict.outputs.passed == 'true' }}
         run: mkdir -p "$RUNNER_TEMP/nightly-pr-build-pass" && echo "$KEY" > "$RUNNER_TEMP/nightly-pr-build-pass/key"
       - name: Save the pass
-        if: ${{ steps.compile.outputs.passed == 'true' }}
+        if: ${{ steps.compile.outputs.passed == 'true' || steps.verdict.outputs.passed == 'true' }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/nightly-pr-build-pass
