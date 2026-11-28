@@ -13,6 +13,9 @@ fetch_url="$(git -C "$root" remote get-url origin 2>/dev/null || echo https://gi
 depth=(); [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
 git -C "$root" cat-file -e "$base^{commit}" 2>/dev/null || git -C "$root" fetch -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$base"
 git -C "$root" worktree add -q --detach "$scratch/base" "$base"
+# The base worktree gets no submodule checkouts; cmux-tui-core include_str!s ghostty-next files, so
+# point it at HEAD's (this cut does not touch the submodule; set up below if the step tree lacks it).
+for sm in ghostty ghostty-next; do rm -rf "${scratch:?}/base/$sm"; ln -s "$root/$sm" "$scratch/base/$sm"; done
 # The base worktree has no submodules checked out: both sides build ghostty from HEAD's ghostty-next
 # (this cut does not touch it), so the size difference is the Rust change alone.
 export CMUX_GHOSTTY_SRC="${CMUX_GHOSTTY_SRC:-$root/ghostty-next}"
