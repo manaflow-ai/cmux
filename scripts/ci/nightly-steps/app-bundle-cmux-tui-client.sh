@@ -41,6 +41,24 @@ rebuild_ends="${CMUX_TUI_TREE_CLIENT_REBUILD_ENDS:-1}"
 # And a publisher that failed (on any attempt) ends it at the first check, not a second one 5 min later
 # for a retry that lands the tree long after this Mac moves on (NIGHTLY 46146914237: 254 s).
 failed_ends="${CMUX_TUI_TREE_CLIENT_FAILED_ENDS:-1}"
+# One budget for every tree wait in this step, not one per wait. The no-fallback wait and the wait
+# after a refused fallback tree used await-tree-client.sh's own bound (2700 s plus a 1200 s rebuild
+# grace) and ignored the checks above, so they could still hold the signing Mac past an hour:
+# NIGHTLY 46157002388 sat in this step on a signing Mac from 15:08:52Z to past 16:00Z. Each wait now gets
+# what is left of CMUX_TUI_TREE_BUNDLE_WAIT_BUDGET_SECONDS (default the bounded wait's 1500 s) and the
+# same unreadable, rebuild and failed checks; past it a wait takes one look. With no tree to bundle the step
+# fails, the run leaves the signer and its retry finds the tree then.
+wait_budget="${CMUX_TUI_TREE_BUNDLE_WAIT_BUDGET_SECONDS:-$fallback_wait}"
+[[ "$wait_budget" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_BUNDLE_WAIT_BUDGET_SECONDS must be whole seconds" >&2; exit 2; }
+wait_budget=$((10#$wait_budget))
+wait_started=$SECONDS
+wait_left() { local left=$(( wait_budget - (SECONDS - wait_started) )); (( left > 0 )) || left=0; echo "$left"; }
+await_tree() {
+  CMUX_TUI_TREE_CLIENT_WAIT_SECONDS="$(wait_left)" CMUX_TUI_TREE_CLIENT_REBUILD_GRACE_SECONDS=0 \
+    CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS="$unreadable_checks" CMUX_TUI_TREE_CLIENT_REBUILD_ENDS="$rebuild_ends" \
+    CMUX_TUI_TREE_CLIENT_FAILED_ENDS="$failed_ends" \
+    scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}"
+}
 # Leo, 2026-11-26: "cant we just accept the nightly using an older tui version". TREE_FALLBACK is
 # searched once, in resolve-nightly-cmux-tui-client, about an hour before this step. A tree published
 # in between never reached the bundle: nightlies 46114171177, 46116717235 and 46119598955
@@ -74,7 +92,7 @@ if [[ "$TREE_PENDING" == true ]]; then
     search_fallback_now "TREE_FALLBACK='${TREE_FALLBACK:-}'" || true
   fi
   if [[ "${CMUX_TUI_TREE_CLIENT_FALLBACK:-on}" != off && "$fallback_commit" =~ ^[0-9a-f]{40}$ && "$fallback_key" =~ ^[0-9a-f]{40}$ ]]; then
-    if cmux_tui_commit="$(CMUX_TUI_TREE_CLIENT_WAIT_SECONDS="$fallback_wait" CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS="$unreadable_checks" CMUX_TUI_TREE_CLIENT_REBUILD_ENDS="$rebuild_ends" CMUX_TUI_TREE_CLIENT_FAILED_ENDS="$failed_ends" scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"; then
+    if cmux_tui_commit="$(await_tree)"; then
       echo "::notice title=cmux-tui client::exact tree $CMUX_TUI_CLIENT_KEY of the build commit, from ${cmux_tui_commit:0:12}"
     else
       cmux_tui_commit="$fallback_commit" client_key="$fallback_key" tree_used=fallback
@@ -82,7 +100,7 @@ if [[ "$TREE_PENDING" == true ]]; then
     fi
   else
     echo "no fallback tree (TREE_FALLBACK='${TREE_FALLBACK:-}', CMUX_TUI_TREE_CLIENT_FALLBACK=${CMUX_TUI_TREE_CLIENT_FALLBACK:-on}); waiting for tree $CMUX_TUI_CLIENT_KEY" >&2
-    if ! cmux_tui_commit="$(scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"; then
+    if ! cmux_tui_commit="$(await_tree)"; then
       search_fallback_now "the wait for tree $CMUX_TUI_CLIENT_KEY failed" || exit 1
       cmux_tui_commit="$fallback_commit" client_key="$fallback_key" tree_used=fallback
       echo "::warning title=cmux-tui client::the build commit's tree $CMUX_TUI_CLIENT_KEY will not be published; bundling the newest published tree $fallback_key (published by $fallback_commit) instead"
@@ -134,7 +152,7 @@ if [[ "$tree_used" == fallback ]] && ! { install_client && static_capabilities; 
   # A fallback tree the installer refuses (an older tree without a required capability), or one
   # missing a capability this app needs: the tip's own tree after all, with the bounded wait.
   echo "::warning title=cmux-tui client::the fallback tree $client_key did not install or lacks a needed capability; waiting for the build commit's tree $CMUX_TUI_CLIENT_KEY"
-  cmux_tui_commit="$(scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"
+  cmux_tui_commit="$(await_tree)"
   client_key="$CMUX_TUI_CLIENT_KEY" tree_used=exact
   [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "await-tree-client.sh produced no commit" >&2; exit 1; }
   install_client
