@@ -302,6 +302,43 @@ test("live releases absent from the bundled catalog reach the Claude Code picker
   for (const model of live) expect(claude.models).toContainEqual(expect.objectContaining(model));
 });
 
+test("saved endpoints retain their own models beside the base harness", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+  const result = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [
+      { id: "opencode", name: "OpenCode", family: "opencode", models: [] },
+      { id: "deepseek", name: "DeepSeek", family: "opencode", endpoint: true, models: [{ id: "byo/one" }] },
+      { id: "other", name: "Other", family: "opencode", endpoint: true, models: [{ id: "byo/two" }] },
+    ],
+  });
+  expect(result.harnesses.find((entry) => entry.acpmuxHarness === "opencode")).toBeDefined();
+  expect(result.harnesses.find((entry) => entry.acpmuxHarness === "deepseek")?.models.map((model) => model.id)).toEqual(
+    ["byo/one"],
+  );
+  expect(result.harnesses.find((entry) => entry.acpmuxHarness === "other")?.models.map((model) => model.id)).toEqual([
+    "byo/two",
+  ]);
+});
+
+test("Grok, Copilot and OpenRouter have picker models without a local installation", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG, readModelCatalog } = await import("./modelCatalogData");
+  const older = structuredClone(BUNDLED_MODEL_CATALOG);
+  older.harnesses = older.harnesses.filter(({ id }) => !["github-copilot", "openrouter"].includes(id));
+  older.harnesses.find(({ id }) => id === "grok")!.models = [];
+  const catalog = readModelCatalog(older)!;
+  const picker = buildPickerCatalog({ catalog, acpmux: [] });
+  for (const [id, model] of [
+    ["grok", "grok-build-0.1"],
+    ["github-copilot", "github-copilot/gpt-5-mini"],
+    ["openrouter", "openrouter/openai/gpt-5.4-mini"],
+  ]) {
+    const harness = picker.harnesses.find((entry) => entry.id === id)!;
+    expect(harness.installed).toBe(false);
+    expect(harness.models.some((entry) => entry.id === model)).toBe(true);
+  }
+});
+
 test("Codex release additions stay disabled until the running provider reports them", async () => {
   const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
   const model = "gpt-6.2-astra";

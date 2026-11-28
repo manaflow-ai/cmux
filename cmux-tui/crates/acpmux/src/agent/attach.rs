@@ -80,6 +80,8 @@ impl ChildAgent {
                 broken: std::sync::atomic::AtomicBool::new(false),
                 broken_retry: std::sync::atomic::AtomicBool::new(false),
                 replay_to: std::sync::atomic::AtomicU64::new(0),
+                recovery_replay_complete: std::sync::atomic::AtomicBool::new(true),
+                recovery_replay_retryable: std::sync::atomic::AtomicBool::new(false),
                 stopped: std::sync::atomic::AtomicBool::new(false),
                 unlogged_answers: std::sync::Mutex::new(Vec::new()),
                 reattach_turn: tokio::sync::Mutex::new(()),

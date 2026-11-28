@@ -127,7 +127,7 @@ impl Hub {
             if s.check.is_none() {
                 return;
             }
-            s.generation += 1;
+            s.generation = s.generation.wrapping_add(1);
             s.generation
         };
         let session = session.clone();
@@ -168,10 +168,11 @@ impl Hub {
                     .ok()
                     .flatten();
             let mut s = st.lock().unwrap_or_else(|e| e.into_inner());
-            s.pre_runs += 1;
-            s.ms_total += t.elapsed().as_millis() as u64;
+            s.pre_runs = s.pre_runs.saturating_add(1);
+            let ms = u64::try_from(t.elapsed().as_millis()).unwrap_or(u64::MAX);
+            s.ms_total = s.ms_total.saturating_add(ms);
             if kept.is_some() {
-                s.kept += 1;
+                s.kept = s.kept.saturating_add(1);
             }
         });
     }

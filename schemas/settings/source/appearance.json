@@ -4358,6 +4358,10 @@
             "key": "settings.appearance.menu.cornerRadius",
             "text": "Menu Corner Radius"
           },
+          "help": {
+            "key": "settings.appearance.menu.cornerRadius.help",
+            "text": "The corner radius of menus."
+          },
           "kind": "number",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4393,6 +4397,10 @@
             "key": "settings.appearance.menu.borderOpacity",
             "text": "Menu Border Opacity"
           },
+          "help": {
+            "key": "settings.appearance.menu.borderOpacity.help",
+            "text": "How visible the menu's edge line is."
+          },
           "kind": "number",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4426,6 +4434,10 @@
           "title": {
             "key": "settings.appearance.menu.shadow",
             "text": "Menu Shadow"
+          },
+          "help": {
+            "key": "settings.appearance.menu.shadow.help",
+            "text": "The shadow under menus."
           },
           "kind": "choice",
           "swift_owner": {
@@ -4480,6 +4492,10 @@
             "key": "settings.appearance.menu.fill",
             "text": "Menu Fill"
           },
+          "help": {
+            "key": "settings.appearance.menu.fill.help",
+            "text": "The menu background color, as #RRGGBB or #RRGGBBAA."
+          },
           "kind": "color",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4507,6 +4523,10 @@
           "title": {
             "key": "settings.appearance.menu.padding",
             "text": "Menu Padding"
+          },
+          "help": {
+            "key": "settings.appearance.menu.padding.help",
+            "text": "The space inside the menu's edges."
           },
           "kind": "number",
           "swift_owner": {
@@ -4540,6 +4560,10 @@
           "title": {
             "key": "settings.appearance.menu.highlightRadius",
             "text": "Menu Highlight Radius"
+          },
+          "help": {
+            "key": "settings.appearance.menu.highlightRadius.help",
+            "text": "The corner radius of the hovered row's highlight."
           },
           "kind": "number",
           "swift_owner": {
@@ -4575,6 +4599,10 @@
             "key": "settings.appearance.menu.rowHeight",
             "text": "Menu Row Height"
           },
+          "help": {
+            "key": "settings.appearance.menu.rowHeight.help",
+            "text": "The height of a one-line menu row."
+          },
           "kind": "number",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4608,6 +4636,10 @@
           "title": {
             "key": "settings.appearance.menu.shortcuts",
             "text": "Menu Shortcuts"
+          },
+          "help": {
+            "key": "settings.appearance.menu.shortcuts.help",
+            "text": "How strongly menu shortcuts are drawn."
           },
           "kind": "choice",
           "swift_owner": {
@@ -4649,6 +4681,10 @@
             "key": "settings.appearance.menu.sectionLabel",
             "text": "Menu Section Labels"
           },
+          "help": {
+            "key": "settings.appearance.menu.sectionLabel.help",
+            "text": "How menu section labels are drawn."
+          },
           "kind": "choice",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4687,6 +4723,10 @@
           "title": {
             "key": "settings.appearance.menu.separator",
             "text": "Menu Separators"
+          },
+          "help": {
+            "key": "settings.appearance.menu.separator.help",
+            "text": "How the lines between menu row groups are drawn."
           },
           "kind": "choice",
           "swift_owner": {
@@ -4733,6 +4773,10 @@
             "key": "settings.appearance.menu.destructiveInk",
             "text": "Menu Destructive Rows"
           },
+          "help": {
+            "key": "settings.appearance.menu.destructiveInk.help",
+            "text": "Whether destructive menu rows, such as Delete, are drawn in red."
+          },
           "kind": "choice",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4771,6 +4815,10 @@
           "title": {
             "key": "settings.appearance.menu.submenu",
             "text": "Submenu Placement"
+          },
+          "help": {
+            "key": "settings.appearance.menu.submenu.help",
+            "text": "Where a submenu opens next to its menu."
           },
           "kind": "choice",
           "swift_owner": {
@@ -4812,6 +4860,10 @@
             "key": "settings.appearance.menu.subtitle",
             "text": "Menu Subtitles"
           },
+          "help": {
+            "key": "settings.appearance.menu.subtitle.help",
+            "text": "How the second line of a menu row is drawn."
+          },
           "kind": "choice",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4851,6 +4903,10 @@
             "key": "settings.appearance.popover.padding",
             "text": "Popover Padding"
           },
+          "help": {
+            "key": "settings.appearance.popover.padding.help",
+            "text": "The space inside a popover's edges."
+          },
           "kind": "number",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4883,6 +4939,10 @@
           "title": {
             "key": "settings.appearance.popover.header",
             "text": "Popover Headers"
+          },
+          "help": {
+            "key": "settings.appearance.popover.header.help",
+            "text": "How a popover's header line is drawn."
           },
           "kind": "choice",
           "swift_owner": {
@@ -4922,6 +4982,10 @@
             "key": "settings.appearance.popover.progressHeight",
             "text": "Popover Progress Height"
           },
+          "help": {
+            "key": "settings.appearance.popover.progressHeight.help",
+            "text": "The height of progress bars in popovers."
+          },
           "kind": "number",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4956,6 +5020,10 @@
           "title": {
             "key": "settings.appearance.popover.progressFill",
             "text": "Popover Progress Fill"
+          },
+          "help": {
+            "key": "settings.appearance.popover.progressFill.help",
+            "text": "The color of progress bars in popovers."
           },
           "kind": "choice",
           "swift_owner": {
