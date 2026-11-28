@@ -716,5 +716,97 @@ class WorkflowTest(unittest.TestCase):
         self.assertLess(run.index("hung_test_watchdog.py"), run.index("xcodebuild test"))
 
 
+class LinuxAppBuildTest(unittest.TestCase):
+    """RFD 0051 route 9: CMUX_IOS_APP_BUILD_LINUX routes the ios-fast app build to the build fleet's Linux pool."""
+
+    SCRIPT = (ROOT / "scripts/ci/ios_fast_verdict.sh").read_text()
+
+    def harness(self, mode: str | None, client_exit: int | None, mac_exit: int = 0) -> tuple[int, str, str]:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = Path(tmp.name)
+        client = d / "cmux-ci"
+        if client_exit is not None:
+            client.write_text(f"#!/usr/bin/env bash\necho \"client $*\"\nexit {client_exit}\n")
+            client.chmod(0o755)
+        leg = self.SCRIPT[self.SCRIPT.index("# --- the app on the build fleet's Linux pool"):
+                          self.SCRIPT.index("# --- CmuxMobileLinkFFI.xcframework")]
+        verdict = self.SCRIPT[self.SCRIPT.index("# The app's verdict:"):
+                              self.SCRIPT.index("# --- the kit: the changed targets'")]
+        shadow = self.SCRIPT[self.SCRIPT.index("# Shadow: the Mac's app verdict stands"):
+                             self.SCRIPT.index('phase "fast verdict total"')]
+        summary = d / "summary.md"
+        body = "\n".join([
+            "set -uo pipefail", f"tmp={d}", "app=1", 'phase() { echo "phase $1"; }', 'mac_app=""',
+            f'app_build() {{ echo MAC_APP_BUILD; mac_app={mac_exit}; return {mac_exit}; }}',
+            f"summary={summary}", leg, verdict, "status=0", "app_verdict || status=1", shadow, 'exit "$status"'])
+        env = {"PATH": os.environ["PATH"], "CMUX_CI_CLIENT": str(client), "HOME": str(d)}
+        if mode is not None:
+            env["CMUX_IOS_APP_BUILD_LINUX"] = mode
+        r = subprocess.run(["bash", "-c", body], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
+        return r.returncode, r.stdout + r.stderr, summary.read_text() if summary.exists() else ""
+
+    def agreement(self, out: str) -> dict:
+        line = next(l for l in out.splitlines() if l.startswith("IOS_APP_BUILD_AGREEMENT "))
+        return json.loads(line.split(" ", 1)[1])
+
+    def test_unset_is_shadow_the_mac_verdict_with_linux_recorded(self) -> None:
+        code, out, summary = self.harness(None, client_exit=0)
+        self.assertEqual(code, 0)
+        self.assertIn("MAC_APP_BUILD", out)
+        self.assertIn("app build on Linux (shadow): build fleet ios-build sim-products at ", out)
+        a = self.agreement(out)
+        self.assertEqual((a["linux"], a["mac"], a["agree"]), ("pass", "pass", "yes"))
+        self.assertIn("Linux shadow", summary)
+
+    def test_shadow_never_changes_the_verdict(self) -> None:
+        code, out, _ = self.harness("shadow", client_exit=1, mac_exit=0)
+        self.assertEqual(code, 0)
+        a = self.agreement(out)
+        self.assertEqual((a["linux"], a["mac"], a["agree"]), ("fail", "pass", "no"))
+        code, out, _ = self.harness("shadow", client_exit=0, mac_exit=1)
+        self.assertEqual(code, 1)
+
+    def test_shadow_no_answer_does_not_count(self) -> None:
+        _, out, _ = self.harness("shadow", client_exit=4)
+        self.assertEqual(self.agreement(out)["agree"], "none")
+
+    def test_on_a_linux_pass_takes_no_mac(self) -> None:
+        code, out, _ = self.harness("on", client_exit=0, mac_exit=1)
+        self.assertEqual(code, 0)
+        self.assertNotIn("MAC_APP_BUILD", out)
+        self.assertNotIn("IOS_APP_BUILD_AGREEMENT", out)
+
+    def test_on_a_linux_failure_is_red(self) -> None:
+        code, out, _ = self.harness("on", client_exit=1, mac_exit=0)
+        self.assertEqual(code, 1)
+        self.assertNotIn("MAC_APP_BUILD", out)
+
+    def test_on_no_answer_falls_back_to_the_mac(self) -> None:
+        code, out, _ = self.harness("on", client_exit=5, mac_exit=0)
+        self.assertEqual(code, 0)
+        self.assertIn("MAC_APP_BUILD", out)
+        self.assertIn("no answer from the build fleet", out)
+
+    def test_no_client_is_the_mac_only(self) -> None:
+        for mode in ("on", "shadow"):
+            with self.subTest(mode=mode):
+                code, out, _ = self.harness(mode, client_exit=None, mac_exit=0)
+                self.assertEqual(code, 0)
+                self.assertIn("MAC_APP_BUILD", out)
+                self.assertNotIn("IOS_APP_BUILD_AGREEMENT", out)
+
+    def test_off_starts_no_linux_build(self) -> None:
+        code, out, _ = self.harness("off", client_exit=0)
+        self.assertEqual(code, 0)
+        self.assertIn("MAC_APP_BUILD", out)
+        self.assertNotIn("app build on Linux", out)
+
+    def test_the_pipeline_passes_the_switch_shadow_by_default(self) -> None:
+        jobs = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())["jobs"]
+        run = next(s for s in jobs["ios-fast"]["steps"] if "ios_fast_verdict.sh" in s.get("run", ""))
+        self.assertEqual(run["env"]["CMUX_IOS_APP_BUILD_LINUX"], "${{ vars.CMUX_IOS_APP_BUILD_LINUX || 'shadow' }}")
+
+
 if __name__ == "__main__":
     unittest.main()

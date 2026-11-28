@@ -1129,6 +1129,9 @@ jobs:
       - name: Build the changed iOS target and run its tests
         env:
           PLAN: ${{ needs.ios-fast-runner.outputs.plan }}
+          # RFD 0051 route 9: the app build on the build fleet's Linux pool. Unset is shadow (the Mac's verdict, the
+          # Linux build recorded beside it); on makes the Linux build the app verdict; off is the Mac only.
+          CMUX_IOS_APP_BUILD_LINUX: ${{ vars.CMUX_IOS_APP_BUILD_LINUX || 'shadow' }}
           SUMMARY: ${{ needs.ios-fast-runner.outputs.summary }}
         run: |
           echo "::notice title=iOS fast verdict::$SUMMARY"

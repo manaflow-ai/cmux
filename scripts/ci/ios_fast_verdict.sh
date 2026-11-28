@@ -14,6 +14,16 @@
 #   - xcodegen: the pinned release cmux-next-ios-sim.sh uses, checksum-verified, in the runner's tool cache.
 #
 #   PLAN='{"tests":["CmuxMobileShellTests"],"build":false,"app":false}' bash scripts/ci/ios_fast_verdict.sh
+#
+# The app build on Linux (RFD 0051 route 9: compile-only checks off the Mac). CMUX_IOS_APP_BUILD_LINUX (pr-pipeline.yml,
+# vars.CMUX_IOS_APP_BUILD_LINUX) picks the route when the plan builds the app and this Mac has the build fleet client:
+#   shadow (unset): the Mac builds the app as before and is the verdict; the build fleet's Linux pool builds the same
+#     commit for testing beside it (`cmux-ci ios-build --what sim-products`, the app, its extensions and the UI-test
+#     runner cross-compiled for the arm64 simulator), and the step summary and the log's IOS_APP_BUILD_AGREEMENT line
+#     record both sides, so the agreement count can be read before any cutover. It never changes the verdict.
+#   on: the Linux pool's build is the app verdict (0 built, 1 a failed build) and this Mac skips its app build; with
+#     no answer from the fleet the Mac builds it (a logged fallback), so a fleet fault is never a red.
+#   off: the Mac only.
 set -uo pipefail
 
 tmp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
@@ -25,8 +35,54 @@ tests="$(field tests)"
 build="$(field build)"
 app="$(field app)"
 started=$SECONDS
+mac_app=""  # set when the Mac built the app: 0 built, 1 failed
 phase() { printf -- '- %s: %s s\n' "$1" "$2" | tee -a "$summary"; }
 printf '### iOS fast verdict\n\nplan: tests [%s], kit build %s, app build %s\n\n' "$tests" "${build:-no}" "${app:-no}" >> "$summary"
+
+# --- the app on the build fleet's Linux pool (CMUX_IOS_APP_BUILD_LINUX) -------------------------------------------
+linux_mode="${CMUX_IOS_APP_BUILD_LINUX:-shadow}"
+case "$linux_mode" in on|shadow|off) ;; *) echo "::warning::CMUX_IOS_APP_BUILD_LINUX is on, shadow or off, not '$linux_mode'; shadow"; linux_mode=shadow ;; esac
+linux_client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+linux_dir="$tmp/ios-fast-linux-app"
+linux_pid=""
+linux_t0=$SECONDS
+linux_start() {
+  [[ -n "$app" && "$linux_mode" != off ]] || return 0
+  if [[ ! -x "$linux_client" ]]; then
+    echo "app build on Linux: no build fleet client on ${RUNNER_NAME:-this Mac}; the Mac builds it"
+    linux_mode=off
+    return 0
+  fi
+  local sha
+  sha="$(git rev-parse HEAD)"
+  rm -rf "$linux_dir" && mkdir -p "$linux_dir"
+  # Bounded inside the job's 40 min: 300 s for a Linux worker to claim it, 1200 s to build.
+  ( "$linux_client" ios-build --what sim-products --ref "$sha" --out "$linux_dir/out" \
+      --timeout "${IOS_FAST_LINUX_TIMEOUT:-1200}" --queue-timeout "${IOS_FAST_LINUX_QUEUE_TIMEOUT:-300}" \
+      > "$linux_dir/log" 2>&1
+    echo "$?" > "$linux_dir/exit" ) &
+  linux_pid=$!
+  echo "app build on Linux ($linux_mode): build fleet ios-build sim-products at $sha"
+}
+# Echoes the Linux leg's exit (0 built, 1 failed, else no answer, `wait` past the bound). Waits up to $1 s.
+linux_collect() {
+  local bound="$1" until=$((SECONDS + $1))
+  [[ -n "$linux_pid" ]] || { echo none; return 0; }
+  while [[ ! -f "$linux_dir/exit" ]] && (( SECONDS < until )) && kill -0 "$linux_pid" 2>/dev/null; do sleep 2; done
+  if [[ -f "$linux_dir/exit" ]]; then
+    wait "$linux_pid" 2>/dev/null
+    cat "$linux_dir/exit"
+  else
+    echo wait
+  fi
+}
+linux_stop() {
+  [[ -n "$linux_pid" ]] && kill -0 "$linux_pid" 2>/dev/null && { pkill -P "$linux_pid" 2>/dev/null; kill "$linux_pid" 2>/dev/null; }
+  rm -rf "$linux_dir/out"
+  return 0
+}
+trap linux_stop EXIT
+linux_start
 
 # --- CmuxMobileLinkFFI.xcframework -------------------------------------------------------------------------------
 t=$SECONDS
@@ -71,6 +127,24 @@ packages=()
 # A warm slot has the resolved checkouts: no network round trip for the package graph.
 [[ -d "$dd/SourcePackages/checkouts" ]] && packages=(-skipPackageUpdates)
 packages+=(-onlyUsePackageVersionsFromResolvedFile)
+
+# The app's verdict: with CMUX_IOS_APP_BUILD_LINUX=on the Linux pool's build when it gave one, else this Mac's.
+app_verdict() {
+  local got
+  if [[ "$linux_mode" == on && -n "$linux_pid" ]]; then
+    got="$(linux_collect $(( ${IOS_FAST_LINUX_TIMEOUT:-1200} + ${IOS_FAST_LINUX_QUEUE_TIMEOUT:-300} + 120 )))"
+    phase "app build on Linux (build fleet, exit $got)" $((SECONDS - linux_t0))
+    case "$got" in
+      0) echo "app build on Linux: built; this Mac skips its app build"; return 0 ;;
+      1) echo "::error title=iOS fast verdict::the app or its UI tests did not build on Linux at $(git rev-parse HEAD)"
+         grep -E "FAILED|error:|undefined symbol" "$linux_dir/log" | head -40
+         return 1 ;;
+      *) echo "::notice title=iOS fast verdict::no answer from the build fleet's Linux app build (exit $got); this Mac builds the app"
+         tail -n 20 "$linux_dir/log" 2>/dev/null ;;
+    esac
+  fi
+  app_build
+}
 
 # --- the kit: the changed targets' tests, or its test bundle built ------------------------------------------------
 kit() {
@@ -138,6 +212,7 @@ app_build() {
     'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO' build-for-testing || status=1
   # build-for-testing: the scheme's test target CmuxMobileAppUITests compiles too (cmux#55664 broke only it).
   phase "app build-for-testing (CmuxMobileApp + CmuxMobileAppUITests, iOS Simulator)" $((SECONDS - t))
+  mac_app="$status"
   return "$status"
 }
 
@@ -147,13 +222,32 @@ app_build() {
 if [[ -n "$tests" || -n "$build" ]] && [[ -n "$app" ]]; then
   t=$SECONDS
   kit & kit_pid=$!
-  app_build || status=1
+  app_verdict || status=1
   wait "$kit_pid" || status=1
   phase "kit and app, at once" $((SECONDS - t))
 elif [[ -n "$tests" || -n "$build" ]]; then
   kit || status=1
 elif [[ -n "$app" ]]; then
-  app_build || status=1
+  app_verdict || status=1
+fi
+
+# Shadow: the Mac's app verdict stands; the Linux side is recorded beside it, waiting up to 60 s more for it, so the shadow never holds the verdict long.
+if [[ "$linux_mode" == shadow && -n "$linux_pid" ]]; then
+  linux_exit="$(linux_collect "${IOS_FAST_LINUX_SHADOW_WAIT:-60}")"
+  linux_seconds=$((SECONDS - linux_t0))
+  case "$linux_exit" in 0) linux_verdict=pass ;; 1) linux_verdict=fail ;; *) linux_verdict="none" ;; esac
+  case "$mac_app" in 0) mac_verdict=pass ;; 1) mac_verdict=fail ;; *) mac_verdict=none ;; esac
+  agree=none
+  [[ "$linux_verdict" != none && "$mac_verdict" != none ]] && { [[ "$linux_verdict" == "$mac_verdict" ]] && agree=yes || agree=no; }
+  printf '\n**iOS app build, Linux shadow:** Linux %s (exit %s) in %s s, this Mac %s; agree %s\n' \
+    "$linux_verdict" "$linux_exit" "$linux_seconds" "$mac_verdict" "$agree" >> "$summary"
+  # One line the agreement count reads from the job log (RFD 0051 route 9 cutover).
+  printf 'IOS_APP_BUILD_AGREEMENT {"sha":"%s","linux":"%s","linux_exit":"%s","linux_seconds":%s,"mac":"%s","agree":"%s"}\n' \
+    "$(git rev-parse HEAD)" "$linux_verdict" "$linux_exit" "$linux_seconds" "$mac_verdict" "$agree"
+  if [[ "$linux_verdict" == fail ]]; then
+    echo "app build on Linux (shadow) failed; first errors:"
+    grep -E "FAILED|error:|undefined symbol" "$linux_dir/log" | head -20
+  fi
 fi
 
 phase "fast verdict total" $((SECONDS - started))
