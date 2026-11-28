@@ -28,9 +28,11 @@
 
 mod ca;
 pub mod happy;
+mod hold;
 mod proxy;
 mod substitute;
 
 pub use ca::Authority;
+pub use hold::{Hold, Timings};
 pub use proxy::{Config, Resolver, bind, serve, upstream_tls_from_os, upstream_tls_with_roots};
 pub use substitute::{HostPattern, PLACEHOLDER_PREFIX, Policy, Secret, placeholder};

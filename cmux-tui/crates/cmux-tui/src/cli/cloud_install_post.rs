@@ -264,8 +264,8 @@ pub(super) async fn post(input: &[u8]) -> Value {
         Ok((status, body)) => json!({"ok": true, "status": status, "body": body}),
         Err(failed) => failure(failed.kind, &failed.message),
     };
-    if resent {
-        answer["resent"] = Value::Bool(true);
+    if resent && let Some(object) = answer.as_object_mut() {
+        object.insert("resent".to_owned(), Value::Bool(true));
     }
     answer
 }

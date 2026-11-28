@@ -416,3 +416,19 @@ fn a_failed_prewarm_resume_is_not_asked_again_on_every_keystroke() {
     assert_eq!(after(PREWARM_RETRY_AFTER_MS - 1), Prewarm::Skip("coolingDown"));
     assert_eq!(after(PREWARM_RETRY_AFTER_MS), Prewarm::Resume);
 }
+
+/// An agent's or a script's machine change interrupts the person only when it needs them: a
+/// create, fork, restore or delete asks first; a resize, snapshot or template of their own
+/// machine runs at once, and no change that ran toasts (Leo, 2026-11-27, on an agent's lane
+/// resize toast: "also why are we showing this").
+#[test]
+fn a_routine_change_never_interrupts_and_only_a_new_or_deleted_thing_asks() {
+    for action in UNASKED_CHANGES {
+        assert_eq!(change_gate(action), ChangeGate { asks: false, toast: false }, "{action}");
+    }
+    for action in ["palette.cloud.fork", "palette.cloud.restore", "palette.cloud.deleteSnapshot"] {
+        assert_eq!(change_gate(action), ChangeGate { asks: true, toast: false }, "{action}");
+    }
+    // A machine action no rule lists asks: a new op an agent can call is gated until it is listed.
+    assert_eq!(change_gate("cloudSomethingNew"), ChangeGate { asks: true, toast: false });
+}

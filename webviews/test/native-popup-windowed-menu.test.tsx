@@ -1,4 +1,4 @@
-// Review follow-up on #46214 (F1): a windowed menu (menuWindow.tsx) mounts only the rows near its
+// Review follow-up on #46214 (F1): a windowed menu (menuWindow.ts) mounts only the rows near its
 // viewport, so in a pane too short for it the native popup would get those rows alone and the
 // page's scroller would be hidden: the rest of the actions and modes could not be reached. Such a
 // menu stays in the page's popup, which scrolls; a plain menu of the same height still escapes.
