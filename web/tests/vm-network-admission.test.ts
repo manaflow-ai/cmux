@@ -77,8 +77,9 @@ describe("admitNetworkAddress", () => {
     expect(error).toBeInstanceOf(VmProviderOperationError);
     expect((error as VmProviderOperationError).cause).toBeInstanceOf(ProviderNetworkFullError);
     const response = await vmWorkflowErrorResponse(error as VmProviderOperationError);
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: "vm_network_full" });
+    expect(response).not.toBeNull();
+    expect(response!.status).toBe(409);
+    expect(await response!.json()).toMatchObject({ error: "vm_network_full" });
   });
 
   test("paused machines are part of the count the repository returns, so a network of paused machines is full", async () => {
