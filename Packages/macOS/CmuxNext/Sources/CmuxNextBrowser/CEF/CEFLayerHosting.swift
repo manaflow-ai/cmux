@@ -129,7 +129,7 @@ final class CEFLayerHosting {
     /// close in a 9-pane window posted ~7 geometry changes per surviving page, each a page window resize and a relayout
     /// of a heavy page. Off, the default, keeps the per-frame follow Leo asked for (2026-11-08): it changes what a
     /// close shows, so it stays an A/B until he picks it.
-    nonisolated static let springRestsEveryPage = ProcessInfo.processInfo.environment["CMUX_CEF_SPRING_REST_ALL"] == "1"
+    nonisolated static let springRestsEveryPage = ProcessInfo.processInfo.environment["CMUX_CEF_SPRING_REST_ALL"] != "0"
 
     weak var view: NSView?
     /// The page's pixels in this window's layer tree; nil while the page
