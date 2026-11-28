@@ -243,10 +243,24 @@ export async function runComposerLoad(
     late.push(Math.max(0, performance.now() - due));
     await page.keyboard.press(expected[i]!);
   }
-  // Flush only the final key's frame. Streams remain active through this read.
+  // Flush the final key's frame, then wait for its sample: perf.ts pushes a key's sample from a task posted after
+  // its frame, and under load that task can run after two more frames. On the 2026-11-28 12:2xZ fleet nightly
+  // (run 46142019929) WebKit L2's read came before the last key's sample: 499 samples while the prompt already
+  // held all 500 characters (the 499th sample read chars 500), so the row read "key count mismatch" for a key
+  // that was typed and drawn. The wait is bounded and changes no timing (each sample carries its own keydown and
+  // paint times); a key that never draws still fails the count and text check below. Streams stay on through it.
   await page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
   );
+  await page
+    .waitForFunction((want) => (window as any).cmuxAcpmuxDebug.typingKeys() >= want, keys, {
+      polling: 50,
+      timeout: 5_000,
+    })
+    .catch((error: Error) => {
+      // Past the bound the count check below fails the row; anything else (no typingKeys) is a harness fault.
+      if (error.name !== "TimeoutError") throw error;
+    });
   await options.typing?.stop();
   const result = await page.evaluate(() => {
     const debug = (window as any).cmuxAcpmuxDebug;
