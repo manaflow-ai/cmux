@@ -136,16 +136,6 @@ const DRAWN_FROM: readonly { field: string; from: readonly string[]; why: string
     from: ["id"],
     why: "a turn's fold carries the prompt row it folds whole (conversation/turns.ts), named by its id",
   },
-  {
-    field: "row:worked",
-    from: ["row:permissionRecord"],
-    why: "v1's receipt is the work of its turn, which the turn folds",
-  },
-  {
-    field: "turnSummary.folded",
-    from: ["row:permissionRecord"],
-    why: "as row:worked",
-  },
 ];
 
 /// v1's snapshot of a corpus log: its records replayed through the direct client to the end.
