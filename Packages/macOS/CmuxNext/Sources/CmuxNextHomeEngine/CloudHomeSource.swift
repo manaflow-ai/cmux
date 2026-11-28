@@ -30,10 +30,6 @@ public nonisolated final class CloudHomeSource: HomeSource {
     /// Pages of 200 one inbox read follows at most (`allPages`).
     static let inboxPages = 50
     static let hydrationWidth = 4
-    /// How long an edit made outside a transcript keeps its conversation
-    /// subscribed for its echo after its op answered (or was refused and
-    /// may not be resent) before the subscription ends anyway.
-    static let editEchoDeadline: Duration = .seconds(30)
     /// The local user's participant in this store (`CloudIdentity.localID`).
     let me: Participant
     /// Paces the edit echo deadline (tests pass a manual clock).

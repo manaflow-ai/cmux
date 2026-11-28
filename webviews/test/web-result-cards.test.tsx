@@ -8,10 +8,16 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
-import { resetLinkStore, seedLinkStore } from "../src/agent-session/acpmux/chips/linkStore";
-import { setChipHost } from "../src/agent-session/acpmux/chips/host";
-import { fetchedPage, webSources } from "../src/agent-session/acpmux/conversation/webSourceList";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { resetLinkStore, seedLinkStore } = await importWithDom(
+  () => import("../src/agent-session/acpmux/chips/linkStore"),
+);
+const { setChipHost } = await importWithDom(() => import("../src/agent-session/acpmux/chips/host"));
+const { fetchedPage, webSources } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/webSourceList"),
+);
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const scope = globalThis as Record<string, unknown>;
