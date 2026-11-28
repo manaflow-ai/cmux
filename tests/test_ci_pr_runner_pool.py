@@ -1175,6 +1175,16 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(pool.slots("true", pin), {})
         self.assertEqual(owned_choice(fleet(), owned_slots="40").runner, MINI)
 
+    def test_slot_problems_name_a_pin_no_slot_label_matches(self):
+        # 2026-11-28: the pin moved to 27.2 while every slot still named 26.6, so nothing routed.
+        raw = json.dumps({"glaeda-std-xcode-26.6": 60, "glaeda-gui-std-xcode-26.6": 10, "glaeda-ios-sim": 36})
+        problems = pool.slot_problems(raw, "/Applications/Xcode_27.2.app")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("only for Xcode 26.6", problems[0])
+        self.assertIn("pins Xcode 27.2", problems[0])
+        self.assertEqual(pool.slot_problems(raw, "/Applications/Xcode_26.6.app"), [])
+        self.assertEqual(pool.slot_problems(json.dumps({"glaeda-ios-sim": 36}), "/Applications/Xcode_27.2.app"), [])
+
     def test_slots_ignore_anything_malformed(self):
         self.assertEqual(pool.slots('{"%s": 11, "blacksmith-6vcpu-macos-26": 5, "glaeda-std-xcode-26.3": 0,'
                                     ' "glaeda-light-xcode-26.6": true}' % MINI), {MINI: 11})
@@ -3060,6 +3070,38 @@ class IOSRouting(unittest.TestCase):
                 self.assertEqual(json.loads(output["retry_runs_on"]), SMALL)
                 client.runners.assert_called_once_with()
 
+    def test_pipeline_takes_an_idle_sim_first_runner_when_every_pool_is_full(self):
+        # cmux#61812: "no configured pool has a free glaeda-ios-sim runner and simulator; staying on
+        # blacksmith-6vcpu-macos-26", 6 min queued there and a cold 645 s build, with sim-first runners listening.
+        sim_first = pool.sim_first_label(PR_XCODE)
+        busy = {**mini_runner("office", 0, MINI, IOS_SIM), "busy": True}
+
+        def first(status="online", is_busy=False):
+            return {"name": "office-glaeda-3", "status": status, "busy": is_busy,
+                    "labels": [{"name": "self-hosted"}, {"name": "glaeda-mini"}, {"name": sim_first}]}
+
+        for name, runners, expected in (
+            ("sim-first idle", [busy, first()], [sim_first]),
+            ("sim-first busy", [busy, first(is_busy=True)], SMALL),
+            ("sim-first offline", [busy, first(status="offline")], SMALL),
+            ("pool free wins", [mini_runner("office", 0, MINI, IOS_SIM), first()], [MINI, IOS_SIM]),
+        ):
+            with self.subTest(name=name), unittest.mock.patch.object(pool, "GitHub") as github:
+                client = github.return_value
+                client.runners.return_value = runners
+                client.runs_since.return_value = []
+                client.get.return_value = {"artifacts": []}
+                out = io.StringIO()
+                args = ["--lane", "pipeline", "--requested", "auto", "--owned", "1", "--ios-owned", "1",
+                        "--owned-slots", json.dumps(IOS_SLOTS), "--pr-xcode-app", PR_XCODE, "--order", MINI,
+                        "--device-family", "iphone"]
+                env = {"GH_TOKEN": "job", "ROUTE_TOKEN": "route", "GH_REPO": "manaflow-ai/cmux"}
+                with unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", io.StringIO()):
+                    self.assertEqual(ios_pool.main(args, env=env), 0)
+                output = dict(line.split("=", 1) for line in out.getvalue().splitlines())
+                self.assertEqual(json.loads(output["runs_on"]), expected)
+                self.assertEqual(json.loads(output["retry_runs_on"]), SMALL)
+
     def test_pipeline_aws_shares_the_simulator_limit_with_office_jobs(self):
         aws = MINI.replace("glaeda-", "glaeda-aws-")
         runner = mini_runner("cloud", 0, aws, IOS_SIM)
@@ -3810,7 +3852,7 @@ class IOSRouting(unittest.TestCase):
                                (ios_pool.ephemeral(SMALL), {"overflow": "cmux-mac", "requested": ""})):
             self.assertEqual(json.loads(ios_pool.granted_default(route, **{**base, **changes}).runs_on),
                              ["cmux-mac", IOS_SIM, "xcode-26.6"], changes)
-        self.assertEqual(ios_pool.pinned_xcode("26"), "26.6")
+        self.assertEqual(ios_pool.pinned_xcode("26"), "27.2")  # xcode-pins.txt since cmux#60043
         self.assertEqual(json.loads(ios_pool.granted_default(ios_pool.ephemeral(SMALL),
                                                              **{**base, "pr_xcode_app": ""}).runs_on),
                          ["cmux-mac", IOS_SIM, f"xcode-{ios_pool.pinned_xcode('26')}"])
