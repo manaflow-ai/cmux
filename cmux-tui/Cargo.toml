@@ -47,6 +47,7 @@ members = [
     "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
     "crates/cmux-sync",
+    "crates/cmux-live-sync",
     "crates/cmux-team-messaging",
     "crates/cmux-message-preview",
     "crates/cmux-share-approval",
@@ -257,6 +258,7 @@ default-members = [
     "crates/cmux-autocloud",
     "crates/cmux-conversation",
     "crates/cmux-sync",
+    "crates/cmux-live-sync",
     "crates/cmux-message-preview",
     "crates/cmux-share-approval",
     "bindings/rust",
@@ -548,6 +550,7 @@ cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-braid-session = { path = "crates/cmux-braid-session" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-sync = { path = "crates/cmux-sync" }
+cmux-live-sync = { path = "crates/cmux-live-sync" }
 cmux-team-messaging = { path = "crates/cmux-team-messaging" }
 cmux-message-preview = { path = "crates/cmux-message-preview" }
 cmux-share-approval = { path = "crates/cmux-share-approval" }

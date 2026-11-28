@@ -2532,6 +2532,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-live-sync"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cmux-sync",
+ "crossbeam-channel",
+ "diffy",
+ "ignore",
+ "notify",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-local-auth"
 version = "0.1.0"
 dependencies = [
