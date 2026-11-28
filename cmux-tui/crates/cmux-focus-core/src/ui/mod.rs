@@ -25,6 +25,8 @@
 //!   behind a page's queued type-ahead text.
 //! - [`creation_claims::CreationKeyboardClaims`]: the person's new
 //!   terminals' claims on their windows' keyboards.
+//! - [`creation_hold_log::CreationHoldLog`]: how each window's creation
+//!   holds ended.
 //! - [`decided_keys::DecidedKeys`]: the key-downs the dispatcher decided, by
 //!   signature.
 
@@ -32,6 +34,7 @@ pub mod awaited_content;
 pub mod browser_chords;
 pub mod creation_claims;
 pub mod creation_hold;
+pub mod creation_hold_log;
 pub mod decided_keys;
 pub mod given_back;
 pub mod guards;

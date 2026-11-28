@@ -759,6 +759,10 @@ path = "tests/test_ci_paid_queue_pin.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_palette_coverage_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_parallel_artifact_transport.py"
 lane = "linux-guard"
 
@@ -1093,6 +1097,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_rust_workspaces_disk.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_rust_workspaces_jobs.py"
 lane = "linux-guard"
 
 [[test]]
