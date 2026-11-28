@@ -18,6 +18,7 @@
  * names the image the create's receipt confirmed.
  */
 import { appendFileSync } from "node:fs";
+import { retryWhileQueueFull } from "./create-retry.ts";
 
 const base = process.env["CMUX_VM_SMOKE_URL"] ?? "";
 const tokenUrl = process.env["ACTIONS_ID_TOKEN_REQUEST_URL"] ?? "";
@@ -125,12 +126,12 @@ try {
   // The body cmux-platform's driver sends: labels, the approved image, and no idleTimeoutSeconds or autoDeleteSeconds.
   const name = `smoke-product-${runId}`.slice(0, 63);
   createKey = `smoke-product-${runId}`;
-  const created = await call(
+  const created = await retryWhileQueueFull(() => call(
     "POST",
     "/v1/vms",
     { displayName: name, labels: { role: "cloud", cmux_next_team: "cmux-vm-product-smoke", purpose: "smoke" }, image },
     { "idempotency-key": createKey },
-  );
+  ));
   if (created.status === 429 || created.status === 201) createKey = null;
   // Record any VM id before judging the status, so the cleanup below deletes a VM a failed create still made.
   const id = field(created.body, "id");

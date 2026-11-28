@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { INVENTORY_STEP_BUDGET_MS, inventoryFailure } from "../scripts/cmux-vm-image/bake";
 import { DETACHED_WAKE_AFTER_FAILED_POLLS, STEP_TIMEOUT_MS, StepLog, type Vm, wakeVm } from "../scripts/cmux-vm-image/guest";
-import { INVENTORY_TRIES, retriesInventory } from "../scripts/cmux-vm-image/inventory";
+import { INVENTORY_TRIES, retriesInventory, collectWithRetries } from "../scripts/cmux-vm-image/inventory";
 
 describe("image inventory retries a cut connection, not a failed step", () => {
   test("the provider closing the exec's connection is retried (run 42410303540)", () => {
@@ -188,5 +188,64 @@ describe("image inventory wakes a builder the provider paused (roll 46078031124)
     }).catch((e: unknown) => e);
     expect((error as { name?: string }).name).toBe("TimeoutError");
     expect(readFileSync(path.join(dir, "inv.log"), "utf8")).toContain("WARN [sbom] wake after 2 failed polls: Error: 401");
+  });
+});
+
+describe("collectWithRetries: a builder that stops answering (roll 46078031124)", () => {
+  const timedOut = () => Object.assign(new Error("The operation timed out."), { name: "TimeoutError" });
+  const builder = { vm: { id: "builder" } as unknown as Vm, vmId: "vm-builder" };
+  const clone = { vm: { id: "clone" } as unknown as Vm, vmId: "vm-clone" };
+
+  test("retries on a clone of the snapshot once the builder does not answer", async () => {
+    const ran: string[] = [];
+    const lines: string[] = [];
+    const inventory: Record<string, unknown> = {};
+    await collectWithRetries(builder, inventory, (l) => lines.push(l), {
+      collect: async (vm, attempt) => {
+        ran.push(`${(vm as unknown as { id: string }).id}:${attempt}`);
+        if ((vm as unknown as { id: string }).id === "builder") throw timedOut();
+      },
+      answers: async () => false,
+      clone: async () => clone,
+    });
+    // Before: all three tries on the builder, each timing out (1546.8 s, components=none).
+    expect(ran).toEqual(["builder:1", "clone:2"]);
+    expect(inventory.error).toBeUndefined();
+    expect(inventory.inventoryClone).toBe("vm-clone");
+    expect(lines.some((l) => l.includes("did not answer an exec"))).toBe(true);
+  });
+
+  test("stays on a builder that still answers", async () => {
+    const ran: string[] = [];
+    let clones = 0;
+    await collectWithRetries(builder, {}, () => {}, {
+      collect: async (vm, attempt) => {
+        ran.push(`${(vm as unknown as { id: string }).id}:${attempt}`);
+        if (attempt === 1) throw new Error("ECONNRESET");
+      },
+      answers: async () => true,
+      clone: async () => { clones++; return clone; },
+    });
+    expect(ran).toEqual(["builder:1", "builder:2"]);
+    expect(clones).toBe(0);
+  });
+
+  test("a step that ran and failed is not retried, on any VM", async () => {
+    let tries = 0;
+    await expect(collectWithRetries(builder, {}, () => {}, {
+      collect: async () => { tries++; throw new Error("step sbom failed"); },
+      answers: async () => false,
+      clone: async () => clone,
+    })).rejects.toThrow("step sbom failed");
+    expect(tries).toBe(1);
+  });
+
+  test("without a snapshot id it retries on the builder as before, up to INVENTORY_TRIES", async () => {
+    let tries = 0;
+    await expect(collectWithRetries(builder, {}, () => {}, {
+      collect: async () => { tries++; throw timedOut(); },
+      answers: async () => false,
+    })).rejects.toThrow("timed out");
+    expect(tries).toBe(INVENTORY_TRIES);
   });
 });
