@@ -107,7 +107,16 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
 
 extension WorkstreamItem {
     /// The agent's name as the Activity panel shows it on this item's card.
+    /// A producer `WorkstreamSource` doesn't list is stored with the Claude
+    /// fallback source, so its name comes from `sourceID` instead.
     public var agentDisplayName: String {
-        source.displayName
+        guard let sourceID else { return source.displayName }
+        return WorkstreamSource.displayName(forSourceID: sourceID)
+    }
+
+    /// False for a producer stored under the Claude fallback source.
+    public var sourceIsListed: Bool {
+        guard let sourceID else { return true }
+        return WorkstreamSource(wireName: sourceID) != nil
     }
 }

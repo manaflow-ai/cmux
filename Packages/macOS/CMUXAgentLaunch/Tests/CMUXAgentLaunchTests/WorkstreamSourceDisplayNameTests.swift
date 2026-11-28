@@ -52,6 +52,7 @@ struct WorkstreamItemAgentDisplayNameTests {
         let item = try ingestedStop(source: source)
         #expect(item.sourceID == source)
         #expect(item.agentDisplayName == name)
+        #expect(!item.sourceIsListed)
     }
 
     @Test("An agent cmux has no name for shows the id it sent")
@@ -65,6 +66,7 @@ struct WorkstreamItemAgentDisplayNameTests {
         let item = try ingestedStop(source: source.rawValue)
         #expect(item.sourceID == nil)
         #expect(item.agentDisplayName == source.displayName)
+        #expect(item.sourceIsListed)
     }
 
     @Test("A stored row whose raw id is a listed source takes that source's name")
@@ -77,5 +79,6 @@ struct WorkstreamItemAgentDisplayNameTests {
             payload: .stop(reason: nil)
         )
         #expect(item.agentDisplayName == "Grok")
+        #expect(item.sourceIsListed)
     }
 }
