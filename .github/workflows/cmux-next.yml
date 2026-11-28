@@ -366,6 +366,8 @@ on:
       - scripts/install-axe-ci.sh  # tests/test_base_red_excuse.py
       - .github/post-merge-batch.json  # scripts/ci/base_red_excuse.py
       - skills/cmux-extension-author/**
+      - scripts/blacksmith-testbox-source-mtimes.py
+      - scripts/lib/bun-options.sh
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -740,6 +742,8 @@ on:
       - scripts/install-axe-ci.sh  # tests/test_base_red_excuse.py
       - .github/post-merge-batch.json  # scripts/ci/base_red_excuse.py
       - skills/cmux-extension-author/**
+      - scripts/blacksmith-testbox-source-mtimes.py
+      - scripts/lib/bun-options.sh
   # Why: note-366
   workflow_dispatch:
     inputs:
