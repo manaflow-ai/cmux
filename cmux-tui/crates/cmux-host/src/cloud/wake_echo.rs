@@ -38,6 +38,8 @@ struct Wake {
     pty_attach_at: Option<u64>,
     input_at: Option<u64>,
     echo_at: Option<u64>,
+    /// The sockets that may have woken it, read at the resume (`wake_sockets.rs`).
+    sockets: Option<Value>,
 }
 
 impl Wake {
@@ -54,6 +56,7 @@ impl Wake {
             "input_at": self.input_at,
             "echo_at": self.echo_at,
             "outcome": outcome,
+            "sockets": self.sockets,
         })
     }
 }
@@ -77,8 +80,16 @@ impl WakeEcho {
             pty_attach_at: None,
             input_at: None,
             echo_at: None,
+            sockets: None,
         });
         ended
+    }
+
+    /// The sockets read at this wake's resume (`wake_sockets.rs`), kept in its block.
+    pub fn sockets(&mut self, sockets: Value) {
+        if let Some(w) = self.cur.as_mut() {
+            w.sockets = Some(sockets);
+        }
     }
 
     /// A status report came back ok at monotonic `now`: the first after a resume is net up.

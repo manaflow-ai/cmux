@@ -227,8 +227,22 @@ impl Session {
     /// unchanged instance id) at wall-clock `wall`: one report named `resume`, and the wake's
     /// timing starts (`wake_echo.rs`).
     pub fn resume(&mut self, now: u64, wall: u64) -> Vec<OpRequest> {
+        self.resume_with_sockets(now, wall, None)
+    }
+
+    /// [`Session::resume`] with the sockets that may have woken the guest, read before any pooled
+    /// connection was dropped (`wake_sockets.rs`); they ride in the wake's block.
+    pub fn resume_with_sockets(
+        &mut self,
+        now: u64,
+        wall: u64,
+        sockets: Option<Value>,
+    ) -> Vec<OpRequest> {
         if let Some(ended) = self.wake.resumed(now, wall) {
             self.reporter.replace_wake(Some(ended));
+        }
+        if let Some(sockets) = sockets {
+            self.wake.sockets(sockets);
         }
         self.reporter.trigger("resume", now).into_iter().collect()
     }

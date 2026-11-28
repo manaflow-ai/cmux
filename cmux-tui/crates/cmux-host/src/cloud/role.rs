@@ -810,6 +810,9 @@ impl Worker {
                     return Ok(true);
                 }
                 "resume" => {
+                    // What may have woken the guest, before the pooled connection below is dropped: a peer's
+                    // close of it reads CLOSE_WAIT only until then (wake_sockets.rs).
+                    let sockets = super::wake_sockets::read_wake_sockets();
                     // Connections from before a pause are stale: the resume report below gets a fresh HTTPS
                     // connection instead of hanging.
                     if let Some(live) = &self.live {
@@ -823,7 +826,7 @@ impl Worker {
                     }
                     let now = self.now();
                     if let Some(live) = self.live.as_mut() {
-                        let reqs = live.session.resume(now, wall_ms());
+                        let reqs = live.session.resume_with_sockets(now, wall_ms(), Some(sockets));
                         self.drive(reqs);
                     }
                 }

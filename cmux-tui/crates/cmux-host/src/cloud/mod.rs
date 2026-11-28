@@ -104,6 +104,9 @@ pub mod trajectory_thread;
 pub mod wake_echo;
 #[cfg(test)]
 mod wake_echo_tests;
+pub mod wake_sockets;
+#[cfg(test)]
+mod wake_sockets_tests;
 pub mod wire;
 #[cfg(test)]
 mod wire_origin_tests;
