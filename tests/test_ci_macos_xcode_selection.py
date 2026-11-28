@@ -50,6 +50,8 @@ EXEMPT = {
     ("remote-daemon.yml", "remote-daemon-macos-tests"): "Go only; no Xcode",
     ("auto-journey.yml", "nightly-journal-recovery"):
         "unpacks a published NIGHTLY and drives it with Bun, Node and the Claude CLI; builds nothing, no Xcode",
+    ("chat-move-nightly-readback.yml", "readback"):
+        "submits a fleet-client step that moves a chat in a published NIGHTLY on a display Mac; builds nothing, no Xcode",
     ("cloud-mvp-nightly-readback.yml", "readback"):
         "submits a fleet-client step that reads a published NIGHTLY back on a display Mac; builds nothing, no Xcode",
     ("cmux-next-crash-notice.yml", "notice"):
