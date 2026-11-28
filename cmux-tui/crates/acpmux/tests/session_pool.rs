@@ -529,6 +529,28 @@ async fn a_hinted_switch_takes_a_hidden_session_that_was_never_listed() {
     assert_runs_on_pooled_host(&daemon, &third, &pooled_fake);
 }
 
+/// A create's answer says how it got its agent (`_meta.acpmux.startPool`): `cold` when nothing
+/// was pooled for its shape, `warm` when it took the pooled agent, so a Cloud start's
+/// `session_new` phase tells an agent boot from a warm take (goal `cloud-instant-start`).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_create_answer_says_whether_its_agent_came_warm() {
+    let daemon = Daemon::new("startpool", 0);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let create = |harness: &str| json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}});
+    let cold = rpc.call("session/new", create("fake")).await;
+    assert_eq!(cold["_meta"]["acpmux"]["startPool"], "cold", "{cold}");
+
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let warm = rpc.call("session/new", create("fakeb")).await;
+    let id = warm["sessionId"].as_str().expect("session id");
+    assert!(taken(&daemon, id), "{warm}");
+    assert_eq!(warm["_meta"]["acpmux"]["startPool"], "warm", "{warm}");
+}
+
 /// The one pooled host's record, once an ended entry's record is gone (a read of the pool's
 /// folder lists them in no order).
 async fn one_pool_record(daemon: &Daemon) -> Value {
