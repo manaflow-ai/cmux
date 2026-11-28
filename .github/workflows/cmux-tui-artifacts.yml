@@ -2268,7 +2268,10 @@ jobs:
     # cut the same way: the feat-cmux-next channel stayed at 7d439038
     # (cmuxterm-hq#20161). 90 holds a cold compile; cargo test has its own bound
     # below, so a cut test step still leaves time to save what it compiled.
-    timeout-minutes: 90
+    # The narrow default-grid cache seed has a separate 44-minute ceiling
+    # (10 setup + 3 parallel tool setup + 30 detector + 1 orchestration);
+    # preserve the original room for publishing the compiled target afterward.
+    timeout-minutes: 134
     # A feat-cmux-next push saves this job's cargo build to the CI cache bucket for ci/steps.toml's
     # cmux-next-daemon-tests and agent-pane-real-acpmux steps (scripts/ci/cmux-tui-test-target.sh); only
     # next-cache-writer holds the write credentials, and its deployment branches are feat-cmux-next only.
@@ -2554,8 +2557,9 @@ jobs:
       - name: Save the cargo build to the CI cache bucket
         if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true' }}
         continue-on-error: true
-        # The upload (about 10 min) and, once a window, the acpmux build agent-pane-real-acpmux restores (about 7).
-        timeout-minutes: 26
+        # Original save budget (26 min), plus the exact phone detector seed (44),
+        # which runs after the last plain acpmux build and before pruning/archiving.
+        timeout-minutes: 70
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}

@@ -182,6 +182,15 @@ class NightlyGateTest(unittest.TestCase):
         cls.callees = pr_router.load_manifest()
         cls.affected = ("cheap", head_tier.LAND_AFFECTED_REASON + ": the full tier runs once an hour")
 
+    def test_default_speed_seed_budget_includes_tool_setup(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text())
+        job = workflow["jobs"]["cmux-next-daemon-tests"]
+        save = next(s for s in job["steps"] if s.get("name") == "Save the cargo build to the CI cache bucket")
+        need = ci_steps.SETUP_TIMEOUT + ci_steps.TOOL_TIMEOUT + ci_steps.load().steps["phone-default-speed-icount"].timeout
+        self.assertGreaterEqual((save["timeout-minutes"] - 26) * 60, need)
+        self.assertGreaterEqual(job["timeout-minutes"], 90 + save["timeout-minutes"] - 26)
+        self.assertFalse(any("phone-default-speed-icount" in s.get("run", "") for s in job["steps"]))
+
     def landing(self, files, decided=None):
         event = {"action": "synchronize", "pull_request": {
             "draft": False, "labels": [{"name": "ready-to-land"}],
@@ -308,7 +317,7 @@ class NightlyGateTest(unittest.TestCase):
         self.assertEqual(jobs, ["linux"])
         # page.tsx routes web-typecheck, a `land_gate` step; a plain web step (web-lint, web tests) stays off.
         # Cargo.lock also reaches the idle daemon tests (cmux-next-idle-wakeups, a land_gate step).
-        self.assertEqual(only, ["web-typecheck", "cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"])
+        self.assertEqual(only, ["web-typecheck", "cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount", "phone-default-speed-icount"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
         self.assertIn("nightly gate: runs only next-state-roots, rust-notices", why["pr-pipeline.yml"])
         self.assertEqual((jobs, only), (["linux"], ["next-state-roots", "rust-notices"]))
@@ -395,9 +404,21 @@ class NightlyGateTest(unittest.TestCase):
                 # the idle daemon tests.
                 expected = {"cmux-tui/crates/cmux-terminal-projection/src/lib.rs":
                                 ["persisted-formats", "next-state-roots", "next-spawn-owner-ratchet", "phone-speed-icount"],
-                            "cmux-tui/Cargo.lock": ["cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"]
+                            "cmux-tui/Cargo.lock": ["cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount", "phone-default-speed-icount"]
                             }.get(path, ["phone-speed-icount"])
                 self.assertEqual(only, expected)
+
+    def test_default_grid_speed_routes_real_core_and_harness_before_landing(self) -> None:
+        for path in ("ghostty-next", "cmux-tui/crates/ghostty-vt/src/render.rs",
+                     "cmux-tui/crates/ghostty-vt-sys/build.rs",
+                     "cmux-tui/crates/cmux-transport-rewrite/src/lib.rs",
+                     "cmux-tui/crates/ghostty-vt/examples/phone_default_speed.rs"):
+            with self.subTest(path=path), mock.patch.dict(os.environ, {
+                "CI_NIGHTLY_GATE_ON_LAND": "0", "CI_IOS_FAST_VERDICT": "0"
+            }):
+                start, _, (jobs, only) = self.landing([path])
+                self.assertIn("pr-pipeline.yml", start)
+                self.assertEqual((jobs, only), (["linux"], ["phone-default-speed-icount"]))
 
     def test_phone_speed_does_not_depend_on_the_nightly_mirror_switch(self) -> None:
         with mock.patch.dict(os.environ, {"CI_NIGHTLY_GATE_ON_LAND": "0", "CI_IOS_FAST_VERDICT": "0"}):
@@ -1296,9 +1317,10 @@ class SetupTest(unittest.TestCase):
             table('[step.a]\njob = "linux"\ntier = "later"\nrun = "true"')
 
     def test_the_tables_tool_steps_are_push_tier_and_the_workflow_runs_the_pr_tier(self) -> None:
-        # web-tests-affected (cmux#63314) is the one pull request tier step with a tool: it runs only the web tests a
-        # change reaches, so it exists for the pull request tier; a push runs every web test in the push-tier shards.
-        pr_tier_tool_steps = {"web-tests-affected", "memory-per-item"}  # #62594: the per-PR memory A/B
+        # These detectors run before landing on their affected paths. The web detector runs only the tests a
+        # change reaches; the phone detectors retain both instruction budgets on the pull request tier.
+        pr_tier_tool_steps = {"web-tests-affected", "memory-per-item",  # #62594: the per-PR memory A/B
+                              "phone-speed-icount", "phone-default-speed-icount"}
         for step in ci_steps.load().steps.values():
             if step.job == "linux" and step.needs:
                 self.assertEqual(step.tier, "pr" if step.name in pr_tier_tool_steps else "push", step.name)

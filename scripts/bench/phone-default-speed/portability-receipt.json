@@ -1,0 +1,269 @@
+{
+  "schema": "phone-default-speed-portability/v1",
+  "repository": "manaflow-ai/cmux",
+  "source_sha": "7498893c03c60b057c33bc59c1ae79be69ad374d",
+  "scope": "Two managed Linux jobs with identical source, paths, compiler and environment. Actual production pruning and source-mtime restoration. This is not a production R2 publication receipt.",
+  "producer": {
+    "fleet_job": "93aa307772bd630b08cbe116",
+    "worker": "cmux-linux-pool-1128-040626-63a4f4a2",
+    "artifact": "sha256:41f0ff06c9c551c54e0da2c2870f2d22ee35566106fe78e4d6e7e068c3cfed1e",
+    "exit": {
+      "exit_code": 0,
+      "mode": "producer",
+      "source_sha": "7498893c03c60b057c33bc59c1ae79be69ad374d"
+    },
+    "cold_build": {
+      "name": "cold-build",
+      "argv": [
+        "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/tools/cargo",
+        "build",
+        "--locked",
+        "--profile",
+        "dev",
+        "-p",
+        "ghostty-vt",
+        "--features",
+        "phone-speed",
+        "--example",
+        "phone_default_speed",
+        "-vv"
+      ],
+      "exit_code": 0,
+      "process_exit_code": 0,
+      "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui",
+      "timeout_seconds": 1800,
+      "timeout": false,
+      "cancelled_signal": null,
+      "cleanup_error": null,
+      "wall_seconds": 188.475606205,
+      "user_seconds": 394.000765,
+      "system_seconds": 17.331112,
+      "cpu_complete": true
+    }
+  },
+  "consumer": {
+    "fleet_job": "cdb7df4c2d52289bf3200a41",
+    "worker": "cmux-linux-pool-1128-040745-e815e211",
+    "artifact": "sha256:ee107926f169e18d31fb580f093750009dc154b5da7d45cf0f8f5134df132d3f",
+    "exit": {
+      "exit_code": 0,
+      "mode": "consumer",
+      "source_sha": "7498893c03c60b057c33bc59c1ae79be69ad374d"
+    },
+    "accepted": {
+      "fresh": true,
+      "unchanged_native_hashes": true,
+      "unchanged_retained_dependency_hashes": true,
+      "first_build": {
+        "name": "first-consumer-build",
+        "argv": [
+          "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/tools/cargo",
+          "build",
+          "--locked",
+          "--profile",
+          "dev",
+          "-p",
+          "ghostty-vt",
+          "--features",
+          "phone-speed",
+          "--example",
+          "phone_default_speed",
+          "-vv",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "process_exit_code": 0,
+        "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui",
+        "timeout_seconds": 60,
+        "timeout": false,
+        "cancelled_signal": null,
+        "cleanup_error": null,
+        "wall_seconds": 2.068187671999908,
+        "user_seconds": 4.952914,
+        "system_seconds": 0.23699199999999987,
+        "cpu_complete": true
+      },
+      "source_preparation": {
+        "name": "prepare-consumer-sources",
+        "argv": [
+          "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/tools/cargo",
+          "fetch",
+          "--locked",
+          "--target",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "exit_code": 0,
+        "process_exit_code": 0,
+        "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui",
+        "timeout_seconds": 300,
+        "timeout": false,
+        "cancelled_signal": null,
+        "cleanup_error": null,
+        "wall_seconds": 3.7218875230000776,
+        "user_seconds": 1.6190369999999996,
+        "system_seconds": 0.7949550000000001,
+        "cpu_complete": true
+      },
+      "cold_registry_support": false,
+      "source_cache_prerequisite": "Cargo Git and registry sources populated before timed offline build"
+    },
+    "overall": {
+      "wall_seconds": 22.388751234999972,
+      "worker_cpu_seconds": 1.364147507,
+      "child_user_seconds": 13.451542,
+      "child_system_seconds": 2.428251
+    },
+    "first_build_log_sha256": "589155883b0cff715fecdce62dc5f05cf1636cd3c69af63e6472d3b239416787",
+    "fresh_log_lines": [
+      "Fresh cmux-transport-rewrite v0.1.0 (/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/cmux-transport-rewrite)",
+      "Fresh ghostty-vt-sys v0.1.0 (/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/ghostty-vt-sys)"
+    ]
+  },
+  "cache_manifest": {
+    "identity": {
+      "sha": "7498893c03c60b057c33bc59c1ae79be69ad374d",
+      "ghostty": "5c01c7171dc2c00d486f231adda7fb5bf6e55c97",
+      "root": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01",
+      "source": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src",
+      "target": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target",
+      "tools": {
+        "cargo": {
+          "path": "/home/cmux/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/cargo",
+          "sha256": "841072d1d92f9e841d9ba5b0814182a0adf064acf4527cd120967b7bc49dcb66"
+        },
+        "rustc": {
+          "path": "/home/cmux/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/rustc",
+          "sha256": "bff349e72704ff70bc08a234a3847338e797065bbedde5e556808bc87b7bf7c6"
+        },
+        "rustdoc": {
+          "path": "/home/cmux/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/rustdoc",
+          "sha256": "e5144902aed6cf94280eae3ad7708da5bdd3819b5281728af432d0e70231439c"
+        },
+        "zig": {
+          "path": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/tools/zig-tree/zig",
+          "sha256": "7c61539af19fa4082c94848f1c2b57b89e76dc6cfd5bd4c57764c3caf8f82272"
+        },
+        "zig_lib": {
+          "files": 19501,
+          "sha256": "e721855ca45d7abcc90628422bfe2ba427d31cdc1fd9f0a96926a0f834c8e8af"
+        },
+        "cargo_config": {},
+        "cc": {
+          "path": "/usr/bin/x86_64-linux-gnu-gcc-13",
+          "sha256": "1b99826121ae6682a634e5efe09bd3e3df58ce58e0b28f849114ab5b89139c26"
+        },
+        "ld": {
+          "path": "/usr/bin/x86_64-linux-gnu-ld.bfd",
+          "sha256": "53573e462af34c7f18048f8f497cc1c8ce586ce398148f40e222d33b58459abb"
+        },
+        "platform": {
+          "machine": "x86_64",
+          "os_release": "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.5 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+          "libc": "ldd (Ubuntu GLIBC 2.39-0ubuntu8.12) 2.39"
+        }
+      },
+      "environment": {
+        "CARGO_HOME": "/home/cmux/.cache/fast-checks/cargo",
+        "RUSTUP_HOME": "/home/cmux/.rustup",
+        "PATH": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/tools:/home/cmux/.cargo/bin:/opt/zig-0.17.0:/usr/local/bin:/usr/bin:/bin",
+        "CARGO_TARGET_DIR": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target",
+        "CARGO_INCREMENTAL": "0",
+        "CMUX_GHOSTTY_VT_ZIG_CPU": "baseline",
+        "CMUX_GHOSTTY_SRC": "",
+        "CMUX_ZIG_MIRROR_ONLY": "1",
+        "ZIG": null,
+        "CMUX_ZIG": null,
+        "RUSTC": "/home/cmux/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/rustc",
+        "RUSTDOC": "/home/cmux/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/rustdoc"
+      }
+    },
+    "native_hashes": {
+      "debug/.fingerprint/ghostty-vt-sys-47cf199dae8bfc34/dep-lib-ghostty_vt_sys": "21fa3b24c47e86a1547b77f1260e264a4bfccaab674f6458e8478e38c4404fa9",
+      "debug/.fingerprint/ghostty-vt-sys-47cf199dae8bfc34/invoked.timestamp": "5a109e6643e8d3e88642e3f35e85d2a83e639d07523aa6e99166c48178e965c3",
+      "debug/.fingerprint/ghostty-vt-sys-47cf199dae8bfc34/lib-ghostty_vt_sys": "e188f8e62dbaf15eca9a3b19883075316803c9b5d1122431e4bbeee7d696f08f",
+      "debug/.fingerprint/ghostty-vt-sys-47cf199dae8bfc34/lib-ghostty_vt_sys.json": "03af98625d87311edb762ead211bd25a9dd6677e7f224ef6aacff5702e6f8688",
+      "debug/.fingerprint/ghostty-vt-sys-b7893dea806ab77a/run-build-script-build-script-build": "9b2b423d04089ae23f7f77720fef15c1fd7cfb882bd2ee8e91bc8676ec002820",
+      "debug/.fingerprint/ghostty-vt-sys-b7893dea806ab77a/run-build-script-build-script-build.json": "bc1e9cf701cf804da6c8fd37a3ee94dff6e7ed316e8072b7cfd4709cb111fd9f",
+      "debug/.fingerprint/ghostty-vt-sys-d3860856ec890fe1/build-script-build-script-build": "9487055a70cd43fc993bcb3fe71ccdbce8e6d32e2d95f9f2070c2134739e4b16",
+      "debug/.fingerprint/ghostty-vt-sys-d3860856ec890fe1/build-script-build-script-build.json": "d330cebbbe0ceaeee67cbd8bb90a6fbe653521f7f3080a04eb714dd4f5b3f903",
+      "debug/.fingerprint/ghostty-vt-sys-d3860856ec890fe1/dep-build-script-build-script-build": "3c9373ae6ef3f26aeab9f5264ed03ac9bfc93728e98635d6d8b64b1c1a788aa2",
+      "debug/.fingerprint/ghostty-vt-sys-d3860856ec890fe1/invoked.timestamp": "5a109e6643e8d3e88642e3f35e85d2a83e639d07523aa6e99166c48178e965c3",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/invoked.timestamp": "5a109e6643e8d3e88642e3f35e85d2a83e639d07523aa6e99166c48178e965c3",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/bindings.rs": "ed616e6f023dc2800fa687e780e2e4263121a038d5aa9efdabc2fabd8aea9010",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/allocator.h": "af1a215712f4fe4a8144837142b307c584e231bf639a5e1f92b13f47814e74a3",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/build_info.h": "440539a7e05c53e4749bff00ce6d2a4ae3aa8e736db21bab783e99a176c857ac",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/color.h": "3afe15f5e2b68b37c460e548470a60be2c510d4ef995f855d57ceaebb7aa8b53",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/color_scheme.h": "9f4688a63f7fdbfaa379314b030c1c6b8c1c8e72570b18a3cd7865c7875e5527",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/device.h": "5c3e2bd5ae2b54470b6b9c2acc23ac5483c495a1d47906ffc3cb1301a798faa5",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/focus.h": "10a964de585b4267f706b4e1dc33a8097094f739cc9a08961ccda4735f01d9d9",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/formatter.h": "6d78c553fbdaaba7958c4c393de9c262a06ac251a63891f67fadc579e33d6085",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/grid_ref.h": "3618e00e9d1637481b0662f327b5363783d6fcc0f1fbd16fc6e0a32247198d31",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/grid_ref_tracked.h": "57cdc4f349de150a944d4dd7b6f17bf604b15d8368563102f577253098482e5a",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/io.h": "276b27886d563ca3f3006eabefd6d2d6b21d3a791f4e5bff3242ac95c9e03dd4",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/key/encoder.h": "7b0c621e6647c80cd91c11072391e019eef2ad927faa5f8fb1e280f2ff330495",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/key/event.h": "4a615f9864ae11bafa06cce7493aa6537804750ed4a6fda8b3f962ea348a8bc9",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/key.h": "abd51ebd2eea8ea053f68dfa26759ded280466da6970189d94855a3fd4c343a0",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/kitty_graphics.h": "7dad01a557c9d9a07af05005d96d4e32da25c292e1914b569761580ba735983f",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/modes.h": "6b6d7bc3cca252b893bb5e82f5d4b8cc42756a9566f083a45f946f0dd6376f0c",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/mouse/encoder.h": "bb9f89ebc914ea89c226177a796216bed45cc62c2a8b9eaae5b1140e1630b703",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/mouse/event.h": "8b2006dc2f82701db2998966733b87167f3664dbf8c44b1559722e7e03979216",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/mouse.h": "7b9cd231878d3959de9b7d2762b3531c1dcf858dd5ffe95125283ab96342ef3c",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/osc.h": "b5aa3d38426f013b0c0c9935aa4d456956d89461043925d181a2770951b50f84",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/paste.h": "844127fef490443117b3bebc18bb0405f703c4379fa6c9f029d310807ae74db5",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/point.h": "c7e0803840253812a889424997225d47f4fa33c405804f151f38662daca9f332",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/render.h": "6a8776ab477083230041c41078d6c26e2050c209d14921557b8f96f6ec4c1bed",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/screen.h": "5b1c2f644d5648f5039112a532314be17c4db40b4de5e1af0c4b66d511a07261",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/search.h": "c6f77f31e2b3b6a5fef0fef0bd0026a8b69fb7dc438ea6e45930295634ec97d8",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/selection.h": "d8e8b718350a0d2f044dc9bb61479ea669627052c779d64a6cd52e1ed17126e8",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/sgr.h": "9c7f489a07360ec466a9888b487a1bd3527779427a96e0434ab40e42f607662e",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/size_report.h": "2f2670b38a35c46ec90533716afc8d7da8cf530583ca3d3126b20aba53409117",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/snapshot.h": "06458be017740d0a3637f090b07097179bdf97fc4b12f7fe5e21690712f97790",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/style.h": "6d7ddf28df06bfa2c8a60689928d02ebb0639b6161df9249cf224a0215a1f5c6",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/sys.h": "075dfb3f05c5a96bec1e37beada45ee5c73d08ee52f88228dceb7798ede6114c",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/terminal.h": "9ed477f85066c340f4d2a68c7f60de9fe6625ec846fc90b307482fac19ff93b4",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/types.h": "59096ea8f4f9c13f70046203c8d2ab7eb89925d3e38c8b8b681ae2f9209dc9aa",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/unicode.h": "aafc1ce540d65976259e9c15c2fe4507809bcfbc9ffb48de7fcb1fbbbf892010",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/version.h": "6496b3c4c781bbbc09f97ab60fcbed660d2dbba7ac758b79fef6bab7071800db",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt/wasm.h": "af256558795c9675dbec5b76af924c2b2e78c5aacede2fc0affdfedad1980096",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/include/ghostty/vt.h": "46d95f98dcd73a883fdd7846a627ab1bbed405507a7867b6028728c6290d910b",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/lib/cmake/ghostty-vt/ghostty-vt-config-version.cmake": "800c34685420e79e38b1226f3720dd940de34143ef6c1c649d09f4768e954de8",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/lib/cmake/ghostty-vt/ghostty-vt-config.cmake": "58454d1b92744fe5b32c4909c96b904a45b391afceab42af56edf83dc6acb082",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/lib/libghostty-vt.a": "d58ffa9be1dfa15326ea758f295544bec9f8d4da7e43553730ab9a9b777e1db9",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/lib/libghostty-vt.so": "f293fe5638039b069a2c9d334e6e6c311938775fb7d8e2add94ac5a68e228685",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/lib/libghostty-vt.so.1": "f293fe5638039b069a2c9d334e6e6c311938775fb7d8e2add94ac5a68e228685",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/lib/libghostty-vt.so.1.0.1": "f293fe5638039b069a2c9d334e6e6c311938775fb7d8e2add94ac5a68e228685",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/lib/pkgconfig/libghostty-vt-static.pc": "bf3ac02595bf8ff655570de4f07ba7967407ae237c73c5a5a5f73f2cf50eddd3",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/lib/pkgconfig/libghostty-vt.pc": "8c1a90e1ab1cf8748e2647b189ad69cc7d28ce3a9a43a21bdfff7e1c9bda19ac",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/output": "efe11526e94d9f908de04ab1178281fc56b979b65a82e76e771cef4f7310f7e3",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/root-output": "9f6f264b8df92617212d4fd807affc7f36794bf157bea8cd5a572d81294a5c47",
+      "debug/build/ghostty-vt-sys-b7893dea806ab77a/stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "debug/build/ghostty-vt-sys-d3860856ec890fe1/build-script-build": "6c934b4b087a8bcbbfc7d8988edf8fb5e5f959a1767ec5b57f66f3fd9becb8a7",
+      "debug/build/ghostty-vt-sys-d3860856ec890fe1/build_script_build-d3860856ec890fe1": "6c934b4b087a8bcbbfc7d8988edf8fb5e5f959a1767ec5b57f66f3fd9becb8a7",
+      "debug/build/ghostty-vt-sys-d3860856ec890fe1/build_script_build-d3860856ec890fe1.d": "f2b6457d3f97f2446cb8ea3263580e7310f171b4353f652438a73663e8b124c8",
+      "debug/deps/ghostty_vt_sys-47cf199dae8bfc34.d": "4268eb321e307a18742e7f11c8742cecdc4d2ec8f63569ba43a0591008f84b87",
+      "debug/deps/libghostty_vt_sys-47cf199dae8bfc34.rlib": "5ca3a236fa1f9003bb8c31534c5dc7781c66c79dd4a405a3aafd3cb3e83b3cf4",
+      "debug/deps/libghostty_vt_sys-47cf199dae8bfc34.rmeta": "eaed3b5b5da922f8d0ea313518b21ffcee9c6aaa6d106e6fd5e946236a8bbc17"
+    },
+    "retained_dependency_hashes": {
+      "debug/.fingerprint/cmux-transport-rewrite-dbf067e1af47e9a8/dep-lib-cmux_transport_rewrite": "f14f96adde2da250a05802a30e565519ea310fa1799083f7444b109fa37007fc",
+      "debug/.fingerprint/cmux-transport-rewrite-dbf067e1af47e9a8/invoked.timestamp": "5a109e6643e8d3e88642e3f35e85d2a83e639d07523aa6e99166c48178e965c3",
+      "debug/.fingerprint/cmux-transport-rewrite-dbf067e1af47e9a8/lib-cmux_transport_rewrite": "19f1de5c55ae5f56fa6dab7e4aefab189302b3bc272ace38c92ed9cea908ef40",
+      "debug/.fingerprint/cmux-transport-rewrite-dbf067e1af47e9a8/lib-cmux_transport_rewrite.json": "6d943422aca501f141d2ca44c70b2d13fd245e55fd4ffb7138cb0f94ac308f1e",
+      "debug/deps/cmux_transport_rewrite-dbf067e1af47e9a8.d": "c28fecc8336b34eefda12cad0602263c4031fac51888cb98dbe1e9dfec86802b",
+      "debug/deps/libcmux_transport_rewrite-dbf067e1af47e9a8.rlib": "f5de8d133b3c98f407d016c1f54987b2bdf5f2122eee50f80c4595bc48fe46d4",
+      "debug/deps/libcmux_transport_rewrite-dbf067e1af47e9a8.rmeta": "6ea429dbe504d5b36816cc07ddb28b5a8f39659e1800c8827d7b384ede05418a"
+    },
+    "archive_sha256": "1a6632ff790b8ffed4b2d2a1312d7868106436e1973772f11ce51c5aac38ce70",
+    "archive_bytes": 56096664,
+    "manifest_sha256": "5b9380a1ae4e550f78bc0372ed928c54a04b3fec4724ee212ccccda6b24d0874",
+    "target_bytes": 249336573,
+    "parts": [
+      {
+        "name": "cache.000",
+        "bytes": 56096664,
+        "sha256": "1a6632ff790b8ffed4b2d2a1312d7868106436e1973772f11ce51c5aac38ce70"
+      }
+    ]
+  },
+  "cost_scope": "Per-command CPU includes waited children; source preparation is measured separately from offline build. Overall worker measurement excludes fleet queue/input transfer. Cold registry support and physical-device calibration are not established."
+}

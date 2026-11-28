@@ -1,0 +1,126 @@
+from __future__ import annotations
+
+import sys
+import importlib.util
+import os
+import select
+import subprocess
+import tempfile
+import unittest
+from unittest import mock
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from benchlib.bench import BenchError, Context
+from benches.phone_default_speed import BENCH
+
+FIXTURE = Path(__file__).parent / "fixtures" / "phone-default-speed" / "check.log"
+
+
+MEASURE_PATH = Path(__file__).resolve().parents[1] / "phone-default-speed/measure.py"
+spec = importlib.util.spec_from_file_location("phone_default_measure", MEASURE_PATH)
+measure = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(measure)
+
+
+class PhoneDefaultSpeedTest(unittest.TestCase):
+    def context(self):
+        return Context(bench=BENCH, build={"channel": "local"}, host_role="fleet")
+
+    def test_compilers_stay_pinned_in_dependency_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "cmux-tui"
+            workspace.mkdir()
+            dependency = root / "registry/quote"
+            dependency.mkdir(parents=True)
+            (dependency / "rust-toolchain.toml").write_text('[toolchain]\ncomponents = ["rust-src"]\n')
+            binaries = root / "toolchain"
+            proxies = root / "proxies"
+            binaries.mkdir()
+            proxies.mkdir()
+
+            def executable(path, script):
+                path.write_text("#!/bin/sh\nset -eu\n" + script)
+                path.chmod(0o755)
+
+            for name in ("rustc", "rustdoc"):
+                executable(binaries / name, f"echo pinned-{name}\n")
+                executable(proxies / name, "echo unexpected-rustup-proxy >&2\nexit 91\n")
+            executable(binaries / "cargo", '"$RUSTC" -vV\n"$RUSTDOC" --version\n')
+            executable(proxies / "cargo", 'exec "$PINNED_BIN/cargo" "$@"\n')
+            executable(proxies / "rustup", 'test "$PWD" = "$EXPECTED_WORKSPACE"\n'
+                       'test "$1" = which\nprintf "%s/%s\\n" "$PINNED_BIN" "$2"\n')
+            identities = []
+            for study in (False, True):
+                with self.subTest(study=study):
+                    env = dict(os.environ, PATH=str(proxies), PINNED_BIN=str(binaries),
+                               EXPECTED_WORKSPACE=str(workspace), RUSTC="wrong-rustc",
+                               RUSTDOC="wrong-rustdoc", RUSTC_WRAPPER="cache-wrapper",
+                               RUSTC_WORKSPACE_WRAPPER="workspace-wrapper")
+                    with mock.patch.object(measure, "ROOT", root):
+                        command, identity = measure.rust_build_tools(env, study)
+                    output = subprocess.check_output(command, cwd=dependency, env=env, text=True)
+                    self.assertEqual(output, "pinned-rustc\npinned-rustdoc\n")
+                    self.assertEqual(command[0], str(binaries / "cargo") if study else "cargo")
+                    self.assertEqual("RUSTC_WRAPPER" in env, not study)
+                    self.assertEqual("RUSTC_WORKSPACE_WRAPPER" in env, not study)
+                    self.assertEqual(identity["rustc_verbose_version"], "pinned-rustc")
+                    identities.append(identity)
+            self.assertEqual(identities[0], identities[1])
+
+    @unittest.skipUnless(sys.platform == "linux", "process ownership uses Linux proc")
+    def test_timeout_stops_owned_descendant_and_inherits_outer_group(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            child_file = output / "child"
+            ready_read, ready_write = os.pipe()
+            program = ("import os,subprocess,sys,time; from pathlib import Path; "
+                       "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'], start_new_session=True); "
+                       f"Path({str(child_file)!r}).write_text(str(p.pid)+' '+str(os.getpgrp())); "
+                       f"os.write({ready_write}, b'1'); "
+                       "time.sleep(30)")
+            real_popen = measure.subprocess.Popen
+
+            def started_popen(*args, **kwargs):
+                process = real_popen(*args, **kwargs, pass_fds=(ready_write,))
+                if not select.select([ready_read], [], [], 10)[0]:
+                    measure.stop_tree(process.pid)
+                    process.wait()
+                    self.fail("child tree did not become ready within 10 seconds")
+                self.assertEqual(os.read(ready_read, 1), b"1")
+                return process
+
+            try:
+                with mock.patch.object(measure.subprocess, "Popen", side_effect=started_popen):
+                    with self.assertRaisesRegex(RuntimeError, "unexpected exit 124"):
+                        measure.run("timeout", [sys.executable, "-c", program], output, dict(os.environ), timeout=2)
+            finally:
+                os.close(ready_read)
+                os.close(ready_write)
+            child, group = map(int, child_file.read_text().split())
+            self.assertEqual(group, os.getpgrp())
+            stat = Path(f"/proc/{child}/stat")
+            if stat.exists():
+                self.assertEqual(stat.read_text().split()[2], "Z", "descendant still executes")
+
+    def test_actual_run_has_every_case(self):
+        context = self.context()
+        BENCH.ingest(context, FIXTURE)
+        self.assertEqual(len(context.rows), 4)
+        self.assertTrue(all(row["unit"] == "count" and row["value"] > 0 for row in context.rows))
+        self.assertEqual({row["labels"]["seeded_lines"] for row in context.rows}, {"100", "10000"})
+
+    def test_incomplete_or_duplicated_run_is_not_a_measurement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "partial.log"
+            path.write_text("primary-100\t42 Ir / 10 operations\n")
+            with self.assertRaises(BenchError):
+                BENCH.ingest(self.context(), path)
+            path.write_text(FIXTURE.read_text() + FIXTURE.read_text())
+            with self.assertRaises(BenchError):
+                BENCH.ingest(self.context(), path)
+
+
+if __name__ == "__main__":
+    unittest.main()
