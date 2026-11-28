@@ -164,7 +164,7 @@ class R2CopyMatchesRestores(unittest.TestCase):
     def test_every_hosted_reader_restores_the_r2_copy(self):
         found = {(wf, job) for wf, job, *_ in self.restores}
         self.assertEqual(found, {("pr-pipeline.yml", "ios-fast"), ("cmux-next-ios-kit.yml", "kit-tests"),
-                                 ("swift-linux-packages.yml", "mac-fallback")},
+                                 ("swift-linux-packages.yml", "mac-fallback"), ("ios-fast-verdict-seed.yml", "seed")},
                          found)
         for wf, job, step, key, ns, url, backend in self.restores:
             with self.subTest(workflow=wf, job=job):
