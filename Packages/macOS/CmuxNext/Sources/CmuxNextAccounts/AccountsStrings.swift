@@ -84,6 +84,7 @@ enum AccountsStrings {
     static var errorNoLocalPane: String {
         text("accounts.error.noLocalPane", "Open a workspace on this Mac first, then try again.")
     }
+    static var errorNotSignedIn: String { text("accounts.error.notSignedIn", "Sign in to cmux first.") }
     static var errorNeedsPaste: String { text("accounts.error.needsPaste", "Paste a key or token first.") }
     static var errorInvalidFormat: String { text("accounts.error.invalidFormat", "That is not a valid key or token for this provider.") }
     static func errorFailed(_ detail: String) -> String {
