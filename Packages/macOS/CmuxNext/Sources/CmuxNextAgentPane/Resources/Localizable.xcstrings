@@ -12007,7 +12007,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux couldn't start its agent service. Quit and reopen cmux to try again."
+            "value": "cmux couldn't start its agent service. Quit and reopen cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على cmux تشغيل خدمة الوكيل. أغلق cmux وأعد فتحه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nije mogao pokrenuti svoj servis agenta. Zatvori i ponovo otvori cmux."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke starte sin agenttjeneste. Afslut og åbn cmux igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux konnte seinen Agent-Dienst nicht starten. Beende cmux und öffne es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no pudo iniciar su servicio de agentes. Cierra y vuelve a abrir cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux n’a pas pu démarrer son service d’agent. Quittez et rouvrez cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non è riuscito ad avviare il servizio agenti. Esci e riapri cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux はエージェントサービスを開始できませんでした。cmux を終了して開き直してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនអាចចាប់ផ្ដើមសេវាភ្នាក់ងាររបស់វាបានទេ។ សូមបិទ ហើយបើក cmux ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 에이전트 서비스를 시작하지 못했습니다. cmux를 종료한 뒤 다시 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke starte agenttjenesten sin. Avslutt og åpne cmux på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie mógł uruchomić usługi agenta. Zamknij i otwórz ponownie cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não conseguiu iniciar o serviço de agentes. Feche e abra o cmux de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не удалось запустить службу агента. Закройте и снова откройте cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux เริ่มบริการเอเจนต์ไม่ได้ ปิดแล้วเปิด cmux ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux aracı hizmetini başlatamadı. cmux'tan çıkıp yeniden açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не вдалося запустити службу агента. Закрийте й знову відкрийте cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không thể khởi động dịch vụ tác tử. Hãy thoát và mở lại cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法启动其代理服务。请退出并重新打开 cmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法啟動其代理服務。請結束並重新開啟 cmux。"
           }
         }
       }
@@ -36970,6 +37090,126 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux couldn't start its agent service to do this. Quit and reopen cmux, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على cmux تشغيل خدمة الوكيل للقيام بذلك. أغلق cmux وأعد فتحه، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nije mogao pokrenuti svoj servis agenta za ovo. Zatvori i ponovo otvori cmux, pa pokušaj ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke starte sin agenttjeneste til dette. Afslut og åbn cmux igen, og prøv så igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux konnte seinen Agent-Dienst dafür nicht starten. Beende cmux, öffne es erneut und versuche es noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no pudo iniciar su servicio de agentes para hacer esto. Cierra y vuelve a abrir cmux, y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux n’a pas pu démarrer son service d’agent pour cette action. Quittez et rouvrez cmux, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non è riuscito ad avviare il servizio agenti per questa operazione. Esci e riapri cmux, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この操作に必要なエージェントサービスを cmux が開始できませんでした。cmux を終了して開き直し、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនអាចចាប់ផ្ដើមសេវាភ្នាក់ងារដើម្បីធ្វើការនេះបានទេ។ សូមបិទ ហើយបើក cmux ឡើងវិញ រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업에 필요한 에이전트 서비스를 cmux가 시작하지 못했습니다. cmux를 종료한 뒤 다시 열고 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke starte agenttjenesten sin for dette. Avslutt og åpne cmux på nytt, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie mógł uruchomić usługi agenta, aby to zrobić. Zamknij i otwórz ponownie cmux, a potem spróbuj jeszcze raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não conseguiu iniciar o serviço de agentes para fazer isso. Feche e abra o cmux de novo e tente outra vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не удалось запустить службу агента для этого действия. Закройте и снова откройте cmux, затем повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux เริ่มบริการเอเจนต์เพื่อทำสิ่งนี้ไม่ได้ ปิดแล้วเปิด cmux ใหม่ จากนั้นลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux bunu yapmak için aracı hizmetini başlatamadı. cmux'tan çıkıp yeniden açın, sonra tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не вдалося запустити службу агента для цієї дії. Закрийте й знову відкрийте cmux, а потім спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không thể khởi động dịch vụ tác tử để làm việc này. Hãy thoát và mở lại cmux, rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法启动执行此操作所需的代理服务。请退出并重新打开 cmux，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法啟動執行此操作所需的代理服務。請結束並重新開啟 cmux，然後再試一次。"
           }
         }
       }

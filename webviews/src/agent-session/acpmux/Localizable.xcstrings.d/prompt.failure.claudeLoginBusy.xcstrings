@@ -32,7 +32,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This chat is moving to this machine's Claude sign-in. Send again when its background work ends."
+            "value" : "Switching to this machine's Claude login. Send again when background work ends."
           }
         },
         "es" : {
