@@ -255,7 +255,7 @@ on:
       - "cmux-tui/crates/acpmux/docs/tailnet.md"
       - "cmux-tui/crates/acpmux/docs/tool-permission-rules.md"
       - "cmux-tui/crates/acpmux/docs/tool-placement.md"
-      - "cmux-tui/crates/acpmux/skills/acpmux/SKILL.md"
+      - "cmux-tui/crates/acpmux/skills/agents/SKILL.md"
       - "cmux-tui/crates/acpmux/skills/cmux-chat/SKILL.md"
       - "cmux-tui/crates/acpmux/skills/cmux-quota/SKILL.md"
       - "cmux-tui/crates/acpmux/skills/cmux-rich-output/SKILL.md"
