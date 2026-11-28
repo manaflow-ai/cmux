@@ -630,6 +630,7 @@ MODEL_BY_PATH = {
     'events/client-attached/payload': models.ClientAttachedEvent,
     'events/client-changed/payload': models.ClientChangedEvent,
     'events/client-detached/payload': models.ClientDetachedEvent,
+    'events/client-disconnected-by/payload': models.ClientDisconnectedByEvent,
     'events/client-list-invalidated/payload': models.ClientListInvalidatedEvent,
     'events/cloud-conversation-changed/payload': models.CloudConversationChangedEvent,
     'events/cloud-conversation-live/payload': models.CloudConversationLiveEvent,

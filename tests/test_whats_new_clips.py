@@ -145,6 +145,14 @@ class SpecTests(unittest.TestCase):
                     self.assertEqual(clips.check(Path(tmp), Path(tmp)), [])
                 self.assertEqual("declared waits in the cut span 8 s" in stdout.getvalue(), warned)
 
+    def test_the_capture_state_runs_the_fixture_fake_agent(self):
+        fixture = {"harnesses": {"fake": {"argv": ["/usr/bin/python3",
+                                                  "{repo}/cmux-tui/crates/acpmux/tests/fake_agent.py"]}}}
+        state = clips.capture_state({**SPEC, "harnessFixture": fixture})
+        self.assertEqual(state["fakeHarness"], {"id": "fake"})
+        self.assertNotIn("harnessFixture", state)
+        self.assertNotIn("fakeHarness", clips.capture_state(SPEC))
+
     def test_the_capture_state_drops_the_clip_marks(self):
         state = clips.capture_state({**SPEC, "settings": {"a": 1}})
         self.assertEqual(state["frameInterval"], 0.25)
@@ -1258,7 +1266,7 @@ class WorkflowTests(unittest.TestCase):
         jobs = doc["jobs"]
         self.assertIn("plan --app iphone", next(s for s in jobs["plan"]["steps"] if s.get("id") == "plan")["run"])
         self.assertEqual(jobs["record"]["needs"], "plan")
-        self.assertEqual(jobs["record"]["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }}")
+        self.assertEqual(jobs["record"]["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }}")
         run = next(s for s in jobs["record"]["steps"] if s.get("id") == "record")["run"]
         self.assertTrue(run.startswith("set +e\n"))
         self.assertIn("--class simulator --script scripts/ci/cmux-next-ios-sim.sh", run)
@@ -1272,8 +1280,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('record_one "$id" "$roles" "$before" &', run)
         self.assertLess(run.index("record_one \"$id\""), run.index("\nwait\n"))
         self.assertIn('--deadline "${QUEUE_S}s"', run)
+        # The step's key names the nightly, so the controller ranks it in the delivery class (nightlyOrPromoteJob:
+        # "nightly" in the key), not at -9 behind every queued simulator step (46020149254: 0 clips).
+        key = re.search(r'--key "([^"]+)"', run)
+        self.assertIsNotNone(key, "each clip step passes its own --key")
+        self.assertIn("nightly", key.group(1).lower())
+        self.assertIn("$id", key.group(1))
+        self.assertIn("GITHUB_RUN_ID", key.group(1))
         self.assertIn('--queue-timeout "$QUEUE_S" --timeout "$RUN_S"', run)
-        bounds = dict(re.findall(r"\b(QUEUE_S|RUN_S)=(\d+)", run))
+        # QUEUE_S may be "${CI_SIM_BENCH_QUEUE_S:-900}": the default is the bound read here.
+        bounds = dict(re.findall(r"\b(QUEUE_S|RUN_S)=\"?(?:\$\{\w+:-)?(\d+)", run))
         self.assertLessEqual(int(bounds["QUEUE_S"]) + 5400 + int(bounds["RUN_S"]),
                              (jobs["record"]["timeout-minutes"] - 20) * 60)
         self.assertIn('"$client" cancel', run)
