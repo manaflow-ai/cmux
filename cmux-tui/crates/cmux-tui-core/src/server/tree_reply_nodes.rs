@@ -7,7 +7,7 @@
 
 use crate::TreeDecorations;
 use crate::model::State;
-use crate::server::workspaces_json;
+use crate::tree_wire::workspaces_json;
 use serde_json::Value;
 
 /// The nodes of the whole tree (tree_json.rs).

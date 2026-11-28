@@ -539,6 +539,25 @@ impl Hub {
                 _ => {}
             }
         }
+        // The same for a Claude Code scratchpad (`/tmp/claude-<uid>/<project>/<uuid>/scratchpad`) a
+        // temp cleaner took: without it every deadline wake of a chat that ran in one was refused
+        // and its held messages expired unread after 24 h.
+        #[cfg(unix)]
+        if meta.worktree.is_none() && !meta.remote_origin {
+            let cwd = meta.cwd.clone();
+            let made =
+                tokio::task::spawn_blocking(move || scratch::revive_claude_scratchpad(&cwd)).await;
+            match made {
+                Ok(Ok(true)) => {
+                    gone::forget(&meta.cwd);
+                    self.append(session, "mux", "scratch_recreated", json!({"cwd": meta.cwd}));
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!(session = %session.id, cwd = %meta.cwd.display(), "claude scratchpad not made again: {e}")
+                }
+                _ => {}
+            }
+        }
         if tokio::fs::try_exists(&meta.cwd).await.unwrap_or(true) {
             gone::forget(&meta.cwd);
         } else if let Some(what) = gone::known(&meta.cwd, &meta.worktree) {
