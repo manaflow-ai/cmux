@@ -57,12 +57,6 @@ def run(ctx, core):
     result = {"checks": {}, "steps": [], "screenshots": []}
     marker = f"Stand-up verified {ctx.token}"
     manifest, files = fixture(marker)
-    install = core.install_customize(ctx, manifest, files)
-    result["install"] = install
-    result["checks"]["installed"] = install["installed"]
-    if not install["installed"]:
-        return result
-    pid = int(ctx.pid_file.read_text().strip())
     cu = None
 
     def wait(probe, description, timeout=20):
@@ -121,13 +115,20 @@ def run(ctx, core):
         result["screenshots"].append(str(path))
 
     try:
+        cu = helper.ComputerUse(host=getattr(ctx, "cu_host", None))
+        result["cu_host"] = cu.host_receipt
+        install = core.install_customize(ctx, manifest, files)
+        result["install"] = install
+        result["checks"]["installed"] = install["installed"]
+        if not install["installed"]:
+            return result
+        pid = int(ctx.pid_file.read_text().strip())
         workspace = ctx.rpc("action.run", {"action": "workspace.newAtBottom",
                                            "origin": "script", "focus": True})
         result["workspace"] = workspace
         created = [item for item in workspace.get("created", []) if str(item).startswith("ws_")]
         if workspace.get("error") or len(created) != 1:
             raise RuntimeError("Could not create and focus a dedicated workspace")
-        cu = helper.ComputerUse()
         own = wait(windows, "isolated app window")
         if len(own) != 1:
             raise RuntimeError("Expected one isolated app window before opening the palette")

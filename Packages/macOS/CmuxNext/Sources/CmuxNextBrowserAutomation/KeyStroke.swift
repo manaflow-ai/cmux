@@ -30,35 +30,35 @@ public nonisolated struct KeyStroke: Hashable, Sendable {
     }
 
     /// Resolves a key; `nil` when it has no macOS virtual key (the caller
-    /// inserts `text` through the text input client instead).
+    /// inserts `text` through the text input client instead). The rules are
+    /// Rust's (cmux-browser-rules `input.rs`, op `browser_rules_input_key_stroke`).
     public static func resolve(key: String, code: String, text: String?, modifiers: [String]) -> KeyStroke? {
-        let code = code.isEmpty ? DOMKeyCodes.code(forKey: key) ?? "" : code
-        guard let keyCode = DOMKeyCodes.virtualKey[code] else { return nil }
-        var flags = flags(named: modifiers)
-        if let modifier = DOMKeyCodes.modifierFlag[code] {
-            return KeyStroke(keyCode: keyCode, modifierFlags: flags.union(modifier), characters: "",
-                             charactersIgnoringModifiers: "", isModifier: true, editingCommand: nil)
-        }
-        let named = DOMKeyCodes.namedCharacters[key]
-        let ignoring = named ?? Self.base(code: code, key: key)
-        // Key-up carries no text from the runtime; the event still needs the
-        // key's characters so keyup reports the same key as keydown.
-        var characters = named ?? text ?? (key.count == 1 ? key : "")
-        if DOMKeyCodes.needsShift(key) { flags.insert(.shift) }
-        if flags.contains(.control), let scalar = ignoring.unicodeScalars.first, ignoring.unicodeScalars.count == 1,
-           (97...122).contains(scalar.value), let control = UnicodeScalar(scalar.value - 96) {
-            characters = String(Character(control))
-        } else if flags.contains(.command) {
-            characters = ignoring
-        }
-        if DOMKeyCodes.functionKeys.contains(code) { flags.insert(.function) }
-        if DOMKeyCodes.numericPad.contains(code) { flags.insert(.numericPad) }
-        let command = flags.contains(.command) ? DOMKeyCodes.editingCommands[ignoring.lowercased()] : nil
-        return KeyStroke(keyCode: keyCode, modifierFlags: flags, characters: characters,
-                         charactersIgnoringModifiers: ignoring, isModifier: false,
-                         editingCommand: flags.contains(.shift) && command == "undo:" ? "redo:" : command)
+        let request = Request(key: key, code: code, text: text, modifiers: modifiers)
+        // A null reply (no virtual key) and a library that does not answer both read as nil.
+        guard let reply = BrowserRulesFFI.input("key_stroke", request, as: Reply?.self) ?? nil else { return nil }
+        return KeyStroke(keyCode: reply.keyCode, modifierFlags: NSEvent.ModifierFlags(rawValue: reply.modifierFlags),
+                         characters: reply.characters, charactersIgnoringModifiers: reply.charactersIgnoringModifiers,
+                         isModifier: reply.isModifier, editingCommand: reply.editingCommand)
     }
 
+    private nonisolated struct Request: Encodable {
+        let key: String
+        let code: String
+        let text: String?
+        let modifiers: [String]
+    }
+
+    private nonisolated struct Reply: Decodable {
+        let keyCode: UInt16
+        let modifierFlags: UInt
+        let characters: String
+        let charactersIgnoringModifiers: String
+        let isModifier: Bool
+        let editingCommand: String?
+    }
+
+    /// The flags of the runtime's modifier names (`Shift`, `Control`, `Alt`,
+    /// `Meta`), the vocabulary the Rust rules read; other names add none.
     static func flags(named names: [String]) -> NSEvent.ModifierFlags {
         var flags: NSEvent.ModifierFlags = []
         for name in names {
@@ -71,13 +71,5 @@ public nonisolated struct KeyStroke: Hashable, Sendable {
             }
         }
         return flags
-    }
-
-    /// The unshifted character of a printable key on a US layout.
-    private static func base(code: String, key: String) -> String {
-        if code.hasPrefix("Key"), code.count == 4 { return code.suffix(1).lowercased() }
-        if code.hasPrefix("Digit"), code.count == 6 { return String(code.suffix(1)) }
-        if let symbol = DOMKeyCodes.unshiftedSymbol[code] { return symbol }
-        return key.count == 1 ? key.lowercased() : ""
     }
 }

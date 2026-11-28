@@ -202,7 +202,7 @@
     },
     "cmux-next-web-lint.yml": {
       "kind": "publish",
-      "why": "saves the lint-tool and Bun caches pull requests restore; its hook tests and whole-tree typecheck run on the pull request (ci/steps.toml webviews-typecheck), its lint verdict is cmux-next-fast-gates.yml's"
+      "why": "saves the lint-tool and Bun caches pull requests restore; its hook tests and whole-tree typecheck run on the pull request (ci/steps.toml web-lint-hook-tests and webviews-typecheck), its lint verdict is cmux-next-fast-gates.yml's"
     },
     "cmux-rd-windows.yml": {
       "kind": "check",
