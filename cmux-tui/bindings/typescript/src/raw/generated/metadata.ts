@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c" as const;
+export const SDK_IR_SHA256 = "67c405caeb53fbced2f5aef831443cfcac78aebccb7461d063f58577ce4c9efb" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -6165,6 +6165,88 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "name": "string"
     }
   },
+  "ColumnDock": {
+    "additional_properties": true,
+    "fields": {
+      "allow_tabs": {
+        "description": "`pinned-dock-v1`: a pinned column takes more tabs; omitted when false.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "edge": {
+        "description": "left or right (`dock-columns-v1`), top or bottom (also `edge-docks-v1`).",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ColumnDockEdge"
+        }
+      },
+      "mode": {
+        "description": "`docked` takes its width out of the scrolling area; `overlay` floats above the scrolling columns.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ColumnDockMode"
+        }
+      },
+      "permanent": {
+        "description": "`permanent-dock-v1`: the column stays docked on `edge` for every client; omitted when false.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "pinned": {
+        "description": "`pinned-dock-v1`: a pinned column (the Home dock); omitted when false.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "role": {
+        "description": "`dock-column-role-v1`: what the column is for; omitted when unset.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ColumnDockRole"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ColumnDockEdge": {
+    "kind": "enum",
+    "values": [
+      "left",
+      "right",
+      "top",
+      "bottom"
+    ]
+  },
+  "ColumnDockMode": {
+    "kind": "enum",
+    "values": [
+      "docked",
+      "overlay"
+    ]
+  },
+  "ColumnDockRole": {
+    "kind": "enum",
+    "values": [
+      "agent_chat"
+    ]
+  },
   "ColumnMoveDirection": {
     "kind": "enum",
     "values": [
@@ -8864,7 +8946,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "since": 12,
         "type": {
           "kind": "ref",
-          "name": "JsonValue"
+          "name": "ColumnDock"
         }
       },
       "id": {

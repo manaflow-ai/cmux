@@ -178,3 +178,37 @@ fn the_list_workspaces_tree_is_what_the_sdk_schema_declares() {
         walker.problems.iter().cloned().collect::<Vec<_>>().join("\n")
     );
 }
+
+/// `columns[].dock` (screen_json.rs writes `json!(column.dock)`): every edge, mode and role the
+/// daemon serializes, with the flags it omits when false both set and unset, is what the
+/// schema's `ColumnDock` declares.
+#[test]
+fn every_column_dock_is_what_the_sdk_schema_declares() {
+    let schema = schema();
+    let types = schema["types"].as_object().unwrap();
+    let mut walker = Walker { types, problems: Default::default() };
+    for edge in crate::DockEdge::ALL {
+        for mode in [crate::DockMode::Docked, crate::DockMode::Overlay] {
+            let plain = crate::ColumnDock::new(edge, mode);
+            let flagged = crate::ColumnDock {
+                role: Some(crate::DockRole::AgentChat),
+                permanent: true,
+                pinned: true,
+                allow_tabs: true,
+                ..plain
+            };
+            for dock in [plain, flagged] {
+                walker.check(
+                    "ColumnDock",
+                    &json!({"kind":"ref","name":"ColumnDock"}),
+                    &json!(dock),
+                );
+            }
+        }
+    }
+    assert!(
+        walker.problems.is_empty(),
+        "a column's dock is not what cmux-tui/spec/sdk-schema.json declares (`ColumnDock`):\n{}",
+        walker.problems.iter().cloned().collect::<Vec<_>>().join("\n")
+    );
+}

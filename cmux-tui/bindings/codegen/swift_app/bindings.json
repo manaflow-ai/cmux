@@ -3173,6 +3173,61 @@
             }
           }
         },
+        "DockSnapshot": {
+          "type": "ColumnDock",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "A column docked to a viewport edge, `columns[].dock`: left or right",
+            "(`dock-columns-v1`), top or bottom (also `edge-docks-v1`). Unknown values from a newer daemon fall",
+            "back to the defaults (right, docked, no role) rather than dropping the screen."
+          ],
+          "order": [
+            "edge",
+            "mode",
+            "role",
+            "pinned",
+            "allow_tabs"
+          ],
+          "omit": [
+            "permanent"
+          ],
+          "fields": {
+            "edge": {
+              "default": ".right",
+              "lenient": true
+            },
+            "mode": {
+              "default": ".docked",
+              "lenient": true
+            },
+            "role": {
+              "lenient": true
+            },
+            "pinned": {
+              "name": "isPinned",
+              "default": "false",
+              "lenient": true,
+              "doc": [
+                "`pinned-dock-v1`: a pinned column (the Home dock). Its first tab",
+                "stays (no close, move out or reorder away), and it takes no other tab",
+                "unless ``allowsTabs``. The daemon enforces it; the app hides the",
+                "controls that would ask."
+              ]
+            },
+            "allow_tabs": {
+              "name": "allowsTabs",
+              "default": "false",
+              "lenient": true,
+              "doc": [
+                "`pinned-dock-v1`: a pinned column takes more tabs (off by default)."
+              ]
+            }
+          }
+        },
         "TabGroupSnapshot": {
           "type": "TabGroupRun",
           "conformances": [
@@ -3365,6 +3420,24 @@
               ]
             }
           }
+        }
+      },
+      "enums": {
+        "ColumnDockEdge": {
+          "doc": [
+            "The viewport edge a column is docked to (`columns[].dock.edge`)."
+          ]
+        },
+        "ColumnDockMode": {
+          "doc": [
+            "How a docked column shows (`columns[].dock.mode`): `docked` takes its width out of the scrolling",
+            "area, `overlay` floats above the scrolling columns."
+          ]
+        },
+        "ColumnDockRole": {
+          "doc": [
+            "What the column is for (`dock-column-role-v1`): the agent chat column."
+          ]
         }
       }
     }
