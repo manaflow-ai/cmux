@@ -106,8 +106,15 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
 
     /// The metrics chrome draws now: the active density and cmux.json's overrides. Reading it in
     /// an Observation-tracked scope (`DensityBinding`) re-applies on a density or override change.
+    /// Kept until one of them changes (``TokenMemo``, held by the app-wide appearance): every omnibar
+    /// layout reads it many times. A scoped appearance (previews, tests) is built each read.
     @MainActor public static var current: OmnibarMetrics {
-        OmnibarGlassAppearance.shared.metricsBuilds += 1
+        let app = OmnibarGlassAppearance.shared
+        return OmnibarGlassAppearance.scoped == nil ? app.metrics.value { build(counting: app) } : build(counting: app)
+    }
+
+    @MainActor private static func build(counting app: OmnibarGlassAppearance) -> OmnibarMetrics {
+        app.metricsBuilds += 1
         let overrides = OmnibarGlassAppearance.current
         return OmnibarMetrics(tokens: Metrics.tokens, height: overrides.height, fontSize: overrides.fontSize,
                               textScale: Typography.userScale, rowHeight: Metrics.tokens.tokens["omnibarHeight"].map { Metrics.scale(CGFloat($0)) } ?? Metrics.tabHeight, glyphSide: Metrics.toolbarGlyphSize,

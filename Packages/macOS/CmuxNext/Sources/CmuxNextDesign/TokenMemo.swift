@@ -23,7 +23,7 @@ import CmuxNextWakeups
 /// - A scoped density (`DensityTokens.$scoped`, previews and tests) and the store's activation (not
 ///   observable: it flips once at launch) bypass or re-key the memo.
 @MainActor
-final class TokenMemo<Value> {
+public final class TokenMemo<Value> {
     private let tracking = SingleArmedTracking()
     private var stored: Value?
     private var storedEpoch = -1
@@ -34,11 +34,11 @@ final class TokenMemo<Value> {
     nonisolated private let settling = Atomic<Int>(0)
     nonisolated private let signal = TokenMemoSignal()
 
-    init() {}
+    public init() {}
     nonisolated deinit {}
 
     /// The kept value, else `compute()` (kept when nothing changed while it ran).
-    func value(_ compute: () -> Value) -> Value {
+    public func value(_ compute: () -> Value) -> Value {
         signal.access()
         guard DensityTokens.scoped == nil else { return compute() }
         let active = TunableStore.shared.isActive
