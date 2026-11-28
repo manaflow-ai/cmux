@@ -261,34 +261,6 @@
       "count": 2,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
     },
-    "agent-pane.composer-send-one-motion#1-lines-busy-latest": {
-      "count": 3,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
-    },
-    "agent-pane.composer-send-one-motion#1-lines-busy-scrolled-up": {
-      "count": 3,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
-    },
-    "agent-pane.composer-send-one-motion#1-lines-idle-latest": {
-      "count": 3,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
-    },
-    "agent-pane.composer-send-one-motion#1-lines-idle-scrolled-up": {
-      "count": 3,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
-    },
-    "agent-pane.composer-send-one-motion#5-lines-busy-scrolled-up": {
-      "count": 3,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
-    },
-    "agent-pane.composer-send-one-motion#5-lines-idle-latest": {
-      "count": 3,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
-    },
-    "agent-pane.composer-send-one-motion#5-lines-idle-scrolled-up": {
-      "count": 3,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
-    },
     "agent-pane.composer-studio#studio-new-chat": {
       "count": 2,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"

@@ -86,6 +86,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             .github/actions/setup-cmux-tui-rust
+            .github/actions/runner-cargo-home
             .github/golden-inputs.json
             cmux-tui
             scripts

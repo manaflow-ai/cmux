@@ -226,6 +226,9 @@ pub(super) async fn route(
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
         return reply;
     }
+    if let Some(reply) = super::history::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // The plan approval card's builds (`plan_build.rs`): sub-sessions of this daemon.
     if let Some(reply) = heap(|| super::plan_build::dispatch(hub, conn, m, &params)).await {
         return reply;
@@ -269,6 +272,10 @@ pub(super) async fn route(
     // The harness-magic scorecard over the session logs (`scorecard.rs`): local, never a peer's.
     if m == crate::rpc::method::MUX_SCORECARD {
         return scorecard::handle(hub, conn.origin, &params).await;
+    }
+    // Replay of recorded logs against RFD 0161's invariants (`scorecard_replay.rs`): local only.
+    if m == crate::rpc::method::MUX_SCORECARD_REPLAY {
+        return scorecard::replay(hub, conn.origin, &params).await;
     }
     // The review queue, review verdicts and the approvals audit trail (`review_queue.rs`).
     if let Some(reply) =

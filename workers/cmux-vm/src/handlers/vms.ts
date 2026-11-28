@@ -62,7 +62,7 @@ import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { vmNetworkAllowed, vmNetworkEvidenceOf, type VmNetworkAllowed } from "../proofs/vm-network.ts";
 import { tenantMayCreate, type TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { tenantDeletedVm, tenantOwnsMesh, tenantOwnsSnapshot, tenantOwnsVm, visitOwnedVms, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
-import { UpstreamClient, UpstreamError, type SizeRequest } from "../upstream/client.ts";
+import { CREATE_QUEUE_FULL, UpstreamClient, UpstreamError, type SizeRequest } from "../upstream/client.ts";
 import { audited, auditableVmId, dependencyDown, withCaller, withOwnedVm } from "./common.ts";
 import { meshEnabledFor } from "./mesh.ts";
 
@@ -82,6 +82,9 @@ const onCreate = (error: UpstreamError): BadRequest | Conflict | NotFound | Quot
   const refused = finalCreateRefusal(error.operation);
   if (refused !== undefined)
     return new Conflict({ message: `This VM creation's record refuses this attempt (${refused}); retrying this Idempotency-Key never creates it`, code: "creation.intent_refused" });
+  // The provider create queue had no slot within the create's budget (limits/create-admission.ts): nothing was sent,
+  // and the same key's retry is welcome. Named, so the platform's line says why instead of "(no response)".
+  if (error.operation === CREATE_QUEUE_FULL) return unavailable(`vm-provider.${CREATE_QUEUE_FULL}`);
   // The source snapshot expired upstream after it was recorded.
   if (error.status === 404) return snapshotNotFound();
   if (error.status === 400) return badRequest("The VM could not be created as asked (check its snapshot and sizes)");
@@ -197,7 +200,7 @@ const createRecorded = <C, S, M = never>(
     // Where this create's time goes, logged once as vm_create when it reached the provider (success or failure).
     const phases: TimedPhases = {};
     return yield* createRecordedTimed(caller, spec, proofs, attempt, phases).pipe(
-      Effect.onExit((exit) => "recoverMs" in phases || "verifyImageMs" in phases || "createMs" in phases
+      Effect.onExit((exit) => "recoverMs" in phases || "verifyImageMs" in phases || "admitWaitMs" in phases || "createMs" in phases
         ? Effect.flatMap(Clock.currentTimeMillis, (at) => logTimedEvent("vm_create", vmCreateLine(phases, {
             ok: Exit.isSuccess(exit), enteredAt: attempt.entered ?? started, preMs: started - (attempt.entered ?? started),
             totalMs: at - (attempt.entered ?? started), meshId: proofs.mesh?.mesh.value ?? null,
@@ -212,7 +215,9 @@ const createRecorded = <C, S, M = never>(
  * createMs when the VM was recovered, resizeMs without a grow: the VM booted at the size asked). `imageVariant` says
  * which snapshot of an approved image booted: "large" (the one baked at the size asked), "base", or "unlisted" (a retry
  * that recovered a VM from a snapshot its entry no longer lists); null without one. `oversized`: a large boot answered
- * bigger than was asked and was refused.
+ * bigger than was asked and was refused. `admit*` (only with the provider create queue on, limits/create-admission.ts):
+ * how long the create waited for a send slot, the creates sent and waiting when it was answered, and, on a refusal,
+ * `admission` (queue_full or wait_expired) with the estimated wait; a refused create has no createMs.
  */
 const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; readonly enteredAt: number; readonly preMs: number; readonly totalMs: number; readonly meshId: string | null }) => ({
   vmId: phases["vmId"] ?? null,
@@ -224,6 +229,11 @@ const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; read
   verifyImageMs: phases["verifyImageMs"] ?? null,
   imageVariant: phases["imageVariant"] ?? null,
   oversized: phases["oversized"] ?? false,
+  ...("admitWaitMs" in phases ? {
+    admitWaitMs: phases["admitWaitMs"], admitQueueMs: phases["admitQueueMs"] ?? null,
+    admitInFlight: phases["admitInFlight"] ?? null, admitQueued: phases["admitQueued"] ?? null,
+    ...(phases["admission"] === undefined ? {} : { admission: phases["admission"], admitRetryAfterMs: phases["admitRetryAfterMs"] ?? null }),
+  } : {}),
   createMs: phases["createMs"] ?? null,
   recoverAfterMs: phases["recoverAfterMs"] ?? null,
   resizeMs: phases["resizeMs"] ?? null,

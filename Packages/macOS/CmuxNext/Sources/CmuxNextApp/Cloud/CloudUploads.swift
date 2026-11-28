@@ -1,6 +1,8 @@
+import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudPlace
+import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 
@@ -15,7 +17,7 @@ final class CloudUploads {
     nonisolated static var pastes: URL? { AgentPaneCloudAttachments.pastes }
 
     /// Where one tab's upload goes: the chat's session, its machine and its work root.
-    private struct Target {
+    struct Target {
         var session: String
         var machine: CloudMachineSession
         var remoteRoot: String
@@ -56,7 +58,8 @@ final class CloudUploads {
         }
     }
 
-    private static func target(tab: String, services: AppServices) -> Target? {
+    /// Where chat tab `tab`'s files go on its Cloud machine (also Sources > Add Folder, ``addFolder(tab:session:services:)``).
+    static func target(tab: String, services: AppServices) -> Target? {
         guard !services.machines.isFeatureDisabled(.cloud), let binary = services.cloud.move.cli, pastes != nil else { return nil }
         for chat in services.cloud.movedChats.all() where chat.broughtBack == nil {
             guard let machine = services.machines.session(chat.machineID), machine.daemon.connection != nil,
@@ -181,5 +184,65 @@ enum CloudUploadStrings {
     static var bundle: Bundle { .module.inAppLanguage }
     static var failed: String {
         String(localized: "cloud.upload.failed", defaultValue: "Couldn't send the file to the Cloud machine.", table: "Cloud", bundle: .module.inAppLanguage)
+    }
+}
+
+/// Sources > Add Folder on a running Cloud chat (`cloud.folder.add`, setting `cloud.addFolderLive`,
+/// on by default). Leo, 2026-11-25: "mostly just the one you selected, right? then you can add more
+/// folders and files/select more as you go potentially". The person picks a Mac folder; one Rust
+/// call (`cmux link access grant --attach`) refuses what may never go (outside the home folder, dot
+/// and credential folders, ~/Library), copies it read-only to the chat's machine, skipping secret
+/// files, and puts the copy among the chat's folders there (`chat-folder-add`, acpmux
+/// `_acpmux/set_directories`, between turns). The chat draws the line ("Added ~/x as /vm/path")
+/// from acpmux's record; a failure comes back as the reply's reason, which the page shows in the
+/// chat, and nothing is added.
+extension CloudUploads {
+    static func addFolderIsOn(_ services: AppServices) -> Bool {
+        CloudNewWorkspaceSetting().addFolderLive(in: services.settings?.snapshot.root ?? .object([:]))
+    }
+
+    /// The person's Add Folder click on chat tab `tab` showing `session`: `{applied, path, from}`,
+    /// `applied` "cancelled" when no folder was picked.
+    static func addFolder(tab: String, session: String, services: AppServices) async throws -> [String: Any] {
+        guard addFolderIsOn(services) else { throw addFolderFailure(addFolderOff) }
+        guard let target = target(tab: tab, services: services), target.session == session else {
+            throw addFolderFailure(addFolderUnavailable)
+        }
+        guard let folder = await NewTabPage.chooseFolder(in: NSApp.keyWindow) else { return ["applied": "cancelled"] }
+        let started = ContinuousClock.now
+        guard let socket = await target.machine.daemon.connection?.endpoint?.socketPath else { throw addFolderFailure(addFolderUnavailable) }
+        let answer: CloudAccessCLI.Answer
+        do {
+            answer = try await CloudAccessCLI(binary: target.binary).grantAttached(
+                socket: socket, machine: target.machine.machineID, session: session, remoteRoot: target.remoteRoot, folder: folder.path)
+        } catch {
+            answer = CloudAccessCLI.Answer(ok: false, error: String(describing: error))
+        }
+        let logger = services.cloud.logger
+        guard answer.ok, let path = answer.attachedPath else {
+            logger.error("cloud folder add: session \(session, privacy: .public) failed \(answer.errorCode ?? "", privacy: .public)")
+            // The CLI's reason names what was refused and why ("… cannot be shared: credential folders are never shared").
+            throw addFolderFailure(answer.error ?? addFolderFailed)
+        }
+        let applied = answer.attachedApplied ?? "now"
+        let took = started.duration(to: .now).components
+        let ms = Int(took.seconds) * 1000 + Int(took.attoseconds / 1_000_000_000_000_000)
+        logger.info("cloud folder add: session \(session, privacy: .public) applied \(applied, privacy: .public) in \(ms) ms")
+        return ["applied": applied, "path": path, "from": folder.path]
+    }
+
+    private static func addFolderFailure(_ message: String) -> NSError {
+        NSError(domain: "cloud.folder.add", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+
+    // Add Folder's failure texts, shown in the chat.
+    private static var addFolderOff: String {
+        String(localized: "cloud.folderAdd.off", defaultValue: "Adding folders to Cloud chats is turned off in Settings.", table: "Cloud", bundle: .module.inAppLanguage)
+    }
+    private static var addFolderUnavailable: String {
+        String(localized: "cloud.folderAdd.unavailable", defaultValue: "This chat's Cloud machine isn't connected.", table: "Cloud", bundle: .module.inAppLanguage)
+    }
+    private static var addFolderFailed: String {
+        String(localized: "cloud.folderAdd.failed", defaultValue: "The folder couldn't be added.", table: "Cloud", bundle: .module.inAppLanguage)
     }
 }

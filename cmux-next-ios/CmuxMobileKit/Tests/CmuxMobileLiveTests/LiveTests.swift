@@ -1,4 +1,5 @@
 import CmuxAgentQuestion
+import CmuxConnectivityTelemetry
 import CmuxMobileAgentChat
 import CmuxMobileFeed
 import CmuxMobileModel
@@ -448,19 +449,41 @@ final class RoamGate: MacLinkDialer, @unchecked Sendable {
     /// A network change roams the live link in place: the dialer is told
     /// once (a burst of path updates settles first) and nothing redials.
     @Test func networkChangeRoamsWithoutRedialing() async throws {
+        let clock = LinkTestClock()
         let dials = Seen()
         let roams = Seen()
+        let completed = Seen()
+        let telemetry = ConnectivityTelemetry()
+        telemetry.setAudience(.team)
+        telemetry.addSink { record in
+            if record.key == "network.roamed" { completed.append(record.outcome == .success) }
+        }
         let dialer = MockDialer(fail: false, dialed: { _ in dials.append(true) }, roamed: { _ in roams.append(true) })
-        let controller = LinkController(transport: .wireGuard, dialer: dialer, accessToken: { _ in "t" })
+        let controller = LinkController(transport: .wireGuard, dialer: dialer, clock: clock,
+                                        telemetry: telemetry, accessToken: { _ in "t" })
+        defer { controller.send(.target(nil)); clock.stop() }
         controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
         controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
-        for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
+        try await pollUntil { controller.phase.isConnected }
+
         let url = URL(string: "https://x")!
+        let settle = LinkController.networkSettle
+        let first = clock.now.advanced(by: settle)
         controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
+        try await pollUntil { clock.isSleeping(until: first) }
+
+        clock.advance(by: settle / 2)
+        let replacement = clock.now.advanced(by: settle)
         controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
-        let deadline = ContinuousClock.now + .seconds(5)
-        while roams.values.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
-        try await Task.sleep(for: .milliseconds(300))
+        try await pollUntil { clock.isSleeping(until: replacement) }
+        try #require(!clock.isSleeping(until: first))
+        clock.advance(by: clock.now.duration(to: first))
+        #expect(roams.values.isEmpty)
+
+        clock.advance(by: clock.now.duration(to: replacement))
+        // The controller consumes the dialer's result on the main actor before these assertions.
+        try await pollUntil { !completed.values.isEmpty }
+        #expect(completed.values == [true])
         #expect(roams.values.count == 1)
         #expect(dials.values.count == 1)
         #expect(controller.phase.isConnected)

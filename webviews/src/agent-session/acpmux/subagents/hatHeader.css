@@ -245,63 +245,18 @@
   outline-offset: -2px;
 }
 
-/* ---------- the one-line hat's marks and hide (hatLine.experiment.ts) ---------- */
+/* ---------- the one-line hat's marks (hatLine.experiment.ts) ---------- */
 /* The marks after the sentence (`trail`): one gap after the words, the same marks and pop. */
 .acpmux-hat-deck[data-at="trail"] {
   margin-inline-start: var(--acpmux-tray-gap, 4px);
 }
-/* On the one line the marks keep its height: the header is shorter than the carded bar's row. */
+/* On the one line the marks keep the header's height. */
 .acpmux-running-tray[data-line] .acpmux-hat-deck {
   align-self: center;
   height: var(--acpmux-tray-head-height);
 }
-/* The eye's room at the line's end, in the chevron column the line leaves empty, so the sentence and
-   its marks never run under it. */
-.acpmux-running-tray__head > .acpmux-hat-hide-slot[data-at="line"] {
-  flex: 0 0 var(--acpmux-tray-chevron-width);
-  width: var(--acpmux-tray-chevron-width);
-  margin-inline-start: auto;
-}
-/* The eye: flush at the line's end, muted ink at rest (Leo: "this unobtrusive little icon or whatever
-   that just looks integrated, that just looks fully like flush"), never over the words as the top
-   edge's tab was. A small round surface lights on hover, as the `eye` arm's. */
-.acpmux-hat-hide[data-at="line"] {
-  --acpmux-hide-ink: 0%;
-  top: 2px;
-  right: var(--acpmux-tray-inset);
-  width: var(--acpmux-tray-chevron-width);
-  height: var(--acpmux-tray-head-height);
-}
-.acpmux-hat-hide[data-at="line"][data-with-panel] {
-  right: calc(
-    var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + 2 * var(--acpmux-tray-gap) +
-      var(--acpmux-tray-stop-width)
-  );
-}
-.acpmux-hat-hide[data-at="line"][data-open] {
-  top: 0;
-}
-.acpmux-hat-hide[data-at="line"]::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--agent-text) var(--acpmux-hide-ink), transparent);
-  transform: translate(-50%, -50%);
-  transition: background-color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
-}
-.acpmux-hat-hide[data-at="line"]:hover {
-  --acpmux-hide-ink: 9%;
-}
-.acpmux-hat-hide[data-at="line"]:active {
-  --acpmux-hide-ink: 15%;
-}
-.acpmux-hat-hide[data-at="line"]:focus-visible {
-  outline: none;
-}
-.acpmux-hat-hide[data-at="line"]:focus-visible::before {
-  box-shadow: 0 0 0 2px var(--agent-accent);
+/* The trailing deck's empty slots keep their room and take no pointer. */
+.acpmux-hat-deck__mark[data-blank] {
+  pointer-events: none;
+  visibility: hidden;
 }

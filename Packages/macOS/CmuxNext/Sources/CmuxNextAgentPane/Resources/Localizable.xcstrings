@@ -25902,6 +25902,270 @@
         }
       }
     },
+    "agentPane.menu.attachmentsInline" : {
+      "comment" : "Agent pane context menu on a sent prompt with attachments: draw every attachment in the text, where it was added (agentPane.attachmentView inline).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المرفقات داخل النص"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prilozi u tekstu"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vedhæftninger i teksten"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Anhänge im Text"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attachments Inline"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Adjuntos en el texto"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pièces jointes dans le texte"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Allegati nel testo"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "添付ファイルを文中に表示"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ឯកសារភ្ជាប់ក្នុងអត្ថបទ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "첨부 파일을 본문에 표시"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vedlegg i teksten"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Załączniki w tekście"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Anexos no texto"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вложения в тексте"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไฟล์แนบในข้อความ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ekler metnin içinde"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вкладення в тексті"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tệp đính kèm trong văn bản"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "附件显示在文字中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "附件顯示在文字中"
+          }
+        }
+      }
+    },
+    "agentPane.menu.attachmentsAtTop" : {
+      "comment" : "Agent pane context menu on a sent prompt with attachments: draw every attachment in one row above the text (agentPane.attachmentView strip).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المرفقات في الأعلى"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prilozi na vrhu"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vedhæftninger øverst"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Anhänge oben"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attachments at Top"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Adjuntos arriba"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pièces jointes en haut"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Allegati in alto"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "添付ファイルを上部に表示"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ឯកសារភ្ជាប់នៅខាងលើ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "첨부 파일을 위쪽에 표시"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vedlegg øverst"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Załączniki na górze"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Anexos no topo"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вложения сверху"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไฟล์แนบที่ด้านบน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ekler üstte"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вкладення вгорі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tệp đính kèm ở trên cùng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "附件显示在顶部"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "附件顯示在頂部"
+          }
+        }
+      }
+    },
     "agentPane.openOutside.open" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -42466,133 +42730,289 @@
       }
     },
     "agentPane.github.cloneNeedsAccess": {
-      "comment": "A Cloud chat's start in a GitHub repository: the Cloud machine can't read the repository (%@ is owner/name). The card shows Connect GitHub, then Retry.",
+      "comment": "A Cloud chat's start in a GitHub repository: the Cloud machine can't read the repository (%@ is owner/name). The card shows Sign in with GitHub.",
       "extractionState": "manual",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in with GitHub so Cloud can clone %@."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اربط GitHub ليتمكن Cloud من استنساخ %@، ثم أعد المحاولة."
+            "value": "سجّل الدخول باستخدام GitHub حتى يتمكن Cloud من استنساخ %@."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Povežite GitHub da Cloud može klonirati %@, zatim pokušajte ponovo."
+            "value": "Prijavi se putem GitHuba da Cloud može klonirati %@."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbind GitHub, så Cloud kan klone %@, og prøv igen."
+            "value": "Log ind med GitHub, så Cloud kan klone %@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbinde GitHub, damit Cloud %@ klonen kann, und versuche es dann erneut."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connect GitHub so Cloud can clone %@, then retry."
+            "value": "Melde dich mit GitHub an, damit Cloud %@ klonen kann."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecta GitHub para que Cloud pueda clonar %@ y vuelve a intentarlo."
+            "value": "Inicia sesión con GitHub para que Cloud pueda clonar %@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connectez GitHub pour que Cloud puisse cloner %@, puis réessayez."
+            "value": "Connectez-vous avec GitHub pour que Cloud puisse cloner %@."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collega GitHub perché Cloud possa clonare %@, poi riprova."
+            "value": "Accedi con GitHub perché Cloud possa clonare %@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud が %@ をクローンできるように GitHub を接続してから、もう一度お試しください。"
+            "value": "Cloud が %@ をクローンできるように、GitHub でサインインしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្ជាប់ GitHub ដើម្បីឱ្យ Cloud អាចក្លូន %@ បាន រួចព្យាយាមម្ដងទៀត។"
+            "value": "ចូលដោយប្រើ GitHub ដើម្បីឱ្យ Cloud អាចក្លូន %@។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud가 %@을(를) 복제할 수 있도록 GitHub를 연결한 다음 다시 시도하세요."
+            "value": "Cloud가 %@을(를) 클론할 수 있도록 GitHub로 로그인하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koble til GitHub så Cloud kan klone %@, og prøv igjen."
+            "value": "Logg på med GitHub så Cloud kan klone %@."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log in met GitHub zodat Cloud %@ kan klonen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Połącz GitHub, aby Cloud mógł sklonować %@, a potem spróbuj ponownie."
+            "value": "Zaloguj się przez GitHub, aby Cloud mógł sklonować %@."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecte o GitHub para que o Cloud possa clonar %@ e tente novamente."
+            "value": "Entre com o GitHub para que o Cloud possa clonar %@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключите GitHub, чтобы Cloud мог клонировать %@, и повторите попытку."
+            "value": "Войдите через GitHub, чтобы Cloud мог клонировать %@."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logga in med GitHub så att Cloud kan klona %@."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชื่อมต่อ GitHub เพื่อให้ Cloud โคลน %@ ได้ แล้วลองอีกครั้ง"
+            "value": "ลงชื่อเข้าใช้ด้วย GitHub เพื่อให้ Cloud โคลน %@ ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud'un %@ deposunu klonlayabilmesi için GitHub'ı bağlayın, ardından tekrar deneyin."
+            "value": "Cloud'un %@ deposunu klonlayabilmesi için GitHub ile oturum açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключіть GitHub, щоб Cloud міг клонувати %@, і спробуйте ще раз."
+            "value": "Увійдіть через GitHub, щоб Cloud міг клонувати %@."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối GitHub để Cloud có thể sao chép %@, rồi thử lại."
+            "value": "Đăng nhập bằng GitHub để Cloud có thể sao chép %@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连接 GitHub 以便 Cloud 克隆 %@，然后重试。"
+            "value": "使用 GitHub 登录，以便 Cloud 克隆 %@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連接 GitHub 讓 Cloud 可以複製 %@，然後再試一次。"
+            "value": "使用 GitHub 登入，讓 Cloud 可以複製 %@。"
+          }
+        }
+      }
+    },
+    "agentPane.github.cloneLoginCantReach": {
+      "comment": "A Cloud chat's start in a GitHub repository: the person's own GitHub login, carried to the Cloud machine, can't read the repository. %1$@ is the GitHub login, %2$@ owner/name. The card shows Sign in with GitHub.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your GitHub login %1$@ has no access to %2$@. Sign in with GitHub to give Cloud access to it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لحساب GitHub %1$@ الوصول إلى %2$@. سجّل الدخول باستخدام GitHub لمنح Cloud حق الوصول إليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tvoja GitHub prijava %1$@ ne može pristupiti %2$@. Prijavi se putem GitHuba da Cloudu daš pristup."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit GitHub-login %1$@ kan ikke nå %2$@. Log ind med GitHub for at give Cloud adgang til det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein GitHub-Login %1$@ kann %2$@ nicht erreichen. Melde dich mit GitHub an, um Cloud Zugriff darauf zu geben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu inicio de sesión de GitHub %1$@ no puede acceder a %2$@. Inicia sesión con GitHub para dar acceso a Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre compte GitHub %1$@ ne peut pas accéder à %2$@. Connectez-vous avec GitHub pour y donner accès à Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo accesso GitHub %1$@ non raggiunge %2$@. Accedi con GitHub per dare a Cloud l'accesso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub ログイン %1$@ は %2$@ にアクセスできません。GitHub でサインインして Cloud にアクセスを許可してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូល GitHub របស់អ្នក %1$@ មិនអាចចូលដល់ %2$@ បានទេ។ ចូលដោយប្រើ GitHub ដើម្បីផ្ដល់សិទ្ធិឱ្យ Cloud។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 로그인 %1$@(으)로는 %2$@에 접근할 수 없습니다. GitHub로 로그인해 Cloud에 접근 권한을 주세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub-påloggingen din %1$@ når ikke %2$@. Logg på med GitHub for å gi Cloud tilgang."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Je GitHub-login %1$@ kan %2$@ niet bereiken. Log in met GitHub om Cloud er toegang toe te geven."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twój login GitHub %1$@ nie ma dostępu do %2$@. Zaloguj się przez GitHub, aby dać Cloud dostęp."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu login do GitHub %1$@ não alcança %2$@. Entre com o GitHub para dar acesso ao Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш вход GitHub %1$@ не имеет доступа к %2$@. Войдите через GitHub, чтобы дать Cloud доступ."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din GitHub-inloggning %1$@ når inte %2$@. Logga in med GitHub för att ge Cloud åtkomst."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเข้าสู่ระบบ GitHub %1$@ ของคุณเข้าถึง %2$@ ไม่ได้ ลงชื่อเข้าใช้ด้วย GitHub เพื่อให้ Cloud เข้าถึงได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub oturumunuz %1$@, %2$@ deposuna erişemiyor. Cloud'a erişim vermek için GitHub ile oturum açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш вхід GitHub %1$@ не має доступу до %2$@. Увійдіть через GitHub, щоб надати Cloud доступ."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tài khoản GitHub %1$@ của bạn không truy cập được %2$@. Đăng nhập bằng GitHub để cấp quyền cho Cloud."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 GitHub 登录 %1$@ 无法访问 %2$@。使用 GitHub 登录以授予 Cloud 访问权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 GitHub 登入 %1$@ 無法存取 %2$@。使用 GitHub 登入以授予 Cloud 存取權。"
           }
         }
       }

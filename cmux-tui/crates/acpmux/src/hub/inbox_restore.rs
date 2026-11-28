@@ -329,6 +329,7 @@ impl Hub {
     pub fn inbox_threads(&self, session: &Session) -> Value {
         // Read before the inbox lock: the journal's read pruning takes it.
         let held_now = self.surge_held_now(session);
+        let meta = session.meta();
         let inbox = session.inbox();
         let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
         for item in &inbox.items {
@@ -339,6 +340,7 @@ impl Hub {
         }
         let newest = |list: &[&Item]| list.iter().map(|i| i.at).max().unwrap_or(0);
         let now = now_ms();
+        let lapsed = super::super::cold_wake::coldness(&meta, now).is_some();
         threads.sort_by_key(|(_, list)| std::cmp::Reverse(newest(list)));
         let rows: Vec<Value> = threads
             .iter()
@@ -359,6 +361,9 @@ impl Hub {
                 } else {
                     "fyi"
                 };
+                let (overdue, due_at) = deadline_counts(list.iter().copied(), now, |i| {
+                    quiet(&session.id, &meta, lapsed, i)
+                });
                 json!({
                     "threadId": key, "key": key, "label": label(key), "from": from,
                     "unread": unread.len(), "new": list.iter().filter(|i| !i.noticed).count(),
@@ -376,11 +381,8 @@ impl Hub {
                     "sender": last.map(|i| i.sender.clone()),
                     // Deadlines (module docs): the soonest new message's, and how many new
                     // ones are past theirs (NOW counts those red).
-                    "dueAt": list.iter().filter(|i| !i.noticed && !folded(i)).map(|i| i.due()).min(),
-                    "overdue": list
-                        .iter()
-                        .filter(|i| !i.noticed && !folded(i) && i.due() < now)
-                        .count(),
+                    "dueAt": due_at,
+                    "overdue": overdue,
                 })
             })
             .collect();

@@ -72,6 +72,7 @@ public final class Events {
     public static final EventMetadata PANE_CLOSED = new EventMetadata("pane-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata PARTICIPANT_AVATAR_CHANGED = new EventMetadata("participant-avatar-changed", 12, "participant-avatars-v1", List.of("subscribe"), true);
     public static final EventMetadata PERSONAL_CHANGED = new EventMetadata("personal-changed", 12, "profiles-v1", List.of("subscribe"), true);
+    public static final EventMetadata PHONE_OPEN_LINK = new EventMetadata("phone-open-link", 12, null, List.of("control"), true);
     public static final EventMetadata PROGRAM_STATUS_CHANGED = new EventMetadata("program-status-changed", 12, null, List.of("subscribe"), true);
     public static final EventMetadata RENDER_DELTA = new EventMetadata("render-delta", 7, null, List.of("attach-render"), true);
     public static final EventMetadata RENDER_STATE = new EventMetadata("render-state", 7, null, List.of("attach-render"), true);
@@ -176,6 +177,7 @@ public final class Events {
         values.put("pane-closed", PANE_CLOSED);
         values.put("participant-avatar-changed", PARTICIPANT_AVATAR_CHANGED);
         values.put("personal-changed", PERSONAL_CHANGED);
+        values.put("phone-open-link", PHONE_OPEN_LINK);
         values.put("program-status-changed", PROGRAM_STATUS_CHANGED);
         values.put("render-delta", RENDER_DELTA);
         values.put("render-state", RENDER_STATE);

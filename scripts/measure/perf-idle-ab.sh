@@ -9,6 +9,14 @@
 #     [--arg=relaunch=1] [--arg=env=NAME=VALUE] \
 #     --artifact .build/perf-idle-ab/report.tgz --timeout 14400
 #   base=SHA, head=SHA  the two commits (40 hex)
+#   dmg=nightly|URL     in the place of base= and head=: no build. The newest DMG the NIGHTLY feed offers
+#                       (files-next.cmux.com/nightly-next/appcast-arm64.xml), or one https DMG, copied once out of
+#                       the DMG into the step's scratch and launched in both arms (base = head = the signed app):
+#                       a published nightly's own footprint, on any Mac with a console session and about 2 cores,
+#                       no Xcode, no checkout of another commit. Each launch is a first install's (bench_memory.py
+#                       shipped_isolation: its own home, keychain and defaults; refused beside another copy of
+#                       the bundle id). Prints IDLE-AB nightly <url> version <v> commit <sha>. A Release app has
+#                       no debug.* methods: the wakeup ledger and live-page rows are empty, the footprint rows not
 #   rounds=N            launches per arm and chat count (default 5, at most 8)
 #   chats=0,1,10        idle chat counts: 0 is one terminal workspace (no chat); N is N agent chats on the
 #                       acpmux test agent, each answered once, plus the launch workspace (no chat)
@@ -77,14 +85,14 @@
 # With cells= the first part is the unit test of the diff tab cells and of the summary below
 # (scripts/cmux-next/tests/test_diff_tab_cells.py, at this script's commit): a red ends the step before an arm
 # is built. A run with no cells= does not run it and is as before.
-# The verdict: exit 0 every run passed, 1 a run failed or a cell has a fault, 3 an arm could not be built,
+# The verdict: exit 0 every run passed, 1 a run failed or a cell has a fault, 3 an arm could not be built (dmg=: fetched),
 # 4 the unit test is red.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 here="$PWD"
 own_sha="$(git rev-parse HEAD)"
 base="" head="" rounds=5 chats="0,1,10" measure=60 trace=10 kinds="app,cef-gpu" cells="" unfocused=300 settings_open=0 chats_given=false home=0
-relaunch=0 app_env=() vmmap=1 chief_steady=60
+relaunch=0 app_env=() vmmap=1 chief_steady=60 dmg=""
 for arg in "$@"; do
   case "$arg" in
     base=*) base="${arg#base=}" ;;
@@ -102,10 +110,15 @@ for arg in "$@"; do
     env=*) app_env+=(--env "${arg#env=}") ;;
     vmmap=*) vmmap="${arg#vmmap=}" ;;
     chief_steady=*) chief_steady="${arg#chief_steady=}" ;;
+    dmg=nightly|dmg=https://*) dmg="${arg#dmg=}" ;;
     *) echo "perf-idle-ab.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
-[[ "$base" =~ ^[0-9a-f]{40}$ && "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= must be 40-hex commits" >&2; exit 2; }
+if [ -n "$dmg" ]; then
+  [ -z "$base$head" ] || { echo "dmg= is in the place of base= and head=: give one of the two" >&2; exit 2; }
+else
+  [[ "$base" =~ ^[0-9a-f]{40}$ && "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= must be 40-hex commits (or dmg=nightly)" >&2; exit 2; }
+fi
 [[ "$rounds" =~ ^[0-9]+$ ]] && (( rounds >= 1 && rounds <= 8 )) || { echo "rounds= must be 1 to 8" >&2; exit 2; }
 [[ "$chats" =~ ^[0-9]+(,[0-9]+)*$ && "$measure" =~ ^[0-9]+$ && "$trace" =~ ^[0-9]+$ ]] || { echo "bad chats=, measure= or trace=" >&2; exit 2; }
 cell_form='[1-9][0-9]*:(none:rest|(small|large):(rest|scroll))'
@@ -138,7 +151,7 @@ out="$here/.build/perf-idle-ab"
 rm -rf "$out" && mkdir -p "$out/runs" "$out/harness"
 for f in scripts/cmux-next/bench_memory.py scripts/cmux-next/macos_libs.py scripts/cmux-next/thread_wakes.py \
          scripts/cmux-next/diff_tab_cells.py scripts/cmux-next/vmmap_regions.py \
-         scripts/cmux-next/tag_teardown.py scripts/cmux-next/chief-start-probe.py \
+         scripts/cmux-next/tag_teardown.py scripts/cmux-next/chief-start-probe.py scripts/ci/fresh_home_launch_smoke.py \
          cmux-tui/crates/acpmux/tests/fake_agent.py; do
   cp "$f" "$out/harness/" || { echo "perf-idle-ab: no $f in this checkout" >&2; exit 3; }
 done
@@ -149,17 +162,20 @@ if (( settings_open )); then
   mkdir -p "$harness/next" && cp scripts/cmux-next/*.py "$harness/next/" || { echo "perf-idle-ab: no scripts/cmux-next" >&2; exit 3; }
 fi
 app_base="" app_head=""
-scratch=""
+scratch="" mnt=""
 app_of() { if [ "$1" = base ]; then echo "$app_base"; else echo "$app_head"; fi; }
 cleanup() {
   for arm in base head; do
     a="$(app_of "$arm")"
     [ -n "$a" ] && [ -d "$a" ] && { python3 "$harness/tag_teardown.py" "$a" >/dev/null 2>&1; rm -rf "$a"; }
   done
+  [ -n "$mnt" ] && [ -d "$mnt" ] && { hdiutil detach "$mnt" >/dev/null 2>&1 || hdiutil detach -force "$mnt" >/dev/null 2>&1; }
   [ -n "$scratch" ] && rm -rf "$scratch"
-  # Back to this script's commit, so the warm checkout is left as the step found it.
-  git -C "$here" checkout --quiet --detach -f "$own_sha" >/dev/null 2>&1
-  git -C "$here" submodule update --quiet --init --depth 1 ghostty ghostty-next >/dev/null 2>&1
+  # Back to this script's commit, so the warm checkout is left as the step found it (dmg= checks nothing out).
+  if [ -z "$dmg" ]; then
+    git -C "$here" checkout --quiet --detach -f "$own_sha" >/dev/null 2>&1
+    git -C "$here" submodule update --quiet --init --depth 1 ghostty ghostty-next >/dev/null 2>&1
+  fi
   disk end
 }
 # A cancelled or timed-out step gets SIGTERM, which skips an EXIT trap unless the signal is trapped.
@@ -234,8 +250,34 @@ build_arm() {  # build_arm ARM SHA: checks the commit out here and builds its ta
   eval "app_$arm=\"\$app\""
   echo "IDLE-AB built $arm $sha $app"
 }
-build_arm base "$base" || exit 3
-build_arm head "$head" || exit 3
+nightly_app() {  # nightly_app: the DMG (dmg=) copied into the scratch, as both arms' app
+  local url="$dmg" found version commit
+  if [ "$url" = nightly ]; then
+    url="$(curl -fsSL --proto '=https' --retry 3 --retry-all-errors -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+      | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
+  fi
+  [[ "$url" == https://* ]] || { echo "IDLE-AB nightly: no DMG in the NIGHTLY feed" >&2; return 3; }
+  curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-perf-idle-ab/1 -o "$scratch/in.dmg" "$url" \
+    || { echo "IDLE-AB nightly: download of $url failed" >&2; return 3; }
+  mnt="$scratch/mnt"; mkdir -p "$mnt" "$scratch/app"
+  hdiutil attach "$scratch/in.dmg" -nobrowse -readonly -mountpoint "$mnt" >/dev/null || { echo "IDLE-AB nightly: attach failed" >&2; return 3; }
+  found="$(find "$mnt" -maxdepth 1 -name '*.app' | head -n 1)"
+  [ -n "$found" ] || { echo "IDLE-AB nightly: no app in the DMG" >&2; return 3; }
+  ditto "$found" "$scratch/app/$(basename "$found")" || return 3
+  hdiutil detach "$mnt" >/dev/null 2>&1 || hdiutil detach -force "$mnt" >/dev/null 2>&1
+  mnt=""
+  rm -f "$scratch/in.dmg"
+  app_base="$scratch/app/$(basename "$found")" app_head="$app_base"
+  version="$(plutil -extract CFBundleVersion raw -o - "$app_base/Contents/Info.plist" 2>/dev/null || true)"
+  commit="$(plutil -extract CMUXCommit raw -o - "$app_base/Contents/Info.plist" 2>/dev/null || true)"
+  echo "IDLE-AB nightly $url version ${version:-?} commit ${commit:-?}"
+}
+if [ -n "$dmg" ]; then
+  nightly_app || exit 3
+else
+  build_arm base "$base" || exit 3
+  build_arm head "$head" || exit 3
+fi
 disk built
 
 IFS=, read -r -a chat_counts <<< "$chats"

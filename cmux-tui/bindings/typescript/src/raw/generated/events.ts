@@ -481,6 +481,12 @@ export type PersonalChangedEvent = { event: "personal-changed" } & {
   "personal_revision": bigint;
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type PhoneOpenLinkEvent = { event: "phone-open-link" } & {
+  "terminal_id": string;
+  "url": string;
+};
+
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type ProgramStatusChangedEvent = { event: "program-status-changed" } & {
   "program_status": (T.ShownProgramStatus) | null;
@@ -879,6 +885,7 @@ export type KnownCmuxEvent =
   | PaneClosedEvent
   | ParticipantAvatarChangedEvent
   | PersonalChangedEvent
+  | PhoneOpenLinkEvent
   | ProgramStatusChangedEvent
   | RenderDeltaEvent
   | RenderStateEvent

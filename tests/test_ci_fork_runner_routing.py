@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Fork pull-request workflows must use GitHub-hosted runners with zero setup."""
+# guard-inputs: .github/workflows/
+# its walks are `.github/workflows/*.yml` (WORKFLOWS, a local `workflows`).
 
 from __future__ import annotations
 

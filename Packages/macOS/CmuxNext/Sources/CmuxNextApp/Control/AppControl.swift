@@ -113,6 +113,8 @@ final class AppControl {
         service.router.register(TerminalLinkOpenControl.methods(services: services))
         // `chat.composer.get`: what the composer of the chat that last took files from another app holds.
         service.router.register(services.externalOpen.chatAttach.controlMethods { [weak services] in services?.windows.active?.focusedPane?.shownChat })
+        // `chat.capture.toChat`: Capture Screenshot to Chat's path through the system's pick; a region is refused as person-only.
+        service.router.register([services.externalOpen.captureToChat.controlMethod()])
         service.router.register(PermissionsControl.methods(services: services))
         service.router.register(ControlMethod.notifications(services: services))
         service.router.register(SessionTransferControl.methods(services: services))

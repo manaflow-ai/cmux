@@ -89,6 +89,12 @@
 #                Its restore is not judged. It takes no front=, session=stress3, snapshot=unknown, case=update, keys=1,
 #                engines=, late= or dmg=build|swap. The whole step needs the console user's Aqua session (the windows
 #                draw only there): without it, LR-FAIL no-aqua and exit 5. Run it with cmux-ci's --display.
+#   floor=1      one more side, floor: the empty one-window AppKit app (hello-floor-app.sh, built here, ad hoc signed),
+#                launched as a plain app after each measured side's launch (base 1, head 1, floor 1, ...). Its
+#                finished_launching is the floor any AppKit app pays (cmux#60432); LR-OVER-FLOOR SIDE prints each
+#                cmux side's finished_launching median minus the floor's from this same run, the number
+#                goals/dock-no-bounce.md is held to (<= 25 ms). Works beside front=, session= and dmg=build|swap; takes
+#                no case=update, copy=fresh or guest=1. Default floor=0.
 #   purge=1      with copy=fresh: `sudo -n purge` before each measured launch, so its first exec also reads its files from
 #                disk (LR-PURGE ok|refused per launch). Default purge=0.
 #   video=1      a screen video of the measured launches (screencapture -v of the console session, Screen Recording
@@ -147,7 +153,7 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" other="" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small workspaces="" windows=3 prerun=0 copy=same machines=0 late=0 engines="" labs="" config=release arg rc=0 i side
+  local out="$PWD/.build/launch-ready" other="" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small workspaces="" windows=3 prerun=0 copy=same machines=0 late=0 engines="" labs="" config=release arg rc=0 i side floor=0
 
   local preflight=1 preflight_cpu=30 preflight_wait=900 waited=0
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
@@ -189,6 +195,7 @@ main() {
       guest=0|guest=1) LR_GUEST="${arg#guest=}" ;;
       type=0|type=1) LR_TYPE="${arg#type=}" ;;
       other=*) other="${arg#other=}" ;;
+      floor=0|floor=1) floor="${arg#floor=}" ;;
       purge=0|purge=1) LR_PURGE="${arg#purge=}" ;;
       record=0|record=1) LR_RECORD="${arg#record=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
@@ -225,6 +232,8 @@ main() {
   other_args_ok "$other" "$dmg" "$session" "$engines" "$late" || exit 2
   [[ "$LR_PURGE" == 0 || "$copy" == fresh ]] || { echo "purge=1 takes copy=fresh" >&2; exit 2; }
   guest_args_ok "$dmg" "$copy" "$late" "$engines" "$profile" || exit 2
+  [[ "$floor" == 0 || ( "$LR_CASE" != update && "$copy" == same && "$LR_GUEST" == 0 ) ]] \
+    || { echo "floor=1 takes no case=update, copy=fresh or guest=1 (the floor app is built here, not copied from a DMG)" >&2; exit 2; }
   if [[ "$LR_SNAPSHOT" == unknown ]]; then LR_FRONT=tab; fi # the workspace closed is the priming launch's front tab's
   echo "LR state $LR_STATE"
   echo "LR case case=${LR_CASE:-none} daemon=$LR_DAEMON snapshot=$LR_SNAPSHOT front=${LR_FRONT:-as-left}"
@@ -243,6 +252,7 @@ main() {
   cp scripts/measure/launch-ready-machines.py "$out/machines.py"
   cp scripts/measure/launch-ready-defaults.py "$out/defaults.py"
   cp scripts/measure/launch-ready-preflight.sh "$out/preflight.sh"
+  cp scripts/measure/hello-floor-app.sh "$out/hello-floor-app.sh" # floor=1's app
 
   cp scripts/measure/launch-ready-summary.py "$out/summary.py"
   cp scripts/cmux-next/launch_shift.py "$out/launch_shift.py" # summary.py's PERCEIVED numbers (record=1)
@@ -307,6 +317,7 @@ main() {
   cmux_signing_runtime_guard || exit 3
   [[ "$late" == 0 ]] || sides+=(late)
   if [[ -n "$other" ]]; then other_fetch "$out" "$other" || exit 3; sides+=(other); fi
+  if [[ "$floor" == 1 ]]; then floor_build "$out" || exit 3; sides+=(floor); fi
 
   # A system indexer busy now (mediaanalysisd, Spotlight) voids every launch: fail in ~10 s, not after the run.
   if [[ "$preflight" == 1 ]]; then
@@ -327,6 +338,8 @@ main() {
     local found
     if [[ "$side" == other ]]; then
       found="$(find "$out/other-src" -maxdepth 1 -name '*.app' | head -1)" # other_fetch's copy
+    elif [[ "$side" == floor ]]; then
+      found="$out/floor-src/HelloFloor.app" # floor_build's app
     elif [[ "$dmg" == swap ]]; then
       found="$(find "$out/swap-$image" -maxdepth 1 -name '*.app' | head -1)" # swap_nightly's sealed copy
     else
@@ -335,7 +348,7 @@ main() {
     fi
     ditto "$found" "$out/$side/$(basename "$found")" || exit 3
     if [[ "$copy" == fresh || "$LR_CASE" == update ]]; then mkdir -p "$out/$side-dmg" && ditto "$found" "$out/$side-dmg/$(basename "$found")" || exit 3; fi
-    [[ "$dmg" == swap || "$side" == other ]] || hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
+    [[ "$dmg" == swap || "$side" == other || "$side" == floor ]] || hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
     # guest=1: the copy's own bundle id before anything reads it (LR app, sign_line, defaults_aside, side_defaults).
     if [[ "$LR_GUEST" == 1 ]]; then guest_copy "$out" "$side" "$out/$side/$(basename "$found")" || exit 3; fi
     local info="$out/$side/$(basename "$found")/Contents/Info.plist"
@@ -345,6 +358,7 @@ main() {
     defaults_aside "$out" "$out/$side/$(basename "$found")" || { echo "LR-FAIL $side defaults not set aside"; exit 3; }
     if [[ "$LR_CASE" == update && "$side" == base ]]; then continue; fi # the old copy: launched at head's path below
     if [[ "$LR_CASE" == update ]]; then old_copy "$out" "$side" || rc=1; fi
+    if [[ "$side" == floor ]]; then probe "$out" "$side" prime 10 0 || rc=1; continue; fi # no cmux front, session or snapshot
     if [[ -n "$LR_FRONT" ]]; then front_prime "$out" "$side" || rc=1; else probe "$out" "$side" prime 10 0 || rc=1; fi
     if [[ "$session" == stress3 ]]; then seed "$out" "$side" || rc=1; fi
     if [[ "$LR_SNAPSHOT" == unknown ]]; then unknown_seed "$out" "$side" || rc=1; fi
@@ -360,6 +374,7 @@ main() {
   fi
   for ((i = 1; i <= runs; i++)); do
     for side in "${sides[@]}"; do
+      if [[ "$side" == floor ]]; then probe "$out" floor "run$i" 6 0 || rc=1; continue; fi # the empty AppKit app, plain
       if [[ "$prerun" != 0 ]]; then probe "$out" "$side" "full$i" "$prerun" 0 || rc=1; fi
       if [[ "$LR_CASE" == update ]]; then
         old_copy "$out" "$side" && probe "$out" "$side" "old$i" 6 0 || rc=1
@@ -379,6 +394,7 @@ main() {
   fi
   # Every process a launch left (the daemons a quit keeps): only ones started from this run's copies.
   end_left "$out/"
+  [[ "$floor" == 0 ]] || rm -f /tmp/hello-floor-out.json /tmp/hello-floor-out.json.tmp # the floor app's own marks file
   # Each case's expectation, LR-REOPENED, LR-SURFACE and LR-SURFACE-DIFF: launch-ready-summary.py.
   python3 -I "$out/summary.py" "$out/runs.jsonl" --state "$LR_STATE" --case "$LR_CASE" --daemon "$LR_DAEMON" \
     --snapshot "$LR_SNAPSHOT" --front "$LR_FRONT" --keys "$LR_KEYS" --out "$out"
@@ -425,6 +441,18 @@ other_args_ok() {
     || { echo "other= takes no dmg=build|swap, session=stress3, engines= or late=" >&2; return 1; }
   [[ -z "$LR_FRONT" && -z "$LR_CASE" && "$LR_SNAPSHOT" == own && "${LR_KEYS:-0}" == 0 ]] \
     || { echo "other= takes no front=, case=, snapshot=unknown or keys=1 (they drive cmux's socket)" >&2; return 1; }
+}
+
+# floor_build OUT: floor=1's side, OUT/floor-src/HelloFloor.app (hello-floor-app.sh): the empty one-window AppKit app,
+# launched as a plain app between the measured sides' launches, so the step's LR-OVER-FLOOR (launch-ready-summary.py)
+# is cmux's finished_launching minus the floor's from one harness, one host, one run. Prints LR floor.
+floor_build() {
+  local out="$1"
+  rm -rf "$out/floor-src" && mkdir -p "$out/floor-src" || return 1
+  source "$out/hello-floor-app.sh" # the copy made before dmg=build checked out other commits
+  hello_floor_app "$out/floor-src" "dev.cmux.measure.hellofloor.launchready" >"$out/floor-build.log" 2>&1 \
+    || { echo "LR-FAIL floor app build failed"; cat "$out/floor-build.log"; return 1; }
+  echo "LR floor HelloFloor.app $(stat -f %z "$out/floor-src/HelloFloor.app/Contents/MacOS/HelloFloor") bytes $(tail -1 "$out/floor-build.log")"
 }
 
 # other_fetch OUT OTHER: other='s app, copied to OUT/other-src/NAME.app: a DMG mounted and its .app copied, a zip
@@ -562,7 +590,7 @@ probe() {
 # probe_mode LABEL [SIDE]: the probe's last argument. The other side (other=) is plain: not cmux. keys=1 types into a measured launch (runN: keys) and opens no terminal;
 # else state=bare opens one (shell).
 probe_mode() {
-  if [[ "${2:-}" == other ]]; then
+  if [[ "${2:-}" == other || "${2:-}" == floor ]]; then
     echo plain
   elif [[ "${LR_KEYS:-0}" == 1 ]]; then
     if [[ "$1" == run* ]]; then echo keys; fi

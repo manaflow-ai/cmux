@@ -246,6 +246,13 @@ impl Delivery {
         self.request.pointer("/_meta/acpmux/forwardProjection").is_some()
     }
 
+    /// A message (not a projection intent, which keeps its own schedule) past [`RETRY_FOR_MS`]
+    /// since it was handed over: it is never sent again (`server/outbox.rs` `expired`), and a
+    /// failed one stays failed (`hub/watches.rs` `drain`).
+    pub fn past_retry_window(&self, now: u64) -> bool {
+        !self.projection_only() && now >= self.created_at.saturating_add(RETRY_FOR_MS)
+    }
+
     /// Open on its peer past [`OPEN_ON_PEER_FOR_MS`].
     pub fn open_lapsed(&self, now: u64) -> bool {
         self.open_on_peer && now >= self.created_at.saturating_add(OPEN_ON_PEER_FOR_MS)

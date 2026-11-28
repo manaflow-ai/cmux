@@ -118,6 +118,25 @@ struct MacScreenSharingSectionTests {
         }
     }
 
+    /// This Mac not on the device hub yet (its socket reconnecting, run 45954248647): every look still draws
+    /// This Mac with its switch and permissions, and says why the switch waits, not a page with only Your Devices.
+    @Test(arguments: MacScreenSharingLook.allCases)
+    func everyLookDrawsThisMacWhileTheHubReconnects(_ look: MacScreenSharingLook) throws {
+        try withHome { home in
+            var waiting = sharing(screenRecording: false, accessibility: false)
+            waiting.isSharing = false
+            waiting.busy = true
+            waiting.hubNote = MacScreenHomeSnapshot.hubNote(.starting)
+            let section = home.sharingSection(waiting, look: look)
+            let ids = views(under: section).map { $0.accessibilityIdentifier() }
+            #expect(ids.contains("macScreen.home.allowToggle"))
+            #expect(ids.contains("macScreen.home.hubNote"))
+            #expect(texts(under: section).contains(L.t("macScreen.home.thisMacJoining", "Connecting this Mac to the device hub…")))
+            let failed = MacScreenHomeSnapshot.hubNote(.failed("timed out"))
+            #expect(failed.contains("timed out"), "\(failed)")
+        }
+    }
+
     /// Every look draws the switch, and the status while sharing; off, no status and no permission rows.
     @Test(arguments: MacScreenSharingLook.allCases)
     func everyLookDrawsTheSwitchAndStatus(_ look: MacScreenSharingLook) throws {

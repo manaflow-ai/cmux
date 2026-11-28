@@ -1114,9 +1114,11 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const applyAttributes = () => {
     const dom = view.current?.dom;
     if (!dom) return;
+    // Each write is a mutation WebKit lays out again, even of the same value; this runs on every render.
     for (const [name, attribute] of Object.entries(attrs.current ?? {}))
-      if (attribute === undefined) dom.removeAttribute(name);
-      else dom.setAttribute(name, attribute);
+      if (attribute === undefined) {
+        if (dom.hasAttribute(name)) dom.removeAttribute(name);
+      } else if (dom.getAttribute(name) !== attribute) dom.setAttribute(name, attribute);
   };
   // Written only when it changes: each write is an attribute mutation, and this runs on every edit.
   // A draft of blank lines (Shift+Enter in an empty prompt) is not empty: the placeholder stayed on

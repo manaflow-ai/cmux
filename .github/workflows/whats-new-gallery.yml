@@ -13,7 +13,10 @@ name: What's New gallery pictures
 # .github/actions/pr-media-publish and its privacy check.
 on:
   push:
-    branches: [feat-cmux-next]
+    # nightly-next too: a promote that carries a highlight plans again what an earlier run left
+    # unrendered. Run 45963430187 failed on a broken gallery file and nothing ran it again, so
+    # theme-flourishes, ios-new-task-cloud-machine and diff-pickers-draw-what-shows shipped with no picture.
+    branches: [feat-cmux-next, nightly-next]
     paths:
       - "release-notes/next/highlights/**"
       # A planner change plans again what is still missing (it only renders pictures not on pr-media).

@@ -68,10 +68,11 @@ const USAGE: &str =
 /// Every Cloud image bakes an x86_64 machine (images/cmux-vm inputs.lock.json).
 const CLOUD_ARCH: &str = "x86_64";
 /// The verbs whose absence makes a machine worth updating.
-const NEEDED: [&str; 3] = [
+const NEEDED: [&str; 4] = [
     cmux_tui_core::fs_ops::FS_CAPABILITY,
     cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_CAPABILITY,
     cmux_tui_core::server::agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY,
+    cmux_tui_core::server::agent_transfer::chat_folders::CHAT_FOLDER_CAPABILITY,
 ];
 /// What the old daemon must serve for the update to reach it.
 const REACHES: [&str; 2] = [cmux_tui_core::fs_ops::FS_CAPABILITY, "detached-terminals-v1"];

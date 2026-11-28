@@ -31,9 +31,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # At most one bench per CMUX_NEXT_ENERGY_MIN_INTERVAL_HOURS (default 6; 0 benches every push), not one per
+  # nightly-next tip (ci-min-per-pr-14; Leo: "de facto, im asking for 99% fewer minutes of ci time, period.").
+  # The bench reports night over night and gates nothing, yet nightly-next moved 54 times in the 48 h to 11-27 10Z
+  # and the bench ran 30 of them at 95 gateway job-min each, about 1,425 min a day. The newest kept bench
+  # artifact dates the last bench; a push inside the interval skips, the first push after it benches its tip.
+  # No artifact (none yet, expired, or a bench that kept no files) or an unreadable answer benches.
+  gate:
+    name: Bench due
+    if: ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' }}
+    runs-on: cmux-linux
+    timeout-minutes: 3
+    permissions:
+      actions: read
+    outputs:
+      due: ${{ steps.due.outputs.due }}
+    steps:
+      - name: Due
+        id: due
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HOURS: ${{ vars.CMUX_NEXT_ENERGY_MIN_INTERVAL_HOURS || '6' }}
+        run: |
+          set -uo pipefail
+          last="$(gh api "repos/$REPOSITORY/actions/artifacts?name=cmux-next-ios-energy&per_page=20" \
+            --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "nightly-next")] | max_by(.created_at) | .created_at // ""' 2>/dev/null || true)"
+          due=true
+          if [[ "$HOURS" =~ ^[0-9]+$ ]] && [ "$HOURS" -gt 0 ] && [ -n "$last" ]; then
+            age=$(( $(date -u +%s) - $(date -u -d "$last" +%s 2>/dev/null || echo 0) ))
+            [ "$age" -lt $(( HOURS * 3600 )) ] && due=false
+          fi
+          echo "last bench artifact ${last:-(none)}; interval ${HOURS} h; due=$due"
+          echo "due=$due" >> "$GITHUB_OUTPUT"
+
   bench:
     name: Energy bench on a fleet simulator
-    if: ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' }}
+    needs: gate
+    if: ${{ needs.gate.outputs.due != 'false' && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 150
     permissions:

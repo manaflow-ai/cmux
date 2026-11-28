@@ -11,7 +11,8 @@
 //! in one condensed call (`pr_state`, `acpmux_mcp_pr.rs`), and ends a turn with the next-step
 //! box the person sees under the answer (`wrap_up`, `acpmux_mcp_wrap_up.rs`), and keeps the chat's
 //! goal and its done-when on any harness (`goal_set`, `goal_update`, `goal_get`,
-//! `acpmux_mcp_goal.rs`), and wakes it when other sessions are done or blocked (`watch_add`,
+//! `acpmux_mcp_goal.rs`), reads its own packed history after a compaction (`chat_history`,
+//! `acpmux_mcp_history.rs`), and wakes it when other sessions are done or blocked (`watch_add`,
 //! `watch_ls`, `watch_rm`, `acpmux_mcp_watch.rs`), and waits on or stops another session's turn,
 //! any session, not only its own sub-sessions (`wait`, `cancel`, `acpmux_mcp_control.rs`).
 //! `github_status` names the GitHub account cmux can see, never a token (`github_status.rs`). With a cmux sign-in it also saves,
@@ -85,6 +86,8 @@ pub(crate) mod bridge;
 mod goal;
 #[path = "acpmux_mcp_guest.rs"]
 mod guest;
+#[path = "acpmux_mcp_history.rs"]
+mod history;
 #[path = "acpmux_mcp_pr.rs"]
 pub(crate) mod pr;
 /// `pr_state`'s parse of a pull request, which the daemon's poller reads too (`pr_poller.rs`).
@@ -127,6 +130,7 @@ pub(crate) fn tools() -> Value {
         list.push(who_else::tool());
         list.push(look::tool());
         list.extend(goal::tools());
+        list.push(history::tool());
         list.extend(watch::tools());
         list.extend(race::tools());
         list.push(send_status::tool());
@@ -173,7 +177,12 @@ fn base_tools() -> Value {
             "description": "List inbox threads with unread counts. Pass thread to read its messages newest first and mark them read. Notices arrive at the next tool step and can wait.",
             "inputSchema": {
                 "type": "object",
-                "properties": {"thread": {"type": "string", "description": "threadId from a notice or the thread list."}}
+                "properties": {
+                    "thread": {"type": "string", "description": "threadId from a notice or the thread list."},
+                    "unread": {"type": "boolean", "description": "List only threads with unread messages."},
+                    "from": {"type": "string", "description": "List only threads from this sender: a name, HOST/NAME or session id."},
+                    "limit": {"type": "integer", "minimum": 1, "description": "List at most this many threads, newest first as listed; the answer says how many more match."}
+                }
             }
         },
         {
@@ -338,6 +347,9 @@ fn instructions(tools: &Value) -> Option<String> {
     if crate::mcp_hint::names(tools).any(|n| goal::TOOLS.contains(&n)) {
         parts.push(goal::STEER);
     }
+    if crate::mcp_hint::names(tools).any(|n| n == history::NAME) {
+        parts.push(history::STEER);
+    }
     if crate::mcp_hint::names(tools).any(|n| n == "watch_add") {
         parts.push(watch::STEER);
     }
@@ -461,6 +473,9 @@ fn served_with(
                 if goal::TOOLS.contains(&name) {
                     return goal::call(&daemon, &session, name, &args).await;
                 }
+                if name == history::NAME {
+                    return history::call(&daemon, &session, &args).await;
+                }
                 if name == crate::github_status::TOOL {
                     let sources = crate::github_status::Sources::current();
                     let status = crate::github_status::resolve(&sources).await;
@@ -568,6 +583,9 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
 
 /// Send a team-scoped message through the daemon's hub client. The daemon owns the
 /// caller token and team-messaging gate, so this MCP surface cannot bypass either one.
+/// How long `team_send` waits for the next daemon through an update or restart.
+const TEAM_SEND_RESTART_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+
 async fn team_send(daemon: &Arc<Client>, args: &Value) -> Value {
     let (Some(to), Some(body)) = (arg(args, "to"), args.get("body").and_then(Value::as_str)) else {
         return error_result("to and body are required".to_owned());
@@ -575,7 +593,17 @@ async fn team_send(daemon: &Arc<Client>, args: &Value) -> Value {
     if body.trim().is_empty() {
         return error_result("body is empty".to_owned());
     }
-    match daemon.request(method::MUX_TEAM_SEND, json!({"to": to, "body": body})).await {
+    // One key for every attempt: sent again to the next daemon after an update or restart, the
+    // mesh hub keeps the first (`server/team.rs` `idempotencyKey`), so it lands once.
+    let params =
+        json!({"to": to, "body": body, "idempotencyKey": uuid::Uuid::now_v7().to_string()});
+    let deadline = tokio::time::Instant::now() + TEAM_SEND_RESTART_WAIT;
+    let sent = crate::cli::output::through_restart(daemon, deadline, |daemon, _resend| {
+        let params = params.clone();
+        async move { daemon.request(method::MUX_TEAM_SEND, params).await }
+    })
+    .await;
+    match sent.map(|(_, result)| result) {
         Ok(result) => ok(team_result_text(&result), result),
         Err(e) => refusal(e),
     }
@@ -714,12 +742,49 @@ async fn inbox_tool(daemon: &Arc<Client>, session: &str, name: &str, args: &Valu
     match reply {
         Ok(mut v) => {
             // The text line is written from the whole answer, then the answer drops what it said.
-            let text = crate::cli::session_inbox::describe(&v);
+            let more = filter_threads(&mut v, args);
+            let mut text = crate::cli::session_inbox::describe(&v);
+            if more > 0 {
+                text.push_str(&format!("\n{more} more threads match; raise limit to see them."));
+            }
             trim_threads(&mut v);
             ok(text, v)
         }
         Err(e) => refusal(e),
     }
+}
+
+/// Keep the threads of a listing that `inbox_read`'s `unread`, `from` and `limit` ask for, and say
+/// how many more match past the limit (also as `moreThreads`). A coordinator's whole inbox was
+/// about 80 threads and tens of KB per call with no way to ask for less (2026-11-27). A thread
+/// read (no `threads`) is left whole; a listing with none of the three is too.
+fn filter_threads(answer: &mut Value, args: &Value) -> usize {
+    let unread_only = args.get("unread").and_then(Value::as_bool) == Some(true);
+    let from = arg(args, "from").map(str::trim).filter(|f| !f.is_empty());
+    let limit = args.get("limit").and_then(Value::as_u64).filter(|n| *n > 0);
+    let Some(threads) = answer.get_mut("threads").and_then(Value::as_array_mut) else { return 0 };
+    let sent_by = |t: &Value, who: &str| {
+        let names = t["from"].as_array().into_iter().flatten().filter_map(Value::as_str);
+        let sender = ["label", "session", "machine"].map(|k| t["sender"][k].as_str());
+        let host_name = match (t["sender"]["machine"].as_str(), t["sender"]["label"].as_str()) {
+            (Some(m), Some(l)) => Some(format!("{m}/{l}")),
+            _ => None,
+        };
+        names
+            .chain(sender.into_iter().flatten())
+            .any(|n| n.eq_ignore_ascii_case(who) || n.rsplit('/').next() == Some(who))
+            || host_name.is_some_and(|h| h.eq_ignore_ascii_case(who))
+    };
+    threads.retain(|t| {
+        (!unread_only || t["unread"].as_u64().unwrap_or(0) > 0)
+            && from.is_none_or(|who| sent_by(t, who))
+    });
+    let more = limit.map_or(0, |n| threads.len().saturating_sub(n as usize));
+    if more > 0 {
+        threads.truncate(threads.len() - more);
+        answer["moreThreads"] = json!(more);
+    }
+    more
 }
 
 /// What a thread listing says twice, dropped before the reader pays for it. The daemon's
@@ -987,6 +1052,9 @@ fn ls_result(all: &Value, args: &Value) -> Value {
     ok(lines.join("\n"), json!({"sessions": slim, "more": more}))
 }
 
+#[cfg(test)]
+#[path = "acpmux_mcp_restart_tests.rs"]
+mod restart_tests;
 #[cfg(test)]
 #[path = "acpmux_mcp_tests.rs"]
 mod tests;

@@ -99,6 +99,7 @@ import {
   type ArchivedState,
   type ChecklistFact,
   type PreviousBuild,
+  type HistoryMutationResult,
   type DeveloperTokensRun,
   type DeveloperTokensState,
 } from "./ops";
@@ -164,6 +165,9 @@ export type MockOptions = {
   /** Writes of these keys the daemon refuses with this reason and details (a json row's
    * `accepted.problems`, as cmux-config's refusal carries them). */
   refusals?: Record<string, { message: string; details: Record<string, unknown> }>;
+  /** false: a host without the durable settings history (`cmux.settings.history`, `.undo`, `.restore`,
+   * `.reset_group`, `.reset_keys` unknown), as before settings-history-v1. */
+  durableHistory?: boolean;
 };
 
 /** This Mac joined to a team with the one-line join, every consent switch off. */
@@ -308,6 +312,22 @@ export type MockWorktreeProject = {
   files: string[];
 };
 
+/** One change in the mock's durable settings history (cmux-config `HistoryEntry`). */
+export type MockHistoryEntry = {
+  revision: number;
+  at: number;
+  origin: string;
+  keys: string[];
+  before: ReadonlyMap<string, unknown>;
+  undoes: number | null;
+};
+
+function sameValues(a: ReadonlyMap<string, unknown>, b: ReadonlyMap<string, unknown>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [key, value] of a) if (!b.has(key) || JSON.stringify(b.get(key)) !== JSON.stringify(value)) return false;
+  return true;
+}
+
 export class MockSettingsProvider {
   slack: SlackConnection = { connected: false, teams: [] };
   slackAllowance: number | null = null;
@@ -342,6 +362,15 @@ export class MockSettingsProvider {
 
   /** Every catalog action the page ran, with its arguments, in order (tests). */
   readonly actionsRun: Array<{ action: string; args: Params }> = [];
+  /** Whether this host serves the durable settings history (the daemon's settings-history-v1). */
+  readonly durableHistory: boolean;
+  /** The durable history, oldest first: each published change with the values before it (the
+   * daemon keeps the file text; the mock keeps its value map). */
+  readonly durable: MockHistoryEntry[] = [];
+  /** The values before the write `keyed` runs, which `commit` records. */
+  private pendingBefore: Map<string, unknown> | null = null;
+  /** The revision a running `settings.undo` takes back, which `commit` records. */
+  private pendingUndoes: number | null = null;
 
   constructor(options: MockOptions = {}) {
     this.chatFolders = options.chatFolders;
@@ -359,6 +388,7 @@ export class MockSettingsProvider {
     this.refusals = options.refusals ?? {};
     this.actionRan = options.actionRan ?? true;
     this.connected = options.connected ?? true;
+    this.durableHistory = options.durableHistory ?? true;
     this.tryOn = options.tryOn ?? null;
     this.previousBuild = options.previousBuild ?? null;
     this.previousBuildRefusal = options.previousBuildRefusal ?? null;
@@ -390,6 +420,18 @@ export class MockSettingsProvider {
       "cmux.settings.set": (params) => this.keyed(params, () => this.set(params.key as string, params.value)),
       "cmux.settings.reset": (params) => this.keyed(params, () => this.reset(params.key as string)),
       "cmux.settings.reset_all": (params) => this.keyed(params, () => this.resetAll()),
+      ...(this.durableHistory
+        ? {
+            "cmux.settings.history": () => this.historyRead(),
+            "cmux.settings.undo": (params: Params) => this.keyed(params, () => recorded(this.durableUndo())),
+            "cmux.settings.restore": (params: Params) =>
+              this.keyed(params, () => recorded(this.durableRestore(Number(params.revision)))),
+            "cmux.settings.reset_group": (params: Params) =>
+              this.keyed(params, () => recorded(this.resetGroup(params.group as string))),
+            "cmux.settings.reset_keys": (params: Params) =>
+              this.keyed(params, () => recorded(this.resetKeys(params.keys as string[]))),
+          }
+        : {}),
       "cmux.settings.preview": () => ({}),
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
@@ -2817,7 +2859,12 @@ export class MockSettingsProvider {
       throw new ProtocolError("cmux.idempotency.conflict", `idempotency key ${key} was used for another request`);
     }
     this.usedKeys.set(key, print);
-    return write();
+    this.pendingBefore = new Map(this.values);
+    try {
+      return write();
+    } finally {
+      this.pendingBefore = null;
+    }
   }
 
   private guard(key: string): void {
@@ -2865,9 +2912,94 @@ export class MockSettingsProvider {
     return this.commit(keys, "user");
   }
 
+  /** Another writer (an agent over MCP, the CLI, a hand edit) changes `key`, as the daemon would
+   * record it: in the durable history with its origin. */
+  foreignSet(key: string, value: unknown, origin = "mcp"): MutationResult {
+    this.pendingBefore = new Map(this.values);
+    try {
+      if (value === undefined) this.values.delete(key);
+      else this.values.set(key, value);
+      return this.commit([key], origin);
+    } finally {
+      this.pendingBefore = null;
+    }
+  }
+
+  /** `settings.history`: newest first, revisions as decimal strings, without the earlier values. */
+  private historyRead(): { entries: Array<Record<string, unknown>> } {
+    return {
+      entries: [...this.durable].reverse().map((entry) => ({
+        revision: String(entry.revision),
+        at: String(entry.at),
+        origin: entry.origin,
+        keys: entry.keys,
+        ...(entry.undoes === null ? {} : { undoes: String(entry.undoes) }),
+      })),
+    };
+  }
+
+  /** `settings.undo` (cmux-config `history::undo_pick`): the newest change that is no undo, was not
+   * undone yet and would change something. */
+  private durableUndo(): MutationResult {
+    const undone = new Set(this.durable.flatMap((entry) => (entry.undoes === null ? [] : [entry.undoes])));
+    const pick = [...this.durable]
+      .reverse()
+      .find((entry) => entry.undoes === null && !undone.has(entry.revision) && !sameValues(entry.before, this.values));
+    if (!pick) throw new ProtocolError("validation.invalid", "nothing to undo");
+    this.pendingUndoes = pick.revision;
+    try {
+      return this.putBack(pick.before);
+    } finally {
+      this.pendingUndoes = null;
+    }
+  }
+
+  /** `settings.restore`: the values just before the change that produced `revision`. */
+  private durableRestore(revision: number): MutationResult {
+    const entry = this.durable.find((item) => item.revision === revision);
+    if (!entry) throw new ProtocolError("validation.invalid", `no change with revision ${revision}`);
+    return this.putBack(entry.before);
+  }
+
+  private putBack(before: ReadonlyMap<string, unknown>): MutationResult {
+    const keys = [...new Set([...this.values.keys(), ...before.keys()])].filter(
+      (key) =>
+        JSON.stringify(this.values.get(key)) !== JSON.stringify(before.get(key)) ||
+        this.values.has(key) !== before.has(key),
+    );
+    this.values.clear();
+    for (const [key, value] of before) this.values.set(key, value);
+    return this.commit(keys, "app");
+  }
+
+  /** `settings.reset_group` (cmux-config `Schema::rows_in_group`): a section, or `section.group`
+   * (the group key's last part); managed rows stay. */
+  private resetGroup(group: string): MutationResult {
+    const rows = schema.rows.filter((row) => {
+      const slug = row.group.key
+        ? row.group.key.split(".").at(-1)!
+        : row.group.text.replace(/[^a-z0-9]/gi, "").toLowerCase();
+      return row.section === group || `${row.section}.${slug}` === group;
+    });
+    if (rows.length === 0) throw new ProtocolError("validation.invalid", `unknown settings group '${group}'`);
+    return this.resetKeys(rows.map((row) => row.key));
+  }
+
+  /** The host's one `settings.edit` of resets (a card that is not one schema group). */
+  private resetKeys(keys: string[]): MutationResult {
+    const reset = keys.filter((key) => this.values.has(key) && !this.managed.has(key));
+    for (const key of reset) this.values.delete(key);
+    return this.commit(reset, "app");
+  }
+
   private commit(keys: string[], origin: string): MutationResult {
     this.revision += 1;
     const revision = this.revision;
+    const before = this.pendingBefore;
+    if (before && !sameValues(before, this.values)) {
+      this.durable.push({ revision, at: Date.now(), origin, keys, before, undoes: this.pendingUndoes });
+      this.pendingBefore = new Map(this.values);
+    }
     // The daemon emits after the reply; a microtask keeps that order.
     queueMicrotask(() => {
       for (const ctx of this.changed) ctx.emit({ revision, keys, origin });
@@ -3253,4 +3385,10 @@ export function mockArchived(): ArchivedState {
       { kind: "item", id: "itm-archived-link", title: "Design review", group: null, machine: null },
     ],
   };
+}
+
+/** A history write's reply (the host's `SettingsHistoryPage`): the mutation result and the revision
+ * of the change it recorded, which `cmux.settings.restore` takes. Plain writes carry none. */
+function recorded(result: MutationResult): HistoryMutationResult {
+  return { ...result, history_revision: result.revision };
 }

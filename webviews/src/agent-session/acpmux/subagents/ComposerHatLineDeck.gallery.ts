@@ -1,10 +1,10 @@
 // l10n-allow-file: gallery fixtures (prompts, subagent tasks, commands), not shipped UI.
-// The one-line composer hat's marks and hide eye (hatLine.experiment.ts, HatHeadDeck.tsx,
+// The one-line composer hat's marks (hatLine.experiment.ts, HatHeadDeck.tsx,
 // hatHeader.css). Lawrence, 2026-11-20: "ui for opening subagents is very confusing". Leo: "we need to
 // be able to like thumb through them like a Rolodex or whatever at the top ... you hover over it, and
 // then on each one, it's like there's a slight pop and something ... perhaps the text itself maybe
-// changes like on the top of the composer hat". Every arm over three and eight running lines, at rest,
-// thumbed, and with the pointer on the hide eye.
+// changes like on the top of the composer hat". Every arm over three and eight running lines, at rest
+// and thumbed.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
@@ -68,18 +68,12 @@ const thumbedTo = (n: number) => async (ctx: PlayContext) => {
   await ctx.hover({ selector: MARK(n) });
   await ctx.waitFor(() => ctx.document.querySelector(`${MARK(n)}[data-peeked]`));
 };
-/// The pointer on the hide eye at the line's end.
-const onEye = async (ctx: PlayContext) => {
-  await folded(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-hat-hide[data-at="line"]'));
-  await ctx.hover({ selector: '.acpmux-hat-hide[data-at="line"]' });
-};
 
 const arms: [HatLineArm, string][] = [
   ["trail", "Sentence, then marks (the pick)"],
   ["lead", "Marks, then sentence"],
   ["cards", "Fanned cards, then sentence"],
-  ["words", "Words only (cmux#56287), the tab on the top edge"],
+  ["words", "Words only (cmux#56287)"],
 ];
 
 export default agentPaneEntry({
@@ -143,12 +137,6 @@ export default agentPaneEntry({
       play: thumbedTo(5),
       snapshot: EIGHT,
       experiments: pins("cards"),
-    },
-    "trail-eye-hover": {
-      note: "The pick, the pointer on the hide eye flush at the line's end: a faint round surface lights; nothing sits over the words.",
-      play: onEye,
-      snapshot: THREE,
-      experiments: pins("trail"),
     },
   },
 });

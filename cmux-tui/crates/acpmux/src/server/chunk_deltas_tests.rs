@@ -207,11 +207,29 @@ fn a_shared_frame_is_the_owned_frame() {
         let seq = i as u64 + 1;
         let mut p = chunk(seq, 100 * seq, if i == 2 { 2 } else { 1 }, text);
         assert_eq!(
-            shared.frame_shared(CHAT, &p).to_line(),
+            shared.frame_shared(CHAT, &p, 0).to_line(),
             owned.frame(CHAT, p.clone()).to_line(),
             "{p}"
         );
         p["kind"] = json!("status");
-        assert_eq!(shared.frame_shared(CHAT, &p).to_line(), owned.frame(CHAT, p).to_line());
+        assert_eq!(shared.frame_shared(CHAT, &p, 0).to_line(), owned.frame(CHAT, p).to_line());
+    }
+}
+
+/// A connection's stream cursor (`prev`) given beside shared params frames as the same params
+/// owned with `prev` set: whole, compact, and a new template alike.
+#[test]
+fn a_shared_frame_carries_its_prev() {
+    let (owned, shared) = (on(), on());
+    for (i, text) in ["a", "b", "c", "d"].iter().enumerate() {
+        let seq = i as u64 + 1;
+        let p = chunk(seq, 100 * seq, if i == 2 { 2 } else { 1 }, text);
+        let mut with_prev = p.clone();
+        with_prev["prev"] = json!(seq - 1);
+        let want = owned.frame(CHAT, if seq > 1 { with_prev } else { p.clone() }).to_line();
+        assert_eq!(shared.frame_shared(CHAT, &p, seq - 1).to_line(), want, "{p}");
+        if seq > 1 {
+            assert!(want.contains(&format!("\"prev\":{}", seq - 1)), "{want}");
+        }
     }
 }

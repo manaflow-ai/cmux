@@ -125,6 +125,18 @@ pub trait OpRouter: Send + Sync {
     fn close_backend_terminal(&self, surface: crate::SurfaceId) {
         let _ = surface;
     }
+    /// The effective value of the dotted cmux setting `key` (a setting-backed App Store entry's
+    /// switch, `store.rs`); None when unset or without a settings owner.
+    fn setting_get(&self, key: &str) -> Option<Value> {
+        let _ = key;
+        None
+    }
+    /// Writes the dotted cmux setting `key` as the person's own change (the store checked the
+    /// request's origin is the user).
+    fn setting_set(&self, key: &str, value: Value) -> Result<(), ApiError> {
+        let _ = (key, value);
+        Err(ApiError::new("apps.setting.unavailable", "no settings owner"))
+    }
 }
 
 pub struct Config {
@@ -223,6 +235,11 @@ pub(super) struct Host {
     /// Kept up by the manifest's `activation` (`activation.rs`): stopped
     /// when the app may no longer run in the background.
     pub background: bool,
+    /// The last `state` the host sent (`cmux.state`), in memory only. A
+    /// restart of this record (a local reload, a grant change) hands it to
+    /// the next host's `init`; a crash drops it, and it goes with the record
+    /// when the app stops, is removed or idles out.
+    pub kept_state: Option<Value>,
 }
 
 #[derive(Debug, Clone)]

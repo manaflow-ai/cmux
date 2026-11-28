@@ -370,6 +370,7 @@ mod chief_registry_resource;
 mod chief_work;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
+mod phone_link;
 mod shell_wire;
 mod url_open;
 #[cfg(test)]
@@ -1000,6 +1001,12 @@ enum Command {
     UrlOpenResult {
         request_id: String,
         opened: bool,
+    },
+    /// The Mac app asks before it opens a link a terminal program asked a browser for: the phone
+    /// that drives the terminal gets it (`phone_link.rs`). Unix, this Mac's own app only.
+    OfferLinkToPhone {
+        terminal_id: String,
+        url: String,
     },
     TerminalClipboardSubscribe {
         terminal_ids: Vec<String>,
@@ -3435,6 +3442,10 @@ mod creation_burst_tests;
 #[cfg(test)]
 #[path = "server/run_public_ids_tests.rs"]
 mod run_public_ids_tests;
+
+#[cfg(test)]
+#[path = "server/tree_schema_tests.rs"]
+mod tree_schema_tests;
 
 #[cfg(test)]
 #[path = "server/open_persistent_bench_tests.rs"]

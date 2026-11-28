@@ -358,6 +358,14 @@ fn open_append(path: &std::path::Path) -> std::io::Result<std::fs::File> {
     crate::home_fs::OpenOptions::new().create(true).append(true).mode(0o600).open(path)
 }
 
+/// What the rows file predicts for `script` in `repo` now, read fresh: for a process that is not
+/// the daemon (`acpmux run-vm`, RFD 0144 piece 8's sizing).
+pub fn predict_from_file(path: &std::path::Path, repo: &str, script: &str) -> shadow::Predicted {
+    let mut table = Table::default();
+    reload(path, &mut table);
+    table.predict(repo, &shadow::class_of(script), script, false)
+}
+
 /// Refills the prediction table from the rows file's newest [`RELOAD_BYTES`].
 fn reload(path: &std::path::Path, table: &mut Table) {
     use std::io::{Read, Seek, SeekFrom};

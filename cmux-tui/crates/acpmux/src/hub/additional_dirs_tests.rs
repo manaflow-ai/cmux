@@ -18,3 +18,25 @@ async fn requested_folders_are_checked_canonical_and_listed_once() {
     assert!(requested(&json!({FIELD: many})).await.is_err());
     assert!(without_cwd(vec![a.clone()], &a).is_empty());
 }
+
+#[test]
+fn the_added_folder_is_named_only_when_it_is_among_the_new_ones() {
+    let root = tempfile::tempdir().unwrap();
+    let a = std::fs::canonicalize(root.path()).unwrap().join("a");
+    std::fs::create_dir(&a).unwrap();
+    let dirs = vec![a.clone()];
+    assert_eq!(
+        added(&json!({"added": {"path": a, "from": "~/a"}}), &dirs),
+        Some(json!({"path": a.to_string_lossy(), "from": "~/a"}))
+    );
+    assert_eq!(
+        added(&json!({"added": {"path": a}}), &dirs),
+        Some(json!({"path": a.to_string_lossy()}))
+    );
+    assert_eq!(added(&json!({"added": {"path": "/elsewhere"}}), &dirs), None);
+    assert_eq!(added(&json!({}), &dirs), None);
+    assert_eq!(
+        added(&json!({"added": {"path": a, "from": 3}}), &dirs),
+        Some(json!({"path": a.to_string_lossy()}))
+    );
+}

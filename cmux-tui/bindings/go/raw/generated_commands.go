@@ -24085,6 +24085,39 @@ func (value *NotifyOptions) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// OfferLinkToPhoneRequest is the exact offer-link-to-phone wire payload.
+type OfferLinkToPhoneRequest struct {
+	TerminalID string `json:"terminal_id"`
+	URL        string `json:"url"`
+}
+
+func (value *OfferLinkToPhoneRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode OfferLinkToPhoneRequest: expected object")
+	}
+	var fields struct {
+		TerminalID *string `json:"terminal_id"`
+		URL        *string `json:"url"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode OfferLinkToPhoneRequest: %w", err)
+	}
+	type wire OfferLinkToPhoneRequest
+	var decoded wire
+	if fields.TerminalID == nil {
+		return fmt.Errorf("decode OfferLinkToPhoneRequest: required field terminal_id is missing or null")
+	}
+	decoded.TerminalID = *fields.TerminalID
+	if fields.URL == nil {
+		return fmt.Errorf("decode OfferLinkToPhoneRequest: required field url is missing or null")
+	}
+	decoded.URL = *fields.URL
+	*value = OfferLinkToPhoneRequest(decoded)
+	return nil
+}
+
+type OfferLinkToPhoneResult = PhoneLinkOfferResult
+
 // PageCredentialRequest is the exact page-credential wire payload.
 type PageCredentialRequest struct {
 	Page Presence[string] `json:"-"`
@@ -39898,6 +39931,13 @@ func (c *Client) Notify(ctx context.Context, title string, body string, options 
 		return result, err
 	}
 	err = c.requestGenerated(ctx, commandMetadata["notify"], "notify", params, &result)
+	return result, err
+}
+
+// OfferLinkToPhone sends offer-link-to-phone. Protocol v12; authority local-admin.
+func (c *Client) OfferLinkToPhone(ctx context.Context, terminalID string, url string) (OfferLinkToPhoneResult, error) {
+	var result OfferLinkToPhoneResult
+	err := c.requestGenerated(ctx, commandMetadata["offer-link-to-phone"], "offer-link-to-phone", map[string]any{"terminal_id": terminalID, "url": url}, &result)
 	return result, err
 }
 

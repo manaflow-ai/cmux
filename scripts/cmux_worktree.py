@@ -597,7 +597,35 @@ def add(repo: Path, path: Path, commit: Optional[str], branch_flag: Optional[str
     if branch_flag:
         args += [branch_flag] + ([branch] if branch else [])
     args += [str(path), base]
+    made_branch = branch if branch_flag == "-b" or (
+        branch_flag == "-B" and not git_ok(repo, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}")) else None
     git(repo, *args)
+    try:
+        return _fill_worktree(repo, path, seed_dir, cargo_dirs, started)
+    except BaseException:
+        # As `git worktree add` does when its checkout fails: no half-made worktree stays registered
+        # (a helper that finds the folder would reuse it), nor the branch this add made.
+        git(repo, "worktree", "remove", "--force", "--force", str(path), check=False)
+        shutil.rmtree(path, ignore_errors=True)
+        git(repo, "worktree", "prune", check=False)
+        if made_branch:
+            git(repo, "branch", "-D", made_branch, check=False)
+        raise
+
+
+def _empty_except_git(path: Path) -> None:
+    """Remove everything in a new worktree but its .git file (a clone left half done)."""
+    for name in os.listdir(path):
+        if name == ".git":
+            continue
+        target = path / name
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+
+
+def _fill_worktree(repo: Path, path: Path, seed_dir: Path, cargo_dirs: List[str], started: float) -> AddResult:
     target_commit = git(path, "rev-parse", "HEAD").strip()
     oid_size = oid_size_of(repo)
     result = AddResult(str(path), target_commit, "checkout", 0.0)
@@ -614,6 +642,10 @@ def add(repo: Path, path: Path, commit: Optional[str], branch_flag: Optional[str
         result.note = f"cloning failed, checked out instead: {error}"
         log(f"cmux-worktree: {result.note}")
         seed_commit = None
+        result.method = "checkout"
+        # A clone that failed after its files were made (an index entry the seed lacks) leaves the
+        # seed's files behind: the checkout below starts from an empty tree, as git's does.
+        _empty_except_git(path)
     if seed_commit is None:
         git(path, "read-tree", "-u", "--reset", "HEAD")
         result.files_written = None
@@ -625,6 +657,9 @@ def add(repo: Path, path: Path, commit: Optional[str], branch_flag: Optional[str
     for crate_dir in cargo_dirs:
         result.cargo.append(seed_cargo_target(repo, path, crate_dir))
     result.seconds = round(time.monotonic() - started, 2)
+    # `--no-checkout` skips the post-checkout hook that `git worktree add` runs (git-lfs, bootstrap hooks).
+    git(path, "hook", "run", "--ignore-missing", "post-checkout", "--", "0" * (oid_size * 2), target_commit, "1",
+        check=False)
     if result.method == "clone" and (result.files_written or 0) > SEED_STALE_FILES:
         result.seed_moved = move_seed(Seed(seed_dir), target_commit)
     return result

@@ -50,7 +50,8 @@ fn a_lag_counts_its_events_as_dropped_and_one_resync() {
 #[test]
 fn an_empty_ring_reports_no_quantiles() {
     let status = Latencies::default().status();
-    let none = json!({"count": 0, "window": 0, "p50Ms": null, "p95Ms": null, "maxMs": null});
+    let none = json!({"count": 0, "window": 0, "p50Ms": null, "p95Ms": null, "p99Ms": null,
+        "maxMs": null});
     assert_eq!(status, none);
 }
 

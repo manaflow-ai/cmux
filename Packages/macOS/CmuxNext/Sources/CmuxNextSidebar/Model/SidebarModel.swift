@@ -275,6 +275,8 @@ public final class SidebarModel {
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
     public var showsTimestamps = false
+    /// Today's changes read as an age (`2h`), not a time (`sidebar.relativeTimestamps`, off by default).
+    public var relativeTimestamps = false
     /// Seen, finished agent chats fold behind a "Settled (N)" row (`sidebar.settleFinished`, off by default).
     public var settlesFinished = false
     /// `sidebar.showColors` (off: no workspace or group color) and `workspaceColors.indicatorStyle`.
@@ -338,10 +340,6 @@ public final class SidebarModel {
     /// A workspace's pin state and the Pin/Unpin Workspace action, from the
     /// App (layout tiles or the daemon flag): an expanded row's hover pin.
     @ObservationIgnored public var workspacePin: (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)?
-    /// A press on a chat's subagent under its row (`SidebarSubagentsView`): shows chat tab `TabID` of the workspace and
-    /// opens the subagent's pane beside it, as the chat's own subagent cards do; nil (the stacked line, "N more") shows
-    /// the chat only. Nil while the App offers none (the standalone mock).
-    @ObservationIgnored public var openSubagent: ((WorkspaceID, TabID, SidebarSubagent?) -> Void)?
     /// The sections another space shows (R99: the page beside the current
     /// one during a horizontal swipe). Read when a swipe reaches that page.
     @ObservationIgnored public var spaceSections: ((ProfileKey) -> [SidebarSection])?
@@ -847,7 +845,7 @@ public final class SidebarModel {
         workspaceRow = preferences.workspaceRow
         expanded = preferences.density == .expanded
         detailedStatus = preferences.detailedStatusIcons
-        showsTimestamps = preferences.showTimestamps
+        (showsTimestamps, relativeTimestamps) = (preferences.showTimestamps, preferences.relativeTimestamps)
         settlesFinished = preferences.settleFinished
         (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
         showsLocalMachine = preferences.showLocalMachine
@@ -887,7 +885,10 @@ public final class SidebarModel {
             o.machines = Dictionary(listed.filter { $0.kind != .local || showsLocalMachine }.map { ($0.id, $0) },
                                     uniquingKeysWith: { first, _ in first })
         }
-        o.now = Calendar.current.startOfDay(for: Date())
+        // Relative times (`2h`) count from this minute; otherwise the start of today, so options stay equal all day.
+        o.relativeTimes = showsTimestamps && relativeTimestamps
+        o.now = o.relativeTimes ? Date(timeIntervalSince1970: (Date().timeIntervalSince1970 / 60).rounded(.down) * 60)
+            : Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
         if listsArchived { (o.archiveSection, o.foldsArchived) = (false, false) }
         return o
@@ -904,7 +905,6 @@ public final class SidebarModel {
         (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
         o.grouping = settledGrouping()
         if settlesFinished { o.settled = settledChats() }
-        o.subagentLook = SidebarTunables.subagentLook.value
         return o
     }
 

@@ -502,7 +502,7 @@ jobs:
           printf '%s\n' "$rows" > "$RUNNER_TEMP/billing-linux-rows.txt"
           docker run --rm -v "$GITHUB_WORKSPACE:/w" -v "$RUNNER_TEMP:/rt" -w /w \
             -e CMUX_SWIFTPM_TARGET_LINUX=1 -e OWNER="$(id -u):$(id -g)" "$SWIFT_IMAGE" bash -c '
-              apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev >/dev/null
+              bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends python3 libsqlite3-dev >/dev/null
               status=0
               while read -r dir targets; do
                 echo "::group::$dir ($targets)"
@@ -534,7 +534,7 @@ jobs:
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       STOREKIT_ITERATIONS: ${{ inputs.storekit_iterations || '1' }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       IOS: ${{ needs.billing.outputs.ios }}
       STOREKIT_KIND: ${{ needs.billing.outputs.storekit_kind }}
       STOREKIT_PATH: ${{ needs.billing.outputs.storekit_path }}

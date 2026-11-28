@@ -8,7 +8,11 @@ use super::checkpoint::{Checkpoint, FoldInputs, Folds};
 use super::*;
 use crate::store::RecordHead;
 use crate::subagents::SubagentTree;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+
+/// The incarnation a checkpoint saved with no host running folds for: none's. No record names
+/// it, so through its record it is every host's fold that started after it.
+pub(in crate::hub) const UNSTARTED: &str = "\u{0}unstarted";
 
 impl Hub {
     pub(super) fn recovery_work(
@@ -44,6 +48,103 @@ impl Hub {
             self.save_adoption_checkpoint(session, checkpoint);
         }
         work
+    }
+
+    /// Folds `session`'s log for host `incarnation` once, from its adoption checkpoint when it
+    /// has one, and saves the checkpoint it reaches: the adoption's later reads (`last_host_seq`,
+    /// `subagents_from_log`, `recovery_work`) resume from it. Without it, the first adoption after
+    /// a host started read the whole log once per read (three for a local chat: 1.48x the 1M
+    /// chat's restart peak RSS at 1G, against 1.12x for the next restart, which resumed).
+    pub(super) fn save_checkpoint_now(&self, session: &Session, incarnation: &str) {
+        if session.meta().fork_seq.is_some() {
+            return;
+        }
+        self.catch_up(session);
+        let settled = self.settled_seq(session);
+        let (_, checkpoint) =
+            self.fold_open_work(session, incarnation, Fold::Resume { settled: Some(settled) });
+        if let Some(checkpoint) = checkpoint {
+            self.save_adoption_checkpoint(session, checkpoint);
+        }
+    }
+
+    /// [`Self::save_checkpoint_now`] for a live host at a turn's end, off the executor, so the
+    /// next daemon's adoption of it reads only what follows. One a minute: each reads the records
+    /// since the last.
+    pub(in crate::hub) fn checkpoint_at_turn_end(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &crate::agent::ChildAgent,
+    ) {
+        // timeout: not a wait; how often a chat's turn ends refresh its checkpoint.
+        const EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+        let Some(record) = child.host_record() else { return };
+        let hub = self.clone();
+        self.spawn_checkpoint_save(session, Some(EVERY), move |session| {
+            hub.save_checkpoint_now(session, &record.incarnation);
+        });
+    }
+
+    /// A chat's log as a daemon read it with no host of it running: its checkpoint saved in the
+    /// background under [`UNSTARTED`], which the first adoption of a host started after it
+    /// resumes from (`adoption_checkpoint`). Without it that adoption read the whole log on the
+    /// restart's critical path: 1.46x the 1M chat's restart peak RSS at 1G, against 1.10x for
+    /// the next restart, which resumed. One such fold runs at a time on the machine, and only
+    /// for a log long enough that reading it whole weighs on a restart.
+    pub(in crate::hub) fn checkpoint_after_load(self: &Arc<Self>, session: &Arc<Session>) {
+        // A log this short folds whole in milliseconds.
+        const FROM_RECORDS: u64 = 10_000;
+        static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        if session.meta().fork_seq.is_some()
+            || session.seq.load(Ordering::SeqCst) < FROM_RECORDS
+            || Self::host_record_live(&session.id)
+        {
+            return;
+        }
+        let hub = self.clone();
+        self.spawn_checkpoint_save(session, None, move |session| {
+            let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+            // A host that started meanwhile saves its own; this one would hold its start.
+            if !hub.shutting_down() && !Self::host_record_live(&session.id) {
+                crate::qos::background(|| hub.save_checkpoint_now(session, UNSTARTED));
+            }
+        });
+    }
+
+    /// Runs `save` off the executor unless a save of `session`'s checkpoint runs, or one ended
+    /// within `every`: one at a time per chat, so none overwrites a later one with its own.
+    fn spawn_checkpoint_save(
+        &self,
+        session: &Arc<Session>,
+        every: Option<std::time::Duration>,
+        save: impl FnOnce(&Arc<Session>) + Send + 'static,
+    ) {
+        type Saving = HashMap<String, Option<std::time::Instant>>;
+        static SAVING: std::sync::LazyLock<std::sync::Mutex<Saving>> =
+            std::sync::LazyLock::new(Default::default);
+        {
+            let mut saving = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+            match (saving.get(&session.id), every) {
+                // One runs.
+                (Some(None), _) => return,
+                (Some(Some(at)), Some(every)) if at.elapsed() < every => return,
+                _ => {}
+            }
+            saving.insert(session.id.clone(), None);
+        }
+        let session = session.clone();
+        let save = move || {
+            save(&session);
+            SAVING
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(session.id.clone(), Some(std::time::Instant::now()));
+        };
+        match tokio::runtime::Handle::try_current() {
+            // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
+            Ok(rt) => drop(rt.spawn_blocking(save)),
+            Err(_) => save(),
+        }
     }
 
     pub(super) fn remote_host_env_current(&self, session: &Session, incarnation: &str) -> bool {

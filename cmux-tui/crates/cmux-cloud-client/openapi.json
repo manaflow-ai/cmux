@@ -9547,6 +9547,16 @@
                     "minLength": 1,
                     "type": "string"
                   },
+                  "size": {
+                    "enum": [
+                      "sm",
+                      "md",
+                      "lg",
+                      "xl",
+                      "2xl"
+                    ],
+                    "type": "string"
+                  },
                   "visibility": {
                     "$ref": "#/components/schemas/MachineVisibility"
                   }

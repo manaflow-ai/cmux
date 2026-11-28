@@ -427,3 +427,6 @@ key = "cmux.tunables"
 
 [[storage_key]]
 key = "cmux.webSwap.focus"
+
+[[storage_key]]
+key = "cmux.webSwap.handoff"

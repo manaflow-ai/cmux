@@ -34,6 +34,7 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs  # noqa: E402
+from cmux_next_step_text import inline_steps  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC = yaml.safe_load((ROOT / ".github/workflows/cmux-next-base-autofix.yml").read_text())
@@ -794,7 +795,7 @@ class BotPushesStartWorkflows(unittest.TestCase):
                 self.assertTrue(message.startswith(SELF_COMMIT_PREFIXES), message)
 
 
-DOC_NEXT = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())
+DOC_NEXT = yaml.safe_load(inline_steps((ROOT / ".github/workflows/cmux-next.yml").read_text()))
 
 if __name__ == "__main__":
     unittest.main()

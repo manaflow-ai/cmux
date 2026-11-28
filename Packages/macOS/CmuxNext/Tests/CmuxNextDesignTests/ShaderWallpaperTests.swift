@@ -62,6 +62,14 @@ import Testing
         }
     }
 
+    /// A slowly drifting noise field shows the lattice's creases with the cubic fade; the noise
+    /// uses the quintic one (reading note motion-backgrounds-procedural-art, "Perlin noise").
+    @Test func theNoiseFadesQuinticallySoSlowDriftShowsNoGrid() {
+        let source = BackdropShaderSource.source
+        #expect(source.contains("f * f * f * (f * (f * 6.0 - 15.0) + 10.0)"), "vnoise lost the quintic fade")
+        #expect(!source.contains("f * f * (3.0 - 2.0 * f)"), "a noise uses the cubic fade: slow drift shows grid creases")
+    }
+
     @Test func everyShaderCompilesAndDrawsAStillThatIsNotFlat() throws {
         guard let renderer = BackdropShaderRenderer() else { return } // a host without Metal
         for shader in BackdropShader.allCases {

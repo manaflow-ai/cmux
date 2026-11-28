@@ -71,6 +71,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+import live_frames  # noqa: E402  (a frame of each swapped build in the chat, RFD 0152)
 
 WATCHED_SUFFIXES = (".rs", ".toml")
 WATCHED_NAMES = ("Cargo.lock",)
@@ -545,7 +546,9 @@ class Builder:
                 if result.returncode != 0:
                     raise RuntimeError(f"strip on {self.host}: {result.stderr.strip()}")
                 source = f"{self.host}:{built_file}.live"
-                result = run(["rsync", "-z", "-e", rsh, source, str(staged)])
+                # No -z: the delta is a few hundred KB, but zlib still reads all 263 MB, which took
+                # 13.7 s of a 1 s copy (scripts/measure/rust-live-fetch.py, 2026-11-27).
+                result = run(["rsync", "-e", rsh, source, str(staged)])
                 if result.returncode != 0:
                     raise RuntimeError(f"rsync from {self.host}: {result.stderr.strip()}")
             else:
@@ -878,6 +881,8 @@ class Loop:
         (self.state / "last.json").write_text(json.dumps(entry, indent=2) + "\n")
         with open(self.state / "history.jsonl", "a") as history:
             history.write(json.dumps(entry) + "\n")
+        if entry.get("outcome") == "swapped" and not self.on_swap:
+            live_frames.built("rust")  # the chat's frames show the swapped daemon, not the save
         if self.on_swap:
             self.on_swap(entry)
 

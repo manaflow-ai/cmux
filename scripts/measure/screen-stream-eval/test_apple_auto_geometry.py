@@ -5,10 +5,11 @@ No Mac: Screen Sharing, screencapture, marker-locate and cmux-rd are stubs (test
 """
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
-from test_apple_bytes import apple_fixture, stub, window_view
+from test_apple_bytes import HERE, apple_fixture, stub, window_view
 
 
 class AppleAutoGeometryTests(unittest.TestCase):
@@ -26,6 +27,14 @@ class AppleAutoGeometryTests(unittest.TestCase):
 
     def observe_args(self) -> str:
         return (self.root / "observe.args").read_text()
+
+    def test_viewer_grants_for_display_capture(self):
+        for target, capability in (("apple-high", "viewer-grants"), ("apple-standard", "viewer-grants"),
+                                   ("apple-rfb", "")):
+            with self.subTest(target=target):
+                caps = subprocess.run(["bash", str(HERE / "targets" / f"{target}.sh"), "caps"],
+                                      env=self.env, capture_output=True, text=True, check=True)
+                self.assertEqual(caps.stdout.strip(), capability)
 
     def test_located_marker_is_the_observed_geometry(self):
         # The first capture has no marker (the remote frame has not arrived), the second has.

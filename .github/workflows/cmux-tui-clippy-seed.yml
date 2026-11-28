@@ -1,0 +1,192 @@
+name: cmux-tui clippy base seed
+
+# Writes the base's clippy target for the fleet's cold clippy-changed steps (scripts/ci/clippy-base-seed.sh reads it).
+# Leo, 2026-11-21: "whatever we need to cut, we cut. whatever we can reuse, we reuse."
+#
+# Why: 54% of clippy-changed steps began on a just-created slot, median 486 s against 337 s on a reused one: an empty
+# target, so every workspace crate and its build scripts compiled from nothing. This run lints the whole workspace at
+# the feat-cmux-next tip with the flags clippy-changed uses (CARGO_INCREMENTAL=0, --all-targets, --cap-lints warn, and the
+# panic ratchet's production-target pass), then saves what it built: the dependency entry (cargo_target_strip.py) and a
+# workspace delta with the source mtimes (scripts/ci/cargo-target-delta.sh). Only this feat-cmux-next run writes the
+# seed (the next-cache-writer environment admits only feat-cmux-next); pull requests read the public URL.
+#
+# Cost: at most one run per SEED_INTERVAL_MINUTES, plus one per push that changes a cargo key input, and it is
+# incremental over the newest delta (an unchanged crate is not rechecked). One group, never cancelled while it runs.
+
+on:
+  push:
+    branches: [feat-cmux-next]
+
+permissions: {}
+
+concurrency:
+  group: cmux-tui-clippy-seed
+  cancel-in-progress: false
+
+env:
+  SEED_INTERVAL_MINUTES: "120"
+
+jobs:
+  due:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: is a clippy base seed due
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      due: ${{ steps.due.outputs.due }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/clippy_base_seed_due.py
+          sparse-checkout-cone-mode: false
+
+      - name: Read the newest workspace delta and this push's changed paths
+        id: due
+        env:
+          COMMITS: ${{ toJSON(github.event.commits) }}
+        run: |
+          set -euo pipefail
+          python3 -I scripts/ci/clippy_base_seed_due.py --minutes "$SEED_INTERVAL_MINUTES" --commits "$COMMITS" | tee -a "$GITHUB_OUTPUT"
+
+  seed:
+    name: seed the clippy target
+    needs: due
+    if: ${{ needs.due.outputs.due == 'true' }}
+    runs-on: cmux-linux
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+      CMUX_GHOSTTY_SRC: ""
+      CMUX_GHOSTTY_VT_ZIG_CPU: baseline
+      CARGO_INCREMENTAL: "0"
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+      CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.build/cmux-tui-clippy-target
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        run: bash scripts/ci/apt-ensure.sh clang libclang-dev pkg-config
+
+      - name: Init the ghostty-next submodule (libghostty-vt for ghostty-vt-sys)
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Key the seed
+        id: key
+        run: |
+          set -euo pipefail
+          inputs="$(bash scripts/ci/clippy-base-seed.sh inputs)"
+          {
+            echo "deps-key=cmux-tui-clippy-seed-deps-v1-$inputs"
+            echo "deps-prefix=cmux-tui-clippy-seed-deps-v1-"
+            echo "ws-key=cmux-tui-clippy-seed-ws-v1-$inputs-$GITHUB_SHA"
+            echo "ws-prefix=cmux-tui-clippy-seed-ws-v1-$inputs-"
+            echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore the dependency entry from R2
+        id: deps
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ env.CARGO_TARGET_DIR }}
+          key: ${{ steps.key.outputs.deps-key }}
+          restore-keys: ${{ steps.key.outputs.deps-prefix }}
+
+      - name: Restore the newest workspace delta from R2
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/clippy-seed-delta
+          key: ${{ steps.key.outputs.ws-key }}
+          restore-keys: ${{ steps.key.outputs.ws-prefix }}
+
+      - name: Apply the workspace delta
+        id: apply
+        run: |
+          set -euo pipefail
+          bash scripts/ci/cargo-target-delta.sh apply "$CARGO_TARGET_DIR" "$RUNNER_TEMP/clippy-seed-delta" \
+            "$RUNNER_TEMP/clippy-seed.stamp" x86_64-unknown-linux-gnu | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The whole workspace (no base: every member), as feat-parity-check.sh clippy-changed lints a change that touches the
+      # workspace manifest, then the panic ratchet's production targets. A red build still seeds what compiled.
+      - name: cargo clippy --all-targets on the whole cmux-tui workspace
+        continue-on-error: true
+        run: python3 .github/scripts/cmux-tui-clippy-changed.py --repo "$GITHUB_WORKSPACE" --base ""
+
+      - name: Rust panic ratchet targets on the whole cmux-tui workspace
+        continue-on-error: true
+        run: python3 .github/scripts/cmux-tui-clippy-changed.py --repo "$GITHUB_WORKSPACE" --base "" --panic-ratchet "$RUNNER_TEMP/panic-clippy.jsonl"
+
+      - name: Pack the workspace delta
+        id: pack
+        run: |
+          set -euo pipefail
+          bash scripts/ci/cargo-target-delta.sh pack "$CARGO_TARGET_DIR" "$RUNNER_TEMP/clippy-seed.stamp" \
+            "$RUNNER_TEMP/clippy-seed-delta-out" x86_64-unknown-linux-gnu | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the workspace delta to R2
+        if: ${{ steps.pack.outcome == 'success' }}
+        timeout-minutes: 6
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/clippy-seed-delta-out
+          key: ${{ steps.key.outputs.ws-key }}
+
+      # The dependency entry for these inputs, when R2 lacks it: dependencies only (the delta above holds the workspace).
+      - name: Strip the workspace's own output before the dependency save
+        id: strip
+        if: ${{ steps.pack.outcome == 'success' && steps.deps.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        env:
+          REGISTRY: ${{ steps.key.outputs.registry }}
+        run: |
+          set -euo pipefail
+          cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml > "$RUNNER_TEMP/cargo-metadata.json"
+          python3 -I scripts/ci/cargo_target_strip.py "$CARGO_TARGET_DIR" --cargo-metadata "$RUNNER_TEMP/cargo-metadata.json"
+          rm -rf "$REGISTRY/src"
+
+      - name: Save the dependency entry to R2
+        if: ${{ steps.strip.outcome == 'success' }}
+        timeout-minutes: 6
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ env.CARGO_TARGET_DIR }}
+          key: ${{ steps.key.outputs.deps-key }}

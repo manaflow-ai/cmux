@@ -36,14 +36,14 @@ import { ContextMenu } from "../../ui/ContextMenu";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./harnessHealthNoticeModel";
 import { useHarnessUpdates } from "./harnessUpdateList";
-import { HarnessUpdateButton, HarnessUpdatesSection } from "./HarnessUpdates";
+import { HarnessUpdatesSection, HarnessUpdateButton } from "./HarnessUpdates";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
 import { ModelSearchIndex } from "./modelSearch";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { effortWords, fitsQuery, matchingModels, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
 import { groupVariants } from "./modelVariants";
-import { registerModelCommand, registerPicker } from "./pickerOpeners";
+import { registerPicker, ChatViewParked, registerModelCommand } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 import { relevantModelSections } from "./relevantModels";
 import { type QuickFamily, type QuickModel, hostTabBrand } from "./quickModelMenuModel";
@@ -1068,23 +1068,26 @@ export function ModelPicker(props: ModelPickerProps) {
       window.removeEventListener("blur", blur);
     };
   }, [close, open]);
+  // Parked under a New Tab page (unseen, inert): the page's own picker has the palette and the key.
+  const parked = useContext(ChatViewParked);
   useEffect(
     () =>
-      registerPicker(modelText, () => {
-        // A picker parked under a New Tab page (inert, unseen) is not the one to open.
-        if (root.current?.closest("[inert]")) return;
-        if (quick === undefined) showRef.current();
-        else if (open) close();
-        else setQuickOpen(true);
-      }),
-    [modelText, quick, open, close],
+      parked
+        ? undefined
+        : registerPicker(modelText, () => {
+            // A picker parked under a New Tab page (inert, unseen) is not the one to open.
+            if (root.current?.closest("[inert]")) return;
+            if (quick === undefined) showRef.current();
+            else if (open) close();
+            else setQuickOpen(true);
+          }),
+    [modelText, quick, open, close, parked],
   );
   useEffect(() => {
+    if (parked) return;
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
       if (event.metaKey && event.ctrlKey && !event.altKey && event.key.toLowerCase() === "m") {
-        // Parked under a New Tab page (inert, unseen): the key is not this picker's.
-        if (root.current?.closest("[inert]")) return;
         event.preventDefault();
         if (quick !== undefined) {
           // While the compact menu is visible, replace it with the full picker.
@@ -1096,7 +1099,7 @@ export function ModelPicker(props: ModelPickerProps) {
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [quick, open, quickOpen]);
+  }, [quick, open, quickOpen, parked]);
   useEffect(() => {
     if (!open) setSelectedHarness(harness);
   }, [harness, open]);

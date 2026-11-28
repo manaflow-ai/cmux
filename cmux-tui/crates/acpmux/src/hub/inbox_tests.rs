@@ -1962,10 +1962,10 @@ fn the_ls_row_counts_new_messages_past_their_deadline_and_names_the_soonest() {
     let items = vec![fyi, seen, result];
     // At 61 min: the fyi (60 min) is past due, the result sent at 50 min (15 min) is not, and
     // the noticed one counts for neither.
-    let (overdue, due_at) = deadline_counts(&items, 61 * min);
+    let (overdue, due_at) = deadline_counts(&items, 61 * min, |_| false);
     assert_eq!(overdue, 1);
     assert_eq!(due_at, Some(soonest));
-    assert_eq!(deadline_counts(&[], 61 * min), (0, None));
+    assert_eq!(deadline_counts(&[], 61 * min, |_| false), (0, None));
 }
 
 /// A warm idle chat holds a report for [`WARM_HOLD_MS`] so what else comes goes in with it as one

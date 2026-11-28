@@ -219,6 +219,74 @@ pub(super) fn offset_of_seq<F: Read + std::io::Seek + ?Sized>(
     Ok(end)
 }
 
+/// Segments no longer than this are read forward from their start: the search's probes would
+/// cost about as much as the bytes they pass.
+pub(super) const FORWARD_SEEK_BYTES: u64 = 256 * 1024;
+
+/// A line start in segment `file` at or before its first record with `seq >= from`, so a read
+/// forward from it passes no wanted record and few others: [`offset_of_seq`] for a forward read,
+/// which rounds down where that one, for a read back, rounds up. A binary search on line heads,
+/// 16 KiB a probe (a probe inside a longer line reads on to its end, up to 1 MiB); 0 for a short
+/// segment. Where a probe finds no line head that reads (a longer line, an older field order),
+/// the search stops at the last line it knows is before `from`. A settled attach reads the log
+/// forward from its view's `lastSeq`, near the log's end: from the start of the segment that
+/// holds it, that read cost the whole segment being written, up to 8 MiB, on every open (the
+/// size ladder's 100 MB chat attached in 5.5 ms where its 1 MB and 1 GB ones took 3 ms).
+pub(super) fn start_of_seq<F: Read + std::io::Seek + ?Sized>(
+    file: &mut F,
+    from: u64,
+) -> Result<u64> {
+    use std::io::SeekFrom;
+    const PROBE: usize = 16 * 1024;
+    const LONGEST: usize = 1 << 20;
+    // `{"seq":` and 19 digits and a comma.
+    const HEAD: usize = 32;
+    let len = file.seek(SeekFrom::End(0))?;
+    if len <= FORWARD_SEEK_BYTES || from <= 1 {
+        return Ok(0);
+    }
+    let mut buf = Vec::with_capacity(PROBE);
+    // The first line starting after `pos`: its offset and seq, None when none starts in
+    // `LONGEST` bytes or the file ends first.
+    let mut line_after = |pos: u64| -> Result<Option<(u64, Option<u64>)>> {
+        file.seek(SeekFrom::Start(pos))?;
+        buf.clear();
+        let mut newline = None;
+        while buf.len() < LONGEST {
+            let at = buf.len();
+            if newline.is_some_and(|nl: usize| at > nl + HEAD) {
+                break;
+            }
+            buf.resize(at + PROBE, 0);
+            let n = file.read(buf.get_mut(at..).unwrap_or_default())?;
+            buf.truncate(at + n);
+            if n == 0 {
+                break;
+            }
+            if newline.is_none() {
+                newline =
+                    buf.get(at..).and_then(|b| b.iter().position(|&b| b == b'\n')).map(|i| at + i);
+            }
+        }
+        let Some(start) = newline.map(|nl| nl + 1).filter(|start| *start < buf.len()) else {
+            return Ok(None);
+        };
+        Ok(Some((pos + start as u64, buf.get(start..).and_then(record_seq))))
+    };
+    // `lo`: a line start whose record is before `from` (or the file's start); `hi`: an offset
+    // past which the first line holds `from` or later.
+    let (mut lo, mut hi) = (0u64, len);
+    while hi.saturating_sub(lo) > PROBE as u64 {
+        let mid = lo + (hi - lo) / 2;
+        match line_after(mid)? {
+            Some((start, Some(seq))) if seq < from && start < hi => lo = start,
+            Some((_, Some(_))) => hi = mid,
+            _ => break,
+        }
+    }
+    Ok(lo)
+}
+
 /// Visits `path`'s lines newest first, reading 64 KiB blocks from the end, until `visit`
 /// returns false: a tail costs its own bytes, not the segment's.
 pub(super) fn for_each_line_rev(path: &Path, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {

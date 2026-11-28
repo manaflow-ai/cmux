@@ -350,13 +350,11 @@ UNRESCUED_WORKFLOW_PATHS = {
         "keeps on a live Linux member, and it holds no secret; its job timeout or a person's cancel clears a stuck "
         "run (cancel-in-progress is false), and the deploy jobs take bounded Blacksmith routes the rescue does not "
         "act on",
-    ".github/workflows/automation-bench.yml": _POOL_READ_WHY,
     ".github/workflows/ci-artifact-transport.yml": _POOL_READ_WHY,
     ".github/workflows/ci-fast-guards.yml": _POOL_READ_WHY,
     ".github/workflows/ci-repo-variables.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-guest-install.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-image-bake.yml": _POOL_READ_WHY,
-    ".github/workflows/cloud-vm-image-lock.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-base-tier-kick.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-chromium-currency.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-crash-class.yml": _POOL_READ_WHY,

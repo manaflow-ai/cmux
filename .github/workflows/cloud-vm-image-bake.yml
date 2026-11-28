@@ -130,6 +130,10 @@ on:
       FREESTYLE_API_KEY: { required: false }
       CMUX_UITEST_STACK_EMAIL: { required: false }
       CMUX_UITEST_STACK_PASSWORD: { required: false }
+      # The private R2 copy of a kept image (Upload the image to R2); a caller passes them or inherits.
+      CF_R2_ACCESS_KEY_ID: { required: false }
+      CF_R2_SECRET_ACCESS_KEY: { required: false }
+      CF_R2_ACCOUNT_ID: { required: false }
     outputs:
       candidate:
         description: The kept image's record (channel-dev.json, one line of JSON); empty unless every gate passed

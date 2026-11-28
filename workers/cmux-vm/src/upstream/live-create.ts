@@ -1,15 +1,17 @@
 /** Recovery is confined to an intent's exact unique slug, authorized by its retained create proof. */
 import { Effect, Either, Option, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
-import { logTimedEvent, timedPhase } from "../lib/timing.ts";
+import { logTimedEvent, timedPhase, type TimedPhases } from "../lib/timing.ts";
+import type { CreateAdmissionClient } from "../limits/create-admission.ts";
 import { upstreamIdOf } from "../proofs/tenant-owns-resource.ts";
 import { vmImageEvidenceOf } from "../proofs/vm-image.ts";
 import { initialNetworkBody } from "./initial-network.ts";
 import { makeUpstreamHttp } from "./live-http.ts";
-import { resourceFloorsReached, UpstreamError, UpstreamVm, type SizeRequest, type UpstreamClientService } from "./client.ts";
+import { CREATE_QUEUE_FULL, resourceFloorsReached, UpstreamError, UpstreamVm, type SizeRequest, type UpstreamClientService } from "./client.ts";
 import type { UpstreamConfig } from "./live.ts";
 import { pendingVmCreationEvidenceOf, cancellingVmCreationEvidenceOf, type VmCreationEvidence } from "../proofs/vm-creation.ts";
 import { upstreamName } from "./naming.ts";
+import type { Environment } from "../policy.ts";
 import { vaultTenantMetadata } from "./vault-tenant.ts";
 
 const Receipt = Schema.Struct({ id: UpstreamId, ...UpstreamVm.fields, slug: Schema.String, metadata: Schema.Record({ key: Schema.String, value: Schema.String }), snapshotId: Schema.optional(Schema.NullOr(Schema.String)) });
@@ -29,6 +31,20 @@ const CUSTOMER_ID = /^[A-Za-z0-9_.:@-]{1,128}$/u;
  */
 const sameIdleTimeout = (reported: number | null | undefined, requested: number) =>
   reported === requested || (requested < 0 && (reported === null || reported === undefined || reported < 0));
+
+/**
+ * A staging or dev VM is a test machine: unless its create asked for its own autoDeleteSeconds, Freestyle deletes it
+ * once it has gone this long without running (every start resets the clock; a running VM is never deleted for it).
+ * 2026-11-27 00:05Z, GET /v5/vms: 1,021 cmux-vm-staging VMs, 908 of them paused or stopped and none deleted, up from 115
+ * on 2026-11-21 (docs fleet/vm-population-delete-paths); each paused 5 min after its last use (idleTimeoutSeconds 300)
+ * and then kept its disk forever. Production (and local tests) keep exactly what was asked: a user's machine is never
+ * timed out here.
+ */
+export const NON_PRODUCTION_AUTO_DELETE_SECONDS = 24 * 3600;
+const AUTO_DELETED_ENVIRONMENTS: ReadonlySet<Environment> = new Set<Environment>(["staging", "preview"]);
+
+export const autoDeleteFor = (environment: Environment, asked: number | undefined): number | undefined =>
+  asked ?? (AUTO_DELETED_ENVIRONMENTS.has(environment) ? NON_PRODUCTION_AUTO_DELETE_SECONDS : undefined);
 
 const definitelyRejected = (status: number | null) => status !== null && status >= 400 && status < 500 && status !== 408 && status !== 409;
 
@@ -64,6 +80,33 @@ const providerTimings = (answer: unknown): { readonly providerTotalMs?: number; 
   };
 };
 
+/**
+ * Takes a provider create slot for `holder` and answers how to give it back. A refusal (the wait ahead was past the
+ * budget, or no slot came within it) fails the create before anything is sent. A queue that cannot be reached does
+ * not stop creates: the create is sent as it was before the queue existed, and the line says so.
+ */
+const admitSend = (admission: CreateAdmissionClient | undefined, holder: string, phases: TimedPhases | undefined): Effect.Effect<Effect.Effect<void>, UpstreamError> => {
+  if (admission === undefined) return Effect.succeed(Effect.void);
+  return timedPhase(phases, "admitWaitMs", Effect.tryPromise(() => admission.admit(holder))).pipe(
+    Effect.matchEffect({
+      onFailure: () => logTimedEvent("vm_create_admission_unavailable", { vmId: holder }).pipe(Effect.as(Effect.void)),
+      onSuccess: (outcome) => {
+        if (phases !== undefined) {
+          phases["admitInFlight"] = outcome.inFlight;
+          phases["admitQueued"] = outcome.queued;
+          phases["admitQueueMs"] = outcome.waitedMs;
+        }
+        if (outcome.admitted) return Effect.succeed(Effect.tryPromise(() => admission.release(holder)).pipe(Effect.ignore));
+        if (phases !== undefined) {
+          phases["admission"] = outcome.reason;
+          phases["admitRetryAfterMs"] = Math.round(outcome.retryAfterMs);
+        }
+        return Effect.fail(new UpstreamError({ operation: CREATE_QUEUE_FULL, status: null }));
+      },
+    }),
+  );
+};
+
 export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: SizeRequest | undefined) => string | null): UpstreamClientService["createVm"] => {
   const http = makeUpstreamHttp(config);
   const decode = (body: unknown) => Schema.decodeUnknown(Receipt)(body).pipe(Effect.mapError(() => new UpstreamError({ operation: "createVm", status: null })));
@@ -90,11 +133,12 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     const metadata: Record<string, string> = { cmux_id: spec.cmuxId, cmux_env: spec.environment };
     if (spec.createdBy !== undefined && spec.createdBy.length <= 63) metadata["cmux_actor"] = spec.createdBy;
     if (caller.value.tenantId.length <= 63) metadata["cmux_tenant"] = caller.value.tenantId;
+    const autoDeleteSeconds = autoDeleteFor(config.environment, spec.autoDeleteSeconds);
     const body = {
       slug, displayName: upstreamName(config.environment, caller.value.tenantId, spec.cmuxId), metadata,
       idleTimeoutSeconds: spec.idleTimeoutSeconds,
       ...(spec.maxRunSeconds === undefined ? {} : { maxRunSeconds: spec.maxRunSeconds }),
-      ...(spec.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: spec.autoDeleteSeconds }),
+      ...(autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds }),
       ...initialNetworkBody(network),
       ...((sourceId ?? imageId ?? baseImageFor(spec.size)) === null ? {} : { snapshotId: sourceId ?? imageId ?? baseImageFor(spec.size) }),
     };
@@ -213,12 +257,16 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     if (phases !== undefined) phases["recovered"] = Option.isSome(existing);
     const created = Option.isSome(existing) ? existing.value : yield* Effect.gen(function* () {
       if (Either.isLeft(imageVerdict)) return yield* Effect.fail(imageVerdict.left);
-      const token = yield* journal.beginSend();
+      // A provider create slot (limits/create-admission.ts) is taken before the send begins, so a refusal sent
+      // nothing and the same key's retry starts clean, like a failed image read above.
+      const release = yield* admitSend(config.createAdmission, spec.cmuxId, phases);
+      const token = yield* journal.beginSend().pipe(Effect.onError(() => release));
       return yield* timedPhase(phases, "createMs", http.json("createVm", "POST", "/v5/vms", sent, { timeoutMs: 120_000 }).pipe(
         Effect.tap(keep),
         Effect.tap((body) => Effect.sync(() => { if (phases !== undefined) Object.assign(phases, providerTimings(body)); })),
         Effect.flatMap(decode), Effect.flatMap(checkedSent),
       )).pipe(
+        Effect.ensuring(release),
         // A rejection counts only once the exact slug also answers 404: a 409 may mean the slug already exists.
         Effect.catchAll((error) => timedPhase(phases, "recoverAfterMs", recover).pipe(Effect.flatMap((found) => Option.isSome(found)
           ? Effect.sync(() => { if (phases !== undefined) phases["recovered"] = true; return found.value; })

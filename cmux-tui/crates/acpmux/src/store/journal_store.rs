@@ -1231,6 +1231,12 @@ impl Store for JournalStore {
     fn register_cloud_root(&self) -> Result<Option<usize>> {
         Store::register_cloud_root(&self.inner.local)
     }
+    fn cloud_configured(&self) -> bool {
+        Store::cloud_configured(&self.inner.local)
+    }
+    fn offloaded(&self, id: &str) -> bool {
+        Store::offloaded(&self.inner.local, id)
+    }
     fn on_rehydrate(&self, hook: RehydrateHook) {
         Store::on_rehydrate(&self.inner.local, hook)
     }

@@ -9,6 +9,11 @@
 //! last record it may hold in `adoption-checkpoint.json`, and the next adoption of the same host
 //! incarnation resumes each fold from there: it reads the records after it, not the log.
 //!
+//! The first adoption after a host started has none of its own, so it is saved earlier too: by
+//! a daemon that read the log with no host of it running (`journal.rs` `checkpoint_after_load`),
+//! under an incarnation no record names (`UNSTARTED`). Through its record that is the fold of
+//! every host whose start the log holds after it, which an adoption checks (`started_after`).
+//!
 //! A checkpoint is the whole fold's state at its record, so resuming it gives what a fold of the
 //! whole log gives (`hosts_tests.rs` folds both ways at every record). That holds because:
 //! - each fold steps the records in order, and depends on the adopted incarnation (kept here:
@@ -150,7 +155,7 @@ impl Hub {
         if point.v != VERSION
             || point.seq == 0
             || point.seq > session.seq.load(Ordering::SeqCst)
-            || point.incarnation != incarnation
+            || point.incarnation != incarnation && point.incarnation != super::journal::UNSTARTED
             || point.inputs != *inputs
             || point.boot != acpmux_core::boot::system_boot_id()
             || self.store.log_stamp(&session.id).ok() != Some(point.stamp)
@@ -158,10 +163,34 @@ impl Hub {
         {
             return None;
         }
+        // Saved with no host running: it is this host's fold only if no record it holds names
+        // the host, which started after it.
+        if point.incarnation != incarnation && !self.started_after(session, incarnation, point.seq)
+        {
+            return None;
+        }
         let record = self.record_at(session, point.seq)?;
         let digest = crate::sha256::sha256_hex(&serde_json::to_vec(&record).ok()?);
         (record.at == point.at && record.kind == point.kind && digest == point.digest)
             .then_some(point)
+    }
+
+    /// Whether host `incarnation`'s start is logged after `seq`: each of its records follows
+    /// its start (`start_hosted`), so none is at or before `seq`. Reads the records after it.
+    fn started_after(&self, session: &Session, incarnation: &str, seq: u64) -> bool {
+        let mut started = false;
+        let _ = self.store.scan_back(
+            &session.id,
+            seq,
+            u64::MAX,
+            &|dir, kind| dir != b"mux" || kind != b"host_started",
+            &mut |e| {
+                started = e.kind == "host_started"
+                    && e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
+                !started
+            },
+        );
+        started
     }
 
     /// Saves `point` for `session`'s next adoption. A failed write leaves the last one, which is

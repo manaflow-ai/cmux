@@ -7,6 +7,7 @@ it was a new red on 9 of 40 sampled red pull request runs (2026-10-30). The hist
 so guards_new_reds.py --flaky keeps it a warning, while a test a push really broke stays the change's.
 """
 import io
+import os
 import itertools
 import json
 from pathlib import Path
@@ -14,6 +15,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import unittest
 import zipfile
@@ -1155,6 +1157,26 @@ class Workflow(unittest.TestCase):
         start = text.index(f"\n  {name}:\n") + 1
         end = re.search(r"\n  [a-z][a-z0-9-]*:\n", text[start + 1:])
         return text[start:start + 1 + end.start()] if end else text[start:]
+
+    def test_a_pull_request_shard_stopped_before_its_results_is_red(self):
+        """A SIGTERM'd test step under continue-on-error left the shard green, so a failed-job rerun never retried it
+        and the base check failed on every attempt (cmux#49337, run 44955291325). The gate step fails it."""
+        shard = self.job("react-apps-check-shard")
+        gate = shard[shard.index("      - name: Fail on the gate checks"):]
+        self.assertIn("WEBVIEW_TESTS: ${{ steps.webview-tests.outcome }}", gate)
+        script = gate[gate.index("run: |") + len("run: |"):]
+        script = textwrap.dedent(script.split("\n      - name: ")[0])
+        script = script[:script.index("for gate in")] + 'exit "$failed"\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            results = Path(tmp) / "webviews-head-results.json"
+            def run(event, outcome):
+                env = dict(os.environ, GITHUB_EVENT_NAME=event, WEBVIEW_TESTS=outcome, HEAD_RESULTS=str(results))
+                return subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True).returncode
+            self.assertEqual(run("pull_request", "failure"), 1)
+            self.assertEqual(run("push", "failure"), 0)
+            self.assertEqual(run("pull_request", "success"), 0)
+            results.write_text("{}")
+            self.assertEqual(run("pull_request", "failure"), 0)
 
     def test_cache_only_history_stays_out_of_the_artifact_across_pushes(self):
         import yaml

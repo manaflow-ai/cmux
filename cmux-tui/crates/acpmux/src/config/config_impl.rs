@@ -5,6 +5,7 @@ impl Config {
     /// `none`, and `clear` remove an override and restore the computed default.
     /// `acpmux config --set KEY=VALUE`: a permission-mode key
     /// (`set_permission_mode`), `remote_daemon` (a loopback `host:port`, or `none`),
+    /// `remote_pipe.ssh` (`true`/`false`),
     /// `lane_gh_broker` (the broker's socket path, or `none`), `lane_gh_carrier` (owners, comma
     /// separated, or `none`), `transport.wireguard` (`true`/`false`), else a
     /// session resource limit (`set_session_resource`).
@@ -37,6 +38,18 @@ impl Config {
             self.remote_daemon = match value.to_ascii_lowercase().as_str() {
                 "" | "none" | "clear" | "off" => None,
                 _ => Some(loopback_daemon_address(value)?.to_string()),
+            };
+            return Ok(());
+        }
+        // sshd on loopback :22 over the carrier, beside `remoteDaemon` (`cmux_tui_service.rs`).
+        if matches!(
+            key.trim().replace('-', "_").to_ascii_lowercase().as_str(),
+            "remote_pipe.ssh" | "remotepipe.ssh"
+        ) {
+            self.remote_pipe.ssh = match value.trim().to_ascii_lowercase().as_str() {
+                "true" | "on" | "1" => true,
+                "false" | "off" | "0" | "none" | "clear" | "default" => false,
+                _ => anyhow::bail!("remote_pipe.ssh must be true or false"),
             };
             return Ok(());
         }

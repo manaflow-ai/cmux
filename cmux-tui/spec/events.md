@@ -1576,6 +1576,32 @@ Example:
 {"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
 ```
 
+### phone-open-link
+
+| Field | Value |
+| --- | --- |
+| event | `phone-open-link` |
+| status | implemented targeted control event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"phone-open-link",terminal_id:string,url:string}
+```
+
+Meaning: A program in terminal `terminal_id` asked a browser for `url` while this phone drove
+the terminal (`offer-link-to-phone`, [commands.md](commands.md#offer-link-to-phone)). Sent on the
+control queue of one connection of that phone that is attached to the terminal and declared
+`phone-open-link-v1` in `set-client-info`. The phone opens the page in its own browser; the
+Mac does not open it. Never replayed.
+
+Example:
+
+```json
+{"event":"phone-open-link","terminal_id":"term_0123456789abcdef0123456789abcdef","url":"https://github.com/login/device"}
+```
+
 ### device-setup-step
 
 | Field | Value |

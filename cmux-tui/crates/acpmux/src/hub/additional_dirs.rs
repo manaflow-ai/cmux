@@ -107,12 +107,31 @@ pub(crate) fn acp_value(meta: &SessionMeta) -> Option<Value> {
     })
 }
 
+/// The folder a change added, for the chat's one line about it ("Added ~/x as /vm/path"):
+/// `added: {path, from?}` when `path` is among the new folders (canonical either way), `from`
+/// the person's own name for it (a Mac path), each at most 4096 bytes. Anything else: none.
+pub(crate) fn added(params: &Value, dirs: &[PathBuf]) -> Option<Value> {
+    let added = params.get("added")?;
+    fn short(v: &Value) -> Option<&str> {
+        v.as_str().filter(|s| s.len() <= 4096 && !s.chars().any(char::is_control))
+    }
+    let path = short(added.get("path")?)?;
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
+    let path = dirs.iter().find(|d| **d == canonical || d.as_path() == Path::new(path))?;
+    let mut out = json!({"path": path.to_string_lossy()});
+    if let Some(from) = added.get("from").and_then(short) {
+        out["from"] = json!(from);
+    }
+    Some(out)
+}
+
 impl Hub {
     /// `_acpmux/set_directories`: the chat's folders become `additionalDirectories` (an empty
     /// list clears them), and its agent restarts on them, resuming the same conversation, as a
     /// tool switch does (`tools.rs` `set_tools`): now between turns, at the end of a running
     /// turn, or at the next start of an agent that is not running. Watchers hear it as a `mux`
-    /// record of kind `directories`.
+    /// record of kind `directories`, carrying `added` ([`added`]) when the caller named the
+    /// folder it added (`chat-folder-add` in the machine daemon).
     pub async fn set_directories(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -141,7 +160,11 @@ impl Hub {
         let applied = if !changed {
             "unchanged"
         } else {
-            self.append(session, "mux", "directories", json!({FIELD: dirs}));
+            let mut record = json!({FIELD: dirs});
+            if let Some(added) = added(params, &dirs) {
+                record["added"] = added;
+            }
+            self.append(session, "mux", "directories", record);
             self.save_meta_answered(session)?;
             self.restart_on_change(session).await?
         };

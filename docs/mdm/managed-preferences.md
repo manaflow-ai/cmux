@@ -25,6 +25,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `window.titlebarButtons` | string | `"hover"` | `hover`, `always` | Titlebar Buttons. With the sidebar hidden, On Hover shows its buttons only over the top row. |
 | `app.globalHotKey` | boolean | `false` |  | Global Hot Key. Show/Hide All Windows (⌃⌥⌘.) works while another app is in front. |
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. ⌃⌥⌘Space starts an agent while another app is in front. |
+| `app.captureScreenshotGlobalHotKey` | boolean | `false` |  | Capture Screenshot to Chat from Any App. Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts. |
 | `app.hideDockIconWithoutWindows` | boolean | `false` |  | Hide Dock Icon When No Windows Are Open. cmux stays in the menu bar until a window opens. |
 | `app.showMenuBarIcon` | boolean | `true` |  | Show Menu Bar Icon |
 | `tabs.newTabTemplate` | string | `"minimal"` | `minimal`, `classic`, `terminal` | New Tab Template. The layout of the New Tab page. Terminal opens a terminal instead. |
@@ -114,6 +115,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `machines.hosts` | string | `[]` |  | Hosts. Computers you reach over ssh, each a label and the addresses tried in order. cmux hosts check says which ones answer. |
 | `cloud.newWorkspacesInCloud` | boolean | `false` |  | Run New Workspaces in Cloud. Each new workspace gets its own Cloud machine, and its chats run there. |
 | `cloud.newWorkspaceFolder` | string | `"inherit"` | `inherit`, `empty` | New Cloud Workspaces Start In. Current Folder copies your git working copy to the new machine. |
+| `cloud.useMyGitHubLogin` | boolean | `false` |  | Use My GitHub Login on Cloud Machines. Cloud machines use the cmux GitHub App by default. Turn this on to share this Mac’s personal GitHub CLI login with machines you start. To remove a shared login, run cmux github login forget on that machine. |
 | `cloud.defaultImage` | string | `"auto"` |  | Default Image. The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine. |
 | `cloud.agentsStartWithoutAsking` | boolean | `true` |  | Let Agents Use Cloud Without Asking. Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this. |
 | `cloud.turnCheckpoints` | boolean | `false` |  | Save a Checkpoint Before Each Cloud Chat Turn. Back to Before This Turn restores the machine in seconds. Keeps the newest few. |
@@ -197,7 +199,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `worktrees.location` | string | `"~/.cmux/worktrees"` |  | Worktree Folder. Where cmux makes worktrees for local chats, forks and lanes, one folder per project. |
 | `worktrees.branchPrefix` | string | `"cmux/"` |  | Worktree Branch Prefix. The start of each new worktree's branch name, such as cmux/. |
 | `worktrees.autoCleanup` | boolean | `true` |  | Clean Up Agent Worktrees. Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens. |
-| `worktrees.cleanBuildCaches` | boolean | `false` |  | Clean Up Build Caches. Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full. |
+| `worktrees.cleanBuildCaches` | boolean | `true` |  | Clean Up Build Caches. Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full. |
 | `workspaces.hibernation.enabled` | boolean | `true` |  | Hibernate Idle Workspaces. Frees the memory of unused workspaces. Terminals and agents keep running. |
 | `workspaces.hibernation.idleMinutes` | real | `60` | 5 to 10080 | Hibernate After. Minutes a workspace goes unopened and unchanged before it hibernates. |
 | `workspaces.hibernation.hiddenSpaceMinutes` | real | `15` | 5 to 1440 | Hibernate Hidden Spaces After. Idle minutes before the workspaces of a space no window shows hibernate. |
@@ -447,6 +449,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.promptCoach` | boolean | `true` |  | Prompt Coach. After a chat with many corrections, shows a better first prompt. |
 | `agentPane.display.statusVerbs.mode` | string | `"thinking"` | `thinking`, `rotate`, `custom` | Working Status Verbs. Choose whether the live status line rotates through verbs or stays on Thinking. |
 | `agentPane.display.statusVerbs.custom` | string |  |  | Custom Working Verbs. Comma-separated -ing verbs for the live status line. |
+| `agentPane.display.streaming` | string | `"words"` | `words`, `lines`, `instant` | Reply Streaming. How an agent's reply text appears as it arrives. |
 | `agentPane.display.thinking.shimmer` | string | `"cadenced"` | `cadenced`, `continuous` | Thinking Shimmer. How the light band moves across the live status line. |
 | `agentPane.display.thinking.shimmerPeriod` | real | `1250` | 600 to 4000 | Shimmer Speed. How long one continuous pass of the shimmer takes. |
 | `agentPane.display.thinking.shimmerBand` | real | `0` | 0 to 240 | Shimmer Width. The width of the shimmer's light band. 0 uses half the line. |
@@ -539,7 +542,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.showLiveToggle` | boolean | `false` |  | Show Live Button. A Live button after the profile button turns presence on or off. Off: use the palette. |
 | `presence.live` | boolean | `false` |  | Live Presence. Show teammates and agents who are live, and let them see you. Off: you appear offline. |
 | `sidebar.showNewWorkspaceChooser` | boolean | `false` |  | Show New Workspace Menu Button. A chevron beside the + opens the New Workspace menu. Off: right-click the +. |
-| `sidebar.workspacesAsTabs` | boolean | `false` |  | Workspaces as Tabs. Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces. |
+| `sidebar.workspacesAsTabs` | boolean | `false` |  | Workspaces as Tabs. Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs. |
 | `sidebar.chromeGroups` | boolean | `false` |  | Chrome-Style Groups. Groups get a colored rail with a rounded end, like Chrome's tab groups. |
 | `sidebar.sideBySide` | boolean | `false` |  | Workspaces Side by Side. Drag a workspace row onto a pane's edge to show it beside the current one. |
 | `sidebar.noFade` | boolean | `false` |  | Show Whole Sidebar Without Fade. Stops the sidebar's edges fading and hides the bottom profile and search bar. |
@@ -837,6 +840,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `labs.pauseAgentMachines` | boolean | `false` |  | Pause Agent Machines. Pause a new agent machine after 15 idle minutes; it resumes when work arrives. |
 | `customize.fromTheApp` | boolean | `false` |  | Customize From the Window. Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both. |
 | `labs.agentCustomization` | boolean | `false` |  | Claude Code and Codex Customization. Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files. |
+| `labs.chatMultiplayer` | boolean | `false` |  | Chat Multiplayer. Teammates you share a chat with show when they view it and when they type. |
 | `labs.commentThreads` | boolean | `false` |  | Comment Threads in Browser and Terminal. Send browser and terminal comments to the chat as threads that show the agent's reply. |
 | `labs.previousBuild` | boolean | `false` |  | Go Back to Previous Build. Show the build cmux kept before the last update on the Updates card, with a button to go back to it. |
 | `labs.hostsSidebar` | boolean | `false` |  | Hosts Sidebar. Shows your machines in the sidebar with Add Host and per-host terminal actions. |
@@ -879,6 +883,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.foldSummaryCounts` | boolean | `false` |  | Fold Summary Counts. A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files. |
 | `experiments.cloudDiskBar` | boolean | `false` |  | Cloud Disk Bar. Cloud machine cards show disk use as a bar split into system, project and caches. |
 | `experiments.browserProfileCard` | boolean | `false` |  | Browser Profile Card. The browser's profile menu opens with a profile card. |
+| `experiments.compactionThresholdInsight` | boolean | `false` |  | Compaction Threshold Insight. Show when Claude automatically compacted a chat and how to lower the context it carries between turns. |
 | `experiments.appStoreFeatures` | boolean | `false` |  | App Store Features. The App Store gets a Features tab where built-in features turn on and off. |
 | `feed.github.enabled` | boolean | `false` |  | GitHub Inbox. Inbox shows your GitHub notifications |
 | `feed.github.pollIntervalSeconds` | real | `120` | 60 to 900 | Refresh Interval. Seconds between GitHub refreshes. Refresh in the Inbox runs immediately. |
@@ -913,7 +918,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.codexPersonality` | string | `"agent"` | `agent`, `pragmatic`, `friendly`, `none` | Codex Personality. The personality new Codex chats use. Agent’s Own keeps Codex’s setting. |
 | `agents.commitAttribution` | string | `"agent"` | `agent`, `strip` | Co-Author Line on Commits and PRs. Remove leaves Claude Code’s co-author line and footer off commits and pull requests. Codex has no such setting. |
 | `agents.claudeCodeInboxRelay` | boolean | `false` |  | Add Message Relay to Claude Code. Adds a small server to Claude Code's settings so messages from other agents arrive without being held. Applies to Claude Code chats started afterwards. |
-| `agents.modelRouter.model` | string | `"deepseek/deepseek-v4.1-flash-1017"` | `deepseek/deepseek-v4.1-flash-1017`, `deepseek/deepseek-v4.1-flash`, `deepseek/deepseek-v4-flash`, `deepseek/deepseek-v4-pro` | cmux Model Router Model. The model new cmux model router chats start on. |
 | `agents.cmuxMcp` | string | `"on"` | `on`, `off` | Give Agents cmux’s Tools. Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings. |
 | `agents.cmuxMcpClaude` | boolean | `true` |  | Use in Claude Code. Off: Claude Code you start in cmux never gets cmux’s tools, even when they are on. |
 | `agents.cmuxMcpCodex` | boolean | `true` |  | Use in Codex. Off: Codex you start in cmux never gets cmux’s tools, even when they are on. |

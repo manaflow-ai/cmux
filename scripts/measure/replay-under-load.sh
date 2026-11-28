@@ -8,6 +8,7 @@
 # pass, with the [his Mac's] reading as a second series."
 #
 #   scripts/measure/replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE]
+#     [--painter react|dom-floor|worker]   (bench-only viewport painter A/B: webviews/bench/support/viewportPainter.ts)
 #
 # --cores N runs the load and the replay on the first N CPUs only (taskset), so a shared VM gives up N cores, not all
 # of them; nproc inside is N and stress-ng runs 4*N workers there. Without it the whole machine is loaded: only a VM
@@ -27,16 +28,27 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --out) out="$2"; shift 2 ;;
     --cores) cores="$2"; shift 2 ;;
-    --seconds|--rate|--log|--warm) bench_args+=("$1" "$2"); shift 2 ;;
+    --seconds|--rate|--log|--warm|--painter) bench_args+=("$1" "$2"); shift 2 ;;
     --trace) trace="$(realpath -m "$2")"; bench_args+=("$1" "$trace"); shift 2 ;;
     --profile) bench_args+=("$1"); profile=1; shift ;;
-    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE]" >&2; exit 2 ;;
+    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE] [--painter ARM]" >&2; exit 2 ;;
   esac
 done
 if [ -n "$cores" ] && [ -z "${REPLAY_UNDER_LOAD_PINNED:-}" ]; then
   [[ "$cores" =~ ^[1-9][0-9]*$ ]] || { echo "replay-under-load.sh: --cores takes a positive count" >&2; exit 2; }
   export REPLAY_UNDER_LOAD_PINNED=1
   exec taskset -c "0-$((cores - 1))" "$0" --out "$out" ${bench_args[@]+"${bench_args[@]}"}
+fi
+# One run at a time per machine: two runs on the same CPUs load each other (2x the stress workers, two Chromiums), so
+# each reads the other's load as its own (2026-11-27: two A/B copies overlapped on CPUs 0-7 and read load_per_core
+# 3.2 to 6.1 and p95 66.7 to 83.3 between arms of one change). Every run, the sensor timer's too, waits here for the
+# one before it. A caller already holding the lock on fd 9 (`( flock 9; replay-under-load.sh ... ) 9>LOCK`) has it.
+lock="${REPLAY_UNDER_LOAD_LOCK:-/tmp/replay-under-load.lock}"
+if [ "$(readlink "/proc/$$/fd/9" 2>/dev/null)" = "$lock" ] && flock -n 9; then
+  :
+else
+  exec 9>>"$lock"
+  flock -w "${REPLAY_UNDER_LOAD_LOCK_WAIT:-3600}" 9 || { echo "replay-under-load.sh: another run held $lock past the wait" >&2; exit 1; }
 fi
 mkdir -p "$(dirname "$out")"
 work="$(mktemp -d)"

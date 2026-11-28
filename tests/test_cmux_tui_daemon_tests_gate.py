@@ -284,5 +284,68 @@ class DaemonTestsDiskFloorTests(unittest.TestCase):
         self.assertIn("cmux-tui-test-target.sh floor", step(jobs()["cmux-next-daemon-tests"], names[floor])["run"])
 
 
+
+# A fake r2-cache.sh: FAKE_R2=hit unpacks a workspace build into the target, FAKE_R2=miss unpacks nothing.
+FAKE_R2 = """#!/usr/bin/env bash
+[[ "$1" == restore ]] || exit 0
+[[ "$FAKE_R2" == hit ]] || exit 0
+mkdir -p "$2/debug/.fingerprint/acpmux-r2" "$2/debug/.fingerprint/hyper-r2"
+"""
+
+
+class TestTargetRestoreTakesTheFullTarget(unittest.TestCase):
+    """A rust-cache restore holds third-party output only; it must not hide the bucket's full target (job 140315082442)."""
+
+    def restore(self, existing: list[str], r2: str) -> tuple[subprocess.CompletedProcess, list[str], list[str]]:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            (repo / "scripts" / "ci").mkdir(parents=True)
+            (repo / "scripts" / "ci" / "cmux-tui-test-target.sh").write_text(TARGET_SCRIPT.read_text(encoding="utf-8"))
+            (repo / "scripts" / "ci" / "r2-cache.sh").write_text(FAKE_R2)
+            (repo / "scripts" / "ci" / "timeout.sh").write_text('shift; exec "$@"\n')
+            (repo / "cmux-tui" / "rust-toolchain.toml").parent.mkdir(parents=True)
+            (repo / "cmux-tui" / "rust-toolchain.toml").write_text("[toolchain]\n")
+            for name in existing:
+                (repo / "cmux-tui" / "target" / "debug" / ".fingerprint" / name).mkdir(parents=True)
+            bin_dir = Path(tmpdir) / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "df").write_text(FAKE_DF)
+            (bin_dir / "df").chmod(0o755)
+            (Path(tmpdir) / "elsewhere").mkdir()
+            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", FAKE_REPO=str(repo), FAKE_R2=r2,
+                       FREE_KIB_WITH_TARGET=str(80 * GIB), FREE_KIB_WITHOUT=str(80 * GIB), FREE_KIB_TMP=str(80 * GIB),
+                       TMPDIR=str(Path(tmpdir) / "elsewhere"), GITHUB_ACTIONS="true", GITHUB_REPOSITORY="manaflow-ai/cmux")
+            env.pop("CARGO_TARGET_DIR", None)
+            result = subprocess.run(["bash", str(repo / "scripts" / "ci" / "cmux-tui-test-target.sh"), "restore"],
+                                    env=env, capture_output=True, text=True, timeout=60)
+            fingerprints = repo / "cmux-tui" / "target" / "debug" / ".fingerprint"
+            left = sorted(p.name for p in fingerprints.iterdir()) if fingerprints.is_dir() else []
+            siblings = sorted(p.name for p in (repo / "cmux-tui").iterdir())
+            return result, left, siblings
+
+    def test_a_third_party_only_target_gives_way_to_a_hit(self) -> None:
+        result, left, siblings = self.restore(["hyper-rc"], "hit")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(left, ["acpmux-r2", "hyper-r2"], result.stdout)
+        self.assertEqual(siblings, ["rust-toolchain.toml", "target"], "the set-aside target is removed")
+
+    def test_a_miss_puts_the_third_party_output_back(self) -> None:
+        result, left, siblings = self.restore(["hyper-rc"], "miss")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(left, ["hyper-rc"], result.stdout)
+        self.assertEqual(siblings, ["rust-toolchain.toml", "target"])
+
+    def test_a_workspace_build_is_kept(self) -> None:
+        result, left, _ = self.restore(["acpmux-kept", "hyper-kept"], "hit")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(left, ["acpmux-kept", "hyper-kept"], result.stdout)
+        self.assertIn("already holds a workspace build", result.stdout)
+
+    def test_an_empty_workspace_takes_the_hit(self) -> None:
+        result, left, _ = self.restore([], "hit")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(left, ["acpmux-r2", "hyper-r2"], result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

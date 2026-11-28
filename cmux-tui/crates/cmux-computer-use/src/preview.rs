@@ -291,11 +291,8 @@ impl PreviewHub {
 
     /// A new frame of `window` (JPEG): the running cards that show it.
     pub fn frame(&self, window: &str, jpeg: &[u8]) {
-        let generation = self
-            .state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .stream_generation;
+        let generation =
+            self.state.lock().unwrap_or_else(PoisonError::into_inner).stream_generation;
         self.frame_for_generation(window, generation, jpeg);
     }
 
@@ -338,11 +335,8 @@ impl PreviewHub {
 
     /// `window` closed (its stream ended): its cards go.
     pub fn window_closed(&self, window: &str) {
-        let generation = self
-            .state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .stream_generation;
+        let generation =
+            self.state.lock().unwrap_or_else(PoisonError::into_inner).stream_generation;
         self.window_closed_for_generation(window, generation);
     }
 

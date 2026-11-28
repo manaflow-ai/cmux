@@ -16,7 +16,7 @@ declare global {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
     /** Retitles the `index`th chat: the host's next block. */
-    benchChangeOne(index: number): void | Promise<void>;
+    benchChangeOne(index?: number): void | Promise<void>;
     /** The host's age tick with no age label moved: the same rows in a new block. */
     benchTick(): void;
   }

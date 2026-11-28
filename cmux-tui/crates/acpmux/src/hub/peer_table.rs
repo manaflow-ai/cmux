@@ -91,6 +91,7 @@ impl PeerGuard<'_> {
         self.change(|m| m.remove(name))
     }
 
+    #[cfg(test)]
     pub(crate) fn clear(&mut self) {
         self.change(HashMap::clear);
     }

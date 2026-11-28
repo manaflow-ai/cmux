@@ -1389,7 +1389,7 @@ class WorkflowRoute(unittest.TestCase):
             "daemon-test": ({"daemon", "generated"}, {"swift", "native", "scheme", "mac_release"}),
             "generated-files": ({"generated"}, {"swift", "daemon", "native", "scheme"}),
             "release-compile": ({"native", "mac_release"}, {"swift", "daemon", "generated", "scheme"}),
-            "app-compile-fleet": ({"native"}, {"swift", "daemon", "generated", "scheme", "mac_release"}),
+            "app-compile-fleet": ({"native", "mac_release"}, {"swift", "daemon", "generated", "scheme"}),
             "cmux-scheme-compile": ({"native", "scheme"}, {"swift", "daemon", "generated", "mac_release"}),
         }
         for job, (run, skip) in cases.items():

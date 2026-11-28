@@ -34,7 +34,7 @@ const DAY_MS: u64 = 24 * HOUR_MS;
 pub enum Pressure {
     /// Under `high`.
     Normal,
-    /// From `high` (80%).
+    /// From `high` (70%).
     High,
     /// From `critical` (90%).
     Critical,
@@ -44,7 +44,7 @@ pub enum Pressure {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
-    /// Used share from which the waits shrink (0.80).
+    /// Used share from which the waits shrink (0.70: the disk budget is 75%).
     pub high: f64,
     /// Used share from which they shrink most (0.90).
     pub critical: f64,
@@ -61,18 +61,25 @@ pub struct Settings {
     pub trim_hours: [u64; 3],
     /// Days an archive (its ref, bundle and manifest) is kept.
     pub keep_archive_days: u64,
+    /// No daemon watches sessions (a lane VM): an open session or a process
+    /// in a worktree keeps it only while its last activity is younger than
+    /// the recent wait; an older one is idle. Files held open still keep it
+    /// at removal time (`procs::open_inside`).
+    #[serde(default)]
+    pub headless: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            high: 0.80,
+            high: 0.70,
             critical: 0.90,
             recent_hours: [24, 12, 6],
             idle_pushed_hours: [72, 24, 6],
             idle_unpushed_hours: [7 * 24, 72, 24],
             trim_hours: [72, 12, 3],
             keep_archive_days: 14,
+            headless: false,
         }
     }
 }
@@ -189,7 +196,12 @@ pub fn decide(
     let mut last_use = facts.last_activity_ms;
     let mut pr_archived = false;
     for session in sessions.iter().filter(|s| inside(&s.cwd, &worktree.path)) {
-        if session.open {
+        let stale = settings.headless
+            && now_ms.saturating_sub(session.updated_ms.max(facts.last_activity_ms))
+                >= hours(settings.recent_hours, pressure);
+        // Archived sessions still need the base's proof and intact-checkout
+        // parking, even when their headless activity timestamp is old.
+        if session.open && (!stale || session.archived_checkout.is_some()) {
             if pr_archived
                 || !session
                     .archived_checkout
@@ -203,7 +215,11 @@ pub fn decide(
         last_use = last_use.max(session.updated_ms);
     }
     if let Some(process) = procs::inside(processes, &worktree.path) {
-        return verdict(Keep, format!("process {} works in it", process.pid));
+        let stale = settings.headless
+            && now_ms.saturating_sub(last_use) >= hours(settings.recent_hours, pressure);
+        if !stale {
+            return verdict(Keep, format!("process {} works in it", process.pid));
+        }
     }
     // An owner may work in it from elsewhere (`git -C`, a loop whose folder
     // is another): while it lives, the worktree is in use.

@@ -23,6 +23,7 @@ ACTION = ROOT / ".github" / "actions" / "fleet-client" / "action.yml"
 LINUX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 
 GATEWAY_MAC = frozenset({
+    "cmux-next-fast-tier-batch.yml#swift-fleet",  # private fallback only
     "cmux-next-head-compile.yml#compile",
     "cmux-next-ios-energy-nightly.yml#bench",
     "cmux-next-ios-keyboard-motion.yml#bench",
@@ -41,7 +42,6 @@ GATEWAY_MAC = frozenset({
 MOVED = {
     "chief-evals.yml#fleet-ab": "scripts/measure/chief-evals.sh",
     "cmux-next-tip-test-compile.yml#compile-fleet": "scripts/ci/tip-test-compile.sh",
-    "cmux-next-fast-tier-batch.yml#swift-fleet": "CMUX_CI_CLIENT",
 }
 
 
@@ -72,14 +72,37 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
                 job = found[key]
                 self.assertEqual(job["runs-on"], LINUX)
                 steps = job["steps"]
-                checkout = next(s for s in steps if str(s.get("uses", "")).startswith("actions/checkout"))
-                self.assertIn(".github/actions/fleet-client", checkout["with"]["sparse-checkout"])
-                uses = [s.get("uses") for s in steps]
-                self.assertIn("./.github/actions/fleet-client", uses)
-                client = uses.index("./.github/actions/fleet-client")
+                checkouts = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout")]
+                uses = [str(s.get("uses", "")) for s in steps]
+                client = next(i for i, u in enumerate(uses) if u.endswith("/.github/actions/fleet-client"))
+                prefix = uses[client].removesuffix("/.github/actions/fleet-client").removeprefix(".").strip("/")
+                # The checkout that supplies the action: path matches the step's prefix ("" is the workspace).
+                source = next(s for s in checkouts if str(s["with"].get("path", "")).strip("/") == prefix)
+                self.assertIn(".github/actions/fleet-client", source["with"]["sparse-checkout"])
+                if any("inputs.sha" in str(s["with"].get("ref", "")) for s in checkouts):
+                    # A bisect probe tests a commit that may predate the action: load it from the workflow's own
+                    # commit, or every probe of an older commit fails before any suite runs.
+                    self.assertEqual(source["with"]["ref"], "${{ github.workflow_sha }}")
                 self.assertEqual(steps[client]["with"]["controller"], "${{ vars.CMUX_FLEET_CONTROLLER }}")
                 later = yaml.safe_dump(steps[client + 1:])
                 self.assertIn(marker, later, "the fleet step runs after the client is in place")
+
+    def test_batch_swift_reads_public_results_before_using_a_private_gateway(self) -> None:
+        found = dict(jobs())
+        read = found["cmux-next-fast-tier-batch.yml#swift-results"]
+        self.assertEqual(read["runs-on"], LINUX)
+        self.assertNotIn("./.github/actions/fleet-client", yaml.safe_dump(read["steps"]))
+        self.assertIn("--registry scripts/cmux-next/fast-tier.json", read["steps"][-1]["run"])
+        report = found["cmux-next-fast-tier-batch.yml#swift-fleet"]
+        self.assertEqual(report["needs"], "swift-results")
+        self.assertIn("!cancelled()", report["if"])
+        self.assertIn("needs.swift-results.result != 'skipped'", report["if"])
+        fallback = report["steps"][-2]["with"]["sparse-checkout"].splitlines()
+        self.assertIn("Packages/**/Tests/**/*.swift", fallback)
+        self.assertIn("scripts/ci/display-suites.txt", fallback)
+        self.assertEqual(report["runs-on"], "${{ needs.swift-results.outputs.verdict == 'unavailable' "
+                         "&& 'glaeda-gateway-xcode-26.6' || 'cmux-linux' }}")
+        self.assertEqual(report["steps"][-1]["if"], "needs.swift-results.outputs.verdict == 'unavailable'")
 
     def test_the_action_checks_every_file_and_exports_the_client_only_when_whole(self) -> None:
         text = ACTION.read_text(encoding="utf-8")

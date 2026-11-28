@@ -41,6 +41,19 @@ pub enum PeerCmd {
     /// while sessions still run there. Read-only: it reads the fleet listing `acpmux ls` reads
     /// and the registry, and changes nothing.
     Cells,
+    /// A transfer to a machine failed (a launcher's scp or ssh to its pick): `machine pick`
+    /// passes it over for 10 minutes, then tries it again. `--clear` forgets the failure once
+    /// it answers. A file in acpmux's home on this machine (`placement/reach.rs`).
+    Unreachable {
+        /// The machine the transfer could not reach.
+        name: String,
+        /// What failed, shown in the pick's reason.
+        #[arg(long)]
+        why: Option<String>,
+        /// It answers again: forget its failure.
+        #[arg(long)]
+        clear: bool,
+    },
     /// Whether a machine is dedicated: it runs agents with no per-session
     /// sandbox, the VM is the boundary (vmHost). Claude runs there without the
     /// sandbox only for a session whose caller asked, once the Cloud API said
@@ -382,6 +395,19 @@ pub enum PeerCmd {
         /// Where to listen (a stale socket there is replaced; a served one is left alone).
         #[arg(long, value_name = "PATH")]
         socket: std::path::PathBuf,
+    },
+    /// Carry stdin and stdout to loopback PORT on MACHINE through the carrier, held: when
+    /// either machine's acpmux restarts or the circuit drops, the pipe is asked for again and
+    /// goes on with no byte lost or doubled (RFD 0127 cut 4). For ssh's ProxyCommand:
+    /// `ssh -o ProxyCommand='acpmux machine pipe MACHINE' HOST`. A far acpmux without held
+    /// pipes gets a plain pipe, which ends with its circuit.
+    Pipe {
+        /// A machine name in the hub's address book, or its node key.
+        #[arg(value_name = "MACHINE")]
+        machine: String,
+        /// The far machine's loopback port (the one its `remote_daemon` admits).
+        #[arg(long, default_value_t = 22)]
+        port: u16,
     },
     /// This machine's ssh public key: the one line a new machine lists in its
     /// ~/.ssh/authorized_keys, and the command that adds it there. --create makes an

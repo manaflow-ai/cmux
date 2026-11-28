@@ -15,6 +15,9 @@ public final class AgentPaneModel {
     /// Page projection of its single session-host Git capability read, never an authorization grant.
     public private(set) var checkpointAvailable = false
     @ObservationIgnored public var onCheckpointAvailability: ((Bool) -> Void)?
+    /// The composer holds text or chips (`pane.composerFilled`): a swap to the terminal asks the
+    /// page for its draft only then.
+    @ObservationIgnored public internal(set) var composerFilled = false
     /// The page commands the native palette may run in this chat now (`pane.commandAvailability`).
     public internal(set) var pageCommands: Set<String> = []
     /// The page drew its first frame after the handshake (`pane.painted`), the
@@ -484,6 +487,11 @@ public final class AgentPaneModel {
     /// Runs a Cloud chat's turn checkpoint or rewind for the session this pane showed when the call
     /// arrived; nil unless the app offers it (signed in, a Cloud chat, `cloud.turnCheckpoints` on).
     @ObservationIgnored public var onCloudTurnRewind: (@MainActor (_ request: AgentPaneCloudTurnRewind, _ session: String) async throws -> [String: Any])?
+    /// Sources > Add Folder: the person picks a Mac folder, its read-only copy goes to the chat's Cloud
+    /// machine and joins the chat's folders; answers `{applied, path, from}` (`applied` "cancelled"
+    /// when no folder was picked). Nil unless the app offers it (a Cloud chat, `cloud.addFolderLive` on).
+    @ObservationIgnored public var onCloudFolderAdd: (@MainActor (_ session: String) async throws -> [String: Any])?
+    public static let cloudFolderAddMethod = "cloud.folder.add"
     /// The application-owned marked-tab list shared by this page and the palette.
     @ObservationIgnored public let attentionTabs: AgentPaneAttentionTabs?
 
@@ -618,7 +626,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest, userGesture: Bool = false) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .launchSettle, .inputEchoed, .clientReady, .newTabInputReady, .newTabContext, .newTabCloudPick, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .composerFilled, .painted, .launchSettle, .inputEchoed, .clientReady, .newTabInputReady, .newTabContext, .newTabCloudPick, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportAck, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .projectIcon, .completeFolder, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.freshList), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
              .sandboxState, .subagentShown, .dictationSources: break
@@ -664,6 +672,7 @@ public final class AgentPaneModel {
         case .checkpointAvailability(let available):
             setCheckpointAvailable(available)
             return AgentPaneReply.success()
+        case .composerFilled(let filled): composerFilled = filled; return AgentPaneReply.success()
         case .commandAvailability(let commands):
             pageCommands = Set(commands)
             return AgentPaneReply.success()
@@ -965,6 +974,18 @@ public final class AgentPaneModel {
                 return AgentPaneReply.success(try await onCloudTurnRewind(request, session))
             } catch {
                 return AgentPaneReply.failure(code: "cloud_turn_rewind_failed", message: error.localizedDescription,
+                                              details: nil, retryable: true, origin: "native")
+            }
+        case .cloudFolderAdd:
+            guard remoteChat, newTab == nil, let session = sessionId, let onCloudFolderAdd else {
+                return Self.unsupported(Self.cloudFolderAddMethod)
+            }
+            // It opens a panel and copies a folder off this Mac: only the person's click starts it.
+            guard userGesture || transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            do {
+                return AgentPaneReply.success(try await onCloudFolderAdd(session))
+            } catch {
+                return AgentPaneReply.failure(code: "cloud_folder_add_failed", message: error.localizedDescription,
                                               details: nil, retryable: true, origin: "native")
             }
         case .btwInline(let question, let sessionId):

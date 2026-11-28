@@ -123,6 +123,7 @@ import {
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, DNS_SCOPE_PATH, dnsCheckScript, dnsScopeScript, dnsScopeUnits, resolverBakeCommand } from "./dns";
 import { DISK_RECORD_COMMAND, parseDiskOutput } from "./disk-record";
+import { homeReadmeFile } from "./home-readme";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { chiefBinary, chiefHostFiles, chiefHostInstallCommand } from "./chief-host";
 import { growToShape, LARGE_IMAGE_SHAPE, type LargeImageRecord, largeImageName, MEMORY_GUARD_REFRESH_COMMAND, memoryGuardProblems, ROOT_DEVICE_COMMAND } from "./large-image";
@@ -878,6 +879,9 @@ async function wireCmuxTui(ctx: Ctx): Promise<void> {
     `ln -sfn ${CURRENT_BIN}/cmux-tui ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui`,
     `ln -sfn ${CURRENT_BIN}/cmux-tui-hook ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui-hook`,
   ].join(" && "));
+  // ~/README.md: what this machine is and how to get more (`cmux capabilities`, no token).
+  const readme = homeReadmeFile();
+  await writeGuestFile(vm, readme.path, readme.text, readme.mode);
   // The driver's own install command: the pinned files already match, so it downloads nothing and installs the agent hooks.
   await L.step(vm, "cmux-tui-hooks", `export PATH=${STORE_PATH} && ${cmuxTuiInstallCommand(source)} && chown -R root:root ${STORE_DIR} && chown -h ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui-hook`);
   // The driver creates ~/.local/bin/acpmux for the runtime service. In the

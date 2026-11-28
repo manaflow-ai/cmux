@@ -222,6 +222,10 @@
       "kind": "publish",
       "why": "publishes the git mirror bundle the fleet clones from"
     },
+    "ios-link-ffi-cache-seed.yml": {
+      "kind": "publish",
+      "why": "publishes the base's CmuxMobileLinkFFI.xcframework Actions cache entry that pull request runs read (Actions caches only flow from the base branch); no verdict on a change: the kit's bindings drift check runs on the pull request (cmux-next-ios-kit.yml kit-tests)"
+    },
     "ios-internal-nightly-trigger.yml": {
       "kind": "publish",
       "why": "starts the iPhone internal build for a landing"

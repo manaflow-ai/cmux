@@ -309,10 +309,15 @@ class WebValidationTests(unittest.TestCase):
         pick = step("Pick shard 1's git-hook suites")
         self.assertIn("id: hook-suites", pick)
         self.assertIn("continue-on-error: true", pick)
-        self.assertLess(block.index("id: hook-suites"), block.index("id: merge-driver"))
-        # `!= 'false'`: a pick that failed or never ran leaves no output, and the suite runs.
-        self.assertIn("steps.hook-suites.outputs.merge_driver != 'false'", step("Generated bundle merge driver"))
-        self.assertIn("steps.hook-suites.outputs.post_edit != 'false'", step("Post-edit formatting hook"))
+        # Compare complete named steps: an id prefix also matches merge-driver-start,
+        # which starts independent work before the picker and does not read its outputs.
+        for name, output in (("Generated bundle merge driver", "merge_driver"),
+                             ("Post-edit formatting hook", "post_edit")):
+            with self.subTest(consumer=name):
+                consumer = step(name)
+                self.assertLess(block.index(pick), block.index(consumer))
+                # A pick that failed or never ran leaves no output, and the suite runs.
+                self.assertIn(f"steps.hook-suites.outputs.{output} != 'false'", consumer)
         script = pick[pick.index("        run: |\n") + len("        run: |\n"):]
         # The run block's own lines: the next step's leading comments sit at 6 spaces.
         script = "\n".join(line[10:] for line in script.splitlines() if line.startswith(" " * 10)) + "\n"

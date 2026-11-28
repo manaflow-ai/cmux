@@ -593,6 +593,10 @@ pub enum WebKind {
     /// A text area: a native `<textarea>` or a contenteditable, which
     /// Safari shows alike.
     Area,
+    /// A slider: an `<input type="range">` (WebKit gives it a thumb
+    /// child). Its value is a number the element owns, so set_value writes
+    /// it directly; nothing types into it.
+    Range,
     /// Anything else (a combobox, a group).
     Other,
 }
@@ -608,6 +612,7 @@ pub fn web_kind(role: &str, kids: usize) -> WebKind {
         "AXTextField" | "AXSearchField" if kids == 0 => WebKind::Plain,
         "AXTextField" | "AXSearchField" => WebKind::Rich,
         "AXTextArea" => WebKind::Area,
+        "AXSlider" => WebKind::Range,
         _ => WebKind::Other,
     }
 }
@@ -633,7 +638,8 @@ pub const WEB_FIELD_MIN: f64 = 10.0;
 /// Whether a value write may be made into a web field: a plain text input
 /// (see [`web_kind`]), not tiny, off screen or hidden (an input helper, whose
 /// value is not the content), and not a password field unless `secure`
-/// allows it.
+/// allows it. A slider passes only for set_value (`secure` is
+/// [`SecureField::Allow`] only there): typing has no text to put in it.
 pub fn web_value_gate(f: Option<&WebField>, secure: SecureField) -> Result<(), &'static str> {
     let Some(f) = f else { return Err(WEB_FIELD_UNREAD) };
     if f.secure && secure == SecureField::Refuse {
@@ -643,6 +649,12 @@ pub fn web_value_gate(f: Option<&WebField>, secure: SecureField) -> Result<(), &
     }
     match f.kind {
         WebKind::Plain => {}
+        WebKind::Range if secure == SecureField::Allow => {}
+        WebKind::Range => {
+            return Err(
+                "this web element is a slider; text is not typed into it. Set its number with set_value",
+            );
+        }
         WebKind::Rich => {
             return Err(
                 "this web text field holds rich content (a rich editor), so its value is not written through accessibility; use delivery foreground",
@@ -682,6 +694,18 @@ pub fn scroll_into_view_first(f: &WebField, secure: SecureField) -> bool {
 /// the page's focus, whichever one was addressed, and returns success.
 pub fn holds_page_focus(focused: Option<bool>) -> bool {
     focused == Some(true)
+}
+
+/// Whether a set_value write into this web element must wait for it to
+/// hold its page's focus ([`holds_page_focus`]). Only text inputs: the page
+/// routes a text value write through its editing, into the focused field.
+/// A slider's value write is applied to that slider (WebKit's
+/// AccessibilitySlider::setValue sets its own input's value and fires its
+/// input and change events; Chromium's set-value action targets the node),
+/// and a slider takes no caret, so the focus write the text route makes
+/// first (a selection write in WebKit) cannot move the focus onto it.
+pub fn web_write_needs_page_focus(kind: Option<WebKind>) -> bool {
+    kind != Some(WebKind::Range)
 }
 
 /// Whether a failed value write certainly wrote nothing: the app refused

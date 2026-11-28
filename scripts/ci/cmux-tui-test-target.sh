@@ -29,7 +29,8 @@
 #
 # Disk: a restore needs CMUX_TUI_TEST_TARGET_MIN_FREE_GIB (30) free, else it builds cold. A save drops incremental state
 # first, and a target over CMUX_TUI_TEST_TARGET_MAX_GIB (14) keeps only third-party output (scripts/ci/cargo_target_strip.py).
-# A restore that fails or is cut removes the half-unpacked target. A target that already holds a build is kept as is.
+# A restore that fails or is cut removes the half-unpacked target. A target that already holds a workspace build is kept
+# as is; one with third-party output only (a rust-cache restore) gives way to a hit and comes back on a miss.
 #
 # Floor: the build needs CMUX_TUI_TEST_TARGET_BUILD_FLOOR_GIB (25) free on the target's disk and in TMPDIR. Under it,
 # `floor` drops the target's incremental state, then the whole leftover target (a reused self-hosted workspace keeps
@@ -110,17 +111,42 @@ floor() {
 }
 
 restore() {
+  # A target holding a workspace build (a reused self-hosted workspace) is kept. One holding third-party output only
+  # is a Swatinem/rust-cache restore (pr-pipeline.yml's web-browser job, this job's push side): rust-cache drops the
+  # workspace's crates before saving, so keeping it skipped the R2 target and rebuilt all 91 of them (5m19s, job
+  # 140315082442, 2026-11-27). Set it aside, take the R2 target, and put it back only on a miss.
+  local aside=""
   if [[ -d "$target/debug" ]]; then
-    say "cmux-tui/target already holds a build; kept, nothing restored"
-    return 0
+    if compgen -G "$target/debug/.fingerprint/acpmux-*" >/dev/null; then
+      say "cmux-tui/target already holds a workspace build; kept, nothing restored"
+      return 0
+    fi
+    aside="$target.third-party.$$"
+    mv -- "$target" "$aside"
+    say "cmux-tui/target holds third-party output only (a rust-cache restore); set aside, trying the full target"
   fi
+  local outcome=miss
+  restore_r2 && outcome=hit
+  if [[ -n "$aside" ]]; then
+    if [[ "$outcome" == hit ]]; then
+      rm -rf -- "$aside"
+    else
+      rm -rf -- "$target"
+      mv -- "$aside" "$target"
+      say "kept the third-party output instead"
+    fi
+  fi
+}
+
+# Returns 0 when the bucket's target landed in cmux-tui/target, 1 otherwise (cmux-tui/target then holds nothing).
+restore_r2() {
   mkdir -p "$target"
   local free tmp_free
   free="$(free_gib "$target")"
   tmp_free="$(free_gib "${TMPDIR:-/tmp}")"
   if ((free < min_free_gib || tmp_free < min_free_gib)); then
     say "miss (${free} GiB free here, ${tmp_free} GiB in ${TMPDIR:-/tmp}; under $min_free_gib); cold build"
-    return 0
+    return 1
   fi
   local started=$SECONDS status=0
   # r2-cache.sh treats every error as a miss; the bound is ours, and a cut unpack leaves nothing behind.
@@ -128,11 +154,11 @@ restore() {
   if ((status != 0)); then
     say "restore ended with status $status after $((SECONDS - started)) s; removing what it unpacked, cold build"
     rm -rf -- "$target"
-    return 0
+    return 1
   fi
   if [[ ! -d "$target/debug" ]]; then
     say "miss ($prefix*): cold build"
-    return 0
+    return 1
   fi
   if [[ -f "$manifest" && ! -L "$manifest" ]]; then
     python3 -I "$repo/scripts/blacksmith-testbox-source-mtimes.py" restore "$repo" "$manifest"
@@ -141,6 +167,7 @@ restore() {
     say "hit in $((SECONDS - started)) s, third-party crates only (no source manifest); workspace crates rebuild"
   fi
   rm -f -- "$manifest"
+  return 0
 }
 
 save() {

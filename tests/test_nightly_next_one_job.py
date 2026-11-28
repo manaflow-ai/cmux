@@ -343,7 +343,11 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertIn("'glaeda-trusted-next-signing'", str(job.get("runs-on")))
         env = job.get("env") or {}
         self.assertEqual(env.get("CMUX_CI_XCODE_APP"), "${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}")
-        self.assertEqual(env.get("CMUX_CI_REQUIRED_MACOS_SDK_MAJOR"), "26")
+        # The SDK major follows the pinned Xcode, so a 27.2 pin requires SDK 27.
+        self.assertEqual(
+            env.get("CMUX_CI_REQUIRED_MACOS_SDK_MAJOR"),
+            "${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}",
+        )
         self.assertNotIn("nightly-next-deltas", str(jobs["published-build"].get("needs")))
         self.assertNotIn("nightly-next-deltas", str(jobs["wake-nightly-next-tick"].get("needs")))
         steps = job.get("steps") or []
@@ -386,8 +390,43 @@ class NightlyNextOneJobTests(unittest.TestCase):
         # Its own directory only: the kept build workspace beside it stays as nightly-next-one left it.
         for step in steps:
             path = (step.get("with") or {}).get("path")
-            if path:
+            if path and "download-artifact@" not in step.get("uses", ""):
                 self.assertTrue(str(path).startswith(".nightly-next-deltas"), step.get("name"))
+
+    def test_delta_artifact_cannot_replace_signing_code_or_shell_startup(self) -> None:
+        job = workflow()["jobs"]["nightly-next-deltas"]
+        self.assertEqual(job["env"].get("BASH_ENV"), "/dev/null")
+        steps = job["steps"]
+        download = next(s for s in steps if s.get("name") == "Download the build's DMG")
+        self.assertEqual(download["with"]["path"], "${{ steps.delta-input.outputs.path }}")
+        stage = next(s for s in steps if s.get("name") == "Stage only the expected DMG")
+        # Execute the real staging command with a hostile artifact tree; only the DMG may enter the checkout.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, checkout = root / "artifact", root / "checkout"
+            source.mkdir()
+            checkout.mkdir()
+            (source / "scripts").mkdir()
+            (source / "scripts/sign.sh").write_text("untrusted")
+            (source / "startup.sh").write_text("untrusted")
+            (checkout / "scripts").mkdir()
+            trusted = checkout / "scripts/sign.sh"
+            trusted.write_text("trusted")
+            dmg = source / "build-300.dmg"
+            dmg.write_bytes(b"immutable DMG")
+            env = {**os.environ, "BASH_ENV": "/dev/null", "DELTA_INPUT": str(source),
+                   "NIGHTLY_DMG_IMMUTABLE": dmg.name}
+            def run(name):
+                return subprocess.run(["bash", "-e", "-c", stage["run"]], cwd=checkout,
+                                      env={**env, "NIGHTLY_DMG_IMMUTABLE": name}, capture_output=True)
+            self.assertEqual(run(dmg.name).returncode, 0)
+            self.assertEqual((checkout / dmg.name).read_bytes(), b"immutable DMG")
+            self.assertEqual(trusted.read_text(), "trusted")
+            self.assertFalse((checkout / "startup.sh").exists())
+            (source / "link.dmg").symlink_to(dmg)
+            for name in ("link.dmg", "../outside.dmg", "scripts/sign.sh", "missing.dmg", "-option.dmg"):
+                with self.subTest(name=name):
+                    self.assertNotEqual(run(name).returncode, 0)
 
     def test_a_newer_push_takes_the_mac_after_the_feed(self) -> None:
         # Leo, 2026-11-25: "Just keep the train going like 24/7, constantly." Once the feed is written and

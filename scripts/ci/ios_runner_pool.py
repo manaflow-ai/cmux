@@ -219,9 +219,11 @@ over-count for a rare manual dispatch.
 
 A job left queued on the owned labels, or refused by glaeda at job start, is
 re-run by ci-owned-pool-rescue.yml, which watches the run through the marker
-the runner job uploads (as for E2E). From attempt 2 on every macOS job takes
-`retry_runs_on`: the default when it is a Blacksmith pool, else the 6vcpu
-macOS 26 pool.
+the runner job uploads (as for E2E). From attempt 2 on, a re-run the rescue
+bot (github-actions[bot] or cmux-bot[bot]) starts takes `retry_runs_on`: the
+default when it is a Blacksmith pool, else the 6vcpu macOS 26 pool. A person's
+re-run takes the run's own pick again (RFD 0165: those re-runs held about 400
+to 800 Blacksmith minutes a day), as test-ios.yml's cmux-next lane does.
 
 API budget: the E2E picker's four requests, plus one page of runs for each
 of the two iOS workflows and up to MARKER_PAGES pages of `owned-pool-watch`

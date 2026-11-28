@@ -170,7 +170,9 @@ if (!("Element" in scope)) {
 // chunk's modules (Base UI) read `navigator` once when they load, so they load after the file has
 // installed its window, as they did when they were the file's own imports. A file that imports none
 // of them fetches nothing.
-{
+// Outside `bun test` (scripts/cloud-ergonomics.ts, cmuxterm-hq's cloud-ergonomics-linux probe, runs this
+// preload as a plain script) there is no first test, beforeAll throws, and the script draws no lazy chunk.
+if (process.env.NODE_ENV === "test") {
   const { beforeAll } = await import("bun:test");
   const { loadLazyChunks } = await import("../src/lazyChunk");
   beforeAll(() => loadLazyChunks());

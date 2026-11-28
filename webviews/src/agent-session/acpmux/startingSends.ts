@@ -155,8 +155,8 @@ export class StartingSends {
   private async run(item: Item, go: Go) {
     // Removed, or given back with a refused prompt before it.
     if (!this.items.includes(item)) return;
-    item.going = true;
     try {
+      item.going = true;
       await go(item.text, item.attachments, item.gesture);
     } catch (error) {
       // This prompt and every one behind it come back; the composer puts each before what it

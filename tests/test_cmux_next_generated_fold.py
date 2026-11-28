@@ -204,6 +204,7 @@ class GeneratedFoldTest(unittest.TestCase):
         cls.swift = cls.jobs["swift-test"]
         cls.generated = cls.jobs["generated-files"]
         cls.verdict = cls.jobs["generated-verdict"]
+        cls.fast = cls.jobs["fast-tier"]
         cls.route = cls.jobs["path_route"]
 
     def steps(self, job):
@@ -463,6 +464,8 @@ class GeneratedFoldTest(unittest.TestCase):
         for name in ("Record this pass for the same inputs", "Save the pass"):
             self.assertIn("(env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh')",
                           self.step(self.daemon, name)["if"])
+        key = self.step(self.fast, "Fingerprint this job's inputs")["run"]
+        self.assertIn('--extra "generated_base="', key)
 
     def test_the_exports_cache_accepts_a_folded_push(self):
         cache = self.jobs["swift-exports-cache"]

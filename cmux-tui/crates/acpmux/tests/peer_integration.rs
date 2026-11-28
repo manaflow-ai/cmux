@@ -3000,7 +3000,7 @@ async fn lying_peer(says: Lying) -> u16 {
     let port = l.local_addr().unwrap().port();
     tokio::spawn(async move {
         while let Ok((tcp, _)) = l.accept().await {
-            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            let Ok(mut ws) = acpmux::server::accept_ws(tcp).await else { continue };
             let says = says.clone();
             tokio::spawn(async move {
                 // Non-text frames (the client's pings, #38015) are not requests: skip them.
@@ -3673,7 +3673,7 @@ async fn legacy_models_peer(a_port: u16) -> u16 {
     let port = l.local_addr().unwrap().port();
     tokio::spawn(async move {
         while let Ok((tcp, _)) = l.accept().await {
-            let Ok(ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            let Ok(ws) = acpmux::server::accept_ws(tcp).await else { continue };
             tokio::spawn(async move {
                 let (mut sink, mut source) = ws.split();
                 // Non-text frames (the client's pings, #38015) are not requests: skip them.

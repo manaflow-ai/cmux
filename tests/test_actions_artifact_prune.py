@@ -236,6 +236,7 @@ class DropJob(unittest.TestCase):
         self.assertTrue(readers <= set(drop["needs"]))
         condition = drop["if"]
         # notify-unpublished-tree hands the key on and must stay the run's last job (cx-urd.26).
+        # !cancelled(), never always(): a cancelled run queues no tail job (#48396).
         for clause in ("!cancelled()", "!contains(needs.*.result, 'failure')", "!contains(needs.*.result, 'cancelled')",
                        "needs.notify-unpublished-tree.result == 'skipped'"):
             self.assertIn(clause, condition)

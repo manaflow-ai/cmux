@@ -174,6 +174,12 @@ pub struct BookDaemon {
     pub user: String,
     #[serde(default)]
     pub last_seen_at: u64,
+    /// The host health its last heartbeat carried, and when the hub took it (ms); none from an
+    /// old hub or a daemon that sent none.
+    #[serde(default)]
+    pub health: Option<Value>,
+    #[serde(default)]
+    pub health_at: Option<u64>,
 }
 
 /// One live session in the address book, as its daemon's heartbeat listed it.
@@ -231,6 +237,11 @@ pub struct Heartbeat {
     /// a message sent before the restarted daemon polls again is not leased to the dead one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub leaving: bool,
+    /// This daemon's host health now, trimmed (`peer_health::wire`, under 2 KiB), so a placer
+    /// reads it from the address book with no ask of its own (RFD 0181 T1). Old daemons send
+    /// none; an old hub ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health: Option<Value>,
 }
 
 /// The most sessions one heartbeat lists.

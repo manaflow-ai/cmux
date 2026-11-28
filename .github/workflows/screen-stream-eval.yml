@@ -21,7 +21,9 @@ name: screen stream eval
 # Each run is named by its targets (the defaults keep the plain name), so a run's baseline is the last
 # daily run with the same targets, the dispatcher tells a pending run of each apart, and the two runs
 # wait for each other only on the fleet (each step is exclusive), never in a concurrency group whose
-# newer pending run would cancel the other.
+# newer pending run would cancel the other. The group also names the worker input, so a run pinned to
+# one Mac never waits behind a run of the same targets queued on another (a drained or locked Mac
+# would otherwise hold every later run of those targets, wherever it is pinned).
 run-name: ${{ (inputs.targets && inputs.targets != 'rd,webrtc') && format('screen stream eval ({0})', inputs.targets) || 'screen stream eval' }}
 on:
   workflow_dispatch:
@@ -47,7 +49,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: screen-stream-eval-${{ inputs.targets || 'rd,webrtc' }}
+  group: screen-stream-eval-${{ inputs.targets || 'rd,webrtc' }}-${{ inputs.worker || 'default' }}
   cancel-in-progress: false
 
 env:

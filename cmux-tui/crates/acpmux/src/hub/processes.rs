@@ -852,10 +852,28 @@ fn task_params(params: Option<&mut Value>) -> Value {
 
 impl Hub {
     /// The session's table, read from its log's copies the first time.
+    ///
+    /// The log is read with the table's lock let go: `running_processes_read` and
+    /// `running_heavy_read` take that lock for every chat on each `daemon status` and row list
+    /// (`host_load.rs`, `idle.rs`) and promise never to wait on a log scan. On the coordinator Mac,
+    /// 2026-11-27 02:43Z to 03:20Z: a first read here waited in the store's fork view behind a cold
+    /// archive commit, which waited behind a whole-log pack at background priority; it held this
+    /// lock all the while, 15 of 32 tokio workers parked on it, and every acpmux delivery on the
+    /// host timed out (`tools/acpmux_delivery_probe.py`, 10 missed probes). Two first reads may
+    /// race: the first table put in wins and the other is dropped, and a record logged after a
+    /// read is folded by its `note_process` (its seq is past the table's `through`).
     fn process_table<'a>(&self, session: &'a Session) -> std::sync::MutexGuard<'a, ProcessTable> {
+        let table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
+        if table.loaded {
+            return table;
+        }
+        drop(table);
+        let mut read = self.read_processes(session);
         let mut table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
         if !table.loaded {
-            *table = self.read_processes(session);
+            // The preview watches started meanwhile stay the only ones (`rebuild_processes`).
+            read.watching = std::mem::take(&mut table.watching);
+            *table = read;
         }
         table
     }
@@ -1276,36 +1294,5 @@ fn unknown_process(id: &str) -> RpcError {
 }
 
 #[cfg(test)]
-mod process_list_snapshot_tests {
-    use super::*;
-
-    #[test]
-    fn a_process_list_reads_output_metadata_after_releasing_its_table() {
-        let process: Process = serde_json::from_value(json!({
-            "id": "chat/task", "sessionId": "chat", "toolCallId": "call",
-            "taskId": "task", "harness": "claude", "command": "cargo test",
-            "cwd": "/tmp", "startedAt": 100, "endedAt": 200,
-            "state": "exited", "origin": "background", "outputFile": "/tmp/task-output"
-        }))
-        .unwrap();
-        let table = std::sync::Mutex::new(ProcessTable {
-            loaded: true,
-            processes: vec![process],
-            ..ProcessTable::default()
-        });
-        // Every caller first takes its snapshot, then drops the guard before
-        // collecting live file sizes and serializing the reply.
-        let snapshot = table.lock().unwrap().snapshot();
-        let rows = process_values(snapshot, |path| {
-            assert_eq!(path, "/tmp/task-output");
-            assert!(table.try_lock().is_ok(), "filesystem metadata read under process-table lock");
-            42
-        });
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0]["id"], "chat/task");
-        assert_eq!(rows[0]["state"], "exited");
-        assert_eq!(rows[0]["outputBytes"], 42);
-        // The saved table remains unchanged: a later list re-reads the file size.
-        assert_eq!(table.lock().unwrap().processes[0].output_bytes, None);
-    }
-}
+#[path = "processes_process_list_snapshot_tests.rs"]
+mod process_list_snapshot_tests;

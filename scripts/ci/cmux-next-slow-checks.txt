@@ -28,6 +28,8 @@ bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"
 scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 # Why: note-506
 python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"
+# Why: cmux#59531 (a 2-6 s sidebar hang: fileRoot sent to Rust per Chief per row)
+python3 -I scripts/cmux-next/check-bridge-on-main.py --root "$GITHUB_WORKSPACE"
 [overlay-glass]
 python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
 [conn-notices]
@@ -123,6 +125,7 @@ bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh
 bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
 python3 tests/test_cmux_next_tree_notify.py
 python3 tests/test_cmux_next_same_tree_status_never_silent.py
+python3 tests/test_ci_same_tree_status_pool_tokens.py
 python3 tests/test_cmux_tui_tree_takeover.py
 python3 tests/test_cmux_next_same_tree_failed.py
 python3 tests/test_idea_ledger.py
@@ -160,6 +163,7 @@ bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
 bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
 bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
 bash scripts/cmux-next/tests/cargo-test-selected.test.sh
+bash scripts/cmux-next/tests/cargo-test-wine.test.sh
 bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
 bash scripts/cmux-next/tests/app-capability-references.test.sh
 bash scripts/cmux-next/tests/tagged-launch-acpmux-env.test.sh

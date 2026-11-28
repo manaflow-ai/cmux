@@ -64,6 +64,41 @@ pub(super) fn next_look(outcome: &Outcome, draw: u64) -> Duration {
     base + Duration::from_millis(draw % (JITTER.as_millis() as u64 + 1))
 }
 
+/// Between looks on a machine nobody uses: no agent turn runs or waits and no
+/// carrier session is attached ([`busy_sessions`] answered empty). Leo,
+/// 2026-11-27: "we defo dont wanna waste the freestyle vms TOO much". Each
+/// [`INTERVAL`] look is a GET of the channel, outbound traffic, and the
+/// provider pauses a VM only after `idleTimeoutSeconds` (300 s) with none, so
+/// the 15 s look alone kept every idle machine that the platform did not pause
+/// itself running for days (staging, 2026-11-27: 77 running VMs showed
+/// traffic in the last 2 minutes, 23 of one team's 24 older than a day). This
+/// is longer than any provider idle timeout, so an idle machine goes quiet
+/// and pauses. A wake (`Resumed`), a bind (`Bound`) or a channel change sends
+/// [`Msg::Check`] and the worker looks at once, so a machine someone comes back
+/// to still takes a merged fix within seconds, and a busy machine keeps the
+/// 15 s look.
+pub(super) const IDLE_INTERVAL: Duration = Duration::from_secs(30 * 60);
+
+/// Whether a look that ended in `outcome` read (or tried to read) the channel
+/// over the network: only those keep a VM awake.
+pub(super) fn read_channel_look(outcome: &Outcome) -> bool {
+    matches!(
+        outcome,
+        Outcome::Current(_) | Outcome::Older | Outcome::RolledBackBefore | Outcome::Failed(_)
+    )
+}
+
+/// [`next_look`] for a machine the look after `outcome` found `idle`:
+/// [`IDLE_INTERVAL`] (plus [`JITTER`]) after a look that read the channel, so
+/// its GETs stop holding the VM awake; otherwise [`next_look`].
+pub(super) fn next_look_when(outcome: &Outcome, idle: bool, draw: u64) -> Duration {
+    if idle && read_channel_look(outcome) {
+        IDLE_INTERVAL + Duration::from_millis(draw % (JITTER.as_millis() as u64 + 1))
+    } else {
+        next_look(outcome, draw)
+    }
+}
+
 /// A fresh random draw for [`next_look`] (std's per-process random hash keys).
 fn jitter_draw() -> u64 {
     use std::hash::{BuildHasher as _, Hasher as _};
@@ -770,7 +805,11 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
             continue;
         }
         let (outcome, _) = check(paths, Honor::All);
-        let next = next_look(&outcome, jitter_draw());
+        // Local looks only (acpmux and the session host's admin channel): an
+        // idle machine stops reading the channel until a wake or a bind.
+        let idle = read_channel_look(&outcome)
+            && matches!(busy_sessions(paths), Ok(busy) if busy.is_empty());
+        let next = next_look_when(&outcome, idle, jitter_draw());
         if !wait_watching(paths, rx, next) {
             return;
         }

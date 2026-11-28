@@ -1072,3 +1072,35 @@ fn codex_raw_open_perf() {
     );
     std::fs::remove_dir_all(&root).ok();
 }
+
+/// The turn opener an attach reads (`server/requests/turn_opener.rs`) costs the newest turn, not
+/// the 16 newest: it stops at the first prompt that opens a turn, with copies or without
+/// (goal infinite-chats, `chat_size_sweep` `/attachUs/p50` grew 1M→100M 1.59x).
+#[test]
+fn the_turn_opener_reads_one_turn_back_not_sixteen() {
+    let root = std::env::temp_dir().join(format!("acpmux-turn-opener-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let mut log = codex_chat(20, 200, 85, false);
+    let log_bytes = write_chat(&sessions, &mut log, 64 << 10);
+    let opener = log.iter().rev().find(|r| r.kind == "user_message").cloned().unwrap();
+    let before = log.last().unwrap().seq;
+    let hub = deferred_hub(&sessions, 64 << 10);
+    let opens = |r: &EventRecord| r.msg.get("steer") != Some(&Value::Bool(true));
+    let read = |state: &str| {
+        let r0 = read_bytes();
+        let found = hub.newest_prompt_where("c", before, 16, &opens).unwrap();
+        let read = read_bytes() - r0;
+        assert_eq!(found.as_ref(), Some(&opener), "{state}");
+        if cfg!(target_os = "linux") {
+            // A turn is a twentieth of the log; 16 of them were four fifths of it.
+            assert!(read < log_bytes / 6, "{state}: the opener read {read} of {log_bytes} bytes");
+        }
+    };
+    std::fs::remove_dir_all(sessions.join("c").join(crate::store::KIND_INDEX_DIR)).unwrap();
+    read("no copies");
+    hub.store.scan_kinds("c", crate::store::INDEXED_KINDS, &mut |_| true).unwrap();
+    read("good copies");
+    // None of the newest `read` opens a turn: none, and the read stops there.
+    assert_eq!(hub.newest_prompt_where("c", before, 16, &|_| false).unwrap(), None);
+    let _ = std::fs::remove_dir_all(&root);
+}

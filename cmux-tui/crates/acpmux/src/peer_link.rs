@@ -32,6 +32,10 @@ pub struct LinkTimings {
     pub ping_misses: u32,
     /// `ACPMUX_PEER_PING_SECS` was set: the silence budget stays `silence_budget()`.
     pub fixed_silence: bool,
+    /// The checks of a silent link scale with its measured round trip
+    /// (`peer_link_quality::probe_wait`, `silence_floor`): on in every daemon. Off, they keep the
+    /// fixed constants, which the link-quality tests measure against.
+    pub rtt_adaptive: bool,
     /// `ACPMUX_PEER_REPLACE_SECS`: a silent link dials its replacement (while it still reads)
     /// after this much silence, when that is under the silence budget. Off (`None`) by
     /// default: the replacement dials when the budget runs out. The link is still dropped at
@@ -71,6 +75,7 @@ impl Default for LinkTimings {
             ping_every: Duration::from_secs(2),
             ping_misses: 3,
             fixed_silence: false,
+            rtt_adaptive: true,
             replace_after: None,
             send: Duration::from_secs(80),
             stable_after: Duration::from_secs(60),

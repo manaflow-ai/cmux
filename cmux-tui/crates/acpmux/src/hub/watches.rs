@@ -24,6 +24,10 @@ pub struct Watch {
     pub sessions: Vec<String>,
     pub until: Vec<String>,
     pub match_text: Option<String>,
+    /// Which text of a turn `match_text` is looked for in (`watch_events::MatchIn`). Older
+    /// files have none: the whole turn, as before.
+    #[serde(default, skip_serializing_if = "watch_events::MatchIn::is_turn")]
+    pub match_in: watch_events::MatchIn,
     pub once: bool,
     pub caller: Option<String>,
     pub active: bool,
@@ -47,7 +51,7 @@ pub struct Watch {
 impl Watch {
     fn status(&self) -> Value {
         let mut v = json!({"id": self.id, "to": self.to, "sessions": self.sessions, "until": self.until,
-            "match": self.match_text, "once": self.once, "active": self.active, "offline": self.offline});
+            "match": self.match_text, "matchIn": self.match_in, "once": self.once, "active": self.active, "offline": self.offline});
         if self.prompt.is_some() {
             v["nextDueMs"] = json!(self.due_ms);
             v["everyMs"] = json!(self.every_ms);
@@ -524,11 +528,20 @@ fn watch_of(d: &Delivery) -> Option<&str> {
 // Delivered is the recipient's acceptance (queued or steered into its turn), not that its agent
 // read the wake; Held hands the wake to the outbox, which runs it when the person resumes the
 // pair. Either way the outbox owns it from here, so the watch stops owing it.
+//
+// A wake that failed past its day (`Delivery::past_retry_window`) is settled too: the outbox
+// bounced it once, and sent again it fails at once. Queued again on every reconcile, four watch
+// wakes on huge-blue failed and bounced 6,333 times over 16 days (3,146 of the 3,703 failures
+// `acpmux ls` counted in 36 h), each "oldest waiting 1383760 s".
 fn drain(hub: &Arc<Hub>, retry: bool) {
     let pending = hub.watches.inner.lock().unwrap_or_else(|e| e.into_inner()).saved.pending.clone();
+    let now = crate::store::now_ms();
     for d in pending.into_values() {
         match hub.outbox.get(&d.id) {
-            Some(sent) if matches!(sent.state, State::Delivered | State::Held) => {
+            Some(sent)
+                if matches!(sent.state, State::Delivered | State::Held)
+                    || (sent.state == State::Failed && sent.past_retry_window(now)) =>
+            {
                 if let Err(e) = hub.watches.change(|s| {
                     s.pending.remove(&d.id);
                     if d.request.pointer("/_meta/acpmux/watchDone") == Some(&json!(true))
@@ -685,6 +698,65 @@ mod tests {
         assert_eq!(c.seq, 7, "the cursor's place in the log is kept");
         c.text("z", Some(&pattern));
         assert!(!c.matched, "the next chunk matched the old tail: a false wake");
+    }
+
+    /// huge-blue, 2026-11-27: four watch wakes 16 days old ("oldest waiting 1383760 s") were
+    /// queued again on every reconcile, failed at once as past their day, bounced, and were
+    /// queued again: 6,333 bounces. A wake failed past its day settles the watch's debt, as a
+    /// delivered one does; a failed one still within its day is queued again, as before.
+    #[tokio::test]
+    async fn a_wake_failed_past_its_day_is_never_queued_again() {
+        let mut config = Config::default();
+        config.store.mode = StoreMode::Memory;
+        let hub = Hub::new(
+            config.clone(),
+            store::open(&config.store, Path::new("/nonexistent")).unwrap(),
+        );
+        let watch = Watch {
+            id: "w".into(),
+            to: "gone-session".into(),
+            sessions: vec!["peer/s".into()],
+            until: vec!["ready".into()],
+            once: true,
+            active: true,
+            ..Default::default()
+        };
+        let failed = |id: &str, age_ms: u64| {
+            let mut d = timers::delivery(&watch, id.into(), "wake".into(), true);
+            d.created_at = crate::store::now_ms().saturating_sub(age_ms);
+            d.state = State::Failed;
+            d.error = Some("not delivered within a day of being sent".into());
+            d
+        };
+        let day = crate::hub::outbox::RETRY_FOR_MS;
+        let old = failed("old", day + 60_000);
+        let fresh = failed("fresh", 60_000);
+        hub.outbox.add(old.clone()).unwrap();
+        hub.outbox.add(fresh.clone()).unwrap();
+        hub.watches
+            .change(|s| {
+                s.watches.insert("w".into(), watch.clone());
+                s.pending.insert(old.id.clone(), old.clone());
+                s.pending.insert(fresh.id.clone(), fresh.clone());
+            })
+            .unwrap();
+
+        drain(&hub, true);
+
+        let sent = hub.outbox.get("old").expect("the outbox keeps the failed wake");
+        assert_eq!(sent.state, State::Failed, "a wake past its day was queued again");
+        assert_eq!(sent.attempts, old.attempts, "a wake past its day was sent again");
+        let saved = hub.watches.inner.lock().unwrap().saved.clone();
+        assert!(!saved.pending.contains_key("old"), "the watch still owes a wake past its day");
+        assert!(saved.pending.contains_key("fresh"), "a wake within its day was dropped");
+        assert_ne!(
+            hub.outbox.get("fresh").map(|d| d.error),
+            Some(fresh.error.clone()),
+            "a failed wake within its day was not queued again"
+        );
+        // A second pass (the next reconcile) does not touch it either.
+        drain(&hub, true);
+        assert_eq!(hub.outbox.get("old").map(|d| d.state), Some(State::Failed));
     }
 
     #[tokio::test]
