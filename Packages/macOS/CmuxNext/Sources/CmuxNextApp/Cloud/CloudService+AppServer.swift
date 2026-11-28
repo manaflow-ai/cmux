@@ -124,6 +124,12 @@ extension CloudService {
         return try await appServerFlow(team: team, run: appOps).approvedCall(op, args: args, confirm: confirm)
     }
 
+    /// Settings → Cloud → Spending's overage save, `usage.cap.set {overage_usd}` as the person's own session
+    /// (``CloudSpendingWrite``; Rust decides the call and words the outcome). `overageUsd` nil turns overage off.
+    func spendingSave(overageUsd: Double?, key: String) async -> Data {
+        await CloudSpendingWrite(call: sessionCall()).save(overageUsd: overageUsd, key: key)
+    }
+
     /// A machine's resize and snapshot ops (`cloud.machine.resize`, `cloud.snapshot.*`) to cmux-platform's op of the same name
     /// (never `/api/vm`), as the person's own: the approval loop (one key, same-key retries), once `allow` says yes. The id of the answer's `record`.
     @discardableResult

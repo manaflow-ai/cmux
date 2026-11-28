@@ -88,6 +88,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./CloudEnvironmentsCard").then(({ CloudEnvironmentsCard }) => () => <CloudEnvironmentsCard />),
   cloudCompute: () =>
     import("./CloudComputeCard").then(({ CloudComputeCard }) => () => <CloudComputeCard />),
+  cloudSpending: () =>
+    import("./CloudSpendingCard").then(({ CloudSpendingCard }) => () => <CloudSpendingCard />),
   cloudModels: () =>
     import("./ModelsCard").then(({ CloudModelsCard }) => (focus, _workspace, reveal) => (
       <CloudModelsCard focus={focus} reveal={reveal} />

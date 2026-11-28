@@ -1,13 +1,21 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
-// Settings > Cloud > Spending (RFD 0080 "Spend controls"), gallery only: the card is in no Settings category yet,
-// so the entry is experimental. Overage off (the placeholder default), on with a limit at 40%, the 80% banner and
-// paused at the limit, each in the rows layout and the meter layout. Edits apply to local state.
+// Settings > Cloud > Spending (RFD 0080 "Spend controls"). The live card (CloudSpendingCard) sits in Settings > Cloud
+// behind the app's `cmux.cloud.spendingWrite`, default off, so the entry stays experimental. Overage off (the
+// placeholder default), on with a limit at 40%, the 80% banner and paused at the limit, each in the rows layout and
+// the meter layout, plus the live card's save states: saving, an admin-only refusal and an unreachable Cloud. Edits
+// apply to local state.
 import { componentEntry } from "../../../gallery/format";
 import type { SpendCap } from "../../cloud/spendCap";
 import type { SpendingSettings } from "../spending";
 import type { SpendingLayout } from "./SpendingCard";
 
-type Props = { settings: SpendingSettings; read: SpendCap | null; layout: SpendingLayout };
+type Props = {
+  settings: SpendingSettings;
+  read: SpendCap | null;
+  layout: SpendingLayout;
+  busy?: boolean;
+  error?: string | null;
+};
 
 // A fixed period end, so captures never move with the clock.
 const PERIOD_END = Date.UTC(2026, 11, 1, 8);
@@ -26,7 +34,7 @@ const on: SpendingSettings = { ...off, overage_limit_usd: 50 };
 
 async function load() {
   const { SpendingCardDemo } = await import("./SpendingCard");
-  return function Spending({ settings, read, layout }: Props) {
+  return function Spending({ settings, read, layout, busy, error }: Props) {
     return (
       <section className="settings-page" style={{ padding: 16 }}>
         <SpendingCardDemo
@@ -34,6 +42,8 @@ async function load() {
           settings={settings}
           read={read}
           layout={layout}
+          busy={busy}
+          error={error}
         />
       </section>
     );
@@ -83,6 +93,18 @@ export default componentEntry<Props>({
     "meter-paused-100": {
       note: "Meter layout paused at the limit: a full meter under the paused banner.",
       props: { settings: on, read: read("at_cap", 50, true), layout: "meter" },
+    },
+    "save-saving": {
+      note: "The live card while a save is in flight: the switch, field and size picker are disabled.",
+      props: { settings: on, read: null, layout: "rows", busy: true },
+    },
+    "save-refused-admin": {
+      note: "A member who is not a team admin saved a limit: cmux-api refused it (team.roles_required), worded in Rust.",
+      props: { settings: on, read: null, layout: "rows", error: "Only a team admin can change the overage limit." },
+    },
+    "save-unreachable": {
+      note: "Cloud did not answer: a retryable refusal; saving the same amount again reuses the save's key.",
+      props: { settings: on, read: null, layout: "rows", error: "Couldn't reach Cloud. Try again." },
     },
     "ask-above-16": {
       note: "Overage off with the ask threshold raised to 16 vCPU · 32 GB.",

@@ -1,4 +1,4 @@
-// Settings > Cloud > Spending's card: it hands every change to its callbacks (no write path exists yet), an
+// Settings > Cloud > Spending's card: it hands every change to its callbacks (CloudSpendingCard saves them), an
 // emptied field is off, a bad amount is refused in place, and the paused banner offers Raise limit and Run on
 // This Mac.
 import { afterAll, expect, test } from "bun:test";

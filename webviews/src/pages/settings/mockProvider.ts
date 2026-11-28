@@ -103,6 +103,7 @@ import {
   type HistoryMutationResult,
   type DeveloperTokensRun,
   type DeveloperTokensState,
+  type SpendingSaveOutcome,
 } from "./ops";
 import { mockLooks, previewLook, runLooks } from "./mockLooks";
 import { rowsByKey, schema, hostRowsByKey } from "./schema";
@@ -897,6 +898,16 @@ export class MockSettingsProvider {
         this.worktreeReadHold
           ? this.worktreeReadHold.then(() => this.readWorktree(params as { path: string }))
           : this.readWorktree(params as { path: string }),
+      "cmux.settings.cloud.spending.state": () => {
+        if (!this.spending) throw new ProtocolError("cmux.page.unavailable", "spending is unavailable");
+        return { available: true };
+      },
+      "cmux.settings.cloud.spending.set": (params) => {
+        const save = params as { overage_usd: number | null; key: string };
+        this.spendingSaves.push(save);
+        if (!this.spending) throw new ProtocolError("cmux.page.unavailable", "spending is unavailable");
+        return this.spending(save);
+      },
       "cmux.settings.cloud.allotment.get": () => {
         if (!this.allotment) throw new ProtocolError("cmux.settings.unavailable", "this host has no Compute part");
         return this.allotment;
@@ -1384,6 +1395,11 @@ export class MockSettingsProvider {
   allotment: AllotmentView | null = structuredClone(mockAllotments.proposalUp);
   /** Compute gestures the page sent, in order. */
   readonly allotmentRuns: AllotmentSet[] = [];
+  /** Settings > Cloud > Spending's save, as the app answers it; null is the switch off (the default): the card draws
+   * nothing. */
+  spending: ((save: { overage_usd: number | null; key: string }) => SpendingSaveOutcome) | null = null;
+  /** Spending saves the page sent, in order. */
+  readonly spendingSaves: { overage_usd: number | null; key: string }[] = [];
 
   /** Settings > Models as the app serves it (mockModels.ts); null is a host without the part. */
   models: ModelsState | null = structuredClone(mockModels.macLogins);

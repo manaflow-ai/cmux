@@ -137,6 +137,7 @@ import {
   type PreviousBuild,
   type CreatedToken,
   type DeveloperTokensRun,
+  type SpendingSaveOutcome,
   type DeveloperTokensState,
 } from "./ops";
 
@@ -1207,6 +1208,20 @@ export class SettingsStore {
     if (verb !== "status") await this.request("cmux.settings.customize.run", { verb });
     const reply = await this.request("cmux.settings.customize.run", { verb: "status" });
     return reply.ok ? (reply.value?.try_on ?? null) : null;
+  }
+
+  /** Settings > Cloud > Spending: whether the app serves the overage save (its default-off switch is on and the
+   * person is signed in). False draws no card. */
+  async spendingAvailable(): Promise<boolean> {
+    const reply = await this.request("cmux.settings.cloud.spending.state", {});
+    return reply.ok && reply.value?.available === true;
+  }
+
+  /** Settings > Cloud > Spending, the person's one save: the outcome, or a refusal when the app refused the call. */
+  async spendingSave(overageUsd: number | null, key: string): Promise<SpendingSaveOutcome> {
+    const reply = await this.request("cmux.settings.cloud.spending.set", { overage_usd: overageUsd, key });
+    if (reply.ok && reply.value) return reply.value;
+    return { kind: "refused", code: "page", message: "Couldn't save the overage limit. Try again.", retry: false };
   }
 
   /** Settings > Team > Compute: the team's Cloud allotment and the scheduler's proposal; null when
