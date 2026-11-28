@@ -1,0 +1,212 @@
+{
+  "schema": "standalone-files/v1",
+  "about": "Files that consumers outside this repository fetch alone (contents API, raw URL, `git show REF:path`, a non-cone sparse checkout of manaflow-ai/cmux) and run. tests/test_ci_standalone_files.py builds each set alone in an empty tree and fails when a script in it loads in the full tree but not alone, or imports a repository file the set leaves out (cmux#62040: fake_agent.py read a sibling guidance_sources.json at import and the notify-banner-click probe failed for 17 h). cmuxterm-hq's tests/test_cmux_standalone_files.py fails an hq change whose single-file fetch of cmux is not a set here. `files` are git sparse patterns (non-cone unless `cone`); `run` defaults to every listed .py/.sh/.js/.ts file.",
+  "sets": [
+    {
+      "consumer": "cmuxterm-hq .github/actions/cmux-files: synthetic-probes.yml (notify-banner-click, notify-banner-sweep, ...), own-machines-e2e.yml, next-dogfood.yml; build-fleet/cloud_round_trip/guest.py; build-fleet/pr_capture (raw URL); stub agent",
+      "files": [
+        "cmux-tui/crates/acpmux/tests/fake_agent.py"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/actions/cmux-files: synthetic-probes.yml classic-to-next stub",
+      "files": [
+        "cmux-tui/crates/acpmux/tests/fake_agent.py",
+        "tests/fixtures/classic-to-next/session-com.cmuxterm.app.json"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/actions/cmux-files: synthetic-probes.yml nightly-target-click fixture (pinned ref; checked here for the next bump)",
+      "files": [
+        "evals/computer-use/fixtures/fixture_app.py"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq tools/cloud-chaos/chaos_agent.py, chaos_suite.py (raw URL); cloud-paused-resume-proof.yml (sparse)",
+      "files": [
+        "tests/fixtures/model-stub/model_stub.py"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/lane-gh-broker-tests.yml cmux classifier sources (contents API, flat into one folder)",
+      "files": [
+        "scripts/ci/base_red_excuse.py",
+        "scripts/ci/test_reds.py",
+        "scripts/ci/main_fix_evidence.py",
+        "scripts/ci/gh_pages.py",
+        "scripts/ci/webviews_test_results.py"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/nightly-next-legacy.yml, nightly-next-linux.yml lease tools (raw URL, flat into one folder)",
+      "files": [
+        "scripts/ci/classic_publish_lease.py",
+        "scripts/ci/r2_cas.py",
+        "scripts/ci/upload-r2-object.py"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/fleet-reconciler-verdict-replay.yml (raw URL, pinned)",
+      "files": [
+        "scripts/ci/test_reds.py"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq build-fleet/live-builder/publish.sh (git show)",
+      "files": [
+        "scripts/ci/upload-r2-object.py"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq scripts/bin/update-git-cow.sh (raw URL)",
+      "files": [
+        "scripts/cmux_worktree.py"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq scripts/pr-preview/acpmux-bin.sh (git show)",
+      "files": [
+        "scripts/ci/cmux_tui_tree_key.py",
+        "scripts/cmux-next/cmux-tui-tree-inputs.txt"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq skills/review/autoreview/scripts/cmux-policy-check (git show)",
+      "files": [
+        "scripts/check-pbxproj.sh",
+        "scripts/normalize-pbxproj.py",
+        "scripts/check-pbxproj-group-membership.py"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/freestyle-git-carry.yml (raw URL, pinned)",
+      "files": [
+        "scripts/measure/git-carry-ready.sh"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/cloud-create-latency.yml measure (sparse checkout)",
+      "files": [
+        "scripts/cmux-next/cloud-journey.ts"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/fleet-reconciler-tip-suite-dispatch.yml dispatch (sparse checkout)",
+      "files": [
+        "scripts/ci/tip_swift_suite_plan.js"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/live-apply-agent-loop.yml loop (sparse checkout)",
+      "files": [
+        "scripts/measure/agent-loop.sh",
+        "scripts/measure/agent-loop.py",
+        "scripts/cmux-next/live-apply.py",
+        "scripts/cmux-next/live_apply.py",
+        "scripts/ci/fresh_home_launch_smoke.py",
+        "scripts/ci/frame-pacing/console-session.sh",
+        "scripts/ci/lib/signing-runtime-guard.sh",
+        "scripts/e2e/ocr.swift",
+        "webviews/package.json"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/next-dogfood.yml pick (sparse checkout)",
+      "files": [
+        "scripts/ci/nightly_next_launch_smoke.py"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/next-dogfood.yml dogfood (sparse checkout)",
+      "files": [
+        "scripts/ci/fresh_home_launch_smoke.py",
+        "scripts/measure/nightly-fresh-launch.py",
+        "scripts/ci/nightly_next_artifact_check.py",
+        "scripts/ci/release-signer/verify_appcast_item.py",
+        "scripts/ci/frame-pacing/console-session.sh",
+        "scripts/ci/lib/signing-runtime-guard.sh"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/next-dogfood.yml relaunch-restore (sparse checkout)",
+      "files": [
+        "scripts/ci/relaunch_restore_check.py",
+        "scripts/ci/fresh_home_launch_smoke.py",
+        "scripts/ci/stable_next_ui_journey.py",
+        "scripts/ci/nightly_next_artifact_check.py",
+        "scripts/ci/release-signer/verify_appcast_item.py",
+        "scripts/ci/frame-pacing/console-session.sh",
+        "scripts/ci/lib/signing-runtime-guard.sh",
+        "cmux-tui/crates/acpmux/tests/fake_agent.py"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/next-dogfood.yml launch-tti (sparse checkout)",
+      "files": [
+        "scripts/ci/launch_tti_check.py",
+        "scripts/ci/launch_stages.py",
+        "scripts/ci/relaunch_restore_check.py",
+        "scripts/ci/fresh_home_launch_smoke.py",
+        "scripts/ci/stable_next_ui_journey.py",
+        "scripts/ci/nightly_next_artifact_check.py",
+        "scripts/ci/release-signer/verify_appcast_item.py",
+        "scripts/ci/frame-pacing/console-session.sh",
+        "scripts/ci/lib/signing-runtime-guard.sh",
+        "scripts/cmux-next/safe_log.py",
+        "cmux-tui/crates/acpmux/tests/fake_agent.py"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/nightly-next-legacy.yml decide (sparse checkout)",
+      "files": [
+        "scripts/ci/nightly-next-legacy-target.py"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/paired-probes.yml ios-screen-share-production-host (sparse checkout); screen-share-linux-chevron-probe.yml screen-share-linux-chevron-nightly-host",
+      "files": [
+        "scripts/ci/ios_screen_share_live.py"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/paired-probes.yml ios-screen-share-production (sparse checkout)",
+      "files": [
+        "cmux-next-ios/UITests/ScreenSharingLiveUITests.swift"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/pairing-invite-e2e.yml e2e (sparse checkout)",
+      "files": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/pairing-words.txt"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/synthetic-probes.yml rollback-drill (sparse checkout)",
+      "files": [
+        "scripts/ci/nightly_next_feed_rollback.py"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/synthetic-probes.yml a11y-walk (sparse checkout)",
+      "files": [
+        "scripts/cmux-next/check-motion.sh",
+        "scripts/cmux-next/reduce-motion-audit.py",
+        "Packages/macOS/CmuxNext/Sources",
+        "webviews/src",
+        "cmux-next-ios",
+        "ios",
+        "Packages/iOS"
+      ]
+    },
+    {
+      "consumer": "cmuxterm-hq .github/workflows/synthetic-probes.yml perf-tabs (sparse checkout)",
+      "files": [
+        "scripts/cmux-next/perf-cron.py",
+        "scripts/cmux-next/perf-budgets.py",
+        "scripts/cmux-next/perf-budgets.json",
+        "scripts/cmux-next/perf-profile-split.py",
+        "scripts/perf-bench"
+      ]
+    }
+  ]
+}
