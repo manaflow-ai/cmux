@@ -67,8 +67,10 @@ SWIFT_ISSUE = re.compile(r"^.+? recorded an? (?:issue|known issue)\b")
 SWIFT_CASE = re.compile(r"^case (?P<detail>passing \d+ arguments? .+)$")
 SWIFT_RUN = re.compile(r"^run(?: |$)")
 
-XCTEST_STARTED = re.compile(r"^\s*Test Case '(?P<name>[^']+)' started")
-XCTEST_FINISHED = re.compile(r"^\s*Test Case '(?P<name>[^']+)' (?:passed|failed|skipped)\b")
+# `Test case` (lower case) is xcodebuild's own line for each Swift Testing test it ran on a simulator:
+# `Test case 'LinkRecoveryTests/resume()' passed on 'iPhone 17 Pro - CmuxMobileKit-Package (4121)' (0.4 seconds)`.
+XCTEST_STARTED = re.compile(r"^\s*Test [Cc]ase '(?P<name>[^']+)' started")
+XCTEST_FINISHED = re.compile(r"^\s*Test [Cc]ase '(?P<name>[^']+)' (?:passed|failed|skipped)\b")
 XCTEST_SUITE = re.compile(r"^\s*Test Suite '[^']+' (?:started|passed|failed)\b")
 # SwiftPM's last build line; the stall clock starts here, so a slow compile or
 # link is bounded only by the total timeout.

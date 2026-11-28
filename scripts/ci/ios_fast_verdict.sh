@@ -89,8 +89,10 @@ kit() {
     (cd cmux-next-ios/CmuxMobileKit && xcodebuild build-for-testing "${common[@]}" "${only[@]}") || status=1
     phase "kit build for testing ($tests)" $((SECONDS - t))
     # A bound on the test run only: a hung test (no Swift Testing time limit) used to hold the verdict to the
-    # job's 40 min ceiling (run 46154061623: 1962 s of tests, healthy runs execute 200 to 260 s). Past the bound the
-    # watchdog samples the test processes, kills the run and names it timed out, so a red head reads red in 15 min.
+    # job's 40 min ceiling. The stall window below catches a hang; the total is a backstop above the longest healthy
+    # suite: CmuxMobileLiveTests runs about 1962 s on a 6-vCPU Mac (run 46154061623 finished, 1193 cases), so a
+    # 900 s total killed every plan with it (cmux#65273 runs 46183201681, 46183241499 on two Macs). 2100 s fits
+    # under the job's 40 min ceiling.
     # The test run is not -quiet: the watchdog names the hung test from the started/finished lines, and -quiet left
     # it only "Testing started" (cmux#59376, run 46185679058: 15 min, "no test was in flight"). With the lines, a
     # test that starts nothing new for --stall-seconds fails at once, named. The runner is launchd_sim's child, not
@@ -98,7 +100,7 @@ kit() {
     test_common=()
     for arg in "${common[@]}"; do [[ "$arg" == -quiet ]] || test_common+=("$arg"); done
     (( status )) || (cd cmux-next-ios/CmuxMobileKit && python3 -I "$GITHUB_WORKSPACE_ROOT/scripts/ci/hung_test_watchdog.py" \
-      --timeout-seconds "${IOS_FAST_TEST_TIMEOUT_SECONDS:-900}" --stall-seconds "${IOS_FAST_TEST_STALL_SECONDS:-300}" \
+      --timeout-seconds "${IOS_FAST_TEST_TIMEOUT_SECONDS:-2100}" --stall-seconds "${IOS_FAST_TEST_STALL_SECONDS:-300}" \
       --sample-also 'iPhoneSimulator\.platform/.*xctest|CoreSimulator/Devices/'"$udid"'/.*\.xctest' \
       --label "iOS fast verdict kit tests ($tests)" -- \
       xcodebuild test-without-building "${test_common[@]}" "${only[@]}" -resultBundlePath "$bundle") || status=1
