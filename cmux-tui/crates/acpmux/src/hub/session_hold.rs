@@ -64,6 +64,10 @@ pub struct FleetHold {
     /// Who set it: the caller session's name or id, else `person`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<String>,
+    /// The order its chats thaw in when it lifts (RFD 0177 piece 4, the cgroup freezer's thaw):
+    /// entries as in `allow`; a chat thaws at its first matching entry, the rest after, by name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thaw_order: Vec<String>,
 }
 
 /// How long a fleet hold lasts when `--for` names no time: long enough for a night's triage,
@@ -75,26 +79,48 @@ impl FleetHold {
     /// (no `until`, no `by`) lifts [`DEFAULT_FOR_MS`] after it was set: those are the leftovers
     /// that held hosts' chats silently. `--for never` (no `until`, a `by`) stays.
     pub fn active(&self, now_ms: u64) -> bool {
-        let until = match (self.until, &self.by) {
+        self.on && now_ms < self.lifts_at()
+    }
+
+    /// When it lifts by itself (ms since the epoch); `u64::MAX`: never.
+    pub fn lifts_at(&self) -> u64 {
+        match (self.until, &self.by) {
             (Some(until), _) => until,
             (None, Some(_)) => u64::MAX,
             (None, None) => self.at.saturating_add(DEFAULT_FOR_MS),
-        };
-        self.on && now_ms < until
+        }
     }
 
     /// Whether the allowlist lets chat `name` (id `id`) run.
     pub fn allows(&self, name: &str, id: &str) -> bool {
-        let lower = name.to_lowercase();
-        self.allow.iter().any(|a| match a.strip_suffix('*') {
-            Some(rest) => match rest.strip_prefix('*') {
-                Some(term) => !term.is_empty() && lower.contains(&term.to_lowercase()),
-                None => name.starts_with(rest) || id.starts_with(rest),
-            },
-            None => a == name || a == id,
-        })
+        self.allow.iter().any(|a| entry_matches(a, name, id))
+    }
+
+    /// Where chat `name` (id `id`) thaws: the index of its first `thaw_order` entry, or after
+    /// all of them.
+    pub fn thaw_rank(&self, name: &str, id: &str) -> usize {
+        self.thaw_order
+            .iter()
+            .position(|a| entry_matches(a, name, id))
+            .unwrap_or(self.thaw_order.len())
     }
 }
+
+/// An allowlist or thaw-order entry: `NAME` (or id) exactly, `PREFIX*` a prefix, `*TERM*` any
+/// name containing TERM, in any case.
+fn entry_matches(entry: &str, name: &str, id: &str) -> bool {
+    match entry.strip_suffix('*') {
+        Some(rest) => match rest.strip_prefix('*') {
+            Some(term) => !term.is_empty() && name.to_lowercase().contains(&term.to_lowercase()),
+            None => name.starts_with(rest) || id.starts_with(rest),
+        },
+        None => entry == name || entry == id,
+    }
+}
+
+/// The longest the thaw task sleeps before it reads the fleet hold again: a file written by
+/// another tool, or a hold the host slept through, thaws within this.
+pub const THAW_POLL_MS: u64 = 60_000;
 
 /// The fleet hold a daemon read last, by the file's modification time.
 #[derive(Default)]
@@ -261,18 +287,108 @@ impl Hub {
         let reason = params.get("reason").and_then(Value::as_str).map(str::to_owned);
         let by = params.get("by").and_then(Value::as_str).map(str::to_owned);
         let at = now_ms();
+        // `thawOrder`: absent, a hold that is on keeps the one it had.
+        let thaw_order = match params.get("thawOrder").and_then(Value::as_array) {
+            Some(a) => a.iter().filter_map(Value::as_str).map(str::to_owned).collect(),
+            None => {
+                let was = cache.get();
+                if on && was.active(at) { was.thaw_order } else { Vec::new() }
+            }
+        };
         // `forMs`: 0 keeps it until released; absent, [`DEFAULT_FOR_MS`].
         let for_ms = params.get("forMs").and_then(Value::as_u64).unwrap_or(DEFAULT_FOR_MS);
         let until = (on && for_ms > 0).then(|| at.saturating_add(for_ms));
-        let hold = FleetHold { on, allow, reason, at, until, by };
+        let hold = FleetHold { on, allow, reason, at, until, by, thaw_order };
         cache
             .put(&hold)
             .map_err(|e| RpcError::internal(format!("could not write the fleet hold: {e}")))?;
         drop(cache);
+        // The thaw task lets go what this no longer holds (`start_fleet_thaw`).
+        self.fleet_thaw.notify_one();
         tracing::info!(on, allow = ?hold.allow, "fleet hold set");
         let held =
             if on { self.sessions().iter().filter(|s| self.session_held(s)).count() } else { 0 };
         Ok(json!({"fleetHold": hold, "held": held}))
+    }
+
+    /// The chats the fleet hold holds now, by id: no hold of their own, and not allowed.
+    pub(crate) fn fleet_held_ids(&self) -> std::collections::HashSet<String> {
+        let fleet = self.fleet_hold();
+        if !fleet.active(now_ms()) {
+            return std::collections::HashSet::new();
+        }
+        self.session_handles()
+            .into_iter()
+            .filter(|s| tag_of(s).is_none() && !fleet.allows(&s.meta().name, &s.id))
+            .map(|s| s.id.clone())
+            .collect()
+    }
+
+    /// The thaw: the chats in `was` (fleet-held then) that nothing holds now and that no
+    /// release of their own let go, resumed as `session release` resumes one (what their log
+    /// left queued, what their inbox kept), in `order`'s thaw order. Returns their names, in
+    /// that order. A hold that froze a host used to need a lane's action to thaw it
+    /// (RFD 0177, "a freeze with no thaw").
+    pub(crate) fn thaw_fleet(
+        self: &Arc<Self>,
+        was: &std::collections::HashSet<String>,
+        order: &FleetHold,
+    ) -> Vec<String> {
+        if was.is_empty() {
+            return Vec::new();
+        }
+        let mut thaw: Vec<(usize, String, Arc<Session>)> = self
+            .session_handles()
+            .into_iter()
+            .filter(|s| was.contains(&s.id) && tag_of(s).is_none() && !self.session_held(s))
+            .map(|s| {
+                let name = s.meta().name;
+                (order.thaw_rank(&name, &s.id), name, s)
+            })
+            .collect();
+        thaw.sort_by(|a, b| (a.0, &a.1, &a.2.id).cmp(&(b.0, &b.1, &b.2.id)));
+        for (_, _, s) in &thaw {
+            self.append(s, "mux", "session_hold", json!({"held": false, "by": "fleet"}));
+        }
+        let sessions: Vec<Arc<Session>> = thaw.iter().map(|t| t.2.clone()).collect();
+        self.resume_restored(&sessions);
+        thaw.into_iter().map(|t| t.1).collect()
+    }
+
+    /// One task thaws what the fleet hold lets go: at its `until`, on a release or a narrower
+    /// hold (`set_fleet_hold` wakes it), and within [`THAW_POLL_MS`] of a file another tool
+    /// wrote. Each lift logs `fleet hold thawed N` with the names in thaw order.
+    pub(crate) fn start_fleet_thaw(self: &Arc<Self>) {
+        let weak = Arc::downgrade(self);
+        crate::supervise::restarting("fleet-thaw", &self.fatal, move || {
+            let weak = weak.clone();
+            async move {
+                let Some(hub) = weak.upgrade() else { return };
+                hub.wait_startup().await;
+                let mut was = hub.fleet_held_ids();
+                loop {
+                    let rearm = hub.fleet_thaw.notified();
+                    // The hold as it was: its thaw order is the one that lifts.
+                    let hold = hub.fleet_hold();
+                    let now = now_ms();
+                    let ms = if hold.active(now) {
+                        hold.lifts_at().saturating_sub(now).min(THAW_POLL_MS)
+                    } else {
+                        THAW_POLL_MS
+                    };
+                    tokio::select! {
+                        () = hub.shutdown.notified() => break,
+                        () = rearm => {}
+                        () = tokio::time::sleep(std::time::Duration::from_millis(ms)) => {}
+                    }
+                    let thawed = hub.thaw_fleet(&was, &hold);
+                    if !thawed.is_empty() {
+                        tracing::info!("fleet hold thawed {}: {}", thawed.len(), thawed.join(" "));
+                    }
+                    was = hub.fleet_held_ids();
+                }
+            }
+        });
     }
 
     /// The refusal of a new chat named `name` while the fleet hold is on and its allowlist does

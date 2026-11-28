@@ -64,9 +64,33 @@ final class TerminalClipboardRequests {
             Self.complete(surface, text: "", available: ["text/plain"], state: state, confirmed: false)
             return GHOSTTY_CLIPBOARD_READ_STARTED
         }
-        let text: String? = if imagePaste, wantsText {
-            TerminalPasteboard.pasteTextSavingImage(from: pasteboard)
-        } else if imagePaste, TerminalPasteboard.pasteText(from: pasteboard) == nil,
+        if imagePaste, wantsText {
+            let contents = TerminalPasteboardContents(pasteboard: pasteboard)
+            if let text = TerminalPasteboard.pasteText(from: contents), !text.isEmpty {
+                Self.complete(surface, text: text, available: listAvailable ? ["text/plain"] : [], state: state, confirmed: false)
+                return GHOSTTY_CLIPBOARD_READ_STARTED
+            }
+            guard let image = TerminalPasteboard.imageData(from: contents) else {
+                if !listAvailable { return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
+                Self.complete(surface, text: nil, available: [], state: state, confirmed: false)
+                return GHOSTTY_CLIPBOARD_READ_STARTED
+            }
+            // The image goes to disk off the main thread (a stalled disk would stall main); the read
+            // completes after, as a confirmation dialog's does.
+            let directory = TerminalPasteboard.imageDirectory
+            Task { [weak self] in
+                let file = await Task.detached(priority: .userInitiated) {
+                    TerminalPastedImageFile.write(image.data, fileExtension: image.fileExtension, directory: directory)
+                }.value
+                let text = file.map { TerminalPasteboard.shellEscaped($0.path) }
+                guard let self, let surface = self.view?.surface else { return }
+                Self.complete(surface, text: text, available: listAvailable && text != nil ? ["text/plain"] : [],
+                              state: state, confirmed: false)
+            }
+            return GHOSTTY_CLIPBOARD_READ_STARTED
+        }
+        let text: String? = if imagePaste,
+                  TerminalPasteboard.pasteText(from: pasteboard) == nil,
                   TerminalPasteboard.hasImage(pasteboard) {
             ""
         } else {
