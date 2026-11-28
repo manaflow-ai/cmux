@@ -109,6 +109,9 @@ fn to_hint(hint: CloudWakeHint) -> Hint {
         allowed: hint.allowed,
         loaded: hint.loaded,
         status: hint.status,
+        // The phone serves no chat from a copy (RFD 0144 piece 2 is the Mac shell's), so its
+        // hints wake as before.
+        reads_without_wake: false,
     }
 }
 
