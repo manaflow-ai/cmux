@@ -999,7 +999,8 @@ jobs:
             done
             todo=("${failed_alone[@]}")
           fi
-          # The replay rebuilds the merge parent (4-9 min): with less time left than that it would only reach the
+          # The replay rebuilds the crates the change touched on the merge parent (up to 9 min when acpmux-core changed):
+          # with less time left than that it would only reach the
           # cap, so the judge reads the base's own recent run alone and says so.
           if (( ${#todo[@]} > 0 )) && [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && (( $(left) < 600 )); then
             echo "::warning title=$JOB::no time for the merge parent's replay ($(left) s left of the budget); judged on the base's recent run, if one was found"
@@ -1007,8 +1008,13 @@ jobs:
           elif (( ${#todo[@]} > 0 )) && [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             names=("${todo[@]}")
             echo "::group::replay ${#names[@]} failing test(s) on the merge parent ${BASE_SHA:0:12}"
-            # The scope step fetched the merge parent; its build shares this target dir.
-            if git worktree add -f -f --detach "$RUNNER_TEMP/acpmux-base" "$BASE_SHA"; then
+            # The scope step fetched the merge parent. It is built in place, in this same checkout, and the head is
+            # checked out again after: cargo keys every workspace crate on its source path, so a worktree elsewhere
+            # ($RUNNER_TEMP/acpmux-base until 2026-11-27) rebuilt the whole workspace, about 9 min of a red run
+            # (job 140187307508: 9m 10s for the head, 9m 02s for the parent). In place git rewrites only the files
+            # that differ, so cargo rebuilds only the crates the change touched and those depending on them.
+            head_sha=$(git rev-parse HEAD)
+            if git -C "$GITHUB_WORKSPACE" checkout -q -f --detach "$BASE_SHA"; then
               # A test target the change adds is not on the merge parent, and cargo refuses the
               # whole run for one unknown `--test`: every red then read as the change's own
               # (#45327, which adds tests/permission_matrix.rs). The replay names only targets
@@ -1020,14 +1026,15 @@ jobs:
                   continue
                 fi
                 i=$((i + 1))
-                if compgen -G "$RUNNER_TEMP/acpmux-base/cmux-tui/crates/*/tests/${suites[i]}.rs" ||
-                  compgen -G "$RUNNER_TEMP/acpmux-base/cmux-tui/crates/*/tests/${suites[i]}/main.rs"; then
+                if compgen -G "crates/*/tests/${suites[i]}.rs" ||
+                  compgen -G "crates/*/tests/${suites[i]}/main.rs"; then
                   base_suites+=(--test "${suites[i]}")
                 fi > /dev/null
               done
-              (cd "$RUNNER_TEMP/acpmux-base/cmux-tui" &&
-                CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target" \
-                  bounded 30 cargo test "${base_suites[@]}" -- --exact "${names[@]}") > "$base_log" 2>&1 || true
+              bounded 30 cargo test "${base_suites[@]}" -- --exact "${names[@]}" > "$base_log" 2>&1 || true
+              # The head again before anything else reads the checkout (the verdict script, the saves below).
+              git -C "$GITHUB_WORKSPACE" checkout -q -f --detach "$head_sha" ||
+                { echo "::error title=$JOB::could not check the head out again after the merge parent replay"; exit 1; }
             fi
             cat "$base_log" 2>/dev/null || true
             echo "::endgroup::"

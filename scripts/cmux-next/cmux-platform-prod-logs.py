@@ -610,21 +610,61 @@ PROVIDER_ERROR_PHRASES = frozenset({
     "unconfirmed restore", "unconfirmed snapshot selector", "unconfirmed snapshot source",
     "unreadable HTTPS proxies", "unreadable public egress", "unsupported HTTPS proxy", "wrong Cloud team",
     "wrong VM answer", "HTTP 404 (the team's mesh is not found)",
+    # vmapi/Network.ts: the team mesh a create prepares alongside the VM (CloudCore preparePinnedNetwork).
+    "invalid report selector", "invalid stored mesh creation", "invalid stored mesh creation body",
+    "invalid stored target", "mesh creation HTTP 404", "mesh creation belongs to another owner route",
+    "no readable mesh ACL answer", "no readable mesh creation answer", "no readable member answer",
+    "no readable attachment answer", "stored target belongs to another owner route",
+    "the Cloud mesh cannot be retargeted", "the Cloud mesh changed", "the creation or owner route is no longer active",
+    "the member owner route changed", "the owner route changed", "unconfirmed VM attachment owner",
+    "unconfirmed attachment identity", "unconfirmed member identity", "unconfirmed member owner",
+    "unconfirmed mesh ACL", "unconfirmed mesh ACL apply", "unconfirmed mesh ACL target", "unconfirmed mesh creation",
+    "unconfirmed proxy replacement", "unconfirmed member answer", "unconfirmed attachment",
+    "unreadable answer", "exec answer has no exit status",
+    # Driver.ts, DriverWiring.ts, OwnerRpc.ts, CoderouterEdge.ts: unprefixed platform phrases.
+    "the VM's internet access could not be read", "write bind file: the VM is not there yet",
+    "the VM's internet access did not change as asked", "the machine network is unavailable",
+    "the personal VM tenant is still being confirmed", "TeamDO's tenant read did not answer; retry",
+    "the team's gateway mode could not be read", "recorded transport is unavailable",
+    "an orphan-report transport is unavailable", "no transport for the census",
 })
 PROVIDER_HTTP = re.compile(r"^HTTP ([1-5][0-9]{2})(?![0-9])")
+# Every provider module prefixes its messages with its name (vmapi/CloudProvider.ts unavailable: "VM API: ...",
+# vmapi/Network.ts "VM API network: ...", gce "GCE: ...", ownhost "own-host: "); the class keeps the prefix.
+PROVIDER_SOURCES = ("VM API network: ", "VM API: ", "GCE: ", "own-host: ")
+# A step's HTTP status: "file write HTTP 500", "mesh ACL apply HTTP 400 ...", gce "<step>: HTTP 503 ...".
+PROVIDER_STEP_HTTP = re.compile(r"^(file write|mesh ACL apply|mesh ACL read|mesh creation):? HTTP ([1-5][0-9]{2})(?![0-9])")
+# CloudCore wraps a thrown non-DriverError as String(e): only its JS error name is kept.
+PROVIDER_JS_ERROR = re.compile(r"^(Error|TypeError|RangeError|SyntaxError|ReferenceError|AbortError|TimeoutError)(?=:|$)")
 
 
 def provider_error_class(message):
-    """A fixed class for a provider call's error message: a PROVIDER_ERROR_PHRASES phrase, "HTTP <status>" or other."""
+    """A fixed class for a provider call's error message: its source prefix (PROVIDER_SOURCES) and then a
+    PROVIDER_ERROR_PHRASES phrase, "HTTP <status>", "<step> HTTP <status>", "boot image is not listed yet", a JS
+    error name, or other. No text past a known phrase is ever kept."""
     if not isinstance(message, str):
         return "other"
+    source = next((p for p in PROVIDER_SOURCES if message.startswith(p)), "")
+    rest = message[len(source):]
+    return source + _provider_phrase_class(rest) if source else _provider_phrase_class(rest)
+
+
+def _provider_phrase_class(message):
     if message in PROVIDER_ERROR_PHRASES:
         return message
     heads = [p for p in PROVIDER_ERROR_PHRASES if message.startswith(p + ": ") or message.startswith(p + " (")]
     if heads:
         return max(heads, key=len)
+    if message.startswith("boot image ") and message.endswith(" is not listed yet"):
+        return "boot image is not listed yet"
     m = PROVIDER_HTTP.match(message)
-    return f"HTTP {m.group(1)}" if m else "other"
+    if m:
+        return f"HTTP {m.group(1)}"
+    m = PROVIDER_STEP_HTTP.match(message)
+    if m:
+        return f"{m.group(1)} HTTP {m.group(2)}"
+    m = PROVIDER_JS_ERROR.match(message)
+    return m.group(1) if m else "other"
 
 
 def bind_probe(p):
