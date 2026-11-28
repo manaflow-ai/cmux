@@ -274,15 +274,18 @@ class NightlyGateTest(unittest.TestCase):
 
     def test_the_table_maps_the_nightly_causes(self) -> None:
         steps = ci_steps.load().steps
-        for name, paths in (("rust-notices", ["cmux-tui/Cargo.lock"]),
-                            ("rust-notices", ["scripts/cmux-next/generate-third-party-notices.sh"])):
-            with self.subTest(name):
-                self.assertTrue(steps[name].nightly)
+        # scripts/cmux-next/* also feeds the pre-push hook's fixtures (web-lint-hook-tests, whose nightly twin is the
+        # webview checks), so a script there names both causes.
+        for name, paths in ((["rust-notices"], ["cmux-tui/Cargo.lock"]),
+                            (["web-lint-hook-tests", "rust-notices"],
+                             ["scripts/cmux-next/generate-third-party-notices.sh"])):
+            with self.subTest(paths[0]):
+                self.assertTrue(all(steps[n].nightly for n in name))
                 # The land_gate steps a path also routes run beside the nightly's (next-state-roots scans
                 # scripts/cmux-next/*.sh for Classic ids; cmux-next-idle-wakeups reads Cargo.lock, cmux#63822): only
                 # the steps with a nightly twin are the nightly's causes.
                 self.assertEqual([n for n in ci_steps.nightly_gate_steps(ci_steps.load(), paths)
-                                  if steps[n].nightly], [name])
+                                  if steps[n].nightly], name)
 
     def test_a_storage_key_change_runs_the_persisted_formats_registry_on_the_pr_and_the_landing_head(self) -> None:
         # cmux#57474 (cmux.acpmux.modelPickerOrder), #62806 (two newTab keys) and #54956 added a webviews storage key
@@ -310,8 +313,8 @@ class NightlyGateTest(unittest.TestCase):
         # Cargo.lock also reaches the idle daemon tests (cmux-next-idle-wakeups, a land_gate step).
         self.assertEqual(only, ["web-typecheck", "cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
-        self.assertIn("nightly gate: runs only next-state-roots, rust-notices", why["pr-pipeline.yml"])
-        self.assertEqual((jobs, only), (["linux"], ["next-state-roots", "rust-notices"]))
+        self.assertIn("nightly gate: runs only next-state-roots, web-lint-hook-tests, rust-notices", why["pr-pipeline.yml"])
+        self.assertEqual((jobs, only), (["linux"], ["next-state-roots", "web-lint-hook-tests", "rust-notices"]))
 
     def test_a_webviews_only_landing_head_runs_the_webviews_checks(self) -> None:
         # cmux#57668's files (2026-11-28 00:10Z): a webviews-only landing head on the affected tier. Before, it routed
@@ -351,14 +354,22 @@ class NightlyGateTest(unittest.TestCase):
             self.assertTrue(step.blocks)
             self.assertEqual((step.job, step.tier, step.timeout), ("linux", "push", 360))
             self.assertEqual(step.needs, ("bun", "node"))
-        self.assertEqual(hooks.inputs, types.inputs)
+        # The hook tests run on throwaway repositories and read only the hook's own files of the real tree, so a
+        # webviews source change routes the typecheck alone (Leo, 2026-11-23: "de facto, im asking for 99% fewer
+        # minutes of ci time, period."); the post-merge batch still runs every linux step.
+        self.assertNotIn("webviews/**", hooks.inputs)
         self.assertEqual(hooks.nightly, types.nightly)
-        for path in ("webviews/src/App.tsx", "scripts/web_lint_prepush.py",
-                     "tests/test_web_lint_prepush.py", ".github/workflows/cmux-next-web-lint.yml"):
+        self.assertIn(types.name, ci_steps.route(table, ["webviews/src/App.tsx"])["linux"])
+        self.assertNotIn(hooks.name, ci_steps.route(table, ["webviews/src/App.tsx"]).get("linux", []))
+        for path in ("scripts/web_lint_prepush.py", "tests/test_web_lint_prepush.py",
+                     ".github/workflows/cmux-next-web-lint.yml"):
             with self.subTest(path=path):
                 for name in (hooks.name, types.name):
                     self.assertIn(name, ci_steps.route(table, [path])["linux"])
                     self.assertIn(name, self.landing([path])[2][1])
+        for path in ("webviews/package.json", "scripts/web-lint.sh"):
+            with self.subTest(path=path):
+                self.assertIn(hooks.name, ci_steps.route(table, [path])["linux"])
 
     def test_a_landing_head_off_the_nightly_steps_starts_nothing(self) -> None:
         start, _, (jobs, only) = self.landing(["web/app/page.css"])
