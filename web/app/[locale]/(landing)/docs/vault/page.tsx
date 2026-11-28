@@ -54,6 +54,7 @@ export default async function VaultPage({
       <ul>
         <li>{t("indexCodex")}</li>
         <li>{t("indexClaude")}</li>
+        <li>{t("indexCursor")}</li>
         <li>{t("indexOpenCode")}</li>
         <li>{t("indexPi")}</li>
       </ul>
