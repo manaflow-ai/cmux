@@ -15,8 +15,8 @@
 #     --artifact artifacts/cu-pointer-stays.tgz [--arg=engine_ref=SHA] --timeout 3600
 #
 # engine_ref= builds the engine from another commit (base behaviour) with this ref's harness.
-# Output: lines "CPS <tool> <delivery> moved_pt=<max> landed=<bool>", and
-# artifacts/cu-pointer-stays.tgz with guest/results.jsonl, guest/cps.mov, a PNG per gesture,
+# Output: lines "CPS <tool> <delivery> moved_pt=<max> landed=<bool>" (moved_pt: farthest the pointer
+# got from where the park left it), and artifacts/cu-pointer-stays.tgz (pass exactly that --artifact) with guest/results.jsonl, guest/cps.mov, a PNG per gesture,
 # guest/target.log and build logs. Exit 1 when any gesture moved the pointer more than 1 pt,
 # 4 when the run could not measure, else 0.
 set -uo pipefail
@@ -195,6 +195,10 @@ while (( $(date +%s) < deadline )); do
 done
 guest_n 'cd ~/cps/out && tar -c .' | tar -x -C "$out/guest" 2>/dev/null
 guest_status=$(guest_n 'cat ~/cps/status' 2>/dev/null)
+# The guest's display, park point and screencapture result go to the step log, so a run whose
+# artifact is lost still says what it measured against.
+grep -E 'Resolution|Retina' "$out/guest/facts.txt" 2>/dev/null | sed 's/^ */CPS-STAGE guest display: /'
+grep -h '^CPS-SETUP' "$out/guest/cps.stdout" 2>/dev/null
 [[ $finished == 1 ]] || { finish "guest.sh did not finish in the time left"; exit 4; }
 [[ -s "$out/guest/cps.txt" ]] || { tail -5 "$out/guest/results.jsonl" 2>/dev/null; finish "the guest measured nothing (status ${guest_status:-none}; guest/results.jsonl)"; exit 4; }
 finish

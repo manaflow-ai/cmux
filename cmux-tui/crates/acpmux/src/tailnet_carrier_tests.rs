@@ -28,7 +28,7 @@ fn who(login: Option<&str>) -> Identity {
 }
 
 #[test]
-fn the_setting_parses_and_defaults_to_off() {
+fn the_setting_parses() {
     assert_eq!(Mode::parse("on"), Some(Mode::On));
     assert_eq!(Mode::parse("direct-only"), Some(Mode::DirectOnly));
     assert_eq!(Mode::parse("off"), Some(Mode::Off));
@@ -229,4 +229,50 @@ async fn a_cold_localapi_read_is_awaited_briefly_and_never_runs_the_cli() {
     assert!(source.get(Duration::from_millis(50)).await.is_none());
     assert!(started.elapsed() >= Duration::from_millis(50));
     assert_eq!(cli_calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn the_default_is_off_and_only_a_named_mode_turns_it_on() {
+    let none = || None::<serde_json::Value>;
+    assert_eq!(Mode::default(), Mode::Off);
+    assert_eq!(Mode::resolve(None, none), Mode::Off, "nothing set: off");
+    assert_eq!(Mode::resolve(None, || Some("direct-only".into())), Mode::DirectOnly);
+    assert_eq!(Mode::resolve(None, || Some("off".into())), Mode::Off, "the setting off");
+    assert_eq!(Mode::resolve(None, || Some("on".into())), Mode::On);
+    assert_eq!(Mode::resolve(None, || Some("sideways".into())), Mode::Off, "not understood");
+    assert_eq!(Mode::resolve(Some("off"), || Some("on".into())), Mode::Off, "the env wins");
+    assert_eq!(Mode::resolve(Some("direct-only"), none), Mode::DirectOnly);
+    assert_eq!(Mode::from_env(), Mode::Off, "unit tests never read the developer's file");
+    // DERP and peer relays stay out of direct-only (RFD 0164; hq#26023).
+    assert!(!Mode::DirectOnly.offers(PeerPath::Derp));
+    assert!(!Mode::DirectOnly.offers(PeerPath::PeerRelay));
+}
+
+#[test]
+fn invalid_tailnet_setting_types_stay_off() {
+    use serde_json::json;
+    for value in [json!(false), json!(true), json!(0), json!(1), json!([]), json!({})] {
+        for doc in [
+            json!({"transport.tailnetCarrier": value}),
+            json!({"transport": {"tailnetCarrier": value}}),
+        ] {
+            let setting = || crate::user_settings::value(&doc, crate::tailnet_carrier::SETTING);
+            assert_eq!(Mode::resolve(None, setting), Mode::Off, "{doc}");
+            assert_eq!(Mode::resolve(Some("direct-only"), setting), Mode::DirectOnly);
+        }
+    }
+    assert_eq!(Mode::resolve(None, || Some(json!(null))), Mode::Off);
+}
+
+#[test]
+fn a_failed_tailnet_bind_backs_off_to_ten_minutes() {
+    use crate::tailnet_carrier::{MAX_BIND_WAIT, next_bind_wait};
+    let mut wait = FAILED_FRESH;
+    let mut waits = vec![];
+    for _ in 0..8 {
+        wait = next_bind_wait(wait);
+        waits.push(wait.as_secs());
+    }
+    assert_eq!(waits, [60, 120, 240, 480, 600, 600, 600, 600]);
+    assert_eq!(MAX_BIND_WAIT, Duration::from_secs(600));
 }
