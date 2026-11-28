@@ -213,7 +213,7 @@ export const CloudPlan = Schema.Struct({
    * The team's spending cap on Cloud machines (cmux-platform SpendCap.ts `capView`), absent where the cap is off. The
    * last read of the team's spend (state under, near or at_cap; null before the first read; cap_usd null when the
    * team has no cap), when running member machines pause if the team is still at its cap (pause_at, null when none is
-   * pending), and when the cap paused them (paused_at, null when it has not).
+   * pending), and when the cap paused them (paused_at, null when it has not); the pool and overage behind the cap.
    */
   spend_cap: Schema.optionalKey(
     Schema.Struct({
@@ -223,7 +223,14 @@ export const CloudPlan = Schema.Struct({
       period_end: Schema.NullOr(Millis),
       checked_at: Schema.NullOr(Millis),
       pause_at: Schema.NullOr(Millis),
-      paused_at: Schema.NullOr(Millis)
+      paused_at: Schema.NullOr(Millis),
+      /**
+       * RFD 0080 piece 8: the period's pool (USD, every seat; absent before the first billing period) and the admin's
+       * overage past it when the cap was set that way (usage.cap.set `overage_usd`; null = overage off, the cap is the
+       * pool; absent when set as a total). Settings > Cloud > Spending edits the overage, never the total.
+       */
+      included_usd: Schema.optionalKey(Schema.Number),
+      overage_usd: Schema.optionalKey(Schema.NullOr(Schema.Number))
     })
   )
 }).annotate({ identifier: "CloudPlan" })
@@ -623,7 +630,8 @@ export const CloudPlanGet = cloudRead("cloud.plan.get", Schema.Struct({}), Cloud
 /**
  * The team's Cloud usage so far this calendar month (UTC) and what it costs (cmux-platform metering): awake
  * vCPU-seconds and memory GiB-seconds of the machine's size, and GiB-seconds of disk held while paused. `usd` is the
- * billing owner's own price of each meter; a client shows it and computes no price. `gaps`: spans the meter has not
+ * billing owner's own price of each meter; a client shows it and computes no price. `rates`: the list rate
+ * behind each meter, shown on its line so the bill can be checked against the usage. `gaps`: spans the meter has not
  * counted yet (a VM whose usage is still arriving); empty when every second is in. Spare machines are never usage.
  * `payment_method`: whether the team has a card on file (brand and last four only; no card data enters cmux).
  * `stripe_mode`: "test" while payments run in the processor's test mode.
@@ -639,6 +647,10 @@ export const CloudUsageCurrent = Schema.Struct({
   memory_gib_seconds: Schema.Number,
   stored_gib_seconds: Schema.Number,
   usd: Schema.Struct({ vcpu: Schema.Number, memory: Schema.Number, stored: Schema.Number, total: Schema.Number }),
+  /** The list rates that priced `usd`: dollars per vCPU-hour and per GiB-hour awake, and per GiB-month of disk held while paused (a 730-hour month). Absent from a server that predates them. */
+  rates: Schema.optionalKey(
+    Schema.Struct({ vcpu_hour_usd: Schema.Number, memory_gib_hour_usd: Schema.Number, stored_gib_month_usd: Schema.Number })
+  ),
   gaps: Schema.Array(Schema.String),
   payment_method: Schema.Struct({
     attached: Schema.Boolean,

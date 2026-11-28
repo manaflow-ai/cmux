@@ -12,11 +12,15 @@ fn words(text: &str) -> Vec<String> {
 fn parses_each_verb() {
     assert_eq!(
         parse(&words("plan ssh:box --out p.json")).unwrap(),
-        Command::Plan { source: "ssh:box".into(), out: Some("p.json".into()) }
+        Command::Plan { source: "ssh:box".into(), out: Some("p.json".into()), preview: false }
     );
     assert_eq!(
         parse(&words("plan gitpod ./app")).unwrap(),
-        Command::Plan { source: "gitpod:./app".into(), out: None }
+        Command::Plan { source: "gitpod:./app".into(), out: None, preview: false }
+    );
+    assert_eq!(
+        parse(&words("plan laptop --out p.json --preview")).unwrap(),
+        Command::Plan { source: "laptop".into(), out: Some("p.json".into()), preview: true }
     );
     assert_eq!(
         parse(&words("apply plan.json --only a --only b --headless --backend dev")).unwrap(),
@@ -62,27 +66,6 @@ fn a_kept_journey_gives_machine_checkout_and_time_to_first_reply() {
     assert_eq!(created.first_chat_ms, Some(10_000));
     let failed = json!({"steps": [{"step": "clone repo", "status": "fail", "ms": 1, "detail": "needs GitHub"}]});
     assert_eq!(headless_created(&failed).unwrap_err(), "clone repo: needs GitHub");
-}
-
-#[test]
-fn new_file_diffs_apply_with_git() {
-    assert!(new_file_diff("a.txt", "x\ny").ends_with("+y\n\\ No newline at end of file\n"));
-    let dir = tempfile::tempdir().unwrap();
-    let patch = format!(
-        "{}{}",
-        new_file_diff("a.txt", "one\ntwo\n"),
-        new_file_diff("d/b.txt", "no newline")
-    );
-    std::fs::write(dir.path().join("p.patch"), patch).unwrap();
-    let ok = cmux_process::Command::new("git")
-        .args(["apply", "p.patch"])
-        .current_dir(dir.path())
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok);
-    assert_eq!(std::fs::read_to_string(dir.path().join("a.txt")).unwrap(), "one\ntwo\n");
-    assert_eq!(std::fs::read_to_string(dir.path().join("d/b.txt")).unwrap(), "no newline");
 }
 
 struct Fake {

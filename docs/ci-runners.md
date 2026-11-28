@@ -738,13 +738,13 @@ workflows reached through `workflow_call` — has an explicit repository-owner
 branch before runner variables are consulted. On `manaflow-ai/cmux`, existing
 repository variables and their Blacksmith fallbacks behave exactly as above. On
 every other owner, Linux jobs use `ubuntu-24.04` and macOS jobs use
-`macos-26` from GitHub Actions: the image and Xcode (26.6) main compiles with,
+`macos-26` from GitHub Actions: the image main compiles with (Xcode 27.2),
 so a fork's own CI can hit main's caches, which anyone can read from
 `https://ci-cache.cmux.com`. Only the jobs that build the SDK 15 Ghostty CLI
 helper (`swift-package-tests`, release and nightly), `plain-paste-worker.yml`'s
 `macos-15` job and `ci-macos-compat.yml`'s macOS 15 row keep a `macos-15` fork
 branch, because they need that image. Fork jobs set no Xcode pin, so they take
-the pool pin from `scripts/ci/xcode-pins.txt` (26.6 on `macos-26`, the Xcode
+the pool pin from `scripts/ci/xcode-pins.txt` (27.2 on `macos-26`, the Xcode
 main compiles with). When a hosted image no longer carries that Xcode, a fork
 falls back to the image's newest stable Xcode with a warning, so a newer image
 Xcode is a cache miss, never a failure. Runs in `manaflow-ai` fail on a missing

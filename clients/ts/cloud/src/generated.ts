@@ -425,6 +425,8 @@ export type CloudPlan = {
     readonly checked_at: number | null
     readonly pause_at: number | null
     readonly paused_at: number | null
+    readonly included_usd?: number | "Infinity" | "-Infinity" | "NaN"
+    readonly overage_usd?: number | "Infinity" | "-Infinity" | "NaN" | null
   }
 }
 
@@ -555,6 +557,11 @@ export type CloudUsageCurrent = {
     readonly memory: number | "Infinity" | "-Infinity" | "NaN"
     readonly stored: number | "Infinity" | "-Infinity" | "NaN"
     readonly total: number | "Infinity" | "-Infinity" | "NaN"
+  }
+  readonly rates?: {
+    readonly vcpu_hour_usd: number | "Infinity" | "-Infinity" | "NaN"
+    readonly memory_gib_hour_usd: number | "Infinity" | "-Infinity" | "NaN"
+    readonly stored_gib_month_usd: number | "Infinity" | "-Infinity" | "NaN"
   }
   readonly gaps: ReadonlyArray<string>
   readonly payment_method: {

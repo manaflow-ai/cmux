@@ -103,7 +103,8 @@ const LOOK_PREFIXES: [&str; 8] = [
 /// grouping), so one file restyles the sidebar as a whole (the shipped
 /// `minimal-sessions`); the tab strip's and titlebar's buttons and inactive
 /// tabs; pane corners; the agent chat's text sizes, sender marks and Session
-/// Info; and the transcript look and its tokens
+/// Info; the transcript look and its tokens, and how a reply streams
+/// (`agentPane.display.streaming`)
 /// (docs/cmux-next/transcript-customization.md). Keep in step with Swift
 /// `ThemeFileOverlay.lookKeys`.
 const LOOK_KEYS: [&str; 48] = [
@@ -116,6 +117,7 @@ const LOOK_KEYS: [&str; 48] = [
     "sidebar.sectionLook",
     "agentPane.display.transcriptLook",
     "agentPane.display.transcriptTokens",
+    "agentPane.display.streaming",
     "sidebar.look",
     "sidebar.drawnMenus",
     "sidebar.density",
