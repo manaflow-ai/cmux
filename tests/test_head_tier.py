@@ -325,16 +325,34 @@ class LandTierTests(unittest.TestCase):
             else:
                 os.environ["CI_LAND_TIER"] = old
 
-    def test_full_ci_added_then_taken_off_still_runs_the_full_tier(self) -> None:
-        # land-judge's full-ci pulse (add, then remove a second later): GitHub built the labeled event's payload
-        # after the removal, so its labels held ready-to-land but not full-ci, and the router ran the affected tier
-        # and skipped pr-pipeline.yml (cmux#52441, router run 45831524947). The event's own label counts.
+    def test_full_ci_added_then_taken_off_runs_the_land_tier(self) -> None:
+        # land-judge's full-ci pulse on a lane VM (add, then remove a second later) on a ready-to-land head into
+        # feat-cmux-next is the land's own handoff (the land pulse rule): it routes as ready-to-land added, the
+        # affected land tier, whose cmux/land-tier is success. It once ran the full tier (cmux#52441); with
+        # CI_FULL_CI_LAND_PULSE=0 it still does.
         ev = land_event(labels=("ready-to-land",), action="labeled", added="full-ci")
-        decided = head_tier.tier("pull_request", ev, land_switch="1", land_full_switch="0")
-        self.assertEqual(decided, ("full", "full-ci label"))
-        start, _ = pr_router.route(ev, RouterTests.CALLEES, ["a.py"], decided=decided)
-        self.assertEqual(start, ["cheap.yml", "heavy.yml"])
-        self.assertEqual(head_tier.labels_of(ev), {"ready-to-land", "full-ci"})
+        self.assertTrue(head_tier.land_pulse(ev, "1"))
+        with unittest.mock.patch.dict(os.environ, {"CI_FULL_CI_LAND_PULSE": "1", "CI_LAND_TIER": "1"}):
+            decided = head_tier.tier("pull_request", ev, land_switch="1", land_full_switch="0")
+            self.assertTrue(head_tier.land_affected(decided), decided)
+            self.assertEqual(pr_router.land_status(ev, decided), "success")
+            self.assertEqual(head_tier.labels_of(ev), {"ready-to-land"})
+            self.assertFalse(head_tier.full_ci_applies(ev))
+            # it routes exactly as ready-to-land added at this head does
+            added = land_event(labels=("ready-to-land",), action="labeled", added="ready-to-land")
+            want = head_tier.tier("pull_request", added, land_switch="1", land_full_switch="0")
+            self.assertEqual(decided, want)
+            self.assertEqual(pr_router.route(ev, RouterTests.CALLEES, ["a.py"], decided=decided),
+                             pr_router.route(added, RouterTests.CALLEES, ["a.py"], decided=want))
+            # a full-ci still on when GitHub built the payload (kept on purpose) is the full tier, as before
+            kept = land_event(labels=("ready-to-land", "full-ci"), action="labeled", added="full-ci")
+            self.assertFalse(head_tier.land_pulse(kept))
+            self.assertEqual(head_tier.tier("pull_request", kept, land_switch="1", land_full_switch="0"),
+                             ("full", "full-ci label"))
+        with unittest.mock.patch.dict(os.environ, {"CI_FULL_CI_LAND_PULSE": "0"}):
+            decided = head_tier.tier("pull_request", ev, land_switch="1", land_full_switch="0")
+            self.assertEqual(decided, ("full", "full-ci label"))
+            self.assertEqual(head_tier.labels_of(ev), {"ready-to-land", "full-ci"})
         # only a labeled event adds its label: an unlabeled full-ci is gone
         gone = land_event(labels=("ready-to-land",), action="unlabeled", added="full-ci")
         self.assertEqual(head_tier.labels_of(gone), {"ready-to-land"})
@@ -497,16 +515,21 @@ class LandTierTests(unittest.TestCase):
             else:
                 os.environ["CI_LAND_TIER"] = old
 
-    def test_a_pulsed_full_ci_is_the_full_tier_though_the_payload_lost_it(self) -> None:
-        # cmux#53671 at c52da39d (14:13Z 2026-11-26): land-judge's lane VM pulse added full-ci and took it off 2 s
-        # later; the `labeled` payload listed only ready-to-land, the router read the affected cheap tier and pr
-        # pipeline (the iOS matrix land-judge waits for) never started. The event's own added label counts.
-        ev = land_event(labels=("ready-to-land",), action="labeled", added="full-ci")
-        decided = head_tier.tier("pull_request", ev, land_switch="1", land_full_switch="0")
-        self.assertEqual(decided, ("full", "full-ci label"))
-        self.assertEqual(head_tier.labels_of(ev), {"ready-to-land", "full-ci"})
-        start, _ = pr_router.route(ev, RouterTests.CALLEES, ["a.py"], decided=decided)
-        self.assertIn("heavy.yml", start)
+    def test_full_ci_without_ready_to_land_or_off_feat_is_still_the_full_tier(self) -> None:
+        # The land pulse rule only reads land's handoff: a full-ci added to a feat PR without ready-to-land, or into
+        # another base, is a request for the full tier, as before (cmux#53671 read the pulse's own label).
+        with unittest.mock.patch.dict(os.environ, {"CI_FULL_CI_LAND_PULSE": "1"}):
+            for ev in (land_event(action="labeled", added="full-ci"),
+                       land_event(labels=("ready-to-land",), action="labeled", added="full-ci", base="main"),
+                       land_event(labels=("ready-to-land",), action="labeled", added="full-ci",
+                                  head_repo="someone/fork")):
+                self.assertFalse(head_tier.land_pulse(ev))
+                self.assertIn("full-ci", head_tier.labels_of(ev))
+            ev = land_event(action="labeled", added="full-ci")
+            decided = head_tier.tier("pull_request", ev, land_switch="1", land_full_switch="0")
+            self.assertEqual(decided, ("full", "full-ci label"))
+            start, _ = pr_router.route(ev, RouterTests.CALLEES, ["a.py"], decided=decided)
+            self.assertIn("heavy.yml", start)
         # Only a `labeled` event adds its label: an unlabeled full-ci is gone.
         gone = land_event(labels=("ready-to-land",), action="unlabeled", added="full-ci")
         self.assertEqual(head_tier.labels_of(gone), {"ready-to-land"})
