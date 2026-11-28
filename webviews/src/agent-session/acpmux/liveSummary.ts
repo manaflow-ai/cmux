@@ -11,6 +11,7 @@
 // from, so a newer drawn summary simply no longer matches it).
 import { useSyncExternalStore } from "react";
 import type { AcpmuxSnapshot } from "./model";
+import { sameBut } from "./liveToolOutput";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
@@ -48,11 +49,9 @@ const USAGE_KEYS = new Set(["usage", "usageStats", "contextBreakdown", "timeBrea
 /// other field the same object, and the summary's other fields the same. O(fields).
 export function usageOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): boolean {
   if (drawn.rows !== next.rows || !drawn.summary || !next.summary || drawn.summary === next.summary) return false;
-  const before = drawn as unknown as Record<string, unknown>;
-  const after = next as unknown as Record<string, unknown>;
-  const keys = Object.keys(after);
-  if (keys.length !== Object.keys(before).length) return false;
-  for (const key of keys) if (key !== "summary" && !Object.is(before[key], after[key])) return false;
+  // The per-snapshot `settled` wrapper and a streamed record's `connection` kind are the same
+  // projection (liveToolOutput.ts `sameBut`): compared as objects, every usage update read as a change.
+  if (!sameBut(drawn, next, "summary")) return false;
   return sameButUsage(drawn.summary, next.summary);
 }
 
