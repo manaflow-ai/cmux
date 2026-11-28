@@ -210,7 +210,10 @@ struct MenuBarMenuSpecTests {
         }
         #expect(app == "App 1")
         #expect(manySub.filter { if case .info = $0 { true } else { false } }.count == MenuBarMenuSpec.computerUseSessionLimit)
-        #expect(MenuBarMenuSpec.sessionLine(.init(id: "x")) == "An agent")
+        guard case .computerUse(_, _, let anonymous) = MenuBarMenuSpec().items(for: MenuBarMenuState(computerUse: .init(sessions: [.init(id: "x")])), isBound: Self.everything)[0] else {
+            throw CancellationError()
+        }
+        #expect(anonymous[0] == .info("An agent", symbol: "cursorarrow", avatar: false))
     }
 
     /// No Computer Use (off or not set up) and no chats: none of the new rows. Computer Use on with
