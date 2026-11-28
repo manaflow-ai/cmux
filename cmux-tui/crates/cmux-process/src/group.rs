@@ -27,9 +27,10 @@
 //! does not use this crate, in the instant between this crate's `pipe` and
 //! its `fcntl(FD_CLOEXEC)`, can inherit the write end and delay the
 //! watchdog until that child exits. Each group costs one idle `sh` process.
-//! Windows has no process groups here: [`Command::spawn_owned`] gives a
-//! child killed and reaped with its handle, not one that dies with this
-//! process (that needs a job object).
+//! Windows has no process groups here: [`Command::spawn_owned`] puts the
+//! child in a job with the kill-on-close limit (`crate::job`), so it and
+//! what it starts die with this process however it ends, and with the
+//! returned value. [`ChildGroup`] and [`GroupTether`] stay Unix-only.
 
 use std::io;
 use std::time::Duration;
@@ -214,7 +215,7 @@ impl Drop for GroupTether {
 #[derive(Debug)]
 pub struct OwnedChild {
     child: Child,
-    /// `None` on Windows (no groups).
+    /// `None` on Windows (no groups: the child's job holds its tree).
     group: Option<ChildGroup>,
 }
 
@@ -274,8 +275,8 @@ impl Drop for OwnedChild {
 
 impl Command {
     /// Start the child in a new [`ChildGroup`], so it and its descendants
-    /// die with this process (even by SIGKILL) and with the returned value
-    /// (Windows: with the returned value only).
+    /// die with this process (even by SIGKILL; Windows: by a kill-on-close
+    /// job) and with the returned value.
     /// Replaces an earlier [`Command::process_group`].
     ///
     /// # Errors
@@ -299,7 +300,15 @@ impl Command {
             self.process_group = earlier;
             Ok(OwnedChild { child: child?, group: Some(group) })
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            // Only this spawn goes in a kill-on-close job.
+            self.owned = true;
+            let child = self.spawn();
+            self.owned = false;
+            Ok(OwnedChild { child: child?, group: None })
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             Ok(OwnedChild { child: self.spawn()?, group: None })
         }
