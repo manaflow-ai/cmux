@@ -430,7 +430,7 @@ extension AgentTabStore {
             }
             return .refused(code: refused.code, message: refused.code == "not_signed_in" ? CloudStrings.signInFirst : refused.message)
         }
-        tabs.shareOp = { [weak services] key, op, session in guard let services else { return nil }; return await AgentShareActions.pane(op, session: session, tab: key, host: services) }
+        tabs.shareOp = { [weak services] key, op, session in guard let services else { return nil }; return await AgentShareActions.pane(op, session: session, tab: key, host: services) }; _ = services.shareChanges { [weak tabs] in tabs?.paneShared.shareChanges.changed($0) }
         // A Cloud chat's model credential, read as the person from this Mac's acpmux (model-connections.md Revision 2).
         services.cloud.agentCredentials.read = { [weak services] id in
             guard let services, let environment = await QuitAgents.environment(services) else { throw CloudAgentCredentials.Failure.unavailable(connection: id) }

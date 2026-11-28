@@ -486,6 +486,10 @@ export interface WorkerBindings {
   readonly HOME_INVITE_ALLOWED_INVITERS?: string
   /** Send switch, fail-closed: only "on" sends invites; unset or any other value sends nothing. */
   readonly HOME_INVITES_SEND?: string
+  /** Chat share invite mail switch, fail-closed: only "on" mails the person a chat is shared with (share-invite-mail.ts); HOME_INVITES_SEND applies too. */
+  readonly SHARE_INVITE_MAIL_SEND?: string
+  /** Share invite mails per user (share-invite-mail.ts); unbound refuses every mail. */
+  readonly SHARE_INVITE_MAIL_LIMIT?: RateLimit
   /** Text channel switch, fail-closed: only "on" sends invite texts through SendBlue (home-text.ts). */
   readonly HOME_INVITES_TEXT?: string
   /** Invite email sender, for example "cmux <invites@cmux.dev>" (the domain verified in Resend); unset = no email sends. */

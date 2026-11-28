@@ -61,6 +61,8 @@ pub(crate) use transfer::{
     abort_transferred_chat_shares, finish_transferred_chat_shares, freeze_transferred_chat_shares,
     reconcile_transferred_chat_shares, stage_transferred_chat_shares,
 };
+#[path = "agent_session_share_mail.rs"]
+mod mail;
 #[path = "agent_session_share_open.rs"]
 mod open;
 #[path = "agent_session_share_room.rs"]

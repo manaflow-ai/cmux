@@ -130,10 +130,23 @@ pub(super) fn invite_chat(
     let terms = terms(p.ttl_secs.unwrap_or(MAX_TTL_SECS), 1, p.create_id, None, None)?;
     let session = chat(mux, p.surface, p.session.as_deref())?;
     let ids = NewIds::draw()?;
+    // The mail to the account (`mail`), off by default: its token is a copy of the call's.
+    let mailing = mail::enabled();
+    let mail_token = mail::token(mailing, p.owner_token.as_ref());
+    let owner_api = shares
+        .bridge
+        .room()
+        .and_then(|room| crate::cloud_conversations::platform::share_owner_api(room.url()));
     // Asked before the lock: the room a new share would open in, or why none may be made.
     let new_room = room_for_new(shares, p.owner_token);
     let connected = || shares.present();
-    let (mut answer, made) = shares.with(directory, |all, now| {
+    let (mut answer, made, due) = shares.with(directory, |all, now| {
+        // Decided before anything changes: a refusal for the token leaves the chat as it was.
+        let invited = mail::already_invited(all, &session, &account);
+        let due = mail::decide(mailing, &account, invited, owner_api, mail_token.is_some());
+        if due == mail::Due::NeedsToken {
+            return Err("share.needs_sign_in");
+        }
         let existing = all
             .iter()
             .filter(|s| s.session == session && s.state == ShareState::Active)
@@ -178,7 +191,7 @@ pub(super) fn invite_chat(
         answer.set("created_share", json!(fresh));
         let expires_at = find(all, &share_id)?.expires_at;
         answer.set("expires_at", json!(expires_at));
-        Ok(((answer, made), changed || fresh))
+        Ok(((answer, made, due), changed || fresh))
     })?;
     if let (Some(created), Ok(Some((room, token)))) = (made, new_room) {
         let share_id =
@@ -190,6 +203,12 @@ pub(super) fn invite_chat(
             None => Value::Null,
         };
         answer.set("invite_url", invite_url);
+    }
+    if let (mail::Due::Send, Some(api), Some(token)) = (due, owner_api, mail_token) {
+        if let Some(link) = answer.get("invite_url").and_then(Value::as_str).map(str::to_owned) {
+            let mailed = mail::send(shares, api, token, account, link, role);
+            answer.set("mailed", json!(mailed));
+        }
     }
     Ok(answer)
 }

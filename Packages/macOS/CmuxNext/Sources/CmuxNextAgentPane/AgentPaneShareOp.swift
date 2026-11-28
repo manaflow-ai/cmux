@@ -90,7 +90,9 @@ extension AgentPaneModel {
             return AgentPaneReply.failure(code: "gesture_required", message: Self.transportFailedMessage)
         }
         switch await onShareOp(op, session) {
-        case .value(let value)?: return AgentPaneReply.success(value)
+        case .value(let value)?:
+            if op == .state { onSharesRead?() }
+            return AgentPaneReply.success(value)
         case .refused(let code, let message)?: return AgentPaneReply.failure(code: code, message: message)
         // The app is closing this tab's page.
         case nil: return Self.unsupported("share.op")

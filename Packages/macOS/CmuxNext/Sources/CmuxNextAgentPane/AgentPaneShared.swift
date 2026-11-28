@@ -21,6 +21,8 @@ public import CmuxNextPalette
 /// - `hostMarks`: the app's host marks (`AppServices.personInput.hostMarks`, ``AgentPaneHostMarks``); nil (tests): a key's mark is never taken back.
 /// - `projectPalette`: the app's command palette (`AppServices.palette`), where Add project shows its source pages
 ///   (``ProjectPaletteBridge``); nil (tests): Add project opens no palette page.
+/// - `shareChanges`: the app's one carrier of the daemon's share changes to the panes that read a chat's shares
+///   (``AgentPaneShareChanges``), so an open Share dialog stays current.
 public struct AgentPaneShared {
     public let openPanel: MadeAheadOpenPanel?
     public let eventSources: EventSourceProcesses
@@ -34,6 +36,7 @@ public struct AgentPaneShared {
     public let computerUse: AgentPaneComputerUse
     public let hostMarks: AgentPaneHostMarks?
     public let projectPalette: (@MainActor () -> PaletteController?)?
+    public let shareChanges = AgentPaneShareChanges()
 
     /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no grant, no flicker log, no focus log,
     /// a New Tab text of this value's own and no host marks.
@@ -73,6 +76,7 @@ extension AgentPaneView {
         model.newTabText = shared.newTabText // before the page's first request: a new view's document has no shared text
         onPageFocusLost = shared.focusLoss
         model.computerUse = shared.computerUse
+        model.onSharesRead = { [weak self, shareChanges = shared.shareChanges] in if let self { shareChanges.watch(self) } }
         showActAsMe(shared.actAsMe)
     }
 }
