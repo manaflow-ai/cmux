@@ -836,6 +836,9 @@ FAKE_TESSERACT = """#!/bin/sh
 # Reads the picture on stdin; mode 3 and mode 11 each see part of it.
 picture="$(cat)"
 case "$picture" in *BROKEN*) exit 1 ;; esac
+# SLOW: each mode's first read stalls past the test's short bound; the second read answers.
+case "$picture" in *SLOW*) [ -e "$HOME/slow-$4" ] || { : > "$HOME/slow-$4"; sleep 5; } ;; esac
+case "$picture" in *STUCK*) sleep 5 ;; esac
 case "$4" in
   3) printf 'Workspace\\nshared line\\n' ;;
   11) printf 'shared line\\nlabel %s\\n' "$picture" ;;
@@ -895,6 +898,30 @@ class TesseractToolTests(unittest.TestCase):
         self.assertEqual(self.run_tool(self.root / "missing.png").returncode, 2)
         with self.assertRaises(RuntimeError):
             self.ocr_through_module(shot)
+
+    def test_a_frame_past_the_bound_is_read_again_before_the_file_is_held(self) -> None:
+        # Finish run 46154524454 (2026-11-28): one slow frame failed a whole nightly reel after 31 min of reading.
+        shot = self.root / "shot.png"
+        shot.write_text("SLOW")
+        env = {**self.env, "HOME": str(self.root), "PR_MEDIA_OCR_TIMEOUT_SECONDS": "1",
+               "PR_MEDIA_OCR_RETRY_TIMEOUT_SECONDS": "20"}
+        done = subprocess.run([sys.executable, str(TESSERACT_TOOL), str(shot)], capture_output=True, text=True,
+                              env=env, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.splitlines(), ["Workspace", "shared line", "label SLOW"])
+        self.assertIn("reading it again", done.stderr)
+
+    def test_a_frame_past_both_bounds_is_held_and_the_gate_says_why(self) -> None:
+        shot = self.root / "shot.png"
+        shot.write_text("STUCK")
+        env = {"PATH": self.env["PATH"], "HOME": str(self.root), "PR_MEDIA_OCR_TIMEOUT_SECONDS": "1",
+               "PR_MEDIA_OCR_RETRY_TIMEOUT_SECONDS": "1"}
+        stderr = io.StringIO()
+        with mock.patch.dict(os.environ, env), contextlib.redirect_stderr(stderr):
+            # The tool reads its bounds at import: run it as the gate does, a fresh process.
+            with self.assertRaises(RuntimeError):
+                privacy.ocr_file(str(TESSERACT_TOOL), shot)
+        self.assertIn("pr-media privacy: pr-media-ocr: could not read shot.png (TimeoutExpired)", stderr.getvalue())
 
     def ocr_through_module(self, local: Path) -> list[str]:
         with mock.patch.dict(os.environ, {"PATH": self.env["PATH"]}):
