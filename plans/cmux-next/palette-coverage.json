@@ -917,46 +917,6 @@
       "palette": "history.reopen"
     },
     {
-      "verb": "coderouter claude add api-key",
-      "palette": "accounts.connect"
-    },
-    {
-      "verb": "coderouter claude add bedrock",
-      "palette": "accounts.connect"
-    },
-    {
-      "verb": "coderouter claude add oauth-token",
-      "palette": "accounts.connect"
-    },
-    {
-      "verb": "coderouter claude clear",
-      "reason": "keep: CodeRouter account plumbing (clear a team's accounts); the palette's Accounts… (accounts.show) manages accounts for a person"
-    },
-    {
-      "verb": "coderouter claude disable",
-      "reason": "keep: CodeRouter account plumbing (disable one account); the palette's Accounts… (accounts.show) manages accounts for a person"
-    },
-    {
-      "verb": "coderouter claude enable",
-      "reason": "keep: CodeRouter account plumbing (enable one account); the palette's Accounts… (accounts.show) manages accounts for a person"
-    },
-    {
-      "verb": "coderouter claude list",
-      "reason": "keep: a read for scripts and agents (CodeRouter accounts); the app shows the same state on screen"
-    },
-    {
-      "verb": "coderouter claude remove",
-      "palette": "accounts.remove"
-    },
-    {
-      "verb": "coderouter machines",
-      "reason": "keep: a read for scripts and agents (CodeRouter machines); the app shows the same state on screen"
-    },
-    {
-      "verb": "coderouter status",
-      "reason": "keep: a read for scripts and agents (CodeRouter's state); the app shows the same state on screen"
-    },
-    {
       "verb": "completion bash",
       "reason": "keep: prints a shell completion script to stdout for a shell's setup"
     },
