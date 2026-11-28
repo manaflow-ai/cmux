@@ -1,8 +1,9 @@
 //! The `compose` area's ops: who a new message goes to and how a send is routed. The Swift files under
 //! `CmuxNextHome/NewMessage/`, `HomeMessageRouting`, `HomeMentions`, `HomeDirectory`, `HomeGroupActions`,
-//! `HomeGroupCreation`, `HomeTeamInviteRun`, `HomeComposerCheck` and `HomeTeamSeatImpact` keep the I/O
-//! and the words; the rules are here.
+//! `HomeGroupCreation`, `HomeTeamInviteRun`, `HomeComposerCheck`, `HomeTeamSeatImpact` and
+//! `HomeClipboardLog` keep the I/O and the words; the rules are here.
 
+pub mod clipboard;
 pub mod directory;
 pub mod draft;
 pub mod field;
@@ -47,6 +48,8 @@ pub const OPS: &[&str] = &[
     "composerCheck.problem",
     "composerSource.submit",
     "composerSource.snapshot",
+    "clipboard.record",
+    "clipboard.readsWithoutAsking",
     "directory.chiefNamed",
     "directory.members",
     "directory.replyValue",
@@ -222,6 +225,8 @@ pub fn call(name: &str, request: &Value) -> Result<Value, OpError> {
 
 fn call_more(name: &str, request: &Value) -> Result<Value, OpError> {
     match name {
+        "clipboard.record" => reply(&clipboard::record(&parse(request)?)),
+        "clipboard.readsWithoutAsking" => reply(&clipboard::reads_without_asking(parse(request)?)),
         "directory.chiefNamed" => {
             let r: directory::ChiefRequest = parse(request)?;
             reply(&directory::chief_named(&r.chiefs, &r.text))

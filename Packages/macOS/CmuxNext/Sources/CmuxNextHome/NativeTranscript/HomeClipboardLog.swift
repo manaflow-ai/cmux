@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHomeModel
 
 /// One thing copied: a text, or a picture with its type (the bytes the + menu attaches, as a paste would).
 nonisolated enum HomeClipboardContent: Hashable, Sendable {
@@ -81,15 +82,18 @@ nonisolated struct HomeClipboardLog: Sendable, Equatable {
     }
 
     /// Reads one copy: `content` (nil when skipped) at `changeCount`. A change count already
-    /// read changes nothing. Returns true when the entries changed.
+    /// read changes nothing. Returns true when the entries changed. Which copies stay is
+    /// `compose.clipboard.record` (cmux-home-rules `compose/clipboard.rs`).
     @discardableResult
     mutating func record(_ content: HomeClipboardContent?, changeCount: Int) -> Bool {
         guard needsRead(changeCount: changeCount) else { return false }
         lastChangeCount = changeCount
         guard let content else { return false }
-        entries.removeAll { $0.content == content }
-        entries.insert(HomeClipboardEntry(id: changeCount, content: content), at: 0)
-        trim()
+        let rows = entries.map { Row(bytes: $0.content.byteCount, same: $0.content == content) }
+        let input = RecordInput(rows: rows, bytes: content.byteCount, capacity: capacity, maxTotalBytes: maxTotalBytes)
+        var kept = Kept(keep: [])
+        do { kept = try HomeRules.call("compose.clipboard.record", input) } catch { assertionFailure("\(error)") }
+        entries = [HomeClipboardEntry(id: changeCount, content: content)] + kept.keep.filter(entries.indices.contains).map { entries[$0] }
         return true
     }
 
@@ -102,12 +106,8 @@ nonisolated struct HomeClipboardLog: Sendable, Equatable {
         lastChangeCount = nil
     }
 
-    private mutating func trim() {
-        if entries.count > capacity { entries.removeLast(entries.count - capacity) }
-        var total = entries.reduce(0) { $0 + $1.content.byteCount }
-        // The newest entry always stays, even over the total (a large picture just copied).
-        while total > maxTotalBytes, entries.count > 1 {
-            total -= entries.removeLast().content.byteCount
-        }
-    }
+    // `compose.clipboard.record`'s wire shapes.
+    private nonisolated struct Row: Encodable { var bytes: Int, same: Bool }
+    private nonisolated struct RecordInput: Encodable { var rows: [Row], bytes, capacity, maxTotalBytes: Int }
+    private nonisolated struct Kept: Decodable { var keep: [Int] }
 }
