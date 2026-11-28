@@ -20,6 +20,12 @@
 //! pass finished waits for one, at most [`READ_WAIT`]. A pass ends when every chat's new lines
 //! are read (at most 64 MiB a file); nothing outlives it but each chat's offsets, minute buckets
 //! and stats, and a closed or purged chat's go on the next pass.
+//!
+//! Each chat's tracker is saved to `usage-trackers/<id>.json` beside the session store at most
+//! once a minute when it read anything ([`Tracker::save_if_due`]), and a daemon's first read of a
+//! chat starts from its saved one: a restart reads on from where the last daemon stopped, so its
+//! counts are known on its first pass. A saved tracker of a chat no pass reads goes with the
+//! hourly sweep ([`sweep_saved`]).
 
 use super::{Hub, Session};
 use crate::protocol::session::UsageStats;
@@ -29,6 +35,7 @@ use cmux_chat_index::{AdapterKind, ChatChange, ChatKey};
 use cmux_tag_cache::{Stamp, TagCache};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
@@ -113,6 +120,10 @@ fn transcript_key(source: &Source) -> Option<ChatKey> {
 
 pub(crate) struct UsageCache {
     trackers: Arc<StdMutex<HashMap<String, Tracker>>>,
+    /// Where each chat's tracker is saved, beside the session store; none for a memory store.
+    saved: Option<Arc<Path>>,
+    /// When the last sweep of saved trackers ran ([`sweep_saved`]).
+    swept_at: Arc<std::sync::atomic::AtomicU64>,
     pub(crate) stats: Arc<StdMutex<UsageStatsCache>>,
     /// Held for a pass, with when the last one started: a read that comes
     /// meanwhile waits for it instead of reading the stats it is about to replace.
@@ -143,6 +154,8 @@ impl Default for UsageCache {
     fn default() -> Self {
         Self {
             trackers: Arc::default(),
+            saved: None,
+            swept_at: Arc::default(),
             stats: Arc::new(StdMutex::new(UsageStatsCache::default())),
             pass: tokio::sync::Mutex::new(0),
             dirty: AtomicBool::new(false),
@@ -160,9 +173,43 @@ impl Default for UsageCache {
 }
 
 impl UsageCache {
+    /// A cache whose trackers are saved in `dir` and read back from it (none: kept in memory).
+    pub(crate) fn saved_in(dir: Option<PathBuf>) -> Self {
+        Self { saved: dir.map(Arc::from), ..Self::default() }
+    }
+
     fn stats(&self) -> std::sync::MutexGuard<'_, UsageStatsCache> {
         self.stats.lock().unwrap_or_else(|e| e.into_inner())
     }
+}
+
+/// How often a whole pass removes the saved trackers of chats no pass reads.
+const SWEEP_EVERY_MS: u64 = HOUR_MS;
+
+/// Where chat `id`'s tracker is saved in `dir`; none for an id that is not a plain name.
+pub(super) fn saved_path(dir: &Path, id: &str) -> Option<PathBuf> {
+    let plain =
+        !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    plain.then(|| dir.join(format!("{id}.json")))
+}
+
+/// Removes from `dir` the saved trackers of chats not in `listed` (a whole pass's chats: closed a
+/// day ago, or purged), as the pass drops their trackers ([`prune_unlisted`]); only the files
+/// [`saved_path`] names. Returns how many went.
+pub(super) fn sweep_saved(dir: &Path, listed: &HashSet<&str>) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    let mut gone = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(id) = name.to_str().and_then(|n| n.strip_suffix(".json")) else { continue };
+        if listed.contains(id) || saved_path(dir, id).is_none() {
+            continue;
+        }
+        if std::fs::remove_file(entry.path()).is_ok() {
+            gone += 1;
+        }
+    }
+    gone
 }
 
 /// Drops the trackers and stats ids of chats not in `sources` (a whole pass's chats): closed a
@@ -502,6 +549,7 @@ impl Hub {
         #[cfg(test)]
         let delay = Duration::from_millis(cache.read_delay_ms.load(Ordering::SeqCst));
         let warm = cache.warm.clone();
+        let (saved, swept_at) = (cache.saved.clone(), cache.swept_at.clone());
         let pass = tokio::task::spawn_blocking(move || {
             let mut trackers = trackers.lock().unwrap_or_else(|e| e.into_inner());
             // Taken before the files are read: a turn's end or a transcript change meanwhile
@@ -516,13 +564,20 @@ impl Hub {
                     fresh.push((id.clone(), found, vec![UsageTag::Chat(id.clone())]));
                     continue;
                 }
-                let tracker = trackers.entry(id.clone()).or_default();
+                let path = saved.as_deref().and_then(|dir| saved_path(dir, id));
+                // A chat this daemon has not read yet goes on from what the last one saved.
+                let tracker = trackers
+                    .entry(id.clone())
+                    .or_insert_with(|| path.as_deref().and_then(Tracker::load).unwrap_or_default());
                 let now = crate::store::now_ms();
                 // An unprompted chat with no transcript spent nothing: zeros, tagged by the
                 // transcript it will write, so its first turn's records are read at once.
                 let found = tracker
                     .refresh(source, now, &models)
                     .or_else(|| source.unprompted.then(|| no_model_stats(source, now)));
+                if let Some(path) = &path {
+                    tracker.save_if_due(path, now);
+                }
                 if let Some(found) = found {
                     let mut tags = vec![UsageTag::Chat(id.clone())];
                     tags.extend(transcript_key(source).map(UsageTag::Transcript));
@@ -544,6 +599,15 @@ impl Hub {
             if whole {
                 gone = prune_unlisted(&mut *trackers, &stats.keys, &sources);
                 gone.retain(|id| stats.remove(id));
+                let now = crate::store::now_ms();
+                let last = swept_at.load(Ordering::SeqCst);
+                if let Some(dir) = saved.as_deref()
+                    && now >= last.saturating_add(SWEEP_EVERY_MS)
+                {
+                    swept_at.store(now, Ordering::SeqCst);
+                    let listed: HashSet<&str> = sources.iter().map(|(id, _)| id.as_str()).collect();
+                    sweep_saved(dir, &listed);
+                }
             }
             // A turn's own read announces its chat's whether or not a list's pass read the
             // turn first, so every turn's end is followed by its usage.

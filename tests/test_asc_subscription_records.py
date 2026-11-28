@@ -277,7 +277,7 @@ class RecordsTests(unittest.TestCase):
         plus["shot"] = {"id": "shot-stuck", "attributes": stuck}
         code, out = self.main()
         self.assertEqual(code, 0, out)
-        self.assertIn("plan: replace stuck promotionalImage with promo-plus.png (delete img-stuck)", out)
+        self.assertIn("plan: upload promotionalImage promo-plus.png, replacing stuck img-stuck (AWAITING_UPLOAD)", out)
         self.assertNotIn("person: its", out)
         self.assertEqual(self.writes(), [])
         code, out = self.main("apply")

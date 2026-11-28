@@ -21,17 +21,19 @@ Subcommands, all through the public App Store Connect API with the CI key
 
   plan   Read every listed subscription and print what is missing and what
          `apply` would write. Writes nothing. The default.
-  apply  Write only what `plan` prints: create a missing localization, rename
-         one whose name or description differs from records.json, upload a
+  apply  Write only what `plan` prints: create a missing localization, rename one
+         whose name or description differs from records.json, upload a
          missing review screenshot or promotional image, and replace one whose
-         upload never completed (delete the stuck asset, then upload again).
-         Idempotent: anything complete and matching is left alone, so a second
-         run writes nothing.
+         upload never completed (delete that stuck asset, upload the file
+         again). Idempotent: anything complete is left alone, so a second run
+         writes nothing.
 
 Never written: prices, availability, territories, submissions, or anything on a
-subscription records.json does not list. The only deletion is a listed
-subscription's own stuck review screenshot or promotional image, which App
-Store Connect never finishes and never lets a new upload sit beside. A missing price or
+subscription records.json does not list. The one deletion is a review
+screenshot or promotional image whose upload never completed (its
+assetDeliveryState, or a promotional image's state, is not one of
+ASSET_DONE_STATES): App Review cannot see it, and App Store
+Connect keeps it MISSING_METADATA until it is replaced. A missing price or
 availability is printed as a person's step (it is money). A subscription that
 is READY_TO_SUBMIT is complete; it goes to App Review with the next app version
 submission, which is a person's step too.
@@ -131,9 +133,34 @@ def app_subscriptions(api: Api, app: str) -> dict[str, dict]:
     return out
 
 
+# A review screenshot reports its upload in attributes.assetDeliveryState.state.
+# A promotional image (subscriptionImages) has no assetDeliveryState: it reports
+# in attributes.state, which moves on past UPLOAD_COMPLETE as App Review takes
+# it. Reading only assetDeliveryState made every promotional image look stuck,
+# so each apply deleted a finished image and uploaded it again
+# (runs 46113010934, 46115014483, 46119337552).
+ASSET_DONE_STATES = ("COMPLETE", "UPLOAD_COMPLETE", "PREPARE_FOR_SUBMISSION",
+                     "WAITING_FOR_REVIEW", "APPROVED")
+
+
+def asset_state(asset: dict | None) -> tuple[str, list]:
+    """An asset's upload state and its errors, from whichever field it has."""
+    attributes = (asset or {}).get("attributes") or {}
+    delivery = attributes.get("assetDeliveryState") or {}
+    if delivery.get("state"):
+        return delivery["state"], delivery.get("errors") or []
+    return attributes.get("state") or "", []
+
+
 def asset_done(asset: dict | None) -> bool:
-    state = ((asset or {}).get("attributes") or {}).get("assetDeliveryState") or {}
-    return state.get("state") in ("COMPLETE", "UPLOAD_COMPLETE")
+    return asset_state(asset)[0] in ASSET_DONE_STATES
+
+
+def asset_stuck(asset: dict) -> str:
+    """Why an asset's upload is not complete: its state and errors."""
+    state, errs = asset_state(asset)
+    errors = "; ".join(str(e.get("description") or e.get("code") or e) for e in errs)
+    return f"{state or 'no delivery state'}" + (f" ({errors})" if errors else "")
 
 
 def read_state(api: Api, sub: dict) -> dict:
@@ -165,10 +192,13 @@ def plan_for(listed: dict, state: dict, root: Path = RECORDS_DIR) -> tuple[list[
     person: list[str] = []
     waiting: list[str] = []
 
-    def upload(kind: str, stuck: list[str] | None = None) -> None:
+    def upload(kind: str, stuck: list[dict] = ()) -> None:
         name = listed[kind]
         if (root / name).is_file():
-            writes.append({"kind": kind, "file": name, "replace": stuck or []})
+            write: dict[str, Any] = {"kind": kind, "file": name}
+            if stuck:
+                write["replace"] = [{"id": a["id"], "why": asset_stuck(a)} for a in stuck]
+            writes.append(write)
         else:
             waiting.append(f"{kind} {name} is not checked in under AppStoreReview/subscriptions/")
 
@@ -176,9 +206,9 @@ def plan_for(listed: dict, state: dict, root: Path = RECORDS_DIR) -> tuple[list[
     if shot is None:
         upload("reviewScreenshot")
     elif not asset_done(shot):
-        upload("reviewScreenshot", [shot["id"]])
+        upload("reviewScreenshot", [shot])
     if not any(asset_done(image) for image in state["images"]):
-        upload("promotionalImage", [image["id"] for image in state["images"]])
+        upload("promotionalImage", state["images"])
     localizations = state.get("localizations") or {}
     for locale, text in sorted((listed.get("localizations") or {}).items()):
         name, description = text["name"], text.get("description", "")
@@ -224,14 +254,17 @@ def upload_asset(api: Api, kind: str, sid: str, path: Path) -> str:
     return created["id"]
 
 
-ASSET_TYPES = {"reviewScreenshot": "subscriptionAppStoreReviewScreenshots", "promotionalImage": "subscriptionImages"}
+ASSET_KINDS = {"reviewScreenshot": "subscriptionAppStoreReviewScreenshots",
+               "promotionalImage": "subscriptionImages"}
 
 
 def apply_write(api: Api, sid: str, write: dict, root: Path = RECORDS_DIR) -> str:
-    if write["kind"] in ASSET_TYPES:
-        kind = ASSET_TYPES[write["kind"]]
+    if write["kind"] in ASSET_KINDS:
+        kind = ASSET_KINDS[write["kind"]]
+        # A stuck upload goes first: a subscription holds one review
+        # screenshot, and the stuck one would otherwise stay beside the new one.
         for stuck in write.get("replace") or []:
-            api.request("DELETE", f"/v1/{kind}/{stuck}")
+            api.request("DELETE", f"/v1/{kind}/{stuck['id']}")
         return upload_asset(api, kind, sid, root / write["file"])
     if write["kind"] == "localizationUpdate":
         attributes = {"name": write["name"]}
@@ -256,9 +289,8 @@ def describe(write: dict) -> str:
         return f"create localization {write['locale']} ({write['name']!r})"
     if write["kind"] == "localizationUpdate":
         return f"rename localization {write['locale']} ({write['was']!r} -> {write['name']!r})"
-    if write.get("replace"):
-        return f"replace stuck {write['kind']} with {write['file']} (delete {', '.join(write['replace'])})"
-    return f"upload {write['kind']} {write['file']}"
+    replaced = "".join(f", replacing stuck {s['id']} ({s['why']})" for s in write.get("replace") or [])
+    return f"upload {write['kind']} {write['file']}{replaced}"
 
 
 def run(api: Api, app: str, records: dict, apply: bool, root: Path = RECORDS_DIR) -> dict:

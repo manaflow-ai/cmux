@@ -12,7 +12,9 @@
 //!   checkout is bigger than the machine's free memory times [`CHECKOUT_PER_FREE_MEMORY`].
 //!
 //! Pure: the caller reads the shape (`/proc/meminfo`, `nproc`, `statvfs`) and the checkout's size.
-//! The text is the chat row's first line; the buttons are the row's (RFD 0133, item 9).
+//! The text is the chat row's first line. RFD 0144 turns RFD 0133's three buttons into a notice
+//! row ([`notice`]) and its build machine into a run VM sized to the project's minimum
+//! ([`memory_floor`]).
 
 use serde::Serialize;
 
@@ -167,6 +169,71 @@ pub fn precheck_tool(
     precheck(&script, shape, &Place { cwd, ..*place })
 }
 
+/// The memory a known-heavy command's project publishes as its minimum, the floor a sized run VM
+/// starts at (RFD 0144 piece 8): Chromium's 16 GB, rustc's 8 GB. None for anything else (LLVM
+/// publishes only disk, which the fork ladder does not size). Of several simple commands the
+/// largest floor wins.
+pub fn memory_floor(script: &str, cwd: Option<&str>) -> Option<(Project, u64)> {
+    let mut floor: Option<(Project, u64)> = None;
+    crate::host_load::for_each_command(script, &mut |argv| {
+        if let Some(Job::Project(project)) = job_of(argv, cwd)
+            && let (_, Some(memory)) = project.minimums()
+            && floor.is_none_or(|(_, m)| memory > m)
+        {
+            floor = Some((project, memory));
+        }
+    });
+    floor
+}
+
+/// Whether `script` runs a known-heavy job at all, before any shape is read.
+pub fn is_known_heavy(script: &str, cwd: Option<&str>) -> bool {
+    let mut found = false;
+    crate::host_load::for_each_command(script, &mut |argv| {
+        found |= job_of(argv, cwd).is_some();
+    });
+    found
+}
+
+/// The notice row that replaces RFD 0133's three-button warning (RFD 0144, "This supersedes two
+/// asks": Leo, "we simply ... do it"): the warning's facts and what happens, no question.
+/// `grows` is whether AutoSize grows this machine as the command works.
+pub fn notice(warning: &Warning, grows: bool) -> String {
+    let then = if grows {
+        "Running it here; this machine grows as it works."
+    } else {
+        "Running it here as it is."
+    };
+    format!("[autosize] {} {then}", warning.text)
+}
+
+impl Shape {
+    /// This machine's shape: its CPUs, `/proc/meminfo`, and the free disk under `dir`. None when
+    /// memory cannot be read (not Linux).
+    pub fn here(dir: &std::path::Path) -> Option<Self> {
+        let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
+        let (mem_total, mem_available) = parse_meminfo(&meminfo);
+        Some(Self {
+            vcpu: std::thread::available_parallelism().map_or(1, |n| n.get() as u32),
+            mem_total: mem_total?,
+            mem_available,
+            disk_free: crate::disk_usage::statvfs(dir).map_or(0, |root| root.free),
+        })
+    }
+}
+
+/// (`MemTotal`, `MemAvailable`) in bytes from `/proc/meminfo`'s text.
+fn parse_meminfo(text: &str) -> (Option<u64>, Option<u64>) {
+    let field = |name: &str| {
+        text.lines().find_map(|l| {
+            let rest = l.strip_prefix(name)?.strip_prefix(':')?;
+            let kib: u64 = rest.trim().trim_end_matches("kB").trim().parse().ok()?;
+            Some(kib * 1024)
+        })
+    };
+    (field("MemTotal"), field("MemAvailable"))
+}
+
 fn file_name(word: &str) -> &str {
     word.trim_end_matches('/').rsplit('/').next().unwrap_or(word)
 }
@@ -230,7 +297,8 @@ fn warn(job: Job, argv: &[&str], shape: &Shape, place: &Place<'_>) -> Option<War
         Job::Project(project) => {
             let (disk, memory) = project.minimums();
             let mut short = Vec::new();
-            if shape.disk_free < disk {
+            // At the minimum the build fills the disk to the last byte: short too.
+            if shape.disk_free <= disk {
                 short.push(Short::Disk);
             }
             if memory.is_some_and(|m| (shape.mem_total as f64) < m as f64 * MEMORY_SLACK) {

@@ -31,6 +31,10 @@ impl Hub {
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
         let mut blocks = blocks;
+        // A person's own prompt opens the task a fresh reviewer reads at its end (`fresh_review.rs`).
+        if client != "acpmux" && opts.provenance.is_none() && opts.agent.is_none() {
+            self.fresh_review_note_ask(session, &blocks);
+        }
         // A check that went red between turns rides the next real prompt, hidden (`verify.rs`).
         if client != "acpmux"
             && let Some(text) = super::verify::take_held(&session.id)
