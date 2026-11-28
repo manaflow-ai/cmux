@@ -118,13 +118,35 @@ class NightlyGateTest(unittest.TestCase):
         start, why, (jobs, only) = self.landing(["docs/x.md"])
         self.assertNotIn("web-typecheck", only)
 
+    def test_a_source_change_runs_the_next_checks_guards_on_the_pull_request(self) -> None:
+        # 11-27 base tier run 46080642938: state roots, the FFI caller ratchet and the base-red classifier went red on
+        # the feat-cmux-next tip after green merges. Their sources were whole-directory globs, which --pr-scope never
+        # routes, so a Swift, Rust, webviews or workflow pull request ran none of them before merge.
+        t = ci_steps.load()
+        for paths, want in (
+                (["Packages/macOS/CmuxNext/Sources/A.swift"], ["next-ffi-caller-ratchet", "next-state-roots"]),
+                (["cmux-tui/crates/x/src/lib.rs"], ["next-state-roots"]),
+                (["webviews/src/a.tsx"], ["next-state-roots"]),
+                (["cmux-tui/crates/x/include/x.h"], ["next-ffi-caller-ratchet"]),
+                ([".github/workflows/x.yml"], ["next-base-red-classifier"]),
+                (["webviews/src/a.test.tsx"], []),
+                (["docs/x.md"], []),
+                (["Cargo.lock"], [])):
+            with self.subTest(paths=paths):
+                names = ("next-state-roots", "next-ffi-caller-ratchet", "next-base-red-classifier")
+                self.assertEqual(sorted(n for n in ci_steps.nightly_gate_steps(t, paths) if n in names), want)
+                self.assertEqual(sorted(n for n in ci_steps.route(t, paths, pr_scope=True).get("linux", [])
+                                        if n in names), want)
+
     def test_the_table_maps_the_nightly_causes(self) -> None:
         steps = ci_steps.load().steps
         for name, paths in (("rust-notices", ["cmux-tui/Cargo.lock"]),
                             ("rust-notices", ["scripts/cmux-next/generate-third-party-notices.sh"])):
             with self.subTest(name):
                 self.assertTrue(steps[name].nightly)
-                self.assertEqual(ci_steps.nightly_gate_steps(ci_steps.load(), paths), [name])
+                # next-state-roots (a land_gate step) also scans scripts/cmux-next/*.sh for Classic ids.
+                self.assertEqual([n for n in ci_steps.nightly_gate_steps(ci_steps.load(), paths)
+                                  if n != "next-state-roots"], [name])
 
     def test_a_storage_key_change_runs_the_persisted_formats_registry_on_the_pr_and_the_landing_head(self) -> None:
         # cmux#57474 (cmux.acpmux.modelPickerOrder), #62806 (two newTab keys) and #54956 added a webviews storage key
@@ -149,10 +171,10 @@ class NightlyGateTest(unittest.TestCase):
         self.assertIn("nightly gate", why["pr-pipeline.yml"])
         self.assertEqual(jobs, ["linux"])
         # page.tsx routes web-typecheck, a `land_gate` step; a plain web step (web-lint, web tests) stays off.
-        self.assertEqual(only, ["web-typecheck", "rust-notices"])
+        self.assertEqual(only, ["web-typecheck", "rust-notices", "phone-speed-icount"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
-        self.assertIn("nightly gate: runs only rust-notices", why["pr-pipeline.yml"])
-        self.assertEqual((jobs, only), (["linux"], ["rust-notices"]))
+        self.assertIn("nightly gate: runs only next-state-roots, rust-notices", why["pr-pipeline.yml"])
+        self.assertEqual((jobs, only), (["linux"], ["next-state-roots", "rust-notices"]))
 
     def test_a_landing_head_off_the_nightly_steps_starts_nothing(self) -> None:
         start, _, (jobs, only) = self.landing(["web/app/page.css"])
@@ -175,6 +197,42 @@ class NightlyGateTest(unittest.TestCase):
             start, _, (jobs, only) = self.landing(["first-party-apps/notes/src/app.ts"])
         self.assertNotIn("pr-pipeline.yml", start)
         self.assertEqual(only, [])
+
+    def test_phone_speed_runs_on_each_affected_landing_input(self) -> None:
+        for path in ("cmux-tui/crates/cmux-terminal-projection/src/lib.rs",
+                     "scripts/bench/phone-speed/src/main.rs", "cmux-tui/Cargo.lock"):
+            with self.subTest(path=path):
+                start, why, (jobs, only) = self.landing([path])
+                self.assertIn("pr-pipeline.yml", start)
+                self.assertIn("phone speed gate", why["pr-pipeline.yml"])
+                self.assertEqual(jobs, ["linux"])
+                expected = ["rust-notices", "phone-speed-icount"] if path.endswith("Cargo.lock") else ["phone-speed-icount"]
+                self.assertEqual(only, expected)
+
+    def test_phone_speed_does_not_depend_on_the_nightly_mirror_switch(self) -> None:
+        with mock.patch.dict(os.environ, {"CI_NIGHTLY_GATE_ON_LAND": "0", "CI_IOS_FAST_VERDICT": "0"}):
+            start, _, (jobs, only) = self.landing(["cmux-tui/crates/cmux-terminal-projection/src/lib.rs"])
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertEqual((jobs, only), (["linux"], ["phone-speed-icount"]))
+
+    def test_phone_speed_keeps_the_full_tier_and_cheap_nonlanding_routes(self) -> None:
+        path = "scripts/bench/phone-speed/src/main.rs"
+        start, _, (jobs, only) = self.landing([path], decided=("full", "ready-to-land"))
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertIn("linux", jobs)
+        self.assertEqual(only, [])
+        start, _, (jobs, only) = self.landing([path], decided=("cheap", "ready head before ready-to-land"))
+        self.assertNotIn("pr-pipeline.yml", start)
+        self.assertEqual((jobs, only), ([], []))
+
+    def test_phone_speed_unknown_paths_run_but_unrelated_paths_do_not(self) -> None:
+        start, _, (jobs, only) = self.landing(None)
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertIn("linux", jobs)
+        self.assertIn("phone-speed-icount", only)
+        start, _, (jobs, only) = self.landing(["web/app/page.css"])
+        self.assertNotIn("pr-pipeline.yml", start)
+        self.assertEqual((jobs, only), ([], []))
 
     def test_the_workflows_pass_only_through(self) -> None:
         router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())["jobs"]
@@ -1571,7 +1629,7 @@ class PipelineTest(unittest.TestCase):
         # tooling-tests: on a feat-cmux-next pull request (not the fallback's call) the job keeps only the tt- steps the
         # linux job cannot run; tooling-tests-1..5 carry every other tt- step's command, each behind the job's selection.
         route = next(s for s in guards["tooling-tests"]["steps"] if s.get("id") == "setup-tooling-route")
-        staying = ("tt-remote-p10k", "tt-webviews-tests-per-file", "tt-web-lint-prepush", "tt-tailnet")
+        staying = ("tt-remote-p10k", "tt-cli-path-folder-access", "tt-webviews-tests-per-file", "tt-web-lint-prepush", "tt-tailnet")
         self.assertIn('[ "${GITHUB_BASE_REF:-}" = feat-cmux-next ] && [ "$GITHUB_WORKFLOW" != "docs-only fallback" ]',
                       route["run"])
         self.assertIn("for id in " + " ".join(staying) + "; do", route["run"])
@@ -1717,8 +1775,10 @@ class PipelineTest(unittest.TestCase):
         # test-ios.yml's package-conventions-lint job keeps its push, dispatch and other-base runs; a pull request
         # into feat-cmux-next runs its tests and its gate as two steps, routed by detect-ios-changes' should_lint list.
         ios = yaml.safe_load((ROOT / ".github/workflows/test-ios.yml").read_text())["jobs"]
-        self.assertTrue(ios["package-conventions-lint"]["if"].endswith(
-            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}"))
+        # #61489 wrapped the whole condition in `!cancelled() && !failure() && ... (...)`; the skip clause stays its
+        # last conjunct, inside that wrap.
+        self.assertRegex(ios["package-conventions-lint"]["if"],
+                         r"&& \(github\.event_name != 'pull_request' \|\| github\.base_ref != 'feat-cmux-next'\)\)* }}$")
         lint_run = next(s["run"] for s in ios["package-conventions-lint"]["steps"] if "run" in s)
         tests_step, gate = steps["package-conventions-tests"], steps["package-conventions-gate"]
         for line in tests_step.run.strip().splitlines():
