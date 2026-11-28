@@ -203,7 +203,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const m = await api.read("cloud.machine.get", { machine }).catch(() => null);
         if (m?.status === "running" && m?.host) return { value: null, detail: `${Math.round((Date.now() - t0) / 1000)} s` };
         if (m?.status === "failed") throw new Error("machine failed");
-        if (Date.now() - t0 > 300_000) throw new Error(`still ${m?.status} after 300 s`);
+        // Staging provisions slowly under load: run 45931358844 spent 728 s in create and was still provisioning
+        // 300 s later. 900 s is within the job's 120 min and still names a stuck machine.
+        if (Date.now() - t0 > 900_000) throw new Error(`still ${m?.status} after 900 s`);
         await sleep(2000);
       }
     });
