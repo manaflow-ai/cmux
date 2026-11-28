@@ -7,8 +7,8 @@ name: cmux NEXT DEV daily dispatcher
 # never cancels another run. GitHub's cron fired every 15-25 minutes on
 # 2026-10-25 (a merge reached the tip feed 48 minutes later), so every
 # feat-cmux-next push also starts this dispatcher (cmux-next.yml job
-# kick-cmux-next-dev-dispatch); the 5-minute spacing below keeps that from
-# starting a DEV build per merge.
+# kick-cmux-next-dev-dispatch); the one-build-in-flight hold below keeps that
+# from starting a DEV build per merge.
 on:
   schedule:
     - cron: "2-59/5 * * * *"
@@ -251,20 +251,22 @@ jobs:
               core.notice(`Dev-daily source run already covers feat-cmux-next ${sha}`);
               return;
             }
-            // At most one new DEV build per five minutes, as the schedule meant:
-            // a push kicks this dispatcher on every merge (one every few minutes),
-            // and a build per merge would double the fleet's Release compiles.
-            // A run is spaced only while it is still active; the next push or
-            // tick after the window asks for the newest tip.
-            const spacingMs = 5 * 60 * 1000;
+            // One DEV build in flight at a time (Leo, 2026-11-26: "de facto, im asking for 99% fewer minutes of
+            // ci time, period."). A push kicks this dispatcher on every merge, one every few minutes, and a DEV
+            // build takes 20-30 min. Five minutes of spacing still kept three Release compiles queued or running
+            // at once (2026-11-28 10:2xZ), and the publisher signed each of them, though the channel ships only
+            // the newest. While a run this dispatcher started is still active, the tick asks for nothing; the
+            // first push or tick after it ends asks for the tip of that moment. A run created over 90 minutes
+            // ago no longer holds the line, so a stuck run cannot stop the channel.
+            const holdMs = 90 * 60 * 1000;
             // Only a run this dispatcher started: its name carries a full SHA.
             const devName = /^cmux NEXT DEV daily · [0-9a-f]{40}$/;
             const recent = data.workflow_runs.find((run) =>
               (devName.test(run.name || '') || devName.test(run.display_title || '')) &&
               ['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) &&
-              Date.now() - Date.parse(run.created_at) < spacingMs);
+              Date.now() - Date.parse(run.created_at) < holdMs);
             if (recent) {
-              core.notice(`DEV source run ${recent.id} started under five minutes ago; the next push or tick asks for ${sha}`);
+              core.notice(`DEV source run ${recent.id} is still ${recent.status}; the first push or tick after it ends asks for the tip (now ${sha})`);
               return;
             }
             // The reads above take about 20 s (tick 45958399125: 07:26:06 to
