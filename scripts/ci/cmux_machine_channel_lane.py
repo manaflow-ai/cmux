@@ -29,7 +29,11 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Callable
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_http  # noqa: E402  (a GitHub read asked again after a refusal that can change)
 
 LANES = 3
 WORKFLOW = "cmux-machine-channel.yml"
@@ -53,8 +57,8 @@ def github_api(repo: str, token: str) -> Api:
             f"https://api.github.com/repos/{repo}/{path}",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
         )
-        with urllib.request.urlopen(req, timeout=20) as r:
-            return json.load(r)
+        _, body, _ = gh_http.request(req, 20, raise_errors=True)
+        return json.loads(body)
 
     return get
 

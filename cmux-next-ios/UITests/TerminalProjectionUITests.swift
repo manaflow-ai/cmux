@@ -89,7 +89,7 @@ final class TerminalProjectionUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
+        app.launchArguments += ["-cmuxMobile.settings.terminalPhoneProjection", "YES", "-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
                                 "-CmuxMobileTerminalDemoPhases", "altproj", "-cmuxMobile.settings.terminalZoomFullScreenApps", "YES"]
         if let chrome = ProcessInfo.processInfo.environment["CMUX_ZOOM_CHROME"] {
             app.launchArguments += ["-CmuxMobileTerminalZoomChrome", chrome]
@@ -237,7 +237,7 @@ final class TerminalProjectionUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
+        app.launchArguments += ["-cmuxMobile.settings.terminalPhoneProjection", "YES", "-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
                                 "-CmuxMobileTerminalDemoPhases", "altproj", "-cmuxMobile.settings.terminalZoomFullScreenApps", "YES", "-CmuxMobileTerminalDemoMacKeepsSize", "YES"]
         app.launch()
         let probe = app.staticTexts["debug.terminal-demo"]
@@ -299,7 +299,7 @@ final class TerminalProjectionUITests: XCTestCase {
             XCUIDevice.shared.orientation = .portrait
             let app = XCUIApplication()
             app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-            app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
+            app.launchArguments += ["-cmuxMobile.settings.terminalPhoneProjection", "YES", "-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
                                     "-CmuxMobileTerminalDemoPhases", "altproj", "-cmuxMobile.settings.terminalZoomFullScreenApps", "YES", "-CmuxMobileTerminalZoomChrome", chrome,
                                     "-CmuxMobileTerminalZoomChromePinned", "YES"]
             app.launch()
@@ -327,7 +327,7 @@ final class TerminalProjectionUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo",
+        app.launchArguments += ["-cmuxMobile.settings.terminalPhoneProjection", "YES", "-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo",
                                 "-CmuxMobileHostGridDemo", "50x40,tui,header"]
         app.launch()
         defer { app.terminate() }
@@ -370,7 +370,7 @@ final class TerminalProjectionUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
+        app.launchArguments += ["-cmuxMobile.settings.terminalPhoneProjection", "YES", "-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
                                 "-CmuxMobileTerminalDemoPhases", "projection"]
         if let macGrid { app.launchArguments += ["-CmuxMobileTerminalDemoMacGrid", macGrid] }
         app.launch()
@@ -515,7 +515,7 @@ extension TerminalProjectionUITests {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
+        app.launchArguments += ["-cmuxMobile.settings.terminalPhoneProjection", "YES", "-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
                                 "-CmuxMobileTerminalDemoPhases", "tuiheld-\(variant)"]
         if !holds { app.launchArguments.append("-CmuxMobileTerminalDemoNoHeldRows") }
         app.launch()

@@ -1204,9 +1204,11 @@ pub fn reap_once(acpmux_socket: Option<&Path>) -> cmux_projection::reap::Report 
     report
 }
 
-/// One aging pass over every mounted projection's content store
+/// One aging pass over every projection's content store
 /// (`cmux_projection::overlay::content::Content::age`: unread bytes go cold, then are deleted
-/// unless pinned), then the machine's held number (`cmux_projection::hold::held`) written to
+/// unless pinned): a mounted one through its overlay, an unmounted one through
+/// `cmux_projection::overlay::age_unmounted` (its persisted pins; compress-only when they cannot
+/// be read), with the projection table locked so no mount opens that store meanwhile. Then the machine's held number (`cmux_projection::hold::held`) written to
 /// `projection-held.json` in the workspace state folder for NOW's now-bytes source. Logs both.
 pub fn age_once() -> Option<cmux_projection::hold::Held> {
     let started = std::time::Instant::now();
@@ -1220,11 +1222,10 @@ pub fn age_once() -> Option<cmux_projection::hold::Held> {
             .iter()
             .map(|(name, projected)| (name.clone(), projected.clone()))
             .collect();
-        for (name, projected) in live {
-            let Some(report) = projected.overlay.age(now, &aging) else { continue };
+        let log = |name: &str, how: &str, report: &cmux_projection::overlay::content::AgeReport| {
             if report.went_cold_blobs + report.deleted_blobs > 0 {
                 eprintln!(
-                    "cmux projection aging: {name}: {} blobs cold ({} bytes, {} saved), {} \
+                    "cmux projection aging: {name}{how}: {} blobs cold ({} bytes, {} saved), {} \
                      deleted ({} bytes freed); holds {} bytes",
                     report.went_cold_blobs,
                     report.went_cold_bytes,
@@ -1233,6 +1234,25 @@ pub fn age_once() -> Option<cmux_projection::hold::Held> {
                     report.deleted_stored_bytes,
                     report.held_bytes()
                 );
+            }
+        };
+        for (name, projected) in live {
+            let Some(report) = projected.overlay.age(now, &aging) else { continue };
+            log(&name, "", &report);
+        }
+        let states = crate::platform::workspace_state_dir().map(|dir| dir.join("projections"));
+        for entry in states.iter().flat_map(std::fs::read_dir).flatten().filter_map(Result::ok) {
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else { continue };
+            // Held across the pass: a mount of this name waits for it (`mount` opens the store
+            // with the table locked), as the reaper's frees do.
+            let table = projections().lock().unwrap_or_else(PoisonError::into_inner);
+            if table.contains_key(&name) {
+                continue;
+            }
+            let report = cmux_projection::overlay::age_unmounted(&entry.path(), now, &aging);
+            drop(table);
+            if let Some(report) = report {
+                log(&name, " (unmounted)", &report);
             }
         }
     }
@@ -1641,15 +1661,25 @@ fn mount(
         });
     }
     // RFD 0065 piece 11: behind the mount, the rest of the tree comes down at low priority so the
-    // folder ends up local. Off unless `CMUX_PROJECTION_BULK_COPY=1`: it moves the whole tree over
-    // the Mac's link, and the path-ordered pack transport the RFD sizes it with is not built yet.
-    if std::env::var_os("CMUX_PROJECTION_BULK_COPY").is_some_and(|value| value == "1") {
+    // folder ends up local (Leo, 2026-11-27: "first with projectionfs then with the full or
+    // compressed amount fast"). On unless `CMUX_PROJECTION_BULK_COPY=0`: it rides the wire's
+    // batched answers at nice 19, pauses after every batch (ten times longer while the agent's own
+    // reads fault), stops when the Mac is away and never fills the cache past three quarters, so
+    // the agent's reads are never behind it. Its report is logged, so a copy that stopped short
+    // says why.
+    if bulk_copy_enabled(std::env::var_os("CMUX_PROJECTION_BULK_COPY").as_deref()) {
         let copying = overlay.clone();
+        let named = name.to_owned();
         let _ = std::thread::Builder::new().name("projection-bulk-copy".into()).spawn(move || {
             cmux_projection::overlay::bulk::lower_priority();
-            let _ = copying.bulk_copy(
+            let started = std::time::Instant::now();
+            let report = copying.bulk_copy(
                 &cmux_projection::overlay::bulk::BulkOptions::default(),
                 &std::sync::atomic::AtomicBool::new(false),
+            );
+            eprintln!(
+                "cmux projection: bulk copy of {named}: {}",
+                bulk_copy_line(&report, started.elapsed())
             );
         });
     }
@@ -1851,6 +1881,38 @@ fn fnv(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
         (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
     })
+}
+
+/// Whether a projected start copies the rest of its tree behind the mount: on unless
+/// `CMUX_PROJECTION_BULK_COPY` is `0`, `false` or `off`.
+fn bulk_copy_enabled(value: Option<&std::ffi::OsStr>) -> bool {
+    !value.is_some_and(|value| {
+        let value = value.to_string_lossy();
+        ["0", "false", "off"].iter().any(|off| value.eq_ignore_ascii_case(off))
+    })
+}
+
+/// The log line of a finished bulk copy: what it moved, how long it took, and why it ended.
+fn bulk_copy_line(
+    report: &cmux_projection::overlay::bulk::BulkReport,
+    took: std::time::Duration,
+) -> String {
+    let ended = if report.complete {
+        "complete"
+    } else if report.away {
+        "stopped: the Mac went away"
+    } else if report.full {
+        "stopped: the rest does not fit the cache"
+    } else {
+        "stopped: no disk cache, or a fetch failed"
+    };
+    format!(
+        "{ended}; {} files, {} bytes in {} requests, {} ms",
+        report.files,
+        report.bytes,
+        report.requests,
+        took.as_millis()
+    )
 }
 
 #[cfg(test)]

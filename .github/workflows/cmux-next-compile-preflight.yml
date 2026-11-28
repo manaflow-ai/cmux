@@ -72,11 +72,14 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   web:
     name: web bundle build
+    # id-token: the CAS upload step mints an OIDC token (ACTIONS_ID_TOKEN_REQUEST_URL below); job-scoped.
+    permissions:
+      contents: read
+      id-token: write
     # The router's answer (pr_router.py preflight_web); a push or a dispatch has no input and builds.
     if: ${{ inputs.web != 'false' || inputs.force_web }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -88,6 +91,7 @@ jobs:
       transport: ${{ steps.artifact-transport.outputs.transport }}
       artifact: ${{ steps.artifact-name.outputs.name }}
     env:
+      GH_HTTP_DEADLINE_S: "420"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
       CMUX_WEB_BUN_VERSION: "1.4.4"
       CMUX_WEB_NODE_VERSION: "24.22.1"
@@ -99,6 +103,10 @@ jobs:
         with:
           fetch-depth: 2
           persist-credentials: false
+
+      # The job-level web input skips changes whose paths cannot reach a bundle before allocating a runner.
+      # The caller is independent of the general tier/carry route: unknown diffs and possible web inputs still
+      # reach this live-base check. never-web-check verifies that the ignored paths exclude every bundle input.
 
       # pr-router.yml passes source_ref: github.sha, the merge commit the checkout above already holds, so the
       # answer the touched step below reads from web-source is this tree's. Asking it here skips a second checkout of
@@ -123,12 +131,6 @@ jobs:
           path: web-source
           fetch-depth: 2
           persist-credentials: false
-
-      # Before the caller's path admission, this job ran on every head: 14-15 s of a 40 s no-op run
-      # (jobs 140303340556, 140303466828, 2026-11-27 04:00Z), about 300 runs an hour: ~1.8k runner-min/day.
-      # The router now keeps this job for web-bundle inputs and unknown diffs; the callee still has no job-level
-      # if: for an admitted input, so the build verdict remains required (Leo: "de facto, im asking for 99% fewer
-      # minutes of ci time, period.").
 
       # Leo, 2026-11-27: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff".
       # cmux#51044 passed this job at 06:36Z and landed at 07:03Z, then broke feat-cmux-next: the merge commit above was

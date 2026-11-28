@@ -29,8 +29,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   Api, IDLE_JOURNEY_MS, Journey, STACK, STALE_JOURNEY_MS, directExec, http, listAllMachines, oidcSignIn, passwordSignIn,
-  readEnvFile, resolveBackend, sharedCleanup,
+  readEnvFile, resolveBackend, sharedCleanup, transientMachineError,
 } from "./cloud-journey.ts";
+import type { Exec } from "./cloud-journey.ts";
 
 export const GUEST_SCRIPT = fileURLToPath(new URL("./executor-journey-guest.sh", import.meta.url));
 export const MACHINE_PREFIX = "cmux-test-exec-";
@@ -59,6 +60,35 @@ export function staleExecutorMachines(rows: any[], nowMs: number, maxAgeMs = STA
   }
   return out;
 }
+
+/** How long an exec keeps retrying staging's transient machine answers (cloud-journey.ts transientMachineError). */
+export const TRANSIENT_RETRY_MS = 180_000;
+
+/**
+ * The machine's exec, sent again while staging answers it with a transient machine error (HTTP 502/503
+ * vm_unavailable, which clears in a minute or two). Only a thrown exec is retried: the platform refused the call, so the
+ * command did not run, and every command here is safe to run again (the guest script makes a fresh home each time).
+ * `retries` lists each refusal, so the step says it was retried. Nightly run 46156863704 (11-28 14:52Z) failed
+ * `first exec` on one `HTTP 503 "vm_unavailable" (overloaded)` 20 s after the machine reported running.
+ */
+export function retryingExec(exec: Exec, budgetMs = TRANSIENT_RETRY_MS, retryMs = 5_000, now: () => number = Date.now, wait: (ms: number) => Promise<unknown> = sleep): Exec & { retries: string[] } {
+  const retries: string[] = [];
+  const run: Exec = async (command, timeoutMs) => {
+    const t0 = now();
+    for (;;) {
+      try {
+        return await exec(command, timeoutMs);
+      } catch (error) {
+        const text = String((error as Error)?.message ?? error);
+        if (!transientMachineError(text) || now() - t0 + retryMs >= budgetMs) throw error;
+        retries.push(text.slice(0, 120));
+        await wait(retryMs);
+      }
+    }
+  };
+  return Object.assign(run, { retries });
+}
+const retried = (e: { retries: string[] }, from: number) => (e.retries.length > from ? `; retried ${e.retries.length - from}x after ${e.retries[e.retries.length - 1]}` : "");
 
 export type GuestPhase = { phase: string; ok: boolean; detail: string };
 
@@ -210,16 +240,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       throw new Error(`timed out; last status ${last?.status}`);
     });
-    const exec = directExec(api, id, J);
+    const exec = retryingExec(directExec(api, id, J));
     await J.step("first exec", async () => {
+      const from = exec.retries.length;
       const r = await exec("echo exj-ok; uname -m; id -un; command -v curl tar sh base64 | tr '\\n' ' '");
       if (r.code !== 0 || !r.stdout.includes("exj-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
-      return { value: null, detail: r.stdout.replace(/\s+/g, " ").trim() };
+      return { value: null, detail: `${r.stdout.replace(/\s+/g, " ").trim()}${retried(exec, from)}` };
     });
     // One exec runs the whole guest script; each of its phases is recorded as its own step after.
     const r = await J.step("Executor: guest script", async () => {
+      const from = exec.retries.length;
       const r = await exec(guestCommand(readFileSync(GUEST_SCRIPT, "utf8"), version), GUEST_BUDGET_MS);
-      return { value: r, detail: `${parseGuest(r.stdout).host}; exit ${r.code}` };
+      return { value: r, detail: `${parseGuest(r.stdout).host}; exit ${r.code}${retried(exec, from)}` };
     });
     const g = parseGuest(r.stdout);
     for (const p of g.phases) J.record({ step: `Executor: ${p.phase}`, status: p.ok ? "pass" : "fail", ms: 0, detail: p.detail });

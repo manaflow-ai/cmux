@@ -289,6 +289,15 @@ impl Swap for ExeSwap {
         for k in super::STARTER_SESSION_MARKS {
             successor.env_remove(k);
         }
+        // It follows the owner this daemon follows now (a relaunched app adopted after an update,
+        // `owner_exit::adopt_if_relaunched`), not the pid this daemon inherited, which an update
+        // quit; and it learns the owner's executable, so it can adopt the relaunched app too.
+        if let Some(pid) = crate::owner_exit::current_pid() {
+            successor.env(crate::owner_exit::OWNER_APP_PID_ENV, pid.to_string());
+        }
+        if let Some(exe) = crate::owner_exit::current_exe() {
+            successor.env(crate::owner_exit::OWNER_APP_EXE_ENV, exe);
+        }
         // The unmanaged path must not inherit a launchd marker from the daemon that spawned it.
         successor.env_remove("XPC_SERVICE_NAME");
         let mut child = successor
@@ -340,22 +349,13 @@ fn successor_output(log: &Path) -> (cmux_process::Stdio, cmux_process::Stdio) {
 /// This daemon's arguments (after its executable: `daemon run ...`, or `acp daemon run ...` as
 /// `cmux-tui`) for its successor, with `--take-over` right after `run`. Its fds are not the
 /// successor's, so `--ready-fd` and `--person-key-fd` stay out (the app that holds the person key
-/// gives it again when it checks the daemon it started, `hub/person.rs`).
+/// gives it again when it checks the daemon it started, `hub/person.rs`), and so do the flags of
+/// an earlier restart's exec in place (`--handoff-*`, `daemon/handoff.rs`).
 pub(super) fn handover_args(args: &[String]) -> Vec<String> {
-    let run = args.iter().position(|a| a == "run").map_or(0, |i| i + 1);
+    let (run, rest) = super::handoff::split_run(args);
     let mut out: Vec<String> = args.iter().take(run).cloned().collect();
     out.push("--take-over".into());
-    let mut it = args.iter().skip(run);
-    while let Some(arg) = it.next() {
-        match arg.as_str() {
-            "--ready-fd" | "--person-key-fd" => {
-                it.next();
-            }
-            "--take-over" => {}
-            a if a.starts_with("--ready-fd=") || a.starts_with("--person-key-fd=") => {}
-            _ => out.push(arg.clone()),
-        }
-    }
+    out.extend(rest);
     out
 }
 

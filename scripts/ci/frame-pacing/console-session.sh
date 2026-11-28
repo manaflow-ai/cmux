@@ -13,7 +13,7 @@
 # LaunchAgent.
 #
 # Only these variables cross, and only when set: PATH DEVELOPER_DIR
-# GITHUB_WORKSPACE RUNNER_TEMP CI GITHUB_ACTIONS CMUX_TAG. HOME is the console
+# GITHUB_WORKSPACE RUNNER_TEMP CI GITHUB_ACTIONS CMUX_TAG GOLDEN_ONLY. HOME is the console
 # user's, and the command starts in GITHUB_WORKSPACE.
 set -euo pipefail
 
@@ -30,7 +30,7 @@ fi
 mode="${CONSOLE_SESSION:-auto}"
 case "$mode" in auto|own) ;; *) echo "CONSOLE-SESSION-FAIL reason=unknown CONSOLE_SESSION '$mode' (auto|own)" >&2; exit 2 ;; esac
 
-pass_vars=(PATH DEVELOPER_DIR GITHUB_WORKSPACE RUNNER_TEMP CI GITHUB_ACTIONS CMUX_TAG)
+pass_vars=(PATH DEVELOPER_DIR GITHUB_WORKSPACE RUNNER_TEMP CI GITHUB_ACTIONS CMUX_TAG GOLDEN_ONLY)
 
 # run_own COMMAND...: run it as a LaunchAgent in this user's own gui/<uid> domain, stream its output, exit with its code.
 run_own() {

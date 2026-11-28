@@ -73,6 +73,27 @@ status=$?
 set -e
 [ "$status" -ne 0 ] || { cat "$work/named.out"; fail "check-bash32-parse.sh passed a broken workflow-named script"; }
 
+# A broken scripts/measure file is caught (fleet Mac steps run those under
+# /bin/bash 3.2; firstexec-study.sh had an apostrophe in a comment inside
+# $(...)), and one marked bash32-parse: skip is not parsed.
+rm "$work/tree/scripts/named.sh"
+printf '#!/usr/bin/env bash\necho ok\n' >"$work/tree/scripts/named.sh"
+mkdir -p "$work/tree/scripts/measure"
+printf '#!/usr/bin/env bash\nx="$( { echo a\n  # a comment'"'"'s apostrophe\n  echo b; } | sort)"\necho "$x"\n' \
+  >"$work/tree/scripts/measure/study.sh"
+set +e
+CMUX_PARSE_ROOT="$work/tree" CMUX_PARSE_BASH="$PARSE_BASH" \
+  "$ROOT_DIR/scripts/ci/check-bash32-parse.sh" .github/workflows/w.yml >"$work/measure.out" 2>&1
+status=$?
+set -e
+[ "$status" -ne 0 ] || { cat "$work/measure.out"; fail "check-bash32-parse.sh passed a broken scripts/measure file"; }
+grep -q 'scripts/measure/study.sh' "$work/measure.out" || { cat "$work/measure.out"; fail "the broken measure file is not named"; }
+printf '#!/usr/bin/env bash\n# bash32-parse: skip (test)\ncoproc C { cat; }\n' >"$work/tree/scripts/measure/study.sh"
+CMUX_PARSE_ROOT="$work/tree" CMUX_PARSE_BASH="$PARSE_BASH" \
+  "$ROOT_DIR/scripts/ci/check-bash32-parse.sh" .github/workflows/w.yml >"$work/skip.out" 2>&1 \
+  || { cat "$work/skip.out"; fail "a bash32-parse: skip script was parsed"; }
+grep -q 'Skipped scripts/measure/study.sh' "$work/skip.out" || { cat "$work/skip.out"; fail "the skip is not named"; }
+
 # 3. notarize-nightly-dmg.sh with the same broken code appended exits 2 under
 #    /bin/bash 3.2, before it touches anything, instead of the old exit 0.
 cp "$ROOT_DIR/scripts/ci/notarize-nightly-dmg.sh" "$work/notarize-broken.sh"

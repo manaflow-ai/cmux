@@ -56,11 +56,12 @@ pub fn is_account_limit(message: &str) -> bool {
 pub fn retry_after(message: &str) -> Option<Duration> {
     let lower = message.to_ascii_lowercase();
     // retry-prompt-ok: upstream Retry-After keys this parser reads, not a prompt
+    // retry-prompt-ok: needles this parser looks for in an upstream's error text; nothing here is shown to a person
     [
         "retry after ",
         // retry-prompt-ok: header and body keys the parser reads, not a prompt
         "retry-after: ",
-        "retry-after ",
+        "retry-after ", // retry-prompt-ok: a parse needle, as above
         "\"retry_after\":",
         "\"retry-after\":",
         "\"retry_after_s\":",

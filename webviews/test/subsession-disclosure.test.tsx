@@ -5,21 +5,31 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { setPaneLanguage } from "../src/agent-session/acpmux/i18n";
-import {
-  FindReveal,
-  findMatchesIncremental,
-  paintFindHighlights,
-} from "../src/agent-session/acpmux/conversation/chatFind";
-import { SubsessionCallCard } from "../src/agent-session/acpmux/conversation/SubsessionCallCard";
-import { AgentRunTranscriptCard } from "../src/agent-session/acpmux/subagents/AgentRunCard";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
-import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
-import { TranscriptDisclosureProvider } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
-import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { SubsessionCall } from "../src/agent-session/acpmux/conversation/subsessionCalls";
+import { importWithDom } from "./support/importWithDom";
+
+const { setPaneLanguage } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { FindReveal, findMatchesIncremental, paintFindHighlights } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/chatFind"),
+);
+const { SubsessionCallCard } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/SubsessionCallCard"),
+);
+const { AgentRunTranscriptCard } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/AgentRunCard"),
+);
+const { SubsessionContext, SubsessionStore } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/subsessions"),
+);
+const { TranscriptDisclosureProvider } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/transcriptDisclosure"),
+);
+const { resetTranscriptDisclosure } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();

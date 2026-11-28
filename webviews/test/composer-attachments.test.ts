@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { installFileDropLifecycle } from "../src/agent-session/acpmux/attachments";
+import { importWithDom } from "./support/importWithDom";
+
+const { installFileDropLifecycle } = await importWithDom(() => import("../src/agent-session/acpmux/attachments"));
 
 type EventView = { Event: typeof Event };
 

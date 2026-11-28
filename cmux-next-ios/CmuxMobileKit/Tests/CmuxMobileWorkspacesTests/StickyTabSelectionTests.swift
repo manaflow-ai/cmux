@@ -22,7 +22,8 @@ import CmuxMobileAgentChat
         let store = AppStore.mock(tabMemory: .inMemory([:]))
         store.macConnection[mac] = .connected
         let clock = GridTestClock()
-        let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory(), clock: clock)
+        // Every pane: the default filter (#56982) hides t-docs, the browser tab these tests count.
+        let source = everyPane(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory(), clock: clock))
         source.opened()
         source.activate("t-zsh")
         return Rig(store: store, source: source, clock: clock)

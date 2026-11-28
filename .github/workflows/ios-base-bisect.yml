@@ -36,7 +36,7 @@ jobs:
           && github.event.workflow_run.event == 'push'
           && github.event.workflow_run.head_branch == 'feat-cmux-next'
           && github.event.workflow_run.conclusion == 'failure' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: read
