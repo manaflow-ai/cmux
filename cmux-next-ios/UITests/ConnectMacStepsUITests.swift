@@ -22,5 +22,11 @@ final class ConnectMacStepsUITests: XCTestCase {
         XCTAssertTrue(signIn.exists)
         XCTAssertTrue(app.descendants(matching: .any)["connect-mac.status"].exists)
         XCTAssertTrue(account.isHittable, "Keep the Account Settings action available.")
+        // The link and status center under the centered title, not in a leading column (read-back 2026-11-28).
+        let screenMidX = app.windows.firstMatch.frame.midX
+        XCTAssertEqual(account.frame.midX, screenMidX, accuracy: 12, "Account Settings centers under Connect your Mac.")
+        let status = app.descendants(matching: .any)["connect-mac.status"]
+        let row = status.frame.union(help.frame)
+        XCTAssertEqual(row.midX, screenMidX, accuracy: 12, "The status line centers under Connect your Mac.")
     }
 }
