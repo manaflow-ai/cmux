@@ -3,6 +3,7 @@ import {
   carryAllowances,
   findTokenOnlyViolations,
   fixStylesheet,
+  isFixableMotionStep,
   isPinnedToken,
   hasRawColor,
   inlineStyleFindings,
@@ -298,7 +299,10 @@ describe("design token --fix", () => {
   });
 
   test("tokens a density scale, a look or a component sets again are never written in", () => {
-    expect(isPinnedToken("--cmux-motion-micro")).toBe(true);
+    // A look may tune a motion step (#56348) and the scale restates it under off/reduced: not pinned, still fixable.
+    expect(isPinnedToken("--cmux-motion-micro")).toBe(false);
+    expect(isFixableMotionStep("--cmux-motion-micro")).toBe(true);
+    expect(isFixableMotionStep("--cmux-motion-settle")).toBe(false);
     expect(isPinnedToken("--surface-card-radius")).toBe(true);
     for (const token of ["--grid-half-step", "--ds-radius-card", "--cmux-focus-ring-width", "--cmux-motion-settle"])
       expect(isPinnedToken(token)).toBe(false);

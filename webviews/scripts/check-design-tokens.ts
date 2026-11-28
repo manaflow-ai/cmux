@@ -1056,6 +1056,12 @@ function report(current: Map<string, number>, baseline: Map<string, number>, fin
  *     density scaling (pageDensity.css), a look, a theme, a media query, a component or a script sets
  *     again is not pinned, so --grid-half-step, --ds-space-*, --ds-radius-*, --cmux-focus-ring-width and
  *     the menu highlight metrics are never written in;
+ *     A motion step is the one exception to "only definition": the generated motion scale also restates
+ *     cmux's own value under `:root[data-{agent,cmux}-motion="{off,reduced}"]`, and a look's
+ *     `agent-pane/theme.css` may tune it (the look-addons motion contract, #56348, bounded by
+ *     check:look-addons motion-bounds). So a step is fixable when every definition under src/ carries the
+ *     step's own value; a look's override is then the point of the swap (the sheet follows the look's
+ *     motion like the rest of the chat), and with no look it computes the same value;
  *   - the literal is not in a settle item (`--cmux-ease-settle`): its 180 ms is the settle's, not the
  *     standard step's, and the settle token is not pinned (a gallery sets it).
  * A ratchet row is keyed by the declaration's whole value, so a declaration the fix leaves with a
@@ -1088,6 +1094,33 @@ function definitionSources(): string[] {
 }
 
 let pinnedCache: Map<string, number> | undefined;
+let srcValuesCache: Map<string, string[]> | undefined;
+
+/** Each custom property's literal values set under webviews/src (comments and tests aside). */
+function srcDefinitionValues(): Map<string, string[]> {
+  if (srcValuesCache) return srcValuesCache;
+  const out = new Map<string, string[]>();
+  for (const path of definitionSources().filter((file) => file.startsWith(SRC))) {
+    const text = readFileSync(path, "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/^\s*\/\/.*$/gm, " ");
+    for (const match of text.matchAll(/(?<![\w-])(--[\w-]+)\s*:\s*([^;}]*)/g)) {
+      const list = out.get(match[1]!) ?? [];
+      list.push(match[2]!.trim());
+      out.set(match[1]!, list);
+    }
+  }
+  srcValuesCache = out;
+  return out;
+}
+
+/** A motion step every src/ definition sets to its own value (the scale's :root and its off/reduced restatement). */
+export function isFixableMotionStep(name: string): boolean {
+  const token = designTokens().find((t) => t.name === name);
+  if (!token || !MOTION_STEPS.includes(name)) return false;
+  const values = srcDefinitionValues().get(name) ?? [];
+  return values.length > 0 && values.every((value) => value === token.value);
+}
 
 /**
  * How many places set each custom property: `--x:` in a sheet or a CSS string, `"--x":` as an object key,
@@ -1125,7 +1158,7 @@ function fixToken(property: string, literal: string, item: string): { name: stri
   const number = Number(literal.replace(/m?s$/i, ""));
   const ms = /ms$/i.test(literal) ? number : Math.round(number * 1e6) / 1e3;
   const step = designTokens().find((token) => MOTION_STEPS.includes(token.name) && token.value === `${ms}ms`);
-  return step && isPinnedToken(step.name) ? { name: step.name, value: step.value } : undefined;
+  return step && isFixableMotionStep(step.name) ? { name: step.name, value: step.value } : undefined;
 }
 
 /** `value` with each fixable top-level literal swapped for `var(<token>, <the token's value>)`. */
