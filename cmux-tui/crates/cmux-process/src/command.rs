@@ -41,6 +41,10 @@ pub struct Command {
     /// Windows process creation flags ([`Command::creation_flags`]).
     #[cfg(windows)]
     pub(crate) creation_flags: u32,
+    /// Windows: the next spawn's job ends the tree when its handle closes
+    /// ([`Command::spawn_owned`], `crate::job::Job::owned`).
+    #[cfg(windows)]
+    pub(crate) owned: bool,
 }
 
 impl Command {
@@ -65,6 +69,8 @@ impl Command {
             inherit: Vec::new(),
             #[cfg(windows)]
             creation_flags: 0,
+            #[cfg(windows)]
+            owned: false,
         }
     }
 
@@ -241,7 +247,7 @@ impl Command {
         #[cfg(target_vendor = "apple")]
         let spawned = crate::spawn_apple::spawn(self);
         #[cfg(not(target_vendor = "apple"))]
-        let spawned = self.spawn_std();
+        let spawned = self.spawn_std(leads_group);
         self.process_group = asked;
         let mut child = spawned?;
         child.set_leads_group(leads_group);
@@ -270,8 +276,12 @@ impl Command {
 
     /// The std path (Linux, Windows): the kernel makes every descriptor this
     /// process opens close-on-exec atomically, so nothing leaks.
+    ///
+    /// On Windows a child that leads its group (`contain`) starts suspended and
+    /// runs once it is in a job of its own (`crate::job`), so ending it ends
+    /// what it started.
     #[cfg(not(target_vendor = "apple"))]
-    fn spawn_std(&mut self) -> io::Result<Child> {
+    fn spawn_std(&mut self, contain: bool) -> io::Result<Child> {
         let mut command = std::process::Command::new(&self.program);
         command.args(&self.args);
         if self.env_clear {
@@ -296,10 +306,23 @@ impl Command {
             command.stderr(stdio.into_std());
         }
         #[cfg(windows)]
-        if self.creation_flags != 0 {
+        let contain = contain || self.owned;
+        #[cfg(windows)]
+        let resume = contain && self.creation_flags & crate::job::CREATE_SUSPENDED == 0;
+        #[cfg(windows)]
+        {
             use std::os::windows::process::CommandExt;
-            command.creation_flags(self.creation_flags);
+            let flags = if contain {
+                self.creation_flags | crate::job::CREATE_SUSPENDED
+            } else {
+                self.creation_flags
+            };
+            if flags != 0 {
+                command.creation_flags(flags);
+            }
         }
+        #[cfg(unix)]
+        let _ = contain;
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -372,10 +395,42 @@ impl Command {
                 }
             }
         }
+        #[cfg(unix)]
         let child = command.spawn()?;
         #[cfg(unix)]
         self.inherit.clear();
-        Ok(Child::from_std(child))
+        #[cfg(unix)]
+        return Ok(Child::from_std(child));
+        #[cfg(windows)]
+        {
+            let mut child = command.spawn()?;
+            if !contain {
+                return Ok(Child::from_std(child));
+            }
+            // An owned child without its job would not die with this process:
+            // refuse it. A group leader's job the system refuses (none should
+            // since Windows 8, which nests jobs) leaves it as before: ended alone.
+            let job = if self.owned {
+                match crate::job::Job::owned(&child) {
+                    Ok(job) => Some(job),
+                    Err(error) => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(error);
+                    }
+                }
+            } else {
+                crate::job::Job::contain(&child).ok()
+            };
+            if resume && let Err(error) = crate::job::resume(child.id()) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+            let mut child = Child::from_std(child);
+            child.set_job(job);
+            Ok(child)
+        }
     }
 }
 
