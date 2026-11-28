@@ -64,7 +64,7 @@ impl Frame<'_> {
         let mut ico = Vec::with_capacity(22 + self.bytes.len());
         ico.extend_from_slice(&[0, 0, 1, 0, 1, 0]);
         // The directory entry as it was but its offset: right after this one entry.
-        ico.extend_from_slice(&self.entry[..12]);
+        ico.extend_from_slice(self.entry.get(..12).unwrap_or_default());
         ico.extend_from_slice(&22u32.to_le_bytes());
         ico.extend_from_slice(self.bytes);
         ("image/x-icon", ico)
@@ -73,7 +73,7 @@ impl Frame<'_> {
 
 /// The frames of an ICO file; empty for one that is not valid.
 fn frames(ico: &[u8]) -> Vec<Frame<'_>> {
-    let Some(count) = ico.get(4..6).map(|n| u16::from_le_bytes([n[0], n[1]])) else {
+    let Some(count) = ico.get(4..6).and_then(|n| n.try_into().ok()).map(u16::from_le_bytes) else {
         return Vec::new();
     };
     (0..usize::from(count))
@@ -121,7 +121,8 @@ pub(crate) fn icon_links(html: &str) -> Vec<String> {
         let start = at + start;
         let end =
             lower.get(start..).and_then(|rest| rest.find('>')).map_or(lower.len(), |e| start + e);
-        let (tag, tag_lower) = (html.get(start..end).unwrap_or_default(), &lower[start..end]);
+        let (tag, tag_lower) =
+            (html.get(start..end).unwrap_or_default(), lower.get(start..end).unwrap_or_default());
         at = end;
         let rel = attribute(tag_lower, tag_lower, "rel").unwrap_or_default();
         if !rel.split_ascii_whitespace().any(|word| word == "icon" || word == "apple-touch-icon") {

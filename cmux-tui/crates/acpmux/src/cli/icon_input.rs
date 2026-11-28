@@ -7,7 +7,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine as _;
 
 use super::icon_fit::fit;
-use crate::session_icon::{MAX_IMAGE_BYTES, SessionIcon};
+use crate::session_icon::SessionIcon;
 
 /// The `newIcon` value for `raw`.
 pub(crate) async fn wire(raw: &str) -> Result<String> {
@@ -73,7 +73,7 @@ async fn fetch(url: &str) -> Result<(&'static str, Vec<u8>)> {
     Err(first.context(format!("{parsed} names no icon in its page either")))
 }
 
-/// The image at `target`, made to fit [`MAX_IMAGE_BYTES`].
+/// The image at `target`, made to fit [`crate::session_icon::MAX_IMAGE_BYTES`].
 async fn fetch_image(
     client: &reqwest::Client,
     target: reqwest::Url,
