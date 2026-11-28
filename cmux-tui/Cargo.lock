@@ -131,6 +131,7 @@ dependencies = [
  "reqwest",
  "ring",
  "rusqlite",
+ "rustc-hash 2.1.3",
  "rustls",
  "schemars 1.2.2",
  "security-framework",
