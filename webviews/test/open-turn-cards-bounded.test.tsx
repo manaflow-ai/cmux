@@ -260,13 +260,21 @@ async function mounted(rows: AcpmuxRow[]) {
     await act(async () =>
       root.render(<VirtualTranscript rows={shown} working onToggleActivity={() => {}} expanded={expanded} />),
     );
-    // The follow pass and the deferred warm rows settle over a few frames.
-    for (let frame = 0; frame < 6; frame += 1) await act(async () => void (await tick()));
+    // The follow pass and the deferred warm rows settle over a few frames; how many depends on the runner's
+    // load, so the count is read once the mounted elements hold still for a few frames.
     const doc = dom.window.document;
+    let frames = 0;
+    for (let still = 0, last = -1; frames < 200 && still < 6; frames += 1) {
+      await act(async () => void (await tick()));
+      const now = host.getElementsByTagName("*").length;
+      still = now === last ? still + 1 : 0;
+      last = now;
+    }
     const cards = (row: AcpmuxRow) =>
       (row.items ?? []).filter((item) => item.tool?.kind === "think" && item.tool.title === "Agent").length;
     return {
       rows: shown.length,
+      frames,
       mountedRows: doc.querySelectorAll(".acpmux-row").length,
       agentCards: doc.querySelectorAll(".cv-agentcall").length,
       elements: host.getElementsByTagName("*").length,
@@ -456,12 +464,16 @@ test("the summary card mounts only the subagents its body shows, and scrolls to 
           // jsdom keeps an element's scrollTop at 0, so the body's scroll is set as its own value.
           Object.defineProperty(body!, "scrollTop", { configurable: true, value: n * ROW - BODY });
           await act(async () => void body!.dispatchEvent(new dom.window.Event("scroll")));
-          expect(await settle(() => !!host.textContent?.includes(`reviewer-${n - 1}`), 5_000)).toBe(true);
-          expect(under()?.style.display).toBe("none");
+          // The last row is mounted once the box under the window holds no rows (running subagents sort first,
+          // so the last row is the list's, not the last started).
+          const ended = await settle(() => under()?.style.display === "none", 2_000);
+          const boxes = [...host.querySelectorAll<HTMLElement>("[data-rows-rest]")].map(
+            (box) => `${box.dataset.rowsNext}:${box.style.height}:${box.style.display}`,
+          );
+          expect({ ended, lines: lines(), boxes }).toMatchObject({ ended: true });
           expect(above()?.style.height).toBe(`${(n - lines()) * ROW}px`);
           expect(lines()).toBeLessThanOrEqual(firstRowCount(1_024));
-        }
-        expect(host.textContent).toContain(`reviewer-${n - 1}`);
+        } else expect(host.textContent).toContain(`reviewer-${n - 1}`);
       } finally {
         await act(async () => root.unmount());
         body = null;
