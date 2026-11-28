@@ -255,37 +255,6 @@ extension WindowRules {
                     as: ChatTargetedRoute.self)
     }
 
-    /// One column of the focused pane's screen (daemon pane handles), left to right; `dock`: docked to an edge.
-    public nonisolated struct InspectorColumn: Encodable, Equatable, Sendable {
-        public var panes: [UInt64]
-        public var dock: Bool
-
-        public init(panes: [UInt64], dock: Bool) {
-            self.panes = panes
-            self.dock = dock
-        }
-    }
-
-    /// Where "Chief: Open Memory Inspector" puts its tab.
-    public nonisolated enum InspectorPlacement: Decodable, Equatable, Sendable {
-        /// A new tab in this pane (Home's right column).
-        case tab(UInt64)
-        /// A new column right of this pane's column.
-        case newColumn(UInt64)
-
-        private enum CodingKeys: String, CodingKey { case kind, pane }
-
-        public init(from decoder: any Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            let pane = try container.decode(UInt64.self, forKey: .pane)
-            switch try container.decode(String.self, forKey: .kind) {
-            case "tab": self = .tab(pane)
-            case "newColumn": self = .newColumn(pane)
-            case let other: throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "inspector \(other)")
-            }
-        }
-    }
-
     /// The inspector's place while pane `focused` has focus; nil: Home has no scrolling column (or no answer), so a
     /// user workspace takes it.
     public func inspectorPlacement(focused: UInt64, inHome: Bool, columns: [InspectorColumn]) -> InspectorPlacement? {
@@ -295,42 +264,6 @@ extension WindowRules {
             .placement
     }
 
-    /// A workspace as the inspector's anchor reads it: the home workspace, and whether its first screen has a pane.
-    public nonisolated struct AnchorWorkspace: Encodable, Equatable, Sendable {
-        public var home: Bool
-        public var hasPane: Bool
-
-        public init(home: Bool, hasPane: Bool) {
-            self.home = home
-            self.hasPane = hasPane
-        }
-    }
-
-    /// The pane a new inspector column goes right of.
-    public nonisolated enum InspectorAnchor: Decodable, Equatable, Sendable {
-        /// The focused or targeted pane.
-        case pane
-        /// The last pane of the invocation's workspace.
-        case scopeWorkspace
-        /// The last pane of the machine's workspace at this index.
-        case workspace(Int)
-        /// No pane to anchor it.
-        case refuse
-
-        private enum CodingKeys: String, CodingKey { case kind, index }
-
-        public init(from decoder: any Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            switch try container.decode(String.self, forKey: .kind) {
-            case "pane": self = .pane
-            case "scopeWorkspace": self = .scopeWorkspace
-            case "workspace": self = .workspace(try container.decode(Int.self, forKey: .index))
-            case "refuse": self = .refuse
-            case let other: throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "anchor \(other)")
-            }
-        }
-    }
-
     /// `paneInHome`: the invocation's pane, true when it is in the home workspace (nil: none).
     public func inspectorAnchor(targeted: Bool, paneInHome: Bool?, scopeWorkspace: AnchorWorkspace?,
                                 workspaces: [AnchorWorkspace]) -> InspectorAnchor? {
@@ -338,25 +271,6 @@ extension WindowRules {
         return call("window_chat_agent_inspector_anchor",
                     Request(targeted: targeted, paneInHome: paneInHome, scopeWorkspace: scopeWorkspace, workspaces: workspaces),
                     as: InspectorAnchor.self)
-    }
-
-    /// Which Chief a Memory Inspector tab shows.
-    public nonisolated enum ChiefPlace: Decodable, Hashable, Sendable {
-        /// A Chief this Mac runs; nil for its default Chief.
-        case local(chief: String?)
-        /// The Chief on a paired server.
-        case server(machineID: String)
-
-        private enum CodingKeys: String, CodingKey { case kind, chief, machineId }
-
-        public init(from decoder: any Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            switch try container.decode(String.self, forKey: .kind) {
-            case "local": self = .local(chief: try container.decodeIfPresent(String.self, forKey: .chief))
-            case "server": self = .server(machineID: try container.decode(String.self, forKey: .machineId))
-            case let other: throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "chief \(other)")
-            }
-        }
     }
 
     /// The persisted route of `server`'s Chief, else Chief `chief` on this Mac, else this Mac's default Chief.
@@ -373,38 +287,6 @@ extension WindowRules {
         return call("window_chat_agent_memory_place", Request(route: route), as: Reply.self)?.place
     }
 
-    /// One harness's models as `_acpmux/models` lists them (`name` nil: the id is the title).
-    public nonisolated struct HarnessModels: Encodable, Equatable, Sendable {
-        public struct Model: Encodable, Equatable, Sendable {
-            public var id: String
-            public var name: String?
-
-            public init(id: String, name: String?) {
-                self.id = id
-                self.name = name
-            }
-        }
-
-        public var harness: String
-        public var models: [Model]
-
-        public init(harness: String, models: [Model]) {
-            self.harness = harness
-            self.models = models
-        }
-    }
-
-    /// The Set Model picker's choices of one harness name, unsorted.
-    public nonisolated struct HarnessChoices: Decodable, Equatable, Sendable {
-        public struct Choice: Decodable, Equatable, Sendable {
-            public var value: String
-            public var title: String
-        }
-
-        public var harness: String
-        public var models: [Choice]
-    }
-
     /// The model picker's catalog by harness name, each harness also under its id's last `/` component (none when two
     /// harnesses share it).
     public func modelCatalog(_ harnesses: [HarnessModels]) -> [HarnessChoices]? {
@@ -413,20 +295,32 @@ extension WindowRules {
         return call("window_chat_agent_model_catalog", Request(harnesses: harnesses), as: Reply.self)?.harnesses
     }
 
-    /// Where an agent-opened workspace goes in the sidebar.
-    public nonisolated struct SessionPlacement: Decodable, Equatable, Sendable {
-        /// The default rule it takes; nil with a group.
-        public enum DefaultSlot: String, Decodable, Equatable, Sendable { case top, newWorkspace }
-
-        /// It joins its named group from its first frame.
-        public var joinsGroup: Bool
-        /// It goes below its caller's grouped row, when the caller has one.
-        public var belowCaller: Bool
-        public var defaultSlot: DefaultSlot?
-    }
-
     public func sessionPlacement(group: Bool, top: Bool) -> SessionPlacement? {
         struct Request: Encodable { var group, top: Bool }
         return call("window_chat_agent_session_placement", Request(group: group, top: top), as: SessionPlacement.self)
     }
+}
+
+extension WindowRules.HarnessModels {
+    public struct Model: Encodable, Equatable, Sendable {
+        public var id: String
+        public var name: String?
+
+        public init(id: String, name: String?) {
+            self.id = id
+            self.name = name
+        }
+    }
+}
+
+extension WindowRules.HarnessChoices {
+    public struct Choice: Decodable, Equatable, Sendable {
+        public var value: String
+        public var title: String
+    }
+}
+
+extension WindowRules.SessionPlacement {
+    /// The default rule it takes; nil with a group.
+    public enum DefaultSlot: String, Decodable, Equatable, Sendable { case top, newWorkspace }
 }

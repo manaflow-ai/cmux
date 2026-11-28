@@ -54,19 +54,6 @@ extension WindowRules {
                                                          live: named.filter(isLive).sorted()))
     }
 
-    /// Where the person last was, from the daemon's saved front window: Home is said, never read off a missing tab.
-    public nonisolated enum LastFront: Equatable, Sendable {
-        /// No saved window: a true first launch.
-        case nothing
-        /// The home workspace, or classic Home's top page.
-        case home
-        case workspace(String, pane: String?, tab: String?)
-    }
-
-    /// The saved tab in the live tree: listed and running, listed with its process ended (the daemon relaunches it),
-    /// or not listed.
-    public nonisolated enum TabStanding: String, Encodable, Sendable { case live, ended, gone }
-
     /// Where the launch's front window lands (cmux-window-rules `launch::landing`).
     public nonisolated enum LaunchLanding: Equatable, Sendable {
         /// `why`: `firstLaunch`, `lastWasHome` or `unknownWorkspace`.
@@ -117,24 +104,6 @@ extension WindowRules {
         return landing.kind == "home" ? .home(why: landing.why ?? "") : nil
     }
 
-    /// What a relaunch's pending Home landing reads (cmux-window-rules `launch::pending_home`): the saved front window
-    /// it is for, the active window, whether the front window is open, Home's workspace is listed, and whether the front
-    /// window shows another workspace or page than the restore did, now (`moved`) or at any time since
-    /// (`movedSinceRestore`, latched by the window: leaving and coming back still drops the landing).
-    public nonisolated struct PendingHome: Encodable, Equatable, Sendable {
-        public var window: String
-        public var active: String?
-        public var windowOpen: Bool
-        public var homeReady: Bool
-        public var moved: Bool
-        public var movedSinceRestore: Bool
-
-        public init(window: String, active: String?, windowOpen: Bool, homeReady: Bool, moved: Bool, movedSinceRestore: Bool) {
-            (self.window, self.active, self.windowOpen, self.homeReady) = (window, active, windowOpen, homeReady)
-            (self.moved, self.movedSinceRestore) = (moved, movedSinceRestore)
-        }
-    }
-
     /// Lands Home for a relaunch whose saved workspace the daemon lacks, once Home's workspace is listed: no timer,
     /// each change of what `facts` reads asks the rule again. `land` gets the saved front window (never the active
     /// one). Ends when it landed, or when the window closed or the person moved on (the rule's `stop`), or at once
@@ -148,39 +117,6 @@ extension WindowRules {
                 if reply.step == "land", let window = reply.window { return land(window) }
             }
         }
-    }
-
-    /// What the app knows when a launch decides whether it opens something fresh (cmux-window-rules `launch::FreshFacts`).
-    public nonisolated struct FreshFacts: Encodable, Equatable, Sendable {
-        /// The tree has no workspace of the person's own (`needsFirstWorkspace`, read with the Home `ensure_home` named).
-        public var emptyTree: Bool
-        /// Saved windows exist and none of them is open (#31514).
-        public var noSavedWindowOpen: Bool
-        public var classicHome: Bool
-        /// `ensure_home` named a Home workspace.
-        public var homeEnsured: Bool
-        /// An `ensure_home` is in flight, or this launch ensures Home and none answered yet.
-        public var homeNotEnsuredYet: Bool
-
-        public init(emptyTree: Bool, noSavedWindowOpen: Bool, classicHome: Bool, homeEnsured: Bool, homeNotEnsuredYet: Bool) {
-            self.emptyTree = emptyTree
-            self.noSavedWindowOpen = noSavedWindowOpen
-            self.classicHome = classicHome
-            self.homeEnsured = homeEnsured
-            self.homeNotEnsuredYet = homeNotEnsuredYet
-        }
-    }
-
-    /// What a launch opens fresh (cmux-window-rules `launch::fresh_landing`).
-    public nonisolated enum FreshLanding: String, Decodable, Sendable {
-        /// Home, the Chief's workspace.
-        case home
-        /// A new workspace on its New Tab page.
-        case newTab
-        /// Nothing yet: ask again once the facts change.
-        case waitForHome
-        /// Nothing fresh: the saved windows reopen (``launchLanding(front:workspace:)``).
-        case saved
     }
 
     /// What a launch opens fresh (Leo 2026-11-18: "fresh startup opening home is obv fine but if it's not first time
@@ -197,4 +133,11 @@ extension WindowRules {
     }
 
     private static let launchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "window-rules")
+}
+
+extension WindowRules.PendingHome {
+    public init(window: String, active: String?, windowOpen: Bool, homeReady: Bool, moved: Bool, movedSinceRestore: Bool) {
+        (self.window, self.active, self.windowOpen, self.homeReady) = (window, active, windowOpen, homeReady)
+        (self.moved, self.movedSinceRestore) = (moved, movedSinceRestore)
+    }
 }

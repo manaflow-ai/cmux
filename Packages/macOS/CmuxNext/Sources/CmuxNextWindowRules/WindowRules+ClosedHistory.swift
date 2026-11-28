@@ -40,66 +40,11 @@ extension WindowRules {
         return call("window_close_history_closes", Request(items: items, target: target), as: Reply.self)?.closes ?? [target]
     }
 
-    /// What an entry's owner for Cmd-Shift-T reads.
-    public nonisolated struct OwnerFacts: Encodable, Equatable, Sendable {
-        var kind: String
-        var local: Bool
-        var recordedWindow: String?
-        var recordedOpen: Bool?
-        var workspaceWindow: String?
-
-        /// `recordedWindow`: this app's window the item's record names; `recordedOpen`: whether the
-        /// registry knows it open (nil: unknown); `workspaceWindow`: the window listing its workspace.
-        public init(kind: ClosedItem.Kind, local: Bool, recordedWindow: String?, recordedOpen: Bool?, workspaceWindow: String?) {
-            self.kind = kind.rawValue
-            self.local = local
-            self.recordedWindow = recordedWindow
-            self.recordedOpen = recordedOpen
-            self.workspaceWindow = workspaceWindow
-        }
-    }
-
     /// Cmd-Shift-T's entry (index into `entries`, newest first) for `window`: the newest that left it,
     /// else the newest no live window owns.
     public func newestClosed(_ entries: [OwnerFacts], window: String?) -> Int? {
         struct Request: Encodable { var entries: [OwnerFacts], window: String? }
         return call("window_close_history_newest", Request(entries: entries, window: window), as: Index.self)?.index
-    }
-
-    /// The undo toast's gestures waiting for their closed items; the app keeps it between calls.
-    public nonisolated struct UndoState: Codable, Equatable, Sendable {
-        struct Tab: Codable, Equatable, Sendable {
-            var id: String
-            var index: Int
-        }
-
-        struct Expected: Codable, Equatable, Sendable {
-            var token: UInt64
-            var tabs: [Tab]
-            var panes: [String]
-            var costly: Bool
-            var items: [String]
-            var recorded: Int
-        }
-
-        var expected: [Expected] = []
-
-        public init() {}
-
-        /// Each waiting gesture's panes, tab count and recorded tabs (`debug.filepages`).
-        public var waiting: [(panes: [String], tabs: Int, recorded: Int)] {
-            expected.map { ($0.panes, $0.tabs.count, $0.recorded) }
-        }
-    }
-
-    /// What announcing a gesture did.
-    public nonisolated enum Announced: Equatable, Sendable {
-        /// No closing tab was found.
-        case empty
-        /// A tab of it still waits (a repeated Cmd-W): the same gesture.
-        case repeated
-        /// It waits; `dropped` are the oldest gestures past the limit.
-        case waiting(dropped: [UInt64])
     }
 
     /// A user's close of `tabs` (id, place before the close) from `panes` in one gesture named `token`.
@@ -119,31 +64,6 @@ extension WindowRules {
         return (reply.state, announced)
     }
 
-    /// A closed item the daemon recorded since the last call.
-    public nonisolated struct RecordedItem: Encodable, Equatable, Sendable {
-        var id: String
-        var kind: String
-        var pane: String?
-        var tabs: Int
-
-        public init(id: String, kind: ClosedItem.Kind?, pane: String?, tabs: Int) {
-            self.id = id
-            self.kind = kind?.rawValue ?? "other"
-            self.pane = pane
-            self.tabs = tabs
-        }
-    }
-
-    /// A gesture whose every record is in.
-    public nonisolated struct Settled: Decodable, Equatable, Sendable {
-        public var token: UInt64
-        /// Its closed items, in the order recorded (reopen the last first).
-        public var items: [String]
-        public var tabs: Int
-        /// It shows the toast; else it is dropped.
-        public var shows: Bool
-    }
-
     /// Files each recorded item under its waiting gesture: whether one took each item, and the
     /// gestures that settled. Nil when the FFI does not answer.
     public func recordClosed(_ state: UndoState, items: [RecordedItem]) -> (state: UndoState, matched: [Bool], settled: [Settled])? {
@@ -152,11 +72,6 @@ extension WindowRules {
         struct Reply: Decodable { var state: UndoState, recorded: Recorded }
         guard let reply = call("window_close_undo_record", Request(state: state, items: items), as: Reply.self) else { return nil }
         return (reply.state, reply.recorded.matched, reply.recorded.settled)
-    }
-
-    /// How a settled close's toast shows.
-    public nonisolated enum ToastShow: Equatable, Sendable {
-        case new(tabs: Int), join(tabs: Int), drop
     }
 
     /// The toast for a close of `tabs`: `shown` the tab count of the close toast its window still
@@ -172,5 +87,46 @@ extension WindowRules {
         case "new": return .new(tabs: reply.tabs ?? tabs)
         default: return .drop
         }
+    }
+}
+
+extension WindowRules.OwnerFacts {
+    /// `recordedWindow`: this app's window the item's record names; `recordedOpen`: whether the
+    /// registry knows it open (nil: unknown); `workspaceWindow`: the window listing its workspace.
+    public init(kind: ClosedItem.Kind, local: Bool, recordedWindow: String?, recordedOpen: Bool?, workspaceWindow: String?) {
+        self.kind = kind.rawValue
+        self.local = local
+        self.recordedWindow = recordedWindow
+        self.recordedOpen = recordedOpen
+        self.workspaceWindow = workspaceWindow
+    }
+}
+
+extension WindowRules.UndoState {
+    struct Tab: Codable, Equatable, Sendable {
+        var id: String
+        var index: Int
+    }
+    struct Expected: Codable, Equatable, Sendable {
+        var token: UInt64
+        var tabs: [Tab]
+        var panes: [String]
+        var costly: Bool
+        var items: [String]
+        var recorded: Int
+    }
+    public init() {}
+    /// Each waiting gesture's panes, tab count and recorded tabs (`debug.filepages`).
+    public var waiting: [(panes: [String], tabs: Int, recorded: Int)] {
+        expected.map { ($0.panes, $0.tabs.count, $0.recorded) }
+    }
+}
+
+extension WindowRules.RecordedItem {
+    public init(id: String, kind: ClosedItem.Kind?, pane: String?, tabs: Int) {
+        self.id = id
+        self.kind = kind?.rawValue ?? "other"
+        self.pane = pane
+        self.tabs = tabs
     }
 }

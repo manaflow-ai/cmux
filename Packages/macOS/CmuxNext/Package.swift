@@ -1188,7 +1188,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
             ],
-            swiftSettings: daemonSwiftSettings
+            swiftSettings: daemonSwiftSettings,
+            // The FFI's request and reply types cmux-tui/bindings/codegen/swift_ffi/window_rules.json lists,
+            // generated from the Rust crate cmux-window-rules by every build (never committed, RFD 0048).
+            plugins: [
+                .plugin(name: "WindowRulesWireTypesPlugin"),
+            ]
         ),
         .target(
             name: "CmuxNextFocusUI",
@@ -2548,6 +2553,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Runs cmux-tui/bindings/codegen/swift_app/generate.py --out into its work directory.
         .plugin(name: "DaemonWireTypesPlugin", capability: .buildTool()),
+        // Runs cmux-tui/bindings/codegen/swift_ffi/generate.py --out into its work directory.
+        .plugin(name: "WindowRulesWireTypesPlugin", capability: .buildTool()),
         // Runs scripts/cmux-next/gen-daemon-capabilities.py --swift-out into its work directory.
         .plugin(name: "DaemonCapabilitiesPlugin", capability: .buildTool()),
         .testTarget(

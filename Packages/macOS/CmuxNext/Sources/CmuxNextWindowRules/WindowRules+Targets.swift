@@ -2,41 +2,6 @@
 /// ordinal pick, the one wrapping step, the one "id, then folded name" lookup, the explicit target,
 /// a tab group action's tab list, and the refusal a handler's failure becomes.
 extension WindowRules {
-    /// What a number past the end of the list picks.
-    public nonisolated enum PastEnd: String, Encodable, Sendable {
-        /// The last one (tabs, spaces).
-        case clamp
-        /// Nothing (screens); 9 is still the last.
-        case refuse
-    }
-
-    /// One candidate of a named lookup: its id and its name folded by the app (case, diacritics).
-    public nonisolated struct Named: Encodable, Equatable, Sendable {
-        public var id: String
-        public var folded: String
-
-        public init(id: String, folded: String) {
-            self.id = id
-            self.folded = folded
-        }
-    }
-
-    /// An object an invocation names, as the explicit target rule reads it.
-    public nonisolated struct TargetRef: Encodable, Equatable, Sendable {
-        public var kind: String
-        public var id: String
-
-        public init(kind: String, id: String) {
-            self.kind = kind
-            self.id = id
-        }
-    }
-
-    /// How a refusal reaches the person and the caller.
-    public nonisolated enum Refusal: String, Decodable, Sendable {
-        case notFound, quiet, shown
-    }
-
     /// A rule the FFI did not answer (a pinned FFI without the op), for a handler that refuses then.
     public nonisolated struct Unanswered: Error, CustomStringConvertible, Sendable {
         public var operation: String

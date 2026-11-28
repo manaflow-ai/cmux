@@ -115,6 +115,14 @@
       "status": "build"
     },
     {
+      "id": "window-rules-wire-types",
+      "generator": "cmux-tui/bindings/codegen/swift_ffi/generate.py",
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/*.generated.swift"
+      ],
+      "status": "build"
+    },
+    {
       "id": "daemon-capabilities",
       "generator": "scripts/cmux-next/gen-daemon-capabilities.py",
       "outputs": [
