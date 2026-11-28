@@ -146,7 +146,8 @@ extension TabManager: SidebarGitHosting {
             // Raw values are shared between the app and package status enums.
             status: SidebarPullRequestStatus(rawValue: badge.status.rawValue) ?? .open,
             branch: badge.branch,
-            isStale: badge.isStale
+            isStale: badge.isStale,
+            deliveryStatus: badge.deliveryStatus.map(Self.sidebarDeliveryStatus)
         )
     }
 
@@ -204,6 +205,32 @@ extension TabManager: SidebarGitHosting {
             return 0
         }
         return max(0, interval - (ProcessInfo.processInfo.systemUptime - lastTypingActivityAt))
+    }
+}
+
+private extension TabManager {
+    static func sidebarDeliveryStatus(
+        _ status: PullRequestDeliveryStatus
+    ) -> SidebarPullRequestDeliveryStatus {
+        SidebarPullRequestDeliveryStatus(
+            checks: status.checks.map {
+                SidebarPullRequestCheckSummary(
+                    state: SidebarPullRequestCheckState(rawValue: $0.state.rawValue) ?? .unknown,
+                    passedCount: $0.passedCount,
+                    failedCount: $0.failedCount,
+                    pendingCount: $0.pendingCount,
+                    totalCount: $0.totalCount,
+                    neutralCount: $0.neutralCount
+                )
+            },
+            deployment: status.deployment.map {
+                SidebarPullRequestDeploymentSummary(
+                    name: $0.name,
+                    state: SidebarPullRequestDeploymentState(rawValue: $0.state.rawValue) ?? .unknown,
+                    url: $0.url
+                )
+            }
+        )
     }
 }
 
