@@ -207,9 +207,12 @@ class TV:
         r = subprocess.run(["curl", "-fsS", "-o", "/dev/null", f"http://127.0.0.1:{PORT}/bench.html"], capture_output=True)
         if r.returncode == 0:
             return
-        subprocess.Popen([sys.executable, "-m", "http.server", str(PORT), "--bind", "127.0.0.1"],
-                         cwd=os.path.join(CNX, "verify/scripts/bench-page"), stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True)
+        server = subprocess.Popen([sys.executable, "-m", "http.server", str(PORT), "--bind", "127.0.0.1"],
+                                  cwd=os.path.join(CNX, "verify/scripts/bench-page"), stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL, start_new_session=True)
+        # teardown runs in another invocation: it stops this server by its recorded process group, not by name.
+        self.state["server_pgid"] = server.pid
+        self.save()
         time.sleep(1)
 
     def setup(self, resume=False):
@@ -234,7 +237,13 @@ class TV:
         if udid:
             subprocess.run(["xcrun", "simctl", "shutdown", udid], capture_output=True)
             subprocess.run(["xcrun", "simctl", "delete", udid], capture_output=True)
-        subprocess.run(["pkill", "-f", f"http.server {PORT}"], capture_output=True)
+        pgid = self.state.pop("server_pgid", None)
+        if pgid:
+            try:
+                os.killpg(pgid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            self.save()
         self.log("teardown done")
 
     # ---------------------------------------------------------------- helpers
@@ -723,14 +732,15 @@ def main():
         try:
             tv.transition(a.cmd)
         finally:
+            # Stops this run's own recorder (Sim keeps its Popen), never another run's.
             if tv.sim:
                 tv.sim.record_stop()
-            subprocess.run(["pkill", "-f", "simctl io .* recordVideo"], capture_output=True)
     elif a.cmd == "loss":
         try:
             tv.loss(a.arg)
         finally:
-            subprocess.run(["pkill", "-f", "simctl io .* recordVideo"], capture_output=True)
+            if tv.sim:
+                tv.sim.record_stop()
     elif a.cmd == "analyze":
         tv.analyze(a.arg or a.out)
     elif a.cmd == "teardown":

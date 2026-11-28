@@ -250,6 +250,7 @@ fn nap(end_ms: u64, left_ms: u64) {
 
 /// How long a park or unpark may hold the waiter: a daemon that does not answer never delays
 /// the sleep's own end.
+// timeout: a best-effort park/unpark note; the sleep it rides on must end on time whatever the daemon does.
 const TELL_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Tells the chat's daemon (`method`, best effort, bounded by [`TELL_BUDGET`]).

@@ -80,6 +80,15 @@ def candidate_files() -> tuple[str, ...]:
     return tuple(sorted(found))
 
 
+@functools.cache
+def left_out() -> frozenset[str]:
+    """Tracked files a sparse checkout leaves out of the worktree (git's skip-worktree bit, `S` in ls-files -t).
+    Their matches cannot be counted here, so their entries are not called stale: #60339 dropped twenty
+    cmux-next-ios/verify entries from a sparse lane checkout and the base went red on the next full checkout."""
+    p = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-t", "-z"], capture_output=True)
+    return frozenset(e[2:] for e in p.stdout.decode(errors="replace").split("\0") if e.startswith("S "))
+
+
 def read_text(rel: str) -> str | None:
     path = ROOT / rel
     if path.is_symlink() or not path.is_file():
@@ -311,7 +320,7 @@ class FleetRuleLints(unittest.TestCase):
             count = entry.get("count")
             if type(count) is not int or count < 1:
                 problems.append(f"{rel}: allowlist count must be a positive integer, not {count!r}")
-            if rel not in found:
+            if rel not in found and rel not in left_out():
                 problems.append(f"{rel}: allowlisted but no longer matches; remove its entry")
             if not re.match(r"(safe|debt): \S", str(entry.get("reason", ""))):
                 problems.append(f"{rel}: allowlist reason must start with \"safe: \" or \"debt: \" and say why")

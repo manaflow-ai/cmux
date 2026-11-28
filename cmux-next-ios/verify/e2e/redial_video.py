@@ -262,9 +262,9 @@ def main():
         elif a.cmd == "teardown":
             rig.teardown()
     finally:
+        # Stops this run's own recorder (Sim keeps its Popen), never another run's.
         if rig.sim:
             rig.sim.record_stop()
-        subprocess.run(["pkill", "-f", "simctl io .* recordVideo"], capture_output=True)
     rig.log(f"== {a.cmd} done")
 
 
