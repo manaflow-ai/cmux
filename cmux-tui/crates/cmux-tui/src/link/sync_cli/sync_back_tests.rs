@@ -172,7 +172,8 @@ fn the_teams_sync_back_off_keeps_the_files_read_only() {
     let work = tempfile::tempdir().unwrap();
     let team_path = cmux_config::location::team_policy_path(state.path());
     std::fs::create_dir_all(team_path.parent().unwrap()).unwrap();
-    std::fs::write(&team_path, json!({"features": {"projection.syncBack": false}}).to_string()).unwrap();
+    std::fs::write(&team_path, json!({"features": {"projection.syncBack": false}}).to_string())
+        .unwrap();
     std::fs::write(
         state.path().join(rule::POLICY_FILE),
         json!({"projection": {"readOnly": true}}).to_string(),
