@@ -794,6 +794,12 @@ class Side:
             self.run("stop", timeout=120)
         except (LookError, subprocess.SubprocessError) as error:
             errors.append(str(error))
+        if not errors and state.get("capture_kit"):
+            try:
+                finish_kit_home(self, state["capture_kit"])
+                self.remember(capture_kit=None)
+            except (RuntimeError, OSError, ValueError, ImportError) as error:
+                errors.append(f"capture home cleanup: {error}")
         tree, repo = state.get("worktree"), state.get("repo")
         if tree and repo:
             git(Path(repo), "worktree", "remove", "--force", tree, check=False)
@@ -1479,6 +1485,22 @@ def kit_launch_args(env: dict) -> list[str]:
                               "ACPMUX_SOCKET", "XDG_CONFIG_HOME") for part in ("--env", f"{key}={env[key]}")]
 
 
+def finish_kit_home(side: Side, kit_path: str) -> None:
+    """A watched copy can outlive this process; stop/remake restores its isolated keychain before removing it."""
+    root = side.dir() / "capture"
+    if not (root / "keychain/state.json").exists():
+        return
+    kit = load_kit(kit_path)
+    prepared = kit.Prepared()
+    prepared.home = str(root / "home")
+    prepared.keychain = kit.rig_keychain(Path(kit_path), "", root)
+    if prepared.keychain is None:
+        raise LookError("the capture kit cannot restore its keychain; keep the copy and restore its kit")
+    prepared.finish()
+    if not prepared.notes.get("keychain_restored"):
+        raise LookError("the capture keychain was not restored; keep the copy and retry stop")
+
+
 def process_runs_any(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -2032,7 +2054,9 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
         """A fresh side copy of APP, launched: its pid, control socket and repaint watch."""
         nonlocal prepared, step_env
         if side.exists():
-            side.stop()
+            errors = side.stop()
+            if errors:
+                raise LookError("; ".join(errors))
         if prepared is not None:
             prepared.finish()
             prepared = None
@@ -2041,6 +2065,7 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
         side.run(*side_make_args(app), timeout=600)
         if kit is not None:
             step_env, prepared = prepare_kit_home(kit, args.state, repo, planned["head"], side, engine)
+            side.remember(capture_kit=str(Path(kit.__file__).parent))
             receipt["preparation"] = prepared.notes
         set_browser_engine(Path(side.env()["CMUX_NEXT_CONFIG_FILE"]), engine)
         if planned.get("ffi_baseline"):
@@ -2166,7 +2191,7 @@ def resolve_tree(planned: dict, source: str) -> Path | None:
 def command_stop(args) -> int:
     side = Side(args.side)
     errors = side.stop()
-    if getattr(args, "remove", False) and side.exists():
+    if not errors and getattr(args, "remove", False) and side.exists():
         try:
             side.run("remove", timeout=300)
         except (LookError, subprocess.SubprocessError) as error:

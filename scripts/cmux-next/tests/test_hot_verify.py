@@ -1877,6 +1877,9 @@ class LookKitErrorTest(unittest.TestCase):
             def socket(self):
                 return "/tmp/look-test.sock"
 
+            def remember(self, **fields):
+                pass
+
             def stop(self):
                 return []
 
@@ -1893,7 +1896,7 @@ class LookKitErrorTest(unittest.TestCase):
             with unittest.mock.patch.object(hv, "prepare_kit_home",
                                             return_value=({}, unittest.mock.Mock(notes={}))), \
                     unittest.mock.patch.object(hv, "kit_launch_args", return_value=[]), \
-                    unittest.mock.patch.object(hv, "load_kit", return_value=object()), \
+                    unittest.mock.patch.object(hv, "load_kit", return_value=unittest.mock.Mock(__file__="/kit/nightly_steps.py")), \
                     unittest.mock.patch.object(hv, "load_steps", return_value=[]), \
                     unittest.mock.patch.object(hv, "steps_engine", return_value="webkit"), \
                     unittest.mock.patch.object(hv, "Shooter", side_effect=shooter), \
@@ -1912,6 +1915,39 @@ class LookKitErrorTest(unittest.TestCase):
 
 
 class IsolatedHarnessTest(unittest.TestCase):
+    def test_watched_copy_restores_preparation_from_its_saved_kit(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "capture/keychain").mkdir(parents=True)
+            (root / "capture/keychain/state.json").write_text("{}")
+            prepared = SimpleNamespace(notes={}, home=None, keychain=None)
+            prepared.finish = lambda: prepared.notes.update(keychain_restored=True)
+            keychain = object()
+            kit = SimpleNamespace(Prepared=lambda: prepared, rig_keychain=lambda *a: keychain)
+            side = SimpleNamespace(dir=lambda: root, exists=lambda: True,
+                                   state=lambda: {"capture_kit": "/kit"}, run=unittest.mock.Mock(),
+                                   remember=unittest.mock.Mock())
+            with unittest.mock.patch.object(hv, "load_kit", return_value=kit):
+                self.assertEqual(hv.Side.stop(side), [])
+            self.assertEqual(prepared.home, str(root / "capture/home"))
+            self.assertIs(prepared.keychain, keychain)
+            side.remember.assert_any_call(capture_kit=None)
+
+            prepared.finish = lambda: prepared.notes.update(keychain_restored=False)
+            side.remember.reset_mock()
+            with unittest.mock.patch.object(hv, "load_kit", return_value=kit):
+                self.assertIn("keychain was not restored", hv.Side.stop(side)[0])
+            self.assertNotIn(unittest.mock.call(capture_kit=None), side.remember.call_args_list)
+
+    def test_failed_stop_does_not_remove_the_copy_or_its_cleanup_state(self):
+        from types import SimpleNamespace
+        side = unittest.mock.Mock()
+        side.stop.return_value = ["capture keychain was not restored"]
+        with unittest.mock.patch.object(hv, "Side", return_value=side):
+            self.assertEqual(hv.command_stop(SimpleNamespace(side="copy", remove=True)), hv.EXIT_FAILED)
+        side.run.assert_not_called()
+
     def test_runner_receives_the_apps_environment_and_preparation(self):
         from types import SimpleNamespace
         with tempfile.TemporaryDirectory() as tmp:
