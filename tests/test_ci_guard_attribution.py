@@ -372,7 +372,8 @@ class Robustness(unittest.TestCase):
     def test_guard_conclusion_overrides_an_unrelated_ci_failure(self) -> None:
         gh = ga.GitHub("manaflow-ai/cmux", "token")
         gh.guard_job = lambda run: {"id": 42, "name": ga.FAST_WORKFLOW, "conclusion": "success"}  # type: ignore[method-assign]
-        gh.comments = lambda number: [{"id": 1, "body": ga.PR_MARKER}]  # type: ignore[method-assign]
+        bot = {"id": 1, "body": ga.PR_MARKER, "user": {"login": "github-actions[bot]"}}
+        gh.comments = lambda number: [bot]  # type: ignore[method-assign]
         run = {
             "id": 9,
             "run_attempt": 2,
@@ -387,6 +388,29 @@ class Robustness(unittest.TestCase):
         selected = ga.authoritative_guard_run(gh, run)
         self.assertEqual(selected["conclusion"], "success")
         self.assertEqual(ga.analyze_pr(gh, selected, ROOT, "")["state"], "green")
+
+    def test_a_marker_quoted_by_a_human_does_not_make_a_green_run_comment(self) -> None:
+        # #40422: only a bot-authored comment is the guard comment; a quote of the marker is not.
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        gh.guard_job = lambda run: {"id": 42, "name": ga.FAST_WORKFLOW, "conclusion": "success"}  # type: ignore[method-assign]
+        quoted = {"id": 5, "body": f"use `{ga.PR_MARKER}` to mark it", "user": {"login": "some-human"}}
+        gh.comments = lambda number: [quoted]  # type: ignore[method-assign]
+        run = {"id": 9, "conclusion": "success", "head_sha": "abc",
+               "pull_requests": [{"number": 7, "base": {"repo": {"url": "https://api.github.com/repos/manaflow-ai/cmux"}}}]}
+        self.assertEqual(ga.analyze_pr(gh, run, ROOT, "")["state"], "noop")
+
+    def test_a_green_run_edits_the_guards_line_of_the_bot_status_comment(self) -> None:
+        # analyze_pr hands report_pr the comments it read; the bot's status comment must survive that hand-off.
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        status = ga.pr_status.render({"guards": ga.PR_MARKER + "\nold"})
+        gh.comments = lambda number: [{"id": 3, "body": status, "user": {"login": ga.pr_status.BOT}}]  # type: ignore[method-assign]
+        run = {"id": 9, "conclusion": "success", "head_sha": "abc",
+               "pull_requests": [{"number": 7, "base": {"repo": {"url": "https://api.github.com/repos/manaflow-ai/cmux"}}}]}
+        report = ga.analyze_pr(gh, run, ROOT, "")
+        self.assertEqual(report["state"], "green")
+        writer = ga.Writer(None, True)
+        ga.report_pr(writer, gh, "manaflow-ai/cmux", report)
+        self.assertEqual(writer.log[0].splitlines()[0], "--- would PATCH repos/manaflow-ai/cmux/issues/comments/3")
 
     def test_cancelled_or_skipped_guard_has_no_verdict(self) -> None:
         gh = ga.GitHub("manaflow-ai/cmux", "token")
