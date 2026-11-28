@@ -923,9 +923,12 @@ class SetupTest(unittest.TestCase):
             table('[step.a]\njob = "linux"\ntier = "later"\nrun = "true"')
 
     def test_the_tables_tool_steps_are_push_tier_and_the_workflow_runs_the_pr_tier(self) -> None:
+        # web-tests-affected (cmux#63314) is the one pull request tier step with a tool: it runs only the web tests a
+        # change reaches, so it exists for the pull request tier; a push runs every web test in the push-tier shards.
+        pr_tier_tool_steps = {"web-tests-affected"}
         for step in ci_steps.load().steps.values():
             if step.job == "linux" and step.needs:
-                self.assertEqual(step.tier, "push", step.name)
+                self.assertEqual(step.tier, "pr" if step.name in pr_tier_tool_steps else "push", step.name)
         text = (ROOT / ".github/workflows/pr-pipeline.yml").read_text()
         self.assertIn('ci/run run --job linux --tier "$TIER"', text)
         self.assertIn("CI_PR_PIPELINE_TIER", text)
