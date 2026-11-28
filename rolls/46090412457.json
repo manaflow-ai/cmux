@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46090412457",
+  "recorded_at": "2026-11-28T01:21:39Z",
+  "reason": "image inputs changed in 8d9db64bb752b05b403192738d8e3b3fc47075a0..d9e4eb3bb28701c6d4abcf0d98f312e3de507f5f; cmux-tui 5593708d2c07, the newest build published on HEAD (pinned 589544f1e56b; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "5593708d2c07dd6df905a68036d0932a6530441c",
+  "fixes": [
+    {
+      "sha": "d9e4eb3bb28701c6d4abcf0d98f312e3de507f5f",
+      "mergedAt": "2026-11-28T00:54:44Z",
+      "subject": "cloud image: the acpmux probe wait ends on a wall-clock deadline, not a pass count (#63332)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-28T01:21:39Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
