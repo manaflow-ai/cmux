@@ -581,6 +581,10 @@ path = "tests/test_ci_merge_queue_required_checks.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_mobile_old_phones.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_needs_skip_propagation.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_needs_skip_propagation.py yourself after changing the workflow or script it reads."
@@ -613,6 +617,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_nightly_push_throttle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_nightly_source.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1074,6 +1082,11 @@ path = "tests/test_ci_rust_workspaces_land_head.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_same_head_job.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_same_head_job.py"
+
+[[test]]
 path = "tests/test_ci_same_repo_linux_owned_first.py"
 lane = "linux-guard"
 
@@ -1300,6 +1313,10 @@ path = "tests/test_ci_upload_artifact_retention.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_visual_baseline.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_vm_image_qcow2.py"
 lane = "linux-guard"
 
@@ -1356,6 +1373,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_hashfiles_in_workspace.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_step_id_grep_guarded.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1419,3 +1440,8 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_xcodebuild_noninteractive_helper.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_nightly_bundle_time_fallback.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_nightly_bundle_time_fallback.py"

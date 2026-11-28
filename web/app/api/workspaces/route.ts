@@ -1,6 +1,7 @@
 import {
   jsonResponse,
   resolveVmProvisioningAccountScope,
+  vmCreateWaitingResponse,
   withAuthedVmApiRoute,
 } from "../../../services/vms/routeHelpers";
 import {
@@ -8,9 +9,14 @@ import {
 } from "../../../services/vms/persistentWorkspace";
 import { persistentWorkspaceServiceForRequest } from "../../../services/vms/freestyleWorkspaceComposition";
 import type { PersistentWorkspaceProviderInput } from "../../../services/vms/persistentWorkspace";
+import { VmCreateWaitingError } from "../../../services/vms/errors";
 import { enforceVmAllocationRateLimit } from "../../../services/vms/allocationRateLimit";
 
 function errorResponse(error: unknown): Response {
+  // A create queued for an address or capacity is not a failure: 202 with
+  // Retry-After, and the same Idempotency-Key retry starts the machine.
+  const waiting = error instanceof PersistentWorkspaceError ? error.cause : null;
+  if (waiting instanceof VmCreateWaitingError) return vmCreateWaitingResponse(waiting);
   if (error instanceof PersistentWorkspaceError) {
     const status = error.code === "workspace_not_found" ? 404
       : error.code === "workspace_forbidden" ? 403
@@ -36,6 +42,7 @@ function providerInputFrom(value: unknown): PersistentWorkspaceProviderInput | u
     ...(typeof body.memoryMb === "number" && Number.isSafeInteger(body.memoryMb) ? { memoryMb: body.memoryMb } : {}),
     ...(objectBody(body.providerMetadata) ? { providerMetadata: body.providerMetadata as Record<string, unknown> } : {}),
     ...(typeof body.networkId === "string" ? { networkId: body.networkId } : {}),
+    ...(body.waitForCapacity === true ? { waitForCapacity: true } : {}),
     ...(terminal ? {
       terminal: {
         ...(terminal.agent === "claude" || terminal.agent === "codex" || terminal.agent === "opencode" || terminal.agent === "pi" ? { agent: terminal.agent } : {}),
