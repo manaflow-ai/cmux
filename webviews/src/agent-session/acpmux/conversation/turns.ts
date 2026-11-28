@@ -3732,7 +3732,12 @@ export function withRetry(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[], clock
   const at = shaped.length - 1;
   const line = shaped[at];
   if (line?.kind !== THINKING) return shaped;
-  const timedFromPrompt = line.doing === undefined && line.liveState === undefined && !line.turnTotal;
+  // Before the first output the line is timed from the prompt. The line with nothing heard yet carries
+  // `turnTotal` for its silence clock (heardKey "0:", the 2026-11-27 "mango" fix in `liveTurn`), yet it
+  // is still that prompt-timed line, so the retries' time leaves it too.
+  const nothingHeard = line.heardKey?.startsWith("0:") ?? false;
+  const timedFromPrompt =
+    line.doing === undefined && line.liveState === undefined && (!line.turnTotal || nothingHeard);
   const next: AcpmuxRow = {
     ...line,
     ...(retryRow.retry && { retry: retryRow.retry, retryAt: retryRow.at + clockOffset }),
