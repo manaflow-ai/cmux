@@ -2,9 +2,12 @@
 // then kept "Permission groups are disconnected" with no client recovery running.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
-import { PERMISSION_GROUP_OPS } from "../src/agent-session/acpmux/permissions/protocol";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+type AcpmuxDirectClient = import("../src/agent-session/acpmux/direct").AcpmuxDirectClient;
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
+const { PERMISSION_GROUP_OPS } = await importWithDom(() => import("../src/agent-session/acpmux/permissions/protocol"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

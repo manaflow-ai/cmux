@@ -101,6 +101,19 @@ impl std::fmt::Display for Refused {
 pub use crate::github_connect::CONNECT_GITHUB;
 
 impl Refused {
+    /// The code in brackets, with the deny reason when there is one.
+    pub fn tag(&self) -> String {
+        match &self.reason {
+            Some(reason)
+                if !reason.is_empty()
+                    && reason.chars().all(|c| c.is_ascii_lowercase() || c == '_') =>
+            {
+                format!("[{} {reason}]", self.code)
+            }
+            _ => format!("[{}]", self.code),
+        }
+    }
+
     /// What is wrong with `subject` (a repository, or "GitHub") and, when the person can fix
     /// it, the one line that says how: the cmux GitHub App not installed, the repository not
     /// granted to it, the team's GitHub connection or this machine's Cloud sign-in to renew.
@@ -183,7 +196,7 @@ impl Refused {
             "owner_not_connected" => (
                 format!(
                     "{lead}: {owner} has no cmux GitHub App installation connected to this cmux \
-                     team (the repository belongs to an account the team has not connected)."
+                     team, so the team's GitHub grant does not cover it."
                 ),
                 Some(format!(
                     "If you own {owner}, {CONNECT_GITHUB} and install the App on {owner}; if you \
@@ -253,10 +266,12 @@ impl Refused {
         })
     }
 
-    /// [`Refused::explain`] as the one or two lines stderr shows.
+    /// [`Refused::explain`] as the one line stderr shows: what is wrong, then the fix. One
+    /// line, so the chat that shows the agent's command can show it to the person too (the
+    /// webviews' `githubConnect.ts` reads it).
     pub fn explained(&self, subject: &str) -> String {
         match self.explain(subject) {
-            (what, Some(fix)) => format!("{what}\n{fix}"),
+            (what, Some(fix)) => format!("{what} {fix}"),
             (what, None) => what,
         }
     }
@@ -677,8 +692,10 @@ pub fn credential_get(
 /// brackets. The code is the stable part: the app's setup probe (CmuxNextApp
 /// `CloudGitHubSetup.unboundProbe`) reads `policy.denied` there to tell a working path (the
 /// agent reached the API, which refused a repository no team has) from a broken one.
+/// A `policy.denied` with a reason carries it after the code (`[policy.denied
+/// owner_not_connected]`), so the chat can tell an owner with no installation from the rest.
 fn refusal_note(e: &Refused, repo: &str) -> String {
-    format!("{} [{}]", e.explained(repo), e.code)
+    format!("{} {}", e.explained(repo), e.tag())
 }
 
 /// What `gh` runs with: the repo, whether to ask for write, and gh's own
@@ -1333,9 +1350,11 @@ fn gh_auto(args: &[String]) -> u8 {
                 }
                 Err(e) => match e.explain(&repo) {
                     (what, Some(fix)) => {
-                        eprintln!("cmux github gh: {what} gh runs without one.\n{fix}");
+                        eprintln!("cmux github gh: {what} gh runs without one. {fix} {}", e.tag());
                     }
-                    (what, None) => eprintln!("cmux github gh: {what} gh runs without one."),
+                    (what, None) => {
+                        eprintln!("cmux github gh: {what} gh runs without one. {}", e.tag());
+                    }
                 },
             }
         }
@@ -1360,7 +1379,7 @@ fn gh(args: &[String]) -> u8 {
     let minted = match ask_retrying(Path::new(AGENT_SOCKET), &gh_ask(&plan.repo, plan.write)) {
         Ok(minted) => minted,
         Err(e) => {
-            eprintln!("cmux github gh: {}", e.explained(&plan.repo));
+            eprintln!("cmux github gh: {}", refusal_note(&e, &plan.repo));
             return 1;
         }
     };

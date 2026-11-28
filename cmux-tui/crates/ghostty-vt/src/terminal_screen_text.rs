@@ -81,7 +81,7 @@ impl Terminal {
             || self.grid_ref(tag, cols - 1, row).is_some_and(|last| {
                 last.node == first.node && last.y == first.y && last.x == cols - 1
             });
-        let mut grapheme_buf = Vec::new();
+        let mut reader = GridCellReader::new(&palette);
         let mut cells = Vec::with_capacity(usize::from(cols));
         let mut links = Vec::with_capacity(usize::from(cols));
         for x in 0..cols {
@@ -90,7 +90,7 @@ impl Terminal {
             } else {
                 self.grid_ref(tag, x, row)?
             };
-            cells.push(read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf).ok()?);
+            cells.push(reader.read(&grid_ref).ok()?);
             let mut raw = sys::GhosttyCell::default();
             check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut raw) }).ok()?;
             let mut link = false;

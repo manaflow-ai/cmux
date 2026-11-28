@@ -1,7 +1,8 @@
 # Pull-request simulator loop for iOS, fire and forget (Leo, 2026-11-27: "do we have any checks for ios
 # visually interactively etc how much is manual how much can be audomated"; "make it fire and forget").
 #
-# On a GitHub-hosted macOS runner: build the app, boot an iPhone simulator, launch it and drive the chat
+# Attempt 1 takes the owned side label (CI_PR_POOL_OWNED), a re-run vars.MACOS_RUNNER_26 or Blacksmith macOS;
+# only a fork's run uses GitHub's macos-26 (tests/test_ci_no_github_hosted_macos.py, test_ci_paid_queue_pin.py). Build the app, boot an iPhone simulator, launch it and drive the chat
 # composer keyboard (ComposerKeyboardPinUITests, both the Chief and the terminal composer) and the terminal
 # keyboard (TerminalKeyboardNoResizeUITests: vim and a mock Claude Code screen, keyboard up and down five
 # times) through XCUITest. Every XCTAttachment screenshot, a screen recording and the result bundle's test
@@ -9,11 +10,13 @@
 # scripts/ci/cmux-next-ios-sim.sh test ui=SUITE,SUITE video.
 #
 # Never blocking: the job is continue-on-error and not a required check. It reports in the step summary and
-# the artifact; a red run is information, not a gate. No fleet or self-hosted runner is used.
+# the artifact; a red run is information, not a gate.
 name: iOS simulator screenshot loop
 
 on:
   pull_request:
+    # labeled: the heavy-at-land rule on `loop` runs it on the event that adds ready-to-land (or full-ci).
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - cmux-next-ios/**
       - Packages/iOS/**
@@ -25,13 +28,18 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id)) || '' }}
   cancel-in-progress: true
 
 jobs:
   loop:
     name: composer + terminal keyboard screenshots
-    runs-on: macos-26
+    # Heavy-at-land rule (scripts/ci/head_tier.py, CI_HEAVY_AT_LAND, on unless 0; Leo, 2026-11-26: "de facto, im
+    # asking for 99% fewer minutes of ci time, period."): on a pull request this runs only on the `labeled` event that
+    # adds ready-to-land or full-ci, at that head; land-judge pulses ready-to-land at the head it lands. On 11-28
+    # 07Z..11:30Z it spent about 7.5k runner-min/day on every push of every iOS pull request head. Dispatch and CI_HEAVY_AT_LAND=0: as before.
+    if: ${{ (github.event_name != 'pull_request' || (github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) || ((vars.CI_HEAVY_AT_LAND || '1') == '0' && github.event.action != 'labeled')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_LIGHT_LANE_RUNNER || (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     continue-on-error: true
     # The hosted simulator build and both UI suites can exceed an hour. Keep the
     # fire-and-forget run alive long enough to produce its screenshots instead of
@@ -42,10 +50,11 @@ jobs:
         with:
           persist-credentials: false
 
-      # GitHub's hosted macos-26 image has Xcode 26.6, not the pool pin (27.2); the floor is 26.
+      # A fork's run is on GitHub's hosted macos-26 image, which has Xcode 26.6, not the pool pin (27.2); the
+      # floor is 26. Every other run takes the pool pin from scripts/ci/xcode-pins.txt.
       - name: Select Xcode
         env:
-          CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+          CMUX_CI_XCODE_APP: ${{ github.repository_owner != 'manaflow-ai' && '/Applications/Xcode_26.6.app' || '' }}
         run: |
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
