@@ -159,8 +159,8 @@ jobs:
       # and the hourly copy ran the same eight react-apps-check shards about 37 min each, ten minutes after the batch's
       # (runs 45971503699 and 45972762730, 2026-11-27): about 7.1k runner-min a day. Leo: "de facto, im asking for 99%
       # fewer minutes of ci time, period."
-      web: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none' || (github.event_name != 'pull_request' && steps.line.outputs.next_line == 'true')) && 'false' || (steps.detect.outputs.web) }}
-      agent_session_web: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none' || (github.event_name != 'pull_request' && steps.line.outputs.next_line == 'true')) && 'false' || (steps.detect.outputs.agent_session_web) }}
+      web: ${{ (steps.tier.outputs.tier == 'none' || (steps.tier.outputs.tier == 'cheap' && steps.tier.outputs.affected != 'true') || (github.event_name != 'pull_request' && steps.line.outputs.next_line == 'true')) && 'false' || (steps.detect.outputs.web) }}
+      agent_session_web: ${{ (steps.tier.outputs.tier == 'none' || (steps.tier.outputs.tier == 'cheap' && steps.tier.outputs.affected != 'true') || (github.event_name != 'pull_request' && steps.line.outputs.next_line == 'true')) && 'false' || (steps.detect.outputs.agent_session_web) }}
       release_build: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.next-route.outputs.release_build || steps.detect.outputs.release_build) }}
       owned_head_repos: ${{ steps.owned-head-repos.outputs.repos }}
       linux_guard_tests: ${{ steps.linux_guards.outputs.linux_guard_tests }}

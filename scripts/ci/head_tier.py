@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Which tier of CI a pull request head gets: `full` or `cheap` (cmuxterm-hq docs/ci/ci-cut-ledger.md, "draft tier").
 
-    head_tier.py            reads $GITHUB_EVENT_NAME and $GITHUB_EVENT_PATH, writes tier=full|cheap|none and
-                            reason=... to $GITHUB_OUTPUT (or prints them), one line to the step summary
+    head_tier.py            reads $GITHUB_EVENT_NAME and $GITHUB_EVENT_PATH, writes tier=full|cheap|none,
+                            reason=... and affected=true|false (land_affected: the landing head's cheap tier, whose
+                            path-routed web suite still runs, since land-judge needs its per-test webview verdict) to
+                            $GITHUB_OUTPUT (or prints them), one line to the step summary
     head_tier.py tier       the same decision, only the word (full, cheap or none) on stdout, for a shell `if`
     head_tier.py explain EVENT_JSON [EVENT_NAME]
                             the same decision for a saved event payload, printed
@@ -1059,7 +1061,8 @@ def main(argv: list[str]) -> int:
     name = os.environ.get("GITHUB_EVENT_NAME", "")
     event = _load(os.environ.get("GITHUB_EVENT_PATH", ""))
     value, reason = decide(name, event)
-    lines = f"tier={value}\nreason={reason}\n"
+    affected = "true" if land_affected((value, reason)) else "false"
+    lines = f"tier={value}\nreason={reason}\naffected={affected}\n"
     out = os.environ.get("GITHUB_OUTPUT")
     if out:
         with open(out, "a", encoding="utf-8") as handle:

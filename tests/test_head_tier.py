@@ -1326,13 +1326,57 @@ CI_WEB_LAND_TIER_JOBS = ("react-apps-check-shard", "webviews-typecheck")
 CI_WEB_VERDICT_JOBS = ("react-apps-check", "web-status")
 
 
+def web_land_tier_condition() -> str:
+    """ci-web.yml's land condition: land_tier_condition, except that a `ready-to-land` head runs the web shards on the
+    affected tier too (CI_LAND_FULL_PER_PR unset or 0). Their pick is already path-routed (shard 1 and the touched
+    tests), and land-judge's per-test webview verdict (cmuxterm-hq#15388) needs `CI / web / react-apps-check (N)` at
+    the head it lands: with the shards skipped there, no landing head with a web change could ever land
+    (cmux#56294, 2026-11-26; cmuxterm-hq docs/handbook/wait-that-cannot-end.md)."""
+    return land_tier_condition("pull_request").replace(
+        "(contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1')",
+        "contains(github.event.pull_request.labels.*.name, 'ready-to-land')")
+
+
+class LandingHeadRunsTheAffectedWebSuiteTests(unittest.TestCase):
+    """A landing head's affected tier keeps ci.yml's path-routed web outputs (head_tier.py writes affected=true), so
+    the web shards and land-judge's webview verdict run at the head that lands (cmux#56294, 2026-11-26)."""
+
+    CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+
+    def outputs(self, ev: dict, env: dict) -> dict:
+        with tempfile.TemporaryDirectory() as tmp:
+            path, out = Path(tmp) / "event.json", Path(tmp) / "out"
+            path.write_text(json.dumps(ev))
+            patched = {"GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(path), "GITHUB_OUTPUT": str(out),
+                       "GITHUB_STEP_SUMMARY": "", **env}
+            with unittest.mock.patch.dict(os.environ, patched):
+                self.assertEqual(head_tier.main([]), 0)
+            return dict(line.split("=", 1) for line in out.read_text().splitlines())
+
+    def test_main_writes_affected_for_the_landing_heads_cheap_tier_only(self) -> None:
+        env = {"CI_LAND_TIER": "1", "CI_LAND_FULL_PER_PR": "0"}
+        landing = self.outputs(land_event(labels=("ready-to-land",), action="labeled", added="ready-to-land"), env)
+        self.assertEqual((landing["tier"], landing["affected"]), ("cheap", "true"))
+        # A head not handed off to land is cheap and not affected; a draft too.
+        for ev in (land_event(), land_event(draft=True, labels=("ready-to-land",))):
+            out = self.outputs(ev, env)
+            self.assertEqual((out["tier"], out["affected"]), ("cheap", "false"))
+
+    def test_ci_keeps_the_routed_web_outputs_on_the_affected_tier(self) -> None:
+        for name in ("web", "agent_session_web"):
+            line = next(x for x in self.CI.splitlines() if x.startswith(f"      {name}: ${{{{"))
+            self.assertIn("(steps.tier.outputs.tier == 'cheap' && steps.tier.outputs.affected != 'true')", line)
+            self.assertIn("steps.tier.outputs.tier == 'none'", line)
+            self.assertIn(f"steps.detect.outputs.{name}", line)
+
+
 class CiWebLandTierTests(unittest.TestCase):
     TEXT = (ROOT / ".github" / "workflows" / "ci-web.yml").read_text()
 
     def test_the_heavy_jobs_carry_the_land_condition(self) -> None:
         jobs = _job_ifs(self.TEXT)
         for job in CI_WEB_LAND_TIER_JOBS:
-            self.assertIn(land_tier_condition("pull_request"), jobs[job] or "", job)
+            self.assertIn(web_land_tier_condition(), jobs[job] or "", job)
 
     def test_the_jobs_that_need_the_shards_skip_with_them(self) -> None:
         jobs = _job_ifs(self.TEXT)
@@ -1343,7 +1387,7 @@ class CiWebLandTierTests(unittest.TestCase):
 
     def test_the_verdict_jobs_still_run_and_read_the_same_condition(self) -> None:
         jobs = _job_ifs(self.TEXT)
-        env = f"WEB_LAND_TIER: ${{{{ {land_tier_condition('pull_request')} }}}}"
+        env = f"WEB_LAND_TIER: ${{{{ {web_land_tier_condition()} }}}}"
         for job in CI_WEB_VERDICT_JOBS:
             self.assertNotIn("CI_LAND_TIER", jobs[job] or "", job)
             start = self.TEXT.index(f"\n  {job}:\n")
