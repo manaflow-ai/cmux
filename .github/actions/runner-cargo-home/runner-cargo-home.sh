@@ -42,7 +42,18 @@ runners=0
 for marker in "$(dirname "$runner_root")"/*/.runner; do
   [[ -f "$marker" ]] && runners=$((runners + 1))
 done
-if [[ "$runners" -lt 2 || ! -f "$runner_root/.runner" ]]; then
+# A host whose runner instances are separate users that share one ~/.cargo
+# (hetzner-1-3: runner2, runner3, ... all with HOME=/home/runner) has one
+# .runner per user's tree, so the count above sees one. The shared home still
+# holds another user's files, which this user can neither replace nor delete:
+# the R2 registry restore's rm and cargo's crate download both failed with
+# "Permission denied (os error 13)" and the aarch64-apple-darwin leg of
+# cmux-tui artifacts run 46095639867 failed (job 140826310692, 2026-11-28).
+foreign=""
+if [[ -d "$HOME/.cargo" ]]; then
+  foreign="$(command find "$HOME/.cargo" -maxdepth 3 \( ! -user "$(id -u)" -o ! -writable \) -print -quit 2>/dev/null || true)"
+fi
+if [[ -z "$foreign" ]] && [[ "$runners" -lt 2 || ! -f "$runner_root/.runner" ]]; then
   echo "this runner does not share its HOME with other runner instances; the default CARGO_HOME is kept"
   exit 0
 fi
@@ -57,4 +68,8 @@ for name in config.toml config; do
 done
 echo "CARGO_HOME=$cargo_home" >> "$GITHUB_ENV"
 echo "$cargo_home/bin" >> "$GITHUB_PATH"
-echo "CARGO_HOME=$cargo_home ($runners runner instances share $HOME)"
+if [[ -n "$foreign" ]]; then
+  echo "CARGO_HOME=$cargo_home ($HOME/.cargo holds $foreign, which this user cannot write)"
+else
+  echo "CARGO_HOME=$cargo_home ($runners runner instances share $HOME)"
+fi

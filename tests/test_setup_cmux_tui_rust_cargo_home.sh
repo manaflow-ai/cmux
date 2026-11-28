@@ -74,6 +74,22 @@ d="$(run_as "$shared" actions-runner-glaeda "CARGO_HOME=$shared/.cargo")"
 d="$(run_as "$shared" actions-runner-glaeda "CARGO_HOME=$shared/.cargo/")"
 [ -s "$d/env" ] || fail "the shared \$HOME/.cargo/ (trailing slash) was kept"
 
+# Separate users sharing one ~/.cargo (hetzner-1-3): one .runner each, but
+# the shared home holds a crate cache dir this user cannot write, so it gets its own.
+# (As root every file is writable, so this case only runs as a normal user.)
+if [ "$(id -u)" != 0 ]; then
+  users="$TMP/users"
+  mkdir -p "$users/runner3" "$users/.cargo/registry/cache/index"
+  echo '{}' > "$users/runner3/.runner"
+  chmod 555 "$users/.cargo/registry/cache/index"
+  u="$(run_as "$users" runner3)"
+  [ "$(cat "$u/env")" = "CARGO_HOME=$users/runner3/_work/.cargo-home" ] \
+    || fail "a shared ~/.cargo with another user's files was kept: $(cat "$u/env")"
+  chmod 755 "$users/.cargo/registry/cache/index"
+  u="$(run_as "$users" runner3)"
+  [ ! -s "$u/env" ] || fail "a single runner with a writable ~/.cargo got a CARGO_HOME"
+fi
+
 # Windows runners keep theirs.
 w="$(run_as "$shared" actions-runner-glaeda RUNNER_OS=Windows)"
 [ ! -s "$w/env" ] || fail "a Windows runner got a CARGO_HOME"
