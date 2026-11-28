@@ -57,9 +57,7 @@
 
 /* ---- Orbit: machine-coloured dots going round your chat. ---- */
 .auto-env-icon[data-look="orbit"] .auto-env-orbit { transform-origin: 8px 8px; }
-[data-auto-look="orbit"] .auto-env-orbit { animation: cmux-spin var(--cmux-spinner-period) linear infinite; }
-.acpmux-location-button:is(:hover, [data-gallery-hover]) .auto-env-orbit,
-.acpmux-menu-item:is(:hover, [data-highlighted]) .auto-env-orbit { animation: cmux-spin var(--cmux-spinner-period) linear infinite; }
+/* Picked: the dots hold still (a turning mark is a spinner, and every spinner is the shared one). */
 /* The hint names a place: in that place's colour family, still muted. */
 [data-auto-look="orbit"] .auto-env-hint { color: color-mix(in oklab, var(--agent-ansi-4, var(--agent-muted)) 55%, var(--agent-muted)); }
 

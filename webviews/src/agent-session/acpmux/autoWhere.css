@@ -75,9 +75,8 @@
 .acpmux-auto-arrival .acpmux-auto-arrival-dismiss .ui-ghost-icon { width: 12px; height: 12px; }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* Orbit: the dots go round at every spinner's one period while Auto is picked, on hover and
-     while deciding (cmux-spin, pages/shared/desktop.css). */
-  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is([data-auto-look="orbit"], .acpmux-location-button:hover, .acpmux-menu-item:is(:hover, [data-highlighted]), .acpmux-auto-arrival[data-went="deciding"]) .acpmux-auto-orbit { animation: cmux-spin var(--cmux-spinner-period) linear infinite; }
+  /* Orbit: the dots hold still. A mark that turns is a spinner, and every spinner is the shared
+     Spinner (one-spinner.test.ts); the arrival line says "deciding" in words. */
   /* Constellation: the small spark holds still (no breathing loop); the big one twinkles once on hover. */
   :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-location-button:hover .acpmux-auto-spark,
   :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-menu-item:is(:hover, [data-highlighted]) .acpmux-auto-spark {

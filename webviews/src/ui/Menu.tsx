@@ -23,6 +23,7 @@ import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { useNativePopup, type NativePopupDescription, type NativePopupEvent } from "./nativePopup";
 import { popupAction } from "./popupDescriptors";
 import { cx } from "./cx";
+import { Spinner } from "../agent-session/acpmux/conversation/Spinner";
 import { KeyHint } from "./KeyHint";
 import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
@@ -803,7 +804,7 @@ export function MenuItem({
       {/* The async row's trailing slot, reserved from the start so its spinner moves nothing. */}
       {waits ? (
         <span className="ui-menu-async" aria-hidden="true">
-          {pending ? <span className="ui-menu-spinner" /> : null}
+          {pending ? <Spinner size={12} loading className="ui-menu-spinner" /> : null}
         </span>
       ) : null}
     </BaseMenu.Item>

@@ -300,6 +300,7 @@ export function SourcePicker({
       flip={false}
       className="acpmux-add-project-palette ui-glass-material"
       hostGlass={false}
+      data-page-glass="a palette whose pages resize it (add, folders, url): the App's glass cannot follow its height"
       initialFocus={false}
       finalFocus={finalFocus}
     >
