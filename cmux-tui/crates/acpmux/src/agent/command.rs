@@ -651,7 +651,9 @@ fn build_harness_command(
     // Derive the local boundary only after login, machine, profile, session and secret env
     // have been applied. The settings and API route must be the ones the child receives.
     // Do this before stdio, process-group and CwdPin setup so no spawn hooks are lost.
-    if claude_session && !remote_environment {
+    // A local `codex app-server` too (`local_sandbox.rs`): its translator then runs Codex's own
+    // sandbox off (`codex_app_server::translator_for`), so the profile is the boundary.
+    if wraps_local_sandbox(claude_session, codex_launch, remote_environment) {
         let final_env = command_env(&cmd);
         let mut final_env_map: std::collections::BTreeMap<_, _> =
             final_env.iter().cloned().collect();
@@ -660,9 +662,19 @@ fn build_harness_command(
         }
         let final_args: Vec<String> =
             cmd.as_std().get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
-        if let Some((sandbox_program, sandbox_args)) =
+        let sandbox = if claude_session {
             crate::local_sandbox::prefix(&final_args, cwd, &final_env_map)?
-        {
+        } else {
+            let id = session.map(|(id, _)| id);
+            let want = crate::local_sandbox::codex_want(id);
+            let sandbox =
+                crate::local_sandbox::codex_prefix(&final_args, cwd, &final_env_map, &want)?;
+            if let (Some(_), Some(id)) = (&sandbox, id) {
+                crate::local_sandbox::note_codex_launch(id, want.read_only);
+            }
+            sandbox
+        };
+        if let Some((sandbox_program, sandbox_args)) = sandbox {
             cmd = wrap_local_sandbox_command(
                 cmd,
                 sandbox_program,
@@ -691,6 +703,12 @@ fn build_harness_command(
     #[cfg(unix)]
     crate::cwd_pin::CwdPin::pin(crate::cwd_pin::CwdPin::current(), &mut cmd);
     Ok((cmd, codex))
+}
+
+/// Whether a launch goes in the local Seatbelt profile: a session's Claude Code or a local
+/// `codex app-server`, never a remote chain's (its own sandbox is the boundary there).
+fn wraps_local_sandbox(claude_session: bool, codex_launch: bool, remote_environment: bool) -> bool {
+    (claude_session || codex_launch) && !remote_environment
 }
 
 /// Prefix a launch with the local sandbox while preserving the exact environment the
@@ -919,6 +937,25 @@ fn host_env_allowed(key: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// The Seatbelt wrap covers a local Claude Code chat and a local `codex app-server`; a
+    /// launch on another machine (an environment's chain) is that machine's to sandbox.
+    #[test]
+    fn the_local_sandbox_wraps_local_claude_and_local_codex() {
+        for (claude, codex, remote, wraps) in [
+            (true, false, false, true),
+            (false, true, false, true),
+            (false, false, false, false),
+            (true, false, true, false),
+            (false, true, true, false),
+        ] {
+            assert_eq!(
+                super::wraps_local_sandbox(claude, codex, remote),
+                wraps,
+                "{claude} {codex} {remote}"
+            );
+        }
+    }
+
     /// A remote-origin harness and its host start from [`super::host_environment`]: the `cmux`
     /// CLI it runs keeps this daemon's build space, so a dev build's agent never reaches
     /// nightly's Cloud data.

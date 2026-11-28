@@ -975,6 +975,9 @@ struct Spawned {
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
     /// Its command line carries the repository hook (`codex_repo_gate::in_args`).
     repo_gated: bool,
+    /// It runs under Seatbelt (`codex_app_server::outer_sandboxed`): a Codex bridge turns
+    /// Codex's own sandbox off.
+    outer_sandboxed: bool,
     plugin_hook_home: Option<std::path::PathBuf>,
     local_launch_key: Option<Arc<str>>,
     #[cfg(windows)]
@@ -1005,6 +1008,7 @@ impl Spawned {
         .await;
         let preview_format = Some(pinned_preview_format(&cmd));
         let repo_gated = crate::codex_repo_gate::in_args(cmd.as_std().get_args());
+        let outer_sandboxed = crate::codex_app_server::outer_sandboxed(cmd.as_std().get_program());
         let plugin_hook_home = cmd.as_std().get_envs().find_map(|(key, value)| {
             (key == crate::bg_hook::HOME_ENV)
                 .then_some(value)
@@ -1093,6 +1097,7 @@ impl Spawned {
             preview_format,
             run_class: std::sync::OnceLock::from(run_class),
             repo_gated,
+            outer_sandboxed,
             plugin_hook_home,
             local_launch_key,
             #[cfg(windows)]
@@ -1119,6 +1124,7 @@ impl Spawned {
             preview_format: None,
             run_class: std::sync::OnceLock::new(),
             repo_gated: false,
+            outer_sandboxed: false,
             plugin_hook_home: None,
             local_launch_key: None,
             #[cfg(windows)]
@@ -1182,14 +1188,11 @@ impl ChildAgent {
     ) -> Result<Arc<Self>> {
         // The build-session kill switch: no agent process at all (cx-9ettq).
         crate::launch_policy::refuse_if_disabled()?;
-        let codex = (translator.is_none()
+        // Its translator is made once the command is built: whether Codex runs its own sandbox
+        // follows whether the launch went in the local profile (`local_sandbox.rs`).
+        let codex_bridge = translator.is_none()
             && command_line.is_none()
-            && crate::codex_app_server::is_profile_launch(&profile.argv))
-        .then(|| CodexLink {
-            tr: crate::codex_app_server::translator(),
-            inbound: inbound.clone(),
-            order: Mutex::new(()),
-        });
+            && crate::codex_app_server::is_profile_launch(&profile.argv);
         // A delivery may have updated or removed the machine's secrets since
         // daemon startup. Never build a process env from stale cached values.
         anyhow::ensure!(
@@ -1215,6 +1218,7 @@ impl ChildAgent {
             preview_format,
             run_class,
             repo_gated,
+            outer_sandboxed,
             plugin_hook_home,
             local_launch_key,
             #[cfg(windows)]
@@ -1224,6 +1228,11 @@ impl ChildAgent {
             #[cfg(feature = "sim")]
             sim_alive,
         } = spawned;
+        let codex = codex_bridge.then(|| CodexLink {
+            tr: crate::codex_app_server::translator_for(outer_sandboxed),
+            inbound: inbound.clone(),
+            order: Mutex::new(()),
+        });
         if let (Some(translator), Some(home)) = (&translator, plugin_hook_home) {
             let _ = translator.plugin_hook_home.set(home);
         }

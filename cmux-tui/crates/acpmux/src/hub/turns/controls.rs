@@ -185,6 +185,10 @@ impl Hub {
             || (m == method::SESSION_SET_CONFIG_OPTION && asked_option_mode.is_some())
         {
             self.approve_pending_tools(session).await;
+            // Read Only's Seatbelt profile is set at launch: a crossing restarts the app-server,
+            // which waits for no request still holding the harness (`restart_on_route`).
+            drop(_using);
+            self.follow_codex_sandbox(session).await?;
         }
         Ok(res)
     }

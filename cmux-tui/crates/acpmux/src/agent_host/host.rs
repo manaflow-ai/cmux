@@ -829,8 +829,11 @@ impl Started {
             }
             tr
         });
-        let codex = (spec.translator.is_none() && spec.codex_bridge)
-            .then(crate::codex_app_server::translator);
+        let codex = (spec.translator.is_none() && spec.codex_bridge).then(|| {
+            crate::codex_app_server::translator_for(crate::codex_app_server::outer_sandboxed(
+                std::ffi::OsStr::new(&spec.program),
+            ))
+        });
         let resumed_at = holder.as_ref().and_then(|h| h.adopt.as_ref());
         let (start_h, start_out_id) = resumed_at.map_or((0, 0), |a| (a.last_h, a.max_out_id));
         let mut state = State {

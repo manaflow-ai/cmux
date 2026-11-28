@@ -1060,6 +1060,7 @@ impl Hub {
         let current = self.opencode_ask_now(session, profile).await;
         let profile = current.as_ref().unwrap_or(profile);
         self.record_spawn_inputs(session, profile).await;
+        self.note_codex_sandbox(session, profile);
         // What the agent runs is this argv, not the creation's (`FullAccessView::of_session`). On
         // disk before the agent starts: a daemon that dies while it starts leaves a host the next
         // one judges by this argv (review 44 of #23322). Not left to the folder check's save, which

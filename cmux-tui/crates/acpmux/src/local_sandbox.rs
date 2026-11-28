@@ -30,16 +30,21 @@
 //! Ambiguous Claude sandbox settings or an unavailable required Seatbelt boundary stop the
 //! launch and report the cause to the chat.
 //!
-//! Codex is not wrapped yet: in its asking modes (acpmux's narrower policies,
-//! `hub/policy_mode.rs`) Codex runs each command in its own Seatbelt sandbox,
-//! which cannot start inside this one. Its full-access mode can switch to them
-//! live, so the wrap needs the bridge to hand Codex's confinement to this
-//! profile first (the RFD's next step).
+//! A local `codex app-server` runs in the same profile ([`codex_prefix`]), with the bridge told
+//! the host sandboxes it (`cmux_codex_acp::Options::outer_sandbox`): Codex's own per-command
+//! Seatbelt cannot start inside this one, so every mode runs Codex's `danger-full-access` and keeps
+//! its meaning through the approval policy it asks under. That policy alone is not a boundary: a
+//! command an exec-policy rule allows runs without asking whatever the policy (codex
+//! `core/src/exec_policy.rs`), so the profile follows the mode. Read Only gets [`Bound::read_only`]:
+//! no folder of the chat is writable, only Codex's own home (`CODEX_HOME`), the temporary folders
+//! and the caches. Entering or leaving Read Only restarts the app-server in the other profile and
+//! resumes its thread (`hub/codex_sandbox.rs`). Codex's own `auth.json` stays readable to it.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The checked-in Seatbelt profile.
@@ -95,6 +100,11 @@ pub(crate) struct Bound {
     pub(crate) policy_files: Vec<PathBuf>,
     /// Claude Code's own API port when it is not one the profile already opens.
     pub(crate) api_port: Option<u16>,
+    /// A Codex launch's own homes (its `CODEX_HOME`, the CLI's base home its shadow logins link
+    /// into): writable in every mode, and their `auth.json` readable. Empty for Claude Code.
+    pub(crate) codex_homes: Vec<PathBuf>,
+    /// Read Only: the chat folder and its other folders are not writable.
+    pub(crate) read_only: bool,
 }
 
 /// Resolve existing ancestors too: a credential or policy file may not exist at launch.
@@ -134,13 +144,30 @@ pub(crate) fn regex_escape(path: &Path) -> String {
     out
 }
 
+/// The profile's grant of the chat folder, which Read Only drops.
+pub(crate) const CWD_WRITE: &str = "  (subpath (param \"CWD\"))\n";
+
 impl Bound {
     /// `sandbox-exec` arguments up to the command: the profile and its parameters.
     pub(crate) fn sandbox_args(&self) -> Vec<String> {
         let mut profile = PROFILE.to_owned();
-        let folders: String =
-            (0..self.folders.len()).map(|i| format!("  (subpath (param \"DIR{i}\"))\n")).collect();
+        if self.read_only {
+            profile = profile.replacen(CWD_WRITE, "", 1);
+        }
+        let folders = if self.read_only { 0 } else { self.folders.len() };
+        let mut folders: String =
+            (0..folders).map(|i| format!("  (subpath (param \"DIR{i}\"))\n")).collect();
+        // Before the state and policy denials below: a home inside one of them stays denied.
+        for i in 0..self.codex_homes.len() {
+            folders.push_str(&format!("  (subpath (param \"CODEX_HOME{i}\"))\n"));
+        }
         profile = profile.replacen(";; @FOLDERS@\n", &folders, 1);
+        // After the credential denials: Codex reads and refreshes its own sign-in.
+        for i in 0..self.codex_homes.len() {
+            profile.push_str(&format!(
+                "(allow file-read* file-write* (literal (string-append (param \"CODEX_HOME{i}\") \"/auth.json\")))\n"
+            ));
+        }
         for i in 0..self.policy_files.len() {
             profile.push_str(&format!("(deny file-write* (subpath (param \"POLICY_FILE{i}\")))\n"));
         }
@@ -179,8 +206,13 @@ impl Bound {
         for (i, path) in policy_parents.iter().enumerate() {
             param(format!("POLICY_PARENT{i}"), show(path));
         }
-        for (i, dir) in self.folders.iter().enumerate() {
-            param(format!("DIR{i}"), show(dir));
+        if !self.read_only {
+            for (i, dir) in self.folders.iter().enumerate() {
+                param(format!("DIR{i}"), show(dir));
+            }
+        }
+        for (i, dir) in self.codex_homes.iter().enumerate() {
+            param(format!("CODEX_HOME{i}"), show(dir));
         }
         out
     }
@@ -732,7 +764,130 @@ pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>)
         folders,
         policy_files,
         api_port: url.as_deref().and_then(extra_api_port),
+        codex_homes: Vec::new(),
+        read_only: false,
     })
+}
+
+/// What a session's next local `codex app-server` launch runs under. The hub sets it before each
+/// start (`hub/codex_sandbox.rs`): Codex takes the chat's added folders in `session/new`, not on
+/// its command line, and its mode lives in the session, not in the launch.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct CodexWant {
+    pub(crate) read_only: bool,
+    pub(crate) folders: Vec<PathBuf>,
+}
+
+static CODEX_WANT: Mutex<BTreeMap<String, CodexWant>> = Mutex::new(BTreeMap::new());
+/// Whether each session's running app-server was launched in the Read Only profile.
+static CODEX_LAUNCHED: Mutex<BTreeMap<String, bool>> = Mutex::new(BTreeMap::new());
+
+pub(crate) fn want_codex(session: &str, want: CodexWant) {
+    CODEX_WANT.lock().unwrap_or_else(|e| e.into_inner()).insert(session.to_owned(), want);
+}
+
+/// The launch a session wants; a launch for no session (a pool spare, a title) is a writing one.
+pub(crate) fn codex_want(session: Option<&str>) -> CodexWant {
+    session
+        .and_then(|id| CODEX_WANT.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned())
+        .unwrap_or_default()
+}
+
+pub(crate) fn note_codex_launch(session: &str, read_only: bool) {
+    CODEX_LAUNCHED.lock().unwrap_or_else(|e| e.into_inner()).insert(session.to_owned(), read_only);
+}
+
+/// The profile the session's app-server runs in: None when it is not a wrapped Codex launch.
+pub(crate) fn codex_launched_read_only(session: &str) -> Option<bool> {
+    CODEX_LAUNCHED.lock().unwrap_or_else(|e| e.into_inner()).get(session).copied()
+}
+
+/// A start about to run: whatever the last app-server ran in is not what this one will.
+pub(crate) fn forget_codex_launch(session: &str) {
+    CODEX_LAUNCHED.lock().unwrap_or_else(|e| e.into_inner()).remove(session);
+}
+
+#[cfg(test)]
+pub(crate) fn forget_codex(session: &str) {
+    CODEX_WANT.lock().unwrap_or_else(|e| e.into_inner()).remove(session);
+    CODEX_LAUNCHED.lock().unwrap_or_else(|e| e.into_inner()).remove(session);
+}
+
+/// [`prefix`] for a local `codex app-server`. Codex has no sandbox setting of its own to defer
+/// to: under the bridge's `outer_sandbox` it never starts its own, so it is always wrapped.
+pub(crate) fn codex_prefix(
+    args: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+    want: &CodexWant,
+) -> anyhow::Result<Option<(&'static str, Vec<String>)>> {
+    if !cfg!(target_os = "macos") || !enabled() {
+        return Ok(None);
+    }
+    codex_required_prefix(SANDBOX_EXEC, args, cwd, env, want)
+}
+
+fn codex_required_prefix(
+    exec: &'static str,
+    args: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+    want: &CodexWant,
+) -> anyhow::Result<Option<(&'static str, Vec<String>)>> {
+    anyhow::ensure!(
+        Path::new(exec).is_file(),
+        "Local chat requires Seatbelt, but {exec} is unavailable"
+    );
+    let bound = codex_bound(args, cwd, env, want).ok_or_else(|| anyhow::anyhow!(
+        "Cannot start this sandboxed chat in {}: the chat folder must be below or outside the home directories and the daemon must be able to resolve its configuration paths",
+        cwd.display()
+    ))?;
+    Ok(Some((exec, bound.sandbox_args())))
+}
+
+/// [`bound`] for Codex: its homes, its added folders and the git folders they commit into, and
+/// Read Only's profile.
+pub(crate) fn codex_bound(
+    args: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+    want: &CodexWant,
+) -> Option<Bound> {
+    let mut bound = bound(args, cwd, env)?;
+    for dir in &want.folders {
+        let dir = canonical(&bound.cwd.join(dir));
+        for d in std::iter::once(dir.clone()).chain(git_dirs(&dir)) {
+            let d = canonical(&d);
+            if d != bound.cwd
+                && !bound.home.starts_with(&d)
+                && !bound.agent_home.starts_with(&d)
+                && !bound.folders.contains(&d)
+            {
+                bound.folders.push(d);
+            }
+        }
+    }
+    bound.codex_homes = codex_homes(&bound.cwd, &bound.agent_home, env);
+    bound.read_only = want.read_only;
+    Some(bound)
+}
+
+/// The launch's `CODEX_HOME` (relative to the chat folder, as the child reads it), else the
+/// agent home's `.codex`; and the CLI's base home a shadow login links its conversations into
+/// (`route_shadow.rs`). A home at or above the agent home is left out, not the whole home.
+fn codex_homes(cwd: &Path, agent_home: &Path, env: &BTreeMap<String, String>) -> Vec<PathBuf> {
+    let own = env
+        .get("CODEX_HOME")
+        .filter(|p| !p.is_empty())
+        .map(|p| canonical(&absolute(cwd, PathBuf::from(p))))
+        .unwrap_or_else(|| agent_home.join(".codex"));
+    let mut homes = vec![own];
+    if let Some(base) = crate::route_shadow::codex_base() {
+        homes.push(canonical(&base));
+    }
+    homes.retain(|h| !agent_home.starts_with(h));
+    homes.dedup();
+    homes
 }
 
 #[cfg(test)]

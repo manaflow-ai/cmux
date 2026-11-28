@@ -409,3 +409,11 @@ fn renewal_never_steals_background_termination_reply() {
         assert!(out.iter().any(|o| matches!(o, Out::Client(v) if v["id"] == "client-stop")));
     }
 }
+
+/// The bridge turns Codex's own sandbox off only for an app-server Seatbelt wraps.
+#[test]
+fn only_a_wrapped_app_server_runs_under_the_outer_sandbox() {
+    assert!(outer_sandboxed(std::ffi::OsStr::new(crate::local_sandbox::SANDBOX_EXEC)));
+    assert!(!outer_sandboxed(std::ffi::OsStr::new("codex")));
+    assert!(!outer_sandboxed(std::ffi::OsStr::new("/usr/local/bin/codex")));
+}

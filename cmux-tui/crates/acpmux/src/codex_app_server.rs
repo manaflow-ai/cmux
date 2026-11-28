@@ -527,10 +527,32 @@ pub fn is_profile_launch(argv: &[String]) -> bool {
 /// first and falls back to a hidden prediction fork while Codex answers it
 /// -32601 (cmux-codex-acp `src/translator/suggestions.rs`).
 pub fn translator() -> Arc<Translator> {
-    translator_with(crate::claude_stdio::prompt_suggestions::enabled_in_settings())
+    translator_for(false)
 }
 
+/// [`translator`] for an app-server the host sandboxes (`outer_sandbox`, the local Seatbelt
+/// profile, `local_sandbox.rs`): macOS refuses a nested Seatbelt, so Codex runs its own sandbox
+/// off and each mode keeps its meaning through the approval policy Codex asks under.
+pub fn translator_for(outer_sandbox: bool) -> Arc<Translator> {
+    translator_with_options(
+        crate::claude_stdio::prompt_suggestions::enabled_in_settings(),
+        outer_sandbox,
+    )
+}
+
+/// Whether a launch runs under Seatbelt, so Codex cannot start its own: its program is
+/// `sandbox-exec` (the local profile or a remote chain's). Only the program: an argument that
+/// merely names it must never turn Codex's own sandbox off.
+pub fn outer_sandboxed(program: &std::ffi::OsStr) -> bool {
+    std::path::Path::new(program) == std::path::Path::new(crate::local_sandbox::SANDBOX_EXEC)
+}
+
+#[cfg(test)]
 fn translator_with(prompt_suggestions: bool) -> Arc<Translator> {
+    translator_with_options(prompt_suggestions, false)
+}
+
+fn translator_with_options(prompt_suggestions: bool, outer_sandbox: bool) -> Arc<Translator> {
     Arc::new(Translator {
         inner: cmux_codex_acp::Translator::new(Options {
             client_name: "acpmux".into(),
@@ -538,6 +560,7 @@ fn translator_with(prompt_suggestions: bool) -> Arc<Translator> {
             client_version: env!("CARGO_PKG_VERSION").into(),
             audio_input: true,
             prompt_suggestions,
+            outer_sandbox,
             ..Options::default()
         }),
         background: Mutex::default(),

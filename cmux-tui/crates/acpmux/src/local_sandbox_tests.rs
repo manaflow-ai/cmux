@@ -37,6 +37,8 @@ fn sample() -> Bound {
         folders: vec!["/Users/a/code/lib".into(), "/Users/a/code/app.git".into()],
         policy_files: Vec::new(),
         api_port: None,
+        codex_homes: Vec::new(),
+        read_only: false,
     }
 }
 
@@ -588,4 +590,112 @@ fn default_agent_policy_paths_protect_symlink_targets_before_creation() {
         assert!(bound.policy_files.contains(&home.join(".config").join(&tail)));
         assert!(bound.policy_files.contains(&config.join(&tail)));
     }
+}
+
+#[test]
+fn read_only_drops_every_chat_folder_and_keeps_codex_home_and_tmp() {
+    assert!(PROFILE.contains(CWD_WRITE), "the grant Read Only drops is in the profile");
+    let homes = vec![PathBuf::from("/Users/a/.codex-work"), PathBuf::from("/Users/a/.codex")];
+    let write = Bound { codex_homes: homes.clone(), ..sample() }.sandbox_args();
+    assert!(write[1].contains(CWD_WRITE) && write[1].contains("(subpath (param \"DIR1\"))"));
+    assert!(write.contains(&"DIR0=/Users/a/code/lib".to_owned()));
+    let read_only = Bound { codex_homes: homes, read_only: true, ..sample() }.sandbox_args();
+    let profile = &read_only[1];
+    assert!(!profile.contains(CWD_WRITE), "Read Only cannot write the chat folder");
+    assert!(!profile.contains("(param \"DIR"), "nor its other folders");
+    assert!(!read_only.iter().any(|a| a.starts_with("DIR")));
+    for kept in ["(subpath (param \"SESSION_TMP\"))", "(subpath \"/private/tmp\")"] {
+        assert!(profile.contains(kept), "{kept}");
+    }
+    // Codex's homes are in the write allowlist, ahead of the state and credential denials.
+    let allow = profile.find("  (subpath (param \"CODEX_HOME0\"))\n").unwrap();
+    assert!(profile.contains("  (subpath (param \"CODEX_HOME1\"))\n"));
+    assert!(allow < profile.find("(deny file-write* (subpath (param \"ACPMUX_HOME\")))").unwrap());
+    // Its own sign-in is re-opened after the credential denial, and only that file.
+    let auth = profile
+        .find("(allow file-read* file-write* (literal (string-append (param \"CODEX_HOME0\") \"/auth.json\")))")
+        .unwrap();
+    assert!(auth > profile.find("(deny file-read* file-write*").unwrap());
+    for want in ["CODEX_HOME0=/Users/a/.codex-work", "CODEX_HOME1=/Users/a/.codex"] {
+        assert!(read_only.contains(&want.to_owned()), "{want}");
+    }
+    // Claude Code's profile keeps every Codex sign-in closed.
+    assert!(!sample().sandbox_args()[1].contains("CODEX_HOME"));
+}
+
+#[cfg(unix)]
+#[test]
+fn codex_home_is_writable_wherever_the_launch_puts_it() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("chat");
+    let agent_home = t.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&agent_home).unwrap();
+    let home_env = ("HOME".to_owned(), agent_home.display().to_string());
+    // Unset: the agent home's `.codex`.
+    let env = BTreeMap::from([home_env.clone()]);
+    let bound = codex_bound(&[], &cwd, &env, &CodexWant::default()).unwrap();
+    assert_eq!(bound.codex_homes[0], canonical(&agent_home).join(".codex"));
+    assert!(!bound.read_only);
+    // A relative CODEX_HOME is the child's: below the chat folder, as the child resolves it.
+    let env =
+        BTreeMap::from([home_env.clone(), ("CODEX_HOME".to_owned(), "state/codex".to_owned())]);
+    let bound = codex_bound(&[], &cwd, &env, &CodexWant::default()).unwrap();
+    assert_eq!(bound.codex_homes[0], canonical(&cwd).join("state/codex"));
+    let args = bound.sandbox_args();
+    let own = format!("CODEX_HOME0={}", canonical(&cwd).join("state/codex").display());
+    assert!(args.contains(&own), "{own} in {args:?}");
+    // A CODEX_HOME at or above the agent home never opens the whole home.
+    let env = BTreeMap::from([home_env, ("CODEX_HOME".to_owned(), t.path().display().to_string())]);
+    let bound = codex_bound(&[], &cwd, &env, &CodexWant::default()).unwrap();
+    assert!(!bound.codex_homes.contains(&canonical(t.path())), "{:?}", bound.codex_homes);
+    // Codex's added folders come from the session, not its command line; Read Only from its mode.
+    let lib = t.path().join("lib");
+    std::fs::create_dir_all(lib.join(".git")).unwrap();
+    let want = CodexWant { read_only: true, folders: vec![lib.clone()] };
+    let bound = codex_bound(&[], &cwd, &BTreeMap::new(), &want).unwrap();
+    assert!(bound.read_only);
+    assert!(
+        bound.folders.contains(&canonical(&lib))
+            && bound.folders.contains(&canonical(&lib.join(".git")))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn codex_is_wrapped_whatever_claude_codes_own_sandbox_says() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("cwd");
+    let config = t.path().join("config");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(config.join("settings.json"), r#"{"sandbox":{"enabled":true}}"#).unwrap();
+    let env = BTreeMap::from([("CLAUDE_CONFIG_DIR".into(), config.display().to_string())]);
+    // Claude Code keeps its own sandbox; a Codex launch has none of its own to keep.
+    assert!(required_prefix("/bin/sh", &[], &cwd, &env).unwrap().is_none());
+    let want = CodexWant { read_only: true, folders: Vec::new() };
+    let (exec, args) = codex_required_prefix("/bin/sh", &[], &cwd, &env, &want).unwrap().unwrap();
+    assert_eq!(exec, "/bin/sh");
+    assert!(!args[1].contains(CWD_WRITE));
+    let write = codex_required_prefix("/bin/sh", &[], &cwd, &env, &CodexWant::default()).unwrap();
+    assert!(write.unwrap().1[1].contains(CWD_WRITE));
+    // A required boundary that cannot start is the launch's error, never an unwrapped Codex.
+    assert!(codex_required_prefix("", &[], &cwd, &env, &want).is_err());
+    assert!(codex_required_prefix("/bin/sh", &[], Path::new("/"), &env, &want).is_err());
+}
+
+#[test]
+fn a_codex_session_keeps_what_it_wants_and_what_it_launched_in() {
+    let id = format!("codex-sandbox-test-{}", std::process::id());
+    assert_eq!(codex_want(None), CodexWant::default());
+    assert_eq!(codex_want(Some(&id)), CodexWant::default());
+    assert_eq!(codex_launched_read_only(&id), None);
+    let want = CodexWant { read_only: true, folders: vec!["/x".into()] };
+    want_codex(&id, want.clone());
+    note_codex_launch(&id, true);
+    assert_eq!(codex_want(Some(&id)), want);
+    assert_eq!(codex_launched_read_only(&id), Some(true));
+    forget_codex(&id);
+    assert_eq!(codex_want(Some(&id)), CodexWant::default());
+    assert_eq!(codex_launched_read_only(&id), None);
 }
