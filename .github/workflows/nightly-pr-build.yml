@@ -100,7 +100,7 @@ jobs:
     name: nightly app compile ${{ matrix.arch }} fleet job (advisory)
     needs: [route]
     if: ${{ !cancelled() && needs.route.result == 'success' && needs.route.outputs.swift == 'true' }}
-    # Use the gateway when configured, then the overflow pool, then the owned
+    # Use the gateway when configured, then the owned
     # Linux pool. The job remains a thin cmux-ci client on every route.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_EVAL_STEP_GATEWAY || 'cmux-linux' }}
     # The client waits up to QUEUE_WAIT_S (20 min) queued plus 3600 s running, with slack.

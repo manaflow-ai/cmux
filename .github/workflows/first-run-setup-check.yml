@@ -40,7 +40,7 @@ jobs:
   walk-fleet:
     name: first run setup walk submit (advisory)
     if: ${{ github.repository_owner == 'manaflow-ai' && (vars.CI_FIRST_RUN_SETUP_CHECK || '1') != '0' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || 'cmux-linux' }}
     # The scheme-debug read waits up to 10 min for the head's app; the submit then ends in about a minute.
     timeout-minutes: 20
     env:
