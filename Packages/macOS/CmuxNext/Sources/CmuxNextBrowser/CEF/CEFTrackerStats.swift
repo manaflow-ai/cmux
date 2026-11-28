@@ -38,6 +38,9 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// Full page geometries worked out (`CEFHostGeometry`: ancestor walks for the rect, the visible rect and the clip
     /// inputs, and the window's occluders), by page update requests and fork reads together.
     public var geometryBuilds = 0
+    /// Placement keys worked out (``CEFHostView/PlacementKey``: the host's rect in its window and the window's occluders
+    /// over it) by motion frames' page update requests; a page hidden then and still hidden works out none.
+    public var placementKeys = 0
     /// Detached hosting (fork API 30): pages detached for a resize motion and attached again at its landing
     /// (``CEFLayerHosting/resizeMotion(active:)``).
     public var detaches = 0

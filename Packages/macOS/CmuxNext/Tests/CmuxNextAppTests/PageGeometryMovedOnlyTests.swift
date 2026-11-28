@@ -92,6 +92,28 @@ import Testing
         #expect(frame.posts == 1, "the line now over page 5 did not reach it")
     }
 
+    /// instant-splits, s9-browser-w30 divider_drag: a hidden workspace's pages stay in the window and hear the shown
+    /// workspace's every motion frame. Once the fork has read them hidden they work out nothing per frame (no key, no
+    /// geometry), so a frame costs the shown pages only, however many workspaces hold pages; shown again, a page posts.
+    @Test func pagesHiddenWithTheirWorkspaceWorkOutNothingPerFrame() {
+        let pages = EightPages()
+        defer { pages.tearDown() }
+        let parked = NSView(frame: pages.stage.bounds)
+        pages.stage.addSubview(parked)
+        for page in pages.pages[2...] { parked.addSubview(page) }
+        parked.isHidden = true
+        #expect(pages.motionFrame().posts == 6, "each page of the hidden workspace posts its hide once")
+        let before = CEFHostView.trackerStats.placementKeys
+        pages.pages[0].frame.size.width -= 8
+        let frame = pages.motionFrame()
+        let keys = CEFHostView.trackerStats.placementKeys - before
+        print("HPA-COUNT case=cef-geometry-hidden-workspace pages=8 shown=2 placement_keys=\(keys) posts=\(frame.posts)")
+        #expect(keys == 2, "2 pages show, \(keys) worked out their placement")
+        #expect(frame.posts == 1)
+        parked.isHidden = false
+        #expect(pages.motionFrame().posts == 6, "the workspace's pages did not come back when it showed")
+    }
+
     /// A page hidden in place (its tab parked) posts its hide once, as before.
     @Test func aHiddenPageStillPostsItsHide() {
         let pages = EightPages()
