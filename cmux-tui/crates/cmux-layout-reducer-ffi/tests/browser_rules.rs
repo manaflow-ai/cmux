@@ -150,3 +150,24 @@ fn browser_rules_automation_frame_tree_flattens_parents_first() {
         json!({"frameId": "8", "parentFrameId": "7", "url": "https://a.test/", "isMain": false})
     );
 }
+
+#[test]
+fn browser_rules_automation_dialog_respond_types_the_prompt_text() {
+    let request = json!({
+        "params": {"dialogId": "1", "accept": true, "promptText": "hi"},
+        "held": {"kind": "textInput", "message": "name?", "defaultText": "d"},
+    });
+    let (code, body) =
+        call("browser_rules_automation_dialog_respond", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"answer": {"kind": "text", "text": "hi"}}));
+}
+
+#[test]
+fn browser_rules_automation_console_event_maps_a_pageerror() {
+    let request = json!({"body": {"kind": "pageerror", "message": "boom"}});
+    let (code, body) =
+        call("browser_rules_automation_console_event", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"name": "pageerror", "payload": {"message": "boom", "stack": "boom"}}));
+}
