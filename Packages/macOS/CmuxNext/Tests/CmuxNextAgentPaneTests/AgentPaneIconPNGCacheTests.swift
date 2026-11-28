@@ -16,11 +16,12 @@ struct AgentPaneIconPNGCacheTests {
     }
 
     @Test func faviconEncodesOncePerImage() throws {
+        let favicons = AgentPaneFaviconPNGs()
         let image = Self.image(.red)
-        let first = try #require(AgentPaneReplySite.png(image))
-        #expect(AgentPaneReplySite.png(image) == first)
+        let first = try #require(favicons.png(image))
+        #expect(favicons.png(image) == first)
         // A different image is encoded on its own.
-        #expect(AgentPaneReplySite.png(Self.image(.green)) != first)
+        #expect(favicons.png(Self.image(.green)) != first)
     }
 
     @Test func browserIconIsReusedForTheSameBundle() {
