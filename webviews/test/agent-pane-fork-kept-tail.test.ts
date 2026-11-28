@@ -187,7 +187,10 @@ function page(pages: Map<string, Page>, fork: Record<string, unknown>, sessionId
   if (hold) daemon.hold = sessionId;
   const drawn: AcpmuxSnapshot[] = [];
   const client = AcpmuxDirectClient.connect(
-    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://fork.invalid/", token: "t", sessionId },
+    // A loopback socket, as the daemon's `origin: "local"` answer says: an open asks the chat's attach
+    // with `initialize` on the transport's origin and asks again when the handshake says otherwise
+    // (#55175, direct.ts `guessHeld`), which would answer a second attach past the one held.
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1/", token: "t", sessionId },
     (snapshot) => {
       if (snapshot.type === "snapshot") drawn.push(snapshot);
     },

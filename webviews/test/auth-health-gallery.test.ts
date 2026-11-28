@@ -217,7 +217,14 @@ test("a same-target recheck keeps known refusal, while A-B-A discards the old se
     recheck = result.recheck;
     return null;
   }
-  const render = (sessionId: string) => act(async () => root.render(createElement(Probe, { sessionId })));
+  // A new selection reads its sign-in after its first frame (#49246, `afterNextPaint`): a render
+  // waits, a task at a time, for the read it starts.
+  const render = async (sessionId: string) => {
+    const asked = pending.length;
+    await act(async () => root.render(createElement(Probe, { sessionId })));
+    for (let task = 0; task < 50 && pending.length === asked; task += 1)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  };
   try {
     await render("A");
     expect(pending[0]!.refresh).toBe(true);
@@ -231,9 +238,12 @@ test("a same-target recheck keeps known refusal, while A-B-A discards the old se
     await act(async () => recheck());
     await render("B");
     await render("A");
-    expect(state).toBe("unknown");
-    await act(async () => pending[2]!.resolve({ state: "expired", source: "turn", evidenceAt: 1, fromSessionId: "A" }));
-    expect(state).toBe("unknown");
+    // A chat shown again draws its last answer at once, not "Checking…" (#57454, sessionAuth.ts
+    // `answered`), while its fresh probe runs.
+    expect(state).toBe("expired");
+    // The old selection's recheck answers late, saying otherwise: it is discarded.
+    await act(async () => pending[2]!.resolve({ state: "signedOut", source: "turn", evidenceAt: 1, fromSessionId: "A" }));
+    expect(state).toBe("expired");
     await act(async () => pending[4]!.resolve({ state: "ready", source: "turn", evidenceAt: 2, fromSessionId: "A" }));
     expect(state).toBe("ready");
     expect(pending[4]!.refresh).toBe(true);
@@ -257,10 +267,18 @@ test("old-daemon and wrong-host target replies settle unknown without blocking",
     return null;
   }
   try {
+    // A new selection reads its sign-in after its first frame (#49246, `afterNextPaint`): each
+    // render waits, a task at a time, for its read to settle.
+    const settled = async () => {
+      for (let task = 0; task < 50 && result?.pending !== false; task += 1)
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    };
     await act(async () => (root.render(createElement(Probe, { epoch: 0 })), Promise.resolve()));
+    await settled();
     expect([result?.auth.state, result?.pending]).toEqual(["unknown", false]);
     reply = { state: "signedOut", source: "turn", evidenceAt: 1, host: "other" };
     await act(async () => (root.render(createElement(Probe, { epoch: 1 })), Promise.resolve()));
+    await settled();
     expect([result?.auth.state, result?.pending]).toEqual(["unknown", false]);
   } finally {
     await act(async () => root.unmount());

@@ -351,7 +351,7 @@ function TailnetJoinDialog({
       open
       onOpenChange={(next) => !next && onClose()}
       label={t("settingsPage.tailnet.join")}
-      className="tailnet-join-sheet"
+      className="tailnet-join-sheet ui-glass ui-glass-floats"
     >
       <form
         className="tailnet-join-content"

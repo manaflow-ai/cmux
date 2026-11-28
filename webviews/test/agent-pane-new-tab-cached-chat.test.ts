@@ -281,7 +281,10 @@ class Fixture {
       {
         protocolVersion: 1,
         transport: "acpmux-websocket",
-        endpoint: "ws://new-tab.invalid/",
+        // A loopback socket, as the daemon's `origin: "local"` answer says: an open asks the chat's
+        // attach with `initialize` on the transport's origin and asks again when the handshake says
+        // otherwise (#55175, direct.ts `guessHeld`).
+        endpoint: "ws://127.0.0.1/",
         token: "t",
         sessionId,
       },
@@ -362,9 +365,9 @@ test("a chat the host kept draws while the page's socket is still connecting", a
   });
   tab.daemon.connect();
   live.push(await tab.client);
-  // One attach, sent beside the list rather than after it (`askEarly`).
+  // One attach, sent with `initialize` rather than after it (0-RTT open, #55175: `askEarly`).
   expect(tab.daemon.asked_.filter((method) => method === "_acpmux/attach")).toHaveLength(1);
-  expect(tab.daemon.asked_.indexOf("_acpmux/attach")).toBe(tab.daemon.asked_.indexOf("_acpmux/watch") + 1);
+  expect(tab.daemon.asked_.indexOf("_acpmux/attach")).toBe(tab.daemon.asked_.indexOf("initialize") + 1);
   const shown = text(tab.last());
   expect(shown).toContain("Retry added.");
   expect(shown).toContain("Tests added.");
@@ -385,10 +388,11 @@ test("a chat the host kept draws while acpmux is slow to answer the open", async
 
   const tab = chat.tab(chat.a, { holdConnect: true });
   tab.daemon.stall = "initialize";
-  // The socket opens before the host's tail answers, and acpmux has not answered `initialize`.
+  // The socket opens before the host's tail answers, and acpmux has not answered `initialize`. The
+  // chat's attach and draft read go out in its flight (0-RTT open, #55175); nothing else does.
   tab.daemon.connect();
   await flush();
-  expect(tab.daemon.asked_).toEqual(["initialize"]);
+  expect(tab.daemon.asked_).toEqual(["initialize", "_acpmux/attach", "_acpmux/draft_get"]);
   expect(text(tab.last())).toContain("Retry added.");
   expect(tab.last()!.sessionId).toBe(chat.a);
   expect(tab.last()!.chatRead).toBe(true);

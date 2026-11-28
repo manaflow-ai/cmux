@@ -662,9 +662,10 @@ test("Move to…: a chat on this Mac with two Cloud machines lists them, and a p
   await act(async () => newRows()[0]!.click());
   // It opens the targets in place; nothing moved yet.
   expect(doc().querySelector(".acpmux-env-popover.acpmux-env-moves")).not.toBeNull();
-  expect(newRows().map(rowText)).toEqual(["dev-box", "gpu-box"]);
+  // Where the chat runs now heads the list, checked, before its targets (#52646).
+  expect(newRows().map(rowText)).toEqual([t("composer.thisMac"), "dev-box", "gpu-box"]);
   expect(moved).toEqual([]);
-  await act(async () => newRows()[1]!.click());
+  await act(async () => newRows()[2]!.click());
   expect(moved).toEqual(["vm-gpu"]);
   expect(offloaded).toEqual([]);
   expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
@@ -1130,8 +1131,9 @@ test("previews on: every machine the daemon lists, grouped; the ones not connect
       row.querySelector(".acpmux-env-state")?.textContent,
     ]),
   ).toEqual([
-    // Still connecting: greyed in its place, among its section's machines.
-    ["agent-vm-6", t("rail.connectorPending")],
+    // agent-vm-6, still in its handshake, is on its way up: a pick, not greyed, no Connecting word
+    // (#55968, Leo 2026-11-24: "all the connecting... indicators and the graying out of workspaces,
+    // nah let's not do that").
     ["gpu-box", t("composer.envNotConnected")],
     ["agent-vm-3", t("header.reconnecting")],
     ["agent-vm-4", t("header.reconnecting")],
@@ -1543,8 +1545,16 @@ test("three pickers: Other devices counts and opens the person's machines and Cl
   expect(doc().querySelector(".acpmux-env-popover.acpmux-env-devices .acpmux-env-heading")?.textContent).toBe(
     t("composer.otherDevices"),
   );
-  expect(popoverLabels("where")).toContain("build-cloud");
-  expect(popoverLabels("where").at(-1)).toBe(t("composer.addMachine"));
+  // A Cloud machine is an agent machine (environmentSections: `fleet`): it sits behind the Agent
+  // machines row, whose list opens to the side (#56975, kept by #61299).
+  expect(popoverLabels("where")).toEqual(["gpu-box", t("composer.agentMachines"), t("composer.addMachine")]);
+  const agents = popoverRows("where").find((row) => row.querySelector('[data-action="agentMachines"]'))!;
+  expect(agents.querySelector(".acpmux-env-count")?.textContent).toBe("1");
+  await act(async () => agents.click());
+  expect(
+    [...doc().querySelectorAll(".acpmux-env-popover.acpmux-env-agents .acpmux-menu-label")].map((l) => l.textContent),
+  ).toContain("build-cloud");
+  await act(async () => agents.click());
   expect(doc().querySelectorAll(".acpmux-env-popover.acpmux-env-devices [data-section]")).toHaveLength(0);
   await act(async () =>
     popoverRows("where")
@@ -2023,7 +2033,9 @@ test("three pickers: Where's machine list holds machines only, never a saved env
 test("the machine list groups machines acpmux has not reached for a while under a collapsed Unavailable row", async () => {
   const { UNAVAILABLE_AFTER_MS } = await import("../src/agent-session/acpmux/environments");
   const now = Date.now();
-  const peers = ["gpu-box", "lane-1", "lane-2", "lane-3", "lane-4", "lane-5"];
+  // The person's own machines, by names that make no numbered pool: five `lane-N` would be agent
+  // machines (environmentSections `fleet`), behind Other devices' Agent machines row (#56975, #61299).
+  const peers = ["gpu-box", "ash", "birch", "cedar", "dune", "elm"];
   await mount(true, {
     stripLayout: "where-machine",
     sessions: [],
@@ -2031,28 +2043,28 @@ test("the machine list groups machines acpmux has not reached for a while under 
     peerKinds: Object.fromEntries(peers.map((peer) => [peer, "ssh"])),
     peerConnected: {
       "gpu-box": true,
-      "lane-1": false,
-      "lane-2": false,
-      "lane-3": false,
-      "lane-4": false,
-      "lane-5": false,
+      "ash": false,
+      "birch": false,
+      "cedar": false,
+      "dune": false,
+      "elm": false,
     },
     peerStates: {
       "gpu-box": "connected",
-      "lane-1": "reconnecting",
-      "lane-2": "reconnecting",
-      "lane-3": "offline",
+      "ash": "reconnecting",
+      "birch": "reconnecting",
+      "cedar": "offline",
       // Just dropped: it keeps its row in place while acpmux dials again.
-      "lane-4": "reconnecting",
+      "dune": "reconnecting",
       // On its way up: never grouped.
-      "lane-5": "connecting",
+      "elm": "connecting",
     },
     peerLinks: {
-      "lane-1": { link: "reconnecting", since: now - UNAVAILABLE_AFTER_MS - 1 },
-      "lane-2": { link: "reconnecting", since: now - 3 * UNAVAILABLE_AFTER_MS },
-      "lane-3": { link: "offline" },
-      "lane-4": { link: "reconnecting", since: now - 1000 },
-      "lane-5": { link: "connecting", since: now - 3 * UNAVAILABLE_AFTER_MS },
+      "ash": { link: "reconnecting", since: now - UNAVAILABLE_AFTER_MS - 1 },
+      "birch": { link: "reconnecting", since: now - 3 * UNAVAILABLE_AFTER_MS },
+      "cedar": { link: "offline" },
+      "dune": { link: "reconnecting", since: now - 1000 },
+      "elm": { link: "connecting", since: now - 3 * UNAVAILABLE_AFTER_MS },
     },
   });
   // Where > Other devices opens the person's machines.
@@ -2073,8 +2085,10 @@ test("the machine list groups machines acpmux has not reached for a while under 
   const ssh = t("composer.envSSH");
   expect(labels()).toEqual([
     `gpu-box${ssh}${t("composer.envConnected")}⌥⌘2`,
-    `lane-4${ssh}${t("header.reconnecting")}`,
-    `lane-5${ssh}${t("rail.connectorPending")}`,
+    // Just dropped and on its way up: each reads as live, no Reconnecting or Connecting word (#55968,
+    // Leo 2026-11-24: "let's just keep optimistically connecting and reinforcing the connection").
+    `dune${ssh}${t("composer.envConnected")}`,
+    `elm${ssh}${t("composer.envConnected")}`,
     t("composer.envUnavailableGroup", { n: 3 }),
     t("composer.addMachine"),
   ]);
@@ -2084,9 +2098,9 @@ test("the machine list groups machines acpmux has not reached for a while under 
   expect(doc().querySelector(".acpmux-env-popover")).not.toBeNull();
   expect(labels().slice(3)).toEqual([
     t("composer.envUnavailableGroup", { n: 3 }),
-    `lane-1${ssh}${t("header.reconnecting")}`,
-    `lane-2${ssh}${t("header.reconnecting")}`,
-    `lane-3${ssh}${t("composer.envNotConnected")}`,
+    `ash${ssh}${t("header.reconnecting")}`,
+    `birch${ssh}${t("header.reconnecting")}`,
+    `cedar${ssh}${t("composer.envNotConnected")}`,
     t("composer.addMachine"),
   ]);
   expect(unavailableRow()?.getAttribute("aria-expanded")).toBe("true");

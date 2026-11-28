@@ -1750,8 +1750,7 @@ const repliesOnly = (rows: readonly AcpmuxRow[]) =>
 /// situation? this edge case? cuz otherwise it's so weird"). A turn that failed or was stopped keeps
 /// its line: it says how it ended. An unknown time leaves the rows to decide.
 export const FOLD_MIN_ROWS = 3;
-// motion-allow: how long a turn ran before its work folds, not a motion
-export const FOLD_MIN_MS = 5_000;
+export const FOLD_MIN_MS = 5_000; // motion-allow: how long a turn ran before its work folds, not a motion
 // motion-allow: the shortest turn that folds, not a motion
 export const FLOOR_MS = 1_000;
 

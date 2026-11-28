@@ -147,9 +147,7 @@ export const EVERYWHERE: {
       "While a turn runs, a new row lands under the rows already drawn (over the live line, which stays last): never between or above them, which pushes drawn rows down. The turn's header line has its own entry (header-arrives-late).",
     check: (run) => landed(landings(run).filter((each) => !isHeader(each.kind))),
     known: {
-      "received-sent-as-activity": "received-drawn-late",
       "steer-mid-turn": "cut-reply-footer-late",
-      "permission-wait": "denial-receipt-order",
     },
   },
   {
@@ -305,7 +303,6 @@ export const MAP: MapEntry[] = [
       const rows = last(run);
       return want(!rows.some((row) => row.turn === 1 && row.running), "a command of the ended turn reads as running");
     },
-    open: "The pane keeps the call as running: nothing settles a call left open at its turn's end. Not seen in 13 recorded lane chats (1,500 calls); a harness crash would do it.",
   },
   {
     id: "compaction-at-turn-end",
@@ -609,7 +606,64 @@ export const MAP: MapEntry[] = [
     expected: "A denied command's line and its receipt are drawn in the order they stay in.",
     scenario: "permission-wait",
     check: (run) => landed(landings(run).filter((each) => !isHeader(each.kind))),
-    open: "A command's line is drawn when it ends (a running one is the live line's), and the receipt is drawn at the answer, before the denied call ends.",
+  },
+
+  // ---- Scenarios their PRs added without an entry: played by every check below, none of their own yet. ----
+  {
+    id: "notice-no-tool-turn",
+    when: "A background task's end opens a turn of one thought and a two-sentence answer, no tools.",
+    wrong: "The answer stands alone, with no Worked for over it.",
+    expected: "The no-tool turn answers under its Worked for (#56293).",
+    scenario: "notice-no-tool-turn",
+  },
+  {
+    id: "late-steer",
+    when: "The person steers while the agent streams its final answer; the turn ends right after.",
+    wrong: "The steer lands under the reply it cut, or splits the turn's Worked for.",
+    expected: "The late steer draws between the Worked for and the reply (#56293).",
+    scenario: "late-steer",
+  },
+  {
+    id: "late-steer-mid-tool",
+    when: "The person steers while the agent's last call runs; the call ends, the agent answers, the turn ends.",
+    wrong: "The steer lands under the answer, or the call reads as running after the turn ended.",
+    expected: "The late steer draws between the Worked for and the reply (#56293).",
+    scenario: "late-steer-mid-tool",
+  },
+  {
+    id: "late-steer-compaction",
+    when: "The person steers while the agent compacts its context at the end of its work; the agent answers, the turn ends.",
+    wrong: "The compaction and the steer split the turn into two Worked for lines.",
+    expected: "The late steer draws between the Worked for and the reply (#56293).",
+    scenario: "late-steer-compaction",
+  },
+  {
+    id: "think-then-answer",
+    when: "A thought streams in deltas, then the reply streams under it, twice.",
+    wrong: "The space after the thought opens only when the answer lands, shifting it.",
+    expected: "The space after a thought is there from its first frame, so the answer lands without a shift (#56965).",
+    scenario: "think-then-answer",
+  },
+  {
+    id: "compact-from-idle",
+    when: "/compact is sent from an idle chat whose agent host hibernated.",
+    wrong: "Nothing reads as working until the host wakes.",
+    expected: "/compact from idle reads Compacting at once (#55784).",
+    scenario: "compact-from-idle",
+  },
+  {
+    id: "compact-steer",
+    when: "/compact from idle, and the person steers while it compacts.",
+    wrong: "The steer splits the compaction's turn into two Worked for lines.",
+    expected: "A steer during compaction keeps one Worked for (#55784).",
+    scenario: "compact-steer",
+  },
+  {
+    id: "turn-after-reply-gap",
+    when: "A reply ends its turn; three agent messages then start the next turn.",
+    wrong: "The next turn's first row stands closer under the reply than a turn's gap.",
+    expected: "The next turn opens a turn's gap under the reply (#55784).",
+    scenario: "turn-after-reply-gap",
   },
 
   // ---- Not played yet. `bun scripts/chat-sim.ts --drift DIR` lists the record kinds no scenario or fixture plays. ----

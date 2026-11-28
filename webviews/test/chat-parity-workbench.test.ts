@@ -110,9 +110,18 @@ test("the full conversation combines real turn, file, Chief, subagent and live-w
   expect(projected.rows.find((row) => row.id === "tour-first-final")?.text).toContain("**Finding:**");
   expect(projected.rows.some((row) => row.kind === WORKED && row.status === "cancelled")).toBe(true);
   expect(projected.rows.some((row) => row.turnPhase === "running")).toBe(true);
+  // The subagent's done line is harness work: it folds into the Worked for of the turn it came in,
+  // Chief's, as a call (#53268), drawn once that fold opens.
+  const reviewDone = (rows: readonly { kind: string; subagents?: readonly { id: string }[] }[]) =>
+    rows.some((row) => row.kind === "subagentDone" && row.subagents?.[0]?.id === "tour-settings-corner-review");
+  expect(reviewDone(projected.rows)).toBe(false);
   expect(
-    projected.rows.some(
-      (row) => row.kind === "subagentDone" && row.subagents?.[0]?.id === "tour-settings-corner-review",
+    reviewDone(
+      turnViewFrom(withSubagentLines(snapshot.rows), new Set(["worked-tour-chief-message"]), {
+        working: snapshot.isWorking,
+        agentFamily: "codex",
+        now: GALLERY_NOW,
+      }).rows,
     ),
   ).toBe(true);
   expect(fullConversation.variants.tour!.play).toBeDefined();

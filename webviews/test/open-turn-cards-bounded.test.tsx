@@ -265,7 +265,9 @@ async function mounted(rows: AcpmuxRow[]) {
     return {
       rows: shown.length,
       mountedRows: doc.querySelectorAll(".acpmux-row").length,
-      agentCards: doc.querySelectorAll(".cv-agentcall").length,
+      // An Agent call whose subagent's row is in sight draws as that row alone (#55191): its card, or
+      // that row, is the call.
+      agentCards: doc.querySelectorAll('.cv-agentcall, .acpmux-row[data-row-id^="subagents-"]').length,
       elements: host.getElementsByTagName("*").length,
       biggestRow: Math.max(0, ...shown.map(cards)),
       // The mounted rows that hold the most, to read what grew.
@@ -409,9 +411,19 @@ test("the summary card mounts only the subagents its body shows, and scrolls to 
     const rect = (top: number, height: number) =>
       ({ x: 0, y: top, top, left: 0, right: 288, bottom: top + height, width: 288, height, toJSON() {} }) as DOMRect;
     if (this === body) return rect(0, BODY);
+    // The body by its class, not only the ref: WindowedRows measures its rows' pitch in a layout effect,
+    // which runs before the parent's ref is set (#46128).
+    const scroller = body ?? this.closest<HTMLElement>(".acpmux-summary-card__body");
     const list = this.parentElement;
-    if (body && this.tagName === "LI" && list?.classList.contains("acpmux-summary-list") && body.contains(list))
-      return rect(Array.prototype.indexOf.call(list.children, this) * ROW - body.scrollTop, ROW);
+    if (scroller && this.tagName === "LI" && list?.classList.contains("acpmux-summary-list") && scroller.contains(list)) {
+      // A row is ROW tall; a windowed list's boxes (WindowedRows) as tall as their style says.
+      const height = (li: HTMLElement) =>
+        li.dataset.rowsRest === undefined ? ROW : li.style.display === "none" ? 0 : parseFloat(li.style.height) || 0;
+      let top = 0;
+      for (let sibling = this.previousElementSibling; sibling; sibling = sibling.previousElementSibling)
+        top += height(sibling as HTMLElement);
+      return rect(top - scroller.scrollTop, height(this));
+    }
     return laidOut.call(this);
   };
   const host = dom.window.document.getElementById("root")!;
@@ -430,17 +442,23 @@ test("the summary card mounts only the subagents its body shows, and scrolls to 
         );
         drawn[n] = { lines: lines(), elements: host.getElementsByTagName("*").length };
         expect(host.querySelector(".acpmux-summary-more")).toBeNull();
-        const spacer = host.querySelector<HTMLElement>("[data-rows-rest]");
+        // The rows under the window sit in the bottom box; a top box holds those above (#46128).
+        const spacer = host.querySelector<HTMLElement>('[data-rows-rest][data-rows-next="end"]');
         if (lines() < n) {
           // The rest's box is as tall as their rows, so the body's scroll takes its whole height at once.
           expect(spacer?.style.height).toBe(`${(n - lines()) * ROW}px`);
           // Scrolled to the end, the body draws its last subagent.
           body!.scrollTop = n * ROW - BODY;
           await act(async () => void body!.dispatchEvent(new dom.window.Event("scroll")));
-          expect(await settle(() => lines() === n, 5_000)).toBe(true);
-          expect(host.querySelector("[data-rows-rest]")).toBeNull();
-        }
-        expect(host.textContent).toContain(`reviewer-${n - 1}`);
+          // Only the rows in view and a viewport each side stay mounted (#46128): the list's last row
+          // (running first, then finished newest first: the oldest finished, reviewer-1) draws, nothing
+          // is left under it, and the rows above sit in the top box.
+          const lastName = () =>
+            [...host.querySelectorAll(".acpmux-summary-agents .acpmux-agent-line")].at(-1)?.querySelector(".acpmux-summary-agent__name")?.textContent ?? "";
+          expect(await settle(() => lastName() === "reviewer-1", 5_000)).toBe(true);
+          expect(spacer?.style.display).toBe("none");
+          expect(lines()).toBeLessThan(n);
+        } else expect(host.textContent).toContain(`reviewer-${n - 1}`);
       } finally {
         await act(async () => root.unmount());
         body = null;

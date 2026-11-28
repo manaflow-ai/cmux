@@ -154,7 +154,7 @@ test("a finished command with no known end shows no time that keeps counting", a
   expect(times.every((text) => text === "")).toBe(true);
 });
 
-test("a workflow agent opened from the panel draws its transcript, loading first, never a blank pane", async () => {
+test("a workflow agent opened from the panel opens its transcript pane at once and draws its rows", async () => {
   const container = installDom();
   const workflow = {
     id: "wf-node",
@@ -202,8 +202,10 @@ test("a workflow agent opened from the panel draws its transcript, loading first
   await act(async () => task!.click());
   const transcript = container.querySelector(".acpmux-bg__transcript")!;
   expect(transcript).not.toBeNull();
-  // The click's own frame shows the loading state, not an empty pane.
-  expect(transcript.textContent).toContain("Loading");
+  // The click's own frame opens the transcript pane, which draws nothing while the records load: no
+  // Loading text, and not the empty pane's "No messages yet" (#62227, Leo, 2026-11-27: "unnecesssary
+  // message and these take way too long to load").
+  expect(transcript.textContent).toBe("");
   expect(reads).toEqual([{ sessionId: "chat", runId: "wf_demo", agentId: "review" }]);
   await act(async () =>
     resolve({
@@ -216,6 +218,7 @@ test("a workflow agent opened from the panel draws its transcript, loading first
   );
   expect(transcript.textContent).toContain("Reviewed the diff");
   expect(transcript.textContent).not.toContain("Loading");
+  expect(transcript.textContent).not.toContain("No messages yet");
 });
 
 test("a workflow named in a subagent's transcript opens no empty transcript", async () => {
@@ -458,7 +461,8 @@ test("a workflow agent's long first page mounts one window, not every row", asyn
       />,
     ),
   );
-  expect(container.querySelector(".acpmux-bg__transcript")!.textContent).toContain("Loading");
+  // Loading, the pane draws nothing (#62227): no Loading text, no "No messages yet".
+  expect(container.querySelector(".acpmux-bg__transcript")!.textContent).toBe("");
   // Every row ever mounted, those a commit trimmed right after included.
   let most = 0;
   const watch = new window.MutationObserver((records) => {

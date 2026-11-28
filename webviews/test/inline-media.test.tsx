@@ -186,10 +186,12 @@ describe("file:line references", () => {
 });
 
 describe("repository aliases and commits", () => {
-  test("hq#N links to cmuxterm-hq; another word glued to # stays text", () => {
-    expect(githubReferences("see hq#2713 and foo#12", REPO, "pull", true).map((ref) => [ref.text, ref.href])).toEqual([
-      ["hq#2713", "https://github.com/manaflow-ai/cmuxterm-hq/pull/2713"],
-    ]);
+  // Only cmux's own short name links: a team's `hq#N` is theirs, not a link to ours (#59389, Leo
+  // 2026-11-26: "identify all the weird opinoinated fleet things we shipped into the app and remove them").
+  test("cmux#N links to cmux; hq#N and another word glued to # stay text", () => {
+    expect(
+      githubReferences("see cmux#2713, hq#2713 and foo#12", REPO, "pull", true).map((ref) => [ref.text, ref.href]),
+    ).toEqual([["cmux#2713", "https://github.com/manaflow-ai/cmux/pull/2713"]]);
   });
   test("aliases are for agent replies only; the document editor and prototype keys never link", () => {
     expect(githubReferences("see hq#2713", REPO)).toEqual([]);
@@ -426,13 +428,11 @@ describe("rendered replies", () => {
     await unmount();
   });
 
-  test("a commit, hq#N and a relative file:line are links", async () => {
-    const { container, unmount } = await render("Fixed in 2f1920a (hq#2713), see webviews/src/app.ts:42.");
+  // cmux#N, not hq#N: no team repository links from a reply (#59389).
+  test("a commit, cmux#N and a relative file:line are links", async () => {
+    const { container, unmount } = await render("Fixed in 2f1920a (cmux#2713), see webviews/src/app.ts:42.");
     const hrefs = [...container.querySelectorAll("a")].map((anchor) => anchor.getAttribute("href"));
-    expect(hrefs).toEqual([
-      `https://github.com/${REPO}/commit/2f1920a`,
-      "https://github.com/manaflow-ai/cmuxterm-hq/pull/2713",
-    ]);
+    expect(hrefs).toEqual([`https://github.com/${REPO}/commit/2f1920a`, "https://github.com/manaflow-ai/cmux/pull/2713"]);
     const path = container.querySelector<HTMLElement>(".cv-chip.is-path");
     expect(path?.dataset.path).toBe("webviews/src/app.ts");
     expect(path?.textContent).toBe("app.ts:42");

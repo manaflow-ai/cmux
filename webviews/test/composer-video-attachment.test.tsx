@@ -110,6 +110,21 @@ function expectUnreadVideoTile() {
   expect(host.querySelector(".acpmux-attachment-link-name")).toBeNull();
 }
 
+/// A video the host is still reading: since #63541 ("an attached video loads in one look, from its
+/// drop to its poster") the tile wears the pending chip's loading glass (busy) with its play glyph,
+/// never the neutral square first, and never a pending chip's spinner: it is ready to send.
+function expectLoadingVideoTile() {
+  const tile = host.querySelector(".acpmux-attachment-video.acpmux-paste-loading");
+  expect(tile?.classList.contains("acpmux-attachment-image")).toBe(true);
+  expect(tile?.classList.contains("acpmux-attachment-video-unread")).toBe(false);
+  expect(tile?.getAttribute("aria-busy")).toBe("true");
+  expect(tile?.getAttribute("title")).toBe(video().name);
+  expect(tile?.querySelector("img")).toBeNull();
+  expect(tile?.querySelector(".acpmux-attachment-video-play")).not.toBeNull();
+  expect(host.querySelector(".acpmux-attachment-pending")).toBeNull();
+  expect(host.querySelector(".acpmux-attachment-link-name")).toBeNull();
+}
+
 async function render(initial: ComposerAttachment[], local = true, key: string = crypto.randomUUID()) {
   calls = [];
   await act(async () => {
@@ -144,9 +159,8 @@ try {
   test("a dropped video is its tile at once while the host reads it, then shows its poster and length, and a click plays it", async () => {
     await render([video()]);
     expect(calls.map(({ method, params }) => [method, params])).toEqual([["video.info", { src: PATH }]]);
-    // While the host reads it: the tile in its box with its play glyph, ready to send, nothing spinning.
-    expect(host.querySelector(".acpmux-attachment-pending, [aria-busy='true']")).toBeNull();
-    expectUnreadVideoTile();
+    // While the host reads it: the tile in its box with its play glyph in the loading look, ready to send.
+    expectLoadingVideoTile();
     expect(state?.reading).toBe(1);
 
     await act(async () => calls[0]!.answer(INFO));
@@ -232,7 +246,7 @@ try {
   test("a rejected video.info request ends its read and leaves the file ready to send", async () => {
     await render([video()]);
     expect(state?.reading).toBe(1);
-    expectUnreadVideoTile();
+    expectLoadingVideoTile();
 
     // A disconnected or outdated host may refuse the native video.info call.
     await act(async () => calls[0]!.fail(new Error("video.info unavailable")));
