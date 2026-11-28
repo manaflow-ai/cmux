@@ -12,7 +12,7 @@ import java.util.Objects;
 
 public final class LayoutColumnNode implements WireValue {
     /** dock-columns-v1: the viewport edge the column is pinned to. */
-    private final Field<Object> dock;
+    private final Field<ColumnDock> dock;
     private final UInt64 id;
     private final Layout layout;
     /** rows-v1: only for a column with two or more rows. */
@@ -20,7 +20,7 @@ public final class LayoutColumnNode implements WireValue {
     private final double width;
 
     private LayoutColumnNode(Builder builder) {
-        this.dock = builder.dock.map(value -> Wire.immutableJson(value));
+        this.dock = builder.dock;
         if (!builder.idSet) throw new IllegalArgumentException("id is required");
         this.id = Wire.nonNull(builder.id, "id");
         if (!builder.layoutSet) throw new IllegalArgumentException("layout is required");
@@ -32,7 +32,7 @@ public final class LayoutColumnNode implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
-    public Field<Object> dock() { return dock; }
+    public Field<ColumnDock> dock() { return dock; }
     public UInt64 id() { return id; }
     public Layout layout() { return layout; }
     public Field<List<LayoutRowNode>> rows() { return rows; }
@@ -43,7 +43,7 @@ public final class LayoutColumnNode implements WireValue {
         Builder builder = builder();
         Object rawDock = Wire.optional(object, "dock");
         if (!Wire.isMissing(rawDock)) {
-            builder.dock(Wire.immutableJson(ProtocolSupport.nonNull(rawDock, "LayoutColumnNode.dock")));
+            builder.dock(ColumnDock.fromWire(rawDock));
         }
         Object rawId = Wire.required(object, "id");
         builder.id(Wire.uint64(rawId, "LayoutColumnNode.id"));
@@ -82,7 +82,7 @@ public final class LayoutColumnNode implements WireValue {
     public String toString() { return "LayoutColumnNode" + toWire(); }
 
     public static final class Builder {
-        private Field<Object> dock = Field.omitted();
+        private Field<ColumnDock> dock = Field.omitted();
         private UInt64 id;
         private boolean idSet;
         private Layout layout;
@@ -91,7 +91,7 @@ public final class LayoutColumnNode implements WireValue {
         private Double width;
         private boolean widthSet;
 
-        public Builder dock(Object value) {
+        public Builder dock(ColumnDock value) {
             this.dock = Field.of(value);
             return this;
         }
