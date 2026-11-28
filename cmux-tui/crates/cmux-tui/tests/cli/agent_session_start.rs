@@ -352,53 +352,6 @@ impl Drop for Daemon {
     }
 }
 
-/// SIGKILL every process of this user that belongs to the test home `dir`:
-/// its environment names a path inside `dir` (HOME, ACPMUX_HOME, the socket),
-/// or its cwd lies there. The home's name carries this test's pid and a
-/// nanosecond stamp, so only processes this test started match. Linux only
-/// (`/proc`); elsewhere the stop commands above are all there is.
-fn end_processes_of_home(dir: &std::path::Path) {
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::ffi::OsStrExt;
-        let prefix = dir.as_os_str().as_bytes();
-        let inside = |path: &[u8]| {
-            path.starts_with(prefix) && matches!(path.get(prefix.len()), None | Some(b'/'))
-        };
-        // SAFETY: getuid(2) and getpid(2) have no preconditions.
-        let (uid, me) = unsafe { (libc::getuid(), libc::getpid()) };
-        for _pass in 0..3 {
-            let mut found = false;
-            for entry in fs::read_dir("/proc").into_iter().flatten().flatten() {
-                let Some(pid) = entry.file_name().to_str().and_then(|n| n.parse::<i32>().ok())
-                else {
-                    continue;
-                };
-                if pid == me || !entry.metadata().is_ok_and(|m| m.uid() == uid) {
-                    continue;
-                }
-                let env = fs::read(entry.path().join("environ")).unwrap_or_default();
-                let named = env.split(|b| *b == 0).any(|var| {
-                    var.iter().position(|b| *b == b'=').is_some_and(|eq| inside(&var[eq + 1..]))
-                });
-                let cwd = fs::read_link(entry.path().join("cwd"))
-                    .is_ok_and(|cwd| inside(cwd.as_os_str().as_bytes()));
-                if named || cwd {
-                    found = true;
-                    // SAFETY: kill(2) of a process this test's home started.
-                    unsafe { libc::kill(pid, libc::SIGKILL) };
-                }
-            }
-            if !found {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-    }
-    #[cfg(not(target_os = "linux"))]
-    let _ = dir;
-}
-
 #[test]
 fn agent_session_start_is_refused_on_a_team_vm() {
     let daemon = Daemon::start("team", Some("team-vm"));

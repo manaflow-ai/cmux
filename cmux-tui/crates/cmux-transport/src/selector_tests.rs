@@ -218,6 +218,41 @@ fn regain_a_suspect_direct_path_with_no_relay_answering_is_held_and_sprayed() {
     assert_eq!(answer(&mut selector, LAN, 10_000).and_then(|s| s.to), Some(LAN));
 }
 
+/// Leo's phone, 2026-11-27: the Mac's loopback, LAN and tailnet addresses
+/// all ride the phone's flapping Wi-Fi. The session left one for the relay,
+/// and the next address's first answer took it back at once, then died with
+/// the same flap: the label flipped Direct/Turn once per address and the
+/// echo stalled 2 s each time. A drop back counts for every direct path.
+#[test]
+fn regain_a_drop_back_holds_back_every_direct_path_to_the_peer() {
+    const TAILNET: PathId = PathId(3);
+    const LATE: PathId = PathId(4);
+    let mut selector = regain();
+    selector.add_path(LINK, PathKind::DirectLan).unwrap();
+    answer(&mut selector, RELAY, 40_000);
+    answer(&mut selector, LAN, 10_000);
+    answer(&mut selector, LINK, 12_000);
+    assert_eq!(selector.current(), Some(LAN));
+    assert_eq!(lose(&mut selector, LAN).and_then(|s| s.to), Some(RELAY));
+    // The sibling that was answering all along starts its streak over.
+    assert!(selector.held_back(LINK), "a sibling direct path is held back too");
+    for _ in 0..2 {
+        assert_eq!(answer(&mut selector, LINK, 12_000), None, "needs 3 in a row");
+    }
+    // An address found after the drop starts with it as well.
+    selector.add_path(TAILNET, PathKind::DirectLan).unwrap();
+    assert_eq!(answer(&mut selector, TAILNET, 9_000), None);
+    assert_eq!(selector.current(), Some(RELAY));
+    // The streak earns it back, as for the path that dropped.
+    assert_eq!(answer(&mut selector, LINK, 12_000).and_then(|s| s.to), Some(LINK));
+    // The relay path itself is never held back, and a network change
+    // forgets the drops for every path.
+    selector.on_network_change();
+    selector.add_path(LATE, PathKind::DirectLan).unwrap();
+    answer(&mut selector, RELAY, 40_000);
+    assert_eq!(answer(&mut selector, LATE, 10_000).and_then(|s| s.to), Some(LATE));
+}
+
 /// Leo's phone on weak LTE (2026-11-25): a direct path that answers and
 /// loses in turn switched the session every second or two. Under regain
 /// it switches a handful of times a minute and the relay always carries.

@@ -5,6 +5,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -45,7 +46,7 @@ afterEach(() => {
   setVisibility("visible");
 });
 
-const { nextFrame } = await import("../src/agent-session/acpmux/direct");
+const { nextFrame } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
 
 function setVisibility(next: "visible" | "hidden"): void {
   visibility = next;

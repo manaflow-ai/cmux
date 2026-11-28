@@ -220,15 +220,10 @@ pub(crate) trait Runner {
     async fn run(&self, mode: Mode, case: &Case, dir: &Path) -> anyhow::Result<Outcome>;
 }
 
-/// Whether `line` is one of the router's own notes (`run_vm.rs` writes them on stderr): not the
-/// command's output. Lines the router writes into the output itself (a run VM failing
-/// mid-command, a patch that did not apply) stay: they are a difference.
+/// Whether `line` is one of the router's own notes ([`super::run_vm::is_note`]).
 fn is_note(line: &[u8]) -> bool {
     let Ok(line) = std::str::from_utf8(line) else { return false };
-    let line = line.trim_end_matches('\r');
-    line.starts_with("[run-vm] ran on a run VM")
-        || line.starts_with("[run-vm] ran here: ")
-        || (line.starts_with("[run-vm] ") && line.ends_with(": running on a fork of this machine"))
+    super::run_vm::is_note(line.trim_end_matches('\r'))
 }
 
 /// `bytes` without the router's notes, and where the notes say it ran: `Some(("fork", None))`,
@@ -243,9 +238,9 @@ pub fn split_notes(bytes: &[u8]) -> (Vec<u8>, Option<(&'static str, Option<Strin
             continue;
         }
         let text = String::from_utf8_lossy(line);
-        if text.starts_with("[run-vm] ran on a run VM") {
+        if text.starts_with(super::run_vm::NOTE_RAN_THERE) {
             verdict = Some(("fork", None));
-        } else if let Some(cause) = text.strip_prefix("[run-vm] ran here: ") {
+        } else if let Some(cause) = text.strip_prefix(super::run_vm::NOTE_RAN_HERE) {
             verdict = Some(("here", Some(cause.trim_end().to_owned())));
         }
     }

@@ -57,6 +57,8 @@
 #               A suite named *ColdUITests or *ColdLiveUITests runs each of its test*Cold methods
 #               on a freshly booted iPhone, CMUX_LAUNCH_COLD_RUNS (10) times
 #               (LaunchTTIColdUITests); LAUNCHTTI lines go to launch-tti.jsonl.
+#             coldruns=N   runs of each cold suite's tests, one fresh boot each (1-30;
+#               default CMUX_LAUNCH_COLD_RUNS or 10), e.g. ReadFirstColdUITests
 #               LaunchColdLiveUITests also accepts repeatable net=lte|lossy-3|off
 #               and runs against the paired live daemon (the duress link knob shapes
 #               replay delivery when duress= is enabled).
@@ -488,6 +490,10 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
         [[ "${sel#duress=}" =~ ^[a-z][a-z0-9_-]*(,[a-z_]+=[A-Za-z0-9._-]+)*$ ]] ||
           { echo "cmux-next-ios-sim.sh: duress= wants off or PRESET[,knob=value...], got '$sel'" >&2; exit 2; }
         duress_specs+=("${sel#duress=}") ;;
+      coldruns=?*)
+        [[ "${sel#coldruns=}" =~ ^[0-9]+$ ]] && (( ${sel#coldruns=} >= 1 && ${sel#coldruns=} <= 30 )) ||
+          { echo "cmux-next-ios-sim.sh: coldruns= is 1-30, got '$sel'" >&2; exit 2; }
+        export CMUX_LAUNCH_COLD_RUNS="${sel#coldruns=}" ;;
       net=?*)
         [[ "${sel#net=}" =~ ^(off|lte|lossy-3)$ ]] ||
           { echo "cmux-next-ios-sim.sh: net= wants off, lte or lossy-3, got '$sel'" >&2; exit 2; }
@@ -500,7 +506,7 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
           { echo "cmux-next-ios-sim.sh: products= wants a ui-build step's job id (24 hex), got '$ui_products_job'" >&2; exit 2; } ;;
       video) ui_video=1 ;;
       profile) ui_profile=1 ;;
-      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, duress=SPEC, net=PROFILE, config=debug|demo, products=JOB, video and profile, got '$sel'" >&2; exit 2 ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, duress=SPEC, coldruns=N, net=PROFILE, config=debug|demo, products=JOB, video and profile, got '$sel'" >&2; exit 2 ;;
     esac
   done
   if [[ -n "$ui_products_job" ]]; then
@@ -983,7 +989,8 @@ ffi_swift=cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFF
 ffi_how=""
 if [[ -n "$ffi_key" ]]; then
   ffi_rc=0
-  "${ffi_cache[@]}" restore "$root" "$ffi_key" >>"$ffi_log" 2>&1 || ffi_rc=$?
+  # With the inputs, a miss claims the key at the controller, or waits for the step that claimed it (one build per key).
+  "${ffi_cache[@]}" restore "$root" "$ffi_key" "$work/ffi-inputs.json" >>"$ffi_log" 2>&1 || ffi_rc=$?
   if [[ $ffi_rc -eq 0 && -f "$ffi_xcf/Info.plist" && -s "$ffi_swift" ]]; then
     ffi_how="cache hit ${ffi_key:0:12}"
   elif [[ $ffi_rc -eq 0 ]]; then

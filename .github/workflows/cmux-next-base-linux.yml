@@ -128,6 +128,11 @@ jobs:
       - name: Run the routed ${{ matrix.job }} steps (ci/steps.toml)
         env:
           TABLE_JOB: ${{ matrix.job }}
+          # The base has no re-run that fixes a red, so an `alone` step (ios-matrix-protocol and the other long
+          # ones) runs here even after a blocking step failed. Without it, a base red since 11-26 14:51Z on
+          # unrelated steps (vendored-agent-cursor first) skipped ios-matrix-protocol on every run, and the
+          # E0063 break from cmux#54233 + cmux#54390 stayed unseen for 8 h 49 min until the nightly.
+          CI_RUN_ALONE_ON_RED: "1"
         run: |
           set +e
           ci/run run --job "$TABLE_JOB" ${PATHS_FILE:+--paths-file "$PATHS_FILE"} 2>&1 | tee "$RUNNER_TEMP/linux-first.log"
@@ -193,7 +198,8 @@ jobs:
     if: ${{ always() && github.repository_owner == 'manaflow-ai' }}
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+    # The jobs read's retries take up to 150 s, its pushes up to 120 s each.
+    timeout-minutes: 10
     permissions:
       actions: read
       contents: write
@@ -202,14 +208,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The jobs read is retried after a refusal: on 11-28 it answered HTTP 403 in 2 of 3 runs (46147369726,
+          # 46154621189), so their green 'base web-browser' tips went unrecorded and the next runs routed wider.
           green="$(python3 - <<'PY'
-          import json, os, urllib.request
+          import json, os, sys, time, urllib.error, urllib.request
           url = (f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
                  f"{os.environ['GITHUB_RUN_ID']}/attempts/{os.environ['GITHUB_RUN_ATTEMPT']}/jobs?per_page=100")
           request = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
                                                          "Accept": "application/vnd.github+json"})
-          with urllib.request.urlopen(request, timeout=30) as answer:
-              jobs = json.load(answer).get("jobs") or []
+          jobs = None
+          for wait in (0, 15, 45, 90):
+              time.sleep(wait)
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as answer:
+                      jobs = json.load(answer).get("jobs") or []
+                  break
+              except urllib.error.HTTPError as error:
+                  if error.code not in (403, 429) and error.code < 500:
+                      raise
+                  print(f"jobs read answered HTTP {error.code}; trying again", file=sys.stderr)
+              except (urllib.error.URLError, TimeoutError) as error:
+                  print(f"jobs read failed ({error}); trying again", file=sys.stderr)
+          if jobs is None:
+              sys.exit("the jobs read failed 4 times; nothing recorded")
           for job in jobs:
               name = str(job.get("name") or "")
               if name in ("base linux", "base web-browser") and job.get("conclusion") == "success":
