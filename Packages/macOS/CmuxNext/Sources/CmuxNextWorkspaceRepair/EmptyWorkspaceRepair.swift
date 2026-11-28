@@ -240,9 +240,7 @@ public final class EmptyWorkspaceRepair {
         workspace.isAnyHome
     }
 
-    private static func hasPane(_ workspace: WorkspaceModel) -> Bool {
-        !workspace.screens.allSatisfy(\.panes.isEmpty)
-    }
+    private static func hasPane(_ workspace: WorkspaceModel) -> Bool { workspace.holdsPane }
 
     private func notePopulated(_ key: WorkspaceKey) {
         populated[key] = epoch()
