@@ -1926,5 +1926,55 @@ class LaunchBound(unittest.TestCase):
             self.assertIn("timeout=launch_seconds()", call)
 
 
+class LaunchFailureTest(unittest.TestCase):
+    """A copy whose control socket never answers says why: whether it still runs, and its own output's end
+    (cmuxterm-hq docs/handbook/failure-drops-its-reason.md: the look said only "nothing within 120 s")."""
+
+    def test_a_dead_copy_names_its_end_and_its_output_redacted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            err = Path(tmp) / "app.stderr.log"
+            err.write_text("".join(f"line {i}\n" for i in range(200))
+                           + "dyld: Library not loaded: @rpath/Foo.framework\n"
+                           + "auth token=abcdefgh12345678 bearer: ZZZZZZZZZZZZZZ\n")
+            dead = subprocess.Popen([sys.executable, "-c", "pass"])
+            dead.wait()
+            said = hv.launch_failure(dead.pid, [str(Path(tmp) / "app.stdout.log"), str(err)])
+        self.assertIn("app launch: running False", said)
+        self.assertIn("dyld: Library not loaded", said)
+        self.assertIn("app.stderr.log (last 80 lines)", said)
+        self.assertNotIn("line 100\n", said)
+        self.assertNotIn("abcdefgh12345678", said)
+        self.assertNotIn("ZZZZZZZZZZZZZZ", said)
+
+    def test_a_live_copy_with_no_output_says_so(self):
+        said = hv.launch_failure(os.getpid(), [])
+        self.assertEqual(said, "app launch: running True\nno output from the copy")
+
+    def test_the_socket_wait_raises_the_why_and_the_receipt_keeps_it(self):
+        side = unittest.mock.Mock()
+        side.logs.return_value = []
+        with unittest.mock.patch.object(hv, "LAUNCH_SECONDS", 0.01), \
+                unittest.mock.patch.object(hv, "control_socket", return_value=None):
+            with self.assertRaises(hv.LookError) as caught:
+                hv.copy_socket(side, os.getpid(), None)
+        text = str(caught.exception)
+        self.assertIn("the copy's control socket: nothing within", text)
+        self.assertIn("app launch: running True", text)
+        long = hv.LookError(text + "x" * 5000)
+        self.assertGreater(hv.error_chars(long), 500)
+        self.assertEqual(hv.error_chars(hv.LookError("other")), 500)
+
+    def test_both_launch_sites_use_the_socket_wait_that_says_why(self):
+        source = ENGINE.read_text()
+        self.assertEqual(source.count("copy_socket(side, pid, named)"), 2)
+        self.assertNotIn('until("the copy\'s control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))\n'
+                         '        until(', source)
+
+    def test_side_instance_keeps_the_copys_output(self):
+        script = (ENGINE.parent / "side-instance.sh").read_text()
+        self.assertIn('--stdout "$dir/app.stdout.log" --stderr "$dir/app.stderr.log"', script)
+        self.assertIn("\n  logs)\n", script)
+
+
 if __name__ == "__main__":
     unittest.main()
