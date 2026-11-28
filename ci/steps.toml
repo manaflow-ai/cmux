@@ -4362,7 +4362,6 @@ inputs = [
   # The crates CmuxMobileLinkFFI compiles outside cmux-next-ios/, from its Cargo graph (ios_link_ffi_key.closure;
   # `scripts/ci/ios_app_package_paths.py --rust` prints them, --check holds them exact): a shared cmux-tui crate
   # change starts the iOS checks (cmux#55399).
-  "cmux-tui/Cargo.lock",
   "cmux-tui/Cargo.toml",
   "cmux-tui/crates/cmux-agent-pane-policy/**",
   "cmux-tui/crates/cmux-auto-session/**",
@@ -4506,7 +4505,6 @@ inputs = [
   # The crates CmuxMobileLinkFFI compiles outside cmux-next-ios/, from its Cargo graph (ios_link_ffi_key.closure;
   # `scripts/ci/ios_app_package_paths.py --rust` prints them, --check holds them exact): a shared cmux-tui crate
   # change starts the iOS checks (cmux#55399).
-  "cmux-tui/Cargo.lock",
   "cmux-tui/Cargo.toml",
   "cmux-tui/crates/cmux-agent-pane-policy/**",
   "cmux-tui/crates/cmux-auto-session/**",
