@@ -45,6 +45,7 @@
     "CmuxNextVSCodeServer": {"layer": "service"},
     "CmuxNextHostPressure": {"layer": "service"},
     "CmuxNextHostPressureTunables": {"layer": "service", "note": "host pressure Debug Settings tunables; they read DesignTokens, so they stay out of CmuxNextHostPressure (the Linux shape)"},
+    "CmuxNextHostPressureUI": {"layer": "ui", "note": "host pressure gauges view (RFD 0182 B10), out of CmuxNextApp"},
     "CmuxNextChromiumRuntime": {"layer": "service"},
     "CmuxNextChromiumWarmup": {"layer": "service", "plan": "depend on BrowserCore, not Browser"},
     "CmuxNextControl": {"layer": "service"},

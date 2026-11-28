@@ -439,6 +439,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHomeModel",
                 "CmuxNextHostPressure",
                 "CmuxNextHostPressureTunables",
+                "CmuxNextHostPressureUI",
                 "CmuxNextHostedChief",
                 "CmuxNextIcons",
                 "CmuxNextImportCards",
@@ -1566,6 +1567,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHostPressure",
             ],
             swiftSettings: daemonSwiftSettings
+        ),
+        // Host pressure's gauges (RFD 0182 B10): the one view that draws every pressure the verdict
+        // carries (cmux-host-budget `gauges.rs` computes them), out of CmuxNextApp; the popover places it.
+        .target(
+            name: "CmuxNextHostPressureUI",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextDesign",
+                "CmuxNextHostPressure",
+                "CmuxNextHostPressureTunables",
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: uiSwiftSettings
         ),
         // VS Code (Inline): the one `serve-web` server on 127.0.0.1 behind Open Folder in VS Code
         // (Inline) and Stop/Restart VS Code Inline Server. The App opens its URL in a browser tab.
