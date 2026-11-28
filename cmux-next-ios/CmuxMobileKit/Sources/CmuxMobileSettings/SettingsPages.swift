@@ -377,7 +377,7 @@ struct TerminalPage: View {
                 Toggle(isOn: $settings.terminalPhoneProjection) { SettingsLabel(verbatim: String(localized: "mobile.terminal.phoneProjection.title", defaultValue: "Re-wrap on Phone", bundle: .module), symbol: "text.alignleft") }
                     .accessibilityIdentifier("settings.terminalPhoneProjection")
             } footer: {
-                Text(String(localized: "mobile.terminal.phoneProjection.help", defaultValue: "Terminals keep the Mac's columns by default. Re-wrap on Phone adapts text without resizing the Mac. Fit to Phone resizes the Mac. Applies to terminals opened next.", bundle: .module))
+                Text(String(localized: "mobile.terminal.phoneProjection.help", defaultValue: "Terminals keep the Mac's columns by default. Re-wrap on Phone reflows text; Fit to Phone resizes the Mac. Applies to new terminals.", bundle: .module))
             }
             Section {
                 Toggle(isOn: $settings.predictiveEcho) { SettingsLabel("Predictive echo", symbol: "bolt.horizontal") }
