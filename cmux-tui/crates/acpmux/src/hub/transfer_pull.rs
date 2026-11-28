@@ -79,6 +79,17 @@ const FORGET_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 // timeout: past this the move answers unlisted (the next timed heartbeat lists it); a move never
 // fails on it.
 const MOVED_LISTED_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+/// How long a listing started for a `listAfter` move waits for its source's `listed` ask.
+// timeout: past this the entry goes; a late ask answers `listed: null`.
+const LISTING_KEPT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The listings [`Hub::list_on_mesh_after`] started, by transfer id: the heartbeat's ms once taken.
+type Listings = std::collections::HashMap<String, tokio::sync::watch::Receiver<Option<u64>>>;
+
+fn pending_listings() -> std::sync::MutexGuard<'static, Listings> {
+    static LISTINGS: std::sync::OnceLock<std::sync::Mutex<Listings>> = std::sync::OnceLock::new();
+    LISTINGS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
+}
 
 pub(super) fn pull_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
@@ -468,15 +479,28 @@ impl Hub {
         let finishing = std::time::Instant::now();
         let moved = self.transfer_finish(&finish).await?;
         let finish_ms = finishing.elapsed().as_millis() as u64;
-        // Listed in the hub's address book before the source hears the move landed, so
-        // `HOST/NAME` resolves on the source the moment its move ends (no 30 s heartbeat lag).
+        // Listed in the hub's address book before the source's move ends, so `HOST/NAME`
+        // resolves on the source the moment its move ends (no 30 s heartbeat lag). A source that
+        // asks `listAfter` commits first and waits for the listing after the freeze (op `move`
+        // with `listed`, [`Self::transfer_pull_listed`]): the listing is a hub round trip on the
+        // team's one mesh object, 130 to 700 ms, which held the chat frozen for no turn's sake
+        // (super-highway, 2026-11-28: listedMs about 45% of every freeze).
+        let list_after = body.get("listAfter") == Some(&Value::Bool(true));
         let listing = std::time::Instant::now();
-        let listed = self.list_on_mesh_now(MOVED_LISTED_WAIT).await;
+        let (listed, pending) = if list_after {
+            let pending = self.list_on_mesh_after(transfer_id);
+            (false, pending)
+        } else {
+            (self.list_on_mesh_now(MOVED_LISTED_WAIT).await, false)
+        };
         let listed_ms = listing.elapsed().as_millis() as u64;
         let finish_steps = moved.get("finishSteps").cloned();
         let mut moved =
             json!({"sessionId": moved.get("sessionId").cloned().unwrap_or(json!(session_id))});
         moved.set("cwd", json!(cwd));
+        if pending {
+            moved.set("listPending", json!(true));
+        }
         moved.set(
             "timings",
             json!({"dialMs": dial_ms, "pages": page_count, "pageBytes": page_bytes,
@@ -496,6 +520,61 @@ impl Hub {
         let Some(beat) = beat else { return false };
         beat.now(within).await;
         true
+    }
+
+    /// A mesh heartbeat started now for the chat move `transfer_id` landed here, not waited for:
+    /// [`Self::transfer_pull_listed`] waits for it. False when no mesh relay runs here.
+    pub(crate) fn list_on_mesh_after(&self, transfer_id: &str) -> bool {
+        let beat = self.mesh_beat.lock().unwrap_or_else(|e| e.into_inner()).upgrade();
+        let Some(beat) = beat else { return false };
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return false };
+        let (done, wait) = tokio::sync::watch::channel(None);
+        let key = transfer_id.to_owned();
+        pending_listings().insert(key.clone(), wait);
+        runtime.spawn(async move {
+            let listing = std::time::Instant::now();
+            beat.now(MOVED_LISTED_WAIT).await;
+            let _ = done.send(Some(listing.elapsed().as_millis() as u64));
+            // timeout: a source that never asks (its client gone) leaves no entry behind.
+            tokio::time::sleep(LISTING_KEPT).await;
+            pending_listings().remove(&key);
+        });
+        true
+    }
+
+    /// Op `move` with `{listed: TRANSFER_ID}`: waits (at most [`MOVED_LISTED_WAIT`]) for the
+    /// heartbeat [`Self::list_on_mesh_after`] started for that move, and answers
+    /// `{listed, listedMs}`; `{listed: null}` for a move this daemon holds no listing of.
+    pub(super) async fn transfer_pull_listed(&self, body: &Value) -> Result<Value, RpcError> {
+        let id = body.get("listed").and_then(Value::as_str).unwrap_or("");
+        let wait = pending_listings().get(id).cloned();
+        let Some(mut wait) = wait else { return Ok(json!({"listed": Value::Null})) };
+        let ms = tokio::time::timeout(MOVED_LISTED_WAIT, wait.wait_for(Option::is_some))
+            .await
+            .ok()
+            .and_then(|r| r.ok().and_then(|ms| *ms));
+        pending_listings().remove(id);
+        Ok(json!({"listed": ms.is_some(), "listedMs": ms}))
+    }
+
+    /// The source's ask, after its commit, for the listing of the chat move `transfer_id` landed
+    /// on `daemon` ([`Self::transfer_pull_listed`]): its answer.
+    async fn transfer_hub_listed(&self, params: &Value) -> Result<Value, RpcError> {
+        let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or("");
+        let (transfer_id, daemon) = (text("listed"), text("daemonId"));
+        if !super::transfer::is_plain_id(transfer_id) || !plain_daemon(daemon) {
+            return Err(RpcError::invalid_params("listed needs a transfer id and a daemon id"));
+        }
+        let body = json!({"version": 1, "listed": transfer_id});
+        let key = format!("listed-{transfer_id}");
+        let op = crate::mesh_relay_config::MOVE_OP;
+        let wait = MOVED_LISTED_WAIT + ANSWER_WAIT;
+        match self.hub_control(daemon, op, body, key, wait).await? {
+            Ok(result) => Ok(result
+                .and_then(|r| serde_json::from_str::<Value>(&r).ok())
+                .unwrap_or(json!({"listed": Value::Null}))),
+            Err(why) => Err(refused(&why)),
+        }
     }
 
     /// A mesh heartbeat soon, not waited for: a chat this daemon no longer runs (moved out)
@@ -692,6 +771,9 @@ impl Hub {
         if params.get("moveOut").is_some() {
             return self.transfer_hub_move_out(params).await;
         }
+        if params.get("listed").is_some() {
+            return self.transfer_hub_listed(params).await;
+        }
         let transfer_id = text("transferId");
         let session = self.resolve(text("sessionId"))?;
         let dir = inside(&transfers_dir(), transfer_id)?;
@@ -713,6 +795,9 @@ impl Hub {
             if let Some(v) = params.get(key).and_then(Value::as_str) {
                 body.set(key, json!(v));
             }
+        }
+        if params.get("listAfter") == Some(&Value::Bool(true)) {
+            body.set("listAfter", json!(true));
         }
         super::transfer_watch::note_activity(&dir, None);
         // A pre-copied move whose target parked its stage's circuit goes over that circuit, its

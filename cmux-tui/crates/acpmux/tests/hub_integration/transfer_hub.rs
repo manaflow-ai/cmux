@@ -668,3 +668,59 @@ async fn a_chat_moved_through_the_hub_is_listed_on_the_mesh_before_the_move_answ
     assert!(moved["timings"]["listedMs"].is_u64(), "{moved}");
     relay.stop().await;
 }
+
+/// A source that asks `listAfter` hears the move landed before the listing heartbeat, so the
+/// freeze holds no hub round trip for the address book; its `listed` ask after the commit waits
+/// for that heartbeat, which lists the chat (super-highway, 2026-11-28).
+#[tokio::test]
+async fn a_list_after_move_answers_before_the_listing_and_its_listed_ask_waits_for_it() {
+    use acpmux::server::mesh_relay::{MeshRelay, RelayOptions};
+    let root = Scratch::home("list-after");
+    let ledger = tempfile::tempdir().unwrap();
+    let (_a, mut src, b, _dst) = machines(&root, B_KEY).await;
+    let beats = Arc::new(Beats::default());
+    let options = RelayOptions {
+        heartbeat_every: Duration::from_secs(60),
+        inbox_wait: Duration::from_millis(200),
+        min_poll_gap: Duration::from_millis(100),
+        ..RelayOptions::default()
+    };
+    let relay =
+        MeshRelay::start(&b, beats.clone(), Arc::new(hook(ledger.path(), &["move"])), options);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while beats.listed.lock().unwrap().is_empty() {
+        assert!(tokio::time::Instant::now() < deadline, "B never sent its first heartbeat");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+    let (_, mut body) = begin(&mut src, &id, json!({"cwd": root.text()})).await;
+    body["listAfter"] = json!(true);
+
+    let ack =
+        hook(ledger.path(), &["move"]).control(&b, &move_message("m-1", "user-1", &body)).await;
+    let ack = ack_json(&ack.expect("an answer within the hook's wait"));
+    assert_eq!(ack["state"], "delivered", "{ack}");
+    let moved: Value = serde_json::from_str(ack["result"].as_str().unwrap()).unwrap();
+    assert_eq!(moved["listPending"], true, "{moved}");
+    assert!(moved["timings"]["listedMs"].is_null(), "{moved}");
+
+    let ask = json!({"version": 1, "listed": body["transferId"]});
+    let ack =
+        hook(ledger.path(), &["move"]).control(&b, &move_message("m-2", "user-1", &ask)).await;
+    let ack = ack_json(&ack.expect("an answer within the hook's wait"));
+    assert_eq!(ack["state"], "delivered", "{ack}");
+    let listed: Value = serde_json::from_str(ack["result"].as_str().unwrap()).unwrap();
+    assert_eq!(listed["listed"], true, "{listed}");
+    assert!(listed["listedMs"].is_u64(), "{listed}");
+    let last = beats.listed.lock().unwrap().last().cloned().unwrap_or_default();
+    assert!(last.contains(&id), "the moved chat is not in B's last heartbeat: {last:?}");
+
+    // A second ask, or one for a move this daemon never listed, answers at once.
+    let ask = json!({"version": 1, "listed": "t-unknown"});
+    let ack =
+        hook(ledger.path(), &["move"]).control(&b, &move_message("m-3", "user-1", &ask)).await;
+    let ack = ack_json(&ack.expect("an answer within the hook's wait"));
+    let listed: Value = serde_json::from_str(ack["result"].as_str().unwrap()).unwrap();
+    assert!(listed["listed"].is_null(), "{listed}");
+    relay.stop().await;
+}

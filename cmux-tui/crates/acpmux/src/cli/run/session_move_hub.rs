@@ -296,7 +296,21 @@ async fn steps(
     )
     .await?;
     let commit_ms = elapsed_ms(timing.started);
-    o.timings = Some(timing.value(commit_ms));
+    let mut timings = timing.value(commit_ms);
+    // The freeze ended; the move ends once the target's heartbeat lists the chat, so `HOST/NAME`
+    // resolves the moment this returns (a target that listed it before answering says no
+    // `listPending`). A failed ask leaves the next timed heartbeat to list it.
+    if moved.get("listPending") == Some(&Value::Bool(true)) {
+        let ask = json!({"listed": field(&sent, "transferId"), "daemonId": daemon});
+        let listed = src.request("_acpmux/transfer_hub", ask).await;
+        if let Some(out) = timings.as_object_mut() {
+            out.insert("listedAfterMs".into(), json!(elapsed_ms(timing.started)));
+            if let Some(ms) = listed.as_ref().ok().and_then(|l| l.get("listedMs")) {
+                out.insert("listedMs".into(), ms.clone());
+            }
+        }
+    }
+    o.timings = Some(timings);
     o.moved = true;
     o.cwd = moved["cwd"].as_str().map(str::to_owned);
     o.there = moved["sessionId"].as_str().map(str::to_owned);
@@ -425,10 +439,12 @@ impl Moving<'_> {
                 args.cwd.as_deref(),
             )
             .map_err(|e| anyhow!(e))?;
+            // The target lists the chat on the mesh after this commits (`listAfter`): the
+            // freeze holds no hub round trip for its address book.
             let mut sent = json!({"sessionId": id, "transferId": begun.transfer_id,
                                   "epoch": begun.epoch, "manifest": begun.begin,
                                   "folder": folder_value(&folder, home, args.cwd.is_some())?,
-                                  "host": host});
+                                  "host": host, "listAfter": true});
             if let Some(stage_id) = &begun.stage_id {
                 sent.set("stageId", json!(stage_id));
             }
