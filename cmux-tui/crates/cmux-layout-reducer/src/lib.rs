@@ -1007,6 +1007,7 @@ pub mod sidebar_pending_records;
 pub mod sidebar_region_layout;
 pub mod sidebar_row;
 pub mod sidebar_row_layout;
+pub mod sidebar_row_rules;
 pub mod sidebar_sections;
 pub mod sidebar_session_tree;
 pub mod tab_drag_rules;

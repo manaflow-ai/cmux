@@ -124,6 +124,7 @@ on:
       - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
       - "schemas/sidebar-region-layout/vectors.json"
+      - "schemas/sidebar-row-rules/vectors.json"
       - "schemas/settings/source/notifications.json"
       - "schemas/settings/source/page-layout.json"
       - "docs/mdm/cmux-example.mobileconfig"
