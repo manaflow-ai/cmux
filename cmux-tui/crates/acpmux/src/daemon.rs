@@ -126,6 +126,7 @@ pub(crate) use crate::term_sender;
 use stop_causes::next_signal;
 use stop_causes::{AbortOnDrop, store_asks_to_stop};
 pub use stop_causes::{EXIT_REPAIR, exit_status};
+pub(crate) mod owner_relaunch;
 #[cfg(target_os = "linux")]
 mod restart_backoff;
 pub(crate) mod unused_exit;
@@ -516,23 +517,24 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         }
     }
     #[cfg(unix)]
-    let unix_listener = match (handed.unix(&socket_path()), taken_over.unix) {
+    let unix_listener = match (
+        handed.unix(&socket_path()),
+        taken_over.unix.map(|l| listener_handover::usable(l, &socket_path())),
+    ) {
         (Some(listener), _) => listener,
-        (None, Some(l))
-            if listener_handover::serves_path(&l, &socket_path())
-                && socket_path().exists()
-                && l.set_nonblocking(true).is_ok() =>
-        {
+        (None, Some(Ok(l))) => {
             tracing::info!(
                 "serving {} handed over by the previous daemon",
                 socket_path().display()
             );
             tokio::net::UnixListener::from_std(l)?
         }
-        // A handed listener this start does not serve is closed before it binds: kept open, it
-        // answers the connect that looks for a live daemon at the socket.
-        other => {
-            drop(other);
+        // A handed listener this start does not serve is closed (`usable` drops it) before it
+        // binds: kept open, it answers the connect that looks for a live daemon at the socket.
+        (None, other) => {
+            if let Some(Err(why)) = other {
+                tracing::warn!("the handed-over listener is not served ({why}); binding instead");
+            }
             let ours_or_gone = listener_handover::listener_is_ours_or_gone;
             crate::server::bind_daemon_unix(&socket_path(), ours_or_gone).await?
         }
@@ -1419,6 +1421,14 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         let weak = weak.clone();
         crate::supervise::restarting("auto-settle", &hub.fatal, move || {
             Hub::auto_settle_loop(weak.clone())
+        });
+    }
+    // The Live opt-in as the settings file says it (`presence.live`, off by default;
+    // `hub/presence_setting.rs`): a teammate sees this machine's presence only while it is on.
+    {
+        let weak = weak.clone();
+        crate::supervise::restarting("presence live", &hub.fatal, move || {
+            Hub::presence_live_loop(weak.clone())
         });
     }
     // Claude and Codex desktop sessions listed as chats, while `agents.desktopBridge.enabled`

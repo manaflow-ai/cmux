@@ -170,3 +170,41 @@ fn hermes_registry_id_maps_to_the_path_harness() {
     assert_eq!(harness_id("hermes-agent").as_deref(), Some("hermes"));
     assert!(RESERVED_IDS.contains(&"hermes"));
 }
+
+/// Registry agents whose archive program is not their id (kiro's `kiro-cli`, poolside's per-platform
+/// `pool-linux-amd64`, muse-code's `muse`) start once installed, and muse-code's own `MUSE_` key keeps
+/// it in the registry; a key for a program that is not the agent's own still drops it.
+#[test]
+fn archive_programs_named_apart_from_the_id_start_once_installed() {
+    let bin = |id: &str, cmd: &str, env: &str| {
+        format!(
+            r#"{{"id": "{id}", "name": "N", "version": "1.0.0", "distribution": {{"binary": {{"linux-x86_64": {{"archive": "https://example.com/a.tar.gz", "cmd": "{cmd}", "args": ["acp"], "env": {env}}}}}}}}}"#
+        )
+    };
+    for (id, cmd, program) in [
+        ("kiro", "./kirocli/bin/kiro-cli", "kiro-cli"),
+        ("poolside", "./pool-linux-amd64", "pool-linux-amd64"),
+        ("muse-code", "./muse", "muse"),
+    ] {
+        let reg = one(&bin(
+            id,
+            cmd,
+            if id == "muse-code" { r#"{"MUSE_EXPERIMENTAL_ACP": "on"}"# } else { "{}" },
+        ));
+        let agent = reg.agent(id).unwrap_or_else(|| panic!("{id} kept"));
+        let which = |bin: &str| (bin == program).then(|| format!("/u/bin/{bin}"));
+        match agent.launch(Some("linux-x86_64"), &which) {
+            Launch::Installed { argv, .. } => {
+                assert_eq!(argv, vec![format!("/u/bin/{program}"), "acp".into()])
+            }
+            other => panic!("{id}: {other:?}"),
+        }
+    }
+    // A foreign program's key still drops an agent: `node` is no agent's pinned program.
+    assert!(one(&bin("x", "./x", r#"{"NODE_OPTIONS": "--require /tmp/e.js"}"#)).agents.is_empty());
+    assert!(
+        one(&bin("kiro", "./kirocli/bin/kiro-cli", r#"{"MUSE_EXPERIMENTAL_ACP": "on"}"#))
+            .agents
+            .is_empty()
+    );
+}

@@ -99,6 +99,9 @@ fn two_harness_setup(no_fork: bool) -> (Arc<Hub>, Config) {
     };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = PermissionPolicy::ApproveAll;
+    // The other harness asks in its `normal` mode, as a real one lists its asking modes: a fork
+    // onto a harness with no mode that asks is refused (`hold_mode`).
+    cfg.web_asking_modes.insert("other".into(), vec!["normal".into()]);
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     (Hub::new(cfg.clone(), store), cfg)
 }
@@ -219,5 +222,75 @@ async fn a_long_chat_forked_onto_another_harness_carries_every_turn_it_shows() {
         "the newest turn word for word"
     );
     assert!(transcript.contains("[acpmux shortened messages"), "it says what it shortened");
+    hub.shutdown_all().await;
+}
+
+/// A chat forked onto another harness runs at the chat's effort there, where that harness has the
+/// level: a Claude chat on `low` forked onto Codex ran at Codex's own default (Leo's ask
+/// c-0e429cbe77: "we ought to really hammer it hard and just test tons of variations of it").
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_chat_forked_onto_another_harness_keeps_its_effort() {
+    let calls =
+        std::env::temp_dir().join(format!("acpmux-retarget-effort-{}", uuid::Uuid::now_v7()));
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let profile = |family: Option<&str>, prefix: &str| HarnessProfile {
+        kind: Default::default(),
+        argv: vec!["python3".into(), fake.into()],
+        env: BTreeMap::from([
+            ("FAKE_PICKER".to_owned(), "1".to_owned()),
+            ("FAKE_PICKER_MODES".to_owned(), "1".to_owned()),
+            ("FAKE_SESSION_PREFIX".to_owned(), prefix.to_owned()),
+            ("FAKE_CALLS".to_owned(), calls.to_string_lossy().into_owned()),
+        ]),
+        description: None,
+        fallback: None,
+        family: family.map(str::to_owned),
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let mut cfg = Config {
+        harnesses: BTreeMap::from([
+            ("fake".to_owned(), profile(None, "fake-")),
+            ("other".to_owned(), profile(Some("other"), "other-")),
+        ]),
+        default_harness: Some("fake".into()),
+        ..Default::default()
+    };
+    cfg.store.mode = StoreMode::Memory;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    cfg.web_asking_modes.insert("other".into(), vec!["normal".into()]);
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let mut c = client(&hub).await;
+    let id = new_chat(&mut c, "effort").await;
+    c.request(
+        method::SESSION_SET_CONFIG_OPTION,
+        json!({"sessionId": id, "configId": "effort", "value": "low"}),
+    )
+    .await
+    .unwrap();
+    c.request(method::SESSION_PROMPT, say(&id, "first")).await.unwrap();
+    let f = c
+        .request(
+            method::SESSION_FORK,
+            json!({"sessionId": id, "cwd": cwd(), "_meta": {"acpmux": {"harness": "other"}}}),
+        )
+        .await
+        .unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    let agent_sid = hub.resolve(&fid).unwrap().meta().agent_session_id.unwrap();
+    assert!(agent_sid.starts_with("other-"), "the fork runs on the other harness: {agent_sid}");
+    let effort = std::fs::read_to_string(&calls)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|c| c["params"]["sessionId"] == agent_sid.as_str())
+        .filter(|c| c["params"]["configId"] == "effort")
+        .map(|c| c["params"]["value"].clone())
+        .last();
+    assert_eq!(effort, Some(json!("low")), "the fork's agent runs at the chat's effort");
+    let _ = std::fs::remove_file(&calls);
     hub.shutdown_all().await;
 }

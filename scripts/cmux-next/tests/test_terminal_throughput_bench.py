@@ -54,6 +54,31 @@ class Rows(unittest.TestCase):
     def test_no_ratio_without_ghostty(self):
         self.assertEqual([r["name"] for r in tput.report_rows(150.0, None)], ["terminal.throughput.next_mb_s"])
 
+    def test_paired_ratio_is_the_median_of_per_pair_ratios_with_their_spread(self):
+        nxt = [{"run": 1, "mb_s": 50.0}, {"run": 2, "mb_s": 80.0}, {"run": 3, "mb_s": 90.0}, {"run": 4, "mb_s": 40.0}]
+        gh = [{"run": 1, "mb_s": 100.0}, {"run": 2, "mb_s": 100.0}, {"run": 3, "mb_s": 120.0}, {"run": 4, "mb_s": 50.0}]
+        pairs = tput.pair_stats(nxt, gh)
+        self.assertEqual([p["ratio"] for p in pairs["pairs"]], [0.5, 0.8, 0.75, 0.8])
+        self.assertEqual((pairs["median"], pairs["n"], pairs["min"], pairs["max"]), (0.775, 4, 0.5, 0.8))
+        self.assertEqual(pairs["spread_pct"], 38.7)
+        rows = {r["name"]: r for r in tput.report_rows(65.0, 100.0, None, "terminal.throughput", pairs)}
+        self.assertEqual(rows["terminal.throughput.ratio"]["p50"], 0.775, "not 65/100: the pair median")
+        self.assertEqual(rows["terminal.throughput.pair_spread_pct"]["p50"], 38.7)
+        self.assertEqual(rows["terminal.throughput.pair_spread_pct"]["unit"], "%")
+
+    def test_a_traced_pair_is_left_out_while_two_others_remain(self):
+        nxt = [{"run": 1, "mb_s": 10.0}, {"run": 2, "mb_s": 80.0}, {"run": 3, "mb_s": 90.0}]
+        gh = [{"run": 1, "mb_s": 100.0}, {"run": 2, "mb_s": 100.0}, {"run": 3, "mb_s": 100.0}]
+        pairs = tput.pair_stats(nxt, gh, traced=True)
+        self.assertEqual((pairs["median"], pairs["n"]), (0.85, 2))
+        self.assertTrue(pairs["pairs"][0]["traced"])
+        self.assertEqual(tput.pair_stats(nxt[:2], gh[:2], traced=True)["n"], 2, "too few: the traced pair counts")
+
+    def test_a_pair_needs_both_rates(self):
+        self.assertIsNone(tput.pair_stats([{"run": 1, "mb_s": 50.0}], [{"run": 1, "error": "no result"}]))
+        self.assertEqual(tput.pair_stats([{"run": 1, "mb_s": 50.0}, {"run": 2, "mb_s": 60.0}],
+                                         [{"run": 2, "mb_s": 100.0}])["pairs"], [{"run": 2, "ratio": 0.6, "traced": False}])
+
     def test_median_of_runs_skips_failed_ones(self):
         self.assertEqual(tput.summarize([{"mb_s": 10.0}, {"error": "no result"}, {"mb_s": 30.0}, {"mb_s": 20.0}]), 20.0)
         self.assertIsNone(tput.summarize([{"error": "no result"}]))

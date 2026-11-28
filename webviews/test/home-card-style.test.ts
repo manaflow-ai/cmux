@@ -58,7 +58,8 @@ test("screen.css draws every style on the chat cards, the stage cards and the Ho
   for (const style of ["flat", "raised", "glass"]) {
     expect(css).toContain(`:root[data-home-cards="${style}"] ${cards} {`);
   }
-  // flat has no edge and no shadow; raised a hairline and a shadow; glass a backdrop and a rim.
+  // flat has no edge and no shadow; raised a hairline and a shadow; glass a see-through fill and the glass rim, with
+  // no blur of its own: the cards scroll with the content, and only .ui-glass paints a blur (check-one-material).
   const rule = (style: string) => {
     const start = css.indexOf(`:root[data-home-cards="${style}"] ${cards} {`);
     return css.slice(start, css.indexOf("}", start));
@@ -66,7 +67,8 @@ test("screen.css draws every style on the chat cards, the stage cards and the Ho
   expect(rule("flat")).toContain("box-shadow: none");
   expect(rule("raised")).toContain("var(--cmux-hairline");
   expect(rule("raised")).toContain("--elevation-2");
-  expect(rule("glass")).toContain("backdrop-filter");
+  expect(rule("glass")).not.toContain("backdrop-filter");
+  expect(rule("glass")).toContain("transparent)");
   expect(rule("glass")).toContain("--glass-material-rim");
   // No rule names `standard`: the default is today's cards, untouched.
   expect(css).not.toContain('data-home-cards="standard"');

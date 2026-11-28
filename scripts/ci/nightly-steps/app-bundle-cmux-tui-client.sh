@@ -18,7 +18,7 @@ cmux_tui_commit="$CMUX_TUI_CLIENT_COMMIT"
 client_key="$CMUX_TUI_CLIENT_KEY"
 tree_used=exact
 # While the tip's tree publishes (TREE_PENDING), the app installs that tree's client when it is
-# published within CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS (default 1500). Otherwise it installs
+# published within CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS (default 240). Otherwise it installs
 # the newest published tree's client (TREE_FALLBACK, from resolve-tree-pending.sh), and never fails:
 # waiting up to 45 min for the tip's tree, failing, and waiting again on the retry cost 23.8 h
 # of 48.6 h (RFD 0021 row 1, 2026-11-19 to 21). The bounded wait only lasts while a same-key
@@ -30,11 +30,23 @@ tree_used=exact
 # artifacts run 45825165044, which the same push had started. So every nightly whose tip changed
 # the tree shipped the previous tree, and a merged Rust change missed that NIGHTLY. With no
 # fallback tree, or CMUX_TUI_TREE_CLIENT_FALLBACK=off, it waits for the tip's tree as before.
-fallback_wait="${CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS:-1500}"
+# 240 s, not 25 min (#58743): this wait holds the one signing Mac after its compile, and a tree run takes
+# 27 to 109 min (cmux-tui artifacts on feat-cmux-next, 2026-11-27), so 25 min rarely caught the tree and
+# cost each nightly 19 to 26 min of its 45 (runs 46065369073, 46057516701, 46081075392; 46065369073 waited
+# the full 25 min on a tree run still compiling, then shipped the fallback). Leo, 2026-11-25: "Just keep the train going like 24/7,
+# constantly." The next nightly, about 15 to 20 min later, ships the tree once it publishes; 240 s still
+# catches a tree whose builds are done and whose manifest is uploading (publish to R2 takes about 2 min).
+fallback_wait="${CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS:-240}"
 [[ "$fallback_wait" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
 # This step runs on the signing Mac: with a fallback tree in hand, two unreadable runs answers in a row
 # (about 5 min) bundle it rather than hold that Mac for the whole bound (await-tree-client.sh's notes).
 unreadable_checks="${CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS:-2}"
+# Likewise a publisher rebuilding its failed primary macOS leg lands the tree about 30 min late: with a
+# fallback tree in hand, the first such answer bundles it (NIGHTLY 46123570780 held that Mac 1869 s for one).
+rebuild_ends="${CMUX_TUI_TREE_CLIENT_REBUILD_ENDS:-1}"
+# And a publisher that failed (on any attempt) ends it at the first check, not a second one 5 min later
+# for a retry that lands the tree long after this Mac moves on (NIGHTLY 46146914237: 254 s).
+failed_ends="${CMUX_TUI_TREE_CLIENT_FAILED_ENDS:-1}"
 # Leo, 2026-11-26: "cant we just accept the nightly using an older tui version". TREE_FALLBACK is
 # searched once, in resolve-nightly-cmux-tui-client, about an hour before this step. A tree published
 # in between never reached the bundle: nightlies 46114171177, 46116717235 and 46119598955
@@ -49,7 +61,7 @@ search_fallback_now() {
   local out commit key source
   [[ "${CMUX_TUI_TREE_CLIENT_FALLBACK:-on}" != off ]] && (( fallback_search_seconds > 0 )) || return 1
   echo "searching the newest published cmux-tui tree within 24 h now ($1)" >&2
-  out="$(CMUX_TUI_TREE_PROBE_CACHE="" CMUX_TUI_TREE_TIP_WAIT_SECONDS=0 CMUX_TUI_TREE_SAME_PATHS="" CMUX_TUI_TREE_DISPATCH="" GITHUB_STEP_SUMMARY="" \
+  out="$(CMUX_TUI_TREE_PROBE_CACHE="" CMUX_TUI_TREE_CHANNEL_LOOK=1 CMUX_TUI_TREE_TIP_WAIT_SECONDS=0 CMUX_TUI_TREE_SAME_PATHS="" CMUX_TUI_TREE_DISPATCH="" GITHUB_STEP_SUMMARY="" \
     CMUX_TUI_TREE_SEARCH_COMMITS="${CMUX_TUI_TREE_FALLBACK_SEARCH_COMMITS:-300}" \
     bash scripts/ci/timeout.sh "$fallback_search_seconds" bash scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published </dev/null)" || return 1
   commit="$(sed -n 's/^commit=//p' <<<"$out" | head -1)"
@@ -68,11 +80,11 @@ if [[ "$TREE_PENDING" == true ]]; then
     search_fallback_now "TREE_FALLBACK='${TREE_FALLBACK:-}'" || true
   fi
   if [[ "${CMUX_TUI_TREE_CLIENT_FALLBACK:-on}" != off && "$fallback_commit" =~ ^[0-9a-f]{40}$ && "$fallback_key" =~ ^[0-9a-f]{40}$ ]]; then
-    if cmux_tui_commit="$(CMUX_TUI_TREE_CLIENT_WAIT_SECONDS="$fallback_wait" CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS="$unreadable_checks" scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"; then
+    if cmux_tui_commit="$(CMUX_TUI_TREE_CLIENT_WAIT_SECONDS="$fallback_wait" CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS="$unreadable_checks" CMUX_TUI_TREE_CLIENT_REBUILD_ENDS="$rebuild_ends" CMUX_TUI_TREE_CLIENT_FAILED_ENDS="$failed_ends" scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"; then
       echo "::notice title=cmux-tui client::exact tree $CMUX_TUI_CLIENT_KEY of the build commit, from ${cmux_tui_commit:0:12}"
     else
       cmux_tui_commit="$fallback_commit" client_key="$fallback_key" tree_used=fallback
-      echo "::warning title=cmux-tui client::the build commit's tree $CMUX_TUI_CLIENT_KEY is not published after a ${fallback_wait} s bounded wait; bundling the newest published tree $fallback_key (published by $fallback_commit) instead"
+      echo "::warning title=cmux-tui client::the build commit's tree $CMUX_TUI_CLIENT_KEY is not published after a ${fallback_wait} s bounded wait (or its publisher is rebuilding a failed macOS leg); bundling the newest published tree $fallback_key (published by $fallback_commit) instead"
     fi
   else
     echo "no fallback tree (TREE_FALLBACK='${TREE_FALLBACK:-}', CMUX_TUI_TREE_CLIENT_FALLBACK=${CMUX_TUI_TREE_CLIENT_FALLBACK:-on}); waiting for tree $CMUX_TUI_CLIENT_KEY" >&2

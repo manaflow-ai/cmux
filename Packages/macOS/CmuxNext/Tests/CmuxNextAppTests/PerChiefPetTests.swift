@@ -194,6 +194,52 @@ import Testing
         #expect(asked.isEmpty, "its own avatar and an unlisted Chief ask no picture")
     }
 
+    /// Thread p1795759419 (Leo 2026-11-27: "can u guys take this thread"): the sidebar asks each row's
+    /// Chief face on every flush. At 1,100 rows with a 160 KB config file a pass is lookups: the listed
+    /// Chiefs come once per rows change, and the rules' answers from `ChiefMascotPicks`' memo. `before`
+    /// is the same pass asking the rule with the whole file each row (cmux#59531's cost); both print.
+    @Test func aSidebarPassOfChiefFacesAt1100RowsIsLookups() async throws {
+        let filler = (0..<1_600).map { #""k\#($0)":"\#(String(repeating: "x", count: 90))""# }.joined(separator: ",")
+        let h = try await make(#"{"home":{"chiefPetMascot":"fox"},"filler":{"# + filler + "}}")
+        defer { h.tearDown() }
+        let file = h.settings.fileRoot
+        #expect(try JSONEncoder().encode(file).count > 150_000)
+        let picks = h.picks()
+        picks.remember("moon", for: Self.scout)
+        let chiefs: Set<String> = [Self.main, Self.scout]
+        let rows = (0..<1_100).map { $0 % 2 == 0 ? Self.main : Self.scout }
+        let snapshot = h.settings.snapshot
+        let picture: (String) -> URL? = {
+            ChiefPetSettingsRows.chosenPicture(of: $0, picks: picks, uploads: nil, in: snapshot, file: file)
+        }
+        struct Picked: Decodable { var picked: String? }
+        func median(_ pass: () -> Int) -> Double {
+            _ = pass()
+            let samples = (0..<5).map { _ in ContinuousClock().measure { #expect(pass() > 0) } }.sorted()
+            let m = samples[samples.count / 2]
+            return Double(m.components.seconds) * 1_000 + Double(m.components.attoseconds) / 1e15
+        }
+        let after = median {
+            rows.reduce(0) { seen, chief in
+                seen + (HomeChiefAvatars.face(of: chief, chiefs: chiefs, extra: [], own: [:], picture: picture) == nil ? 0 : 1)
+            }
+        }
+        let before = median {
+            rows.reduce(0) { seen, chief in
+                let input = PicksInput(chief: chief, defaultChief: picks.defaultChief, picks: picks.picks, file: file)
+                let reply: Picked = CmuxNextChiefPetWiring.welcomeRule("welcome.mascotPicked", input, fallback: Picked(picked: nil))
+                return seen + (reply.picked == nil ? 0 : 1)
+            }
+        }
+        print("chief-faces-1100: before \(String(format: "%.1f", before)) ms, after \(String(format: "%.2f", after)) ms")
+        #expect(HomeChiefAvatars.face(of: Self.main, chiefs: chiefs, extra: [], own: [:], picture: picture)
+                    == ChiefPetMascot.fox.avatarURL.map(HomeChiefAvatar.picture))
+        #expect(HomeChiefAvatars.face(of: Self.scout, chiefs: chiefs, extra: [], own: [:], picture: picture)
+                    == ChiefPetMascot.moon.avatarURL.map(HomeChiefAvatar.picture))
+        // A frame's budget or less for the whole pass; the per-row whole-file calls made it seconds.
+        #expect(after < 16)
+    }
+
     /// Leo 2026-11-01: "im not seeing chiefs with the selected avatar appearance". Home draws a
     /// Chief's picked character; a Chief nobody picked for is left out (its CH monogram), never the
     /// default Chief's pick; and a first pick of the default character (orb) still redraws the header.
