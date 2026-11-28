@@ -102,9 +102,10 @@ cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 share=$(((2 * cores + 2) / 3))
 lead=$((cores > share ? cores : share))
 rm -rf "$td"; : > "$FAKE_LOG"
-# The script counts fewer cores under a cgroup memory cap (#63969); a pool runner has one, so this case reads
-# no cgroup and expects the CPU count (scripts/ci/tests/cargo-groups-memory.test.sh covers the cap).
-out="$(env -u CARGO_BUILD_JOBS CARGO_GROUPS_PROC_CGROUP=/nonexistent "$script" "$td" "$t" \
+# The script counts fewer cores under a cgroup memory cap (#63969) or a low MemAvailable; a pool runner has
+# either, so this case reads no cgroup and no meminfo and expects the CPU count
+# (scripts/ci/tests/cargo-groups-memory.test.sh covers both).
+out="$(env -u CARGO_BUILD_JOBS CARGO_GROUPS_PROC_CGROUP=/nonexistent CARGO_GROUPS_MEMINFO=/nonexistent "$script" "$td" "$t" \
   "cmux-tui" "cargo build --bin cmux-tui --target $t" \
   "acpmux" "cargo build --bin acpmux --target $t" \
   "cmux-relay" "cargo build --bin cmux-relay --target $t" 2>&1)" || fail "job split run failed: $out"
