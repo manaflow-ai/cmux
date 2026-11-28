@@ -10,10 +10,18 @@ name: cmux-next iOS gesture conflicts
 # (vars.CI_EVAL_STEP_GATEWAY), as cmux-next-ios-keyboard-motion.yml is: one fleet simulator step
 # (scripts/ci/cmux-next-ios-sim.sh test ui=GestureConflictUITests). With the variable unset, on a fork or
 # on a draft nothing runs; without the client on the runner it warns and passes.
+#
+# Once per PR, at land (Leo, 2026-11-26: "de facto, im asking for 99% fewer minutes of ci time, period."): on every
+# iOS PR head the suite held a gateway runner about 96 min, 15 PR runs in 11-28 06:30-10:00Z (~9.8k runner-min a
+# day, 7 red, 5 cancelled by the next head). A pull request now runs it when `ready-to-land` (the land handoff;
+# land-judge pulses it again at the head it lands, head_tier.py's land-ask rule) or `full-ci` is added. Any other
+# head's job is skipped (green to land-judge): not affected; full tier hourly, where the hourly full tier
+# (.github/hourly-full-tier.json) runs it on feat-cmux-next's tip when iOS Swift changed, and nightly-next's push
+# runs it as before. vars.CI_GESTURES_PER_HEAD = '1' runs it on every head again.
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     branches: [feat-cmux-next]
     paths:
       - "cmux-next-ios/**/*.swift"
@@ -32,7 +40,10 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-ios-gestures-${{ github.event.pull_request.number || github.sha }}
+  # A label event that runs nothing gets its own group, so adding some other label never cancels a land run.
+  group: >-
+    cmux-next-ios-gestures-${{ github.event.pull_request.number || github.sha }}${{ github.event.action == 'labeled'
+    && !contains(fromJSON('["ready-to-land","full-ci"]'), github.event.label.name) && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -40,7 +51,9 @@ jobs:
     name: Gesture conflicts on a fleet simulator
     if: >-
       ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (github.event_name != 'pull_request'
-      || (github.event.pull_request.draft != true && github.event.pull_request.head.repo.full_name == github.repository)) }}
+      || (github.event.pull_request.draft != true && github.event.pull_request.head.repo.full_name == github.repository
+      && (contains(fromJSON('["ready-to-land","full-ci"]'), github.event.label.name)
+      || (vars.CI_GESTURES_PER_HEAD == '1' && github.event.action != 'labeled')))) }}
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
     timeout-minutes: 240
     permissions:
