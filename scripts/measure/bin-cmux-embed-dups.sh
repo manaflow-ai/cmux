@@ -16,6 +16,14 @@ git -C "$root" worktree add -q --detach "$scratch/base" "$base"
 # The base worktree has no submodules checked out: both sides build ghostty from HEAD's ghostty-next
 # (this cut does not touch it), so the size difference is the Rust change alone.
 export CMUX_GHOSTTY_SRC="${CMUX_GHOSTTY_SRC:-$root/ghostty-next}"
+# A fresh step tree may lack the ghostty-next submodule and the pinned Zig (as alloc-musl-ab.sh does).
+(cd "$root" && { [ -f ghostty-next/build.zig ] || git submodule update --init --depth 1 ghostty-next; })
+if ! command -v zig >/dev/null && [ -z "${ZIG:-}${CMUX_ZIG:-}" ]; then
+  zig_env="$(mktemp)"
+  (cd "$root" && GHOSTTY_ZIG_SOURCE=ghostty-next GITHUB_ENV="$zig_env" GITHUB_PATH=/dev/null ./scripts/install-zig-ci.sh >&2)
+  zig_line="$(grep '^CMUX_ZIG=' "$zig_env" | tail -n 1 || true)"; rm -f "$zig_env"
+  [ -z "$zig_line" ] || export "${zig_line?}"
+fi
 files=(cmux-tui/crates/acpmux/skills/cmux-rich-output/templates/deck.html cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json schemas/theme/slots.json cmux-tui/crates/cmux-browser-host/js/guide.md cmux-tui/crates/cmux-customize-recipes/recipes/apps/tonal/agent-pane.css skills/cmux-customization/templates/my-prs/main.js)
 for side in base head; do
   tree="$root"; [[ $side == base ]] && tree="$scratch/base"
