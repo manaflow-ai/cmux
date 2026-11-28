@@ -430,6 +430,28 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(dialer.dialCount("m2") == 0)
     }
 
+    /// Leo, 2026-11-27: "An error set by a timeout clears when the next good data arrives, as in #62661."
+    @Test func workspacesArrivingClearTheDeadlineErrorWithNoRetry() async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected && store.macDataPhase("m1") == .live }
+        let session = try #require(live.sessions["m1"])
+        // The workspaces deadline passed on a slow first load (armWorkspacesDeadline).
+        session.daemonError = "the Mac didn't send its workspaces"
+        live.phaseChanged(session)
+        #expect(store.macLinkDiagnostics["m1"]?.contains("didn't send its workspaces") == true)
+        let dials = dialer.dialCount("m1")
+        live.workspacesArrived(session)
+        #expect(session.daemonError == nil)
+        #expect(store.macLinkDiagnostics["m1"]?.contains("didn't send its workspaces") != true)
+        #expect(dialer.dialCount("m1") == dials, "cleared by the data, not by a redial")
+    }
+
     /// Leo, 2026-11-27: "Hidden-error changes keep Retry tested." and "When connection text is hidden, a test
     /// still checks that a long outage shows Retry or Reconnect." A redial says nothing (no "Reconnecting", the
     /// header line stays empty, past the quiet bound too: #53778, #57933), so a link that stays down must still
