@@ -7,6 +7,7 @@
 #   one-job.sh deltas-start   after notarization, with no key and no token: in the background, the keyless
 #                        nearest deltas (appcast-with-nearest-deltas.sh prebuild) and the git fetch of the span
 #                        the release notes cover, beside the verify steps, the launch smoke and the size budget
+# (Why the grace: docs/ci/nightly-workflow-notes/2026-11-28-nightly-next-one-deltas-with-the-feed.md)
 #   one-job.sh deltas-join    after them: waits for both; a failed or late one only leaves its work to the
 #                        steps that did it before (the keyed appcast step, the release notes step). With
 #                        NIGHTLY_NEXT_DELTAS_AFTER_FEED=true it gives an unfinished prebuild a bounded grace

@@ -8,10 +8,11 @@
 #                  and the DMG's digest. One still running when those checks end is stopped (one-job.sh
 #                  deltas-join): no process outlives its step into the secrets.
 #   (no argument)  "Generate Sparkle appcasts (nightly)", BEFORE the feed is written. With
-#                  NIGHTLY_NEXT_DELTAS_AFTER_FEED=true (nightly-next-one) it writes the item full-only and ends;
+#                  NIGHTLY_NEXT_DELTAS_AFTER_FEED=true (nightly-next-one) it signs a finished prebuild's deltas
+#                  into the item (the release push fires on this first write), or else writes it full-only;
 #                  without it (the split jobs) it builds the deltas here, as before.
 #   after-feed     "Build the nightly-next deltas after the feed" (nightly-next-one), AFTER the feed is live: the
-#                  deltas and an item that carries them go to nightly-deltas/, which
+#                  deltas (none when the feed's item already lists one) and an item that carries them go to nightly-deltas/, which
 #                  republish-deltas-upload-next-appcasts.sh uploads and merges into the live item, only while
 #                  this build is still the feed's newest (write-feed --same-build is the compare-and-swap).
 # Both keyed modes take the prebuild's bases and deltas when `done` names this build and DMG, so only the signing
