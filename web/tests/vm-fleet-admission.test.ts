@@ -96,6 +96,13 @@ describe("fleet machine cap", () => {
     expect(String((error.cause as Error).message)).toContain("fleet holds 100 of 100 machines");
   });
 
+  test("the fleet cap waits as its own state, waiting_for_fleet, not as provider capacity", async () => {
+    const { createWaitStateForCause } = await import("../services/vms/createWait");
+    const env = { CMUX_VM_FLEET_MAX_ACTIVE_VMS: "100" };
+    const error = failure(await Effect.runPromiseExit(admitFleetCapacity(repoLive(101).repo, { provider: PROVIDER, env })));
+    expect(createWaitStateForCause(error)).toBe("waiting_for_fleet");
+  });
+
   test("an unreadable count admits: admission is never the outage", async () => {
     const exit = await Effect.runPromiseExit(admitFleetCapacity(repoLive("error").repo, { provider: PROVIDER, env: { CMUX_VM_FLEET_MAX_ACTIVE_VMS: "1" } }));
     expect(Exit.isSuccess(exit)).toBe(true);
