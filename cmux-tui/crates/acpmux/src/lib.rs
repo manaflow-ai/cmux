@@ -156,6 +156,7 @@ pub mod journal_replay;
 pub mod key_check;
 pub mod memory_follow;
 pub mod model_router;
+pub mod parked_wait;
 pub mod spec_exec;
 mod subscription_store;
 mod subscriptions;
