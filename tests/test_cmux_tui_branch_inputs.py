@@ -184,9 +184,13 @@ class BranchInputsWiringTest(unittest.TestCase):
             self.assertIn(f"scripts/ci/{name}", checkout["sparse-checkout"])
         self.assertEqual(gate["outputs"]["inputs_unchanged"], "${{ steps.inputs.outputs.unchanged }}")
         self.assertEqual(gate.get("continue-on-error"), True)
-        # Trunk refs, feat-cmux-next-* heads and pins never take the gate: since #62923 the
-        # gate exempts feat-cmux-next-* like the build group does.
-        self.assertIn("!startsWith(github.ref, 'refs/heads/feat-cmux-next-')", gate["if"])
+        # Trunk refs and pins never take the gate. feat-cmux-next-* heads do (#62047's
+        # design, restored by #63937): their branch-inputs step is what lets a head that
+        # changes no tree-key input build nothing, and test_tui_publish_workflow_security's
+        # test_branch_push_build_cancels_only_its_own_branch_older_build runs the gate on
+        # refs/heads/feat-cmux-next-ios. #62923 exempted them and this test followed it;
+        # the two tests then undid each other's fixes, so both now name the one design.
+        self.assertNotIn("refs/heads/feat-cmux-next-", gate["if"])
         for ref in ("refs/heads/main", "refs/heads/feat-cmux-next", "refs/heads/nightly-next", "refs/heads/release-next"):
             self.assertIn(f"github.ref != '{ref}'", gate["if"])
         self.assertIn("!startsWith(github.ref, 'refs/heads/cmux-tui-pin-')", gate["if"])
