@@ -598,7 +598,15 @@ async fn the_callers_vm_boundary_starts_a_peer_session_with_no_policy_approve_al
 /// client of the caller starts there (`via: web`).
 #[tokio::test]
 async fn only_a_vm_boundary_lease_starts_the_peers_sessions_at_the_vm_boundary() {
-    for (tag, vm_boundary) in [("lease-vmb", true), ("lease-plain", false)] {
+    // A provisioned VM accepts one parent chat. Give each origin its own VM and lease.
+    for (tag, origin, vm_boundary) in [
+        ("lease-vmb-own", Origin::Local, true),
+        ("lease-vmb-web", Origin::Web, true),
+        ("lease-vmb-device", Origin::Peer, true),
+        ("lease-plain-own", Origin::Local, false),
+        ("lease-plain-web", Origin::Web, false),
+        ("lease-plain-device", Origin::Peer, false),
+    ] {
         let d = dir(tag);
         let vm = hub(&d);
         let home = d.join("peer-home");
@@ -608,7 +616,7 @@ async fn only_a_vm_boundary_lease_starts_the_peers_sessions_at_the_vm_boundary()
         let l = bind_ws("127.0.0.1:0").await.unwrap();
         let port = l.local_addr().unwrap().port();
         let ws = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
-        tokio::spawn(serve_ws_with(vm.clone(), l, "tok".into(), ws));
+        let server = tokio::spawn(serve_ws_with(vm.clone(), l, "tok".into(), ws));
 
         let mac = hub(&d);
         let mut c = Client::new(&mac, Origin::Local);
@@ -619,28 +627,28 @@ async fn only_a_vm_boundary_lease_starts_the_peers_sessions_at_the_vm_boundary()
         }
         let r = c.call("_acpmux/peer_lease", lease).await;
         assert!(r.get("error").is_none(), "{tag}: {r}");
-        let new = |name: &str| {
-            json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {
-                "peer": "cloud-vm", "harness": "fakeacp", "name": name, "vmBoundary": true}}})
+        let new = json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {
+            "peer": "cloud-vm", "harness": "fakeacp", "name": tag, "vmBoundary": true}}});
+        let mut caller = match origin {
+            Origin::Local => c,
+            Origin::Peer => Client::authed(&mac, origin, ConnAuth::Device),
+            _ => Client::new(&mac, origin),
         };
-        let r = c.call("session/new", new("own")).await;
-        assert!(r["result"]["sessionId"].is_string(), "{tag}: {r}");
-        let mut web = Client::new(&mac, Origin::Web);
-        let r = web.call("session/new", new("web")).await;
-        assert!(r["result"]["sessionId"].is_string(), "{tag}: {r}");
-        // A paired machine's `client` credential on the Mac (`ConnAuth::Device`): not the
-        // person's own client, so not at the boundary, if the Mac forwards it at all.
-        let mut device = Client::authed(&mac, Origin::Peer, ConnAuth::Device);
-        let device_new = device.call("session/new", new("device")).await;
-        let started: Vec<_> = vm.sessions().into_iter().map(|s| s.meta()).collect();
+        let response = caller.call("session/new", new).await;
+        let sessions = vm.sessions();
+        server.abort();
         let _ = std::fs::remove_dir_all(&d);
-        let forwarded = usize::from(device_new["result"]["sessionId"].is_string());
-        assert_eq!(started.len(), 2 + forwarded, "{tag}: {device_new}");
-        for meta in &started {
-            assert!(meta.remote_origin, "{tag}");
-            let want = vm_boundary && meta.name == "own";
-            assert_eq!(meta.vm_boundary, want, "{tag}: {}", meta.name);
+        // The Mac may refuse to forward a paired device. A refusal must leave the VM empty.
+        if origin == Origin::Peer && response.get("error").is_some() {
+            assert!(sessions.is_empty(), "{tag}: {response}");
+            continue;
         }
+        assert!(response["result"]["sessionId"].is_string(), "{tag}: {response}");
+        assert_eq!(sessions.len(), 1, "{tag}: {response}");
+        let meta = sessions[0].meta();
+        assert_eq!(meta.name, tag);
+        assert!(meta.remote_origin, "{tag}");
+        assert_eq!(meta.vm_boundary, vm_boundary && origin == Origin::Local, "{tag}");
     }
 }
 

@@ -8,8 +8,10 @@ import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReleaseItem, ReleaseView } from "../src/pages/changelog/model";
-import { clipItems, leadItems, SpanNews } from "../src/pages/changelog/SpanNews";
 import type { NewsLayout } from "../src/pages/changelog/types";
+import { importWithDom } from "./support/importWithDom";
+
+const { clipItems, leadItems, SpanNews } = await importWithDom(() => import("../src/pages/changelog/SpanNews"));
 
 const strings = {
   language: "en",
