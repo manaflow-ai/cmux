@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.providers.codex.args.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arguments added when cmux starts Codex, one per entry."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "وسائط تضاف عندما يشغّل cmux ‏Codex، وسيط في كل إدخال."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Argumenti koji se dodaju kada cmux pokrene Codex, jedan po unosu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Argumenter, der tilføjes, når cmux starter Codex, ét pr. post."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Argumente, die cmux beim Start von Codex anhängt, eines pro Eintrag."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Argumentos que se añaden cuando cmux inicia Codex, uno por entrada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arguments ajoutés quand cmux lance Codex, un par entrée."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Argomenti aggiunti quando cmux avvia Codex, uno per voce."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux が Codex を起動するときに追加する引数。1 項目に 1 つ。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អាគុយម៉ង់ដែលបន្ថែមពេល cmux បើក Codex មួយក្នុងមួយធាតុ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux가 Codex를 시작할 때 추가하는 인수, 항목당 하나."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Argumenter som legges til når cmux starter Codex, ett per oppføring."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Argumenty dodawane, gdy cmux uruchamia Codex, jeden na wpis."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Argumentos adicionados quando o cmux inicia o Codex, um por entrada."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Аргументы, которые cmux добавляет при запуске Codex, по одному на запись."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "อาร์กิวเมนต์ที่เพิ่มเมื่อ cmux เปิด Codex หนึ่งรายการต่อหนึ่งค่า"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Codex uygulamasını başlatırken eklenen bağımsız değişkenler, giriş başına bir tane."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Аргументи, які cmux додає під час запуску Codex, по одному на запис."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các đối số thêm vào khi cmux khởi chạy Codex, mỗi mục một đối số."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 启动 Codex 时添加的参数，每项一个。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 啟動 Codex 時加入的參數，每項一個。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
