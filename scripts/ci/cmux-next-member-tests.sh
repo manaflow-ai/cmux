@@ -23,7 +23,18 @@ if [[ -n "$only_test" ]]; then
   # The gate's own target only, so the gate's saved target covers it and a red here is a red there.
   [[ " ${args[*]} " == *" --test $only_test "* ]] || { echo "::error::$member's gate targets (${args[*]}) have no --test $only_test"; exit 2; }
   [[ "$filter" == *cmux_next_* ]] || { echo "::error::filter $filter selects tests the gate does not run (it holds no cmux_next_)"; exit 2; }
-  args=("${args[0]}" "${args[1]}" --test "$only_test")
+  # Every package the gate names (-p), with this one test target: cargo's resolver unifies features over the named
+  # packages, so `-p cmux-tui` alone resolves 16 crates' features differently from the gate (proc-macro2's
+  # span-locations among them, which re-hashes every syn-built crate) and the gate's saved target misses: 154
+  # third-party and 98 workspace crates compiled, 32 to 37 minutes a landing head (job 140967378678). `--test NAME`
+  # builds only the named packages' NAME targets, so the test binaries are the gate's own.
+  read -r -a gate <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
+  args=()
+  for ((i = 0; i < ${#gate[@]}; i++)); do
+    [[ "${gate[$i]}" == -p ]] && args+=(-p "${gate[$((i + 1))]}")
+  done
+  (( ${#args[@]} > 0 )) || args=(--workspace)  # the gate's own fallback when it cannot name its packages
+  args+=(--test "$only_test")
 fi
 channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
 rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
