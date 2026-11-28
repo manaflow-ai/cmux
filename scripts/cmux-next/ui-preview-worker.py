@@ -163,7 +163,7 @@ PUBLISH_WINDOW_H = 25
 PUBLISH_MAX = 768 << 10
 PUBLISH_FILES = 8  # NOW asks only whether any is a UI path; the count stays as ui_files_n
 PUBLISH_FIELDS = ("repo", "head_sha", "branch", "pushed_at", "ui_files", "recipient", "recipient_host", "posted_at", "error_posted_at", "error",
-                  "synthetic")
+                  "synthetic", "before_cached", "before_s")
 # Bounds, seconds.
 FETCH_SECONDS = 180
 COLD_BUILD_SECONDS = 45 * 60
@@ -240,13 +240,21 @@ MIRROR = Path(os.environ.get("CMUX_UI_PREVIEW_MIRROR") or Path.home() / "Project
 # are each one lock). A queued request is dropped for a newer push of its branch only once it waited this long.
 LOOK_THREADS = WEB_CAP
 SUPERSEDE_AGE_S = 45
+# Warm befores (shadow-leo, 2026-11-28: "keep warm per-screen baselines refreshed on merge, re-render only mapped
+# screens"). A look shot its base's Swift scenes on every push (swift_before, under swift_lock, before the head), and
+# a push's base is a feat-cmux-next tip the worker had not shot yet. Under serve --follow a warm thread shoots each
+# new tip's Swift scenes (shots/swift/TIP, the cache swift_side reads), one scene at a time, so a push's before is a
+# cache read and its look shoots the head alone. A push queued or looking stops the warm between scenes (it goes on
+# at the next poll); the last BASE_TIPS_KEPT warmed tips' shots stay, older ones go.
+BASE_TIPS_KEPT = 8
+WARM_BASE_POLL_S = 60
 # A gallery shot waits this long for the frame's ready mark, then reloads the page and waits again, within its bound
 # (a page that loaded while vite restarted or re-optimized its deps never marks ready on its own).
 SHOT_TRY_S = 20
 SHOT_BOUND_S = 60
 # Files whose change makes vite restart its server or re-optimize its deps: the worker restarts the gallery itself
 # after a checkout that changes one, and waits for it to answer, instead of shooting pages into vite's own restart.
-GALLERY_CONFIG = ("webviews/vite.config*.ts", "webviews/package.json", "webviews/dev-server/", "bun.lock",
+GALLERY_CONFIG = ("webviews/vite.config*.ts", "webviews/vite.config*.mjs", "webviews/package.json", "webviews/dev-server/", "bun.lock",
                   "webviews/bun.lock")
 # A gallery entry one side of the push does not have (the push adds it): that side's picture is a card that says so,
 # not a 60 s wait for a frame that never marks ready (the frame settles the whole registry first, then fails).
@@ -258,6 +266,15 @@ ABSENT_PREFIX = "absent."
 # TRANSFORM_CACHE_MB, oldest first, at warm.
 TRANSFORM_CACHE_MB = 2048
 PRESHOOT_FAMILIES = ("agent-pane.", "pages.")
+# Files that shape every screen with no gallery entry importing them (the vite configs, the dev server): touched.ts
+# ranks no entry for them, and 11-28 00-12Z 5 such pushes (webviews/vite.config.acpmux-pane.mjs,
+# webviews/dev-server/hotSwapTiming.ts) went unpreviewed. Their look shoots the representative entries instead.
+EVERY_SCREEN = re.compile(r"^webviews/(?:vite\.config[^/]*\.(?:ts|mts|js|mjs)$|dev-server/)")
+# A shot whose page held modules from before a checkout under the same vite: its import of a module vite has since
+# invalidated (URL `?t=...`) fails ("Failed to fetch dynamically imported module"), on every entry of the look.
+# 11-28 00-12Z 6 looks took no shot this way, of files that load fine on a fresh vite. The look restarts that
+# gallery's vite and shoots once more on a cold page.
+STALE_MODULE = "Failed to fetch dynamically imported module"
 # vite's optimized deps, one folder per gallery config in each tree (node_modules/.vite-<key>, CMUX_VITE_CACHE_DIR;
 # inside webviews/, where the gallery's fs.allow lets vite serve it), the newest DEPS_KEYS kept: a gallery back on a
 # config it served keeps its deps instead of a scan and bundle, and two galleries never share one folder.
@@ -629,14 +646,34 @@ class Gallery:
             log(f"the resident shooter ({self.name}): {err}; one cold shoot")
             self.stop_shooter()
             rows = self.shoot_once(spec, out)
-        shots = {}
-        for row in rows:
-            if isinstance(row, dict) and row.get("file") and (out / row["file"]).is_file():
-                shots[row["name"]] = row["file"]
+        shots, errors = self.collect(rows, out)
+        if not shots and entries and any(STALE_MODULE in e for e in errors):
+            log(f"gallery {self.name}: a stale module graph ({tail(errors[0], 160)}): restarting its vite, one cold shoot")
+            self.stop_shooter()
+            self.stop()
+            self.start()
+            shots, errors = self.collect(self.shoot_once(spec, out), out)
         if not shots and entries:
-            errors = [str(r.get("error")) for r in rows if isinstance(r, dict) and r.get("error")]
             raise LookError(f"the gallery shoot took no shot: {tail('; '.join(errors)) or 'no answer'}")
         return shots
+
+    @staticmethod
+    def collect(rows: list, out: Path) -> tuple[dict, list[str]]:
+        """A shooter's answer as ({entry: file} of the shots on disk, [the errors it named])."""
+        shots = {row["name"]: row["file"] for row in rows
+                 if isinstance(row, dict) and row.get("file") and (out / row["file"]).is_file()}
+        return shots, [str(r.get("error")) for r in rows if isinstance(r, dict) and r.get("error")]
+
+    def representative_entries(self) -> list[str]:
+        """The entries a change to the gallery as a whole shows: the first one touched.ts ranks for the gallery
+        itself, plus one entry of each big family (PRESHOOT_FAMILIES)."""
+        entries = self.scenes(["webviews/src/gallery/warm"])[:1]
+        held = sorted(self.entry_ids())
+        for family in PRESHOOT_FAMILIES:
+            pick = next((e for e in held if e.startswith(family)), None)
+            if pick and not any(e.startswith(family) for e in entries):
+                entries.append(pick)
+        return entries
 
     def shoot_once(self, spec: dict, out: Path) -> list:
         (out / "spec.json").write_text(json.dumps(spec))
@@ -738,6 +775,8 @@ class Worker:
         self.gallery_keys: dict[str, str] = {}  # sha -> its gallery config's key
         self.web = Gallery(self, self.state / "web", GALLERY_PORT, "web")
         self.galleries = [self.web]
+        self.warm_tips_path = self.state / "warm-tips.json"  # warmed BASE_BRANCH tips, newest first
+        self.warm_tips_lock = threading.Lock()
 
     # The clone and its worktrees.
     def ensure_clone(self) -> None:
@@ -1187,12 +1226,7 @@ class Worker:
                     # A change to the gallery itself touches every entry: the first one ranked is a real entry. Plus
                     # one entry of each big family (PRESHOOT_FAMILIES): vite and the transform cache hold its modules
                     # (agent-pane's App.tsx is ~33 s of React Compiler cold), so a push's first agent-pane look is warm.
-                    entries = g.scenes(["webviews/src/gallery/warm"])[:1]
-                    held = sorted(g.entry_ids())
-                    for family in PRESHOOT_FAMILIES:
-                        pick = next((e for e in held if e.startswith(family)), None)
-                        if pick and not any(e.startswith(family) for e in entries):
-                            entries.append(pick)
+                    entries = g.representative_entries()
                     if entries:
                         self.web_side(tip, entries, g)
                 with stages("web_spare"):
@@ -1207,6 +1241,68 @@ class Worker:
             except LookError as err:
                 errors.append(f"web: {err}")
         return {"tip": tip, "stages": stages.seconds, "errors": errors}
+
+    # Warm befores: each BASE_BRANCH tip's Swift scenes, shot when the tip moves (BASE_TIPS_KEPT).
+    def warm_tips(self) -> list[str]:
+        try:
+            tips = json.loads(self.warm_tips_path.read_text())
+        except (OSError, ValueError):
+            return []
+        return [t for t in tips if isinstance(t, str) and SHA.match(t)] if isinstance(tips, list) else []
+
+    def note_warm_tip(self, tip: str) -> list[str]:
+        """TIP first in the warmed tips; the shots of tips past BASE_TIPS_KEPT go (both kinds). The kept tips."""
+        with self.warm_tips_lock:
+            tips = [tip] + [t for t in self.warm_tips() if t != tip]
+            kept, gone = tips[:BASE_TIPS_KEPT], tips[BASE_TIPS_KEPT:]
+            for old in gone:
+                for kind in ("swift", "web"):
+                    shutil.rmtree(self.state / "shots" / kind / old, ignore_errors=True)
+            tmp = self.warm_tips_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(kept))
+            os.replace(tmp, self.warm_tips_path)
+        return kept
+
+    def is_cached(self, kind: str, sha: str, scenes) -> bool:
+        """Every one of SCENES' KIND shots at SHA is in the shot cache (a look's side that shoots nothing)."""
+        scenes = list(scenes)
+        return bool(scenes) and set(scenes) <= set(self._cached(self.state / "shots" / kind / sha))
+
+    def swift_scenes_here(self) -> tuple[str, ...]:
+        return ALL_SWIFT_SCENES if (self.swift_on or self.swift_peer) else ()
+
+    def warm_base(self, tip: str, busy) -> dict:
+        """TIP's Swift scenes into the shot cache, one scene per swift_lock hold; BUSY() true (a push waits or looks)
+        stops it between scenes, unfinished, for the next poll. A finished tip joins the warmed tips."""
+        began, shot, errors = time.monotonic(), [], []
+        for scene in self.swift_scenes_here():
+            if busy():
+                return {"tip": tip, "shot": shot, "stopped": True, "s": round(time.monotonic() - began, 3)}
+            if self.is_cached("swift", tip, [scene]):
+                continue
+            try:
+                with self.swift_lock:
+                    self.swift_side(tip, [scene], BASE_BRANCH)
+                shot.append(scene)
+            except LookError as err:  # this scene's push shoots its before itself, as before the warm
+                errors.append(f"{scene}: {err}")
+        self.note_warm_tip(tip)
+        return {"tip": tip, "shot": shot, "errors": errors, "s": round(time.monotonic() - began, 3)}
+
+    def warm_bases(self, jobs: "queue.Queue", stop: threading.Event | None = None) -> None:
+        """serve --follow's warm thread: each WARM_BASE_POLL_S, BASE_BRANCH's tip; a tip not warmed yet is."""
+        while not (stop and stop.is_set()):
+            try:
+                with self.fetch_lock:
+                    self.fetch_branches(BASE_BRANCH)
+                tip = git(self.clone, "rev-parse", f"refs/remotes/origin/{BASE_BRANCH}")
+                if tip not in self.warm_tips()[:1]:
+                    done = self.warm_base(tip, lambda: jobs.unfinished_tasks > 0)
+                    if done["shot"] or done.get("errors") or done.get("stopped"):
+                        log(f"warm base: {json.dumps(done)}")
+            except (LookError, OSError, subprocess.SubprocessError) as err:
+                log(f"warm base: {err}")
+            (stop.wait if stop else time.sleep)(WARM_BASE_POLL_S)
 
     # One look.
     def new_receipt(self, req: dict) -> dict:
@@ -1256,6 +1352,9 @@ class Worker:
             if isinstance(err, NoShotError) and PUSHER_ERROR in receipt["error"]:
                 self.post_error(req, receipt)
         receipt["stages"] = stages.seconds
+        before_s = sum(stages.seconds.get(k, 0) for k in ("swift_before", "web_before"))
+        if receipt.get("before_cached"):
+            receipt["before_s"] = round(before_s, 3)
         pushed, posted = parse_ts(receipt.get("pushed_at")), parse_ts(receipt.get("posted_at"))
         if pushed and posted:
             receipt["push_to_post_s"] = round((posted - pushed).total_seconds(), 3)
@@ -1290,6 +1389,7 @@ class Worker:
             errors.append(f"swift: {', '.join(planned['swift'])} not shot: this worker ({self.host}) shoots web "
                           "scenes only")
         elif planned["swift"]:
+            receipt.setdefault("before_cached", {})["swift"] = self.is_cached("swift", base, planned["swift"])
             try:
                 with self.swift_lock:
                     with stages("swift_before"):
@@ -1312,8 +1412,12 @@ class Worker:
                             g.stop_shooter()
                         web_files = [f for f in req["ui_files"] if f.startswith(WEB_PREFIXES)]
                         entries = g.scenes(web_files)
+                        if not entries and any(EVERY_SCREEN.match(f) for f in web_files):
+                            entries = g.representative_entries()
+                            receipt["web_entries_why"] = "every screen"
                 receipt["web_entries"] = entries
                 if entries:
+                    receipt.setdefault("before_cached", {})["web"] = self.is_cached("web", base, entries)
                     # Head first: its tree is checked out already; the base is often cached (the last push's head).
                     before, after = self.web_sides(head, base, entries, g, stages)
                     pairs += [("web", e, before.get(e), after.get(e)) for e in entries]
@@ -1895,6 +1999,8 @@ def command_serve(args) -> int:
     jobs: queue.Queue = queue.Queue()
     if args.follow:
         threading.Thread(target=follow, args=(worker, jobs), name="follow", daemon=True).start()
+        if worker.swift_scenes_here() and not args.no_warm:
+            threading.Thread(target=worker.warm_bases, args=(jobs,), name="warm-base", daemon=True).start()
 
     for n in range(LOOK_THREADS):
         threading.Thread(target=drain, args=(worker, jobs), name=f"look-{n}", daemon=True).start()
