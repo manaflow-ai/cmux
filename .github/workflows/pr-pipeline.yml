@@ -18,6 +18,12 @@ on:
         required: false
         type: boolean
         default: false
+      # pr-router.yml's answer that no changed path reaches an iOS target (pr_router.py ios_fast_skip): the ios fast
+      # verdict runner skips, where its plan would answer run=false. Unset (another caller): it plans as before.
+      ios_fast_skip:
+        type: boolean
+        required: false
+        default: false
       web_browser_only:
         description: Do not plan the iOS fast verdict in the web-only invocation.
         required: false
@@ -95,10 +101,11 @@ jobs:
     # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, web-production-build, the package conventions gate
     # and the four web test shards 6 min each, the cmux_next_ daemon tests 65 min, the cmux_next_ tests of acpmux,
     # cmux-tui-core and cmux-tui 45 min each, the iOS matrix protocol 45 min, the App Store shelf 45 min, the acpmux
-    # instruction counts 40 min, the compile canary 30 min, the Rust notices 20 min, the cmux VM Rust clients 30 min, the nightly and cmux-tui
-    # release guards 20 min, the cmux cloud CLI 15 min): 674 min with 58 shared steps (29 waves) and the setup and
+    # instruction counts 40 min, the memory per item A/B 50 min, the compile canary 30 min, the Rust notices 20 min, the cmux VM Rust clients 30 min, the nightly and cmux-tui
+    # release guards 20 min, the cmux cloud CLI 15 min, the idle daemon tests 45 min, and the rest): 1090 min with the
+    # shared steps two at once and the setup and
     # tool bounds, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 674
+    timeout-minutes: 1090
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
@@ -128,6 +135,19 @@ jobs:
           set -euo pipefail
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          # One reused workspace per sparse list (rnd rc-454d007c): jobs with different lists took turns with one .git on this
+          # VM, so a job after a narrower one widened the tree first (median 6.4 s widening the guards' list to the fast gates',
+          # 1.8 s reusing the same list, 5.1 s fresh: bench run 46133992029, 4 runs each). Each list keeps its own workspace
+          # beside $GITHUB_WORKSPACE, moved in and out by a rename on the same file system (no copy); 4 lists at most are kept.
+          ws=$GITHUB_WORKSPACE; stash="$(dirname "$ws")/.pool-ws"
+          key=$(printf '%s' "${SPARSE:-}" | sha1sum | cut -c1-16)
+          have=$(cat "$ws/.git/cmux-pool-key" 2>/dev/null || true)
+          if [[ "$have" != "$key" ]] && { [[ "$have" =~ ^[0-9a-f]{16}$ ]] || [[ -d "$stash/$key" ]]; }; then
+            mkdir -p "$stash"; cd "$stash"
+            if [[ "$have" =~ ^[0-9a-f]{16}$ ]]; then rm -rf "${stash:?}/$have"; mv "$ws" "$stash/$have"; touch "$stash/$have"; else rm -rf "$ws"; fi
+            if [[ -d "$stash/$key" ]]; then mv "$stash/$key" "$ws"; else mkdir -p "$ws"; fi
+            ls -1t "$stash" | tail -n +5 | while read -r old; do rm -rf "${stash:?}/$old"; done
+          fi
           cd "$GITHUB_WORKSPACE"
           # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
           # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
@@ -163,7 +183,8 @@ jobs:
           # narrower job on this VM; rnd rc-c6f133b4).
           git -c checkout.workers=8 checkout -q -f --detach "$SHA"
           [[ $reuse == fresh ]] || git sparse-checkout disable
-          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
+          [[ -z "${key:-}" ]] || echo "$key" > .git/cmux-pool-key
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse sparse_key=${key:-}"
       - name: List the changed paths
         # Every path the merge commit changes against the base tip, both sides of a rename (what the
         # router read). With no merge commit there is no list, and ci/run then runs every step.
@@ -307,6 +328,19 @@ jobs:
           set -euo pipefail
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          # One reused workspace per sparse list (rnd rc-454d007c): jobs with different lists took turns with one .git on this
+          # VM, so a job after a narrower one widened the tree first (median 6.4 s widening the guards' list to the fast gates',
+          # 1.8 s reusing the same list, 5.1 s fresh: bench run 46133992029, 4 runs each). Each list keeps its own workspace
+          # beside $GITHUB_WORKSPACE, moved in and out by a rename on the same file system (no copy); 4 lists at most are kept.
+          ws=$GITHUB_WORKSPACE; stash="$(dirname "$ws")/.pool-ws"
+          key=$(printf '%s' "${SPARSE:-}" | sha1sum | cut -c1-16)
+          have=$(cat "$ws/.git/cmux-pool-key" 2>/dev/null || true)
+          if [[ "$have" != "$key" ]] && { [[ "$have" =~ ^[0-9a-f]{16}$ ]] || [[ -d "$stash/$key" ]]; }; then
+            mkdir -p "$stash"; cd "$stash"
+            if [[ "$have" =~ ^[0-9a-f]{16}$ ]]; then rm -rf "${stash:?}/$have"; mv "$ws" "$stash/$have"; touch "$stash/$have"; else rm -rf "$ws"; fi
+            if [[ -d "$stash/$key" ]]; then mv "$stash/$key" "$ws"; else mkdir -p "$ws"; fi
+            ls -1t "$stash" | tail -n +5 | while read -r old; do rm -rf "${stash:?}/$old"; done
+          fi
           cd "$GITHUB_WORKSPACE"
           # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
           # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
@@ -342,7 +376,8 @@ jobs:
           # narrower job on this VM; rnd rc-c6f133b4).
           git -c checkout.workers=8 checkout -q -f --detach "$SHA"
           [[ $reuse == fresh ]] || git sparse-checkout disable
-          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
+          [[ -z "${key:-}" ]] || echo "$key" > .git/cmux-pool-key
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse sparse_key=${key:-}"
       - name: List the changed paths
         run: |
           if git rev-parse -q --verify 'HEAD^2' >/dev/null; then
@@ -387,6 +422,10 @@ jobs:
             && CI_PATHS_FILE="$lines" python3 -I scripts/ci/web_subareas.py has agent_pane; then
             echo "routed=true" >> "$GITHUB_OUTPUT"
           fi
+      # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
+      - name: Give this runner instance its own CARGO_HOME
+        if: ${{ steps.acpmux.outputs.routed == 'true' }}
+        uses: ./.github/actions/runner-cargo-home
       - name: Restore the agent pane's acpmux cargo build
         if: ${{ steps.acpmux.outputs.routed == 'true' }}
         continue-on-error: true
@@ -787,9 +826,11 @@ jobs:
   ios-fast-runner:
     name: ios fast verdict runner
     # Why: docs/ci/cmux-next-workflow-notes/2026-11-27-ios-fast-unset-switch.md
-    if: ${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
+    if: ${{ !cancelled() && !inputs.web_browser_only && !inputs.ios_fast_skip && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
+    env:
+      GH_HTTP_DEADLINE_S: "240"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
     permissions:
       contents: read
       actions: read
@@ -1034,6 +1075,46 @@ jobs:
           backend: r2
           path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
           key: ${{ steps.xcf-key.outputs.fleet_key }}
+      # With the FFI cached, a hosted Mac still built the kit (144 s) and the app (215 s) from empty DerivedData on
+      # cmux#61812. ios-fast-verdict-seed.yml saves one warm build of both, at this pool's workspace path, on the
+      # feat-cmux-next push; this restores the newest seed of this Xcode and package graph, replays its input times
+      # (scripts/ci/e2e_warm_derived_data.py), and gives the seed's FFI time to the restored framework when it is
+      # the seed's, so the build step rebuilds only what differs. An owned Mac keeps its slot and skips this. A miss
+      # builds cold, as before.
+      - name: iOS fast DerivedData seed key (hosted Mac)
+        id: dd-key
+        if: ${{ steps.xcf-key.outputs.fleet_key != '' }}
+        continue-on-error: true
+        run: python3 -I scripts/ci/ios_fast_dd_key.py --workspace "$GITHUB_WORKSPACE" >> "$GITHUB_OUTPUT"
+      - name: Restore the seeded iOS fast DerivedData
+        id: dd-restore
+        if: ${{ steps.dd-key.outputs.prefix != '' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CMUX_LAN_CACHE_TIMEOUT: "480"
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/ios-fast-dd
+          key: ${{ steps.dd-key.outputs.key }}
+          restore-keys: ${{ steps.dd-key.outputs.prefix }}
+      - name: Replay the seed's input times
+        if: ${{ steps.dd-restore.outputs.cache-matched-key != '' }}
+        continue-on-error: true
+        env:
+          FFI_HIT: ${{ steps.xcf-fleet-restore.outputs.cache-hit == 'true' || steps.xcf-r2-restore.outputs.cache-hit == 'true' }}
+          SEED: ${{ steps.dd-restore.outputs.cache-matched-key }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/ios-fast-dd"
+          python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" "$root/input-mtimes.json"
+          xcf=cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          if [[ "$FFI_HIT" == true && "$(cat "$root/link-ffi.key" 2>/dev/null)" == "$(python3 -I scripts/ci/ios_link_ffi_key.py)" ]]; then
+            find "$xcf" -exec touch -h -t 202601010000 {} +
+          fi
+          echo "CMUX_IOS_FAST_DD_ROOT=$root" >> "$GITHUB_ENV"
+          echo "iOS fast DerivedData: seed $SEED"
       - name: Mark the restored CmuxMobileLinkFFI.xcframework as this job's copy
         if: ${{ steps.xcf-fleet-restore.outputs.cache-hit == 'true' || steps.xcf-r2-restore.outputs.cache-hit == 'true' }}
         continue-on-error: true
