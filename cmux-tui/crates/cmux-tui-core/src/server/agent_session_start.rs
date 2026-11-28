@@ -494,11 +494,20 @@ impl StartTimings {
         self.step = Some(step);
     }
 
-    /// `data` of a refusal with the phase it came from: a bare `refused` only (every other
-    /// refusal names its own cause), and never over a `step` already there.
+    /// `data` of a refusal with the phase it came from, never over a `step` already there: a bare
+    /// `refused`, and the link's own ends, `unavailable` (acpmux closed the link, or was not back
+    /// in [`RECONNECT_WAIT`]) and `timeout`, which carry no cause of their own. Those two also get
+    /// a short `reason` code, `acpmux_closed.STEP` or `acpmux_timeout.STEP`: the app prints a
+    /// refusal's reason code beside its code, so the chat probe's row names the phase (the
+    /// 2026-11-28T11:45Z cloud-chat-replies-production row said only "refused to start the agent
+    /// chat (agent_session.unavailable)", with nothing on which call lost acpmux).
     fn refusal_data(&self, refusal: Refusal, data: Option<Value>) -> Option<Value> {
-        let (Refusal::Refused, Some(step)) = (refusal, self.step) else {
-            return data;
+        let Some(step) = self.step else { return data };
+        let lost = match refusal {
+            Refusal::Refused => None,
+            Refusal::Unavailable => Some("acpmux_closed"),
+            Refusal::Timeout => Some("acpmux_timeout"),
+            _ => return data,
         };
         let mut data = match data {
             Some(Value::Object(map)) => map,
@@ -506,6 +515,9 @@ impl StartTimings {
             None => serde_json::Map::new(),
         };
         data.entry("step").or_insert_with(|| json!(step));
+        if let Some(lost) = lost {
+            data.entry("reason").or_insert_with(|| json!(format!("{lost}.{step}")));
+        }
         Some(Value::Object(data))
     }
 
