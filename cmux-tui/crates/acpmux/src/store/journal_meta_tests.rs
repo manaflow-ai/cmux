@@ -562,6 +562,65 @@ fn an_open_after_a_kill_syncs_nothing_per_chat_and_the_checkpoint_makes_it_durab
     }
 }
 
+/// The shutdown's last checkpoint holds the home lock, and the next daemon waits for it. Every chat
+/// that stops at the shutdown saves its metadata: on the code before, the seal wrote each image to
+/// its `session.json` (two syncs each), one after another, and the god bench's 523 chats held the
+/// home 16 s past its deadline. Its syncs are now as many for 40 chats as for one; the journal
+/// holds the images, and the next open has every change, after an OS crash too.
+#[test]
+fn the_seal_writes_no_metadata_image_and_the_next_open_has_every_change() {
+    use super::log_sync::ALL_SYNCS;
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(73);
+    let store = open(home.path(), &journal);
+    let chats = 40;
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        store.save(&meta(&id, "before", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+        store.append(&id, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    // The shutdown: each chat stops and saves its metadata, then the seal.
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        store.append(&id, &record(2, "stopped")).unwrap_or_else(|e| panic!("{e:#}"));
+        store.save(&meta(&id, "after", 2)).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    let before = ALL_SYNCS.with(std::cell::Cell::get);
+    store.seal();
+    let syncs = ALL_SYNCS.with(std::cell::Cell::get).saturating_sub(before);
+    assert!(
+        syncs <= chats / 4,
+        "the seal synced {syncs} times for {chats} chats: it wrote their metadata images"
+    );
+    // `persist_for_handoff`'s flush after the seal: the logs are durable, nothing undone.
+    store.flush().unwrap_or_else(|e| panic!("the flush after the seal failed: {e:#}"));
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        let on_disk = session_json(home.path(), &id).map(|value| value["name"].clone());
+        assert_eq!(on_disk, Some(json!("before")), "the seal wrote the image of {id}");
+    }
+    // The next daemon, then an OS crash before its checkpoint ever ran.
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        assert_eq!(seqs(store.as_ref(), &id), vec![1, 2], "{id} lost a line");
+        let name = store.load(&id).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
+        assert_eq!(name.as_deref(), Some("after"), "{id} lost the change it saved at the shutdown");
+    }
+    // Its checkpoint writes the images the seal left.
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        let on_disk = session_json(home.path(), &id).map(|value| value["name"].clone());
+        assert_eq!(on_disk, Some(json!("after")), "the next checkpoint did not write {id}");
+    }
+}
+
 // ---------------------------------------------------------------- review of #35483 (F1 to F4)
 
 /// F1 (review of #35483): the metadata twin of S2's finding 1a (lines an older build wrote). A

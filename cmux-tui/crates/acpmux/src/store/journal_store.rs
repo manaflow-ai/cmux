@@ -343,6 +343,9 @@ struct Inner {
     appending: std::sync::RwLock<()>,
     /// One checkpoint at a time.
     checkpointing: Mutex<()>,
+    /// The seal began (`Store::seal`): a checkpoint writes no `session.json` from here on, and one
+    /// under way stops before its next one ([`checkpoint`] module, `Inner::last_checkpoint`).
+    sealing: AtomicBool,
     timer: Mutex<Timer>,
     wake: Condvar,
     /// Why the daemon must stop (`Store::stop_reason`).
@@ -454,6 +457,10 @@ struct Order {
     /// The shutdown's last checkpoint ran (`Inner::last_checkpoint`): the home is the next
     /// daemon's, so no checkpoint, metadata image or retirement is written from here on.
     sealed: bool,
+    /// The shutdown's last checkpoint synced the logs and folders and left the chats' metadata
+    /// images to the next daemon's open (`checkpoint::Inner::checkpoint_once`): no LSN written,
+    /// and no work undone.
+    images_left: bool,
 }
 
 impl Order {
@@ -544,6 +551,7 @@ impl JournalStore {
             chats_fallback: Mutex::new(()),
             appending: std::sync::RwLock::new(()),
             checkpointing: Mutex::new(()),
+            sealing: AtomicBool::new(false),
             timer: Mutex::new(Timer::default()),
             wake: Condvar::new(),
             stop,
@@ -1141,6 +1149,7 @@ impl Store for JournalStore {
             let _order = self.inner.order.lock_or_recover();
             Store::seal(&self.inner.local);
         }
+        self.inner.sealing.store(true, std::sync::atomic::Ordering::SeqCst);
         self.inner.last_checkpoint();
         // Its threads end on their own (the drop joins them): the checkpointer and the folder
         // syncer have nothing left to do once the last checkpoint synced the logs and folders.
