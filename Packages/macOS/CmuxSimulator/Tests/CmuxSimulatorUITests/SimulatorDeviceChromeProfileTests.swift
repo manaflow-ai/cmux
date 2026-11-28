@@ -242,9 +242,61 @@ struct SimulatorDeviceChromeProfileTests {
         #expect(home.rect.y == 17)
     }
 
+    // Newer device types (iPhone Air, iPhone 16 Pro, iPad Pro M4/M5) carry no mainScreen* keys in
+    // profile.plist; their screen is the screenID 1 display in capabilities.plist.
+    @Test("Reads the main screen from capabilities.plist when profile.plist has no mainScreen keys")
+    func capabilitiesMainScreenFallback() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let deviceRoot = root.appendingPathComponent("DeviceTypes", isDirectory: true)
+        let bundle = deviceRoot.appendingPathComponent("New Phone.simdevicetype", isDirectory: true)
+        let resources = bundle.appendingPathComponent("Contents/Resources", isDirectory: true)
+        let chromeRoot = root.appendingPathComponent("Chrome", isDirectory: true)
+        let chromeResources = chromeRoot
+            .appendingPathComponent("phone-new.devicechrome", isDirectory: true)
+            .appendingPathComponent("Contents/Resources", isDirectory: true)
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: chromeResources, withIntermediateDirectories: true)
+
+        try writePlist([
+            "CFBundleIdentifier": "com.apple.CoreSimulator.SimDeviceType.New-Phone",
+        ], to: bundle.appendingPathComponent("Contents/Info.plist"))
+        try writePlist([
+            "chromeIdentifier": "com.apple.dt.devicekit.chrome.phone-new",
+        ], to: resources.appendingPathComponent("profile.plist"))
+        try writePlist([
+            "capabilities": [
+                "displays": [
+                    ["screenID": 2, "width": 720, "height": 480, "scale": 1],
+                    ["screenID": 1, "width": 1_260, "height": 2_736, "scale": 3],
+                ],
+            ],
+        ], to: resources.appendingPathComponent("capabilities.plist"))
+        let chromeJSON = """
+        {
+          "images": {"sizing": {"leftWidth": 12, "rightWidth": 13, "topHeight": 14, "bottomHeight": 15}},
+          "paths": {"simpleOutsideBorder": {"cornerRadiusX": 30}},
+          "inputs": []
+        }
+        """
+        try #require(chromeJSON.data(using: .utf8)).write(
+            to: chromeResources.appendingPathComponent("chrome.json")
+        )
+        let loader = SimulatorDeviceChromeLoader(deviceTypeRoots: [deviceRoot], chromeRoots: [chromeRoot])
+
+        let profile = await loader.load(deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.New-Phone")
+
+        #expect(profile?.screenWidth == 420)
+        #expect(profile?.screenHeight == 912)
+    }
+
     @Test("Installed iPhone Air uses the measured DeviceKit screen opening")
     func installedPhoneAirScreenRadius() async throws {
-        guard installedChromeArtworkExists(forDeviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-Air") else { return }
+        let profileURL = URL(fileURLWithPath:
+            "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone Air.simdevicetype"
+        )
+        guard FileManager.default.fileExists(atPath: profileURL.path) else { return }
 
         let profile = await SimulatorDeviceChromeLoader().load(
             deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-Air"
@@ -256,7 +308,10 @@ struct SimulatorDeviceChromeProfileTests {
 
     @Test("Installed M5 iPad resolves compatible DeviceKit chrome artwork")
     func installedM5IPadChromeFallback() async throws {
-        guard installedChromeArtworkExists(forDeviceType: "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB") else { return }
+        let profileURL = URL(fileURLWithPath:
+            "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPad Pro 13-inch (M5).simdevicetype"
+        )
+        guard FileManager.default.fileExists(atPath: profileURL.path) else { return }
 
         let profile = await SimulatorDeviceChromeLoader().load(
             deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB"
@@ -363,52 +418,5 @@ struct SimulatorDeviceChromeProfileTests {
             options: 0
         )
         try data.write(to: url)
-    }
-}
-
-/// Whether this host has the simulator device type and the DeviceKit chrome
-/// artwork it names, found in the same roots and order as
-/// SimulatorDeviceChromeLoader (the active developer directory first, then
-/// /Library). CI Macs can pin DEVELOPER_DIR to an Xcode whose device type
-/// names chrome artwork that is not installed; these tests check the loader
-/// against installed artwork, so they run only where it is present, and still
-/// fail if loading returns nothing there.
-private func installedChromeArtworkExists(forDeviceType identifier: String) -> Bool {
-    let fileManager = FileManager.default
-    let environment = ProcessInfo.processInfo.environment
-    let developerDirectory: URL? = {
-        if let override = environment["DEVELOPER_DIR"], !override.isEmpty {
-            return URL(fileURLWithPath: override, isDirectory: true)
-        }
-        let selection = URL(fileURLWithPath: "/var/db/xcode_select_link", isDirectory: true).resolvingSymlinksInPath()
-        return fileManager.fileExists(atPath: selection.path) ? selection : nil
-    }()
-    var deviceTypeRoots = [URL(fileURLWithPath: "/Library/Developer/CoreSimulator/Profiles/DeviceTypes", isDirectory: true)]
-    var chromeRoots = [URL(fileURLWithPath: "/Library/Developer/DeviceKit/Chrome", isDirectory: true)]
-    if let developerDirectory {
-        deviceTypeRoots.insert(developerDirectory.appendingPathComponent(
-            "Platforms/iPhoneSimulator.platform/Library/Developer/CoreSimulator/Profiles/DeviceTypes", isDirectory: true), at: 0)
-        deviceTypeRoots.insert(developerDirectory.appendingPathComponent(
-            "Library/Developer/CoreSimulator/Profiles/DeviceTypes", isDirectory: true), at: 0)
-        chromeRoots.insert(developerDirectory.appendingPathComponent("Library/Developer/DeviceKit/Chrome", isDirectory: true), at: 0)
-    }
-    func plist(_ url: URL) -> [String: Any]? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any]
-    }
-    let deviceType = deviceTypeRoots.lazy.compactMap { root -> URL? in
-        let entries = (try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
-        return entries.first { entry in
-            entry.pathExtension == "simdevicetype"
-                && plist(entry.appendingPathComponent("Contents/Info.plist"))?["CFBundleIdentifier"] as? String == identifier
-        }
-    }.first
-    guard let deviceType,
-          let chromeIdentifier = plist(deviceType.appendingPathComponent("Contents/Resources/profile.plist"))?["chromeIdentifier"] as? String
-    else { return false }
-    let suffix = chromeIdentifier.split(separator: ".").last.map(String.init) ?? chromeIdentifier
-    return chromeRoots.contains { root in
-        fileManager.fileExists(atPath: root
-            .appendingPathComponent("\(suffix).devicechrome/Contents/Resources/chrome.json").path)
     }
 }

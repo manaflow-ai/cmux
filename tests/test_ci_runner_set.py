@@ -227,6 +227,7 @@ WRITTEN_OUT: dict[str, set[str]] = {
     'test-ios.yml': {'ios-simulator-cache-seed', 'runner'},
     'thunderdome-label.yml': {'backfill', 'label'},
     'triage-radar.yml': {'refresh'},
+    'ui-proof-stale-sweep.yml': {'sweep'},
     'update-homebrew.yml': {'update-cask'},
     'vercel-auth-health.yml': {'check'},
     'vercel-staging-env-apply.yml': {'apply'},
