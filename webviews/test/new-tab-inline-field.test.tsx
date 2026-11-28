@@ -175,6 +175,14 @@ test("a file pasted on the field draws in the field with its remove control, not
   await act(async () => editor.dispatchEvent(paste));
   const failed = ".nt-input .acpmux-md-inline-chip .acpmux-attachment-failed";
   await until(() => !!host.querySelector(failed));
+  // DIAG (removed before landing)
+  console.log(`DIAG input=${host.querySelector(".nt-input")?.outerHTML.slice(0, 4000)}`);
+  console.log(
+    `DIAG box=${host
+      .querySelector(".nt-box")
+      ?.outerHTML.replace(/<svg.*?<\/svg>/g, "")
+      .slice(0, 4000)}`,
+  );
   const chip = host.querySelector<HTMLElement>(failed);
   expect(chip).not.toBeNull();
   expect(chip!.getAttribute("title")).toContain("notes.txt");
