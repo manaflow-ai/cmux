@@ -366,7 +366,9 @@ fn ranked_rows(
         ));
         candidates.push((key, chat));
     }
+    let t0 = std::time::Instant::now();
     let order = ranked(query, entries, spec.history.as_ref().map(|h| (h.now, h.frecency.clone())));
+    let t_rank = t0.elapsed();
     let mut total = order.len();
     let mut rows: Vec<Row> = order
         .iter()
@@ -378,8 +380,13 @@ fn ranked_rows(
     let mut filling = false;
     if let Some((text, needle)) = needle {
         filling = !text.filled();
+        let t1 = std::time::Instant::now();
         let found = text.search(&needle);
+        let t_search = t1.elapsed();
+        let t2 = std::time::Instant::now();
+        eprintln!("STAGE search {:.2} ms hits {}", t_search.as_secs_f64() * 1e3, found.len());
         let titled: HashSet<usize> = order.into_iter().collect();
+        let _ = t2;
         // The candidates are in the index's order: newest first.
         for (i, (key, chat)) in candidates.iter().enumerate() {
             let Some(hit) = found.get(key) else { continue };
@@ -397,6 +404,14 @@ fn ranked_rows(
             }
             rows.push((key.clone(), value));
         }
+    }
+    if std::env::var_os("CHAT_SEARCH_STAGES").is_some() {
+        eprintln!(
+            "STAGE q={query:?} rank {:.2} ms total-after-rank {:.2} ms rows {}",
+            t_rank.as_secs_f64() * 1e3,
+            t0.elapsed().as_secs_f64() * 1e3,
+            rows.len()
+        );
     }
     WindowRows { rows, has_more: total > spec.filter.limit, total: Some(total), filling, folded }
 }
