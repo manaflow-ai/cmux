@@ -100,6 +100,49 @@ class Legs(unittest.TestCase):
                 vs.load_budgets([empty])
 
 
+class ScreenSplit(unittest.TestCase):
+    """Screen's two parts: the marker app's draw (inject -> its `commit` line) and the composite
+    (commit -> ScreenCaptureKit's display time)."""
+
+    def breakdown(self, commits):
+        o = vs.Orchestrator(types.SimpleNamespace(
+            source="synthetic", host="h", viewer="v", via="ssh", root="/r", python="p", out=None))
+        timing = [{"recv_us": 1_000, "inject_us": 1_100},
+                  {"shown_us": 30_100, "arrived_us": 31_000, "release_us": 31_000,
+                   "encoded_us": 33_000, "sent_us": 34_000}]
+        timing += [{"commit_us": t} for t in commits]
+        sample = {"capture_us": 31_000, "sent_ns": 900_000, "first_rx_ns": 35_000_000,
+                  "complete_ns": 36_000_000, "decoded_ns": 38_000_000}
+        return o.breakdown({"sample_times": [sample]}, timing, 0)[0]
+
+    def test_commit_splits_screen_into_draw_and_composite(self):
+        # An earlier commit (before the inject) is not this press's; the first one after it is.
+        row = self.breakdown([500, 2_100, 9_000])
+        self.assertEqual((row["draw"], row["commit"], row["composite"]), (29.0, 1.0, 28.0))
+        named = rows_named(vs.build_budget({"rows": [row]}, None))
+        self.assertEqual(named[" Draw"]["cmux"]["p50"], 1.0)
+        self.assertEqual(named[" Composite"]["cmux"]["p50"], 28.0)
+        self.assertEqual(named["Screen"]["cmux"]["p50"], 29.0)
+
+    def test_without_a_commit_in_100_ms_the_parts_say_why(self):
+        row = self.breakdown([200_000])
+        self.assertEqual((row["commit"], row["composite"]), (None, None))
+        named = rows_named(vs.build_budget({"rows": [row]}, None))
+        self.assertIn("--verbose", named[" Draw"]["cmux"]["null"])
+        self.assertIn("commit", named[" Composite"]["cmux"]["null"])
+        self.assertEqual(named["Screen"]["cmux"]["p50"], 29.0)
+
+    def test_marker_commits_reads_only_commit_lines(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False) as f:
+            f.write("marker-origin 10,20\nkey -> 1\ncommit 1 5000\ncommit 2 4000\ncommit x\n")
+        try:
+            self.assertEqual(vs.marker_commits(f.name), [4000, 5000])
+        finally:
+            os.unlink(f.name)
+        self.assertEqual(vs.marker_commits(f.name), [])
+
+
 class CaptureSplit(unittest.TestCase):
     """Capture's two parts: the gate wait (ss-encode-transport's stage) and the Linux readback
     (ss-capture's capture_start_us)."""
@@ -330,7 +373,7 @@ class AppleViewer(unittest.TestCase):
 
     def test_the_window_is_the_new_screen_sharing_window_naming_the_host(self):
         self.assertEqual(vs.screen_sharing_window(WINDOWS, "10.0.0.5"),
-                         {"pid": 900, "window": 77, "title": "10.0.0.5"})
+                         {"pid": 900, "window": 77, "title": "10.0.0.5", "matched": "title"})
         # One there before the run is never picked; a tiny one is no viewer window.
         only_old = [w for w in WINDOWS if w["window"] != 77]
         self.assertIsNone(vs.screen_sharing_window(only_old, "10.0.0.5", exclude={41}))
@@ -428,6 +471,20 @@ class AppleViewer(unittest.TestCase):
         # One that ran before is never touched.
         out, killed = self.open_with([], pids_before={500}, pids_after={500})
         self.assertEqual((killed, out["killed"]), ([], []))
+
+    def test_untitled_windows_take_the_one_new_window_of_the_screen_sharing_this_run_started(self):
+        untitled = [{"owner": "Screen Sharing", "pid": 900, "window": 90, "title": "",
+                     "layer": 0, "w": 1600, "h": 1000}]
+        self.assertEqual(vs.screen_sharing_window(untitled, "10.0.0.5", launched={900}),
+                         {"pid": 900, "window": 90, "title": "", "matched": "launched pid"})
+        self.assertIsNone(vs.screen_sharing_window(untitled, "10.0.0.5"))
+        two = untitled + [{**untitled[0], "window": 91}]
+        self.assertIsNone(vs.screen_sharing_window(two, "10.0.0.5", launched={900}))
+        other = untitled + [{**untitled[0], "window": 92, "pid": 901, "title": "other-mac"}]
+        self.assertIsNone(vs.screen_sharing_window(other, "10.0.0.5", launched={900}))
+        out, _ = self.open_with(untitled, pids_before=set(), pids_after={900})
+        self.assertEqual((out.get("window"), out.get("matched")), (90, "launched pid"))
+        self.assertIn("no marker visible through the Screen Sharing window", out["error"])
 
     def test_an_unnamed_window_is_never_picked_and_says_so(self):
         unnamed = [{"owner": "Screen Sharing", "pid": 900, "window": 90, "title": "other-mac",

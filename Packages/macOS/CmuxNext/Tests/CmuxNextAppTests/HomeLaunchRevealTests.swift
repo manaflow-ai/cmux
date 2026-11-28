@@ -12,13 +12,16 @@ import Testing
 /// launch showed the home workspace's "Start something new" at 3049 ms, then the second column and
 /// import cards, then the header, actions and message box at about 4978 ms: Home is made over
 /// several daemon replies (the dock's page tab, then the Chief conversation) and no launch region
-/// held it. A Home with no pane yet stays clear until its conversation's first page is in.
+/// held it. Leo, 2026-11-27, replaced the hold: "stop putting the opaque thing from the start like
+/// it should just load fast look like as it was asap ... all as soon as it comes". Home draws what it
+/// has from the first frame; its readiness (its own deadline, `reveal.home`) is still tracked.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct HomeLaunchRevealTests {
-    @Test func aHomeStillBeingMadeStaysClearUntilItsConversationIsIn() throws {
+    @Test func aHomeStillBeingMadeDrawsAsItComes() throws {
         let (services, reveal, window, content) = try Self.shown(kind: "home")
         defer { withExtendedLifetime(services) { content.teardown(); window.close() } }
-        #expect(content.contentView.alphaValue == 0, "a Home with no pane yet drew its pieces as they came")
+        #expect(!reveal.isReady(.home), "the test needs Home still being made")
+        #expect(content.contentView.alphaValue == 1, "a Home still being made was hidden behind a clear cover")
         reveal.markReady(.home)
         #expect(content.contentView.alphaValue == 1)
     }
@@ -41,7 +44,8 @@ struct HomeLaunchRevealTests {
     @Test func aHomeBeingMadeShowsOnceItsPageIsDocked() async throws {
         let (services, reveal, window, content) = try Self.shown(kind: "home")
         defer { withExtendedLifetime(services) { content.teardown(); window.close() } }
-        #expect(content.contentView.alphaValue == 0)
+        #expect(!reveal.isReady(.home))
+        #expect(content.contentView.alphaValue == 1, "Home was hidden while it was being made")
         var workspace = WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil, name: "Home", screens: [Self.dockedPage()])
         workspace.kind = "home"
         services.daemon.store.apply(snapshot: DaemonTree(workspaces: [workspace]))
@@ -81,11 +85,12 @@ struct HomeLaunchRevealTests {
         await Self.yield(until: { reveal.isReady(.sidebar) })
         #expect(reveal.isReady(.sidebar) && reveal.isReady(.pane), "the launch deadline still shows the window's regions")
         reveal.hold(home, until: .home)
-        #expect(home.alphaValue == 0, "the launch deadline released Home before it was made: it came in pieces")
+        #expect(!reveal.isReady(.home), "the launch deadline marked Home ready before it was made")
+        #expect(home.alphaValue == 1, "a held Home was hidden")
         try await clock.waitForSleeper()
         clock.advance(by: .milliseconds(1500))
         await Self.yield(until: { reveal.isReady(.home) })
-        #expect(home.alphaValue == 1, "a Home whose conversation never came stayed clear past its own deadline")
+        #expect(reveal.isReady(.home), "a Home whose conversation never came stayed unready past its own deadline")
     }
 
     /// The launch marks say whether Home showed by its data or by its deadline (goal next-launch-instant):
@@ -120,10 +125,11 @@ struct HomeLaunchRevealTests {
         try await clock.waitForSleeper()
         clock.advance(by: .milliseconds(600))
         await Self.yield(until: { reveal.isReady(.home) })
-        #expect(second.alphaValue == 0, "the replacing Home showed at the closed Home's deadline, before its page")
+        #expect(!reveal.isReady(.home), "the replacing Home was ready at the closed Home's deadline, before its page")
+        #expect(second.alphaValue == 1, "a held Home was hidden")
         clock.advance(by: .milliseconds(900))
         await Self.yield(until: { reveal.isReady(.home) })
-        #expect(second.alphaValue == 1, "the replacing Home stayed clear past its own deadline")
+        #expect(reveal.isReady(.home), "the replacing Home stayed unready past its own deadline")
     }
 
     /// Leo's NIGHTLY wrote no `launch-times.jsonl` line across six quit/relaunch rounds: his windows

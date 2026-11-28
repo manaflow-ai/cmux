@@ -47,8 +47,6 @@ def resolved(runs_on: str, owner: str, linux_runner: str, overflow: str, trusted
             "CI_CLOUD_OVERFLOW_SAVED": [overflow],
             "CI_TRUSTED_RUNNER": [trusted],
             "LINUX_RUNNER_DARWIN_CROSS": [darwin_cross],
-            # The overflow switch (scripts/ci/one_linux_label.py OVERFLOW): unset until a failover writes it.
-            "CI_OVERFLOW_LINUX": [""],
         },
         silent=("needs",),
     )
@@ -59,6 +57,8 @@ HOSTED = "ubuntu-24.04"
 # The one job with its own override: the Darwin cross-compile shadow.
 DARWIN_CROSS_JOB = "macos-cross-shadow"
 DARWIN_CROSS = "darwin-cross-pool"
+# The darwin cross build lane (cmuxterm-hq build-fleet/swift-linux-builder/lane-build-runners).
+DARWIN_CROSS_HOST = "cmux-gcp-lane-build-x64"
 # The remaining nightly publication jobs take this label on their first attempt.
 NIGHTLY = "cmux-gcp-nightly-x64"
 # The JIT-only nightly label (#47905): one job per VM, holding the nightly's App keys; it serves nightly runs only,
@@ -82,6 +82,10 @@ NIGHTLY_CONTROL_JOBS = ("reject-untrusted-pin-ref", "push-gate", "tree-preflight
                         "darwin-fallback-plan", "verify-publish", "adopt-commit-manifest", "verify-cdn-publication")
 NIGHTLY_PINNED_JOBS = NIGHTLY_TREE_JOBS + NIGHTLY_CONTROL_JOBS
 NIGHTLY_ARM = "github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || "
+# cmux_next_ daemon tests: a nightly rerun leaves the pool that failed it (#64136), and the push that saves the test
+# target follows the overflow switch to where pr-pipeline.yml's linux job restores it (scripts/ci/cmux-tui-test-target.sh).
+DAEMON_TESTS_ARM = ("github.run_attempt > 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' "
+                    "|| github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || vars.CI_OVERFLOW_LINUX || ")
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
 # The short jobs that sat queued on 2026-10-30; each must stay in the set.
 SHORT_JOBS = (
@@ -147,7 +151,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         for job in sorted(LINUX_LABEL_JOBS):
             with self.subTest(job=job):
-                arm = NIGHTLY_ARM if job in NIGHTLY_CONTROL_JOBS else ""
+                arm = (NIGHTLY_ARM if job in NIGHTLY_CONTROL_JOBS
+                       else DAEMON_TESTS_ARM if job == "cmux-next-daemon-tests" else "")
                 self.assertEqual(jobs[job]["runs-on"],
                                  "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + arm + "'cmux-linux' }}")
         for job in ("build", "build-linux"):
@@ -182,7 +187,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             if one_label(name, runs_on):
                 with self.subTest(job=name):
                     # A nightly tree job's attempt-1 pin keeps its place before the one label.
-                    self.assertEqual(labels - ({NIGHTLY} if name in NIGHTLY_PINNED_JOBS else set()), {"cmux-linux"})
+                    pinned = name in NIGHTLY_PINNED_JOBS or name == "cmux-next-daemon-tests"
+                    self.assertEqual(labels - ({NIGHTLY} if pinned else set()), {"cmux-linux"})
                 continue
             allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
                        | ({PERSISTENT} if runs_on.rstrip().endswith(f"'{PERSISTENT}' }}}}") else set())
@@ -202,6 +208,9 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             # The persistent pool is one label; there is no other Blacksmith size to move to.
             if runs_on.rstrip().endswith(f"'{PERSISTENT}' }}}}"):
                 continue
+            # A host pin (the darwin cross build lane) names its host, not a size: nothing to move.
+            if runs_on.rstrip().endswith(f"'{DARWIN_CROSS_HOST}' }}}}"):
+                continue
             for linux_runner in ("", "blacksmith-4vcpu-ubuntu-2404", SMALL):
                 with self.subTest(job=name, linux_runner=linux_runner):
                     size = size_label(WORKFLOW.name, name)
@@ -215,15 +224,17 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                     self.assertEqual([m for m in pool_members(size_pool) if m != FLEET][0], size)
                     self.assertEqual([m for m in pool_members(failover_pool) if m != FLEET][0], failover)
 
-    def test_only_the_darwin_cross_shadow_reads_its_override(self) -> None:
+    def test_only_the_darwin_cross_shadow_pins_the_cross_build_lane(self) -> None:
+        # linux-pickers-gone (host pins): the shadow names the lane's label, not vars.LINUX_RUNNER_DARWIN_CROSS.
         for name, runs_on in linux_routes():
-            for linux_runner in ("", POOL):
-                with self.subTest(job=name, linux_runner=linux_runner):
-                    labels = resolved(runs_on, "manaflow-ai", linux_runner, "", "", DARWIN_CROSS)
-                    if name == DARWIN_CROSS_JOB:
-                        self.assertIn(DARWIN_CROSS, labels)
-                    else:
-                        self.assertNotIn(DARWIN_CROSS, labels)
+            with self.subTest(job=name):
+                self.assertNotIn("LINUX_RUNNER_DARWIN_CROSS", runs_on)
+                labels = resolved(runs_on, "manaflow-ai", "", "", "")
+                if name == DARWIN_CROSS_JOB:
+                    self.assertIn(DARWIN_CROSS_HOST, labels)
+                    self.assertNotIn("cmux-linux", labels)
+                else:
+                    self.assertNotIn(DARWIN_CROSS_HOST, labels)
 
     def test_the_nightly_path_takes_the_owned_pool_first(self) -> None:
         # The tree request and publication jobs use the nightly runners on their first attempt.

@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.minimax.description" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيستخدم cmux مفتاح API الخاص بك لدى MiniMax للوصول إلى نماذج MiniMax. تُحتسب تكلفة الاستخدام على حسابك لدى MiniMax."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux će koristiti tvoj API ključ za MiniMax za pristup opciji modeli MiniMax. Upotreba se naplaćuje na tvom nalogu za MiniMax."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruger din API-nøgle til MiniMax til at tilgå MiniMax-modeller. Forbrug faktureres på din MiniMax-konto."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux verwendet deinen API-Schlüssel für MiniMax für den Zugriff auf Modelle von MiniMax. Die Nutzung wird deinem MiniMax-Konto berechnet."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux will use your MiniMax API key to access MiniMax models. Usage bills to your MiniMax account."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux usará tu clave de API de MiniMax para acceder a los modelos de MiniMax. El consumo se factura en tu cuenta de MiniMax."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux utilisera votre clé API MiniMax pour accéder à des modèles MiniMax. L’utilisation est facturée sur votre compte MiniMax."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux userà la tua chiave API di MiniMax per accedere a modelli MiniMax. L’uso viene addebitato sul tuo account MiniMax."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxはお使いのMiniMaxのAPIキーを使用してMiniMaxモデルにアクセスします。使用料金はMiniMaxアカウントに請求されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នឹងប្រើ សោ API របស់អ្នកសម្រាប់ MiniMax ដើម្បីចូលប្រើ ម៉ូដែល MiniMax។ ថ្លៃប្រើប្រាស់គិតលើគណនី MiniMax របស់អ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에서 MiniMax API 키로 MiniMax 모델에 액세스합니다. 사용량은 MiniMax 계정으로 청구됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruker API-nøkkelen din for MiniMax for å få tilgang til modeller fra MiniMax. Bruken faktureres på MiniMax-kontoen din."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux użyje Twojego klucza API usługi MiniMax, aby uzyskać dostęp do modeli MiniMax. Koszt użycia zostanie rozliczony na Twoim koncie MiniMax."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux usará sua chave de API de MiniMax para acessar os modelos de MiniMax. O uso será cobrado na sua conta de MiniMax."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux будет использовать ваш ключ API для MiniMax для доступа к следующему: модели MiniMax. Оплата списывается с аккаунта MiniMax."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะใช้คีย์ API ของ MiniMaxเพื่อเข้าถึงโมเดล MiniMax ระบบจะเรียกเก็บค่าบริการจากบัญชี MiniMax ของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux MiniMax modellerine erişmek için MiniMax API anahtarınızı kullanacak. Kullanım MiniMax hesabınıza faturalandırılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux використає ваш ключ API для MiniMax для доступу до такого: моделі MiniMax. Плата за використання нараховується на обліковий запис MiniMax."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sẽ dùng khóa API MiniMax của bạn để truy cập mô hình MiniMax. Phí sử dụng được tính vào tài khoản MiniMax của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 将使用你的MiniMax API 密钥访问MiniMax模型。使用费用计入你的MiniMax账号。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 將使用你的MiniMax API 金鑰存取MiniMax模型。使用費用計入你的MiniMax帳號。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

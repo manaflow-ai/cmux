@@ -24,6 +24,9 @@ const TRANSCRIPT_SCROLL_FILES = [
   `${TRANSCRIPT}/transcript/*.ts`,
   `${TRANSCRIPT}/transcript/*.tsx`,
 ];
+// The transcript's row components, which may not move themselves (cmuxterm-hq
+// docs/design/transcript-motion-model.md, "What a row may not do"); the list owns their motion.
+const TRANSCRIPT_ROW_FILES = [`${TRANSCRIPT}/conversation/*.tsx`, `${TRANSCRIPT}/transcript/*.tsx`];
 
 type LintPlugin = "eslint" | "typescript" | "unicorn" | "oxc" | "react" | "jsx-a11y" | "import";
 
@@ -73,6 +76,14 @@ export function cmuxCheckConfig({
             {
               files: TRANSCRIPT_SCROLL_FILES,
               rules: { "cmux-perf/transcript-scroll-writer": "error" as const },
+            },
+            {
+              files: TRANSCRIPT_ROW_FILES,
+              rules: { "cmux-perf/transcript-row-motion": "error" as const },
+            },
+            {
+              files: ["**/*.test.tsx", "**/*.gallery.tsx", "**/*.harness.tsx"],
+              rules: { "cmux-perf/transcript-row-motion": "off" as const },
             },
           ]
         : [],

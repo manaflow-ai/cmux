@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""The page-strings step of ci/steps.toml routes on the pull request that edits a catalog or a setting.
+"""The page-strings table entry is non-blocking; static-checks blocks it after merge.
 
 Leo, 2026-11-25: "making sure that like these asynchronous things, like they don't randomly wait each other
 forever and deadlock ... compile breaks and like things not publishing in time".
 
-#55301 (2026-11-26) edited a settings source and its catalog with English-only strings; the strict generation ran
-only in cmux-next-guards.yml static-checks, which a feat-cmux-next pull request skips, so the push's Release compile
-was red on every later commit and no nightly promoted for 3 h. #51725 did the same on 11-23. This holds that the
-step routes on those pull requests' files and stays off a change that cannot alter a page's strings.
+#55301 (2026-11-26) edited a settings source and its catalog with English-only strings; the strict generation in
+cmux-next-guards.yml static-checks kept the push's Release compile red on every later commit and no nightly promoted
+for 3 h. #51725 did the same on 11-23. The PR workflows no longer schedule this entry; the post-merge static check
+remains the blocking safety net. This holds that the table routes on those pull requests' files and stays off a
+change that cannot alter a page's strings.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ class PageStringsStepTest(unittest.TestCase):
         self.assertIn("page-strings", self.table.steps)
 
     def routed(self, paths: list[str]) -> bool:
-        return "page-strings" in ci_steps.route(self.table, paths, pr_scope=True).get("linux", [])
+        return "page-strings" in ci_steps.route(self.table, paths).get("advisory", [])
 
     def test_the_pull_requests_that_broke_base_route_it(self) -> None:
         self.assertTrue(self.routed(PR_55301))
@@ -51,9 +52,11 @@ class PageStringsStepTest(unittest.TestCase):
         self.assertFalse(self.routed(["webviews/src/agent-session/acpmux/VirtualTranscript.tsx"]))
         self.assertFalse(self.routed(["docs/ci/landing.md"]))
 
-    def test_it_blocks_and_runs_alone_with_node(self) -> None:
+    def test_it_is_nonblocking_and_runs_alone_with_node(self) -> None:
         step = self.table.steps["page-strings"]
-        self.assertTrue(step.blocks)
+        self.assertEqual(step.job, "advisory")
+        self.assertFalse(step.blocks)
+        self.assertEqual(step.klass, "idle")
         self.assertTrue(step.alone)
         self.assertIn("node", step.needs)
 

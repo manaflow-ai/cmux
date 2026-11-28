@@ -367,13 +367,17 @@ RUN bash -n /etc/cmux/bashrc \
 # Seed ble.sh tput caches for the TERMs cmux uses, exactly as the chatmux
 # template does (its Dockerfile carries the full rationale): without them the
 # FIRST shell on a machine prints "ble/term.sh: updating tput cache ... done"
-# into the pane before its first prompt. Both cache homes are seeded: the
+# into the pane before its first prompt, and "ble.sh: updating cache/keymap.emacs..."
+# (about 0.25 s, seconds on a slow clone) without the keymap one. Both cache homes are seeded: the
 # XDG seed copied by cmux-bashrc from /etc/cmux/blesh-cache-seed, and
 # <blesh>/cache.d for uid 0 plus the uid-1000 work user (numeric chown: the
-# provider's name for that user is not guaranteed).
+# provider's name for that user is not guaranteed). ble.sh loads the emacs keymap
+# lazily, so a seed shell fed a bare `exit` quits before writing keymap.emacs
+# (rebake 46100366318 failed its `test -s` on that): `ble-bind -m emacs` forces the
+# load, and the file it writes is byte-identical to a real session's.
 RUN mkdir -p /etc/cmux/blesh-cache-seed \
   && for term in xterm-256color screen-256color tmux-256color linux xterm-ghostty; do \
-       echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
+       echo 'ble-bind -m emacs -P >/dev/null; exit' | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
          script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; \
      done \
   && rm -rf /tmp/blesh-seed-home \
@@ -383,10 +387,11 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-ghostty \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs \
   && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
   && chmod a+rwxt /usr/local/share/blesh/cache.d \
-  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ \
-  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs /usr/local/share/blesh/cache.d/0/ \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs /usr/local/share/blesh/cache.d/1000/ \
   && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
   && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000
 

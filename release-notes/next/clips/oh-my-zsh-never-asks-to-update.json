@@ -1,0 +1,123 @@
+{
+  "caption": "A new terminal opens at your prompt even when Oh My Zsh is due to update, and your first keys reach the shell.",
+  "frameInterval": 0.25,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "A workspace with a terminal",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--name",
+        "Shell",
+        "--focus",
+        "--cwd",
+        "/tmp"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Install a real Oh My Zsh into the tour's own shell home (never the Mac's), its update check due and a newer commit upstream",
+      "cmux": [
+        "workspace",
+        "current",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "[[ $ZDOTDIR == */shell-home ]] && git clone -q --depth 2 https://github.com/ohmyzsh/ohmyzsh \"$ZDOTDIR/omz\" && git -C \"$ZDOTDIR/omz\" reset -q --hard HEAD~1 && mkdir -p \"$ZDOTDIR/omz-cache\" && echo LAST_EPOCH=1 > \"$ZDOTDIR/omz-cache/.zsh-update\" && { cat \"$ZDOTDIR/.zshrc\"; printf '%s\\n' 'export ZSH=$ZDOTDIR/omz ZSH_CACHE_DIR=$ZDOTDIR/omz-cache' 'ZSH_THEME= plugins=() ZSH_DISABLE_COMPFIX=true' 'source $ZSH/oh-my-zsh.sh' \"PROMPT='tour@studio-mac %1~ %# '\"; } > \"$ZDOTDIR/.zshrc.new\" && mv -f \"$ZDOTDIR/.zshrc.new\" \"$ZDOTDIR/.zshrc\" && clear && echo 'Oh My Zsh installed, its update check due'"
+      ],
+      "wait": 0.3
+    },
+    {
+      "title": "Run the install (a shallow clone)",
+      "cmux": [
+        "workspace",
+        "current",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "keys",
+        "enter"
+      ],
+      "wait": 25
+    },
+    {
+      "title": "Open a new terminal tab: it loads Oh My Zsh",
+      "cmux": [
+        "action",
+        "run",
+        "newSurface",
+        "--focus",
+        "--cwd",
+        "/tmp"
+      ],
+      "wait": 3.5,
+      "clip": true
+    },
+    {
+      "title": "Type the first command",
+      "cmux": [
+        "workspace",
+        "current",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "echo hello"
+      ],
+      "wait": 0.5,
+      "clip": true
+    },
+    {
+      "title": "Run it",
+      "cmux": [
+        "workspace",
+        "current",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "keys",
+        "enter"
+      ],
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "End",
+      "wait": 0.5
+    }
+  ],
+  "crop": [
+    0.19,
+    0,
+    0.81,
+    0.5
+  ]
+}

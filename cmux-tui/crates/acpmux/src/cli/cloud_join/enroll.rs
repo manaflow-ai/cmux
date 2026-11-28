@@ -283,7 +283,7 @@ fn read_mark(home: &Path) -> Option<LeaveMark> {
     std::fs::symlink_metadata(&path).ok()?;
     let mut mark: LeaveMark = crate::config::private_state_file(&path)
         .ok()
-        .and_then(|file| serde_json::from_reader(file).ok())
+        .and_then(|file| serde_json::from_reader(std::io::BufReader::new(file)).ok())
         .unwrap_or_default();
     mark.accounts.retain(|account| safe_id(account).as_deref() == Some(account.as_str()));
     Some(mark)

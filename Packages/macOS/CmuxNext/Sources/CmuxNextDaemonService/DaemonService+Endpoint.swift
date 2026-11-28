@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 import Foundation
+import CmuxNextCompat
 
 /// The daemon's capabilities and its socket, for callers that open their own connection.
 extension DaemonService {
@@ -14,6 +15,13 @@ extension DaemonService {
         guard let connection, let endpoint = await connection.endpoint else { throw DaemonError.notConnected }
         return endpoint
     }
+
+    /// The socket for a terminal attachment: the first connection's (``launchEndpoint``) while the main actor has
+    /// not taken it over yet, read without the main actor; else ``endpoint()``.
+    public nonisolated func attachEndpoint() async throws -> DaemonEndpoint {
+        if !policyBlock.isBlocked, let early = launchEndpoint.value { return early }
+        return try await endpoint()
+    }
 }
 
 extension DaemonService {
@@ -27,6 +35,14 @@ extension DaemonService {
         guard let id = terminalID?.rawValue, let connection, queuesCreatingInput else { return nil }
         return CreatingTerminalInput(terminalID: id, connection: connection, cancels: supports(DaemonCapability.creatingInputCancel.rawValue), targetKnown: targetKnown)
     }
+}
+
+/// The first connection's socket while only the startup task holds it (``DaemonService/launchEndpoint``).
+public nonisolated final class LaunchEndpointSlot: Sendable {
+    private let state = Mutex<DaemonEndpoint?>(nil)
+    public init() {}
+    public var value: DaemonEndpoint? { state.withLock { $0 } }
+    public func set(_ endpoint: DaemonEndpoint?) { state.withLock { $0 = endpoint } }
 }
 
 /// Which machine this service reaches.

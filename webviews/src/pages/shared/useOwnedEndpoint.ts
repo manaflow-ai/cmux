@@ -78,7 +78,7 @@ export interface NextTarget {
 }
 
 export function useNextTarget(
-  service: Pick<EndpointService, "harnessIds">,
+  service: Pick<EndpointService, "harnessIds"> | null,
   name: string,
   fallback: string,
   target: AddTarget | null,
@@ -86,6 +86,7 @@ export function useNextTarget(
   const [taken, setTaken] = useState<{ ids: string[] } | { failed: string } | null>(null);
   const [round, setRound] = useState(0);
   useEffect(() => {
+    if (!service) return;
     let live = true;
     service.harnessIds().then(
       (ids) => live && setTaken({ ids }),

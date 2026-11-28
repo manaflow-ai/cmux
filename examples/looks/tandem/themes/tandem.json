@@ -7,7 +7,7 @@
 // (darkened here to read at 3:1 as a control), the near-black #171717 of the composer's buttons.
 {
   "name": "Tandem",
-  "description": "An agent workspace, Light: a gray workspace card, a frosted sidebar of chats and tabs, white sheets, an orange policy accent.",
+  "description": "Light: a gray card, a frosted sidebar, an orange accent.",
 
   // The terminal follows the workspace; the window, sidebar and pages take this theme.
   "appearance.theme": "Builtin Light",

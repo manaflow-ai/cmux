@@ -35,6 +35,11 @@ COMMENT_LINE = re.compile(r"^\s*(//|\*|/\*)")
 EXTRA_BLOCKING = [
     re.compile(r"\.write\(contentsOf:"),
     re.compile(r"\bfileHandleForWriting\.write\("),
+    # File writes and file-system changes: a stalled disk (memory pressure, swap) holds the thread for as long
+    # as it stalls. Same receivers as check-main-actor-work.py's "synchronous file write" rule.
+    re.compile(r"\.write\(to(File)?:"),
+    re.compile(r"(\bFileManager(\.(default|checked))?|\b(manager|fileManager|fm))"
+               r"\.(createDirectory|removeItem|moveItem|copyItem|replaceItemAt)\("),
     re.compile(r"\.read\(upToCount:"),
     re.compile(r"\breadToEnd\(\)"),
     re.compile(r"\b\w*([pP]rocess|[cC]hild)\.run\(\)"),

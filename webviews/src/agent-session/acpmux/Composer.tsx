@@ -384,7 +384,7 @@ type Props = {
   /// absent where the chat opens no side chat.
   onQueueSideChat?(promptId: string, prompt: string): Promise<boolean>;
   /// `/side <prompt>` can fork this chat now (App.tsx, the command's own refusal rule): Send's menu
-  /// offers Send in side chat, and Option-Return sends there (composer/sendMenuModel.ts).
+  /// offers Send in side chat (composer/sendMenuModel.ts).
   sendsToSide?: boolean;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
@@ -3163,13 +3163,6 @@ function ComposerFrame({
     if (commandReturn && queues && (text.trim() || attachments.length > 0)) {
       event.preventDefault();
       send(false, followUpSteers("commandReturn", followUpMode, followUp));
-      return;
-    }
-    // Option-Return sends the draft in a side chat, where Send's menu offers that (sendMenuModel.ts);
-    // elsewhere it is left as it was.
-    if (sendChoiceForKey(event) === "side" && sendChoices.includes("side")) {
-      event.preventDefault();
-      chooseSend("side");
       return;
     }
     // ⌘Return on an empty prompt after a turn answers a waiting tagged ask (NextStepCard.tsx).

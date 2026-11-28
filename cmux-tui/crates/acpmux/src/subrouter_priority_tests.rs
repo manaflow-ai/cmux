@@ -103,3 +103,16 @@ fn a_profile_value_wins() {
     set(&mut env, "x-coord", true);
     assert_eq!(env.get(ENV).map(String::as_str), Some(BACKGROUND));
 }
+
+/// A create's `_meta.acpmux.tags.priority` (`asked_tag`): only the two classes the tag names.
+#[test]
+fn a_create_asks_for_its_class_in_its_tags() {
+    let meta =
+        |v: serde_json::Value| asked_tag(Some(&serde_json::json!({"tags": {"priority": v}})));
+    assert_eq!(meta(serde_json::json!("interactive")).as_deref(), Some(INTERACTIVE));
+    assert_eq!(meta(serde_json::json!(" Background ")).as_deref(), Some(BACKGROUND));
+    assert_eq!(meta(serde_json::json!("batch")), None);
+    assert_eq!(meta(serde_json::json!(true)), None);
+    assert_eq!(asked_tag(Some(&serde_json::json!({"tags": {}}))), None);
+    assert_eq!(asked_tag(None), None);
+}

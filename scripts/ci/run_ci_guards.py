@@ -672,12 +672,25 @@ def default_base(head_sha: str) -> str:
         return explicit
     # A push checkout of feat-cmux-next has none of these refs; each miss is expected, so git's
     # "fatal: Not a valid object name" stays out of the log (it read as the group's red on job 139513893359).
-    for ref in ("upstream/main", "mf/main", "origin/main"):
+    # The nearest merge-base wins: a feat-cmux-next head is ~61k commits from main's merge-base, so
+    # main alone made every "new since base" guard (iOS loading placeholders: 112 spinners) count
+    # the whole branch. Ties keep this order, so a main branch still compares to main.
+    best, best_distance = "", None
+    for ref in ("upstream/main", "mf/main", "origin/main",
+                "upstream/feat-cmux-next", "mf/feat-cmux-next", "origin/feat-cmux-next"):
         found = subprocess.run(["git", "merge-base", head_sha, ref], cwd=ROOT, stdout=subprocess.PIPE,
                                stderr=subprocess.DEVNULL, text=True)
-        if found.returncode == 0:
-            return found.stdout.strip()
-    return ""
+        if found.returncode != 0:
+            continue
+        base = found.stdout.strip()
+        counted = subprocess.run(["git", "rev-list", "--count", f"{base}..{head_sha}"], cwd=ROOT,
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        if counted.returncode != 0:
+            continue
+        distance = int(counted.stdout.strip() or 0)
+        if best_distance is None or distance < best_distance:
+            best, best_distance = base, distance
+    return best
 
 
 def tree_is_clean() -> bool:
@@ -942,6 +955,7 @@ def main(argv: list[str]) -> int:
         deadline.daemon = True
         deadline.start()
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
+    pending: dict[concurrent.futures.Future, tuple[Unit, list[Step]]] = {}
     try:
         def submit(task: tuple[Unit, list[Step]]) -> concurrent.futures.Future:
             runner = run_in_clean_copy if needs_clean_tree(task[1]) else run_steps
@@ -964,7 +978,6 @@ def main(argv: list[str]) -> int:
                             submit(follow_up)
                     yield step_results
 
-        pending: dict[concurrent.futures.Future, tuple[Unit, list[Step]]] = {}
         for batch in batches:
             for task in batch:
                 submit(task)
@@ -981,11 +994,17 @@ def main(argv: list[str]) -> int:
                         for line in passed_step_annotations(result.output):
                             safe_print(line, flush=True)
     except KeyboardInterrupt:
+        # Before the stop: the steps on a worker now, not the queued ones.
+        running = sorted({step.name for future, task in pending.items() if future.running() for step in task[1]})
         pool.shutdown(wait=False, cancel_futures=True)
         stop_running()
         if TIMED_OUT.is_set():
             safe_print(f"cmux guards: timed out after {args.deadline:.0f}s: {len(results)} steps finished, "
                        "the running ones were stopped and have no result", flush=True)
+            if running:
+                # Name them: a slow guard is otherwise invisible behind the deadline.
+                safe_print(f"cmux guards: still running at the deadline ({len(running)}): " + "; ".join(running),
+                           flush=True)
             return 124
         safe_print("cmux guards: interrupted", file=sys.stderr)
         return 130

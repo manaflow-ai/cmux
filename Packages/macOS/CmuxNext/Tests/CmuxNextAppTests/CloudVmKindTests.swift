@@ -8,6 +8,20 @@ import Testing
 /// its own personal VM) decides a start's `vm_kind: "owner"`, and with it the VM boundary for that
 /// machine's remote chains (acpmux `hub/vm_boundary.rs`).
 struct CloudVmKindTests {
+    @Test func onlyTheOwnersCapableMachineReceivesAnEndpoint() {
+        let endpoint = AgentSessionAttachClient.LaunchEndpoint(kind: .openAI, baseUrl: "https://provider.example", models: ["small"])
+        let params = { (owns: Bool, supports: Bool) in
+            AgentSessionAttachClient.startParams(cwd: nil, harness: "opencode", homeConfirmed: false, personKey: nil,
+                servesKeyedReason: false, callerOwnsVM: owns, servesVMKind: true, model: "byo/small", servesModel: true,
+                servesCredentials: true, credentials: ["CMUX_BYO_API_KEY": "fixture-secret"],
+                servesEndpointCredentials: supports, launchEndpoint: endpoint)
+        }
+        #expect(params(true, false)["credentials"] == nil)
+        #expect(params(false, true)["credentials"] == nil)
+        let wire = params(true, true)["credentials"] as? [String: any Sendable]
+        #expect((wire?["endpoint"] as? [String: any Sendable])?["models"] as? [String] == ["small"])
+    }
+
     /// `agent-session-start` sends `vm_kind: "owner"` only on the caller's owner answer and only
     /// to a daemon that takes the param (an older one refuses an unknown param).
     @Test func aStartSendsTheOwnerWordOnlyToADaemonThatTakesIt() {

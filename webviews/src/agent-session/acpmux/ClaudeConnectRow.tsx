@@ -35,7 +35,7 @@ export function ClaudeConnectRow({
 }) {
   const t = useT();
   return (
-    <div className="acpmux-connect-claude-row" data-connected={connected || undefined}>
+    <span className="acpmux-connect-claude-row" data-connected={connected || undefined}>
       <AgentMark agent={mark ?? CLAUDE_CONNECT_BRAND} size={14} reserve />
       <span className="acpmux-connect-claude-row-text">
         <span className="acpmux-connect-claude-row-name">{name}</span>
@@ -56,7 +56,7 @@ export function ClaudeConnectRow({
             className="ui-button ui-btn acpmux-connect-claude-row-button"
             data-variant="subtle"
             data-size="sm"
-            onClick={onConnect}
+            onClick={() => onConnect()}
           >
             {t("picker.connectClaude.connect")}
           </button>
@@ -65,8 +65,25 @@ export function ClaudeConnectRow({
             {t("picker.connectClaude.connect")}
           </span>
         ))}
-    </div>
+    </span>
   );
+}
+
+type ConnectFlowState = { openBrand: string | undefined; saved: boolean; ran: boolean };
+
+/// The connect flow's next state, a fixed point (a second step changes nothing): a sign-in that
+/// started has run; one that ran and ended with no error saved; and when the host no longer needs a
+/// connection (or the open brand left its list) the flow starts over.
+export function connectFlowStep(
+  state: ConnectFlowState,
+  host: { phase: unknown; error: unknown; needed: boolean; brands: readonly string[] },
+): ConnectFlowState {
+  const { openBrand } = state;
+  const ran = state.ran || (openBrand !== undefined && host.phase !== null);
+  const saved = state.saved || (ran && host.phase === null && host.error === null);
+  const over = !host.needed || (openBrand !== undefined && !host.brands.includes(openBrand));
+  if ((saved || openBrand || ran) && over) return { openBrand: undefined, saved: false, ran: false };
+  return { openBrand, saved, ran };
 }
 
 /// The composer's half of the flow: the picker's row props (undefined when there is no host
@@ -75,47 +92,48 @@ export function ClaudeConnectRow({
 /// its progress line without a second press; a host with only its own way in (`open`) runs that.
 export function useClaudeConnectFlow(): { row?: ClaudeConnectRowProps; card: ReactNode } {
   const host = useClaudeConnect();
-  const [open, setOpen] = useState(false);
+  const [openBrand, setOpenBrand] = useState<string>();
   const [saved, setSaved] = useState(false);
   const [ran, setRan] = useState(false);
   const progress = host?.progress ?? CONNECT_IDLE;
   // A sign-in that ran and ended with no error saved the connection: Connected until the host's
   // `needed` turns false (the row and card go); a later need (it was removed) starts over.
-  if (open && progress.phase !== null && !ran) setRan(true);
-  if (ran && progress.phase === null && progress.error === null && !saved) setSaved(true);
-  if ((saved || open || ran) && !host?.needed) {
-    setSaved(false);
-    setOpen(false);
-    setRan(false);
-  }
+  // One idempotent step (test/render-phase-set-pairs.test.ts): each state is set once, to a fixed point.
+  const brands = host?.brands ?? [CLAUDE_CONNECT_BRAND];
+  const next = connectFlowStep({ openBrand, saved, ran }, { ...progress, needed: !!host?.needed, brands });
+  if (next.ran !== ran) setRan(next.ran);
+  if (next.saved !== saved) setSaved(next.saved);
+  if (next.openBrand !== openBrand) setOpenBrand(next.openBrand);
   const begin = host?.begin;
   const row: ClaudeConnectRowProps | undefined = host?.needed
     ? {
-        brand: host.brand ?? CLAUDE_CONNECT_BRAND,
+        brands,
         connected: saved,
-        onConnect: () => {
+        onConnect: (asked?: string) => {
+          const brand = asked ?? brands[0];
+          if (!brand || !brands.includes(brand)) return;
           if (begin || host.add) {
-            setOpen(true);
-            if (begin) void begin().catch(() => undefined);
-          } else host.open?.();
+            setOpenBrand(brand);
+            if (begin && progress.phase === null) void begin(brand).catch(() => undefined);
+          } else host.open?.(brand);
         },
       }
     : undefined;
-  const family = (host?.brand ?? CLAUDE_CONNECT_BRAND) === CODEX_CONNECT_BRAND ? "codex" : "claude";
+  const family = openBrand === CODEX_CONNECT_BRAND ? "codex" : "claude";
   const card =
-    open && host?.needed ? (
+    openBrand && host?.needed && brands.includes(openBrand) ? (
       <div className="acpmux-connect-float ui-glass ui-glass-floats">
         <ConnectCard
           family={family}
           progress={progress}
           done={saved}
-          {...(begin ? { onBegin: begin } : {})}
+          {...(begin ? { onBegin: () => begin(openBrand) } : {})}
           {...(host.cancel
             ? {
                 onCancel: () => {
                   // A Cancel ends the run with no error: not a save, so no Connected; the card
                   // folds back to the row's Connect.
-                  setOpen(false);
+                  setOpenBrand(undefined);
                   setRan(false);
                   host.cancel?.();
                 },
@@ -130,7 +148,7 @@ export function useClaudeConnectFlow(): { row?: ClaudeConnectRowProps; card: Rea
               }
             : {})}
           {...(host.addKey ? { onApiKey: host.addKey } : {})}
-          onDismiss={() => setOpen(false)}
+          onDismiss={() => setOpenBrand(undefined)}
         />
       </div>
     ) : null;

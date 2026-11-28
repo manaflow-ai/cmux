@@ -24,8 +24,8 @@ use super::super::agent_session_attach_tests::{
 };
 use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink, remote_relay};
 use super::{
-    AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY, AGENT_TRANSFER_CAPABILITY, AgentTransferHost,
-    MAX_PAGE_BYTES, try_handle,
+    AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY, AGENT_TRANSFER_CAPABILITY,
+    AGENT_TRANSFER_TOOL_BOUNDARY_CAPABILITY, AgentTransferHost, MAX_PAGE_BYTES, try_handle,
 };
 use crate::mux::Mux;
 use crate::server::AgentStartHost;
@@ -821,7 +821,7 @@ const TOKEN: &str = "sk-ant-oat01-moved-owner-token";
 /// the owner's login now. The owner's word on the owner's own Cloud VM forwards it to acpmux's
 /// finish, as `agent-session-credentials` takes one.
 #[test]
-fn an_owner_finish_forwards_the_login_to_acpmux() {
+fn an_owner_finish_forwards_the_setup_token_and_binding_to_acpmux() {
     let fake = FakeAcpmux::start("xcred");
     let home = Home::new("cred");
     let mux = transfer_mux(&fake, "atx-cred", &home, true);
@@ -831,16 +831,17 @@ fn an_owner_finish_forwards_the_login_to_acpmux() {
                        "cwd":home.text("work/project"),"vm_kind":"owner"});
     ok_data(&client.request(owner));
     let _ = fake.frame();
+    let binding = format!("claude-token:{}", "a".repeat(64));
+    let credentials = json!({"env":{"ANTHROPIC_AUTH_TOKEN":TOKEN},"connection":binding});
     let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1",
-        "vm_kind":"owner","credentials":{"env":{"CLAUDE_CODE_OAUTH_TOKEN":TOKEN}}}));
+        "vm_kind":"owner","credentials":credentials}));
     ok_data(&finish);
     assert!(!finish.to_string().contains(TOKEN), "{finish}");
     let sent = fake.frame();
     assert_eq!(sent["method"], json!("_acpmux/transfer_finish"));
     assert_eq!(
         sent["params"],
-        json!({"receiveId":"rcv_1","cwd":home.canonical("work/project"),
-               "credentials":{"env":{"CLAUDE_CODE_OAUTH_TOKEN":TOKEN}}})
+        json!({"receiveId":"rcv_1","cwd":home.canonical("work/project"),"credentials":credentials})
     );
 }
 
@@ -1763,6 +1764,27 @@ fn a_begin_without_a_prepare_sends_todays_params() {
                                        "transfer_id":"xfer_1","have":0}));
     assert_code(&export, "agent_transfer.unknown_transfer");
     fake.no_frame();
+}
+
+#[test]
+fn a_tool_boundary_begin_asks_acpmux_to_wait_out_the_running_tool() {
+    let fake = FakeAcpmux::start("xboundary");
+    let home = Home::new("boundary");
+    let mux = transfer_mux(&fake, "atx-boundary", &home, false);
+    let advertised = run(&mux, json!({"cmd":"identify"}))["capabilities"].clone();
+    assert!(
+        advertised.as_array().unwrap().iter().any(|c| c == AGENT_TRANSFER_TOOL_BOUNDARY_CAPABILITY),
+        "{advertised}"
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "xboundary");
+    let begun = client.request(json!({"cmd":"agent-transfer-begin","surface":surface,
+                                      "at_tool_boundary":true}));
+    ok_data(&begun);
+    assert_eq!(
+        fake.frame()["params"],
+        json!({"sessionId":SESSION,"interrupt":false,"atToolBoundary":true})
+    );
 }
 
 #[test]

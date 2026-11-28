@@ -82,7 +82,18 @@ export class MockAgents {
     doctor: { ok: true, steps: [{ name: "prompt", ok: true }] },
   };
   /** Each endpoint harness added and its models, as acpmux lists them. */
-  private endpoints = new Map<string, { name: string; kind: string; models: string[] }>();
+  private endpoints = new Map<
+    string,
+    {
+      name: string;
+      kind: "anthropic-endpoint" | "openai-endpoint";
+      preset?: string;
+      baseUrl: string;
+      models: string[];
+      revision: string;
+      cloudEnabled?: boolean;
+    }
+  >();
   registry: AgentRegistryAgent[] = REGISTRY;
   readonly listeners = new Set<(state: AgentsState) => void>();
   private backups = 0;
@@ -95,7 +106,8 @@ export class MockAgents {
    * when sent, `*` the endpoint's list. */
   addEndpoint(params: Record<string, unknown>): { id: string } {
     const name = String(params.name ?? "").trim();
-    const kind = String(params.kind ?? "");
+    const kind = params.kind === "anthropic-endpoint" ? "anthropic-endpoint" : "openai-endpoint";
+    const baseUrl = String(params.baseUrl ?? "").replace(/\/+$/, "");
     if (!name) throw new ProtocolError("cmux.page.invalid_params", "name is required");
     const slug = (text: string) =>
       text
@@ -103,8 +115,12 @@ export class MockAgents {
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "")
         .slice(0, 40) || "my-backend";
-    const id = slug(String(params.id ?? "") || name);
+    const edit = typeof params.edit === "string" ? params.edit : null;
+    const id = edit ? String(params.id ?? "") : slug(String(params.id ?? "") || name);
     const replace = params.replace === id;
+    const current = this.endpoints.get(id);
+    if (edit && (!replace || current?.kind !== kind || current.revision !== edit))
+      throw new ProtocolError("cmux.page.invalid_params", "the endpoint changed while it was open");
     const apiKey = String(params.apiKey ?? "");
     const models: string[] = [];
     for (const word of String(params.model ?? "").split(",")) {
@@ -115,7 +131,16 @@ export class MockAgents {
     if (!replace && (this.state.harnesses.some((row) => row.id === id) || this.endpoints.has(id)))
       throw new ProtocolError("cmux.agents.exists", `${id} already has a profile`);
     if (apiKey) this.keys.set(id, apiKey);
-    this.endpoints.set(id, { name, kind, models });
+    else if (this.endpoints.get(id)?.baseUrl !== baseUrl) this.keys.delete(id);
+    this.endpoints.set(id, {
+      name,
+      kind,
+      preset: current?.preset ?? (typeof params.preset === "string" ? params.preset : undefined),
+      baseUrl,
+      models,
+      revision: String(Number(current?.revision ?? "0") + 1),
+      cloudEnabled: typeof params.servesCloud === "boolean" ? params.servesCloud : current?.cloudEnabled,
+    });
     const row: AgentHarnessRow = {
       id,
       name,
@@ -124,9 +149,36 @@ export class MockAgents {
       removable: true,
       default: false,
     };
-    this.state = { ...this.state, harnesses: [...this.state.harnesses.filter((entry) => entry.id !== id), row] };
+    this.state = {
+      ...this.state,
+      harnesses: [...this.state.harnesses.filter((entry) => entry.id !== id), row],
+    };
     for (const listener of this.listeners) listener(this.state);
     return { id };
+  }
+
+  modelEndpoint(id: string) {
+    const entry = this.endpoints.get(id);
+    if (!entry) return null;
+    const { name, cloudEnabled, ...endpoint } = entry;
+    const signedIn = this.keys.has(id);
+    const canServeCloud = signedIn && endpoint.baseUrl.startsWith("https:");
+    return {
+      id,
+      kind: "endpoint" as const,
+      provider: id,
+      families: [id],
+      label: name,
+      email: null,
+      plan: null,
+      enabled: true,
+      signedIn,
+      defaultFor: [],
+      servesCloud: canServeCloud && cloudEnabled !== false,
+      launchHarness: endpoint.kind === "anthropic-endpoint" ? "claude" : "opencode",
+      canServeCloud,
+      endpoint,
+    };
   }
 
   /** The endpoint harnesses for `cmux.chief.backend.list`'s `_acpmux/harnesses` part. */

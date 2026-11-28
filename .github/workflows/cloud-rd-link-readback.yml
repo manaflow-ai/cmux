@@ -44,7 +44,7 @@ jobs:
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-side-std-xcode-26.6' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'mac-std' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 75
     steps:
       - name: Refuse any ref but feat-cmux-next, and a malformed team
@@ -92,6 +92,8 @@ jobs:
           CMUX_GHOSTTY_SRC: ""
         run: |
           set -euo pipefail
+          # scripts/ci/cargo-mem-env.sh: one job per 6 GiB of a memory-capped slot, and the acpmux/cmux_tui rustc one at a time (-j2 alone still SIGKILLed both in 14 GiB).
+          source "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-env.sh"
           cargo build -p cmux-tui --bin cmux-tui --locked
           binary="${CARGO_TARGET_DIR:-$PWD/target}/debug/cmux-tui"
           case "$binary" in /*) ;; *) binary="$PWD/$binary" ;; esac

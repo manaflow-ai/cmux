@@ -80,6 +80,7 @@ public final class IPhoneHostService {
         var browserHosts: (any MobileHostBrowserHosting)?
         /// The app's simulator surface sources for the phone's streamed phone tabs; nil when it cannot stream simulators.
         var surfaceHosts: (any MobileHostSurfaceHosting)?
+        var siteData: (@Sendable (MobileHostSiteDataRequest) async throws -> MobileHostSiteData)?
         var cloudLinks: @Sendable () async -> MobileHostCloudLinks = { MobileHostCloudLinks() }
         /// Test-only (DEBUG): phones this tagged test instance trusts without the prompt.
         var pairingSeed: IPhonePairingSeed?
@@ -119,9 +120,9 @@ public final class IPhoneHostService {
                        deviceName: String, daemonSocket: String, chief: ChiefPlacement?) -> MobileHostLaunch {
         var launch = MobileHostLaunch(
             executable: executable, baseURL: dependencies.baseURL, teamID: account.teamID, userID: account.userID,
-            deviceID: deviceID, deviceName: deviceName, daemonSocket: daemonSocket,
-            stateDirectory: dependencies.stateDirectory, fileRoots: dependencies.fileRoots(),
-            stackProjectID: dependencies.stackProjectID, agentTabHost: dependencies.agentTabHost())
+            deviceID: deviceID, deviceName: deviceName, daemonSocket: daemonSocket, stateDirectory: dependencies.stateDirectory,
+            fileRoots: dependencies.fileRoots(), stackProjectID: dependencies.stackProjectID,
+            agentTabHost: dependencies.agentTabHost(), acpmuxHome: dependencies.acpmuxEnvironment?.home.path)
         launch.browserHosts = dependencies.browserHosts != nil
         launch.surfaceHosts = dependencies.surfaceHosts != nil
         launch.simulatorSurfaces = dependencies.surfaceHosts?.streamsSimulators ?? false
@@ -178,6 +179,11 @@ public final class IPhoneHostService {
     /// That file for a quit deadline's end, on its own thread: a save it cuts off is marked.
     @ObservationIgnored public let pairedQuitWatch = MobileHostPairedQuitWatch()
     @ObservationIgnored private var listing: Task<Void, Never>?
+    /// Called only by the person's hand-off setting; off until that setting is wired.
+    public func setSiteDataHandoff(enabled: Bool) async {
+        await supervisor.setSiteDataHandoff(enabled: enabled)
+    }
+
     @ObservationIgnored let supervisor = MobileHostSupervisor()
     /// Pairing requests waiting for the person, and the anti-flood state (Settings > Mobile lists them).
     internal(set) var prompts = MobileHostPairPrompts()
@@ -208,6 +214,8 @@ public final class IPhoneHostService {
     @ObservationIgnored private var watching: Task<Void, Never>?
     @ObservationIgnored private var following: Task<Void, Never>?
     @ObservationIgnored private var followingAccount: Task<Void, Never>?
+    /// Follows the person's site-data hand-off setting; cancelled when the app stops.
+    @ObservationIgnored var followingSiteDataHandoff: Task<Void, Never>?
     /// The user and team hostd runs for now (the toggle on); a name or email change does not restart it.
     @ObservationIgnored private var running: String?
     /// Counts the starts ``reconcile()`` makes: a start lets the Mac sleep only while no newer one has
@@ -577,6 +585,7 @@ public final class IPhoneHostService {
         running = nil
         following?.cancel()
         followingAccount?.cancel()
+        followingSiteDataHandoff?.cancel()
         applying?.cancel()
         identityRetry?.cancel()
         pairingWatch?.cancel()
@@ -745,7 +754,7 @@ public final class IPhoneHostService {
                     launch: launch, accessToken: dependencies.accessToken, acpmux: dependencies.acpmux,
                     log: dependencies.stateDirectory.appendingPathComponent("cmux-mobile-host.log", isDirectory: false),
                     browserHosts: dependencies.browserHosts, macIdentity: identity,
-                    surfaceHosts: dependencies.surfaceHosts, cloudLinks: dependencies.cloudLinks))
+                    surfaceHosts: dependencies.surfaceHosts, cloudLinks: dependencies.cloudLinks, siteData: dependencies.siteData))
                 self?.startBackoff.reset()
             } catch let refusal as CMUXBuildSpaceError {
                 // Does not pass by itself (a rebuild with a tag does): no retry, as for a blocked daemon socket.

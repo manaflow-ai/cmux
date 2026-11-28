@@ -68,6 +68,10 @@ def stamp(plist: dict) -> None:
     for key, value in (("SUPublicEDKey", env("SPARKLE_PUBLIC_KEY")), ("SUFeedURL", env("FEED_URL"))):
         plist.pop(key, None)
         plist[key] = value
+    # NEXT owns the update download and install policy. Keep Sparkle's shared
+    # automatic-update preference available to classic cmux while preventing
+    # its automatic driver from bypassing the app-owned policy in this bundle.
+    plist["SUAllowsAutomaticUpdates"] = False
     plist["CFBundleShortVersionString"] = env("NIGHTLY_MARKETING_VERSION")
     plist["CFBundleVersion"] = env("NIGHTLY_BUILD")
     plist.pop("CMUXCommit", None)

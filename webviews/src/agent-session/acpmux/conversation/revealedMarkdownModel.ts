@@ -33,7 +33,10 @@ function freshFadeMs(): number {
   try {
     // Kept per page and theme (motionTokens.ts): read each frame of a fade, the style read recalculated
     // the page's style after every commit that drew new text (a tool's output, 0.074 ms a record).
-    const token = motionToken(document.documentElement, "--agent-motion-in", document);
+    // A look's own streamed-text fade (`--cmux-motion-stream`, cmux.agentPane.style/1) wins; unset it
+    // reads as nothing (desktop.css declares it `initial`), so the host's fade-in times it, as `.cv-fresh` does.
+    const look = motionToken(document.documentElement, "--cmux-motion-stream", document);
+    const token = look.trim() ? look : motionToken(document.documentElement, "--agent-motion-in", document);
     const value = Number.parseFloat(token);
     if (!Number.isFinite(value) || value < 0) return FADE_MS;
     if (token.endsWith("ms")) return value * FRESH_FADE_STEPS;

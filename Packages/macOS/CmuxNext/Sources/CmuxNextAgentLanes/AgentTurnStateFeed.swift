@@ -135,7 +135,9 @@ public final class AgentTurnStateFeed {
         // Lines decode on the socket queue; one main-actor batch at a time, never a Task per
         // line (MainActorLineBatch), and a chat's pushes while one waits are its newest alone
         // (`Message.key`). The main actor only sets the states that changed.
-        // A reconnect with a cursor follows it: the rows changed while the watch was down.
+        // A reconnect with a cursor follows it: the rows changed while the watch was down. The rows'
+        // positions were the last connection's (maybe another daemon run's): this one's replies place them.
+        listFollow.reconnected()
         resyncing = listFollow.canFollow
         connection.start(send: Self.watchRequest(listFollow.watchParams), key: Message.key, decode: Message.init(line:)) { [weak self, weak connection] drain in
             guard let self, let connection, subscription === connection else { return }

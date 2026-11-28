@@ -1019,7 +1019,7 @@ impl Mux {
                 stamp_pane_focus(self, &mut state, pane_id);
             }
             Self::reindex_screen_after_growth(&mut state, workspace, screen_index, &old_splits);
-            let entity = crate::server::tree_entity_json(
+            let entity = crate::tree_wire::tree_entity_json(
                 &state,
                 &notifications,
                 TreeDeltaKind::PaneAdded,
