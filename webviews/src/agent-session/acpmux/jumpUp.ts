@@ -18,7 +18,7 @@
 // It shows only while that place is off screen. Pressed, it remembers where the view was; a second
 // press or Esc goes back there. Pure: VirtualTranscript.tsx feeds it rows, offsets and acts.
 
-import type { AcpmuxRow } from "./model";
+import { sentByPerson, type AcpmuxRow } from "./model";
 import { trailingTimer } from "../../ui/trailingTimer";
 
 /// A place in the transcript: a row and how far into it, layout px.
@@ -261,13 +261,13 @@ export function jumpUpShown(offScreen: boolean, held: boolean): boolean {
   return offScreen || held;
 }
 
-/// Whether a row is a prompt the reader sent by hand: not another agent's message, a task's result,
-/// harness bookkeeping or the Chief's message to a subagent (`incoming`, `untyped`, `from`), and in a
-/// shared chat not another person's. `me` is the author id this pane sends as
+/// Whether a row is a prompt the reader sent by hand: one the scroll rail ticks (model.ts
+/// `sentByPerson`: not another agent's message, a task's result, harness bookkeeping or the Chief's
+/// message to a subagent), and in a shared chat not another person's. `me` is the author id this pane sends as
 /// (multiplayer/presenceClient.ts `selfId`); the owner's prompts carry no author and acpmux names the
 /// owner `owner`.
 export function ownPrompt(row: AcpmuxRow, me = "owner"): boolean {
-  if (row.kind !== "user" || row.incoming || row.untyped || row.from !== undefined) return false;
+  if (!sentByPerson(row)) return false;
   return (row.author?.id ?? "owner") === me;
 }
 

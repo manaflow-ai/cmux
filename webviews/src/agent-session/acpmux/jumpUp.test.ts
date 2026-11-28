@@ -4,7 +4,7 @@
 // prompt in a shared chat (Leo, 2026-11-10: "jumping up since like the last time you interacted
 // manually").
 import { expect, jest, test } from "bun:test";
-import type { AcpmuxRow } from "./model";
+import { sentByPerson, type AcpmuxRow } from "./model";
 import {
   IDLE_KEEP_MS,
   IdleTracker,
@@ -359,4 +359,12 @@ test("a reply streaming on (its version moving) counts its growth; a running tur
     ]),
   );
   expect(state.mark?.place.rowId).toBe("p1");
+});
+
+test("a received task result is not the reader's prompt: the jump and the scroll rail read one predicate", () => {
+  const result = row("received-1", { received: {} as AcpmuxRow["received"] });
+  expect(ownPrompt(result)).toBe(false);
+  expect(ownPrompt(result)).toBe(sentByPerson(result));
+  const rows: AcpmuxRow[] = [row("typed-1"), reply("reply-1"), result];
+  expect(lastOwnPrompt(rows, scan())?.id).toBe("typed-1");
 });
