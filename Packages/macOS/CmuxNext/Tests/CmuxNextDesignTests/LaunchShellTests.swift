@@ -53,6 +53,18 @@ struct LaunchShellTests {
         #expect(movedClick.windowNumber == real.windowNumber && movedClick.locationInWindow == CGPoint(x: 40, y: 30))
     }
 
+    /// A swap that does not order the real window front still moves key off stage 0 (app 4236d7e5:
+    /// the closed stage 0 stayed the key window), unless another window took key meanwhile.
+    @Test func aPlainSwapHandsStage0sKeyToTheRealWindow() {
+        let stage0 = LaunchShellWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 400), title: "stage 0")
+        let other = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled],
+                             backing: .buffered, defer: false)
+        defer { stage0.close(); other.close() }
+        #expect(LaunchShell.handsKey(from: stage0, keyWindow: stage0))
+        #expect(LaunchShell.handsKey(from: stage0, keyWindow: nil))
+        #expect(!LaunchShell.handsKey(from: stage0, keyWindow: other))
+    }
+
     @Test func eventKindsMatchTheRustInputKinds() {
         #expect(LaunchShellReplay.kind(.keyDown) == 1 && LaunchShellReplay.kind(.keyUp) == 2)
         #expect(LaunchShellReplay.kind(.flagsChanged) == 3)
