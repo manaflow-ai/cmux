@@ -128,7 +128,7 @@ export default agentPaneEntry({
       play: idle,
     },
     "focused-typed": {
-      note: "The prompt focused with a draft: the edge light on and the send accented.",
+      note: "The prompt focused with a draft: the send accented; the edge light shows only while focus came from a key.",
       snapshot: startedChat(),
       play: focusedTyped,
       checks: SEND_ARRIVES,
