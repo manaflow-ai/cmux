@@ -7,9 +7,9 @@
 // spend_cap`) come from `spend_cap.state`; this module computes no threshold. It only parses the dollar field
 // and words what it was given. SpendingCard.tsx draws the result and nothing else.
 //
-// No write path exists yet: no typed client call sets `spendCapUsd` (cmux-cloud-wire has the read and the
-// `cloud.spend_cap.reached` refusal only). The card hands its changes to an `onChange` callback; the write is the
-// next PR, a Rust op beside the other cloud settings that the settings store calls.
+// The overage limit's write is Rust's (cmux-cloud-start-core `spending_write`, cmux-api `usage.cap.set
+// {overage_usd}` as the person's session); CloudSpendingCard calls it through the settings store, behind the app's
+// `cmux.cloud.spendingWrite` (default off). "Ask before above" has no write yet and stays local.
 import { type SpendCap, day, usd } from "../cloud/spendCap";
 
 /** A computer's size, as the cloud sizes it (RFD 0080's ComputerStatus `shape`). */

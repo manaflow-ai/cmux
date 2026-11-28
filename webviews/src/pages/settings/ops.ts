@@ -2121,6 +2121,12 @@ export type GithubTokenRule = {
   lastUsedAt: string | null;
 };
 
+/** One overage save's outcome (cmux-cloud-start-core `spending_write::Outcome`). */
+export type SpendingSaveOutcome =
+  | { kind: "saved"; overageUsd: number | null; teamCapUsd: number | null }
+  | { kind: "invalid"; message: string }
+  | { kind: "refused"; code: string; message: string; retry: boolean };
+
 /** Settings > Developer (`SettingsDeveloperTokens.state`). */
 export type DeveloperTokensState = {
   loading: boolean;
@@ -2831,6 +2837,12 @@ export type SettingsOps = {
   /** Settings > Team > Compute, an admin's one click: scale down, hold or scale up, and Auto (the
    * backend's `cloud.allotment.set`); answers the view after it. */
   "cmux.settings.cloud.allotment.set": [AllotmentSet, AllotmentView];
+  /** Native: Settings > Cloud > Spending, behind the app's `cmux.cloud.spendingWrite` (default off): refused while
+   * off or signed out, and the card draws nothing. */
+  "cmux.settings.cloud.spending.state": [Record<string, never>, { available: boolean }];
+  /** Native, on the person's click: the overage limit (null: off) as cmux-api `usage.cap.set {overage_usd}` with
+   * their session. Rust (cmux-cloud-start-core `spending_write`) words the outcome. */
+  "cmux.settings.cloud.spending.set": [{ overage_usd: number | null; key: string }, SpendingSaveOutcome];
   /** Native: this Mac's chat shares (Settings > Privacy and Security > Shared Links). */
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */

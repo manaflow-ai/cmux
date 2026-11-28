@@ -45,6 +45,8 @@ final class SettingsPageProvider: PageProvider {
     var environments: CloudEnvironmentsSettings?
     /// Settings > Cloud > Compute (``CloudAllotmentPage``): only the read; `cmux.settings.cloud.allotment.set` stays unknown here.
     var allotment: CloudAllotmentPage?
+    /// Settings → Cloud → Spending (``CloudSpendingPage``), behind `cmux.cloud.spendingWrite` (default off).
+    var spending: CloudSpendingPage?
     var devicesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     /// Settings > Privacy > Shared Links (``SettingsSharedLinks``): this Mac's chat shares, and Revoke.
     var sharesList: (@MainActor () async throws -> JSONValue)?
@@ -229,6 +231,8 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.environments.state": return try await Self.host(environments, "environments").pageState()
         case "cmux.settings.environments.run": return try await Self.host(environments, "environments").runPage(params)
         case "cmux.settings.cloud.allotment.get": return try await Self.host(allotment, "allotment").read()
+        case "cmux.settings.cloud.spending.state": return try Self.host(spending, "spending").state()
+        case "cmux.settings.cloud.spending.set": return try await Self.host(spending, "spending").set(params, context: context)
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()
         case "cmux.settings.shares.list": return try await Self.host(sharesList, "shares")()
         case "cmux.settings.shares.revoke":

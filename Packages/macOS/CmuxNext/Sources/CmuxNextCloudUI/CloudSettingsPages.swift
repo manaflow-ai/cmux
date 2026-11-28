@@ -57,3 +57,47 @@ public struct CloudAllotmentPage {
 
     static let unavailable = PageError(code: "cmux.page.unavailable", message: "team compute is unavailable")
 }
+
+/// Settings → Cloud → Spending (RFD 0080 "Spend controls"), behind `cmux.cloud.spendingWrite` (default off:
+/// `defaults write … cmux.cloud.spendingWrite -bool YES`). Off or signed out, both ops refuse and the card draws
+/// nothing. The save is the person's own: the app posts `usage.cap.set` with their session; Rust words the answer.
+@MainActor
+public struct CloudSpendingPage {
+    /// The defaults key of the switch; nothing sets it.
+    public static let flag = "cmux.cloud.spendingWrite"
+    private let available: @MainActor () -> Bool
+    private let save: @MainActor (_ overageUsd: Double?, _ key: String) async -> Data
+
+    /// `available`: the switch is on and the person is signed in to Cloud. `save`: the outcome's JSON
+    /// (`CloudSpendingWrite`).
+    public init(available: @escaping @MainActor () -> Bool, save: @escaping @MainActor (_ overageUsd: Double?, _ key: String) async -> Data) {
+        self.available = available
+        self.save = save
+    }
+
+    /// `cmux.settings.cloud.spending.state`: `{available: true}`, or the refusal the card reads as nothing to draw.
+    public func state() throws -> JSONValue {
+        guard available() else { throw Self.unavailable }
+        return ["available": .bool(true)]
+    }
+
+    /// `cmux.settings.cloud.spending.set {overage_usd, key}`, on the person's own gesture: the outcome
+    /// (`{kind: saved|invalid|refused, …}`).
+    public func set(_ params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        guard available() else { throw Self.unavailable }
+        guard context.userGesture || context.isConfirmedUser else {
+            throw PageError(code: PageNativeOp.userOnlyCode, message: "the overage limit changes only on the person's own click")
+        }
+        guard let key = params["key"]?.stringValue, !key.isEmpty else { throw PageError.invalidParams("key is required") }
+        let usd: Double?
+        switch params["overage_usd"] {
+        case nil, .null?: usd = nil
+        case let value?:
+            guard let number = value.doubleValue else { throw PageError.invalidParams("overage_usd is a number or null") }
+            usd = number
+        }
+        return (try? JSONValue.parse(await save(usd, key))) ?? ["kind": "refused", "code": "unknown", "retry": false]
+    }
+
+    static let unavailable = PageError(code: "cmux.page.unavailable", message: "spending is unavailable")
+}
