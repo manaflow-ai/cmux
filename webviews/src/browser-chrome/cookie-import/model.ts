@@ -30,8 +30,6 @@ export type CookieImportCommand = { type: CookieImportChoice };
  */
 export type CookieImportLook = "toast" | "buttons" | "stacked";
 
-export const COOKIE_IMPORT_LOOKS: readonly CookieImportLook[] = ["toast", "buttons", "stacked"];
-
 /** The look the app draws (picked in the gallery: see design/browser-chrome.md). */
 export const APP_COOKIE_IMPORT_LOOK: CookieImportLook = "toast";
 
