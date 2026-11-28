@@ -128,12 +128,15 @@ async fn a_chat_mid_turn_moves_after_its_turn() {
 /// A stand-in `cmux` (`CMUX_BIN`) for a Cloud move: `vm new --wait` answers a fresh machine with
 /// no cloud call, `move ID --to vm:MACHINE` moves the chat to the peer `target` with
 /// `acpmux session move` (or refuses, `fail`), `cloud pause-machine` answers ok. Each call is a
-/// line of `calls.log` in `dir`.
+/// line of `calls.log` in `dir`, except the daemon's sign-in ask (`--json auth token`, refused,
+/// not signed in): it starts and moves nothing, and its timing is the daemon's own.
 fn fake_cmux(dir: &Path, arrive: &Path, fail: bool) -> PathBuf {
     let script = format!(
         r#"#!/usr/bin/env python3
 import json, subprocess, sys
 args = sys.argv[1:]
+if args == ['--json', 'auth', 'token']:
+    sys.exit(2)
 with open({log}, 'a') as f:
     f.write(json.dumps(args) + '\n')
 if args[:3] == ['vm', 'new', '--wait']:
