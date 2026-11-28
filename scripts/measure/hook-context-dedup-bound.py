@@ -12,6 +12,8 @@ history before the window. This is an optimistic byte ceiling, NOT safe policy:
 identical pointers may name changed pages, and compaction may discard earlier
 instructions. Never rewrites transcripts or claims instruction conservation.
 Only aggregate counts are printed; transcript contents remain local.
+Subset snapshots retain subset-exploratory status, original diagnostics and file
+coverage; their theoretical bounds describe only the measured valid-file subset.
 """
 from __future__ import annotations
 
@@ -120,7 +122,11 @@ def measure(snapshot, workspace):
     if (result["turns"], result["total_bytes"], result["epoch"]["duplicate_bytes"]) != (
             recorded["turns"], recorded["total_bytes"], recorded["repeat_bytes"]):
         raise ValueError("counts disagree with source meter")
-    return {"schema": "hook-context-dedup-bound/v1", "status": "theoretical-bound",
+    return {"schema": "hook-context-dedup-bound/v1",
+            "status": "subset-exploratory" if receipt.get("status") == "subset-exploratory" else "theoretical-bound",
+            "analysis": "theoretical-bound", "parent_status": receipt.get("status"),
+            "parent_diagnostics": receipt.get("diagnostics", {}),
+            "parent_coverage": receipt.get("coverage", {}),
             "conservation_claim": False, "snapshot_receipt_sha256": digest(receipt_bytes),
             "script_sha256": digest(Path(__file__).read_bytes()),
             "meter_sha256": receipt["meter_sha256"], "window_start": receipt["window_start"],
