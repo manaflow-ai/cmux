@@ -22,6 +22,9 @@ char *cmux_layout_cache_read(const char *path);
 /* Atomic write of a LayoutCache JSON: 0 written, -1 bad input, -2 write failed (old file kept). */
 int32_t cmux_layout_cache_write(const char *path, const char *json);
 /* Usable JSON {windows, frames, content, reasons} for now_json {build_key, displays, now_ms}. */
+/* cmux_layout_cache_write, and on 0 the content's key in *key_out (when non-null) for
+ * cmux_layout_cache_coalescer_wrote_key: write off the coalescer's thread, clear it with no parse. */
+int32_t cmux_layout_cache_write_keyed(const char *path, const char *json, uint64_t *key_out);
 char *cmux_layout_cache_usable(const char *cache_json, const char *now_json);
 /* Applied JSON {node, transitions, moved} for a cached PaneNode and a LiveTree
  * {panes, root?, bounds?, divider}. */
@@ -50,6 +53,8 @@ bool cmux_layout_cache_coalescer_flush_now(CmuxLayoutCacheCoalescer *c);
 int32_t cmux_layout_cache_coalescer_write(CmuxLayoutCacheCoalescer *c, const char *path, const char *json);
 /* Records a write made through cmux_layout_cache_write; false for bad input. */
 bool cmux_layout_cache_coalescer_wrote(CmuxLayoutCacheCoalescer *c, const char *json);
+/* Records a write made through cmux_layout_cache_write_keyed, by its key; false for a null c. */
+bool cmux_layout_cache_coalescer_wrote_key(CmuxLayoutCacheCoalescer *c, uint64_t key);
 
 #ifdef __cplusplus
 }

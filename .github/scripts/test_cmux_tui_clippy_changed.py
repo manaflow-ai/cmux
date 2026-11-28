@@ -14,6 +14,7 @@ acpmux indexing_slicing hits); a fake ratchet records how it is called.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,14 @@ import unittest
 
 SCRIPT = Path(__file__).with_name("cmux-tui-clippy-changed.py")
 RATCHET = Path(__file__).resolve().parents[2] / "scripts/cmux-next/rust_panic_ratchet.py"
+_SPEC = importlib.util.spec_from_file_location("cmux_tui_clippy_changed", SCRIPT)
+assert _SPEC and _SPEC.loader
+MODULE = importlib.util.module_from_spec(_SPEC)
+sys.modules[_SPEC.name] = MODULE
+_SPEC.loader.exec_module(MODULE)
+# The head run's artifact for pkg-a, with the features cargo unified for it across the selection.
+PKG_A_ARTIFACTS = json.dumps({"reason": "compiler-artifact", "package_id": "path+file:///w/cmux-tui/crates/a#pkg-a@0.1.0",
+                              "target": {"name": "pkg_a", "kind": ["lib"]}, "features": ["extra", "default"]})
 FAKE_CARGO = """#!/usr/bin/env bash
 if [[ "$1" == metadata ]]; then
   [[ -n "${METADATA_FAILS:-}" ]] && { echo "error: failed to parse manifest" >&2; exit 101; }
@@ -80,6 +89,7 @@ for arg in "$@"; do
     exit 101
   fi
   if [[ "$arg" == --message-format=json ]]; then
+    [[ -n "${ARTIFACTS:-}" ]] && printf '%s\\n' "$ARTIFACTS"
     echo '{"reason":"build-finished","success":true}'
   fi
 done
@@ -684,12 +694,15 @@ class ClippyChangedTests(unittest.TestCase):
         heads = self.tmp / "heads.log"
         out = self.tmp / "out" / "panic-clippy.jsonl"
         result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
-                                env_extra={"HEAD_LOG": str(heads), "RATCHET_RC": "1",
+                                env_extra={"HEAD_LOG": str(heads), "RATCHET_RC": "1", "ARTIFACTS": PKG_A_ARTIFACTS,
                                            "RATCHET_UNTOUCHED_OUT": "rust-panic-ratchet: RED\n"
                                            "  pkg-a: clippy::unwrap_used 2 > baseline 1\n      crates/a/src/lib.rs:7:5\n"})
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", "--examples", *PANIC]
-        base_lint = ["clippy", "--locked", "-p", "pkg-a", "--lib", "--bins", "--examples", *PANIC]
+        # pkg-a keeps the features its dependents turned on in the head run (cmux#45686: acpmux alone lost
+        # hub-carrier and test-support, so the base counted fewer hits than the head with no change of its own).
+        base_lint = ["clippy", "--locked", "-p", "pkg-a", "--no-default-features", "--features",
+                     "pkg-a/default,pkg-a/extra", "--lib", "--bins", "--examples", *PANIC]
         self.assertEqual(self.calls(), [lint, base_lint])
         self.assertEqual(heads.read_text().split(), [head, self.base])
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), head, "the checkout is back on HEAD")
@@ -697,6 +710,25 @@ class ClippyChangedTests(unittest.TestCase):
         strict = self.judged(out)
         untouched = [*strict, "--untouched-is-base", "--diff-base", self.base]
         self.assertEqual(self.ratchet_calls(), [strict, untouched, [*untouched, "--base-clippy-json", str(base_out)]])
+
+    def test_compare_base_lints_every_package_when_the_head_run_names_no_features_for_a_red_crate(self) -> None:
+        # Without the head's unified features a crate linted alone can count fewer hits than the head; the whole
+        # selection at the base unifies them as the head run did.
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
+                                env_extra={"RATCHET_RC": "1",
+                                           "RATCHET_UNTOUCHED_OUT": "  pkg-a: clippy::unwrap_used 2 > baseline 1\n"})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", "--examples", *PANIC]
+        self.assertEqual(self.calls(), [lint, lint])
+
+    def test_artifact_package_reads_every_cargo_package_id_spelling(self) -> None:
+        for package_id, name in (("acpmux 0.1.0 (path+file:///w/crates/acpmux)", "acpmux"),
+                                 ("path+file:///w/crates/acpmux#0.1.0", "acpmux"),
+                                 ("path+file:///w/crates/hub#acpmux@0.1.0", "acpmux")):
+            with self.subTest(package_id=package_id):
+                self.assertEqual(MODULE.artifact_package(package_id), name)
 
     def test_compare_base_lints_every_package_when_a_red_crate_was_not_selected(self) -> None:
         self.change("cmux-tui/crates/a/src/lib.rs")
