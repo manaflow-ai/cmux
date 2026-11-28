@@ -1349,6 +1349,56 @@ def runner_shut_down(log: str) -> str | None:
     return None
 
 
+# A checkout step's red that is the network's or the reused workspace's, never the commit's: a partial clone's blob
+# fetch that stalled (cmux jobs 139514965769, 139502980388, 139501266914, 2026-11-25: "could not fetch <sha> from
+# promisor remote" after curl 28 "Operation too slow"), a fetch GitHub dropped, or a workspace an earlier job left
+# behind. hq handbook sparse-checkout-left-on-a-reused-runner.md rule 8.
+CHECKOUT_INFRA = re.compile(
+    r"from promisor remote|Operation too slow|Failed to connect to|Could not resolve host|unable to access '|"
+    r"RPC failed|early EOF|bad pack header|unexpected disconnect|transfer closed with|the remote end hung up|"
+    r"The requested URL returned error: (?:5\d\d|429)|Connection (?:reset|refused|timed out)|"
+    r"not uptodate\. Cannot merge|not uptodate; will not remove|fatal: not a git repository|index\.lock': File exists|"
+    r"Another git process seems to be running")
+# What the commit or its workflow did: a ref, path or option that is wrong is the PR's own red.
+CHECKOUT_OWN = re.compile(
+    r"not our ref|unadvertised object|couldn't find remote ref|invalid path|pathspec '[^'\n]{0,400}' did not match|"
+    r"Repository not found|could not read Username|Permission to \S{1,200} denied|Input required|"
+    r"Unexpected input|is not a valid|does not exist|Invalid (?:format|repository)")
+CHECKOUT_STEP = re.compile(r"\bcheck[- ]?out\b|actions/checkout", re.I)
+
+
+def checkout_infra(job, log):
+    """Why failed JOB's red is infra (a re-run, no verdict), or None: every failed step is a checkout
+    (actions/checkout), the section of LOG that failed is that action's own (its `##[group]Run actions/checkout`
+    is the last step header before the first `##[error]`), and its lines show a network or workspace failure
+    (CHECKOUT_INFRA) and nothing the commit or workflow caused (CHECKOUT_OWN). A checkout that went on and a later
+    step that failed keeps its verdict, as does a log with no actions/checkout section."""
+    if (job or {}).get("conclusion") != "failure" or not isinstance(log, str):
+        return None
+    steps = [step for step in (job or {}).get("steps") or [] if isinstance(step, dict)]
+    failed = [str(step.get("name") or "") for step in steps if step.get("conclusion") == "failure"]  # step-name: classify
+    if failed and not all(CHECKOUT_STEP.search(name) for name in failed):
+        return None
+    header, section, erred = None, [], False
+    for text in log_lines(log):
+        if text.startswith("##[group]Run "):
+            if erred:
+                break
+            header, section = text[len("##[group]Run "):], []
+            continue
+        section.append(text)
+        erred = erred or text.startswith("##[error]")
+    if not erred or header is None or not header.startswith("actions/checkout"):
+        return None
+    if any(CHECKOUT_OWN.search(text) for text in section):
+        return None
+    hits = [text for text in section if CHECKOUT_INFRA.search(text)]
+    if not hits:
+        return None
+    said = " ".join(hits[-1].removeprefix("##[error]").split())[:200]
+    return f"its checkout step ({header.split()[0]}) failed on the network or a reused workspace: {said}"
+
+
 # A job that died inside actions/checkout, before any step of the change ran: cmux#51655 at fd3c0b17 (2026-11-25),
 # 'cmux-tui spec inventory / changes' (job 139448781664) failed in `Run actions/checkout@...` on "fatal: unable to
 # access 'https://github.com/manaflow-ai/cmux/': Operation too slow" and "could not fetch ... from promisor remote",
@@ -1427,7 +1477,8 @@ def lost_runner(job, annotations=(), log=None):
     a job that completed with a step still unfinished and no step failed (the runner stopped reporting mid-step); or
     a log GitHub never stored (BlobNotFound) with no step failed. A job with a failed step keeps its verdict, except
     the one case where the failed step is the shutdown itself (runner_shut_down): the runner's notice in LOG plus a
-    step that ended on a sent signal."""
+    step that ended on a sent signal, and a checkout step that failed on the network or a reused workspace
+    (checkout_infra)."""
     if (job or {}).get("conclusion") != "failure":
         return None
     for note in annotations or ():
@@ -1442,6 +1493,8 @@ def lost_runner(job, annotations=(), log=None):
     if why := runner_worker_crashed(job, annotations):
         return why
     if isinstance(log, str) and (why := runner_shut_down(log)):
+        return why
+    if why := checkout_infra(job, log):
         return why
     steps = [step for step in (job or {}).get("steps") or [] if isinstance(step, dict)]
     if any(step.get("conclusion") == "failure" for step in steps):
