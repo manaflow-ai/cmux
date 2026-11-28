@@ -1477,6 +1477,12 @@ export class AcpmuxDirectClient {
   /// back as a revisit gets `leftRows`, so the pane's turns shaped ahead from them are reused
   /// (settled-page bench, chat_switch: the first switch to a chat did all a revisit skips).
   private readonly warmedRows = new Map<string, ReadonlyMap<string, AcpmuxRow>>();
+  /// The kept tails this page already folded ahead (`warmRows`), so the idle pass ends: with more than
+  /// `WARMED_ROWS_KEPT` chats to warm, the one `warmedRows` let go read as never warmed and was folded
+  /// again, one chat per idle slot, for as long as the page showed (chat_100k_flat grown x20: 19 hidden
+  /// chats rebuilt with kept tails, then ~12% renderer CPU and ~15 MB/s of JS garbage on the shown page).
+  /// A new read of a chat's tail is a new object, so it warms again. Weak: it keeps no tail alive.
+  private readonly warmedTails = new WeakSet<KeptTail>();
   /// Each `warmRows` result, for the pane to shape ahead (`onWarmed`).
   private readonly warmListeners = new Set<(warmed: WarmedChat) => void>();
   private warmIdle?: () => void;
@@ -2567,7 +2573,7 @@ export class AcpmuxDirectClient {
       if (this.leftRows.has(sessionId) || this.warmedRows.has(sessionId)) continue;
       if (session.coldArchive || this.chatRows.holds(sessionId)) continue;
       const tail = keptTail(sessionId);
-      if (tail && !olderThanShown(sessionId, tail)) return sessionId;
+      if (tail && !this.warmedTails.has(tail) && !olderThanShown(sessionId, tail)) return sessionId;
     }
     return undefined;
   }
@@ -2580,6 +2586,7 @@ export class AcpmuxDirectClient {
     if (this.closed || this.fedMode || sessionId === this.selectedSessionId) return undefined;
     const tail = keptTail(sessionId);
     if (!tail || olderThanShown(sessionId, tail) || this.chatRows.holds(sessionId)) return undefined;
+    this.warmedTails.add(tail);
     const client = AcpmuxDirectClient.fed(sessionId, () => undefined);
     // The open reads the listed entry with the tail (`drawKeptTail`): so does this fold.
     client.sessions = this.sessions;
