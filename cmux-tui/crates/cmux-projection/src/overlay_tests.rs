@@ -12,6 +12,42 @@ fn me() -> Who {
     unsafe { Who { uid: libc::getuid(), gid: libc::getgid() } }
 }
 
+#[test]
+fn a_directory_replacement_excludes_a_second_attempt_until_it_finishes() {
+    let gate = MutationGate::new();
+    let replacing = gate.replace_pristine().unwrap();
+    assert_eq!(gate.replace_pristine().err(), Some(libc::EBUSY));
+    drop(replacing);
+    let retry = gate.replace_pristine().unwrap();
+    retry.replacement_committed();
+    drop(retry);
+    assert_eq!(gate.replace_pristine().err(), Some(libc::EBUSY));
+}
+
+#[test]
+fn sealing_during_a_directory_replacement_has_a_bounded_wait() {
+    let gate = Arc::new(MutationGate::new());
+    let replacing = gate.replace_pristine().unwrap();
+    let (answered, answer) = std::sync::mpsc::channel();
+    let sealing = gate.clone();
+    let sealer = std::thread::spawn(move || {
+        let started = Instant::now();
+        let drained = sealing.seal(Duration::from_millis(20));
+        answered.send((drained, started.elapsed())).unwrap();
+    });
+    let late_gate = gate.clone();
+    let late = std::thread::spawn(move || late_gate.enter().map(|_| ()));
+    let result = answer.recv_timeout(Duration::from_secs(1));
+    // Release even on a failed assertion so the regression cannot strand test threads.
+    drop(replacing);
+    sealer.join().unwrap();
+    let (drained, elapsed) = result.unwrap();
+    assert!(!drained);
+    assert!(elapsed < Duration::from_secs(1), "seal took {elapsed:?}");
+    assert_eq!(late.join().unwrap(), Err(libc::EROFS));
+    assert!(gate.seal(Duration::ZERO));
+}
+
 /// Serves bytes by entry from memory and counts every call.
 #[derive(Default)]
 pub(crate) struct Fake {
