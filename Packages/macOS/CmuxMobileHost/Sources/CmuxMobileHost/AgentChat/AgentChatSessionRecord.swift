@@ -177,12 +177,30 @@ public struct AgentChatChildRun: Sendable, Equatable {
     public var label: String?
     public let startedAt: Date
     public var endedAt: Date?
+    /// The subagent type the spawn asked for (Claude's `subagent_type`).
+    public var agentType: String?
+    /// The agent's own id for this child, once one of its events named it.
+    /// Claude's spawn does not carry it; see `bindSubagent(agentID:agentType:)`.
+    public var agentID: String?
+    /// The spawn's tool-use id, which a Claude `<task-notification>` names.
+    public var toolUseID: String?
 
-    public init(id: String, label: String? = nil, startedAt: Date, endedAt: Date? = nil) {
+    public init(
+        id: String,
+        label: String? = nil,
+        startedAt: Date,
+        endedAt: Date? = nil,
+        agentType: String? = nil,
+        agentID: String? = nil,
+        toolUseID: String? = nil
+    ) {
         self.id = id
         self.label = label
         self.startedAt = startedAt
         self.endedAt = endedAt
+        self.agentType = agentType
+        self.agentID = agentID
+        self.toolUseID = toolUseID
     }
 
     public var isRunning: Bool { endedAt == nil }

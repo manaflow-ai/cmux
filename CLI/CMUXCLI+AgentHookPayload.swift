@@ -133,6 +133,7 @@ extension CMUXCLI {
 
         for key in [
             "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath", "agent_id", "agentId",
+            "agent_type", "agentType",
             "permission_mode", "permissionMode",
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
@@ -160,9 +161,21 @@ extension CMUXCLI {
             compact["\(key)_length"] = raw.count
         }
 
+        // A task notification is longer than the prompt preview kept above,
+        // so the ids it reports are read from the whole prompt here.
+        // A payload spooled in this compact form comes back through here with
+        // only the preview, so ids found the first time are kept.
+        var finished = (object["finished_task_ids"] as? [String] ?? []).filter { !$0.isEmpty && $0.count <= 128 }
+        if let prompt = object["prompt"] as? String {
+            for id in Self.finishedTaskIDs(inTaskNotifications: prompt) where !finished.contains(id) {
+                finished.append(id)
+            }
+        }
+        if !finished.isEmpty { compact["finished_task_ids"] = Array(finished.prefix(16)) }
+
         if let toolInput = object["tool_input"] as? [String: Any] {
             var compactToolInput: [String: Any] = [:]
-            for key in ["file_path", "command", "pattern", "description", "query", "plan", "planFilePath"] {
+            for key in ["file_path", "command", "pattern", "description", "subagent_type", "query", "plan", "planFilePath"] {
                 if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
                     compactToolInput[key] = value
                 }
@@ -253,6 +266,32 @@ extension CMUXCLI {
     /// Message-bearing keys whose true length is published beside the
     /// truncated value. Mirrors `promptMessageKeys` in WorkspacePromptSubmit.
     static let hookMessageLengthKeys = ["prompt", "text", "message", "body"]
+
+    /// Tool-use and task ids named by the `<task-notification>` blocks in
+    /// `prompt` that carry a `<status>`: background work Claude reports as
+    /// finished or stopped. A subagent stopped with `TaskStop` fires no
+    /// `SubagentStop`, so this is the only word of it. Monitor event
+    /// notifications have no `<status>` and are skipped, as is a status of
+    /// `running`.
+    static func finishedTaskIDs(inTaskNotifications prompt: String) -> [String] {
+        var ids: [String] = []
+        var remainder = prompt[...]
+        while ids.count < 16, let start = remainder.range(of: "<task-notification>") {
+            let afterStart = remainder[start.upperBound...]
+            let end = afterStart.range(of: "</task-notification>")
+            let body = end.map { afterStart[..<$0.lowerBound] } ?? afterStart
+            if body.contains("<status>"), !body.contains("<status>running</status>") {
+                for tag in ["tool-use-id", "task-id"] {
+                    guard let open = body.range(of: "<\(tag)>"),
+                          let close = body[open.upperBound...].range(of: "</\(tag)>") else { continue }
+                    let id = body[open.upperBound..<close.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !id.isEmpty, id.count <= 128 { ids.append(id) }
+                }
+            }
+            remainder = end.map { afterStart[$0.upperBound...] } ?? afterStart[afterStart.endIndex...]
+        }
+        return ids
+    }
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
