@@ -328,7 +328,11 @@ try {
       const session = sessions.find((s) => s.sessionId === id) ?? sessions[0]!;
       return { ...session, lastSeq: lastSeqOf(id) };
     };
+    // Methods the stand-in answered null, named when a chat never loads (a client that now waits on one it lacks).
+    const asked = new Map<string, number>();
+    const unanswered = new Set<string>();
     const answer = (ws: ServerWebSocket<undefined>, method: string, params: Record<string, unknown>): unknown => {
+      asked.set(method, (asked.get(method) ?? 0) + 1);
       const id = String(params.sessionId ?? PAPERCUT_CHAT);
       switch (method) {
         case "initialize":
@@ -376,6 +380,7 @@ try {
           return { events: [], hasMore: false, lastSeq: lastSeqOf(id) };
         }
         default:
+          unanswered.add(method);
           return null;
       }
     };
@@ -538,7 +543,7 @@ try {
             .catch((e) => ({ evaluate: String(e) }));
           // One line: the suite keeps only a failure's last few lines.
           throw new Error(
-            `chat ${index} never loaded (${String(error).split("\n")[0]}): ${JSON.stringify({ seen, said: said.slice(-15) })}`,
+            `chat ${index} never loaded (${String(error).split("\n")[0]}): ${JSON.stringify({ seen, said: said.slice(-15), asked: Object.fromEntries(asked), unanswered: [...unanswered] })}`,
           );
         }
         pages.push({ page, cdp: await context.newCDPSession(page) });
