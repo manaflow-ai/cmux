@@ -9745,13 +9745,24 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
            let selectedTab = bonsplitController.selectedTab(inPane: paneId),
            let selectedPanelID = panelIdFromSurfaceId(selectedTab.id),
            let source = cloudTerminalSourcePlacement(forPanel: selectedPanelID) {
-            guard initialCommand == nil, initialInput == nil, tmuxStartCommand == nil,
-                  remotePTYSessionID == nil, workingDirectory == nil, startupEnvironment.isEmpty,
+            // `--command` arrives as typed input; a one-line command runs remotely
+            // and leaves a shell behind, like typing it would.
+            // Only cmux-tui machines run a requested command or directory; a
+            // mirrored Mac's provider would drop them, so it keeps refusing them.
+            let honorsLaunchOverrides = source.machine.tuiMachineID != nil
+            let typedCommand = initialInput.flatMap { SSHTuiConnection.typedCommand(fromInitialInput: $0) }
+            guard honorsLaunchOverrides || (initialCommand == nil && workingDirectory == nil),
+                  initialInput == nil || (honorsLaunchOverrides && typedCommand != nil && initialCommand == nil),
+                  tmuxStartCommand == nil,
+                  remotePTYSessionID == nil, startupEnvironment.isEmpty,
                   !suppressWorkspaceRemoteStartupCommand else {
                 return rejectCloudTerminalCreation(source: source, panelID: selectedPanelID)
             }
+            let commandOverride = typedCommand.map { SSHTuiConnection.typedCommandArguments($0) }
+                ?? initialCommand.map { SSHTuiConnection.commandArguments($0) }
             return routeCloudPaneTerminalTab(
-                inPane: paneId, focus: focus ?? (bonsplitController.focusedPaneId == paneId)
+                inPane: paneId, focus: focus ?? (bonsplitController.focusedPaneId == paneId),
+                commandOverride: commandOverride, workingDirectory: workingDirectory
             ) ? .routedToRemote : .failed
         }
         guard let panel = newTerminalSurfaceLocal(

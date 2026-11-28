@@ -50,7 +50,8 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
             socketPath: connected.socketPath,
             commandRunner: commands,
             initialState: cloudState,
-            terminalCommand: request.commandOverride ?? summary.defaultTerminalCommand
+            terminalCommand: request.commandOverride ?? summary.defaultTerminalCommand,
+            terminalWorkingDirectory: request.workingDirectory
         ).run(
             nearTabID: nearTabID,
             splitDirection: splitDirection,
@@ -59,6 +60,6 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
             expectedWorkspaceID: request.remoteWorkspaceID
         )
         try validateTerminalMutationLifecycle(lifecycle)
-        return recordCreatedTerminal(result.created, workspaceID: result.workspaceID, name: nil, cwd: nil)
+        return recordCreatedTerminal(result.created, workspaceID: result.workspaceID, name: nil, cwd: request.workingDirectory)
     }
 }

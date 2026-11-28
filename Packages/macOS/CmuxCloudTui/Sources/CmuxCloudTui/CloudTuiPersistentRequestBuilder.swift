@@ -59,7 +59,7 @@ public enum CloudTuiRequests {
     public static func runArguments(socketPath: String, workspaceID: String, command: [String], onExit: String? = nil, cwd: String? = nil, idempotencyKey: String? = nil, correlationKey: String? = nil) -> CloudTuiRequest {
         var fields: [String: Any] = ["workspace": workspaceID, "argv": command]
         if let onExit { fields["on_exit"] = onExit }
-        if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty { fields["cwd"] = cwd }
+        if let cwd, !cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { fields["cwd"] = cwd }
         if let correlationKey { fields["correlation_key"] = correlationKey }
         return CloudTuiRequest("workspace.run", fields, mutation: true, key: idempotencyKey)
     }
@@ -85,9 +85,14 @@ public enum CloudTuiRequests {
         if let correlationKey { fields["correlation_key"] = correlationKey }
         return CloudTuiRequest("tab.create_browser", fields, mutation: true, key: idempotencyKey)
     }
-    public static func paneCreate(paneID: String, direction: String?, command: [String], revision: UInt64?, key: String, correlationKey: String?) -> CloudTuiRequest {
+    public static func paneCreate(paneID: String, direction: String?, command: [String], cwd: String? = nil, revision: UInt64?, key: String, correlationKey: String?) -> CloudTuiRequest {
         var fields: [String: Any] = ["pane": paneID]
-        if let direction { fields["direction"] = direction } else { fields["argv"] = command }
+        if let direction {
+            fields["direction"] = direction
+        } else {
+            fields["argv"] = command
+            if let cwd, !cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { fields["cwd"] = cwd }
+        }
         if let revision { fields["expected_revision"] = String(revision) }
         if let correlationKey { fields["correlation_key"] = correlationKey }
         return CloudTuiRequest(direction == nil ? "pane.run" : "pane.split", fields, mutation: true, key: key)
