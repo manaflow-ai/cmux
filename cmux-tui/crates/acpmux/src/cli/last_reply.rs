@@ -46,6 +46,28 @@ pub(crate) async fn slot_replies(
     Ok(texts(&reply))
 }
 
+/// `acpmux session last-message`: the replies of [`slot_replies`], as JSON or as text with a
+/// `---` line between replies.
+pub(crate) async fn print_slot(
+    client: &Arc<Client>,
+    id: &str,
+    count: usize,
+    json_out: bool,
+) -> Result<()> {
+    let replies = slot_replies(client, id, count).await?;
+    if json_out {
+        crate::cli::output::print_json(&json!({"sessionId": id, "replies": replies}));
+        return Ok(());
+    }
+    for (i, r) in replies.iter().enumerate() {
+        if i > 0 {
+            println!("\n---\n");
+        }
+        println!("{r}");
+    }
+    Ok(())
+}
+
 /// Additive protocol support, advertised before the CLI sends the new session method.
 pub(crate) const LAST_REPLY_FEATURE: &str = "lastReplies";
 

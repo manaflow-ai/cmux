@@ -12,9 +12,7 @@ mod events;
 mod info;
 mod initialize;
 pub(super) use initialize::note_initialize;
-mod last;
-#[cfg(test)]
-pub(crate) use last::fit as last_fit_for_test;
+pub(crate) mod last;
 #[path = "requests/mailbox.rs"]
 mod mailbox;
 pub(super) mod person_stop;
@@ -3466,20 +3464,6 @@ async fn dispatch_method(
         method::MUX_INFO => info::info(hub, conn, &params).await,
         method::MUX_SESSION_RESYNC => super::session_patch::resync(hub, conn, &params),
         method::MUX_PAUSED_FILES => super::paused_files::handle(hub, conn, &params).await,
-        method::MUX_LAST_REPLIES => {
-            let s = hub.resolve(session_key(&params)?)?;
-            let count = params.get("count").and_then(Value::as_u64).unwrap_or(1) as usize;
-            // A first read after a daemon start may read the log's tail: off the runtime's workers.
-            let (replies, seq) = crate::qos::off_worker(|| {
-                hub.last_replies(&s, count).map_err(|e| RpcError::internal(e.to_string()))
-            })?;
-            Ok(json!({
-                "sessionId": s.id,
-                "seq": seq,
-                "replies": replies,
-                "max": crate::hub::reply_slot::KEEP,
-            }))
-        }
         method::MUX_SESSION_FILES => {
             super::session_files::require_local(conn.origin)?;
             let s = hub.resolve(session_key(&params)?)?;
@@ -4313,8 +4297,8 @@ async fn dispatch_method(
             }
             crate::customize_run::run(&params).await.map_err(RpcError::invalid_params)
         }
-        // The pages `acpmux last` read, read here in one reply (`requests/last.rs`).
-        method::MUX_LAST => crate::qos::off_worker(|| last::last(hub, &params, conn.caller())),
+        // `acpmux last`'s pages in one reply, or the chat's reply slot (`requests/last.rs`).
+        method::MUX_LAST | method::MUX_LAST_REPLIES => last::handle(hub, m, &params, conn.caller()),
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
         method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,
         method::MUX_ROWS => Box::pin(rows(hub, conn, &params)).await,

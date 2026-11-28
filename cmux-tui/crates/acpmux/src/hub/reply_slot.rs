@@ -252,6 +252,11 @@ fn within_budget(mut replies: Vec<String>, budget: usize) -> Vec<String> {
     out
 }
 
+/// Fold one appended record into the chat's slot (the append path, `Hub::append`).
+pub(super) fn observe(s: &super::Session, e: &EventRecord) {
+    s.reply_slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record(e);
+}
+
 impl super::Hub {
     /// The chat's newest `count` replies (at most [`KEEP`]), masked, oldest first, and the last
     /// record they are of.

@@ -2188,7 +2188,7 @@ async fn last_reads_a_long_turns_reply_through_the_hub_in_one_round_trip() {
 /// keeps the most, each older one at least its start.
 #[test]
 fn last_replies_fit_one_hub_message() {
-    use crate::server::requests::last_fit_for_test as fit;
+    use crate::server::requests::last::fit;
     let replies = vec!["a".repeat(30_000), "b".repeat(30_000), "c".repeat(60_000)];
     let (kept, truncated) = fit(replies, 48 * 1024);
     assert!(truncated);
@@ -2202,7 +2202,7 @@ fn last_replies_fit_one_hub_message() {
 
 #[test]
 fn last_replies_fit_escaped_text_and_fifty_previews() {
-    use crate::server::requests::last_fit_for_test as fit;
+    use crate::server::requests::last::fit;
     let controls: String = (0..32).filter_map(char::from_u32).collect();
     for text in [controls, "\"\\\n\ré🦀".into(), "a".into()] {
         for count in [1, 3, 50] {

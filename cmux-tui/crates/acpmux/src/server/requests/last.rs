@@ -15,11 +15,19 @@ const MAX_COUNT: u64 = 50;
 /// (64 KiB) with the JSON around it and the `peer`/`via` the reader adds.
 pub(crate) const REPLY_TEXT_BYTES: usize = 48 * 1024;
 
-pub(super) fn last(
+/// `_acpmux/last` or `_acpmux/last_replies`, off the runtime's workers.
+pub(super) fn handle(
     hub: &Arc<Hub>,
+    m: &str,
     params: &Value,
     caller: Option<&str>,
 ) -> Result<Value, RpcError> {
+    crate::qos::off_worker(|| {
+        if m == method::MUX_LAST_REPLIES { slot(hub, params) } else { last(hub, params, caller) }
+    })
+}
+
+fn last(hub: &Arc<Hub>, params: &Value, caller: Option<&str>) -> Result<Value, RpcError> {
     let s = hub.resolve(session_key(params)?)?;
     let count = params.get("count").and_then(Value::as_u64).unwrap_or(1).clamp(1, MAX_COUNT);
     let mut pages = crate::cli::last_reply::Pages::new(usize::try_from(count).unwrap_or(1));
@@ -28,6 +36,24 @@ pub(super) fn last(
     }
     let (replies, truncated) = fit(pages.replies(), REPLY_TEXT_BYTES);
     Ok(json!({"sessionId": s.id, "replies": replies, "truncated": truncated}))
+}
+
+/// `_acpmux/last_replies`: the same replies from the chat's per-chat slot (`hub/reply_slot.rs`),
+/// fitted the same way. A first read after a daemon start may read the log's tail.
+fn slot(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+    let s = hub.resolve(session_key(params)?)?;
+    let count = params.get("count").and_then(Value::as_u64).unwrap_or(1).clamp(1, MAX_COUNT);
+    let count = usize::try_from(count).unwrap_or(1);
+    let (replies, seq) =
+        hub.last_replies(&s, count).map_err(|e| RpcError::internal(e.to_string()))?;
+    let (replies, truncated) = fit(replies, REPLY_TEXT_BYTES);
+    Ok(json!({
+        "sessionId": s.id,
+        "seq": seq,
+        "replies": replies,
+        "truncated": truncated,
+        "max": crate::hub::reply_slot::KEEP,
+    }))
 }
 
 /// What each older reply reserves, in serialized bytes, when the newer ones are long.
