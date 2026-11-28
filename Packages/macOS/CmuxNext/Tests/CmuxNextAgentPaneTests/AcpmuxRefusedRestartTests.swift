@@ -55,16 +55,16 @@ struct AcpmuxRefusedRestartTests {
     }
 
     /// A daemon's start or restart ends without the person, so the page shows nothing while it
-    /// lasts; acpmux missing, another build's daemon and this app's daemon stopped (no reconnect
-    /// starts it, only the line's Retry: cmux#48605) do not, and are said at once.
+    /// lasts, and so does this app's daemon stopped (a reconnect starts it); acpmux missing and
+    /// another build's daemon do not, and are said at once.
     @Test func onlyARecoveryIsAReconnectingHandshake() async throws {
         let recovering: [AgentPaneHostError] = [
-            .daemonRestarting, .timedOut, .chiefStopped, .chiefStarting,
+            .daemonRestarting, .daemonStopped, .timedOut, .chiefStopped, .chiefStarting,
             .daemonFailed(logPath: "/l", cause: .exited),
             .daemonRefused(holder: nil, socketPath: "/s", reason: "the socket's peer process is unknown"),
         ]
         let refused: [AgentPaneHostError] = [
-            .acpmuxNotFound, .daemonStopped,
+            .acpmuxNotFound,
             .daemonRefused(holder: "cmux NIGHTLY", socketPath: "/s", reason: "another build"),
             .daemonFailed(logPath: "/l", cause: .refused("a temporary folder")),
         ]

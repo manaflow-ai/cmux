@@ -114,8 +114,18 @@ impl WsShutdown {
 /// kernel keeps completing handshakes until the last copy closes, so dropping ours alone could
 /// let an immediate retry connect to this dying listener. Linux stops a listening socket on
 /// shutdown, whatever copies remain; other systems refuse that, and only the drop applies.
+///
+/// A stop that execs in place (`daemon/handoff.rs`) keeps a copy for the next image, and that
+/// shutdown would stop the copy too: there only the drop applies, and a retry waits in the
+/// listener's queue for the next image's first accept.
 pub(super) fn close_admission(listener: tokio::net::TcpListener) {
-    close_admission_unless_kept(listener, crate::daemon::listener_handover::listeners_live_on());
+    // The handover is unix-only; keeps_listeners is false off Unix.
+    #[cfg(unix)]
+    let kept =
+        crate::daemon::keeps_listeners() || crate::daemon::listener_handover::listeners_live_on();
+    #[cfg(not(unix))]
+    let kept = crate::daemon::keeps_listeners();
+    close_admission_unless_kept(listener, kept);
 }
 
 fn close_admission_unless_kept(listener: tokio::net::TcpListener, kept: bool) {
