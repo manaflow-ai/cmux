@@ -164,7 +164,7 @@ jobs:
         id: pair
         timeout-minutes: 110
         env:
-          PAIR_WORDS: ${{ inputs.words }}
+          PAIR_WORDS: ${{ inputs.words || 'flaps=20' }}
         run: |
           set -euo pipefail
           if [[ -z "${ZIG:-}" && -n "${CMUX_VT_ZIG:-}" ]]; then export ZIG="$CMUX_VT_ZIG"; fi
