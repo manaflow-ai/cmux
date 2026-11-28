@@ -36,6 +36,10 @@
  *   -> carrier dial after resume -> turn after resume -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
  *   --chaos adds the chaos leg after the carrier dial: a relay cut, 5 s and 60 s network drops, a session host and an
  *   agent daemon restart, each mid-turn and timed from a send at its end to the reply (cloud-chaos.ts).
+ *   --chaos-move adds the move drills (cloud-chaos-move.ts): a chat moved local→Cloud, Cloud→local and Cloud→Cloud
+ *   (a second machine) with one side killed at a step of the move; --seed S, --runs N (seeded random picks; 0 or
+ *   absent: every direction × step × kill once), --direction/--step/--kill LIST narrow it, --claude-bin PATH is the
+ *   local side's Claude Code. Needs --cmux and --model stub.
  *   --start-via app starts the agent the way the app does (`agent-session-start` over the carrier dial, needs --cmux),
  *   not `acp ensure`: the step passes on a started session and fails with the refusal's code and `data.harness`
  *   (cloud-chat-matrix.ts judges its `start` cells on that, hq#11225); the chat steps after it are skipped.
@@ -141,6 +145,7 @@ import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos
 import { pauseWithReconciliation, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, mintSendTrace, modelFloor, readSendTrace, readStartTrace, sendTraceRows, sendTraceTable, slowestHop, snappyReport, snappyRun, traceMarkdown } from "./cloud-start-trace.ts";
+import { MOVE_DIRECTIONS, MOVE_KILLS, MOVE_STEPS, type MoveDirection, type MoveKill, type MoveResult, type MoveStep, moveTable, moveTurnScripts, runMoveChaos } from "./cloud-chaos-move.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
 // The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (2/4/20, cmux-platform#1756).
@@ -650,6 +655,8 @@ export function expiresAtMs(v: number): number {
 
 export class Api {
   bearer = "";
+  /** Environments handed to long-lived children (the move drills' carriers): keepBearerFresh updates their token too. */
+  readonly tokenEnvs: Array<Record<string, string | undefined>> = [];
   /** An install token lives ACCESS_TOKEN_TTL_SECONDS (600 s, backend/apps/api/src/auth.ts): a journey that holds one
    *  past that (the clean-room walk alone takes ~150 s) got connect_info HTTP 401 on job 139905166641. `remint`
    *  signs a fresh one; every call through this Api mints again when the token has under a minute left. */
@@ -3999,7 +4006,7 @@ export const JOURNEY_STUB_SCRIPT = {
   steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }],
   // The chaos leg's counting turn of file reads (cloud-chaos.ts), played only for a prompt that carries its marker,
   // and the reserved home chat's read (journeyReadTurnScript).
-  turns: [countingTurnScript(), feltTurnScript(), journeyReadTurnScript(), journeyTextTurnScript()],
+  turns: [countingTurnScript(), feltTurnScript(), journeyReadTurnScript(), journeyTextTurnScript(), ...moveTurnScripts()],
 };
 
 /**
@@ -4754,12 +4761,12 @@ export function machineIds(rows: any[]): string[] {
 /**
  * How old a journey's own machine must be before a later run may sweep it: well past the longest job that runs a
  * journey (up to 90 min; cloud-journey.test.ts checks every timeout-minutes in a workflow job that runs it to be at
- * most half of this; a job that runs none, like backend.yml's 95 min `test`, makes no journey machine), so a journey that is still running never loses its machine. A long run (--resume-matrix,
+ * most half of this; a job that runs none, like backend.yml's 95 min `test`, makes no journey machine), so a journey that is still running never loses its machine. A long run (--resume-matrix, --chaos-move,
  * --wake-echo) names its machines `cloud journey auto jr-<tag> long…` and gets LONG_JOURNEY_MS instead.
  */
 export const STALE_JOURNEY_MS = 3 * 3_600_000;
 /**
- * The bound for a long run's machines (the resume matrix's 3600 s cell runs up to 330 min, wake-echo up to 150; the
+ * The bound for a long run's machines (the resume matrix's 3600 s cell runs up to 330 min, wake-echo up to 150, the move drills up to 170; the
  * test checks those workflows against this). It applied to every journey machine from #54761, so a short run's leaks
  * sat 11 h: the staging test team's 300-machine cap filled with 5 h old ones (cloud.quota.vm_limit, 2026-11-25,
  * backend run 45572634999) while every sweep deleted 0. Installs keep it too (a long run still uses its install).
@@ -5426,6 +5433,29 @@ export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[
 }
 
 /**
+ * How often a long journey signs in again. A Stack access token outlives minutes, not a --chaos-move run's hours: run
+ * 45162400826 signed in once, and every move cell after its first ~40 min ended in 401 auth.unauthenticated.
+ */
+const BEARER_REFRESH_MS = 5 * 60_000;
+
+/**
+ * Signs in again every BEARER_REFRESH_MS for as long as the process lives (the timer holds nothing open): `api.bearer`
+ * and each of `api.tokenEnvs` take the new token, and both tokens join `secrets` so every log scrubs them. A failed
+ * sign-in is logged and the old token kept; the next tick tries again.
+ */
+export function keepBearerFresh(api: Api, signIn: () => Promise<{ access: string; refresh: string }>, secrets: string[], log: (line: string) => void, everyMs = BEARER_REFRESH_MS): () => void {
+  const timer = setInterval(() => {
+    signIn().then((s) => {
+      secrets.push(s.access, s.refresh);
+      api.bearer = s.access;
+      for (const env of api.tokenEnvs) env.CMUX_CLOUD_ACCESS_TOKEN = s.access;
+    }, (e: Error) => log(`token renewal failed, the old token kept: ${e.message}`));
+  }, everyMs);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
+/**
  * --fresh-account: a new person's first sign-up, made for this run on the dev Stack project (staging, dev, preview,
  * local), so the journey walks what a teammate who has never used cmux gets, with no stored test account. Stack takes
  * only a whitelisted verification callback; the local handler's is one, and nothing reads the mail. Production's Stack
@@ -5814,8 +5844,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const keep = argv.includes("--keep") || Boolean(reuse);
   const machineProvider = argValue("--machine-provider", argv);
   if (machineProvider !== undefined && !/^[a-z][a-z0-9-]{0,31}$/.test(machineProvider)) throw new Error(`--machine-provider ${machineProvider}: a provider name such as own-host`);
-  const seed = argValue("--seed", argv) ?? (machineProvider ? "none" : "auto");
+  // --chaos-move: the move drills (cloud-chaos-move.ts). Its --seed is the drills' seed (any word but none/auto,
+  // which stay the machine's image seed).
+  const chaosMove = argv.includes("--chaos-move");
+  const seedArg = argValue("--seed", argv) ?? (machineProvider ? "none" : "auto");
+  const seed = chaosMove && seedArg !== "none" ? "auto" : seedArg;
   if (seed !== "none" && seed !== "auto") throw new Error(`--seed ${seed}: none or auto`);
+  const moveSeed = chaosMove && seedArg !== "none" && seedArg !== "auto" ? seedArg : `${Date.now().toString(36)}`;
+  const moveList = <T extends string>(flag: string, all: readonly T[]): T[] => {
+    const v = argValue(flag, argv);
+    if (!v) return [...all];
+    const xs = v.split(",").filter(Boolean);
+    for (const x of xs) if (!all.includes(x as T)) throw new Error(`${flag} ${x}: one of ${all.join(", ")}`);
+    return xs as T[];
+  };
+  const moveDirections = moveList<MoveDirection>("--direction", MOVE_DIRECTIONS);
+  const moveSteps = moveList<MoveStep>("--step", MOVE_STEPS);
+  const moveKills = moveList<MoveKill>("--kill", MOVE_KILLS);
+  const moveRuns = Number(argValue("--runs", argv) ?? "0");
+  if (!Number.isSafeInteger(moveRuns) || moveRuns < 0) throw new Error(`--runs ${argValue("--runs", argv)}: a count`);
   if (machineProvider && seed !== "none") throw new Error("--machine-provider needs --seed none: a copy boots on its snapshot's provider");
   // --chaos: after the carrier dial, the chaos leg (cloud-chaos.ts) on this machine; --chaos-probe-out FILE writes it
   // as one synthetic-probe row (--chaos-probe NAME, default cloud-carrier-chaos-<backend>).
@@ -5909,9 +5956,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
   // the sweep existed, and the sweep never matches it, so a kept machine is never deleted.
-  const machineName = keep ? `cloud journey ${tag}` : autoMachineName(tag, resumePauses.length > 0 || wakeEchoN > 0);
+  const machineName = keep ? `cloud journey ${tag}` : autoMachineName(tag, resumePauses.length > 0 || wakeEchoN > 0 || chaosMove);
   // A CI run's own machines carry a ttl, so the platform deletes one this run leaves behind (journeyMachineTtl).
-  const machineTtl = journeyMachineTtl(resumePauses.length > 0 || wakeEchoN > 0);
+  const machineTtl = journeyMachineTtl(resumePauses.length > 0 || wakeEchoN > 0 || chaosMove);
   const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? (stubReplay ? `stub (on the machine), replaying ${stubReplay.ttft_ms} ms to first token` : "stub (on the machine)") : "real" }, preclaim);
   J.firstText.stubReplay(stubReplay?.ttft_ms);
   if (password) J.secrets.push(password);
@@ -5934,6 +5981,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const api = new Api(backend.api, team);
   let machine: string | null = null;
   let gatewayMachine: string | null = null;
+  // The move drills' second Cloud machine (--chaos-move, Cloud→Cloud).
+  let moveMachine: string | null = null;
   // The team's gateway mode before this run changed it, the API that set it, and the local gateway this run started.
   let gatewayModeBefore: string | null = null;
   let gatewayMachineBefore: string | null = null;
@@ -6072,6 +6121,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         () => J.record({ step: "revoke install (cleanup)", status: "pass", ms: Date.now() - t0, detail: own }),
         (e) => J.record({ step: "revoke install (cleanup)", status: "skip", ms: Date.now() - t0, detail: `${own}: ${String((e as Error)?.message ?? e).slice(0, 300)}` }));
     }
+    if (moveMachine) {
+      const b: string = moveMachine;
+      await J.step("delete move machine B (cleanup)", async () => {
+        await api.deleteMachine(b, `${tag}-move-b-delete`);
+        return { value: null, detail: b };
+      }).catch(() => undefined);
+    }
     if (gatewayMachine) {
       const g: string = gatewayMachine;
       await J.step("delete gateway machine (cleanup)", async () => {
@@ -6164,6 +6220,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       api.bearer = s.access;
       return true;
     };
+    if (signIn === "password") keepBearerFresh(api, () => passwordSignIn(stack, email!, password!), J.secrets, (line) => console.log(scrub(line, J.secrets)));
     const user = await J.step("user.ensure", async () => {
       const v = await api.op("user.ensure", {}, `${tag}-ensure`);
       return { value: v, detail: `user ${v.id ?? v.user?.id ?? "?"}` };
@@ -6835,7 +6892,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const id = v.machine.id as string;
           const spare = spareFields(v);
           try {
-            const m = await waitRunning(api, id, Math.max(5_000, deadline - Date.now()), COLD_CREATE_VERDICT_GRACE_MS);
+            // The failure names the machine: a stall lane reads which create never got a host (run 46043990826 a3).
+            const m = await waitRunning(api, id, Math.max(5_000, deadline - Date.now()), COLD_CREATE_VERDICT_GRACE_MS).catch((e) => {
+              const msg = String((e as Error)?.message ?? e);
+              throw msg.includes(id) ? e : new Error(`${id}: ${msg}`);
+            });
             const r = await directExec(api, id, J)(SIZE_READ);
             if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`${id}: exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
             const reading = r.stdout.trim().split("\n").slice(2).join(" ");
@@ -7200,6 +7261,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: 'model = "stub-model"; model_provider stays "cmux" (the edge, the placeholder key)' };
       });
     }
+    // The shared model stub on another machine (again after a power-off ended it, and on the move drills' second machine).
+    const installStub = async (id: string, run: Exec): Promise<{ value: null; detail: string }> => {
+      const port = await setUpModelStub(id, run);
+      return { value: null, detail: `the shared model stub at 127.0.0.1:${port}, nonce ${nonce}, one shell tool round trip (${provider})` };
+    };
     if (modelStub && provider && !only.has("chat") && stubOn !== created.id) {
       await J.step("model stub on the machine", async () => {
         const port = await setUpModelStub(created.id, exec);
@@ -7798,6 +7864,63 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (outDir) writeFileSync(path.join(outDir, "chaos.json"), `${JSON.stringify({ backend: backend.name, machine: created.id, results }, null, 2)}\n`);
         const chaosOut = argValue("--chaos-probe-out", argv);
         if (chaosOut) writeFileSync(chaosOut, `${JSON.stringify(chaosProbeRow(argValue("--chaos-probe", argv) ?? `cloud-carrier-chaos-${backend.name}`, results, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined))}\n`);
+      }
+    }
+
+    // --chaos-move: the move drills (cloud-chaos-move.ts) on this machine (A), a second machine (B) and this runner as
+    // the person's Mac; every result is a step, and move.json / move.md hold the table.
+    if (chaosMove) {
+      if (!cmux || !modelStub || provider !== "claude") J.skip("chaos-move", "--chaos-move needs --cmux PATH and --model stub with Claude Code");
+      else {
+        const needB = moveDirections.includes("cloud-cloud");
+        const b = needB
+          ? await J.step("move machine B", async () => {
+              const v = await api.op("cloud.machine.create", { name: `${machineName} move B`, size: CHAT_START_SIZE }, `${tag}-move-b-create`);
+              moveMachine = v.machine.id as string;
+              const m = await waitMachine(api, moveMachine, (x) => x.status === "running" && Boolean(x.host), 300_000);
+              return { value: m, detail: `${moveMachine}, daemon ${m.image?.daemon_version ?? "?"}` };
+            }).catch(() => null)
+          : null;
+        const execs = new Map<string, Exec>([[created.id, exec]]);
+        const execFor = (id: string): Exec => {
+          if (!execs.has(id)) execs.set(id, namesUnavailableFirstExec(cliExec(cmux, api, id)));
+          return execs.get(id)!;
+        };
+        if (b) await J.step("model stub on machine B", () => installStub(b.id, execFor(b.id))).catch(() => undefined);
+        const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+        const claudeBin = argValue("--claude-bin", argv) ?? (spawnSync("sh", ["-c", "command -v claude"], { encoding: "utf8" }).stdout.trim() || "claude");
+        const results: MoveResult[] = [];
+        const rowsFile = outDir ? path.join(outDir, "move.jsonl") : null;
+        const moveEnv: Record<string, string | undefined> = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
+        api.tokenEnvs.push(moveEnv);
+        await runMoveChaos({
+          cmux, machines: [created.id, b?.id ?? created.id], team: api.team, execFor, guest: GUEST,
+          credentials: { env: { CLAUDE_CODE_OAUTH_TOKEN: login } },
+          env: moveEnv,
+          pause: async (id) => { await api.op("cloud.machine.pause", { machine: id }, `${tag}-mv-pause-${Date.now()}`); },
+          start: async (id) => {
+            await api.op("cloud.machine.start", { machine: id }, `${tag}-mv-start-${Date.now()}`).catch((e: Error) => { if (!/running|already/i.test(e.message)) throw e; });
+            await waitMachine(api, id, (x) => x.status === "running" && Boolean(x.host), 300_000);
+          },
+          status: async (id) => String((await api.read("cloud.machine.get", { machine: id }))?.status ?? "unknown"),
+          ensureStub: async (id) => {
+            const r = await execFor(id)(`p=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' /home/cmux/.cmux/journey-model-stub.ready 2>/dev/null); [ -n "$p" ] && curl -fsS -m 2 "http://127.0.0.1:$p/__stub/info" >/dev/null && echo @@up`, 30_000).catch(() => ({ stdout: "" } as { stdout: string }));
+            if (!r.stdout.includes("@@up")) await installStub(id, execFor(id));
+          },
+          stubPy: MODEL_STUB_PY, stubScript: JOURNEY_STUB_SCRIPT, claudeBin,
+          tag: `${tag}`.slice(-10), seed: moveSeed, runs: moveRuns, directions: needB && !b ? moveDirections.filter((d) => d !== "cloud-cloud") : moveDirections, steps: moveSteps, kills: moveKills,
+          log: (line) => console.log(scrub(line, J.secrets)),
+          onResult: (r) => {
+            results.push(r);
+            J.record({ step: `move: ${r.direction} ${r.step} ${r.kill}`, status: r.outcome === "pass" ? "pass" : r.outcome === "fail" ? "fail" : "skip", ms: r.seen_ms ?? 0, detail: scrub(`seed ${r.seed}: lost ${r.lost.join("; ") || "nothing"}; open ${r.open}; queued ran ${r.queued_runs} (src ${r.queued_src ?? "?"}, dst ${r.queued_dst ?? "?"}); draft ${r.draft}; edit ${r.edit}; commit ${r.commit}; pump ${r.pump_first}${r.pump_retry !== "not run" ? `, retry ${r.pump_retry}` : ""}; ${r.detail}`, J.secrets) });
+            if (rowsFile) appendFileSync(rowsFile, `${scrub(JSON.stringify(r), J.secrets)}\n`);
+          },
+        }).catch((e: Error) => J.record({ step: "move drills", status: "fail", ms: 0, detail: scrub(e.message, J.secrets) }));
+        if (outDir) {
+          writeFileSync(path.join(outDir, "move.json"), `${scrub(JSON.stringify({ backend: backend.name, machines: [created.id, b?.id ?? null], seed: moveSeed, runs: moveRuns, results }, null, 2), J.secrets)}\n`);
+          writeFileSync(path.join(outDir, "move.md"), `${scrub(moveTable(results), J.secrets)}\n`);
+        }
+        console.log(`move drills seed ${moveSeed}: ${results.filter((r) => r.outcome === "pass").length} pass, ${results.filter((r) => r.outcome === "fail").length} fail, ${results.filter((r) => r.outcome === "unmeasured").length} unmeasured`);
       }
     }
 

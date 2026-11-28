@@ -851,7 +851,7 @@ describe("cloud journey: leaked machine sweep", () => {
       if (!/cloud-journey(\.ts|-ci\.sh)/.test(text)) continue;
       seen.push(f);
       // A file that runs a long journey (its machines named `… long`) is held to the long bound; every other to 3 h.
-      const isLong = /--resume-matrix|--wake-echo/.test(text);
+      const isLong = /--resume-matrix|--wake-echo|--chaos-move/.test(text);
       if (isLong) long.push(f);
       const bound = isLong ? LONG_JOURNEY_MS : STALE_JOURNEY_MS;
       // Every timeout in a job that runs a journey (its block names the script); a file that names it but no job
@@ -4304,6 +4304,7 @@ describe("rpcFailureReason", () => {
     expect(rpcFailureReason(undefined)).toBe("");
   });
 });
+
 
 
 describe("wake-echo own-run cleanup", () => {

@@ -1,6 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { CHAT_START_SIZE, COLD_CREATE_SIZE, COLD_CREATE_STEP, createWithRoom, DEFAULT_SIZE_STEP, defaultSizeProblem, defaultSizeVerdict, sizeReadingProblem, JOURNEY_ONLY_STEPS, publicError, publicMachineFacts, spareFields, spareNotice } from "./cloud-journey";
-import { runJourney } from "./cloud-journey-fake";
+import {
+  CHAT_START_SIZE,
+  COLD_CREATE_SIZE,
+  COLD_CREATE_STEP,
+  createWithRoom,
+  DEFAULT_SIZE_STEP,
+  defaultSizeProblem,
+  sizeReadingProblem,
+  JOURNEY_ONLY_STEPS,
+  publicError,
+  publicMachineFacts,
+  spareFields,
+  spareNotice,
+  defaultSizeVerdict,
+} from "./cloud-journey";
+import { FIXTURE_COLD_MACHINE, runJourney } from "./cloud-journey-fake";
 
 const journeyOnly = (name: string) => (JOURNEY_ONLY_STEPS as readonly string[]).includes(name);
 
@@ -185,6 +199,14 @@ describe("the cold create cell reads a person's own create at its asked size (cm
     expect(cold?.detail).toContain("booted at another size than asked: cpu 2 (asked 4)");
     expect(log).toContain("delete cold");
     expect(steps.find((s) => s.step === "machine facts")?.status).not.toBe("fail");
+  });
+
+  test("a cold machine that never runs names its id in the cell, so a stall lane can read that create (run 46043990826)", () => {
+    const { steps, log } = runJourney({ spare: "report", exec: "ok", cold: "cpu=4 mem_mib=7900 disk_mib=32000", coldStatus: "failed" });
+    const cold = steps.find((s) => s.step === COLD_CREATE_STEP);
+    expect(cold?.status).toBe("fail");
+    expect(cold?.detail).toContain(FIXTURE_COLD_MACHINE);
+    expect(log).toContain("delete cold");
   });
 });
 
