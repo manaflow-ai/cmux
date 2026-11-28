@@ -417,7 +417,8 @@ public actor AgentSessionAttachClient {
         return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["accepted"] as? Bool == true
     }
 
-    /// `timings_ms`'s known phases as whole milliseconds (``machineTimings(_:)``'s names), `acpmux_started` as 0 or 1.
+    /// `timings_ms`'s known phases as whole milliseconds (``machineTimings(_:)``'s names), `acpmux_started` and
+    /// `session_new_warm` (the agent came warm from acpmux's pool; absent when the machine does not say) as 0 or 1.
     static func machinePhases(_ value: Any?) -> [String: Int]? {
         guard let timings = value as? [String: Any] else { return nil }
         var phases: [String: Int] = [:]
@@ -425,9 +426,10 @@ public actor AgentSessionAttachClient {
             if let ms = timings.first(where: { $0.key == name })?.value as? NSNumber { phases[name] = max(0, ms.intValue) }
         }
         if let started = timings.first(where: { $0.key == "acpmux_started" })?.value as? Bool { phases["acpmux_started"] = started ? 1 : 0 }
+        if let warm = timings.first(where: { $0.key == "session_new_warm" })?.value as? Bool { phases["session_new_warm"] = warm ? 1 : 0 }
         return phases.isEmpty ? nil : phases
     }
-    static let machinePhaseNames = ["keyed_gate", "acpmux_connect", "checks", "session_new", "settle", "bind", "total"]
+    static let machinePhaseNames = ["keyed_gate", "acpmux_connect", "checks", "session_new", "settle", "bind", "total", "agent_home"]
 
     /// The `cloud` category the Cloud probe's log stream reads (cmuxterm-hq cloud_chat_app_probe.py APP_LOG_PREDICATE).
     private static let startLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.start")
@@ -439,6 +441,7 @@ public actor AgentSessionAttachClient {
         var parts = machinePhaseNames.compactMap { name in (timings.first { $0.key == name }?.value as? NSNumber).map { "\(name) \($0.int64Value) ms" } }
         guard !parts.isEmpty else { return nil }
         if let started = timings.first(where: { $0.key == "acpmux_started" })?.value as? Bool { parts.append("acpmux_started \(started ? "yes" : "no")") }
+        if let warm = timings.first(where: { $0.key == "session_new_warm" })?.value as? Bool { parts.append("session_new_warm \(warm ? "yes" : "no")") }
         return parts.joined(separator: ", ")
     }
 
