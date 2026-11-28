@@ -25,12 +25,22 @@
 set -euo pipefail
 
 root="${1:-.}"
-cd "$root"
+# ROOT names the tree to read and, with no CMUX_FAST_CACHE_WORKSPACE or GITHUB_WORKSPACE, the place to key. A cold
+# owned seed root (owned_spm_scratch.py lease: "starts cold (seed root, 0.0 GiB kept)") is a build directory with no
+# .git, and `git ls-files` there failed the step with "fatal: not a git repository" (cmux run 46113542594, mac on
+# cmux13s-mac-mini-glaeda-11, 2026-11-28). The manifests are the same commit's in the checkout the step runs from,
+# so the key reads them there; the place stays ROOT's.
+here="$(cd "$root" && pwd)"
+if ! git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "fast-tier-cache-key: $here is no git work tree (a cold seed root); reading the manifests from $PWD" >&2
+else
+  cd "$root"
+fi
 
 sha256() { shasum -a 256 | awk '{print $1}'; }
 
 xcode="${CMUX_FAST_CACHE_XCODE_VERSION:-$(xcodebuild -version)}"
-workspace="${CMUX_FAST_CACHE_WORKSPACE:-${GITHUB_WORKSPACE:-$PWD}}"
+workspace="${CMUX_FAST_CACHE_WORKSPACE:-${GITHUB_WORKSPACE:-$here}}"
 commit="${CMUX_FAST_CACHE_COMMIT:-${GITHUB_SHA:-$(git rev-parse HEAD)}}"
 
 # Index entries (mode, blob, path) of the manifests and lockfiles: stable on

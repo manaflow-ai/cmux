@@ -30,7 +30,7 @@ jobs:
     # A draft head waits for ready_for_review; vars.CMUX_TRANSCRIPT_REPLAY_PR_REPORT = 'off' turns it off.
     if: ${{ format('{0}', vars.CMUX_TRANSCRIPT_REPLAY_PR_REPORT) != 'off' && !github.event.pull_request.draft }}
     concurrency:
-      group: transcript-replay-perf-report-${{ github.event.pull_request.number || github.ref }}
+      group: transcript-replay-perf-report-${{ github.event.pull_request.number || github.ref }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
       cancel-in-progress: true
     # The Linux pool ci-web.yml uses; base and head run in this one job, so on one runner.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
