@@ -81,4 +81,17 @@ out=$(bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "echo
 ! grep -q 'out of memory' <<<"$out" || { echo "$out"; echo "FAIL: a compile error called OOM"; exit 1; }
 grep -q 'error: cargo group(s) 2 failed' <<<"$out" || { echo "$out"; echo "FAIL: no failure line"; exit 1; }
 
+# 9. OOM_RERUN_ALONE: a group the kernel OOM-killed reruns once alone and passes when the rerun fits (the survivor
+# twin finished, so only the killed crate builds again); a group killed twice still fails (case 7).
+mark="$tmp/killed-once"; rm -f "$mark"
+once='if [ ! -e '"$mark"' ]; then : > '"$mark"'; echo "process did not exit successfully: rustc (signal: 9, SIGKILL: kill)"; echo "oom_kill 9" > '"$tmp/vmstat"'; exit 101; fi; echo "built on the rerun"'
+echo "oom_kill 3" > "$tmp/vmstat"
+out=$(bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "$once" "" "echo b" 2>&1) || { echo "$out"; echo "FAIL: an OOM-killed group did not pass on its rerun"; exit 1; }
+grep -q 'cargo group 1 (): the kernel OOM-killed a process (exit 101); rerunning it once alone' <<<"$out" || { echo "$out"; echo "FAIL: no rerun line"; exit 1; }
+grep -q 'built on the rerun' <<<"$out" || { echo "$out"; echo "FAIL: the rerun did not run"; exit 1; }
+grep -q 'cargo group 1 () rerun: [0-9]* s' <<<"$out" || { echo "$out"; echo "FAIL: no rerun time"; exit 1; }
+! grep -q 'out of memory' <<<"$out" || { echo "$out"; echo "FAIL: a passing rerun still reported OOM"; exit 1; }
+out=$(bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "echo 'error[E0308]: mismatched types'; exit 101" 2>&1) || true
+! grep -q 'rerunning' <<<"$out" || { echo "$out"; echo "FAIL: a compile error was rerun"; exit 1; }
+
 echo PASS
