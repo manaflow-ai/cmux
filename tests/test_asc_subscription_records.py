@@ -253,6 +253,21 @@ class RecordsTests(unittest.TestCase):
 
 
 class CheckedInTests(unittest.TestCase):
+    def test_internal_records_match_the_app_store_tiers(self) -> None:
+        # The gate's internal-submission lane validates the INTERNAL record, so it
+        # needs the same tiers under dev.cmux.app.internal's product ids.
+        internal_path = records.RECORDS_DIR / "records-internal.json"
+        internal = records.load_records(internal_path)
+        self.assertEqual(records.check_inputs(internal, internal_path.parent), [])
+        store = records.load_records()
+        def tiers(body: dict, prefix: str) -> dict:
+            out = {}
+            for sub in body["subscriptions"]:
+                self.assertTrue(sub["productId"].startswith(prefix), sub["productId"])
+                out[sub["productId"][len(prefix):]] = {k: v for k, v in sub.items() if k != "productId"}
+            return out
+        self.assertEqual(tiers(internal, "dev.cmux.app.internal."), tiers(store, "com.cmux.app."))
+
     def test_checked_in_records_and_images_are_valid(self) -> None:
         body = records.load_records()
         self.assertEqual(records.check_inputs(body), [])
