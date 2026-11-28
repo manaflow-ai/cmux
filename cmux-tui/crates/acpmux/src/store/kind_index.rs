@@ -133,7 +133,8 @@ pub(super) const HEADER_WIDTH: usize = 512;
 pub(super) const COPY_AFTER: u64 = 1 << 20;
 
 /// The longest tail past a copy a page reads whole: past it the page seeks for its `before`
-/// (`offset_of_seq`, whose probes read 64 KiB each), as the read back from the end does.
+/// (`offset_of_seq`, whose probes read 8 KiB each down to a 64 KiB window), as the read back from
+/// the end does.
 const TAIL_SEEK_BYTES: u64 = 256 * 1024;
 
 /// What a copy was read from: the segment file, and the bytes of it the copy covers.
@@ -327,6 +328,13 @@ impl Checked {
         matched
     }
 
+    /// Whether copy `index` of chat `id` last checked as exactly `now`: the same file, length and
+    /// modify time, its header's lines as long and hashing the same. Its lines are then the ones
+    /// that checked, unread ([`LocalStore::kind_index_window`]).
+    fn carried_exact(&self, id: &str, index: u32, now: Check) -> bool {
+        now.file.2 != 0 && self.lock().get(&(id.to_owned(), index)).is_some_and(|c| *c == now)
+    }
+
     /// Forgets chat `id`'s copies (its folder is gone).
     pub(super) fn forget(&self, id: &str) {
         self.lock().retain(|(chat, _), _| chat != id);
@@ -340,6 +348,38 @@ pub(super) struct Copied {
     pub(super) len: u64,
     pub(super) parsed: bool,
     pub(super) hash: u64,
+}
+
+/// A copy whose lines checked as they are now ([`LocalStore::kind_index_window`]): its file, open,
+/// and where its lines are in it, `start..start + lines_len`; `len`: the bytes of the segment they
+/// cover.
+pub(super) struct Window {
+    file: std::fs::File,
+    start: u64,
+    lines_len: u64,
+    len: u64,
+}
+
+impl std::io::Read for Window {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.file.read(buf)?;
+        #[cfg(test)]
+        COPY_BYTES.with(|c| c.set(c.get() + n as u64));
+        Ok(n)
+    }
+}
+
+impl std::io::Seek for Window {
+    fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
+        self.file.seek(to)
+    }
+}
+
+/// A segment's copy as an indexed read back takes it ([`LocalStore::copy_for_read_back`]): read
+/// whole and checked, or a window on lines that checked already.
+enum ReadBack {
+    Lines(Vec<u8>),
+    Window(Window),
 }
 
 /// One addition to a copy at a time in this process: two scans of a chat that added at once
@@ -367,7 +407,32 @@ impl Stamp {
         let meta = file.metadata()?;
         Ok(Self { id: file_id(file, &meta), len: meta.len() })
     }
+
+    /// An open segment's, local or cold ([`Self::cold`]).
+    pub(super) fn of_segment(file: &super::cold_segments::SegmentFile) -> std::io::Result<Self> {
+        match file {
+            super::cold_segments::SegmentFile::Local(local) => Self::of(local),
+            super::cold_segments::SegmentFile::Cold(cold) => Ok(Self::cold(cold.index())),
+        }
+    }
+
+    /// A cold segment's, named by its bytes: the SHA-256 and raw length its index holds, which no
+    /// file's device, inode and birth time can be ([`COLD_DEV`]). A cold segment is never written
+    /// again (`store/cold_segments.rs`), so a copy of it stays good as long as the archive does.
+    /// A cold segment had no copy: each read back over a chat's history (a log load's catch-up,
+    /// rate hold and resume, back to a completed turn) decoded and read its every cold segment,
+    /// about 1 GB of allocations on the first start after a 1 GB chat went cold, and its
+    /// `restartPeakRss` 1.41x the 1 MB chat's (goal infinite-chats, 2026-11-26).
+    pub(super) fn cold(index: &super::cold_segments::Index) -> Self {
+        let word = |at: usize| {
+            index.sha256.get(at..at + 16).and_then(|h| u64::from_str_radix(h, 16).ok()).unwrap_or(0)
+        };
+        Self { id: (COLD_DEV, word(0), word(16) | 1), len: index.raw_len }
+    }
 }
+
+/// The device a cold segment's [`Stamp`] names: no file system's.
+const COLD_DEV: u64 = u64::MAX;
 
 /// The file's device, inode and birth time (ns since the epoch; 0 where the system does not say).
 fn file_id(file: &std::fs::File, meta: &std::fs::Metadata) -> (u64, u64, u64) {
@@ -503,17 +568,15 @@ impl LocalStore {
                 continue;
             }
             let mut file = super::cold_segments::open_segment(path)?;
-            let copy = match file.local() {
-                Some(local) if indexed => self.copy_for_read_back(id, index, path, local)?,
-                _ => None,
-            };
+            let copy =
+                if indexed { self.copy_for_read_back(id, index, path, &file)? } else { None };
             match copy {
                 // A copy covers the segment's first `from` bytes, whole lines: what was written
                 // after them (none in a segment a log load sealed and copied, at most the segment
                 // in the one being written) is read from the segment, then the copy. A long tail
                 // is first cut at `before`, as `scan_back` cuts the segment; a short one is read
                 // whole, which costs less than the seek's probes.
-                Some((lines, from, _)) => {
+                Some((copied, from)) => {
                     let len = std::io::Seek::seek(&mut file, std::io::SeekFrom::End(0))?;
                     let end = if before != u64::MAX && len.saturating_sub(from) > TAIL_SEEK_BYTES {
                         offset_of_seq(&mut file, before)?.max(from)
@@ -522,9 +585,18 @@ impl LocalStore {
                     };
                     for_each_line_rev_between(&mut file, from, end, &mut line)?;
                     if !done.get() {
-                        for copied in lines.split(|b| *b == b'\n').rev() {
-                            if !copied.is_empty() && !line(copied) {
-                                break;
+                        match copied {
+                            ReadBack::Lines(lines) => {
+                                for copied in lines.split(|b| *b == b'\n').rev() {
+                                    if !copied.is_empty() && !line(copied) {
+                                        break;
+                                    }
+                                }
+                            }
+                            ReadBack::Window(mut window) => {
+                                let (start, end) =
+                                    (window.start, window.start.saturating_add(window.lines_len));
+                                for_each_line_rev_between(&mut window, start, end, &mut line)?;
                             }
                         }
                     }
@@ -556,20 +628,33 @@ impl LocalStore {
     /// way and parses only what it folds, `hosts_tests.rs`), once per sealed segment and once per
     /// [`COPY_AFTER`] bytes of the one being written. None on a system with no birth time, or when
     /// the copy is of another file than `file` (a compaction renamed it meanwhile).
+    ///
+    /// A copy whose lines checked as they are now is read back by window, from its end, as far as
+    /// the page goes ([`Self::kind_index_window`]): each page read its segment's whole copy and
+    /// split it, under 1 MiB at 1 MB of chat and several MiB for a full segment, so
+    /// `promptPageUs` rose 1.37x from 1 MB to both 100 MB and 1 GB, a constant step past one
+    /// segment (`chat_size_sweep`; found by goal-infinite-chats-a-2). Leo, 2026-11-19: "we need to
+    /// be able to have infinite chats, infinitely long chats, that sort of thing on, you know,
+    /// current day hardware".
     fn copy_for_read_back(
         &self,
         id: &str,
         index: u32,
         path: &Path,
-        file: &std::fs::File,
-    ) -> Result<Option<(Vec<u8>, u64, bool)>> {
+        file: &super::cold_segments::SegmentFile,
+    ) -> Result<Option<(ReadBack, u64)>> {
+        let stamp = Stamp::of_segment(file)?;
+        if let Some(window) = self.kind_index_window(id, index, &stamp)
+            && (stamp.id.2 == 0 || stamp.len.saturating_sub(window.len) < COPY_AFTER)
+        {
+            let from = window.len;
+            return Ok(Some((ReadBack::Window(window), from)));
+        }
         let read = |stamp: &Stamp| {
-            self.read_kind_index(id, index, stamp).map(|c| (c.lines, c.len, c.parsed))
+            self.read_kind_index(id, index, stamp).map(|c| (ReadBack::Lines(c.lines), c.len))
         };
-        let stamp = Stamp::of(file)?;
         let copy = read(&stamp);
-        let behind =
-            copy.as_ref().map_or(stamp.len, |(_, from, _)| stamp.len.saturating_sub(*from));
+        let behind = copy.as_ref().map_or(stamp.len, |(_, from)| stamp.len.saturating_sub(*from));
         if stamp.id.2 == 0 || behind < COPY_AFTER {
             return Ok(copy);
         }
@@ -578,7 +663,7 @@ impl LocalStore {
             tracing::debug!(session = %id, segment = index, "copying a segment for a read back failed: {e}");
             return Ok(copy);
         }
-        Ok(read(&Stamp::of(file)?).or(copy))
+        Ok(read(&Stamp::of_segment(file)?).or(copy))
     }
 
     pub(super) fn kind_index_path(&self, id: &str, index: u32) -> PathBuf {
@@ -652,10 +737,7 @@ impl LocalStore {
     ) -> Result<bool> {
         let mut file = super::cold_segments::open_segment(path)?;
         // What a copy is of: the file this reads, however its path changes meanwhile.
-        let stamp = match file.local() {
-            Some(local) if scan.copied => Some(Stamp::of(local)?),
-            _ => None,
-        };
+        let stamp = if scan.copied { Some(Stamp::of_segment(&file)?) } else { None };
         let (mut copy, from, mut parsed, copy_hash) =
             match stamp.as_ref().and_then(|s| self.read_kind_index(id, index, s)) {
                 Some(c) if c.parsed || !scan.strict => (Some(c.lines), c.len, c.parsed, c.hash),
@@ -743,6 +825,52 @@ impl LocalStore {
     /// their length: a whole-file `read_to_end` grew its buffer by doubling and the header's split
     /// copied the lines again, 2.3 GB of transient blocks over a 1 GB chat's restart (dhat,
     /// `chat_size_sweep`), churn the allocator kept resident as restart RSS.
+    /// [`Self::read_kind_index`] of a copy whose lines need no read to check: the copy file is the
+    /// very one, as long and as last modified, that the last read checked ([`Checked`]), so its
+    /// header and seal are read and its lines left on disk for the caller to read as far as it
+    /// needs. None for any other copy (the caller reads it whole).
+    pub(super) fn kind_index_window(
+        &self,
+        id: &str,
+        index: u32,
+        segment: &Stamp,
+    ) -> Option<Window> {
+        use std::io::Read as _;
+        let mut file = crate::config::private_state_file(&self.kind_index_path(id, index)).ok()?;
+        let meta = file.metadata().ok()?;
+        let mut head = Vec::with_capacity(HEADER_WIDTH);
+        (&mut file).take(HEADER_WIDTH as u64).read_to_end(&mut head).ok()?;
+        #[cfg(test)]
+        COPY_BYTES.with(|n| n.set(n.get() + head.len() as u64));
+        let end = head.iter().position(|b| *b == b'\n')?;
+        let header: Header = serde_json::from_slice(head.get(..end)?).ok()?;
+        let file_of = (header.dev, header.ino, header.born_ns);
+        let start = end as u64 + 1;
+        let now = Check {
+            file: file_id(&file, &meta),
+            len: meta.len(),
+            mtime: meta.modified().ok(),
+            lines_len: header.lines_len,
+            lines_hash: header.lines_hash,
+        };
+        let same = header.schema == SCHEMA
+            && header.kinds == kinds()
+            && segment.id.2 != 0
+            && file_of == segment.id
+            && segment.len >= header.len
+            && now.len >= start.saturating_add(header.lines_len)
+            && seal(
+                file_of,
+                header.len,
+                header.kinds,
+                header.parsed,
+                header.lines_len,
+                header.lines_hash,
+            ) == header.seal
+            && self.kind_index_checks.carried_exact(id, index, now);
+        same.then_some(Window { file, start, lines_len: header.lines_len, len: header.len })
+    }
+
     pub(super) fn read_kind_index(&self, id: &str, index: u32, segment: &Stamp) -> Option<Copied> {
         use std::io::Read as _;
         let mut file = crate::config::private_state_file(&self.kind_index_path(id, index)).ok()?;

@@ -261,6 +261,10 @@ pub(super) const MUX: &[Kind] = &[
         &[("session_offer_decision", "offerId"), ("session_offer", "groupId")],
     ),
     code("session_offer_decision", PATCHES),
+    not(
+        "sidecar_notice",
+        "a sidecar rule fired (acpmux `hub/sidecars.rs`); the chat view does not draw it yet",
+    ),
     not("start_default_skipped", UNREAD),
     page("status"),
     not("stderr", UNREAD),

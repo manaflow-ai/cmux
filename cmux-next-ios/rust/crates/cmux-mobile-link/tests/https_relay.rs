@@ -1383,6 +1383,120 @@ async fn an_early_ticket_joins_while_the_mac_answers_and_an_older_hub_still_work
     assert!(took[0] < took[1], "{took:?}");
 }
 
+/// A STUN server on loopback that answers each binding request `delay`
+/// late, with the address it came from: a gather that takes a cellular
+/// round trip or two, instead of loopback's none.
+async fn slow_stun(delay: Duration) -> String {
+    let socket = std::sync::Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+    let address = socket.local_addr().unwrap().to_string();
+    tokio::spawn(async move {
+        let mut buffer = [0u8; 1500];
+        while let Ok((len, from)) = socket.recv_from(&mut buffer).await {
+            if len < 20 {
+                continue;
+            }
+            let mut transaction = [0u8; 12];
+            transaction.copy_from_slice(&buffer[8..20]);
+            let socket = socket.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(delay).await;
+                let _ = socket.send_to(&cmux_transport::stun::binding_success(transaction, from), from).await;
+            });
+        }
+    });
+    address
+}
+
+/// One relay-first dial with direct UDP and TURN failing and a phone whose
+/// STUN gather takes `stun` (the Mac answers at once, joins take `join`):
+/// link up and `wg-init` forwarded, since the dial started. `after_gather`:
+/// the phone holds `wg-init` for its gather, as before the offer went first.
+async fn relay_first_dial_with_a_slow_gather(
+    after_gather: bool,
+    mac_first: bool,
+    stun: Duration,
+    join: Duration,
+) -> (Duration, Duration) {
+    let fake = FakeOptions { relay_join_delay: join, ..FakeOptions::default() };
+    let mac_options =
+        DialOptions { drop_udp_to: Some(udp_to_the_peer_lost), relay_first: mac_first, ..options() };
+    let rig = rig(fake, mac_options, true).await;
+    let stun_server = cmux_mobile_link::api::IceServer {
+        urls: vec![format!("stun:{}", slow_stun(stun).await)],
+        username: None,
+        credential: None,
+    };
+    let phone = DialOptions {
+        drop_udp_to: Some(udp_to_the_peer_lost),
+        relay: relay(&rig.server, &rig.phone_id),
+        ice_servers: vec![stun_server],
+        init_after_gather: after_gather,
+        ..options()
+    };
+    let started = std::time::Instant::now();
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial through the relay");
+    let up = started.elapsed();
+    echo(&connected.link, 1).await;
+    assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay);
+    let session = rig.server.sessions_with("wg-init").remove(0);
+    let init = rig.server.forwarded_at(&session, "wg-init").expect("wg-init forwarded");
+    connected.link.close("done");
+    (up, init.duration_since(started))
+}
+
+/// RFD 0142 R1, disco over the relay: in relay first the phone sends
+/// `wg-init` before its STUN and TURN gather (host endpoints, the relay
+/// offer and `ticketEarly`), and the gathered endpoints follow as a trickle
+/// (`wg-endpoints` and the sealed in-tunnel announcement, which rides the
+/// relay), so a slow gather no longer holds the offer, the ticket and both
+/// joins. The tunnel still starts once both `wg-resp` and the gather are in,
+/// so the link comes up after the longer of the gather and the join instead
+/// of their sum: with a 400 ms gather and 200 ms joins, `wg-init` goes at
+/// once and the link is up about a join (200 ms) sooner.
+/// `CMUX_RELAY_TICKET_RUNS=8` prints medians over 8 dials of each.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn relay_first_sends_its_offer_before_the_gather_and_trickles_the_rest() {
+    let (stun, join) = (Duration::from_millis(400), Duration::from_millis(200));
+    let runs: usize = std::env::var("CMUX_RELAY_TICKET_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(1);
+    let mut rows = Vec::new();
+    for after_gather in [true, false] {
+        let (mut ups, mut inits) = (Vec::new(), Vec::new());
+        for _ in 0..runs {
+            let (up, init) = relay_first_dial_with_a_slow_gather(after_gather, true, stun, join).await;
+            if after_gather {
+                assert!(init >= stun, "the baseline holds wg-init for the gather ({init:?})");
+            } else {
+                assert!(init < Duration::from_millis(150), "wg-init went at {init:?}, before the gather");
+            }
+            ups.push(up);
+            inits.push(init);
+        }
+        rows.push((after_gather, median(ups), median(inits)));
+    }
+    for (after_gather, up, init) in &rows {
+        let label = if *after_gather { "wg-init after gather (before)" } else { "wg-init first (after)" };
+        eprintln!("{label}: link up {up:?}, wg-init forwarded at {init:?} (median of {runs})");
+    }
+    let (before, after) = (rows[0].1, rows[1].1);
+    assert!(after + Duration::from_millis(150) < before, "link up {after:?} vs {before:?} before");
+    assert!(after < stun + join, "link up {after:?}: the gather and the join overlap");
+}
+
+/// The offer before the gather against a Mac before relay first (it
+/// answers `ready`, so the relay waits its 3 s rule): the trickled
+/// endpoints are the roam announcement it already takes, and the link still
+/// comes up on the relay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_offer_before_the_gather_with_an_older_mac_still_rides_the_relay() {
+    let (up, init) =
+        relay_first_dial_with_a_slow_gather(false, false, Duration::from_millis(400), Duration::ZERO).await;
+    eprintln!("older Mac: link up {up:?}, wg-init at {init:?}");
+    assert!(init < Duration::from_millis(150), "wg-init went at {init:?}");
+}
+
 /// Plain UDP for the test below, its own switch.
 static UDP_LOST_LATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 fn udp_lost_late(_: &std::net::SocketAddr) -> bool {

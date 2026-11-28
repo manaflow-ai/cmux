@@ -27,6 +27,7 @@
 //! | `browser_rules_password_fills` | `{agentDriven, profileAllows}` | a bool |
 //! | `browser_rules_password_fill_set_allowed` | `{state, allowed}` | `{state, changed}` |
 //! | `browser_rules_password_fill_switch` | `{state, agentDriven}` | `{state, value}`, `value` 1, 0 or null |
+//! | `browser_rules_automation_*` | see [`crate::automation_ops`] | |
 
 use crate::download_policy::{AutomaticDownloadPolicy, SitePermissionSetting};
 use crate::links::{
@@ -223,6 +224,9 @@ pub fn serves(op: &str) -> bool {
 /// Runs `op` on `request` (a JSON object; null means `{}`).
 pub fn call(op: &str, request: Value) -> Result<Value, OpError> {
     let request = if request.is_null() { json!({}) } else { request };
+    if let Some(answer) = crate::automation_ops::call(op, request.clone()) {
+        return answer;
+    }
     match op {
         "browser_rules_is_top_level_domain" => {
             let TldRequest { label, labels } = parse(request)?;

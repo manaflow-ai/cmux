@@ -93,7 +93,9 @@ dependencies = [
  "cmux-transport-rewrite",
  "cmux-tui-hooks",
  "cmux-tui-platform",
+ "cmux-tui-util",
  "cmux-unix-socket",
+ "cmux-upstream-error",
  "cmux-usage-patterns",
  "cmux-usage-share",
  "cmux-vault-egress",
@@ -109,6 +111,7 @@ dependencies = [
  "getrandom 0.3.4",
  "glob",
  "hpke",
+ "ignore",
  "imbl",
  "inotify",
  "jpeg-encoder",
@@ -128,6 +131,7 @@ dependencies = [
  "rusqlite",
  "rustls",
  "schemars 1.2.2",
+ "security-framework",
  "serde",
  "serde_json",
  "sha1",
@@ -1601,9 +1605,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-egress",
  "getrandom 0.3.4",
  "reqwest",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
  "tokio",
@@ -1777,6 +1783,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -1947,6 +1954,8 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "chrono",
+ "chrono-tz",
  "cmux-app-host",
  "cmux-embed",
  "cmux-json",
@@ -2138,6 +2147,17 @@ dependencies = [
  "rustls-native-certs",
  "sha2 0.10.9",
  "windows",
+]
+
+[[package]]
+name = "cmux-error-journal"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "unicode-general-category",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -2348,6 +2368,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-envelope",
  "cmux-supervise-core",
+ "cmux-tui-util",
  "cmux-unix-socket",
  "flate2",
  "libc",
@@ -2615,6 +2636,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-nat-probe"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-netwatch"
 version = "0.1.0"
 dependencies = [
@@ -2850,8 +2880,11 @@ dependencies = [
  "hmac",
  "libc",
  "md-5",
+ "rustls",
+ "rustls-native-certs",
  "sha1",
  "snow",
+ "socket2",
  "windows-sys 0.61.2",
 ]
 
@@ -3068,6 +3101,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-server-core",
+ "cmux-tui-util",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
@@ -3545,6 +3579,7 @@ dependencies = [
  "cmux-tui-test-modules",
  "cmux-unix-socket",
  "cmux-usage-patterns",
+ "cmux-vault-e2e",
  "cmux-vm",
  "cmux-vm-pool",
  "cmux-vnc",
@@ -3700,6 +3735,7 @@ dependencies = [
  "cmux-transport-rewrite",
  "cmux-tui-cdp",
  "cmux-tui-cloud-conversations",
+ "cmux-tui-core",
  "cmux-tui-image-paste",
  "cmux-tui-platform",
  "cmux-tui-remote-access",
@@ -3841,11 +3877,13 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "cmux-config",
+ "cmux-json",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
  "rusqlite",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -3863,6 +3901,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "cmux-upstream-error"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-url-input"
@@ -3893,6 +3935,21 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "cmux-vault-e2e"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "chacha20poly1305",
+ "getrandom 0.3.4",
+ "hpke",
+ "rand_core 0.9.5",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "zeroize",
 ]
 
 [[package]]

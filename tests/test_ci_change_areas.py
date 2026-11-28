@@ -3205,6 +3205,52 @@ def test_non_pr_events_run_all_areas() -> None:
     assert "Resolved areas: macos=true web=true agent_session_web=true" in result.stdout
 
 
+def _plan_lines(*args: str, env: Optional[dict] = None) -> list[str]:
+    result = subprocess.run(
+        [sys.executable, str(HELPER), *args],
+        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env={**os.environ, "GITHUB_ACTIONS": "", **(env or {})},
+    )
+    return [line for line in result.stdout.splitlines() if "ci-plan" in line]
+
+
+def test_cli_names_the_plan_class_and_fallback_rule() -> None:
+    # One line per run says whether the planner narrowed the run or fell
+    # back to every area, and which rule forced the fallback, so a weekly
+    # roll-up can report the fail-open share (cmuxterm-hq
+    # docs/reading/2026-11-26-cloudflare-dns-targeted-zone-builds.md).
+    with tempfile.TemporaryDirectory() as temp_dir:
+        files_path = Path(temp_dir) / "files.txt"
+        files_path.write_text("web/app/page.tsx\n", encoding="utf-8")
+        assert _plan_lines("--event-name", "pull_request", "--files-from", str(files_path)) == [
+            "ci-plan v1 class=targeted fallback=none",
+        ]
+        files_path.write_text("", encoding="utf-8")
+        assert _plan_lines("--event-name", "pull_request", "--files-from", str(files_path)) == [
+            "ci-plan v1 class=fail_open fallback=empty_diff",
+        ]
+        # ci.yml with no base to compare its jobs against fails open.
+        files_path.write_text(".github/workflows/ci.yml\n", encoding="utf-8")
+        assert _plan_lines("--event-name", "pull_request", "--files-from", str(files_path)) == [
+            "ci-plan v1 class=fail_open fallback=ci_yml_jobs_unreadable:1 first=.github/workflows/ci.yml",
+        ]
+    assert _plan_lines("--event-name", "push") == ["ci-plan v1 class=full fallback=post_merge_event"]
+    # In Actions the same line is also a notice annotation on the check run.
+    assert _plan_lines("--event-name", "push", env={"GITHUB_ACTIONS": "true"}) == [
+        "ci-plan v1 class=full fallback=post_merge_event",
+        "::notice title=ci-plan::ci-plan v1 class=full fallback=post_merge_event",
+    ]
+
+
+def test_classify_files_collects_fail_open_rules() -> None:
+    fallbacks: list[tuple[str, str]] = []
+    module.classify_files([".github/workflows/ci.yml", "web/app/page.tsx"], fallbacks=fallbacks)
+    assert fallbacks == [("ci_yml_jobs_unreadable", ".github/workflows/ci.yml")]
+    fallbacks = []
+    module.classify_files(["web/app/page.tsx"], fallbacks=fallbacks)
+    assert fallbacks == []
+
+
 def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     block = workflow_job_block("ci-status")
 
@@ -4347,7 +4393,7 @@ def test_unchanged_build_inputs_skip_mac_compile_before_runner_allocation() -> N
     )
     assert (
         "ghosttykit_release: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || (github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && "
-        "!contains(github.event.pull_request.labels.*.name, 'full-ci') && steps.ghosttykit_provenance.outputs.changed == 'false')) && 'false' || steps.linux_guards.outputs.ghosttykit_release }}"
+        "!(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && steps.ghosttykit_provenance.outputs.changed == 'false')) && 'false' || steps.linux_guards.outputs.ghosttykit_release }}"
         in changes
     )
 
