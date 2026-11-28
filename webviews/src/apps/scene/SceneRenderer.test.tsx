@@ -1,9 +1,12 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import sceneType from "../../../../schemas/type-scale/scene-type.json";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { fileURLToPath } from "node:url";
+import { HOVER_INTENT } from "../../ui/hoverIntent";
+import { TooltipProvider } from "../../ui/Tooltip";
+import { sdkKitHover } from "./fixtures/sdkKitHover";
 import { UiProvider } from "../../ui/UiProvider";
 import type { PopupHost } from "../../ui/popupHost";
 import type { NativePopupModel, NativePopupEvent } from "../../ui/nativePopup";
@@ -24,6 +27,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   await act(() => root?.unmount());
   root = undefined;
+  jest.useRealTimers();
   await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
@@ -1142,4 +1146,74 @@ test("a Pill with no tone, or one the host refused, is the kit's neutral", () =>
   const pill = container.querySelector(".kit-pill")!;
   expect(pill.getAttribute("data-tone")).toBe("neutral");
   expect(pill.getAttribute("data-size")).toBe("md");
+});
+
+// These exercise the SDK renderer's event wiring, not just the shared hover hook.
+async function hoverEvent(target: Element, type: string, relatedTarget: Element | null = null) {
+  await act(async () => {
+    const event = new dom!.window.MouseEvent(type, {
+      bubbles: true,
+      relatedTarget,
+      clientX: 20,
+      clientY: 20,
+    });
+    Object.defineProperty(event, "pointerType", { value: "mouse" });
+    target.dispatchEvent(event);
+  });
+}
+async function advanceHover(ms: number) {
+  await act(async () => void jest.advanceTimersByTime(ms));
+}
+
+test("SDK Card cancels a short hover, then opens after dwell and keeps its portal through the crossing grace", async () => {
+  const { container } = render(sdkKitHover);
+  jest.useFakeTimers();
+  const trigger = container.querySelector('[data-app-node="sdk-trigger"]')!;
+  const away = container;
+  const content = () => container.querySelector('[role="dialog"] [data-app-node="sdk-detail"]');
+  await hoverEvent(trigger, "pointerover", away);
+  await advanceHover(HOVER_INTENT.cardDwell - 1);
+  expect(content()).toBeNull();
+  await hoverEvent(trigger, "pointerout", away);
+  await advanceHover(HOVER_INTENT.cardDwell + HOVER_INTENT.cardGrace);
+  expect(content()).toBeNull();
+
+  await hoverEvent(trigger, "pointerover", away);
+  await advanceHover(HOVER_INTENT.cardDwell);
+  expect(content()?.textContent).toBe("Last run passed");
+  await hoverEvent(trigger, "pointerout", away);
+  await advanceHover(HOVER_INTENT.cardGrace - 1);
+  expect(content()).not.toBeNull();
+  const action = container.querySelector('[role="dialog"] [data-app-node="sdk-action"]')!;
+  await hoverEvent(action, "pointerover", away);
+  await advanceHover(HOVER_INTENT.cardGrace + 1);
+  expect(content()).not.toBeNull();
+  await hoverEvent(action, "pointerout", away);
+  await advanceHover(HOVER_INTENT.cardGrace + 1);
+  expect(content()).toBeNull();
+});
+
+test("SDK Tooltip opens on its Pill and leaves without dispatching a scene action", async () => {
+  const { container, store, calls } = render(sdkKitHover);
+  await act(async () =>
+    root!.render(
+      <UiProvider container={container}>
+        <TooltipProvider>
+          <SceneRenderer store={store} dispatch={(...args) => calls.push(args)} />
+        </TooltipProvider>
+      </UiProvider>,
+    ),
+  );
+  jest.useFakeTimers();
+  const pill = container.querySelector('[data-app-node="sdk-pill"]')!;
+  await hoverEvent(pill, "pointerover", container);
+  await hoverEvent(pill, "mouseover", container);
+  await advanceHover(HOVER_INTENT.tooltipDelay + 1);
+  expect(container.querySelector('[role="tooltip"]')?.textContent).toBe("Open the latest run");
+  expect(pill.querySelector(".kit-pill")?.getAttribute("data-tone")).toBe("success");
+  await hoverEvent(pill, "pointerout", container);
+  await hoverEvent(pill, "mouseout", container);
+  await advanceHover(HOVER_INTENT.tooltipWarm + 1);
+  expect(container.querySelector('[role="tooltip"]')).toBeNull();
+  expect(calls).toEqual([]);
 });
