@@ -1501,6 +1501,8 @@ pub struct Hub {
     pub(super) surge_inbox: StdMutex<Option<bool>>,
     /// The fleet hold as its file last read (`session_hold.rs`).
     pub(crate) fleet_hold: StdMutex<session_hold::FleetHoldCache>,
+    /// Wakes the fleet hold's thaw task after a change (`session_hold.rs` `start_fleet_thaw`).
+    pub(crate) fleet_thaw: Notify,
     /// Each chat's surge triage state between passes (`surge_triage.rs` `Journal`).
     pub(super) surge_triage_journals: StdMutex<HashMap<String, surge_triage::Journal>>,
     /// The thread owners every chat subscribed itself to (`surge_triage.rs`).
@@ -2004,6 +2006,7 @@ impl Hub {
             surge_triager: StdMutex::new(None),
             surge_inbox: StdMutex::new(None),
             fleet_hold: StdMutex::new(session_hold::FleetHoldCache::default()),
+            fleet_thaw: Notify::new(),
             surge_triage_journals: StdMutex::new(HashMap::new()),
             surge_subscribers: StdMutex::new(None),
             surge_digest_pace: StdMutex::new(HashMap::new()),
