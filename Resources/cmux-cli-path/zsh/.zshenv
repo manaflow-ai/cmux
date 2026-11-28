@@ -185,11 +185,14 @@ fi
             done
             'builtin' 'return' ret
         }
-        # Registered from the first precmd, after .zshrc, as the agent shims are.
+        # Registered from the first precmd, after .zshrc, as the agent shims are. The hint runs before every other
+        # precmd hook: the terminal's zsh integration may print the prompt's start mark from its own hook (OSC 133;A
+        # with redraw=1), and a line after that mark is part of the prompt, which the terminal clears on a resize
+        # (first-run findings N8: the hint went blank when the pane resized). First, it also reads `$?` untouched.
         _cmux_folder_access_install() {
             'builtin' 'local' '-i' ret=$?
             'builtin' 'typeset' -ag precmd_functions preexec_functions
-            precmd_functions=("${(@)precmd_functions:#_cmux_folder_access_install}" _cmux_folder_access_hint)
+            precmd_functions=(_cmux_folder_access_hint "${(@)precmd_functions:#(_cmux_folder_access_install|_cmux_folder_access_hint)}")
             preexec_functions=("${(@)preexec_functions:#_cmux_folder_access_line}" _cmux_folder_access_line)
             'builtin' 'unfunction' '_cmux_folder_access_install'
             'builtin' 'return' ret
