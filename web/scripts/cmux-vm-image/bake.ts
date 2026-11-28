@@ -1214,7 +1214,8 @@ export function acpmuxLoginEnvRefreshCommand(): string {
     'rm -f "$cache" "$health"',
     `${user} systemctl --user restart acpmux.service`,
     'i=0; while [ "$i" -lt 60 ] && [ ! -s "$cache" ]; do i=$((i + 1)); sleep 1; done',
-    'test -s "$cache" || { echo "acpmux did not read the login shell after its restart" >&2; exit 1; }',
+    // On failure, the daemon's own log of this start says why (a login shell slower than its limit, a crash).
+    `test -s "$cache" || { echo "acpmux did not read the login shell after its restart; its log:" >&2; ${user} journalctl --user -u acpmux.service --since "-2min" --no-pager -o short-monotonic 2>&1 | tail -80 >&2; exit 1; }`,
     'grep -q OPENAI_API_KEY "$cache" || { echo "acpmux login environment lacks OPENAI_API_KEY" >&2; exit 1; }',
     "echo acpmux-login-env-fresh",
   ].join(" && ");

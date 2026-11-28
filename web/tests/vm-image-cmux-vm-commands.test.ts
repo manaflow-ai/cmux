@@ -570,6 +570,8 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     expect(refresh).toContain('health="$CMUX_TUI_HOME/.acpmux/harness-health.json"');
     expect(refresh.indexOf('rm -f "$cache" "$health"')).toBeGreaterThanOrEqual(0);
     expect(refresh.indexOf('rm -f "$cache" "$health"')).toBeLessThan(refresh.indexOf("systemctl --user restart acpmux.service"));
+    // A missing login cache prints the daemon's log of this start (roll 46173290720 failed with none).
+    expect(refresh).toMatch(/did not read the login shell after its restart; its log:.*journalctl --user -u acpmux\.service/);
     const wait = bake.acpmuxHarnessChecksDoneCommand();
     expect(wait).toContain('"$CMUX_TUI_HOME/.acpmux/harness-health.json"');
     expect(wait).toContain('[ ! -s "$health" ]');
