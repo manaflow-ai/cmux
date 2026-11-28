@@ -186,7 +186,7 @@ const postInbox = async (c: Call): Promise<Response> => {
   return answer(await chat(c).post(c.by.owner, { id: b.id, text: b.text }), (v) => v)
 }
 
-/** `POST move`: where the person wants the chat to run now, and the laptop when they named one. */
+/** `POST move`: where the person (or the agent of a chat its holder machine runs) wants the chat to run now, and the laptop when one is named. */
 const postMove = async (c: Call): Promise<Response> => {
   const b = await bodyOf(c.request)
   if (b instanceof Response) return b
