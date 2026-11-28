@@ -353,6 +353,69 @@ test("with the list still out, a host that opens: the hold's reply gives the row
   }
 });
 
+/// The chat's saved copy as the host serves it to a restarted page (`__snapshot/chat.js`), here only
+/// its word on the switch (chatSnapshot/shared.ts `ChatSnapshot.rows`).
+const SNAPSHOT_GLOBAL = "__cmuxChatSnapshot";
+
+test("a restarted page whose saved copy says the store was on: its first attach is the hold, no v1 page", async () => {
+  scope[SNAPSHOT_GLOBAL] = { rows: "on" };
+  let sid = "";
+  // A fresh page: page memory says nothing of the switch, only the copy does.
+  const run = await listOut(async (params) => {
+    sid = String(params.sid);
+    return { sid };
+  });
+  const client = await run.connecting;
+  try {
+    await settle(() => run.attaches().length > 0);
+    // The switch is asked with the handshake, before any attach, and the one attach is the hold.
+    const open = run.asked.findIndex((ask) => ask.method === "chat.rows.open" && ask.params.chat === run.a);
+    const attach = run.asked.findIndex((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === run.a);
+    expect(open).toBeGreaterThanOrEqual(0);
+    expect(open).toBeLessThan(attach);
+    expect(run.attaches()[0]!.params.hold).toBe(true);
+    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({
+      batch: 1,
+      changes: recorded("window", sid),
+    });
+    await settle(() => run.rows().length === 11);
+    expect(run.attaches().map((ask) => ask.params.hold)).toEqual([true]);
+    expect(run.hostPosts().filter((post) => post.method === "chat.rows.open")).toHaveLength(1);
+  } finally {
+    client.close?.();
+    resetChatRowsReceiver();
+    delete scope[SNAPSHOT_GLOBAL];
+  }
+});
+
+test("a saved copy that says on, to a daemon without the hold this time: the chat opens on v1", async () => {
+  scope[SNAPSHOT_GLOBAL] = { rows: "on" };
+  // The daemon no longer names the hold (an older one, or a remote host's): the guess misses.
+  scope.cmuxAcpmuxMockCapabilities = [];
+  // The list answers: a missed guess opens the chat again as the handshake says, after the list.
+  const run = await listOut(async (params) => ({ sid: params.sid }), Promise.resolve());
+  const client = await run.connecting;
+  try {
+    await settle(() => run.rows().length > 0);
+    // Whatever went out on the guess, the chat's attach is v1's plain one and its store sub is let go.
+    expect(run.attaches().at(-1)!.params.hold).toBeUndefined();
+    const opened = run.hostPosts().filter((post) => post.method === "chat.rows.open");
+    const closed = run.hostPosts().filter((post) => post.method === "chat.rows.close");
+    expect(closed).toHaveLength(opened.length);
+    expect(client.selectedSessionId).toBe(run.a);
+    // Read once a document: a later open guesses from what this handshake said, not the copy.
+    const { ChatSource } = await import("./rows/chatSource");
+    expect(new ChatSource(async () => null, { context: () => ({}) as never, rows() {}, fell() {} }).hostSaidOn()).toBe(
+      false,
+    );
+  } finally {
+    client.close?.();
+    resetChatRowsReceiver();
+    delete scope[SNAPSHOT_GLOBAL];
+    scope.cmuxAcpmuxMockCapabilities = ["attach-hold-v1"];
+  }
+});
+
 // A New Tab's first send (issue 44964): the switch starts a session, then opens it. The daemon refuses
 // the brand-new chat's sub, so the store falls it to v1 while the open's hold is still out; the fall
 // opens the chat again, as v1, and that open attaches it. The switch's open is of the same chat, so it

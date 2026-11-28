@@ -96,6 +96,10 @@ export type ChatSnapshot = {
   /// composer holds it from its first frame so it stands where the copy drew it. Absent when empty.
   /// A write with no copy (`miss`) carries it too: the host keeps and serves it alone.
   draft?: string;
+  /// `on` when the host had the chat on the row store as it was written (rows/chatSource.ts
+  /// `chatRowsState`): the next launch's first open asks the switch and the hold from its first
+  /// attach (`rememberedOn`). Absent otherwise; the host keeps it opaque, as the rest.
+  rows?: "on";
 };
 
 /// Whether `value` is a snapshot this version draws.

@@ -747,6 +747,7 @@ import { hatQuestions, sameHatQuestions, type HatQuestion } from "./question/hat
 import { hatSeenKey, hatQuestionsShown, stackCardKeys } from "./question/hatSeen";
 
 import { defaultRegistry } from "./rows/registry";
+import { chatRowsState } from "./rows/chatSource";
 import { ReadOnlyRecapRow } from "./rows/RecapRow";
 import { oneRecap } from "./conversation/oneRecap";
 import { ReadOnlyMemoryOfferRow } from "./rows/MemoryOfferRow";
@@ -7632,7 +7633,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // A miss (a copy too large to keep) carries it too; a forget carries nothing.
       const draft =
         "html" in params || "miss" in params ? snapshotDraft(composerHandle.current?.draft().text) : undefined;
-      return callNative("chat.snapshot.put", draft ? { ...params, draft } : params);
+      // A copy says whether the host had the chat on the row store, so the next launch's first open
+      // starts there (rows/chatSource.ts `rememberedOn`) instead of after its handshake.
+      const rows = "html" in params && chatRowsState() === "on" ? { rows: "on" } : undefined;
+      return callNative("chat.snapshot.put", { ...params, ...rows, ...(draft ? { draft } : {}) });
     });
   }, [snapshotSession]);
   const summary = snapshot.summary;
