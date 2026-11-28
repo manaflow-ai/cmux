@@ -3,6 +3,8 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
+// The grammar is Rust's (chat_share_link.rs, which runs these cases too); it links on iOS only.
+#if os(iOS)
 /// The phone opens a share page signed in as its account: the token buys a one-time code from the
 /// share host, never travels in the page, and a refusal opens the page signed out.
 @Suite(.serialized) struct ChatShareOpenerTests {
@@ -59,3 +61,4 @@ final class ChatShareStubProtocol: URLProtocol, @unchecked Sendable {
     }
     override func stopLoading() {}
 }
+#endif

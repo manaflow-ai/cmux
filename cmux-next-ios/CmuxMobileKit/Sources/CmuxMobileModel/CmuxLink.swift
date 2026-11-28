@@ -102,14 +102,6 @@ public struct CmuxLink: Hashable, Sendable {
         #endif
     }
 
-    /// Whether `scheme` is a cmux build's link scheme. `cmux-next` is never a link.
-    /// Kept in Swift: ``ChatShareLink`` reads it on every platform, and the macOS/Linux package
-    /// builds have no Rust (step B, #58735).
-    public static func isLinkScheme(_ scheme: String) -> Bool {
-        let scheme = scheme.lowercased()
-        return ["cmux", "cmux-nightly", "cmux-rc", "cmux-dev"].contains(scheme) || scheme.hasPrefix("cmux-dev-")
-    }
-
     /// The hosts whose https links the phone opens.
     public static let webHosts: Set<String> = ["cmux.com", "www.cmux.com"]
 

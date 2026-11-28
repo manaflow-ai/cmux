@@ -24,6 +24,7 @@ mod browser;
 pub mod bundle;
 mod catch_up;
 mod chat_prompt_outbox;
+mod chat_share_link;
 mod classic_leftovers;
 mod cloud_wake;
 mod cmux_link;
@@ -78,6 +79,10 @@ pub use catch_up::{
 pub use chat_prompt_outbox::{
     ChatAttachment, ChatCancelStep, ChatEditStep, ChatPromptDone, ChatPromptLook, ChatPromptOutbox,
     ChatPromptOutcome, ChatPromptRequest, ChatPromptTaken, ChatUploadState, ChatUploadedAttachment,
+};
+pub use chat_share_link::{
+    ChatSharePage, ParsedChatShareLink, chat_share_handoff_url, chat_share_is_id, chat_share_link_make,
+    chat_share_link_parse, chat_share_page_url,
 };
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use cloud_wake::{
