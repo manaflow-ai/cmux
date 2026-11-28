@@ -44,6 +44,7 @@ GATEWAY_MAC = frozenset({
     "bench-baselines-nightly.yml#record-mac-fleet",
     "chief-evals.yml#fleet-ab",
     "cmux-next-agent-conn-chaos.yml#chaos-fleet",
+    "cmux-next-scale-fixture.yml#measure-fleet",  # #63279: same shape as split-table's measure-fleet
     "cmux-next-sidebar-bench.yml#bench-fleet",
     "cmux-next-split-table.yml#measure-fleet",
     "cmux-next-tip-test-compile.yml#compile-fleet",
