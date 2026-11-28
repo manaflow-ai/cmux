@@ -36,6 +36,10 @@ pub(crate) struct Candidate {
     /// Whether this App's link to its daemon is up.
     #[serde(default)]
     pub(crate) connected: bool,
+    /// This send's automatic pick took it and it could not connect (the plan's `unreachable`): never taken
+    /// again by the same send, so it falls back to another machine or a new one.
+    #[serde(skip)]
+    pub(crate) unreachable: bool,
 }
 
 impl Candidate {
@@ -47,7 +51,11 @@ impl Candidate {
     /// Takes work now or after a resume: open, or paused or pausing; never one failed or being
     /// removed, even while a stale link still reads as connected.
     fn is_usable(&self) -> bool {
-        !matches!(self.status.as_str(), "failed" | "deleting" | "deleted" | "destroyed" | "stopped")
+        !self.unreachable
+            && !matches!(
+                self.status.as_str(),
+                "failed" | "deleting" | "deleted" | "destroyed" | "stopped"
+            )
             && (self.is_open() || matches!(self.status.as_str(), "paused" | "pausing"))
     }
 
@@ -114,7 +122,7 @@ pub(crate) fn destination(
     }
     candidates
         .iter()
-        .filter(|vm| vm.claude_ready && vm.matches_environment(environment))
+        .filter(|vm| vm.claude_ready && !vm.unreachable && vm.matches_environment(environment))
         .min_by(|left, right| left.id.cmp(&right.id))
         .map_or(Destination::New, |vm| Destination::Machine(vm.id.clone()))
 }

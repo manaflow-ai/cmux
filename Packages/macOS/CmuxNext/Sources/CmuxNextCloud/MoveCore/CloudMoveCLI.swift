@@ -117,14 +117,17 @@ public nonisolated struct CloudMoveCLI: Sendable {
         /// The ledger keeps a sent create's route (this cmux-tui and this app's Rust core both know it). Without it a
         /// retry could not tell a direct send from a relayed one, so every create of the start is the relay's.
         public var keepsCreateRoute: Bool = false
+        /// The automatic pick reused `machine` (not one the person chose, nor one made for this send): when it never connects
+        /// (paused, stuck starting), the send plans again without it, a new machine or another of the person's (Rust's `falls_back`).
+        public var fallsBack: Bool = false
 
         public init(machine: String? = nil, newName: String? = nil, createKey: String, tabKey: String,
                     environmentId: String? = nil, setup: CloudStartSetup? = nil, targetPane: String? = nil,
                     createTeam: String? = nil, createSent: Bool = false, madeForSend: Bool = false,
-                    createRoute: CloudCreateRoute? = nil, keepsCreateRoute: Bool = false) {
+                    createRoute: CloudCreateRoute? = nil, keepsCreateRoute: Bool = false, fallsBack: Bool = false) {
             (self.machine, self.newName, self.createKey, self.tabKey, self.targetPane) = (machine, newName, createKey, tabKey, targetPane)
             (self.createTeam, self.createSent, self.environmentId, self.setup) = (createTeam, createSent, environmentId, setup)
-            (self.madeForSend, self.createRoute, self.keepsCreateRoute) = (madeForSend, createRoute, keepsCreateRoute)
+            (self.madeForSend, self.createRoute, self.keepsCreateRoute, self.fallsBack) = (madeForSend, createRoute, keepsCreateRoute, fallsBack)
         }
 
         /// Whether the app's create for this start may go straight to the Cloud API as the person (`ownCreate`):
@@ -136,7 +139,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
         /// The route to record with a send on `route`: nil for a ledger that keeps none (it takes no `--route`).
         public func recorded(_ route: CloudCreateRoute) -> CloudCreateRoute? { keepsCreateRoute ? route : nil }
 
-        enum CodingKeys: String, CodingKey { case machine, newName, createKey, tabKey, targetPane, createTeam, createSent, environmentId, ensuredEnvironment, setup, madeForSend, createRoute, keepsCreateRoute }
+        enum CodingKeys: String, CodingKey { case machine, newName, createKey, tabKey, targetPane, createTeam, createSent, environmentId, ensuredEnvironment, setup, madeForSend, createRoute, keepsCreateRoute, fallsBack }
 
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -154,6 +157,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
             // A route this app does not know is none: with the create sent, that is the relay (``CloudMachineRequest/createRoute(personsOwnCreate:team:)``).
             createRoute = try container.decodeIfPresent(String.self, forKey: .createRoute).flatMap(CloudCreateRoute.init(rawValue:))
             keepsCreateRoute = try container.decodeIfPresent(Bool.self, forKey: .keepsCreateRoute) ?? false
+            fallsBack = try container.decodeIfPresent(Bool.self, forKey: .fallsBack) ?? false
         }
     }
 

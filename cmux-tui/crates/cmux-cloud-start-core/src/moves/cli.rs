@@ -306,6 +306,10 @@ pub struct StartChatPlan {
     /// now): a start that can't go on after it deletes it, as it deletes one the app made for it.
     /// A machine it found, or a reserved warm one it bound, is never this send's to delete.
     pub made_for_send: bool,
+    /// The automatic pick reused `machine` (not one the person chose, nor one made for this
+    /// send): one that never connects (paused, stuck starting) is planned again without it, as
+    /// `unreachable`, so the send takes a new machine or another of the person's.
+    pub falls_back: bool,
 }
 
 /// The plan an answer names. An ok answer without its keys is no answer: a create or open
@@ -339,6 +343,8 @@ pub fn start_chat_plan(
                 .and_then(Value::as_object)
                 .and_then(|ensured| boolean(ensured, "created"))
                 == Some(true),
+        falls_back: string(object, "machine").is_some()
+            && boolean(object, "falls_back").unwrap_or(false),
     };
     if answer.ok && (plan.create_key.is_empty() || plan.tab_key.is_empty()) {
         return (

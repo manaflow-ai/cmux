@@ -227,6 +227,25 @@ struct CloudStartChatMachineTests {
         func restart() { last += 1; generation = last }
     }
 
+    /// A reused machine that never connected (the probe account's paused `probe-link-connect`) is sent back to the plan
+    /// as `unreachable`, so Rust plans the send again without it. Only the reused machine's own connect failure falls back:
+    /// a failure naming another machine, or no machine, is the send's to show (and a chosen machine's plan never falls back).
+    @Test func aReusedMachineThatNeverConnectedIsPlannedAgainWithoutIt() throws {
+        let session = CloudTestLink.session(id: "vm-stuck", name: "probe-link-connect")
+        let json = CloudStartChat.planRequest(key: "k", account: [Self.me, "team-a"], workspace: nil, user: Self.me, machines: [session],
+                                              stored: [], readiness: (choice: .gateway(family: "claude"), machines: []), unreachable: ["vm-stuck"])
+        let request = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+        #expect(request["unreachable"] as? [String] == ["vm-stuck"])
+        let notConnected = CloudMove.Failure(message: "probe-link-connect didn't connect.", retry: .move(machineID: "vm-stuck"))
+        #expect(CloudStartReuse.unreached(notConnected, machine: "vm-stuck") == "vm-stuck")
+        #expect(CloudStartReuse.unreached(CloudStartReuse.Unreachable(machine: "vm-stuck", error: CancellationError()), machine: nil) == "vm-stuck")
+        #expect(CloudStartReuse.unreached(CloudMove.Failure(message: "other", retry: .move(machineID: "vm-other")), machine: "vm-stuck") == nil)
+        #expect(CloudStartReuse.unreached(CloudMove.Failure(message: "no retry"), machine: "vm-stuck") == nil)
+        #expect(CloudStartReuse.marked(notConnected, machine: nil) is CloudMove.Failure) // a chosen machine's connect: its own error
+        #expect(CloudStartReuse.shown(CloudStartReuse.marked(notConnected, machine: "vm-stuck")) is CloudMove.Failure)
+        #expect(!CloudMoveCLI.StartChatPlan(machine: "vm-chosen", createKey: "c", tabKey: "t").fallsBack)
+    }
+
     /// The plan reads the send under its account and Mac workspace, only the machines the account's list
     /// named, and the ones made since (kept for a pin, never picked).
     /// Router review at f766845: a machine the server destroyed may stay in the store after the list dropped it. It is
