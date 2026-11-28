@@ -18,6 +18,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import vm from "node:vm";
 import { build } from "esbuild";
 import { classicScript } from "../scripts/agent-pane/classicScript.mjs";
 
@@ -169,29 +170,33 @@ async function runPane(outdir: string, flag: string | null) {
   const base = "cmux-page://cmux.agent/";
   const imported: string[] = [];
   const appended: string[] = [];
-  const sandbox: Record<string, unknown> = {};
+  // The page's global object: a bare name in a classic script (__paneLoadRel, __paneChunks) is one of its properties.
+  const sandbox: Record<string, unknown> = {
+    localStorage: { getItem: (key: string) => (key === "cmux.paneClassicChunks" ? flag : null) },
+    __cmuxImport: (url: string) => {
+      imported.push(url);
+      return Promise.resolve({});
+    },
+    queueMicrotask,
+    Promise,
+    URL,
+  };
+  vm.createContext(sandbox);
   const run = (file: string, src: string) => {
-    const doc = { currentScript: { src } } as Record<string, unknown>;
-    sandbox.document = doc;
-    new Function("globalThis", "document", "localStorage", "__cmuxImport", readFileSync(file, "utf8").replace(/\bimport\(/g, "__cmuxImport("))(
-      sandbox,
-      doc,
-      { getItem: (key: string) => (key === "cmux.paneClassicChunks" ? flag : null) },
-      (url: string) => {
-        imported.push(url);
-        return Promise.resolve({});
-      },
-    );
-    doc.createElement = () => ({}) as Record<string, unknown>;
-    doc.head = {
-      appendChild(s: { src: string; onload: () => void }) {
-        appended.push(s.src);
-        queueMicrotask(() => {
-          run(path.join(outdir, s.src.slice(base.length)), s.src);
-          s.onload();
-        });
+    sandbox.document = {
+      currentScript: { src },
+      createElement: () => ({}),
+      head: {
+        appendChild(s: { src: string; onload: () => void }) {
+          appended.push(s.src);
+          queueMicrotask(() => {
+            run(path.join(outdir, s.src.slice(base.length)), s.src);
+            s.onload();
+          });
+        },
       },
     };
+    vm.runInContext(readFileSync(file, "utf8").replace(/\bimport\(/g, "__cmuxImport("), sandbox);
   };
   run(path.join(outdir, "pane.js"), `${base}pane.js?h=0`);
   return { sandbox, imported, appended };
@@ -203,8 +208,14 @@ async function runPane(outdir: string, flag: string | null) {
 test("the flag loads the classic copies of the lazy chunks; off, the ES modules", async () => {
   const src = path.join(root, "flag-src");
   mkdirSync(src, { recursive: true });
-  writeFileSync(path.join(src, "shared.js"), "export const shared = () => (globalThis.sharedCalls = (globalThis.sharedCalls ?? 0) + 1);\n");
-  writeFileSync(path.join(src, "common.js"), 'import { shared } from "./shared.js";\nexport const common = () => shared() * 10;\n');
+  writeFileSync(
+    path.join(src, "shared.js"),
+    "export const shared = () => (globalThis.sharedCalls = (globalThis.sharedCalls ?? 0) + 1);\n",
+  );
+  writeFileSync(
+    path.join(src, "common.js"),
+    'import { shared } from "./shared.js";\nexport const common = () => shared() * 10;\n',
+  );
   writeFileSync(path.join(src, "grammar.js"), "export default { name: 'typescript' };\n");
   writeFileSync(
     path.join(src, "a.js"),
@@ -220,10 +231,14 @@ test("the flag loads the classic copies of the lazy chunks; off, the ES modules"
   const copies = readdirSync(path.join(outdir, "chunks", "c"));
   // a, b, grammar and the lazy chunk a and b share.
   expect(copies.length).toBe(4);
-  for (const name of copies) expect(readFileSync(path.join(outdir, "chunks", "c", name), "utf8")).not.toMatch(/\bimport\b|\bexport\b/);
+  for (const name of copies)
+    expect(readFileSync(path.join(outdir, "chunks", "c", name), "utf8")).not.toMatch(/\bimport\b|\bexport\b/);
 
   const on = await runPane(outdir, "1");
-  const loadA = on.sandbox.loadA as () => Promise<{ a: () => number; grammar: () => Promise<{ default: { name: string } }> }>;
+  const loadA = on.sandbox.loadA as () => Promise<{
+    a: () => number;
+    grammar: () => Promise<{ default: { name: string } }>;
+  }>;
   const loadB = on.sandbox.loadB as () => Promise<{ b: () => number }>;
   const a = await loadA();
   const b = await loadB();
