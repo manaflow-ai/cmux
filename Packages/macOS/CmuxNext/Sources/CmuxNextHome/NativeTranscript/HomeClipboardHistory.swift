@@ -122,15 +122,16 @@ protocol HomeClipboardSource: AnyObject {
 /// without asking, unless the Debug Settings tunable `home.clipboardHistory.readAtDefaultAccess`
 /// also lets `.default` read (dogfood on systems that do not enforce it yet). `.alwaysDeny` and
 /// any behavior a later SDK adds never read at activation.
-nonisolated enum HomeClipboardAccess: String, Sendable, Equatable, Encodable {
+nonisolated enum HomeClipboardAccess: Sendable, Equatable {
     case noPrivacy, alwaysAllow, `default`, alwaysDeny
 
-    /// `compose.clipboard.readsWithoutAsking` (cmux-home-rules `compose/clipboard.rs`); a failed call never reads.
     func readsWithoutAsking(defaultReads: Bool) -> Bool {
-        do { return try HomeRules.call("compose.clipboard.readsWithoutAsking", AccessInput(access: self, defaultReads: defaultReads)) } catch { assertionFailure("\(error)"); return false }
+        switch self {
+        case .noPrivacy, .alwaysAllow: true
+        case .default: defaultReads
+        case .alwaysDeny: false
+        }
     }
-
-    private nonisolated struct AccessInput: Encodable { var access: HomeClipboardAccess, defaultReads: Bool }
 }
 
 extension NSPasteboard: HomeClipboardSource {
