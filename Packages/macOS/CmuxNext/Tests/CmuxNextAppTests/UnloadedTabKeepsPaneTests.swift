@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextBridge
 @testable import CmuxNextApp
 import CmuxNextBrowser
@@ -18,12 +19,17 @@ import Testing
 /// shows until the new content is in, and a pane left with nothing shows its selection in the same turn.
 @Suite(.serialized, .closesItsWindows)
 @MainActor struct UnloadedTabKeepsPaneTests {
-    private static func tree(coldBrowser: Bool = false) -> DaemonTree {
+    private static func tree(coldBrowser: Bool = false, agentTab: Bool = false) -> DaemonTree {
+        var third = TabSnapshot(surface: SurfaceID(rawValue: 3), title: "~")
+        if agentTab {
+            third = TabSnapshot(surface: SurfaceID(rawValue: 3), kind: .conversation, title: "Chat")
+            third.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: AgentSessionRef.host(installID: "cold-tab-test")))
+        }
         let tabs = [TabSnapshot(surface: SurfaceID(rawValue: 1), kind: .browser, url: URL.historyPageString,
                                 browserRenderer: "frontend", browserEngine: "webkit"),
                     TabSnapshot(surface: SurfaceID(rawValue: 2), kind: .browser, title: "Blank", url: coldBrowser ? "https://example.com/cold" : "about:blank",
                                 browserRenderer: "frontend", browserEngine: coldBrowser ? "cef" : "webkit"),
-                    TabSnapshot(surface: SurfaceID(rawValue: 3), title: "~")]
+                    third]
         let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: tabs)
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(PaneID(rawValue: 1)), panes: [pane])
         return DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil, name: "w1", screens: [screen])])
@@ -61,12 +67,12 @@ import Testing
         let history: String, blank: String, terminal: String
         let page: HistoryPageTab
 
-        init(coldBrowser: Bool = false) async throws {
+        init(coldBrowser: Bool = false, agentTab: Bool = false) async throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
             let store = services.daemon.store
             store.connectionState = .connected(try UnloadedTabKeepsPaneTests.connected())
-            store.apply(snapshot: UnloadedTabKeepsPaneTests.tree(coldBrowser: coldBrowser))
+            store.apply(snapshot: UnloadedTabKeepsPaneTests.tree(coldBrowser: coldBrowser, agentTab: agentTab))
             if coldBrowser {
                 services.cache.browserTabs.cefUnavailable = { nil }
                 services.cache.browserTabs.opened(BrowserEngineChoice(engine: .cef), SurfaceID(rawValue: 2), on: services.daemon)
@@ -147,6 +153,38 @@ import Testing
             try #require(ContinuousClock.now < deadline, "page creation did not reach the expected state")
             try await Task.sleep(for: .milliseconds(5))
         }
+    }
+
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    @Test func anIncomingAgentCoverSurvivesRetiringTheOutgoingCover() async throws {
+        let fixture = try await Fixture(agentTab: true)
+        defer { fixture.close() }
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cold-agent-cover-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "index.html")
+        try Data("<html><body>Agent</body></html>".utf8).write(to: file)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let tabs = fixture.services.agentTabs
+        let tabKey = tabs.tabKey(fixture.terminal, machine: fixture.services.daemon.machineID)
+        tabs.views[tabKey] = view
+        defer { tabs.views[tabKey] = nil; view.close() }
+        let bitmap = try #require(CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
+                                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let frame = try #require(bitmap.makeImage())
+        let images = tabs.launchImages
+        try #require(await images.hold(images.slot(fixture.terminal, machine: fixture.services.daemon.machineID), frame,
+                                       size: fixture.pane.view.contentHost.bounds.size, appearance: nil))
+        fixture.pane.view.showLaunchImage(NSImage(cgImage: frame, size: fixture.pane.view.contentHost.bounds.size))
+        let outgoingCover = try #require(fixture.pane.view.launchImageView)
+        fixture.select(fixture.terminal)
+        fixture.pane.showSelected()
+        #expect(fixture.pane.currentTabKey == fixture.terminal)
+        let incomingCover = try #require(fixture.pane.view.launchImageView, "resolving the page must not install a cover that the subsequent clear erases")
+        #expect(incomingCover !== outgoingCover, "the previous tab's cover must be retired")
     }
 
     @Test(arguments: ["ready", "switchAway", "clearSelection", "initiallyEmpty"])

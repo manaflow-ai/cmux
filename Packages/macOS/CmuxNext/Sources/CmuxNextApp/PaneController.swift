@@ -458,6 +458,17 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // A stale strip takes its record first, as `select` does: its selection can name a tab the record dropped (a new chat's provisional tab, just replaced), and showing that hid the chat until the strip's apply a turn later (SPLIT OPEN CHAT).
         if stripIsStale, workspace?.isApplying != true { syncStripFromStore(); services.presentation.cancel(self); if stripIsStale { return } } // this call shows it: a show that apply queued would stay in a draining scheduler; still stale: the layout removed this pane
         let key = stripModel.selectedID?.rawValue, shownBefore = currentTabKey
+        // May replace a stale surface, displacing the view shown here.
+        let elsewhere = key.flatMap { $0 == takesHere ? nil : paneShowingElsewhere($0) } != nil // its one view draws in another window
+        let content = BenchSpans.measure("switch.content") { () -> TabContent? in
+            guard let key else { return nil }
+            return elsewhere ? self.elsewhereContent(key) : self.content(for: key, preparesPresentation: false)
+        }
+        // Creating a page may finish asynchronously. Until it exists, keep the outgoing
+        // view and its rendering ownership: withdrawing it already hides Chromium's window.
+        // No selected tab still clears the pane, and an initially empty pane keeps its launch path.
+        if let selected = stripModel.selectedID, stripModel.tab(selected) != nil,
+           content == nil, view.hostsContent { return }
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
             // Another tab's last page from the launch must not stay under this one.
@@ -468,12 +479,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
             BenchSpans.measure("switch.withdraw") { services.cache.withdraw(currentTabKey, by: self) }
         }
         DebugTabSwitch.mark(self, "withdraw")
-        // May replace a stale surface, displacing the view shown here.
-        let elsewhere = key.flatMap { $0 == takesHere ? nil : paneShowingElsewhere($0) } != nil // its one view draws in another window
-        let content = BenchSpans.measure("switch.content") { () -> TabContent? in
-            guard let key else { return nil }
-            return elsewhere ? self.elsewhereContent(key) : self.content(for: key)
-        }
+        if let key, case .agent(let agentView) = content { AgentTabContent(pane: self).prepareToShow(key, view: agentView) }
+        else if let key, content == nil, pane.tabs.contains(where: { $0.id == key && $0.agentSession != nil }) { AgentTabContent(pane: self).prepareToShow(key, view: nil) }
         if !elsewhere { elsewhereNotice = nil }
         let ownsView = guestTerminal?.key == key || elsewhere // not the cache's surface: the ledger never hears of it
         if case .browser(let entry) = content {
@@ -529,8 +536,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         launchFrames.showAhead(key, in: view.contentHost); if let tab = pane.tabs.first(where: { $0.id == key }) { services.cache.attachAhead(tab, daemon: daemon) } // its attach starts now, its surface later (startup-tti)
     }
 
-    /// Shows stand-in `key` again once its key's frame committed (within the frame's surface budget); false: it shows no more.
-    func showsAgain(_ key: String) -> Bool { guard currentTabKey == key else { return false }; services.presentation.showNow(self); return true }
+    /// A selected or shown tab became ready. Retry the current selection within the frame budget; never restore a stale selection.
+    func showsAgain(_ key: String) -> Bool { guard currentTabKey == key || stripModel.selectedID?.rawValue == key else { return false }; services.presentation.showNow(self); return true }
     /// The selected tab is a terminal that will draw a frame (not a dead one).
     var showsLiveTerminal: Bool {
         guard let key = stripModel.selectedID?.rawValue, let tab = pane.tabs.first(where: { $0.id == key }) else { return false }
@@ -539,8 +546,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// This pane is its workspace's focused pane.
     var isFocusedInWorkspace: Bool { workspace?.focus.state.pane == paneKey }
 
-    func defersPageUntilFrame(_ key: String) -> Bool { services.launchReveal.pages.defers("\(paneKey)/\(key)") { [weak self] in if let self, self.currentTabKey == key { self.showSelected() } } } // `key`'s new page view waits for the first window frame (`LaunchPageDeferral`); this pane shows it again then
-    func content(for key: String) -> TabContent? {
+    func defersPageUntilFrame(_ key: String) -> Bool { services.launchReveal.pages.defers("\(paneKey)/\(key)") { [weak self] in _ = self?.showsAgain(key) } } // `key`'s new page view waits for the first window frame (`LaunchPageDeferral`); this pane shows it again then
+    func content(for key: String, preparesPresentation: Bool = true) -> TabContent? {
         if services.launchReveal.pages.holds, key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix) || pane.tabs.first(where: { $0.id == key }).map({ $0.kind == .browser || ($0.kind == .conversation && $0.agentSession == nil && $0.page != nil) }) == true, existingContent(for: key) == nil, defersPageUntilFrame(key) { return nil } // no new page view (local page or browser tab, store browser or page tab) before the first frame; an agent tab's waits in AgentTabContent
         if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key).map(TabContent.page) }
         if let mirrored = mirroredContent(for: key) { return mirrored }
@@ -559,7 +566,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             return services.cache.browser(for: tab).map(TabContent.browser)
         case .remoteTerminal:
             return services.remoteTerminals.content(for: tab, home: daemon)
-        case .conversation where tab.agentSession != nil: return AgentTabContent(pane: self).content(key)
+        case .conversation where tab.agentSession != nil: return AgentTabContent(pane: self).content(key, preparesPresentation: preparesPresentation)
         case .conversation where tab.page != nil:
             return services.pages.view(forStoreTab: tab, in: daemon.store, local: daemon.isLocal,
                                        window: state.flatMap { services.windows.controller(for: $0.id) })

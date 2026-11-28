@@ -824,7 +824,7 @@ final class AppServices {
         serverUpdates.start(registry: registry)
         cache.onBrowserReady = { [weak self] key in
             self?.keyRouter.creationInputCoordinator.pageArrived(key); for controller in self?.windows.controllers ?? [] {
-                for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
+                for pane in controller.content?.panes.values.map({ $0 }) ?? [] { _ = pane.showsAgain(key) }
             }
         }
         observePaletteForFocus()

@@ -21,7 +21,7 @@ extension PaneContentView: AgentPaneMoveCoverHost {}
 struct AgentTabContent {
     let pane: PaneController
 
-    func content(_ key: String) -> TabContent? {
+    func content(_ key: String, preparesPresentation: Bool = true) -> TabContent? {
         let services = pane.services
         let focused = pane.workspace?.focus.state.pane
         // A Mac tab that shows a Cloud chat in place (CloudFrontedChats) draws that chat's page, and its files and machine are the chat's.
@@ -29,13 +29,13 @@ struct AgentTabContent {
         let deferred = (services.agentTabs.existingView(chat, machine: machine) == nil && pane.defersPageUntilFrame(key)) || services.agentTabs.deferAtLaunch( // no page before the first frame: its last frame until then
             chat, machine: machine, reveal: services.launchReveal, focusedPane: focused, pane: pane.paneKey,
             focusedDraws: focused.flatMap { key in pane.workspace?.panes.values.first { $0.paneKey == key } }?.showsLiveTerminal ?? false
-        ) { [weak pane] in if let pane, pane.currentTabKey == key { pane.showSelected() } }
+        ) { [weak pane] in _ = pane?.showsAgain(key) }
         if deferred {
-            drawLastPage(key, until: nil)
+            if preparesPresentation { drawLastPage(key, until: nil) }
             return nil
         }
         guard let view = services.agentTabs.view(for: chat, machine: machine, leaving: pane.stripModel.selectedID?.rawValue == key ? pane : nil) else { // the pane leaves the tab that it shows only for its selected tab (a hover load leaves nothing); for a Cloud chat in place `leaving` has no effect: only a New Tab tab of this Mac takes an idle page
-            if let notice = services.agentTabs.notice(for: chat, machine: machine) { return .notice(notice) }; drawLastPage(key, until: nil); return nil // no view yet (the first frame, before the daemon's tree): its last page, which the view that comes keeps
+            if let notice = services.agentTabs.notice(for: chat, machine: machine) { return .notice(notice) }; if preparesPresentation { drawLastPage(key, until: nil) }; return nil // no view yet (the first frame, before the daemon's tree): its last page, which the view that comes keeps
         }
         // Set on each show, so a tab moved to another pane opens files there.
         // A file or preview the person clicks in the chat opens beside it (LinkOpener,
@@ -61,13 +61,20 @@ struct AgentTabContent {
         }; view.model.onOpenCloudPreview = { [weak pane, weak view] port in guard let pane, let view, let remote = pane.services.agentTabs.remoteMachineID(of: chat, machine: machine), let session = pane.services.machines.session(remote) else { return false }; let inventory = try await CloudHandlers.refreshPreviews(session, CloudPortNames(session, port: port), AppActionContext(services: pane.services)); guard let preview = inventory.previews.first(where: { $0.port == port }), pane.services.agentTabs.remoteMachineID(of: chat, machine: machine) == remote else { return false }; return view.model.onOpenPreview?(try preview.browserURL(path: "/")) ?? false }
         // A Cloud chat's Claude sign-in page, in a tab whose localhost is the chat's machine.
         view.model.onOpenSignInOnMachine = { [weak pane] url in pane.flatMap { $0.services.chatSignIn.opener(for: url, callbackPort: AgentPaneSignInPage.callbackPort(url), agentTab: chat, from: $0) } }
+        if preparesPresentation { prepareToShow(key, view: view) }
+        AgentReplySites(services: services).wire(view.model.replyLinks)
+        return .agent(view)
+    }
+
+    /// Install the incoming page's cover only after the pane has retired the outgoing page's cover.
+    func prepareToShow(_ key: String, view: AgentPaneView?) {
+        guard let view else { drawLastPage(key, until: nil); return }
+        let services = pane.services
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         // A hold that gives up on the page before it paints (a workspace switch's two frames) asks for its picture again.
         view.drawsLastPage = { [weak pane, weak view] in guard let pane, let view, pane.currentTabKey == key else { return false }; if pane.view.launchImageView == nil { AgentTabContent(pane: pane).drawLastPage(key, until: view) }; return pane.view.launchImageView != nil }
         if view.model.newTab != nil { AgentPaneNewTabFrame.shared.capture(view, in: pane.view.contentHost); BenchSpans.mark(view.superview is PageOffscreenParking ? "newTab.show.parked" : "newTab.show") }
         if view.model.hasPainted, view.superview is PageOffscreenParking { coverMove(of: view) }
-        AgentReplySites(services: services).wire(view.model.replyLinks)
-        return .agent(view)
     }
 
     /// The tab's page from the last quit, under the pane until `view`'s

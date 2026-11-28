@@ -125,7 +125,7 @@ extension CloudFrontedChats {
     /// Draws tab `key` again in each pane whose strip lists it.
     static func showSelected(_ key: String, services: AppServices) {
         for controller in services.windows.controllers {
-            for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
+            for pane in controller.content?.panes.values.map({ $0 }) ?? [] { _ = pane.showsAgain(key) }
         }
     }
 }
