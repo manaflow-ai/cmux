@@ -136,13 +136,13 @@ while :; do
       ended|none) ;;
       *) publisher=unknown ;;
     esac
-    # A publisher whose build failed on its last retry attempt (run-progress "failed") will not
-    # publish: tree-publisher already passed it over and found no other same-key run. End at this
-    # check, not 5 min later at the second: nightly 46119598955 (2026-11-28) held the signing Mac
-    # 5 min on "the run of a91a44f5f220 is failed build-linux" before failing. A stalled (queued)
-    # job may still get a runner, so it keeps the second check.
+    # A publisher whose build failed on attempt MAX_ATTEMPTS (run-progress "failed ... (the last
+    # attempt)") will not publish, and no retry follows: tree-publisher already passed it over and
+    # found no other same-key run. End at this check, not 5 min later at the second (nightly
+    # 46119598955, 2026-11-28, held the signing Mac 5 min on a failed build-linux). An earlier
+    # attempt's failure (a retry may start) and a stalled job (it may get a runner) keep two checks.
     idle_limit=2
-    [[ "$stuck" == "the run of "*" is failed "* ]] && idle_limit=1
+    [[ "$stuck" == *" is failed "*"(the last attempt): "* ]] && idle_limit=1
     case "$publisher" in
       unknown)
         idle_checks=0 unreadable_checks=$(( unreadable_checks + 1 ))
