@@ -119,10 +119,46 @@ class Wait(unittest.TestCase):
         api = Fake(jobs={7: [job(X86)]}, artifacts={7: lambda n: [name] if n > 1 else []})
         self.assertEqual(run_wait(api, [X86]), 7)
 
+    def test_a_lane_superseded_before_its_build_is_a_miss(self):
+        sel = {"name": "build-machine-channel x86_64 lane 0 / select binary targets", "status": "completed",
+               "conclusion": "cancelled"}
+        api = Fake(jobs={7: [sel]}, artifacts={7: []})
+        self.assertIsNone(run_wait(api, [X86]))
+
+    def test_a_lane_between_its_jobs_keeps_waiting(self):
+        sel = {"name": "build-machine-channel x86_64 lane 0 / select binary targets", "status": "completed",
+               "conclusion": "success"}
+        name = f"{PREFIX}cmux-tui-{X86}"
+        api = Fake(jobs={7: [sel]}, artifacts={7: lambda n: [name] if n > 4 else []})
+        self.assertEqual(run_wait(api, [X86]), 7)
+
     def test_the_wait_is_bounded(self):
         api = Fake(jobs={7: [job(X86, "queued", None)]}, artifacts={7: []})
         self.assertIsNone(run_wait(api, [X86], wait_s=300))
         self.assertLessEqual(sum("/artifacts" in c for c in api.calls), 7)
+
+    def test_a_refused_read_keeps_waiting(self):
+        # WAIT_THROUGH_REFUSALS: run 46156562765's first read met the App's spent quota and its point never ran.
+        name = f"{PREFIX}cmux-tui-{X86}"
+        inner = Fake(jobs={7: [job(X86, "in_progress", None)]}, artifacts={7: lambda n: [name] if n > 6 else []})
+
+        def api(path):
+            if len(inner.calls) < 3:
+                inner.calls.append(path)
+                raise RuntimeError(f"{path}: HTTP 403: API rate limit exceeded for installation ID 1")
+            return inner(path)
+
+        self.assertEqual(run_wait(api, [X86]), 7)
+
+    def test_a_read_refused_throughout_is_still_bounded(self):
+        calls = []
+
+        def api(path):
+            calls.append(path)
+            raise RuntimeError(f"{path}: HTTP 403: API rate limit exceeded")
+
+        self.assertIsNone(run_wait(api, [X86], wait_s=300))
+        self.assertLessEqual(len(calls), 7)
 
 
 class Workflow(unittest.TestCase):
@@ -145,6 +181,19 @@ class Workflow(unittest.TestCase):
         self.assertIn("--target aarch64-unknown-linux-musl", str(jobs["twin-linux"]["steps"]))
         self.assertNotIn("aarch64", str(jobs["twin-x86_64"]["steps"]))
         self.assertIn("needs.plan.outputs.twin_run != ''", jobs["machine-channel-journey-baseline"]["if"])
+
+    def test_point_x86_64_starts_at_this_runs_upload(self):
+        jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-machine-channel.yml").read_text())["jobs"]
+        w, p = jobs["self-x86_64"], jobs["point-x86_64"]
+        self.assertIn("needs.plan.outputs.build == 'true'", w["if"])
+        self.assertIn("wait \"$GITHUB_RUN_ID\"", str(w["steps"]))
+        self.assertNotIn("aarch64", str(w["steps"]))
+        # The build job's delta pack and save after the upload are off the point's path.
+        self.assertNotIn("build-x86_64", p["needs"])
+        self.assertIn("self-x86_64", p["needs"])
+        self.assertIn("needs.self-x86_64.outputs.from_run != ''", p["if"])
+        dl = [s for s in p["steps"] if "download-artifact" in str(s.get("uses", ""))]
+        self.assertTrue(dl and all("needs.self-x86_64.outputs.from_run" in str(s["with"]["run-id"]) for s in dl))
 
 
 if __name__ == "__main__":

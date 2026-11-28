@@ -1,31 +1,33 @@
-//! Linux: the HEAD watch's inotify watcher, asking only for the events that can change a HEAD.
+//! Linux: the git HEAD watch's inotify watch, which asks only for the events that can change a
+//! HEAD: an entry made, removed, moved or written in a watched folder, and the folder itself
+//! removed or moved.
 //!
-//! Not `notify`'s inotify watcher: notify 8.2 always adds `IN_OPEN` to the mask, so every open
-//! and close of a file in a watched git dir (`git status`, an editor's or a prompt's look at the
-//! repository, a CI runner reading the checkout) woke the daemon's notify thread and the
-//! `git-head-watch` thread, which only then dropped the read (`Fired::add`). An idle daemon whose
-//! terminal sat in a busy repository woke in every window of `tests/idle_wakeups.rs` (cmux-tui
-//! artifacts runs 46128450939 and 46132247802). The same class as `acpmux/src/quiet_dirs.rs` and
-//! `cmux-config/src/watch/inotify.rs`.
+//! Not `notify`'s inotify watcher: it always asks for `IN_OPEN` (notify 8.2), so every program
+//! that opened a file in a watched folder woke the daemon. The HEAD cache watches a repository's
+//! git dir, which each `git` command opens files in (`HEAD`, `config`, `index`): an editor's or
+//! a prompt's `git status` woke an idle daemon twice per command, and on CI the checkout's git
+//! dir woke it in every window of `tests/idle_wakeups.rs`. acpmux's folder watch dropped
+//! `IN_OPEN` for the same reason (`acpmux/src/quiet_dirs.rs`).
 //!
-//! Each directory is watched for entries made, removed or moved, files closed after a write, and
-//! the directory itself removed or moved: git renames `HEAD.lock` over `HEAD` (a move in), a
-//! plain write of `HEAD` closes it, `git init` makes `.git`. Each event reaches the sender as a
-//! `notify::Event` naming the path (the directory joined with the entry's name), of the kind
-//! notify gives it, so [`super::Fired`] reads both watchers alike; a queue overflow is sent as an
-//! error (every value stale).
-//!
-//! The reading thread blocks in `poll` on the inotify descriptor and a pipe; dropping the watch
-//! writes to the pipe, and the thread ends and drops its sender (which ends `run_watch`).
+//! Each event reaches its sender as a `notify::Event`, so the HEAD watch reads both watchers
+//! alike: a named entry is the folder joined with its name, a removed or moved folder is a
+//! `Remove` of the folder, and a lost queue is an error (every value is stale). The reading
+//! thread blocks in `poll` on the inotify descriptor and a pipe; dropping the watch writes to
+//! the pipe and the thread ends. No timers.
 
-use crate::panic_free::RecoverPoison;
-use inotify::{EventMask, Inotify, WatchDescriptor, WatchMask, Watches};
 use std::collections::HashMap;
-use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
+use inotify::{EventMask, Inotify, WatchDescriptor, WatchMask, Watches};
+use notify::event::{CreateKind, ModifyKind, RemoveKind};
+use notify::{Event, EventKind};
+
+/// What a watched folder is asked for. No `IN_OPEN`, `IN_ACCESS` or `IN_CLOSE_NOWRITE`: a read
+/// changes no HEAD. `IN_CLOSE_WRITE` keeps a HEAD written in place (git itself renames
+/// `HEAD.lock` over it: `IN_MOVED_TO`).
 fn mask() -> WatchMask {
     WatchMask::CREATE
         | WatchMask::DELETE
@@ -43,18 +45,17 @@ struct State {
     by_dir: HashMap<PathBuf, WatchDescriptor>,
 }
 
+/// The watch over the HEAD cache's folders, and its reading thread.
 pub(super) struct QuietWatch {
     state: Arc<Mutex<State>>,
-    stop: OwnedFd,
+    /// Dropped with the watch: the reading thread's `poll` wakes and it ends.
+    _stop: OwnedFd,
 }
 
 impl QuietWatch {
     /// Starts the reading thread (named `name`), which sends each event on `tx` until this is
-    /// dropped or `tx`'s receiver is gone. Watches nothing until [`Self::add`].
-    pub(super) fn start(
-        tx: Sender<notify::Result<notify::Event>>,
-        name: &str,
-    ) -> std::io::Result<Self> {
+    /// dropped or `tx`'s receiver is gone. It watches nothing until [`QuietWatch::add`].
+    pub(super) fn start(tx: Sender<notify::Result<Event>>, name: &str) -> std::io::Result<Self> {
         let mut inotify = Inotify::init()?;
         let mut pipe = [0 as RawFd; 2];
         // SAFETY: `pipe` has room for the two descriptors pipe2 writes.
@@ -62,18 +63,16 @@ impl QuietWatch {
             return Err(std::io::Error::last_os_error());
         }
         // SAFETY: pipe2 succeeded, so both descriptors are open and owned only here.
-        let (read_end, write_end) = unsafe {
-            use std::os::fd::FromRawFd;
-            (OwnedFd::from_raw_fd(pipe[0]), OwnedFd::from_raw_fd(pipe[1]))
-        };
+        let (read_end, write_end) =
+            unsafe { (OwnedFd::from_raw_fd(pipe[0]), OwnedFd::from_raw_fd(pipe[1])) };
         let state = Arc::new(Mutex::new(State {
             watches: inotify.watches(),
             by_wd: HashMap::new(),
             by_dir: HashMap::new(),
         }));
         let thread_state = state.clone();
-        // task-owner: the QuietWatch (the session's HeadWatch); ends when it is dropped (its stop
-        // pipe) or `tx`'s receiver is gone.
+        // task-owner: the QuietWatch; ends when it is dropped (its stop pipe) or `tx`'s receiver
+        // is gone.
         std::thread::Builder::new().name(name.into()).spawn(move || {
             let mut buffer = vec![0u8; 4096];
             loop {
@@ -84,11 +83,11 @@ impl QuietWatch {
                 // SAFETY: `fds` is a valid array of two pollfd for the call.
                 let ready = unsafe { libc::poll(fds.as_mut_ptr(), 2, -1) };
                 if ready < 0 {
-                    let e = std::io::Error::last_os_error();
-                    if e.kind() == std::io::ErrorKind::Interrupted {
+                    let error = std::io::Error::last_os_error();
+                    if error.kind() == std::io::ErrorKind::Interrupted {
                         continue;
                     }
-                    let _ = tx.send(Err(notify::Error::io(e)));
+                    let _ = tx.send(Err(notify::Error::io(error)));
                     return;
                 }
                 if fds[1].revents != 0 {
@@ -96,22 +95,22 @@ impl QuietWatch {
                 }
                 let events = match inotify.read_events(&mut buffer) {
                     Ok(events) => events,
-                    Err(e)
+                    Err(error)
                         if matches!(
-                            e.kind(),
+                            error.kind(),
                             std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
                         ) =>
                     {
                         continue;
                     }
-                    Err(e) => {
-                        let _ = tx.send(Err(notify::Error::io(e)));
+                    Err(error) => {
+                        let _ = tx.send(Err(notify::Error::io(error)));
                         return;
                     }
                 };
                 let mut out = Vec::new();
                 {
-                    let mut state = thread_state.lock().recover_poison();
+                    let mut state = thread_state.lock().unwrap_or_else(PoisonError::into_inner);
                     for event in events {
                         if event.mask.contains(EventMask::Q_OVERFLOW) {
                             out.push(Err(notify::Error::generic("inotify queue overflow")));
@@ -119,16 +118,29 @@ impl QuietWatch {
                         }
                         let Some(dir) = state.by_wd.get(&event.wd).cloned() else { continue };
                         if event.mask.contains(EventMask::IGNORED) {
-                            // The directory is gone (its DELETE_SELF came first) or unwatched.
+                            // The folder is gone, or its watch was removed: its values are read
+                            // again (a removed watch's folder is no longer cached).
+                            state.by_wd.remove(&event.wd);
                             if state.by_dir.get(&dir) == Some(&event.wd) {
                                 state.by_dir.remove(&dir);
                             }
-                            state.by_wd.remove(&event.wd);
+                            out.push(Ok(removed(dir)));
                             continue;
                         }
-                        if let Some(sent) = to_event(event.mask, &dir, event.name) {
-                            out.push(Ok(sent));
+                        if event.mask.intersects(EventMask::DELETE_SELF | EventMask::MOVE_SELF) {
+                            out.push(Ok(removed(dir)));
+                            continue;
                         }
+                        let Some(name) = event.name else { continue };
+                        let kind =
+                            if event.mask.intersects(EventMask::DELETE | EventMask::MOVED_FROM) {
+                                EventKind::Remove(RemoveKind::Any)
+                            } else if event.mask.contains(EventMask::CREATE) {
+                                EventKind::Create(CreateKind::Any)
+                            } else {
+                                EventKind::Modify(ModifyKind::Any)
+                            };
+                        out.push(Ok(Event::new(kind).add_path(dir.join(name))));
                     }
                 }
                 for sent in out {
@@ -138,17 +150,17 @@ impl QuietWatch {
                 }
             }
         })?;
-        Ok(Self { state, stop: write_end })
+        Ok(Self { state, _stop: write_end })
     }
 
     /// Watches `dir` (non-recursive).
     pub(super) fn add(&self, dir: &Path) -> std::io::Result<()> {
-        let mut state = self.state.lock().recover_poison();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.by_dir.contains_key(dir) {
             return Ok(());
         }
         let wd = state.watches.add(dir, mask())?;
-        // A second path to the same inode shares its descriptor: the newest name is reported.
+        // Two paths of one folder share its watch descriptor: the last one names it.
         if let Some(old) = state.by_wd.insert(wd.clone(), dir.to_path_buf()) {
             state.by_dir.remove(&old);
         }
@@ -158,7 +170,7 @@ impl QuietWatch {
 
     /// Takes the watch off `dir`.
     pub(super) fn remove(&self, dir: &Path) {
-        let mut state = self.state.lock().recover_poison();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(wd) = state.by_dir.remove(dir) {
             state.by_wd.remove(&wd);
             let _ = state.watches.remove(wd);
@@ -166,37 +178,76 @@ impl QuietWatch {
     }
 }
 
-impl Drop for QuietWatch {
-    fn drop(&mut self) {
-        // SAFETY: `stop` is an open pipe write end owned by self; one byte from a valid buffer.
-        let _ = unsafe { libc::write(self.stop.as_raw_fd(), [1u8].as_ptr().cast(), 1) };
-    }
+fn removed(dir: PathBuf) -> Event {
+    Event::new(EventKind::Remove(RemoveKind::Folder)).add_path(dir)
 }
 
-/// The `notify::Event` for `mask` on `dir`'s entry `name` (or `dir` itself), of the kind notify's
-/// own inotify watcher gives; `None` for an event that changes nothing `dir` holds.
-fn to_event(mask: EventMask, dir: &Path, name: Option<&std::ffi::OsStr>) -> Option<notify::Event> {
-    use notify::event::{CreateKind, ModifyKind, RemoveKind, RenameMode};
-    use notify::{Event, EventKind};
-    if mask.intersects(EventMask::DELETE_SELF | EventMask::MOVE_SELF) {
-        // A watched directory that went away: `Fired::add` takes a removed path as one.
-        return Some(Event::new(EventKind::Remove(RemoveKind::Folder)).add_path(dir.to_path_buf()));
+#[cfg(test)]
+mod tests {
+    use super::QuietWatch;
+    use std::sync::mpsc::{RecvTimeoutError, channel};
+    use std::time::Duration;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let stamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir()
+            .join(format!("cmux-quiet-head-{name}-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::canonicalize(dir).unwrap()
     }
-    let path = dir.join(name?);
-    let kind = if mask.intersects(EventMask::CREATE) {
-        EventKind::Create(CreateKind::Any)
-    } else if mask.intersects(EventMask::MOVED_TO) {
-        EventKind::Modify(ModifyKind::Name(RenameMode::To))
-    } else if mask.intersects(EventMask::MOVED_FROM) {
-        EventKind::Modify(ModifyKind::Name(RenameMode::From))
-    } else if mask.intersects(EventMask::DELETE) {
-        EventKind::Remove(RemoveKind::Any)
-    } else if mask.intersects(EventMask::CLOSE_WRITE) {
-        // Once per write, not per `write(2)` (notify's MODIFY): a change of the file, not the
-        // read `Fired::add` drops.
-        EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any))
-    } else {
-        return None;
-    };
-    Some(Event::new(kind).add_path(path))
+
+    /// A read of a watched folder's files sends nothing; a HEAD renamed over (as git writes it)
+    /// and a HEAD written in place each send their path.
+    #[test]
+    fn reads_send_nothing_and_head_writes_send_their_path() {
+        let dir = temp_dir("reads");
+        std::fs::write(dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::write(dir.join("config"), "[core]\n").unwrap();
+        let (tx, rx) = channel();
+        let watch = QuietWatch::start(tx, "quiet-head-test").unwrap();
+        watch.add(&dir).unwrap();
+        for _ in 0..20 {
+            let _ = std::fs::read(dir.join("HEAD")).unwrap();
+            let _ = std::fs::read(dir.join("config")).unwrap();
+        }
+        assert!(
+            matches!(rx.recv_timeout(Duration::from_millis(300)), Err(RecvTimeoutError::Timeout)),
+            "a read sent an event"
+        );
+
+        std::fs::write(dir.join("HEAD.lock"), "ref: refs/heads/next\n").unwrap();
+        std::fs::rename(dir.join("HEAD.lock"), dir.join("HEAD")).unwrap();
+        let mut paths = Vec::new();
+        while let Ok(event) = rx.recv_timeout(Duration::from_millis(300)) {
+            paths.extend(event.unwrap().paths);
+        }
+        assert!(paths.contains(&dir.join("HEAD")), "{paths:?}");
+
+        std::fs::write(dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        let event = rx.recv_timeout(Duration::from_secs(2)).unwrap().unwrap();
+        assert!(event.paths.contains(&dir.join("HEAD")), "{event:?}");
+        drop(watch);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A watched folder removed sends a `Remove` of the folder, so its values are read again.
+    #[test]
+    fn a_removed_folder_sends_its_own_path() {
+        let dir = temp_dir("gone");
+        let (tx, rx) = channel();
+        let watch = QuietWatch::start(tx, "quiet-head-test").unwrap();
+        watch.add(&dir).unwrap();
+        std::fs::remove_dir(&dir).unwrap();
+        let mut removed = false;
+        while let Ok(event) = rx.recv_timeout(Duration::from_secs(2)) {
+            let event = event.unwrap();
+            if matches!(event.kind, notify::EventKind::Remove(_)) && event.paths.contains(&dir) {
+                removed = true;
+                break;
+            }
+        }
+        assert!(removed, "no remove of the folder");
+        drop(watch);
+    }
 }

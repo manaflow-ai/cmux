@@ -9,9 +9,9 @@
 //! The values live in a [`TagCache`] keyed by directory. Each value carries the tag of the
 //! directory it was read from ([`HeadTag::Dir`]): the git dir that holds its HEAD file (a linked
 //! worktree's own one under `.git/worktrees/`), or, for a directory in no repository, the
-//! directory itself, where a new `.git` would make one. One file watch (`notify`, non-recursive;
-//! on Linux a change-only inotify watch, [`quiet_watch`], since notify's wakes for every open)
-//! holds each of those directories. A write of a HEAD file (a checkout, a switch, a branch
+//! directory itself, where a new `.git` would make one. One file watch (non-recursive; on Linux
+//! an inotify watch that asks for no opens, [`quiet_watch`], elsewhere `notify`'s) holds each of
+//! those directories: every `git` command opens files in a git dir, and a read changes no HEAD. A write of a HEAD file (a checkout, a switch, a branch
 //! rename, a commit on a detached HEAD: git renames `HEAD.lock` over it) or of a `.git` entry
 //! invalidates that tag, which writes one number whatever is cached, and sends the directories
 //! cached with it to the refresh. The refresh reads them, and for a value that changed moves the
@@ -44,6 +44,9 @@
 //! so the worker reads it once more behind its new watch.
 //!
 //! A worker that panics ends the refresh ([`RefreshEnd`]); the next reply starts a new one.
+
+#[cfg(target_os = "linux")]
+mod quiet_watch;
 
 #[cfg(test)]
 use super::git_head_probe;
@@ -241,13 +244,15 @@ impl Inner {
 
 /// The file watch over the watched directories (`HeadTag::Dir`), and its thread.
 struct HeadWatch {
-    /// Linux: change-only inotify ([`quiet_watch`]); notify's asks for every open.
-    #[cfg(target_os = "linux")]
-    watcher: quiet_watch::QuietWatch,
-    #[cfg(not(target_os = "linux"))]
-    watcher: notify::RecommendedWatcher,
+    watcher: DirWatch,
     dirs: HashSet<PathBuf>,
 }
+
+/// Linux: an inotify watch that asks for no opens ([`quiet_watch`]); elsewhere `notify`'s.
+#[cfg(target_os = "linux")]
+type DirWatch = quiet_watch::QuietWatch;
+#[cfg(not(target_os = "linux"))]
+type DirWatch = notify::RecommendedWatcher;
 
 impl HeadWatch {
     /// A watcher whose events go to a thread that tells `mux`; `None` when the platform gives
@@ -652,7 +657,5 @@ impl Mux {
     }
 }
 
-#[cfg(target_os = "linux")]
-mod quiet_watch;
 #[cfg(test)]
 mod tests;

@@ -48,6 +48,16 @@ final class EventLog: @unchecked Sendable {
 }
 
 @Suite struct DeviceHubSocketTests {
+    /// URLSession fails a WebSocket receive idle past `timeoutIntervalForRequest`; between pings the
+    /// hub's pong is the only frame, so the socket's session must outlast the ping (#54449 went to 60 s
+    /// while the shared REST transport kept 30 s, and every socket timed out between pings).
+    @Test func theSocketSessionOutlastsThePingInterval() {
+        let timeout = URLSessionDeviceHubConnector.makeTransport().configuration.timeoutIntervalForRequest
+        let ping = TimeInterval(DeviceHubSocket.defaultPingInterval.components.seconds)
+        #expect(timeout > ping)
+        #expect(timeout == TimeInterval(URLSessionDeviceHubConnector.idleTimeout.components.seconds))
+    }
+
     @Test func pushMessagesDecode() throws {
         #expect(DeviceHubPush(text: #"{"type":"devices.changed"}"#) == .devicesChanged)
         #expect(DeviceHubPush(text: #"{"type":"permissions.changed","hostId":"h1"}"#) == .permissionsChanged(hostID: "h1"))
