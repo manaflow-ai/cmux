@@ -334,7 +334,7 @@
   height: 14px;
   border-radius: 50%;
   background: var(--page-elevated);
-  transition: transform 120ms ease;
+  transition: transform var(--cmux-motion-micro, 120ms) ease;
 }
 
 /* A transform, not an offset: the knob's move is no layout shift. */
