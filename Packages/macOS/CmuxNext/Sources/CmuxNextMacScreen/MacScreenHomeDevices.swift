@@ -168,12 +168,14 @@ struct MacScreenHomeSnapshot: Equatable {
         }
     }
 
-    /// What This Mac says while this device is not on the hub yet: connecting, or why it could not register.
-    static func hubNote(_ status: DeviceHub.Status) -> String {
+    /// What This Mac says while this device is not on the hub yet: why it could not register, once it failed.
+    /// Connecting says nothing (a state the person can do nothing about stays quiet; cmuxterm-hq
+    /// docs/handbook/connection-state-with-no-action-or-bound.md): the switch waits, busy, until the hub answers.
+    static func hubNote(_ status: DeviceHub.Status) -> String? {
         if case let .failed(reason) = status {
             return L.t("macScreen.home.thisMacHubFailed", "This Mac could not reach the device hub: \(reason). cmux keeps trying.")
         }
-        return L.t("macScreen.home.thisMacJoining", "Connecting this Mac to the device hub…")
+        return nil
     }
 
     /// One hub device as the page shows it.

@@ -126,13 +126,13 @@ struct MacScreenSharingSectionTests {
             var waiting = sharing(screenRecording: false, accessibility: false)
             waiting.isSharing = false
             waiting.busy = true
-            waiting.hubNote = MacScreenHomeSnapshot.hubNote(.starting)
+            #expect(MacScreenHomeSnapshot.hubNote(.starting) == nil, "connecting stays quiet")
+            waiting.hubNote = MacScreenHomeSnapshot.hubNote(.failed("timed out"))
             let section = home.sharingSection(waiting, look: look)
             let ids = views(under: section).map { $0.accessibilityIdentifier() }
             #expect(ids.contains("macScreen.home.allowToggle"))
             #expect(ids.contains("macScreen.home.hubNote"))
-            #expect(texts(under: section).contains(L.t("macScreen.home.thisMacJoining", "Connecting this Mac to the device hub…")))
-            let failed = MacScreenHomeSnapshot.hubNote(.failed("timed out"))
+            let failed = try #require(waiting.hubNote)
             #expect(failed.contains("timed out"), "\(failed)")
         }
     }

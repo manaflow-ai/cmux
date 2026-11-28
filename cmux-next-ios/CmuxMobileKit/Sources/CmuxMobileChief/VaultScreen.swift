@@ -16,6 +16,7 @@ public struct VaultScreen: View {
     @State private var importText: VaultImportText?
     @State private var approving: VaultDevice?
     @State private var removingDevice: VaultDevice?
+    @State private var autoRetry = AutoRetry()
 
     public init(model: VaultModel) {
         _model = State(initialValue: model)
@@ -81,10 +82,10 @@ public struct VaultScreen: View {
                 Label("Couldn't load the vault", systemImage: "exclamationmark.triangle")
             } description: {
                 Text(message)
-            } actions: {
-                Button("Try Again") { Task { await model.load() } }.buttonStyle(.borderedProminent)
             }
             .accessibilityIdentifier("vault.failed")
+            // Retried on its own (AutoRetry, jittered backoff while shown): no Try Again button.
+            .autoRetry(autoRetry, failing: true) { await model.load() }
         case .loaded:
             List {
                 switch model.state {

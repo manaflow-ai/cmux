@@ -635,8 +635,9 @@ pub(crate) fn apply(
             return Err(refusal);
         }
     };
-    let _lock = lock_waiting(authority)
-        .map_err(|_| Refusal::new(BUSY, "a consent change is in progress here; try again"))?;
+    let _lock = lock_waiting(authority).map_err(|_| {
+        Refusal::new(BUSY, "another consent change holds this machine's grant lock past the wait")
+    })?;
     let mut grantors = read_grantors_for_write(root).map_err(|_| store())?;
     if let Err(refusal) = verify(&grant, target, &grantors, now) {
         if refusal.reason == UNPINNED

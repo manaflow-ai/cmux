@@ -55,6 +55,7 @@ pub fn is_account_limit(message: &str) -> bool {
 /// `"retry_after":30` or `"retry-after":"30"` (a JSON body).
 pub fn retry_after(message: &str) -> Option<Duration> {
     let lower = message.to_ascii_lowercase();
+    // retry-prompt-ok: upstream Retry-After keys this parser reads, not a prompt
     [
         "retry after ",
         "retry-after: ",

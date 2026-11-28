@@ -41,6 +41,7 @@ struct TryPullRequestPage: View {
     let store: AppStore
     @State private var model: TryPullRequestModel
     @State private var confirming: TryPullRequest?
+    @State private var autoRetry = AutoRetry()
 
     init(macID: String, store: AppStore, service: (any TryPullRequestService)?) {
         self.macID = macID
@@ -60,13 +61,15 @@ struct TryPullRequestPage: View {
             case .failed(let message):
                 Section {
                     Text(verbatim: message).foregroundStyle(theme.colors.label2)
-                    Button("Try Again") { Task { await model.reload() } }
                 }
+                // Retried on its own (AutoRetry, jittered backoff while shown): no Try Again button.
+                .autoRetry(autoRetry, failing: true) { await model.reload() }
             case .unreachable:
                 Section {
                     Text("Not connected to this Mac.").foregroundStyle(theme.colors.label2)
-                    Button("Try Again") { Task { await model.reload() } }
                 }
+                // Retried on its own (AutoRetry, jittered backoff while shown): no Try Again button.
+                .autoRetry(autoRetry, failing: true) { await model.reload() }
             case .loaded(let list):
                 Section {
                     if let error = list.error {
