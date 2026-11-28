@@ -42,6 +42,8 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              event adding ready-to-land or full-ci, which land-judge pulses at the head it lands) and the merge
              train's tip, not on each push or base merge of a labelled PR. $CI_NIGHTLY_PR_BUILD_AT_LAND=0 starts
              it on every landing head again (land_ask_only_on);
+  trunk_only true for a callee that runs on the feat-cmux-next tip instead (its own coalesced push trigger): it
+             starts on no pull request unless $CI_NIGHTLY_PR_BUILD_PER_PR=1 (per_pr_on);
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
              for review, so every callee must listen to `ready_for_review` (`check` says so).
@@ -116,6 +118,18 @@ def handoff_label_skip() -> bool:
 # PRs that had not merged by 21Z, 56% on base-merge heads of labelled PRs, 25% on pushes after the label, and 31%
 # repeated an input key already compiled. Leo, 2026-11-27: "whatever we need to cut, we cut. whatever we can
 # reuse, we reuse." The repository variable CI_NIGHTLY_PR_BUILD_AT_LAND=0 turns this off (passed in by pr-router.yml).
+
+
+# A trunk_only callee (nightly-pr-build.yml) runs once per 30-minute window on the feat-cmux-next tip, coalesced by
+# base-coalesce.yml, and base-red-watch bisects a red to name the PR. At 00Z 2026-11-28, after the land-ask cut above,
+# it still took ~690 runner-min/h (~16.5k/day) on ~28 PR heads an hour, while the Nightly compiles the same
+# configuration on the tip every 15 minutes. Leo: "de facto, im asking for 99% fewer minutes of ci time, period."
+# The repository variable CI_NIGHTLY_PR_BUILD_PER_PR=1 starts it on pull requests again (passed in by pr-router.yml).
+
+
+def per_pr_on() -> bool:
+    """Whether a trunk_only callee also starts on pull requests ($CI_NIGHTLY_PR_BUILD_PER_PR, off unless 1)."""
+    return os.environ.get("CI_NIGHTLY_PR_BUILD_PER_PR", "0").strip() == "1"
 
 
 def land_ask_only_on() -> bool:
@@ -258,6 +272,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if action not in config["types"]:
             why[name] = f"does not listen to '{action}'"
             continue
+        if config.get("trunk_only") and not per_pr_on():
+            why[name] = ("trunk only: runs once per 30-minute window on the feat-cmux-next tip (base-red-watch bisects a "
+                         "red); $CI_NIGHTLY_PR_BUILD_PER_PR=1 starts it on pull requests too")
+            continue
         if config.get("land_handoff_only") and train_tip and action in ("opened", "reopened", "synchronize"):
             # The merge train's combined tip is the tree its last member squashes to: the one head whose build a
             # merge can take when every member's own head is behind the base (cmux_machine_channel_pr_head.py).
@@ -308,7 +326,8 @@ def route(event: dict, callees: dict, files: list[str] | None,
             # at the nightly, hours after the merge (NIGHTLY_GATE_JOBS). Only those steps run (main's `only`).
             start.append(name)
             why[name] = (f"{head_tier.LAND_AFFECTED_REASON}, nightly gate: runs only "
-                         f"{', '.join(gates)} (steps the nightly also runs, ci/steps.toml `nightly`)")
+                         f"{', '.join(gates)} (steps the nightly also runs or a base red put on the land gate, "
+                         f"ci/steps.toml `nightly`, `land_gate`)")
             continue
         if cheap and fast and not config.get("draft"):
             why[name] = "fast-track: runs after the merge (post-merge batch and push runs)"
@@ -360,20 +379,36 @@ def route(event: dict, callees: dict, files: list[str] | None,
 PREFLIGHT_CALLEE = "cmux-next-compile-preflight.yml"
 
 
-def preflight_web(event: dict, callees: dict, files: list[str] | None) -> tuple[bool, str]:
-    """(whether the compile preflight's web job runs at this head, why)."""
+def preflight_web(event: dict, callees: dict, files: list[str] | None, start: list[str] | None = None,
+                  exact=None) -> tuple[bool, str]:
+    """(whether the compile preflight's web job runs at this head, why). START: the callees this head starts (None:
+    assume the preflight does). EXACT: compile_preflight.router_web (tests pass a fake)."""
     config = callees.get(PREFLIGHT_CALLEE)
-    if config is None or "paths-ignore" not in config:
-        return True, "no paths-ignore in pr_router.json: runs"
+    if config is None:
+        return True, "no compile preflight in pr_router.json: runs"
     if FULL_CI in head_tier.labels_of(event):
         return True, f"{FULL_CI}: runs"
     if files is None:
         return True, "changed files unknown: runs"
     if not files:
         return True, "no changed file listed: runs"
-    if matches_filter({"paths-ignore": config["paths-ignore"]}, files):
-        return True, "a changed file may reach a web bundle: runs (its first step decides whether to build)"
-    return False, "every changed file is one no web bundle reads (pr_router.json paths-ignore): skips"
+    if "paths-ignore" in config and not matches_filter({"paths-ignore": config["paths-ignore"]}, files):
+        return False, "every changed file is one no web bundle reads (pr_router.json paths-ignore): skips"
+    if start is not None and PREFLIGHT_CALLEE not in start:
+        return True, "the compile preflight does not start at this head"
+    if os.environ.get("CI_ROUTER_WEB_EXACT", "1") == "0":
+        return True, "a changed file may reach a web bundle: runs (CI_ROUTER_WEB_EXACT=0; its first step decides)"
+    # The job's own first step (compile_preflight.py web-touched), answered here; anything unread runs the job.
+    try:
+        if exact is None:
+            import compile_preflight
+            exact = compile_preflight.router_web
+        web, why = exact(ROOT, files)
+    except Exception as e:  # noqa: BLE001 - the router routes more, never less, and never fails on it
+        return True, f"the web-touched check failed here ({type(e).__name__}: {e}): runs (its first step decides)"
+    if web is None:
+        return True, f"{why}: runs (its first step decides)"
+    return (True, f"{why}: runs") if web else (False, f"{why}: skips")
 
 
 # The callee whose ios fast verdict (pr-pipeline.yml ios-fast-runner, ios-fast) a landing head on the affected tier
@@ -584,11 +619,12 @@ def land_status(event: dict, decided: tuple[str, str]) -> str:
     """The `cmux/land-tier` commit status for EVENT's head (pr-router.yml posts it): `pending` while the land rule holds
     it on the cheap tier (or idle), `success` once it runs the full tier, lands on the affected tier (the hourly
     full tier rule), or the land carry rule or the full-ci base merge carry rule carries its previous head's run
-    (head_tier.carried, head_tier.full_carried), empty where the land rule does not apply."""
+    (head_tier.carried, head_tier.full_carried) or the same-head land carry rule its own head's
+    (head_tier.same_head_carried), empty where the land rule does not apply."""
     if (os.environ.get("CI_LAND_TIER", "1").strip() in ("0", "")) or not head_tier.land_rule_applies(event):
         return ""
     return ("success" if decided[0] == "full" or head_tier.carried(decided) or head_tier.land_affected(decided)
-            or head_tier.full_carried(decided) else "pending")
+            or head_tier.full_carried(decided) or head_tier.same_head_carried(decided) else "pending")
 
 
 def ios_status(event: dict, files: list[str] | None, start: list[str], land: str) -> tuple[str, str]:
@@ -710,7 +746,7 @@ def main(argv: list[str]) -> int:
         held = (carried or rows) and not head_tier.full_rerun(decided)
         status = "pending" if status and held else status
         write_outputs(start, why, files, table, status, ios_status(event, files, start, status),
-                      ui_status(event, files), only, preflight_web(event, callees, files))
+                      ui_status(event, files), only, preflight_web(event, callees, files, start))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)

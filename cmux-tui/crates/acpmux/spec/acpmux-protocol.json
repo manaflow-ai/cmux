@@ -1159,6 +1159,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github/read",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/worktree/report",
       "params": true,
       "result": true

@@ -1102,9 +1102,14 @@ jobs:
           set -uo pipefail
           pushed=()
           [[ "${EVENT_AT:-}" =~ ^[0-9]{9,11}$ ]] && pushed=(--pushed-at "$EVENT_AT")
-          # Exit 1 is a failing record, which is still posted: the gate then says why.
+          # Exit 1 is a failing record, which is still posted: the gate then says why. The step's shell is
+          # `bash -e`, so the exit is caught here: uncaught, it ended the step before the post and the gate said
+          # "no look at this head" for a look that had run and failed (cmux#55190 on 2026-11-27: the fleet
+          # NIGHTLY's web ABI was older than the head's overlay).
+          rc=0
           python3 scripts/ci/ui_proof_verdict.py record --out "$OUT" --pr "$PR" --repo "$GITHUB_REPOSITORY" \
-            --head "$HEAD_SHA" ${pushed[@]+"${pushed[@]}"} > /dev/null
+            --head "$HEAD_SHA" ${pushed[@]+"${pushed[@]}"} > /dev/null || rc=$?
+          [[ "$rc" -le 1 ]] || echo "::warning title=hot verify::ui_proof_verdict.py record exited $rc"
           [[ -s "$OUT/proof-record.md" ]] || { echo "::warning title=hot verify::no proof record was built"; exit 0; }
           if [[ -z "${POST_TOKEN:-}" ]]; then
             echo "::warning title=hot verify::no pool app token: a record from github-actions[bot] is not trusted by cmux/ui-proof; none posted"
