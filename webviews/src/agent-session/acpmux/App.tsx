@@ -1482,12 +1482,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [clientSnapshot, switchView, catalog, shownStarting, shownOffline],
   );
   // Unsettle (a settle toast's Undo, the home's Settled shelf): Unarchive by id (direct.ts
-  // `unsettle`); a refusal says so in a toast.
+  // `unsettle`); a refusal says so in a toast, in the pane's words (plainErrors.test.ts).
   const unsettleChat = useCallback(
     (entry: AcpmuxSessionEntry) => {
       const client = directClient.current;
       if (!client) return notices.failed(translate("error.notOpen"));
-      client.unsettle(entry.sessionId).catch((error: unknown) => notices.failed(errorMessage(error) || String(error)));
+      client
+        .unsettle(entry.sessionId)
+        .catch((error: unknown) => notices.failed(knownRefusalText(error) ?? translate("settle.unsettleFailed")));
     },
     [notices],
   );
