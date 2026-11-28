@@ -1,0 +1,343 @@
+name: Machine zero to agents E2E (development)
+
+# A machine that starts with nothing, taken to an agent's working setup with no long-lived credential copied
+# onto it, against the DEVELOPMENT platform only, on an ephemeral Blacksmith VM:
+#   1. Join: mint a single-use join token and redeem it with acpmux on stdin (machine-join-e2e.yml's harness,
+#      scripts/cmux-next/machine-join-e2e.ts, unchanged: its disposable user, heartbeat, revoke, secret scan).
+#   2. GitHub: while joined, `cmux github setup` and `cmux github credential get` ask for a short-lived,
+#      repo-scoped token, and `git ls-remote` reads a repo through git's helper. No `gh auth login`, no PAT.
+#   3. Model: one prompt through the hub's inference gateway route with the machine's own join credential
+#      (the route a joined machine's Codex and Claude take in team mode), with no Claude or Codex login. The
+#      team's gateway runs on this runner in mode `joined`, in front of the shared model stub; the reply must
+#      carry the stub's nonce and the gateway's log must show the joined machine's call.
+# Then a credential census of the machine's home (scripts/cmux-next/credential-census.ts): paths and kinds
+# only; anything but the join's own credential and node key fails the run. Steps 2 and 3 and the census run as
+# the joined user, through the harness's --bench hook (scripts/cmux-next/zero-to-agents-steps.sh). A step the
+# product has no path for yet reports "hand step remains: <why>" instead of failing or pretending.
+#
+# Owner's ask (relayed): "shit like this needs to be like automatically doable/setupabble for any non-me users
+# too. like shit just works."
+#
+# Secrets: the dev stack account (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in cmux-next-vm-image-dev, as
+# machine-join-e2e.yml and cloud-journey-pr.yml read it) reaches the harness step and the gateway step (step 3's
+# gateway on the runner, scripts/cmux-next/zero-to-agents-gateway.ts), through env only.
+# Same-repo pull requests that change this workflow's own files, and manual runs on feat-cmux-next.
+on:
+  workflow_dispatch: {}
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/machine-zero-to-agents-e2e.yml
+      - scripts/cmux-next/zero-to-agents-steps.sh
+      - scripts/cmux-next/zero-to-agents-gateway.ts
+      - scripts/cmux-next/credential-census.ts
+      - scripts/cmux-next/credential-census.test.ts
+
+permissions:
+  contents: read
+
+concurrency:
+  group: machine-zero-to-agents-e2e-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  e2e:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    # Blacksmith only: a VM that runs this one job and is destroyed. Never LINUX_RUNNER (it may name a
+    # persistent host): this job adds OS users and holds the stack pair.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 90
+    env:
+      HUB_ORIGIN: https://cmux-platform-development.debussy.workers.dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+
+      # The census's and the harness's own tests, before any secret is in reach.
+      - name: Test the census and the harness
+        run: bun test scripts/cmux-next/credential-census.test.ts scripts/cmux-next/machine-join-e2e.test.ts
+
+      - name: Initialize Ghostty protocol submodules
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config jq
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Zig for Ghostty
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+          use-cache: false
+
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
+
+      # acpmux (the join) and cmux-tui (the `cmux` CLI: `cmux github`), from the run's commit.
+      - name: Build acpmux and cmux
+        id: build
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: |
+          set -euo pipefail
+          cargo build --locked -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui
+          target_dir="$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)"
+          test -x "$target_dir/debug/acpmux"
+          test -x "$target_dir/debug/cmux-tui"
+          echo "dir=$target_dir/debug" >> "$GITHUB_OUTPUT"
+
+      # The joined machine: a disposable user with an empty home (machine-join-e2e.yml's layout and checks).
+      # Its base holds bin/ (root's: acpmux, cmux, bun, the steps script, the census) and out/ (the user's, outside
+      # the home the harness scans), where the steps leave the census table for the summary.
+      - name: Create the disposable user
+        id: user
+        env:
+          BUILD_DIR: ${{ steps.build.outputs.dir }}
+        run: |
+          set -euo pipefail
+          sudo install -d -o root -g root -m 0755 /srv
+          base="$(sudo mktemp -d /srv/machine-zero.XXXXXX)"
+          user="cmuxzero-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "user=$user"
+            echo "base=$base"
+            echo "home=$base/home"
+          } >> "$GITHUB_OUTPUT"
+          sudo chown root:root "$base"
+          sudo chmod 0755 "$base"
+          sudo useradd --no-create-home --home-dir "$base/home" --shell /usr/sbin/nologin --user-group "$user"
+          echo "uid=$(id -u "$user")" >> "$GITHUB_OUTPUT"
+          sudo install -d -o "$user" -g "$user" -m 0700 "$base/home" "$base/out"
+          sudo install -d -o root -g root -m 0755 "$base/bin"
+          sudo install -o root -g root -m 0755 "$BUILD_DIR/acpmux" "$base/bin/acpmux"
+          sudo install -o root -g root -m 0755 "$BUILD_DIR/cmux-tui" "$base/bin/cmux"
+          sudo install -o root -g root -m 0755 "$(command -v bun)" "$base/bin/bun"
+          sudo install -o root -g root -m 0755 scripts/cmux-next/zero-to-agents-steps.sh "$base/bin/zero-to-agents-steps.sh"
+          sudo install -o root -g root -m 0644 scripts/cmux-next/credential-census.ts "$base/bin/credential-census.ts"
+          # The census before anything ran: the machine starts with nothing.
+          sudo -n -u "$user" -- /usr/bin/env -i HOME="$base/home" PATH=/usr/bin:/bin \
+            "$base/bin/bun" "$base/bin/credential-census.ts" --root "$base/home" --markdown "$base/out/census-before.md" >/dev/null
+
+      # Step 3's other end: the team's inference gateway, on this runner (the person's own computer here), never on
+      # the joined machine. zero-to-agents-gateway.ts signs in as the stack pair (env only), puts the team in mode
+      # `joined` (only hub-joined machines' calls reach the gateway), runs `cmux inference gateway --upstream` in
+      # front of the model stub on loopback, and stays up until the stop step puts the mode back. The stub's nonce
+      # (not a secret) goes to the joined machine's bin/, so step 3 can tell the reply came through this gateway. A
+      # gateway that does not come online fails the run at the read-back; steps 1 and 2 still run.
+      - name: Start the team's gateway for joined machines
+        id: gateway
+        timeout-minutes: 5
+        env:
+          CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          BUILD_DIR: ${{ steps.build.outputs.dir }}
+          JOIN_BASE: ${{ steps.user.outputs.base }}
+        run: |
+          set -uo pipefail
+          dir="$RUNNER_TEMP/zero-gateway"
+          install -d -m 0700 "$dir"
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+          nohup bun scripts/cmux-next/zero-to-agents-gateway.ts --cmux "$BUILD_DIR/cmux-tui" \
+            --stub "$GITHUB_WORKSPACE/tests/fixtures/model-stub/model_stub.py" --dir "$dir" >"$dir/helper.log" 2>&1 </dev/null &
+          echo "pid=$!" >> "$GITHUB_OUTPUT"
+          for _ in $(seq 150); do [ -s "$dir/ready.json" ] && break; sleep 1; done
+          sed -e 's/::/: :/g' "$dir/helper.log" || true
+          nonce="$(jq -r '.nonce // empty' "$dir/ready.json" 2>/dev/null | tr -cd 'A-Za-z0-9')"
+          if [ -z "$nonce" ]; then
+            echo "::warning::the run's gateway is not online: $(jq -r '.error // "no answer in 150 s"' "$dir/ready.json" 2>/dev/null | tr -cd 'A-Za-z0-9 _.:/()-')"
+            exit 0
+          fi
+          printf '%s\n' "$nonce" | sudo tee "$JOIN_BASE/bin/model-stub-nonce" >/dev/null
+          sudo chmod 0644 "$JOIN_BASE/bin/model-stub-nonce"
+          echo "online=true" >> "$GITHUB_OUTPUT"
+
+      # With the gateway step, the only steps that see the stack pair, through env. machine-join-e2e.ts mints, joins as the disposable
+      # user, waits for the heartbeat, runs the steps script as that user while joined, revokes and scans.
+      - name: Join, GitHub, model, census, revoke
+        id: run
+        timeout-minutes: 60
+        env:
+          CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          JOIN_USER: ${{ steps.user.outputs.user }}
+          JOIN_BASE: ${{ steps.user.outputs.base }}
+          JOIN_HOME: ${{ steps.user.outputs.home }}
+        run: |
+          start=$(date +%s)
+          code=0
+          bun scripts/cmux-next/machine-join-e2e.ts --origin "$HUB_ORIGIN" --acpmux "$JOIN_BASE/bin/acpmux" \
+            --user "$JOIN_USER" --home "$JOIN_HOME" --name "ci-zero-$GITHUB_RUN_ID" \
+            --evidence "$RUNNER_TEMP/machine-zero/evidence.json" --run "$GITHUB_RUN_ID" --sha "$GITHUB_SHA" \
+            --bench "$JOIN_BASE/bin/zero-to-agents-steps.sh" || code=$?
+          echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+          exit "$code"
+
+      # Put the team's mode back as the gateway step found it, stop the gateway and the stub, revoke its install.
+      - name: Stop the team's gateway
+        if: always() && steps.gateway.outputs.pid != ''
+        env:
+          GW_PID: ${{ steps.gateway.outputs.pid }}
+          GW_DIR: ${{ steps.gateway.outputs.dir }}
+        run: |
+          set -uo pipefail
+          kill -TERM "$GW_PID" 2>/dev/null || true
+          for _ in $(seq 60); do [ -s "$GW_DIR/done.json" ] && break; sleep 1; done
+          sed -e 's/::/: :/g' "$GW_DIR/helper.log" | tail -5 || true
+          if [ "$(jq -r '.restored' "$GW_DIR/done.json" 2>/dev/null)" = false ]; then
+            echo "::error::the test team's gateway mode was not restored; set it back with \`cmux inference gateway mode $(jq -r '.mode_before // "off"' "$GW_DIR/ready.json" 2>/dev/null | tr -cd 'a-z')\`"
+            exit 1
+          fi
+
+      # The read-back: each step's verdict and time, the token lifetimes (expiry minus now, never a token) and the
+      # census table. Fails on a secret-shaped value in the evidence, a machine not shown revoked, a failed step
+      # or a foreign credential; a hand step is reported, not failed.
+      - name: Read back
+        if: always() && !cancelled() && steps.user.outcome == 'success'
+        env:
+          JOIN_BASE: ${{ steps.user.outputs.base }}
+          RUN_SECONDS: ${{ steps.run.outputs.seconds }}
+          GW_DIR: ${{ steps.gateway.outputs.dir }}
+          GW_ONLINE: ${{ steps.gateway.outputs.online }}
+        run: |
+          set -euo pipefail
+          file="$RUNNER_TEMP/machine-zero/evidence.json"
+          if [ ! -s "$file" ]; then
+            echo "::error::no evidence was written; if a machine joined, revoke it in the platform's machine list"
+            exit 1
+          fi
+          if grep -Eqi 'cmj_|cmm_|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.|bearer|authorization' "$file"; then
+            echo "::error::the evidence holds a secret-shaped value; it is not summarized"
+            exit 1
+          fi
+          plain() { sed -e 's/::/: :/g' -e 's/##\[/## [/g'; }
+          b() { jq -r ".bench.result.$1 // empty" "$file" | tr -cd 'A-Za-z0-9 _.:/-' | cut -c1-200; }
+          s1=fail
+          if [ "$(jq -r '.machineId != null and .status.hubReachable == true and .status.heartbeatAgeSeconds != null and .revoke.revokedListed == true' "$file")" = true ]; then s1=pass; fi
+          join_s="$(jq -r '.joinSeconds // "?"' "$file")"
+          # Step 3's gateway: the joined machine's call in its log (machine, path, status; never a token), its team.
+          machine="$(jq -r '.machineId // empty' "$file" | tr -cd 'A-Za-z0-9._:-' | cut -c1-128)"
+          gw_team="$(jq -r '.team // empty' "${GW_DIR:-/nonexistent}/ready.json" 2>/dev/null | tr -cd 'A-Za-z0-9_-' || true)"
+          join_team="$(jq -r '.teamId // empty' "$file" | tr -cd 'A-Za-z0-9_-' || true)"
+          gw_line=""
+          if [ -n "$machine" ] && [ -s "${GW_DIR:-/nonexistent}/gateway.log" ]; then
+            gw_line="$(grep -F -- "$machine POST /v1/responses" "$GW_DIR/gateway.log" | grep -E ' -> 200 ' | head -1 | tr -cd 'A-Za-z0-9 _.:/>-' | cut -c1-200 || true)"
+          fi
+          gw_result=fail
+          if [ "$GW_ONLINE" = true ] && [ -n "$gw_line" ] && [ -n "$gw_team" ] && [ "$gw_team" = "$join_team" ]; then gw_result=pass; fi
+          census_md="$(sudo cat -- "$JOIN_BASE/out/census.md" 2>/dev/null | plain || true)"
+          before_md="$(sudo cat -- "$JOIN_BASE/out/census-before.md" 2>/dev/null | plain || true)"
+          {
+            echo '## Machine zero to agents E2E (development)'
+            echo
+            echo '| step | result | seconds | detail |'
+            echo '| --- | --- | --- | --- |'
+            echo "| 1. join (single-use token on stdin, heartbeat, revoke) | $s1 | ${join_s} to join; ${RUN_SECONDS:-?} for the whole run | machine $(jq -r '.machineId // "none"' "$file" | tr -cd 'A-Za-z0-9._:-'), heartbeat age $(jq -r '.status.heartbeatAgeSeconds // "?"' "$file") s, revoked listed $(jq -r '.revoke.revokedListed' "$file") |"
+            echo "| 2. GitHub (cmux github setup, credential get, git ls-remote) | $(b github_result) | $(b github_seconds) | $(b github_reason) |"
+            echo "| 3. model through the team's gateway route, no login | $(b model_result) | $(b model_seconds) | $(b model_reason) |"
+            echo "| 3a. the team's gateway (mode joined, on the runner, in front of the model stub) saw the call | $gw_result | $(jq -r '.online_s // "?"' "${GW_DIR:-/nonexistent}/ready.json" 2>/dev/null | tr -cd '0-9') to come online | team ${gw_team:-?} (join's ${join_team:-?}), was $(jq -r '.mode_before // "?"' "${GW_DIR:-/nonexistent}/ready.json" 2>/dev/null | tr -cd 'a-z'); log: ${gw_line:-no 200 POST /v1/responses from this machine} |"
+            echo
+            echo '| token | lifetime read back (expiry minus now) |'
+            echo '| --- | --- |'
+            echo "| GitHub token (step 2) | $(b github_token_ttl_s | sed 's/^-1$/none minted/') s |"
+            echo "| machine join credential (step 3) | $(b machine_credential_ttl_s | sed 's/^-1$/no expiry in its record/') s |"
+            echo
+            echo '### Credential census while joined (paths and kinds only)'
+            echo
+            echo "${census_md:-(no census was written)}"
+            echo
+            echo '<details><summary>Census before the join</summary>'
+            echo
+            echo "${before_md:-(none)}"
+            echo
+            echo '</details>'
+            echo
+            echo '<details><summary>Step details</summary>'
+            echo
+            echo '```'
+            sudo cat -- "$JOIN_BASE/out/step2.txt" "$JOIN_BASE/out/step3.txt" 2>/dev/null | plain | grep -Eiv 'cmm_|cmj_|bearer|authorization' || true
+            echo '```'
+            echo '</details>'
+            echo
+            echo '<details><summary>Join evidence</summary>'
+            echo
+            echo '```json'
+            cat "$file"
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # The same step details in the job's log, so a lane reads a refusal's own words without the summary page.
+          echo "step details:"
+          sudo cat -- "$JOIN_BASE/out/step2.txt" "$JOIN_BASE/out/step3.txt" 2>/dev/null | plain | grep -Eiv 'cmm_|cmj_|bearer|authorization' | sed 's/^/  detail: /' || true
+          if [ -n "$machine" ] && [ "$(jq -r '.revoke.revokedListed' "$file")" != true ]; then
+            echo "::error::machine $machine is not shown revoked; revoke it in the platform's machine list"
+            exit 1
+          fi
+          [ "$s1" = pass ] || { echo "::error::step 1 (join) failed: $(jq -r '.reason' "$file" | tr -cd 'A-Za-z0-9 ._:;,()/-' | cut -c1-300)"; exit 1; }
+          for s in github model; do
+            r="$(b "${s}_result")"
+            case "$r" in
+              pass) ;;
+              hand) echo "::warning::$s: $(b "${s}_reason")" ;;
+              *) echo "::error::$s: ${r:-no result}: $(b "${s}_reason")"; exit 1 ;;
+            esac
+          done
+          if [ "$gw_result" != pass ]; then
+            echo "::error::step 3's gateway: online ${GW_ONLINE:-false}, team ${gw_team:-?} vs the join's ${join_team:-?}, joined machine's call in its log: ${gw_line:-none}"
+            exit 1
+          fi
+          if [ "$(b census_foreign)" != 0 ]; then
+            echo "::error::the census found $(b census_foreign) long-lived credential file(s) the machine's join did not make"
+            exit 1
+          fi
+
+      - name: Remove the disposable user
+        if: always() && steps.user.outputs.user != ''
+        env:
+          JOIN_USER: ${{ steps.user.outputs.user }}
+          JOIN_UID: ${{ steps.user.outputs.uid }}
+          JOIN_BASE: ${{ steps.user.outputs.base }}
+        run: |
+          set -uo pipefail
+          sudo -n -u "$JOIN_USER" -- /bin/kill -KILL -1 2>/dev/null || true
+          sleep 1
+          sudo userdel --remove "$JOIN_USER" 2>/dev/null || true
+          sudo rm -rf -- "$JOIN_BASE"
+          if [ -n "$JOIN_UID" ]; then sudo rm -rf -- "/tmp/acpmux-$JOIN_UID"; fi
+          if id "$JOIN_USER" >/dev/null 2>&1; then
+            echo "::error::the disposable user $JOIN_USER is still present"
+            exit 1
+          fi
