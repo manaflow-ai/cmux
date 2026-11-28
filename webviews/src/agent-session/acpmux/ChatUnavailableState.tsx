@@ -1,6 +1,7 @@
+import { useLayoutEffect, useRef } from "react";
 import { RESUME_NOTE_DELAY_MS, useAfterDelay, useLinkDownSaid } from "./afterDelay";
 import type { ChatUnavailable } from "./chatUnavailable";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { relativeTime } from "./conversation/relativeTime";
 import { currentLanguage, useT } from "./i18n";
 import { shortSession } from "./chatUnavailableStateModel";
@@ -80,7 +81,7 @@ export function ChatUnavailableState({
   // shifts nothing when it appears.
   const pausedShown = useAfterDelay(unavailable.reason === "paused", noteDelayMs);
   const resumeSlow = useAfterDelay(resuming, noteDelayMs);
-  // A machine whose link just dropped: "Reconnecting…" shows only once the drop has lasted past
+  // A machine whose link just dropped: its offline line with Reconnect shows only after
   // LINK_DOWN_SAID_MS, the time acpmux takes to notice a dead link and redial it, so a link back on
   // its own never shows the state (Leo, 2026-11-14: "i also want all our connectivity stuff to shut
   // the fuck up").
@@ -96,9 +97,7 @@ export function ChatUnavailableState({
     (unavailable.reason === "paused" && !pausedShown) ||
     (unavailable.reason === "offline" && !offlineShown)
   )
-    return line ? null : (
-      <div className="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true" />
-    );
+    return line ? null : <ConnectingArea />;
   // A deleted chat names the machine acpmux had it on when the pane knows it, else the tab's machine;
   // one not connected names only the peer acpmux had it on, never this Mac's name (the handshake's
   // for a chat of this Mac); one not found here is not on the tab's machine.
@@ -191,7 +190,7 @@ export function ChatUnavailableState({
         data-enter="top"
       >
         <p className="acpmux-peer-copy-title">
-          {resuming && <Spinner size={12} loading className="acpmux-peer-copy-spinner" />}
+          {resuming && <WaitSpinner size={12} loading className="acpmux-peer-copy-spinner" />}
           {title}
         </p>
         {error && (
@@ -242,12 +241,12 @@ export function ChatUnavailableState({
           <span className="acpmux-unavailable-progress" aria-hidden={!resumeSlow}>
             {resumeSlow && (
               <span className="acpmux-unavailable-progress-mark" data-enter="fade">
-                <Spinner size={20} loading />
+                <WaitSpinner size={20} loading />
               </span>
             )}
           </span>
         ) : (
-          resuming && <Spinner size={20} loading />
+          resuming && <WaitSpinner size={20} loading />
         )}
         {error && (
           <p className="acpmux-unavailable-detail" role="alert">
@@ -265,4 +264,23 @@ export function ChatUnavailableState({
       </div>
     </div>
   );
+}
+
+/// The loading layout's empty area. While it is up it marks the pane (`.acpmux-main[data-connecting]`),
+/// which styles.css reads to keep the dock in flow and lay its notices over the stage's foot. An
+/// attribute, not `.acpmux-main:has(> .acpmux-stage > [data-unavailable="connecting"])`: once a `:has()`
+/// over the pane is matched (every open chat, its dock always there), each node any later render inserts
+/// under the pane restyles the whole pane (about 2,300 elements, 25 ms in the god chat's open). The
+/// layout effect sets it before paint.
+function ConnectingArea() {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const main = ref.current?.closest<HTMLElement>(".acpmux-main");
+    if (!main) return;
+    main.dataset.connecting = "";
+    return () => {
+      delete main.dataset.connecting;
+    };
+  }, []);
+  return <div ref={ref} className="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true" />;
 }

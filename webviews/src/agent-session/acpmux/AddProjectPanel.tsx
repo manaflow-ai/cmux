@@ -125,7 +125,11 @@ export function AddProjectPanel({
             label: directoryName(path),
             disabled: false,
           }));
-  const shown = choices.filter((choice) => choice.label.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const typed = query.trim().toLocaleLowerCase();
+  const shown = choices.filter((choice) => choice.label.toLocaleLowerCase().includes(typed));
+  // By id: the Combobox asks whether each suggestion is disabled on every key, and a folder of
+  // thousands asked by a scan of the list each time cost a key half a second.
+  const choiceById = new Map(choices.map((choice) => [choice.id, choice]));
   const chooseFolder = () => {
     if (host.list) {
       setStep("directory");
@@ -151,7 +155,7 @@ export function AddProjectPanel({
       });
   };
   const select = (id: string) => {
-    const choice = choices.find((item) => item.id === id);
+    const choice = choiceById.get(id);
     if (choice?.disabled) return;
     if (step === "environment" && choice?.id === "local") {
       setStep("source");
@@ -220,7 +224,7 @@ export function AddProjectPanel({
           onSubmit={select}
           onCancel={onClose}
           cancelOnBlur={false}
-          isItemDisabled={(id) => choices.find((choice) => choice.id === id)?.disabled ?? step !== "directory"}
+          isItemDisabled={(id) => choiceById.get(id)?.disabled ?? step !== "directory"}
           autoHighlight
           rootClassName="acpmux-add-project-combobox"
           label={step === "directory" ? t("project.path") : title}
@@ -229,7 +233,7 @@ export function AddProjectPanel({
           listClassName="acpmux-add-project-list"
           itemClassName="acpmux-add-project-item"
           renderItem={(id) => {
-            const choice = choices.find((item) => item.id === id)!;
+            const choice = choiceById.get(id)!;
             return (
               <>
                 <FolderIcon />

@@ -214,9 +214,7 @@ impl std::fmt::Debug for Minted {
 /// The person-facing reason a mint gave no token, from the CLI's error `code`.
 pub fn refusal_text(code: Option<&str>) -> String {
     match code {
-        Some("not_signed_in") => {
-            "Not signed in to cmux: sign in in the cmux app, then try again.".to_owned()
-        }
+        Some("not_signed_in") => "Not signed in to cmux: sign in in the cmux app.".to_owned(),
         Some("no_team") => "No cmux team is chosen: choose one in the cmux app.".to_owned(),
         Some("app.unreachable" | "app.not_found" | "socket.unreachable" | "socket.no_app") => {
             "The cmux app is not reachable from this chat, so it cannot sign the request."
@@ -277,8 +275,7 @@ pub fn parse_minted(stdout: &[u8], origin: Option<&str>, now: Instant) -> Result
 /// (`cmux auth token` through [`CMUX_BIN_ENV`]): `install_share.rs` sends the person's choice
 /// with it. The same rules as this server's: only to its issuer's platform, never stored.
 pub async fn person_token() -> Result<(Arc<Zeroizing<String>>, String), String> {
-    let cmux =
-        std::env::var_os(CMUX_BIN_ENV).filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux".into());
+    let cmux = crate::login_env::cmux_cli();
     let minted = mint(&cmux, None).await?;
     let origin = minted.mcp_url.strip_suffix("/mcp").unwrap_or(&minted.mcp_url).to_owned();
     Ok((minted.token, origin))
@@ -441,15 +438,13 @@ impl Bridge {
 
     /// From this process's env, or the chat's where the daemon's gateway serves it
     /// ([`crate::tool_env`]): the Cloud agent socket on a cmux Cloud machine, else (`CMUX_BIN`,
-    /// else `cmux` on PATH) to mint the person's token.
+    /// else the app's bundled CLI, else `cmux` on PATH) to mint the person's token.
     pub fn from_env() -> Result<Self, String> {
         if let Some(socket) = cloud_socket() {
             return Self::cloud(socket);
         }
-        let cmux = crate::tool_env::var(CMUX_BIN_ENV)
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| "cmux".into());
-        Self::new(cmux.into(), crate::tool_env::var(ORIGIN_ENV))
+        let cmux = crate::login_env::cmux_cli_or(crate::tool_env::var(CMUX_BIN_ENV));
+        Self::new(cmux, crate::tool_env::var(ORIGIN_ENV))
     }
 
     async fn token(&mut self, fresh: bool) -> Result<(Arc<Zeroizing<String>>, String), String> {

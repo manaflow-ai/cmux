@@ -33,7 +33,11 @@ use crate::config::Paths;
 use crate::daemon_spec::{WORK_HOME, WORK_USER};
 use machine::{Caller, Event, Refusal, Verdict};
 
+mod carrier_reads;
 pub mod machine;
+pub(crate) use carrier_reads::carrier_input_idle_within;
+#[allow(unused_imports)]
+pub(in crate::updater) use carrier_reads::*;
 
 /// The first check after `cmux host run` starts (a boot or an update's restart).
 const BOOT_DELAY: Duration = Duration::from_secs(30);
@@ -62,6 +66,41 @@ const JITTER: Duration = Duration::from_millis(3_750);
 pub(super) fn next_look(outcome: &Outcome, draw: u64) -> Duration {
     let base = if matches!(outcome, Outcome::Busy(_)) { BUSY_RETRY } else { INTERVAL };
     base + Duration::from_millis(draw % (JITTER.as_millis() as u64 + 1))
+}
+
+/// Between looks on a machine nobody uses: no agent turn runs or waits and no
+/// carrier session is attached ([`busy_sessions`] answered empty). Leo,
+/// 2026-11-27: "we defo dont wanna waste the freestyle vms TOO much". Each
+/// [`INTERVAL`] look is a GET of the channel, outbound traffic, and the
+/// provider pauses a VM only after `idleTimeoutSeconds` (300 s) with none, so
+/// the 15 s look alone kept every idle machine that the platform did not pause
+/// itself running for days (staging, 2026-11-27: 77 running VMs showed
+/// traffic in the last 2 minutes, 23 of one team's 24 older than a day). This
+/// is longer than any provider idle timeout, so an idle machine goes quiet
+/// and pauses. A wake (`Resumed`), a bind (`Bound`) or a channel change sends
+/// [`Msg::Check`] and the worker looks at once, so a machine someone comes back
+/// to still takes a merged fix within seconds, and a busy machine keeps the
+/// 15 s look.
+pub(super) const IDLE_INTERVAL: Duration = Duration::from_secs(30 * 60);
+
+/// Whether a look that ended in `outcome` read (or tried to read) the channel
+/// over the network: only those keep a VM awake.
+pub(super) fn read_channel_look(outcome: &Outcome) -> bool {
+    matches!(
+        outcome,
+        Outcome::Current(_) | Outcome::Older | Outcome::RolledBackBefore | Outcome::Failed(_)
+    )
+}
+
+/// [`next_look`] for a machine the look after `outcome` found `idle`:
+/// [`IDLE_INTERVAL`] (plus [`JITTER`]) after a look that read the channel, so
+/// its GETs stop holding the VM awake; otherwise [`next_look`].
+pub(super) fn next_look_when(outcome: &Outcome, idle: bool, draw: u64) -> Duration {
+    if idle && read_channel_look(outcome) {
+        IDLE_INTERVAL + Duration::from_millis(draw % (JITTER.as_millis() as u64 + 1))
+    } else {
+        next_look(outcome, draw)
+    }
 }
 
 /// A fresh random draw for [`next_look`] (std's per-process random hash keys).
@@ -678,6 +717,7 @@ impl Role for UpdaterRole {
                 u64::MAX
             }
         };
+        LIVE_GENERATION.store(generation, Ordering::SeqCst);
         let thread = std::thread::Builder::new()
             .name("cmux-host-updater".to_owned())
             .spawn(move || {
@@ -769,11 +809,64 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
             continue;
         }
         let (outcome, _) = check(paths, Honor::All);
-        let next = next_look(&outcome, jitter_draw());
+        // Local looks only (acpmux and the session host's admin channel): an
+        // idle machine stops reading the channel until a wake or a bind.
+        let idle = read_channel_look(&outcome)
+            && matches!(busy_sessions(paths), Ok(busy) if busy.is_empty());
+        let next = next_look_when(&outcome, idle, jitter_draw());
         if !wait_watching(paths, rx, next) {
             return;
         }
     }
+}
+
+/// The worker generation the role started last ([`UpdaterRole::start`]); `u64::MAX` while no
+/// worker ever started in this process.
+static LIVE_GENERATION: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// `realtime - boottime` and the pause count when [`adopt_before_bind`] last decided the
+/// channel's build (current, or flipped to it): a restore since moves the first by the stopped
+/// time ([`restored_between`]) on a provider whose boot clock stops, and the pause watch counts
+/// it on one whose boot clock runs through.
+static STEPPED_AT: Mutex<Option<(i128, u64)>> = Mutex::new(None);
+
+/// The Cloud role's first bind runs the step before the first bind itself, unless it already
+/// ran since this machine's last restore. A machine restored from the image's snapshot gets
+/// its bind token and its supervisor `Resumed` in the same moments, and the worker only looks
+/// after the `Resumed` reaches it: when the bind went first, its connect hold refused the step
+/// ("the restart gate: connect hold, 299 s left") and the new machine served the image's build
+/// through its first five minutes (development read-back, 2026-11-26: most guests). Here the
+/// step comes first; a flip queues the service's restart, the gate then refuses the bind, and
+/// the restarted service binds on the channel's build. It runs as the live worker's
+/// generation, so a stopped updater flips nothing ([`stopped`]), and ends by
+/// [`super::first_ready::RESTORE_BOUND`].
+pub(crate) fn before_first_bind(paths: &Paths) {
+    let generation = LIVE_GENERATION.load(Ordering::SeqCst);
+    if generation == u64::MAX {
+        return;
+    }
+    let stepped = *STEPPED_AT.lock().unwrap_or_else(|e| e.into_inner());
+    let (offset, boot) = (crate::linux::realtime_minus_boottime_ns(), crate::linux::boottime_ns());
+    if stepped_since_restore(stepped, offset, crate::agent::PAUSES.seen(), boot) {
+        return;
+    }
+    let before = WORKER_GENERATION.with(|g| g.replace(Some(generation)));
+    let _ = adopt_before_bind(paths);
+    WORKER_GENERATION.with(|g| g.set(before));
+}
+
+/// Whether the step decided the channel's build (`stepped`, [`STEPPED_AT`]) with no stop of
+/// this machine since: `realtime - boottime` is `offset` now, the pause watch as `seen` at boot
+/// time `boot`. A watch still waking may not have counted the stop yet.
+pub(super) fn stepped_since_restore(
+    stepped: Option<(i128, u64)>,
+    offset: i128,
+    seen: PauseSeen,
+    boot: i128,
+) -> bool {
+    !seen.waking(boot)
+        && stepped
+            .is_some_and(|(at, seq)| seq == seen.pauses && !restored_between(Some(at), offset))
 }
 
 /// The channel's build at once on a machine never bound to Cloud that a
@@ -820,6 +913,10 @@ fn adopt_before_bind(paths: &Paths) -> Option<Duration> {
         })
     });
     use super::first_ready::First;
+    if matches!(first, First::Current(_) | First::Flipped(_)) {
+        *STEPPED_AT.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((crate::linux::realtime_minus_boottime_ns(), crate::agent::PAUSES.pause_seq()));
+    }
     let outcome = match first {
         First::NotFirst(_) => return None,
         First::Current(commit) => Outcome::Current(commit),
@@ -990,7 +1087,7 @@ fn check_inner(
         return Outcome::Failed("an update is waiting for its health check".to_owned());
     }
     let Some(target) = channel::local_target() else {
-        return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
+        return Outcome::Off(format!("no build for {}", channel::local_platform()));
     };
     let payload = match read_channel() {
         Ok(payload) => payload,
@@ -1117,7 +1214,7 @@ pub fn adopt(paths: &Paths) -> Outcome {
         return Outcome::Failed("an update is waiting for its health check".to_owned());
     }
     let Some(target) = channel::local_target() else {
-        return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
+        return Outcome::Off(format!("no build for {}", channel::local_platform()));
     };
     let payload = match read_channel() {
         Ok(payload) => payload,
@@ -1524,201 +1621,6 @@ fn acpmux(args: &[&str]) -> Option<(bool, String)> {
         .ok()?;
     Some((output.status.success(), String::from_utf8_lossy(&output.stdout).into_owned()))
 }
-
-/// What a restart would cut: the attached carrier sessions ([`carrier_busy`],
-/// bounded), then [`acpmux_busy_sessions`]. Empty only when both are idle.
-fn busy_sessions(paths: &Paths) -> Result<Vec<String>, String> {
-    let carrier = carrier_busy(paths);
-    let mut busy = acpmux_busy_sessions()?;
-    busy.extend(carrier);
-    Ok(busy)
-}
-
-/// The carrier hold between looks ([`super::carrier`]).
-static CARRIER: Mutex<Option<CarrierHold>> = Mutex::new(None);
-
-/// One look at the session host's carrier sessions: why they hold the
-/// update, if they do. A new session starts the connect hold, so a claimed
-/// spare's first link is never cut, also past the carrier hold's bound.
-fn carrier_busy(paths: &Paths) -> Option<String> {
-    carrier_busy_from(paths, carrier_sessions())
-}
-
-/// [`carrier_busy`] for a rollback's wait: only sessions the list shows hold
-/// it, under the same bound. A list that can't be read holds nothing here:
-/// the session host that would answer is the build being rolled back, and
-/// keeping a broken build is worse than a restart (#37280).
-///
-/// Each wait has its own hold, started when the wait begins: the forward
-/// update's hold ([`CARRIER`]) may have passed its bound, and a session that
-/// reconnected since would get no hold at all.
-#[derive(Default)]
-pub(super) struct RollbackCarrier {
-    hold: CarrierHold,
-}
-
-impl RollbackCarrier {
-    /// One look at `now` at the sessions read.
-    pub(super) fn look(
-        &mut self,
-        paths: &Paths,
-        now: Instant,
-        sessions: Result<Vec<String>, String>,
-    ) -> Option<String> {
-        let ids = sessions.ok()?;
-        act_on_look(self.hold.look(now, Ok(ids)), || {
-            hold_connects(paths, HoldKind::Connect);
-        })
-    }
-}
-
-/// [`carrier_busy`] for the sessions one look read.
-pub(super) fn carrier_busy_from(
-    paths: &Paths,
-    sessions: Result<Vec<String>, String>,
-) -> Option<String> {
-    carrier_busy_at(paths, Instant::now(), sessions)
-}
-
-/// [`carrier_busy_from`] at `now`.
-pub(super) fn carrier_busy_at(
-    paths: &Paths,
-    now: Instant,
-    sessions: Result<Vec<String>, String>,
-) -> Option<String> {
-    carrier_look_at(now, sessions, || {
-        hold_connects(paths, HoldKind::Connect);
-    })
-}
-
-/// One look at the carrier sessions through the hold between looks
-/// ([`CARRIER`]); a new session calls `start_hold`.
-fn carrier_look(
-    sessions: Result<Vec<String>, String>,
-    start_hold: impl FnOnce(),
-) -> Option<String> {
-    carrier_look_at(Instant::now(), sessions, start_hold)
-}
-
-/// [`carrier_look`] at `now`.
-fn carrier_look_at(
-    now: Instant,
-    sessions: Result<Vec<String>, String>,
-    start_hold: impl FnOnce(),
-) -> Option<String> {
-    let mut hold = CARRIER.lock().unwrap_or_else(|e| e.into_inner());
-    let look = hold.get_or_insert_with(CarrierHold::default).look(now, sessions);
-    drop(hold);
-    act_on_look(look, start_hold)
-}
-
-/// What one carrier look does: a new session starts the connect hold
-/// (`start_hold`), the bound is logged once, and the answer is why the
-/// update waits, if it does.
-pub(super) fn act_on_look(look: CarrierLook, start_hold: impl FnOnce()) -> Option<String> {
-    if look.new_session {
-        start_hold();
-        log("a new carrier session: no flip during the connect hold");
-    }
-    if look.bound_passed {
-        log(&format!(
-            "carrier sessions held this update for {} min; it goes at the next idle gap",
-            CARRIER_MAX_HOLD.as_secs() / 60
-        ));
-    }
-    look.busy
-}
-
-/// The bound of a carrier read outside the gate.
-const CARRIER_READ: Duration = Duration::from_secs(20);
-
-/// The bound of the flip's carrier read inside the gate ([`flip_in_gate`]):
-/// the gate's flock is held meanwhile, so every bind and hold on the machine
-/// waits on it. A read that runs past it holds the flip as busy
-/// ([`Unread::TimedOut`]), never as no sessions.
-pub(super) const CARRIER_READ_IN_GATE: Duration = Duration::from_secs(4);
-
-/// Why one read of the carrier sessions has no list.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) enum Unread {
-    /// The query ran past its bound (`timeout`'s exit status 124).
-    TimedOut(Duration),
-    /// Any other failure.
-    Failed(String),
-}
-
-impl Unread {
-    /// The failure an exited query's `status` shows, run under `limit`.
-    pub(super) fn of(status: std::process::ExitStatus, limit: Duration) -> Unread {
-        if status.code() == Some(124) {
-            Unread::TimedOut(limit)
-        } else {
-            Unread::Failed(format!("its admin channel answered {status}"))
-        }
-    }
-
-    fn why(self) -> String {
-        match self {
-            Unread::TimedOut(limit) => {
-                format!("its admin channel did not answer within {} s", limit.as_secs())
-            }
-            Unread::Failed(why) => why,
-        }
-    }
-}
-
-/// [`carrier_sessions_within`] the bound outside the gate.
-fn carrier_sessions() -> Result<Vec<String>, String> {
-    carrier_sessions_within(CARRIER_READ).map_err(Unread::why)
-}
-
-/// The attached carrier sessions, from the session host's admin channel
-/// (`cmux-tui remote enroll connections --json`, at most `limit`), run as the
-/// user and home the session host runs with (the layout marker), since the
-/// channel answers only its own user.
-fn carrier_sessions_within(limit: Duration) -> Result<Vec<String>, Unread> {
-    let stdout = connections_json_within(limit)?;
-    super::carrier::attached_sessions_in(&stdout)
-        .ok_or_else(|| Unread::Failed("its connection list is unreadable".to_owned()))
-}
-
-/// The attached carrier sessions and the least input idle time among them
-/// ([`super::carrier::attached_input_idle_in`]), read within `limit`: the
-/// supervisor's look at an old-build session host it waits to replace
-/// (`crate::machine::HostLook`).
-pub(crate) fn carrier_input_idle_within(limit: Duration) -> Result<(usize, Option<u64>), String> {
-    let stdout = connections_json_within(limit).map_err(Unread::why)?;
-    super::carrier::attached_input_idle_in(&stdout)
-        .ok_or_else(|| "its connection list is unreadable".to_owned())
-}
-
-/// The session host's `remote enroll connections --json` reply, at most `limit`.
-fn connections_json_within(limit: Duration) -> Result<String, Unread> {
-    let marker = fs::read_to_string(Paths::new("/").at(crate::config::LAYOUT_MARKER_FILE)).ok();
-    let home =
-        crate::cloud::daemon_noise_key::session_home(marker.as_deref()).ok_or_else(|| {
-            Unread::Failed("the session host's layout is not recorded yet".to_owned())
-        })?;
-    let mut cmd = Command::new("timeout");
-    cmd.arg(limit.as_secs().max(1).to_string());
-    if home != Path::new(crate::daemon_spec::ROOT_HOME) {
-        cmd.args(["runuser", "-u", WORK_USER, "--"]);
-    }
-    cmd.arg("env")
-        .arg(format!("HOME={}", home.display()))
-        .arg(super::CURRENT_CMUX_TUI)
-        .args(["remote", "enroll", "connections", "--session", crate::daemon_spec::SESSION])
-        .arg("--json");
-    let stdout = output_within(cmd, limit)?;
-    Ok(String::from_utf8_lossy(&stdout).into_owned())
-}
-
-/// How long past its `timeout` bound a read may run before [`output_within`]
-/// kills its process group: `timeout` only sends SIGTERM and waits, so a
-/// child that ignores it (or a grandchild under `runuser` that keeps stdout
-/// open) would hold the caller, and the gate's flock with it, past the bound
-/// (review F1 on #39366 at 6ac5a558).
-pub(super) const READ_KILL_AFTER: Duration = Duration::from_secs(1);
 
 /// The stdout of `cmd` (a `timeout LIMIT ...` command line) once it exits 0,
 /// read under a hard deadline of `limit` + [`READ_KILL_AFTER`]: past it, the

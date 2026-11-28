@@ -74,7 +74,29 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long an established session tries to resume before it gives up.
 /// After that its streams end, and the next stream (`held`) or the
 /// caller's next dial opens a fresh session instead of resuming forever.
+/// A session with an ssh route behind its carrier has the longer
+/// [`SSH_FAILOVER_WINDOW`] ([`resume_window`]).
 pub(super) const RESUME_DEADLINE: Duration = Duration::from_secs(10);
+/// The resume window of a session with an ssh route: one whole failover
+/// onto ssh fits in it, its carrier key's authorization
+/// (`ssh::AUTHORIZE_TIMEOUT`) and then the Noise handshake over the new
+/// `ssh` run ([`HANDSHAKE_TIMEOUT`]). A window of [`RESUME_DEADLINE`] alone
+/// was shorter than the authorization's own bound, so a failover whose key
+/// was not authorized yet was cut before ssh answered, and the session
+/// closed under the chat (`carrier_fault.resume_failed: ... connection is
+/// closed`, cloud-carrier-ssh-failover, 2026-11-26 run 45892981109).
+pub(super) const SSH_FAILOVER_WINDOW: Duration =
+    Duration::from_secs(super::ssh::AUTHORIZE_TIMEOUT.as_secs() + HANDSHAKE_TIMEOUT.as_secs());
+
+/// How long a session over `dialers` resumes before it gives up: long
+/// enough for one whole try on each of its routes.
+pub(super) fn resume_window(dialers: &[super::source::RouteDialer]) -> Duration {
+    if dialers.iter().any(super::source::RouteDialer::is_ssh) {
+        SSH_FAILOVER_WINDOW.max(RESUME_DEADLINE)
+    } else {
+        RESUME_DEADLINE
+    }
+}
 
 /// A connected carrier session.
 pub(super) struct Dialed {
@@ -654,7 +676,7 @@ impl RouteAttempt<'_> {
             limits: SessionLimits::default(),
             reconnect: ReconnectPolicy {
                 attempt_timeout: HANDSHAKE_TIMEOUT.min(remaining.max(Duration::from_millis(1))),
-                maximum_duration: Some(RESUME_DEADLINE),
+                maximum_duration: Some(resume_window(&self.set.dialers)),
                 ..ReconnectPolicy::default()
             },
         };
@@ -808,7 +830,17 @@ where
     let mut asking = std::pin::pin!(next(Duration::ZERO));
     let mut daemon = None;
     loop {
+        // Biased, the answer first: with both ready, an answer in hand is used before the link
+        // asks again. Unbiased, tokio picks at random, so one call asked once or twice.
         tokio::select! {
+            biased;
+            answer = &mut asking, if daemon.is_none() => {
+                match answer {
+                    Ok(answer) if answer.daemon_key.is_some() => daemon = answer.daemon_key,
+                    Err(failure) if !failure.retryable => return Err(failure),
+                    Ok(_) | Err(_) => asking.set(next(every)),
+                }
+            }
             opened = &mut open => {
                 let link = opened?;
                 let daemon = match daemon {
@@ -816,13 +848,6 @@ where
                     None => pinned_daemon(&ask().await?)?,
                 };
                 return Ok((link, daemon));
-            }
-            answer = &mut asking, if daemon.is_none() => {
-                match answer {
-                    Ok(answer) if answer.daemon_key.is_some() => daemon = answer.daemon_key,
-                    Err(failure) if !failure.retryable => return Err(failure),
-                    Ok(_) | Err(_) => asking.set(next(every)),
-                }
             }
         }
     }

@@ -4,6 +4,7 @@
 // Running) writes through `chatPriority.set`; the app's Rust says whether it holds a slot or waits
 // (`place.keep`). With no known plan the app sends no `keep`, and neither mount offers it.
 import { useMemo } from "react";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import { callNative } from "../callNative";
 import { useHeaderState } from "../header/headerState";
 import { useT, type Translate } from "../i18n";
@@ -11,6 +12,7 @@ import { placeName } from "../place/PlaceControl";
 import type { PlaceState, PlaceKeep } from "../place/placeModel";
 import { placeActions, type PlaceClaims } from "../place/usePlace";
 import { CloudTriToggle } from "./CloudTriToggle";
+import { CLOUD_TOGGLE_SWITCH } from "./hybridModel";
 import { newTabPin, pickNewTabPin, type NewTabWhere, type NewTabWhereWrites } from "./newTabHybrid";
 import type { HybridBlockedWhy } from "./hybridModel";
 import type { SessionInfoCloudControl } from "./SessionInfoCloud";
@@ -40,9 +42,10 @@ export function HybridChip({
   claims?: () => PlaceClaims;
 }) {
   const t = useT();
+  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
   const { place } = useHeaderState();
   const actions = useMemo(() => (session ? placeActions(session, say, claims) : undefined), [session, say, claims]);
-  if (!place || !actions) return null;
+  if (!on || !place || !actions) return null;
   const keep = place.keep;
   return (
     <CloudTriToggle
@@ -85,9 +88,10 @@ export function useSessionInfoCloud(
   session: string | undefined,
   say?: (text: string) => void,
 ): SessionInfoCloudControl | undefined {
+  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
   const { place } = useHeaderState();
   return useMemo(() => {
-    if (!place || !session) return undefined;
+    if (!on || !place || !session) return undefined;
     const actions = placeActions(session, say);
     const keep = place.keep;
     if (!keep)
@@ -97,7 +101,7 @@ export function useSessionInfoCloud(
       setLit: (on: boolean) => actions.setPriority(on ? "high" : "normal"),
       setPin: actions.setMode,
     };
-  }, [place, session, say]);
+  }, [on, place, session, say]);
 }
 
 /// The New Tab page's control, before a chat exists (newTabHybrid.ts): the page's Where pick, drawn

@@ -63,7 +63,13 @@ fn fixture() -> Fixture {
 }
 
 fn policy(f: &Fixture, delete_local: bool) -> Policy {
-    Policy { older_than_ms: 14 * DAY, delete_local, keep: HashSet::new(), now_ms: f.now_ms }
+    Policy {
+        older_than_ms: 14 * DAY,
+        delete_local,
+        keep: HashSet::new(),
+        kept_now: Default::default(),
+        now_ms: f.now_ms,
+    }
 }
 
 fn snapshot(home: &Path) -> BTreeMap<String, Vec<u8>> {
@@ -215,12 +221,8 @@ fn transcripts_root_is_its_own() {
 #[test]
 fn a_removed_files_copy_is_rooted_before_the_pass_ends() {
     let f = fixture();
-    // Stop right after the first file is handled: the end-of-pass root never runs for the rest.
-    let calls = std::cell::Cell::new(0);
-    let stop = || {
-        calls.set(calls.get() + 1);
-        calls.get() > 1
-    };
+    // Stop right after the first file is removed.
+    let stop = || Ledger::load(&f.state).unwrap().files.values().any(|e| e.removed_at_ms.is_some());
     let report = pass(&f.home, &f.state, Some(&f.cloud), &policy(&f, true), false, &stop).unwrap();
     assert_eq!(report.removed, 1, "{report:?}");
     let ledger = Ledger::load(&f.state).unwrap();
@@ -232,4 +234,47 @@ fn a_removed_files_copy_is_rooted_before_the_pass_ends() {
         std::fs::read_to_string(cloud_dir.join("roots").join(root_pair(&f.cloud))).unwrap();
     let tree = String::from_utf8(f.cloud.store.get(&tree_sha).unwrap()).unwrap();
     assert!(tree.lines().any(|l| l == removed[0].stub.blob), "{tree}");
+}
+
+#[test]
+fn a_chat_kept_since_the_pass_began_keeps_its_file() {
+    let f = fixture();
+    let mut p = policy(&f, true);
+    // Not kept when the pass began; kept when its removal comes.
+    p.kept_now = KeptNow(Some(std::sync::Arc::new(|sid: &str| sid == SID)));
+    let report = pass(&f.home, &f.state, Some(&f.cloud), &p, false, &|| false).unwrap();
+    assert_eq!((report.copied, report.removed), (4, 3), "{report:?}");
+    assert_eq!(report.skipped.get("kept"), Some(&1));
+    assert!(f.home.join(codex(SID)).exists());
+    let ledger = Ledger::load(&f.state).unwrap();
+    assert_eq!(ledger.files[&codex(SID)].removed_at_ms, None);
+}
+
+#[test]
+fn a_restore_during_a_pass_is_not_undone() {
+    let f = fixture();
+    // Between removals, bring back every file removed so far (a chat opening).
+    let restored = std::cell::Cell::new(false);
+    let stop = || {
+        let removed =
+            Ledger::load(&f.state).unwrap().files.values().any(|e| e.removed_at_ms.is_some());
+        if removed && !restored.get() {
+            restored.set(true);
+            assert_eq!(restore_all(&f.home, &f.state, &f.cloud).unwrap(), 1);
+        }
+        false
+    };
+    let report = pass(&f.home, &f.state, Some(&f.cloud), &policy(&f, true), false, &stop).unwrap();
+    assert!(restored.get());
+    assert_eq!(report.removed, 4, "{report:?}");
+    // The restored file is back and its row says so; the others are removed.
+    let ledger = Ledger::load(&f.state).unwrap();
+    let back: Vec<&String> = ledger
+        .files
+        .iter()
+        .filter(|(_, e)| e.removed_at_ms.is_none())
+        .map(|(rel, _)| rel)
+        .collect();
+    assert_eq!(back.len(), 1, "{ledger:?}");
+    assert!(f.home.join(back[0]).exists());
 }

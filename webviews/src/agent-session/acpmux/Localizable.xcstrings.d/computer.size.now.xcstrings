@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "computer.size.now" : {
+      "comment" : "Agent chat: Size row, the Cloud computer's current size.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "الآن {vcpu} vCPU · {memory} جيجابايت، ويكبر أثناء العمل"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "sada {vcpu} vCPU · {memory} GB, raste dok radi"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "nu {vcpu} vCPU · {memory} GB, vokser undervejs"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "jetzt {vcpu} vCPU · {memory} GB, wächst bei Bedarf"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "now {vcpu} vCPU · {memory} GB, grows as it works"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ahora {vcpu} vCPU · {memory} GB, crece según lo necesita"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "actuellement {vcpu} vCPU · {memory} GB, augmente selon les besoins"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ora {vcpu} vCPU · {memory} GB, cresce mentre lavora"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在 {vcpu} vCPU · {memory} GB、作業に応じて拡張"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ឥឡូវ {vcpu} vCPU · {memory} GB កើនឡើងតាមការងារ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "현재 {vcpu} vCPU · {memory} GB, 작업에 따라 커짐"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "nå {vcpu} vCPU · {memory} GB, vokser underveis"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "teraz {vcpu} vCPU · {memory} GB, rośnie w miarę pracy"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "agora {vcpu} vCPU · {memory} GB, cresce conforme trabalha"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "сейчас {vcpu} vCPU · {memory} ГБ, растёт по мере работы"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ตอนนี้ {vcpu} vCPU · {memory} GB และขยายขึ้นตามงาน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "şu an {vcpu} vCPU · {memory} GB, çalıştıkça büyür"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "зараз {vcpu} vCPU · {memory} ГБ, зростає під час роботи"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "hiện {vcpu} vCPU · {memory} GB, tăng dần khi làm việc"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前 {vcpu} vCPU · {memory} GB，随工作增长"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目前 {vcpu} vCPU · {memory} GB，隨工作成長"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -1834,3 +1834,23 @@ async fn a_local_page_without_a_held_sub_is_refused_as_today() {
     assert_eq!(frame.kind, FrameKind::Error);
     assert_eq!(frame.decode_json::<serde_json::Value>().unwrap()["code"], "unknown_sid");
 }
+
+/// A connection error sorts by variant, io kind and code: a hub's error by
+/// its own class, a code by what it names, bad input as unknown.
+#[test]
+fn conn_error_classes() {
+    use acpmux_list_types::resume::ResumeErrorClass;
+    let refused = ConnError::Io(std::io::ErrorKind::ConnectionRefused.into());
+    assert_eq!(refused.resume_class(), ResumeErrorClass::Transient);
+    let timed_out = ConnError::Io(std::io::ErrorKind::TimedOut.into());
+    assert_eq!(timed_out.resume_class(), ResumeErrorClass::DeadlineExceeded);
+    assert_eq!(ConnError::Hub(HubError::CursorGone).resume_class(), ResumeErrorClass::GapTooOld);
+    let stale = ConnError::coded("stale_edition", "the rowId is from another edition");
+    assert_eq!(stale.resume_class(), ResumeErrorClass::GapTooOld);
+    let full = ConnError::coded("mailbox_full", "the chat's mailbox is full");
+    assert_eq!(full.resume_class(), ResumeErrorClass::Transient);
+    let failed = ConnError::coded("failed", "the chat failed");
+    assert_eq!(failed.resume_class(), ResumeErrorClass::Unknown);
+    assert_eq!(ConnError::TooManySubscriptions.resume_class(), ResumeErrorClass::Unknown);
+    assert_eq!(ConnError::IdentifierTooLong.resume_class(), ResumeErrorClass::Unknown);
+}

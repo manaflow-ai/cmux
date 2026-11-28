@@ -136,9 +136,33 @@
   font-weight: var(--weight-emphasis);
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.lg-list-group.after-pinned {
-  margin-top: var(--ds-space-1);
-  padding-top: var(--ds-space-2);
+/* Windowed (ConversationList.tsx): only the label, line and rows near the viewport are mounted,
+   each placed at its offset in a box as tall as the whole list. */
+.lg-list-space {
+  position: relative;
+  width: 100%;
+}
+.lg-list-section-host,
+.lg-list-divider,
+.lg-list-space .lg-list-group > li {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+/* Its own block, so the label's margins count in its measured height. */
+.lg-list-section-host {
+  display: flow-root;
+}
+/* The hairline between my pins and the rest, with the space the rest's list had above it. */
+.lg-list-divider {
+  padding-top: var(--ds-space-1);
+}
+.lg-list-divider::after {
+  content: "";
+  display: block;
+  height: var(--ds-space-2);
   border-top: 1px solid var(--lg-line);
 }
 /* A row's context-menu host takes no box of its own. */
@@ -258,7 +282,7 @@
   min-width: 16px;
   height: 16px;
   padding: 0 var(--ds-space-1);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   background: var(--page-text);
   color: var(--lg-solid);
   font-size: var(--text-caption);
@@ -536,7 +560,7 @@
 .hc-msg.lg-msg .hc-tag {
   padding: 0 var(--ds-space-1);
   border: 1px solid var(--lg-line);
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: none;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -977,7 +1001,7 @@
   z-index: var(--layer-overlay);
 }
 .lg-palette.ui-glass {
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
 }
 .lg-palette-root {
   display: flex;
@@ -1121,7 +1145,7 @@
   margin: 0 var(--ds-space-2) var(--ds-space-1) 0;
   padding: 0 var(--ds-space-1);
   border: 1px solid var(--page-text-3);
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: var(--lg-fill);
   color: var(--page-text);
   font: inherit;
@@ -1582,6 +1606,11 @@
   height: 100%;
   object-fit: cover;
 }
+/* A message's only image is its whole picture in its own shape (AttachmentViews.tsx singleImageStyle):
+   a box reserved from a size that turns out wrong letterboxes it, never crops or stretches it. */
+.hc-att-image.single img {
+  object-fit: contain;
+}
 .hc-att-image.loading {
   background: var(--lg-fill-strong);
 }
@@ -1837,7 +1866,7 @@
   width: 32px;
   height: 32px;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: var(--lg-fill-strong);
   color: var(--page-text-2);
 }
@@ -1869,7 +1898,7 @@
   height: var(--ds-control-icon);
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: transparent;
   color: var(--page-text-3);
   opacity: 0;
@@ -2089,7 +2118,7 @@
   width: 56px;
   height: 56px;
   margin-top: var(--ds-space-5);
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
   overflow: hidden;
 }
 .lg-chief-picture img {

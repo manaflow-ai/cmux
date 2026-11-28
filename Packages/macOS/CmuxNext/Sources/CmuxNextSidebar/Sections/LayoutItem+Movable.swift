@@ -15,6 +15,12 @@ extension LayoutItemRef {
 extension LayoutItem {
     /// Whether a press on this item may drag it: a client-only item (What's New) and Home never move.
     var isMovable: Bool { !id.isTransient && ref.isMovable }
+
+    /// ``isMovable`` in `section`: a pinned workspace never drags either, as in classic cmux (Lucas 2026-11-26: "the
+    /// pinned workspaces should also not be movable, even if its moving to unpin"). Pin and Unpin are its menu's.
+    func isMovable(in section: LayoutSectionID) -> Bool {
+        isMovable && !(section == SidebarLayoutDocument.pinnedSectionID && ref.kind == LayoutItemRef.workspaceKind)
+    }
 }
 
 extension LayoutItem {

@@ -34,6 +34,10 @@ jobs starting together download each artifact once, the later ones waiting and t
 copy. The cache stays the host's own and warm; nothing is per runner. The Mac store defaults to MAC_STORE,
 on the cache's volume, so a cache entry is a hard link to it.
 
+GitHub 403 (11-26): GitHub answers anonymous github.com downloads and git from the office Macs' shared address
+with 403. With GH_TOKEN (or GITHUB_TOKEN) set, a github.com release asset is downloaded through the API with
+the token, and the pin manifest fetches send it too (github_fetch_auth.py); without one, nothing changes.
+
 Fails soft: a manifest that does not evaluate, or an artifact that does not download, is reported with a
 ::warning:: and left for SwiftPM to fetch itself. A checksum that does not match the manifest is never cached.
 
@@ -52,6 +56,7 @@ import concurrent.futures
 import contextlib
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 import pwd
@@ -63,6 +68,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from urllib.parse import unquote
 
 SWIFTPM_VERBS = ("build", "test")
 SWIFTPM_TOOLS = ("swift-build", "swift-test")
@@ -325,12 +331,87 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def curl_download(url: str, destination: Path) -> None:
-    subprocess.run(["curl", "--fail", "--location", "--silent", "--show-error", "--retry", "4",
-                    "--retry-all-errors", "--connect-timeout", "30", "--max-time", "1800",
-                    "--speed-limit", DOWNLOAD_LOW_SPEED_BYTES, "--speed-time", GIT_HTTP_LOW_SPEED_TIME,
-                    "--output", str(destination), url],
-                   check=True, timeout=1800)
+GITHUB_RELEASE_URL = re.compile(r"^https://github\.com/([^/]+/[^/]+)/releases/download/([^/]+/[^/]+)$")
+
+
+def release_proxy_url(url: str, environ=os.environ) -> str | None:
+    """The fleet controller's copy of a GitHub release asset, or None.
+
+    While GitHub refuses a fleet Mac's address (403 to every anonymous request from the office, 2026-11-26),
+    its worker sets CMUX_CI_GITHUB_RELEASE_PROXY to the controller's release route, which downloads
+    https://github.com/OWNER/NAME/releases/download/TAG/FILE once with its own read token and caches it
+    (cmuxterm-hq build-fleet/cmd/controller/github_release_proxy.go). The checksum is still checked here.
+    """
+    proxy = environ.get("CMUX_CI_GITHUB_RELEASE_PROXY", "").strip().rstrip("/")
+    match = GITHUB_RELEASE_URL.match(url)
+    if not proxy or not match:
+        return None
+    return f"{proxy}/{match.group(1)}/{match.group(2)}"
+
+
+CURL_ARGS = ["curl", "--fail", "--location", "--silent", "--show-error", "--retry", "4",
+             "--retry-all-errors", "--connect-timeout", "30", "--max-time", "1800",
+             "--speed-limit", DOWNLOAD_LOW_SPEED_BYTES, "--speed-time", GIT_HTTP_LOW_SPEED_TIME]
+GITHUB_RELEASE = re.compile(r"https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/?#]+)$")
+
+
+def github_release_asset_url(url: str, token: str, run=subprocess.run) -> str | None:
+    """The API URL of a github.com release asset, read with the job's token. GitHub answers anonymous
+    github.com downloads from the office Macs' shared address with 403 (11-26); api.github.com with a token
+    is counted against the token. None when `url` is not a release download or the API does not list it."""
+    match = GITHUB_RELEASE.match(url)
+    if not match or not token:
+        return None
+    owner, repo, tag, name = match.groups()
+    api = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
+    # The token goes to curl on stdin (a config file), never argv.
+    done = run(["curl", "--fail", "--silent", "--show-error", "--connect-timeout", "30", "--max-time", "120",
+                "--config", "-", api],
+               input=f'header = "Authorization: Bearer {token}"\nheader = "Accept: application/vnd.github+json"\n',
+               capture_output=True, text=True, timeout=180)
+    if done.returncode != 0:
+        return None
+    for asset in json.loads(done.stdout).get("assets") or []:
+        if asset.get("name") == unquote(name) and asset.get("url"):
+            return asset["url"]
+    return None
+
+
+def github_download(url: str, destination: Path, environ=os.environ, run=subprocess.run) -> None:
+    """Download `url`. A github.com release asset is fetched through the API with the job's token
+    (GH_TOKEN or GITHUB_TOKEN) first; curl drops the Authorization header on the redirect to GitHub's asset
+    host. Anything else, or an authenticated try that fails, is the anonymous download it always was."""
+    token = (environ.get("GH_TOKEN") or environ.get("GITHUB_TOKEN") or "").strip()
+    try:
+        asset = github_release_asset_url(url, token, run)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        warn(f"could not look up {url} through the API: {error}")
+        asset = None
+    if asset:
+        done = run(CURL_ARGS + ["--config", "-", "--output", str(destination), asset],
+                   input=f'header = "Authorization: Bearer {token}"\nheader = "Accept: application/octet-stream"\n',
+                   text=True, timeout=1800)
+        if done.returncode == 0:
+            return
+        warn(f"authenticated download of {url} exited {done.returncode}; trying it anonymously")
+    run(CURL_ARGS + ["--output", str(destination), url], check=True, timeout=1800)
+
+
+def curl_download(url: str, destination: Path, environ=os.environ, run=subprocess.run,
+                  fetch=github_download) -> None:
+    """Download `url`, through the controller's release proxy first when the worker names one; then GitHub
+    (the job's token through the API when it has one, else anonymously)."""
+    proxied = release_proxy_url(url, environ)
+    if proxied:
+        try:
+            # Two retries, not four: GitHub is the fallback.
+            proxy_args = ["2" if arg == "4" and CURL_ARGS[i - 1] == "--retry" else arg for i, arg in enumerate(CURL_ARGS)]
+            run(proxy_args + ["--output", str(destination), proxied],
+                check=True, timeout=1800)
+            return
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as error:
+            warn(f"the controller's release proxy failed for {url} ({error}); trying GitHub")
+    fetch(url, destination, environ, run)
 
 
 def stored_artifact(url: str, checksum: str, store: Path, download=curl_download) -> Path:
@@ -417,6 +498,23 @@ def seed(packages: list[Path], store: Path, cache: Path, swift: str = "swift", d
     return missed
 
 
+def authenticate_pin_fetches(environ, packages: list[Path]) -> None:
+    """Give this process's pin fetches the job token (github_fetch_auth.py's per-repository extraheaders), so
+    reading a pin's manifests does not meet the anonymous 403 either. No token, nothing changes."""
+    if environ.get("CMUX_GITHUB_FETCH_AUTH") or not (environ.get("GH_TOKEN") or environ.get("GITHUB_TOKEN")):
+        return
+    try:
+        spec = importlib.util.spec_from_file_location("github_fetch_auth", Path(__file__).with_name("github_fetch_auth.py"))
+        auth = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(auth)
+        repos = auth.pinned_repos([package / "Package.resolved" for package in packages])
+        for line in auth.env_lines(auth.config_entries(repos, auth.token_from(environ)), environ):
+            key, _, value = line.partition("=")
+            environ[key] = value
+    except Exception as error:  # noqa: BLE001 - anonymous fetches as before
+        warn(f"pin fetches stay anonymous: {error}")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     darwin = sys.platform == "darwin"
@@ -437,6 +535,7 @@ def main(argv=None) -> int:
         cache_path = command_cache_path(args.command, args.directory)
     if not paths:
         return 0
+    authenticate_pin_fetches(os.environ, [Path(path) for path in paths])
     if shutil.which(args.swift) is None:
         warn(f"{args.swift} is not on PATH; nothing seeded")
         return 0

@@ -29,7 +29,7 @@ const NEXT: &str = "acpmux machine doctor";
 /// verdict and this daemon's turns, without the formula, the sessions' names
 /// (`top`) or `warning` (it names the host, which a Web or peer caller does
 /// not get).
-const PRESSURE_KEYS: [&str; 10] = [
+const PRESSURE_KEYS: [&str; 13] = [
     "ok",
     "over",
     "load1",
@@ -39,6 +39,11 @@ const PRESSURE_KEYS: [&str; 10] = [
     "pressure",
     "available_ram_fraction",
     "swap_mb_per_min",
+    // CPU busy now and its ten-minute p50 (the meter's ring): lane-place's measured
+    // lane cap reads `cpu_p50_pct` from the link (`measured_lane_cap`).
+    "cpu_busy_pct",
+    "cpu_p50_pct",
+    "cpu_window_s",
     "local_turns",
 ];
 
@@ -61,9 +66,9 @@ pub(crate) async fn host_health_with(
         "arch": std::env::consts::ARCH,
         // What kind of device this is (`cmux-device-kind`: `mac-mini`, `linux-server`), so every
         // view of a machine draws its own glyph; read once per process.
-        "device": cmux_device_kind::this_device().kind.as_str(),
+        "device": cmux_device_kind::shown_kind().as_str(),
         // The SF Symbol that kind draws, so a native view names it without a table of its own.
-        "deviceSymbol": cmux_device_kind::this_device().kind.symbol(),
+        "deviceSymbol": cmux_device_kind::shown_kind().symbol(),
         "cpus": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
         "liveSessions": hub.live_session_count(),
         "uptimeSecs": crate::store::now_ms().saturating_sub(hub.started_at) / 1000,
@@ -83,7 +88,7 @@ pub(crate) async fn host_health_with(
     if let Some(age) = pressure_age_ms() {
         v.set("pressureAgeMs", json!(age));
     }
-    let fraction = pressure["available_ram_fraction"].as_f64();
+    let fraction = pressure.get("available_ram_fraction").and_then(Value::as_f64);
     if let Some(total) = ram_total() {
         let mut ram = json!({"totalBytes": total});
         if let Some(f) = fraction {
@@ -127,9 +132,47 @@ pub(crate) async fn host_health_with(
     // platform join/registry APIs use to address this machine. The private
     // key stays in the transport-owned helper and is never serialized.
     if let Ok(key) = crate::cli::mesh_node_key::load_or_create() {
-        v.set("node", json!({"wgPublicKey": key.public_key_b64()}));
+        let mut node = json!({"wgPublicKey": key.public_key_b64()});
+        // While the WireGuard transport runs: its UDP port and service address, which a peer
+        // daemon that runs it too learns a route from (`peer_wg_learn.rs`).
+        if let Some(transport) = &hub.wireguard {
+            node.set("wireguard", transport.advert());
+        }
+        v.set("node", node);
     }
     v
+}
+
+/// `_acpmux/wireguard_admit` (`peer_wg_learn.rs`): a peer daemon that learned a WireGuard
+/// route to this machine asks it to admit its key (`{"publicKey", "address"}`, its
+/// `node.wireguard`), as an inbound-only mesh peer. Only a proven peer daemon or the local
+/// socket may ask; the mesh still carries bytes only to the token-checked listener.
+pub(super) async fn wireguard_admit(
+    hub: &Hub,
+    origin: Origin,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    if !matches!(origin, Origin::Peer | Origin::Local) {
+        return Err(RpcError::invalid_params("only a peer daemon admits a WireGuard key")
+            .with_data(json!({"reason": "wireguard.admit_refused"})));
+    }
+    let Some(transport) = &hub.wireguard else {
+        return Err(RpcError::invalid_params("the WireGuard transport is off on this machine")
+            .with_data(json!({"reason": "wireguard.off"})));
+    };
+    let key = params
+        .get("publicKey")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("publicKey must be a base64 key"))?;
+    let address =
+        params.get("address").and_then(Value::as_str).and_then(|a| a.parse().ok()).ok_or_else(
+            || RpcError::invalid_params("address must be a service address (ip:port)"),
+        )?;
+    transport
+        .admit(key, address)
+        .await
+        .map(|added| json!({"admitted": added}))
+        .map_err(|e| RpcError::invalid_params(format!("{e:#}")))
 }
 
 /// `link` of `host_health`: the install this machine's cmux link runs as, so a daemon that
@@ -199,7 +242,7 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
         "liveSessions",
     ] {
         if let Some(v) = listed.get(key).filter(|v| !v.is_null()) {
-            row[key] = v.clone();
+            row.set(key, v.clone());
         }
     }
     let peer = hub.connected_peers().into_iter().find(|p| p.name == name);
@@ -220,7 +263,7 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             row.set("latencyMs", json!(started.elapsed().as_millis() as u64));
             if let Some(fields) = health.as_object() {
                 for (k, v) in fields {
-                    row[k.as_str()] = v.clone();
+                    row.set(k.as_str(), v.clone());
                 }
             }
             row.set("name", json!(name));
@@ -232,8 +275,9 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             row.set(
                 "outdated",
                 json!(
-                    health["build"]
-                        .as_str()
+                    health
+                        .get("build")
+                        .and_then(Value::as_str)
                         .is_none_or(|b| crate::build_info::lags(b, crate::hub::build()))
                 ),
             );

@@ -7,6 +7,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import re
 import sys
 import tempfile
 import textwrap
@@ -168,12 +169,29 @@ class Repository(unittest.TestCase):
         self.assertEqual([k for k in polling_steps(lint.WORKFLOWS) if k not in found], [])
 
     def test_the_checks_job_runs_the_lint_warn_only(self):
+        # The checks job's slow commands live in scripts/ci/cmux-next-slow-checks.txt (#59284, the 512,000-byte
+        # workflow limit): the lint is one line of a `[group]` there, and the step that waits for that group is
+        # continue-on-error, so the lint warns and never turns the checks job red.
         import yaml
+        groups: dict[str, list[str]] = {}
+        name = None
+        for line in (ROOT / "scripts" / "ci" / "cmux-next-slow-checks.txt").read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("[") and line.endswith("]"):
+                name = line[1:-1]
+                groups.setdefault(name, [])
+            elif name is not None:
+                groups[name].append(line)
+        found = [g for g, commands in groups.items() if any("github_token_budget_lint.py" in c for c in commands)]
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("python3 tests/test_ci_github_token_budget.py", groups[found[0]])
         workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "cmux-next.yml").read_text(encoding="utf-8"))
-        steps = [s for s in workflow["jobs"]["checks"]["steps"] if "github_token_budget_lint.py" in str(s.get("run", ""))]
-        self.assertEqual(len(steps), 1)
-        self.assertIs(steps[0].get("continue-on-error"), True)
-        self.assertIn("python3 tests/test_ci_github_token_budget.py", steps[0]["run"])
+        waits = [s for s in workflow["jobs"]["checks"]["steps"]
+                 if re.search(rf"run-checks-concurrently\.sh --wait \S+ {re.escape(found[0])}\s*$", str(s.get("run", "")))]
+        self.assertEqual(len(waits), 1, found[0])
+        self.assertIs(waits[0].get("continue-on-error"), True)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ import Foundation
 
 /// One batch of a chat's changes on its way to the page (the design doc's host contract): the
 /// core's change bytes, each passed as it is. The host reads a change's `kind` and nothing else,
-/// and builds the page's one call, `window.cmuxChatRows.receive({batch, changes})`, in one pass
+/// and builds the page's one call's argument, `{batch, changes}` for `window.cmuxChatRows.receive`, in one pass
 /// off the main actor. Nothing here parses a row or encodes a change again.
 nonisolated struct AcpmuxChatRowsBatch: Sendable {
     /// The script's head and tail around the change strings.
@@ -37,16 +37,29 @@ nonisolated struct AcpmuxChatRowsBatch: Sendable {
         return String(decoding: change[start..<end], as: UTF8.self)
     }
 
-    /// The page's call for batch `number`: each change as one JSON string of its exact bytes.
+    /// The page's call for batch `number` as one script text: ``receiver`` around ``argument(batch:changes:)``.
+    /// Benches and tests read it; the host pushes ``receiveBody`` with the argument instead.
     static func script(batch number: Int, changes: [Data]) -> String {
+        "\(receiver)(\(argument(batch: number, changes: changes)))"
+    }
+
+    /// The fixed body the page runs for every batch, the batch's JSON text as its `batch` argument
+    /// (`callAsyncJavaScript`). A new script text per batch made WebKit's web process keep each one:
+    /// +8.45 MB/min at 20 pushes a second, -0.48 MB/min with the same data as an argument (RFD 0062,
+    /// renderer idle growth; webviews/bench/webkit-push-growth.bench.ts).
+    static let receiveBody = "\(receiver)(JSON.parse(batch));"
+
+    /// Batch `number` as JSON text, `{"batch":N,"changes":[...]}`: each change as one JSON string of
+    /// its exact bytes.
+    static func argument(batch number: Int, changes: [Data]) -> String {
         var out: [UInt8] = []
-        out.reserveCapacity(changes.reduce(64) { $0 + $1.count + $1.count / 8 + 3 })
-        out.append(contentsOf: Array("\(receiver)({\"batch\":\(number),\"changes\":[".utf8))
+        out.reserveCapacity(changes.reduce(48) { $0 + $1.count + $1.count / 8 + 3 })
+        out.append(contentsOf: Array("{\"batch\":\(number),\"changes\":[".utf8))
         for (index, change) in changes.enumerated() {
             if index > 0 { out.append(UInt8(ascii: ",")) }
             appendString(change, to: &out)
         }
-        out.append(contentsOf: Array("]})".utf8))
+        out.append(contentsOf: Array("]}".utf8))
         return String(decoding: out, as: UTF8.self)
     }
 

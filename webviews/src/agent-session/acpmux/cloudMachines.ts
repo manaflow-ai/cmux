@@ -14,7 +14,14 @@ import { cloudPlanFromReply, type CloudPlanView } from "./cloudPlans";
 /// One machine of the account: its id, name and `CloudMachineStage` name (`ready`, `paused`,
 /// `requesting`, `creating`, `booting`, `connecting`, `failed`). `evictAt` (epoch ms) is when a
 /// machine left paused for 30 days is deleted unless it resumes; absent when the server does not say.
-export type CloudMachine = { id: string; name: string; stage: string; evictAt?: number; size?: CloudMachineSize };
+export type CloudMachine = {
+  id: string;
+  name: string;
+  stage: string;
+  evictAt?: number;
+  size?: CloudMachineSize;
+  cloudRegistryId?: string;
+};
 /// A machine's size as its record says it (`cloudMachine.list` `size`): vCPUs, memory and disk, each
 /// absent when the record does not say. The composer's machine card names it (MachineCard.tsx).
 export type CloudMachineSize = { cpu?: number; memoryMb?: number; diskMb?: number };
@@ -87,7 +94,7 @@ export function cloudMachinesFromReply(reply: unknown): CloudMachine[] {
   if (value?.signedIn !== true || value.loaded !== true || !Array.isArray(value.machines)) return [];
   const machines: CloudMachine[] = [];
   for (const raw of value.machines.slice(0, MAX_ROWS)) {
-    const { id, name, stage, evictAt, size: rawSize } = (raw ?? {}) as Record<string, unknown>;
+    const { id, name, stage, evictAt, size: rawSize, cloudRegistryId } = (raw ?? {}) as Record<string, unknown>;
     if (typeof id !== "string" || !id || typeof name !== "string" || !name || typeof stage !== "string") continue;
     const size = cloudMachineSize(rawSize);
     machines.push({
@@ -96,9 +103,20 @@ export function cloudMachinesFromReply(reply: unknown): CloudMachine[] {
       stage,
       ...(typeof evictAt === "number" && Number.isFinite(evictAt) && evictAt > 0 ? { evictAt } : {}),
       ...(size ? { size } : {}),
+      ...(typeof cloudRegistryId === "string" && cloudRegistryId ? { cloudRegistryId } : {}),
     });
   }
   return machines;
+}
+
+/// When the server last answered the list a reply carries (`lastSeenAt`, epoch ms): set only while the
+/// app, on a cold start before its first fresh read lands (control plane slow or down), answers with
+/// the list it kept from the last launch (`complete: false`). A fresh reply has none.
+export function cloudLastSeenFromReply(reply: unknown): number | undefined {
+  const value = reply as { signedIn?: unknown; loaded?: unknown; lastSeenAt?: unknown } | null | undefined;
+  if (value?.signedIn !== true || value.loaded !== true) return undefined;
+  const at = value.lastSeenAt;
+  return typeof at === "number" && Number.isFinite(at) && at > 0 ? at : undefined;
 }
 
 export function cloudSignedInFromReply(reply: unknown): boolean | undefined {
@@ -248,6 +266,16 @@ function publishPlan(next: CloudPlanView): void {
   for (const listener of listeners) listener();
 }
 
+/// The kept list's age (cloudLastSeenFromReply): set while the page shows machines from the last launch,
+/// cleared by a fresh reply, a refused read and a team change.
+let lastSeenAt: number | undefined;
+
+function publishLastSeen(next: number | undefined): void {
+  if (next === lastSeenAt) return;
+  lastSeenAt = next;
+  for (const listener of listeners) listener();
+}
+
 function publishAccount(next: boolean | undefined): void {
   if (next === accountSignedIn) return;
   accountSignedIn = next;
@@ -292,6 +320,7 @@ function readList(call: Call, fresh: boolean): Promise<CloudPlanView> {
         const answer = reply as { team?: unknown; teams?: unknown } | null | undefined;
         publishTeam(signedIn ? activeTeamFromReply(answer?.team, answer?.teams) : undefined);
         publishPlan(plan);
+        publishLastSeen(cloudLastSeenFromReply(reply));
         publish(list);
       }
       return plan;
@@ -303,6 +332,7 @@ function readList(call: Call, fresh: boolean): Promise<CloudPlanView> {
         publishAccount(undefined);
         publishTeam(undefined);
         publishPlan(UNKNOWN_PLAN);
+        publishLastSeen(undefined);
         publish([]);
       }
       return UNKNOWN_PLAN;
@@ -331,6 +361,7 @@ export function followCloudTeamChange(call: Call = postNative, target: EventTarg
   const changed = () => {
     generation += 1;
     inFlight = undefined;
+    publishLastSeen(undefined);
     void refreshCloudMachines(call);
   };
   target.addEventListener(CLOUD_TEAM_CHANGE_EVENT, changed);
@@ -363,6 +394,26 @@ export function runCloudMachine(machine: CloudMachine, call: Call = postNative):
     );
 }
 
+/// What a fresh read said of a kept row's machine (freshCloudMachine): listed (act on it as listed), the
+/// app still answering the kept list (cmux Cloud unreachable: nothing is done), or no longer listed.
+export type FreshCloudPick = { state: "fresh"; machine: CloudMachine } | { state: "unreachable" } | { state: "gone" };
+
+/// A pick of a row from the kept list (lastSeenAt set) never acts on it: one fresh read first
+/// (`{fresh: true}`: the app waits for the server rather than answering the kept list again), then
+/// the machine as that read lists it.
+export async function freshCloudMachine(machine: CloudMachine, call: Call = postNative): Promise<FreshCloudPick> {
+  await readCloudPlanFresh(call);
+  if (lastSeenAt !== undefined) return { state: "unreachable" };
+  const listed = machines.find((candidate) => candidate.id === machine.id);
+  return listed ? { state: "fresh", machine: listed } : { state: "gone" };
+}
+
+/// Retry over the kept list: one fresh read, resolved once the app answered it (the server's list, or the
+/// kept one again when cmux Cloud is still unreachable).
+export async function retryCloudMachines(call: Call = postNative): Promise<void> {
+  await readCloudPlanFresh(call);
+}
+
 /// After a pause or resume the app runs the action in the background and its list catches up
 /// when the action's own list read lands (a resume may take as long as a machine's start, up to
 /// 16 minutes): the list is read at these waits (ms) after the pick, from every second to every
@@ -388,12 +439,23 @@ export async function readUntilMoved(
   }
 }
 
+export function cloudMachineForRegistry(registryId: string | undefined): CloudMachine | undefined {
+  if (!registryId) return undefined;
+  const matches = machines.filter((machine) => machine.cloudRegistryId === registryId);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 export function useCloudMachines(): readonly CloudMachine[] {
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
 export function useCloudSignedIn(): boolean | undefined {
   return useSyncExternalStore(subscribe, accountSnapshot, accountSnapshot);
+}
+
+/// When the server last answered the list shown, while it is the one kept from the last launch.
+export function useCloudLastSeenAt(): number | undefined {
+  return useSyncExternalStore(subscribe, lastSeenSnapshot, lastSeenSnapshot);
 }
 
 /// The account state shown in capture diagnostics. This is deliberately read-only and mirrors the
@@ -414,7 +476,13 @@ export function setCloudMachinesForTest(next: readonly CloudMachine[]): void {
   inFlight = undefined;
   keepSignedIn(undefined);
   publishAccount(undefined);
+  publishLastSeen(undefined);
   publish(next);
+}
+
+/// Tests: the list as the kept one from the last launch, last answered at `at`.
+export function setCloudLastSeenForTest(at: number | undefined): void {
+  publishLastSeen(at);
 }
 
 /// Tests may seed the account state independently of the machine rows.
@@ -423,6 +491,9 @@ export function setCloudMachinesForTestAccount(next: boolean | undefined): void 
 }
 
 const accountSnapshot = () => accountSignedIn;
+const lastSeenSnapshot = () => lastSeenAt;
+/// The kept list's age as last read (the pick guard, tests).
+export const currentCloudLastSeenAt = lastSeenSnapshot;
 const teamSnapshot = () => activeTeam;
 /// The team as last read (tests and capture diagnostics).
 export const currentCloudTeam = teamSnapshot;
@@ -450,5 +521,6 @@ export function reloadKeptCloudAccountForTest(): void {
   generation += 1;
   inFlight = undefined;
   publishAccount(readKeptSignedIn());
+  publishLastSeen(undefined);
   publish([]);
 }

@@ -610,6 +610,7 @@ impl ClientRegistry {
     /// idle-stop fence, `Mux::settle_idle_stop_fence`).
     pub(super) fn remove(&self, client: u64) -> Option<(ClientRecord, bool)> {
         self.url_opens.disconnect(client);
+        self.last_inputs.disconnect(client);
         self.clipboard_reads.disconnect(client);
         self.loopback.disconnect(client);
         #[cfg(unix)]

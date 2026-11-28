@@ -19,8 +19,8 @@ enum FirstTabHold {
     private static var waiting: Set<String> = []
 
     /// The ones of `live` that wait for their first tab.
-    static func held(_ live: [String]) -> Set<String> {
-        waiting.isEmpty ? [] : Set(live.filter(waiting.contains))
+    static func held(_ live: Set<String>) -> Set<String> {
+        waiting.isEmpty ? [] : waiting.intersection(live)
     }
 
     /// Runs `create` (the workspace and its first tab) with workspace `id`

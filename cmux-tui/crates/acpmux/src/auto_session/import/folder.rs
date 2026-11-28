@@ -14,7 +14,8 @@
 //!   same file, kept when it differs. A patch that does not apply changes nothing. A folder
 //!   that is no repository is not handed back over (`PLAIN_BLOCKED`).
 //!
-//! A new folder that cannot be finished is removed.
+//! A new folder is made under a hidden name beside its place and renamed there once whole, so
+//! nobody sees it half made; one that cannot be finished is removed.
 
 use std::path::{Path, PathBuf};
 
@@ -37,22 +38,64 @@ pub(super) fn place(
     label: &str,
 ) -> Result<(), String> {
     if fresh {
-        make_empty(dir)?;
-    } else if !dir.is_dir() {
+        return place_new(dir, cwd, first, patch, label);
+    }
+    if !dir.is_dir() {
         return Err(format!("the chat's folder {} is gone", dir.display()));
     }
-    let placed = match cwd {
-        Cwd::Folder { .. } if !fresh => Err(PLAIN_BLOCKED.to_owned()),
-        Cwd::Folder { .. } => unpack(dir, first),
+    match cwd {
+        Cwd::Folder { .. } => Err(PLAIN_BLOCKED.to_owned()),
         Cwd::Git { remote, branch, base, .. } => {
-            Git { remote, branch, base, bundle: first, patch }.lay_out(dir, fresh, label)
+            Git { remote, branch, base, bundle: first, patch }.lay_out(dir, false, label)
         }
+    }
+}
+
+/// A new folder is laid out beside `dir`, in the same parent (the warm mirror is found
+/// there), and renamed to `dir` only once it is whole: whoever looks at `dir` (the person's
+/// file tree, the harness, a check) sees no folder or the snapshot's whole folder, never a
+/// repository with no commit yet while the base is fetched. A folder that cannot be finished
+/// is removed, and `dir` was never made.
+fn place_new(dir: &Path, cwd: &Cwd, first: &[u8], patch: &[u8], label: &str) -> Result<(), String> {
+    let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) else {
+        return Err(format!("the chat's folder {} has no parent", dir.display()));
     };
-    if placed.is_err() && fresh {
-        let _ = home_fs::remove_dir_all(dir);
+    if dir.exists() {
+        make_empty(dir)?;
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos());
+    let partial = parent.join(format!(
+        "{}{}.{}-{stamp}",
+        ARRIVING,
+        name.to_string_lossy(),
+        std::process::id()
+    ));
+    make_empty(&partial)?;
+    let placed = match cwd {
+        Cwd::Folder { .. } => unpack(&partial, first),
+        Cwd::Git { remote, branch, base, .. } => {
+            Git { remote, branch, base, bundle: first, patch }.lay_out(&partial, true, label)
+        }
+    }
+    .and_then(|()| {
+        // An empty folder in the way (made before this import) gives way; one with files
+        // in it is someone's, and stops the import.
+        if dir.exists() {
+            make_empty(dir)?;
+            home_fs::remove_dir(dir).map_err(|e| format!("remove {}: {e}", dir.display()))?;
+        }
+        home_fs::rename(&partial, dir).map_err(|e| format!("move the folder into place: {e}"))
+    });
+    if placed.is_err() {
+        let _ = home_fs::remove_dir_all(&partial);
     }
     placed
 }
+
+/// The name a new folder has while it is laid out: `.arriving-<chat id>.<pid>-<nanos>`.
+pub(super) const ARRIVING: &str = ".arriving-";
 
 /// A tar holds the files the Cloud has, not which ones it deleted, so laid over a folder that is
 /// here it would bring back what the Cloud removed, and a delete-what-is-absent rule would

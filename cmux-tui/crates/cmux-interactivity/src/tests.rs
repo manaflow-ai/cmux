@@ -124,3 +124,30 @@ fn follower_applies_only_on_a_change() {
     .join()
     .unwrap();
 }
+
+#[test]
+fn cap_eff_reads_cap_sys_nice() {
+    assert_eq!(cap_eff_has_sys_nice("Name:\tx\nCapEff:\t000001ffffffffff\n"), Some(true));
+    // A container root without CAP_SYS_NICE (docker's default set).
+    assert_eq!(cap_eff_has_sys_nice("CapEff:\t00000000a80425fb\n"), Some(false));
+    assert_eq!(cap_eff_has_sys_nice("CapEff:\t0000000000000000\n"), Some(false));
+    assert_eq!(cap_eff_has_sys_nice("Name:\tx\n"), None);
+    assert_eq!(cap_eff_has_sys_nice("CapEff:\tzz\n"), None);
+}
+
+#[test]
+fn rlimit_nice_rule() {
+    assert!(!rlimit_allows(0, 0), "the default limit cannot go back to 0");
+    assert!(rlimit_allows(20, 0));
+    assert!(rlimit_allows(0, 20));
+    assert!(!rlimit_allows(25, -6));
+    assert!(rlimit_allows(25, -5));
+}
+
+#[test]
+fn linux_follower_goes_back_to_its_base_and_never_above_it() {
+    assert_eq!(linux_target(0, Qos::Background), 19);
+    assert_eq!(linux_target(0, Qos::UserInteractive), 0, "back up after the decay");
+    assert_eq!(linux_target(5, Qos::UserInteractive), 5, "never above the base");
+    assert_eq!(linux_target(5, Qos::Utility), 5);
+}

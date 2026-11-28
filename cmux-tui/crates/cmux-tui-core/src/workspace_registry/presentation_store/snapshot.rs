@@ -22,7 +22,7 @@ impl WorkspaceRegistry {
         let db = self.connection.get();
         let mut statement = db.prepare(
             "SELECT p.workspace_key, p.group_id, p.color, p.icon, p.title, p.pinned,
-                    p.marked_unread, p.description, p.task_status
+                    p.marked_unread, p.description, p.task_status, p.keep_awake
              FROM workspace_presentation AS p
              JOIN workspaces AS w ON w.workspace_key = p.workspace_key
              WHERE w.tombstoned = 0",
@@ -39,6 +39,7 @@ impl WorkspaceRegistry {
                     marked_unread: row.get::<_, i64>(6)? != 0,
                     description: row.get(7)?,
                     task_status: row.get(8)?,
+                    keep_awake: row.get::<_, i64>(9)? != 0,
                 },
             ))
         })?;

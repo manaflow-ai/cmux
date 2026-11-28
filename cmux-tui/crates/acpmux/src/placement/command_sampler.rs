@@ -358,6 +358,14 @@ fn open_append(path: &std::path::Path) -> std::io::Result<std::fs::File> {
     crate::home_fs::OpenOptions::new().create(true).append(true).mode(0o600).open(path)
 }
 
+/// What the rows file predicts for `script` in `repo` now, read fresh: for a process that is not
+/// the daemon (`acpmux run-vm`, RFD 0144 piece 8's sizing).
+pub fn predict_from_file(path: &std::path::Path, repo: &str, script: &str) -> shadow::Predicted {
+    let mut table = Table::default();
+    reload(path, &mut table);
+    table.predict(repo, &shadow::class_of(script), script, false)
+}
+
 /// Refills the prediction table from the rows file's newest [`RELOAD_BYTES`].
 fn reload(path: &std::path::Path, table: &mut Table) {
     use std::io::{Read, Seek, SeekFrom};
@@ -670,6 +678,29 @@ fn read_procs(roots: &[u32]) -> Option<Procs> {
         let _ = roots;
         None
     }
+}
+
+/// The TCP ports the processes under `roots` listen on, with the pid holding each: the same
+/// bounded walk down from held roots as the sampler's, never a process listing. None elsewhere
+/// than Linux. What a move would interrupt reads it (`hub/move_interrupts.rs`, RFD 0063 item 6).
+pub fn listening_under(roots: &[u32]) -> Option<Vec<(u16, u32)>> {
+    let procs = read_procs(roots)?;
+    let mut out = Vec::new();
+    #[cfg(target_os = "linux")]
+    if !procs.listening.is_empty() {
+        let mut pids: Vec<u32> = procs.rows.keys().copied().collect();
+        pids.sort_unstable();
+        for pid in pids {
+            for inode in sockets_of(pid) {
+                if let Some(port) = procs.listening.get(&inode) {
+                    out.push((*port, pid));
+                }
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = procs;
+    Some(out)
 }
 
 /// The socket inodes `pid` holds (`/proc/<pid>/fd`).

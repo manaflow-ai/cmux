@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, expect, jest, setSystemTime, test } fro
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { HostRecoveringLine } from "./HostError";
-import { hostPlannedRestart, hostRecoveryLine, readHostRestoring } from "./hostRetry";
+import { hostRecoveryLine, readHostRestoring, hostPlannedRestart } from "./hostRetry";
 import type { AcpmuxSnapshot } from "./model";
 import { stallTiming } from "./stallLog";
 import { settleReact } from "../../../test/support/domTeardown";

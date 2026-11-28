@@ -100,19 +100,25 @@ class PlaceholderBoundsTests(unittest.TestCase):
         self.assertEqual(bounds.check(root), [])
         self.assertIn('"chip": "item 3, cmux#1"', (root / bounds.KNOWN_SWIFT).read_text())
 
-    def test_known_layout_shift_flow_must_be_driven_and_name_its_fix(self):
-        suite = 'watch(app, flow: "workspaces", for: 10)\n'
+    def test_known_layout_shift_is_a_ratchet_with_a_ceiling_and_an_issue(self):
+        suite = 'watch(app, flow: "workspaces", for: 10)\nwatch(app, flow: "tabs", for: 10)\n'
         root = tree({bounds.SUITE_SWIFT: suite}, [], known=[])
         inv = root / bounds.INVENTORY
         doc = json.loads(inv.read_text())
-        doc["known_layout_shifts"] = [{"flow": "workspaces", "item": "1a", "fix": "cmux#1"}, {"flow": "gone"}]
+        issue = "https://github.com/manaflow-ai/cmux/issues/1"
+        doc["known_layout_shifts"] = [
+            {"flow": "workspaces", "max_shift_frames": 18, "issue": issue},
+            {"flow": "tabs", "max_shift_frames": 0, "issue": "cmux#1"},
+            {"flow": "gone", "max_shift_frames": 3, "issue": issue},
+        ]
         inv.write_text(json.dumps(doc))
         bounds.main(["--root", str(root), "--write-known"])
         problems = "\n".join(bounds.check(root))
-        self.assertIn("known_layout_shifts 'gone' needs the item", problems)
+        self.assertIn("known_layout_shifts 'tabs' needs max_shift_frames", problems)
+        self.assertIn("known_layout_shifts 'tabs' needs issue", problems)
         self.assertIn("known_layout_shifts 'gone' is not a flow", problems)
         self.assertNotIn("'workspaces'", problems)
-        self.assertIn('"workspaces": "1a, cmux#1"', (root / bounds.KNOWN_SWIFT).read_text())
+        self.assertIn(f'"workspaces": (maxShiftFrames: 18, issue: "{issue}")', (root / bounds.KNOWN_SWIFT).read_text())
 
     def test_missing_inventory_fails(self):
         root = Path(tempfile.mkdtemp())

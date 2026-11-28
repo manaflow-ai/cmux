@@ -966,6 +966,11 @@ public abstract class GeneratedCmuxClient {
         return NotifyResult.fromWire(result);
     }
 
+    public final PhoneLinkOfferResult offerLinkToPhone(OfferLinkToPhoneRequest request) throws CmuxException {
+        Object result = execute(Commands.OFFER_LINK_TO_PHONE, request.toWire());
+        return PhoneLinkOfferResult.fromWire(result);
+    }
+
     public final Object pageCredential(PageCredentialRequest request) throws CmuxException {
         Object result = execute(Commands.PAGE_CREDENTIAL, request.toWire());
         return Wire.immutableJson(result);
@@ -1044,6 +1049,11 @@ public abstract class GeneratedCmuxClient {
     public final ReattachViewResult reattachView(ReattachViewRequest request) throws CmuxException {
         Object result = execute(Commands.REATTACH_VIEW, request.toWire());
         return ReattachViewResult.fromWire(result);
+    }
+
+    public final Object recordNotificationDelivery(RecordNotificationDeliveryRequest request) throws CmuxException {
+        Object result = execute(Commands.RECORD_NOTIFICATION_DELIVERY, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final BrowserProviderSnapshot registerBrowserProvider(RegisterBrowserProviderRequest request) throws CmuxException {

@@ -374,8 +374,10 @@ struct TerminalPage: View {
             Section {
                 Toggle(isOn: $settings.terminalFitToPhone) { SettingsLabel("Fit to Phone", symbol: "iphone") }
                     .accessibilityIdentifier("settings.terminalFitToPhone")
+                Toggle(isOn: $settings.terminalPhoneProjection) { SettingsLabel(verbatim: String(localized: "mobile.terminal.phoneProjection.title", defaultValue: "Re-wrap on Phone", bundle: .module), symbol: "text.alignleft") }
+                    .accessibilityIdentifier("settings.terminalPhoneProjection")
             } footer: {
-                Text("Off: the phone re-wraps the Mac's terminal at its own width and the Mac keeps its size. On: the Mac's terminal resizes to the phone. Applies to terminals opened next.")
+                Text(String(localized: "mobile.terminal.phoneProjection.help", defaultValue: "Terminals keep the Mac's columns by default. Re-wrap on Phone adapts text without resizing the Mac. Fit to Phone resizes the Mac. Applies to terminals opened next.", bundle: .module))
             }
             Section {
                 Toggle(isOn: $settings.predictiveEcho) { SettingsLabel("Predictive echo", symbol: "bolt.horizontal") }
@@ -456,6 +458,8 @@ struct TerminalPage: View {
 struct ComposerPage: View {
     let settings: SettingsStore
     let voice: VoiceCallPreferences
+    /// `ComposerFooterFactsMode` (CmuxMobileAgentChat), stored by its raw value.
+    @AppStorage(CmuxMobilePreferences.Key.composerFooterFacts) private var footerFacts = "off"
 
     var body: some View {
         @Bindable var settings = settings
@@ -468,6 +472,16 @@ struct ComposerPage: View {
                 Toggle(isOn: $settings.swipeDownCollapsesComposer) {
                     SettingsLabel("Swipe down to collapse", symbol: "chevron.compact.down")
                 }
+                // RFD 0130: the session's facts in the composer, off by default ("default MAY need a call").
+                Picker(selection: $footerFacts) {
+                    Text("Off").tag("off")
+                    Text("Counters").tag("pulse")
+                    Text("Card Only").tag("door")
+                } label: {
+                    SettingsLabel("Session Facts", symbol: "info.circle")
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("settings.composer.sessionFacts")
                 Picker(selection: $settings.followUp) {
                     ForEach(FollowUpBehavior.allCases) { Text($0.title).tag($0) }
                 } label: {
@@ -642,6 +656,7 @@ struct TransportPage: View {
     @AppStorage(DeveloperOptions.proxyOnlyKey) private var proxyOnly = false
     @AppStorage(DeveloperOptions.dropWireGuardKey) private var dropWireGuard = false
     @AppStorage(DeveloperOptions.browserVideoOnChannelKey) private var browserVideoOnChannel = false
+    @AppStorage(DeveloperOptions.paintLatencyOverlayKey) private var paintLatencyOverlay = false
     #endif
 
     var body: some View {
@@ -764,6 +779,10 @@ struct TransportPage: View {
                     Text("Browser video on channel")
                 }
                 .accessibilityIdentifier("settings.transport.browserVideoOnChannel")
+                Toggle(isOn: $paintLatencyOverlay) {
+                    Text("Paint latency overlay")
+                }
+                .accessibilityIdentifier("settings.transport.paintLatencyOverlay")
             } header: {
                 Text("Developer")
             }

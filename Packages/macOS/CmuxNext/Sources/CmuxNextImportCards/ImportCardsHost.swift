@@ -27,18 +27,22 @@ public struct ImportCardsHost {
     public var importConductor: (@escaping @MainActor (Double) -> Void) async throws -> Int?
     /// What Classic file metadata and the accepted-import ledger say is available.
     public var classicAvailability: () async -> ClassicImportAvailability
+    /// Move this Mac to AutoCloud (RFD 0173); nil where the host offers none.
+    public var autoCloud: AutoCloudMove?
 
     public init(runImport: @escaping (ImportPlan, any SafeStorageKeyProviding, @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary,
                 importedProfiles: @escaping () async -> Set<String>,
                 openSettings: @escaping (String) -> Void,
                 importClassic: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?,
                 importConductor: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?,
-                classicAvailability: @escaping () async -> ClassicImportAvailability) {
+                classicAvailability: @escaping () async -> ClassicImportAvailability,
+                autoCloud: AutoCloudMove? = nil) {
         self.runImport = runImport
         self.importedProfiles = importedProfiles
         self.openSettings = openSettings
         self.importClassic = importClassic
         self.importConductor = importConductor
         self.classicAvailability = classicAvailability
+        self.autoCloud = autoCloud
     }
 }

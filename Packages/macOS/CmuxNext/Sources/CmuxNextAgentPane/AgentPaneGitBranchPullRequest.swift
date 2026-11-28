@@ -30,7 +30,8 @@ extension AgentPaneGitPullRequest {
         let branch = symbolic.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard symbolic.status == 0, !branch.isEmpty else { return nil }
         let listed = await git(["remote"])
-        // main-actor-ok: `git remote` lists the checkout's remote names, a handful of short lines.
+        // main-actor-ok: constant-size: the checkout's few remote names. The git runs themselves are
+        // AsyncProcess's (@concurrent: spawn and wait off the main thread), on a Create PR click or a review-threads read.
         let remotes = listed.text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         var base: String?
         for remote in remotes {

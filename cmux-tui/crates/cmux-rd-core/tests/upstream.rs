@@ -64,7 +64,12 @@ fn frames_go_out_as_upmedia_shards_the_host_reassembles() {
     assert_eq!(released[0].flags & flags::KEYFRAME, flags::KEYFRAME);
     assert_eq!(
         released[0].body,
-        FrameBody { t_capture_us: 11, ref_frame: REF_NONE, access_unit: vec![7u8; 3_000] }
+        FrameBody {
+            t_capture_us: 11,
+            ref_frame: REF_NONE,
+            ltr_token: None,
+            access_unit: vec![7u8; 3_000]
+        }
     );
     assert_eq!((released[1].frame, released[1].body.ref_frame), (2, 1));
     assert_eq!(s.stats().frames_sent, 2);
@@ -127,6 +132,25 @@ fn a_lost_keyframe_is_requested_again_after_the_retry_time() {
     assert!(!s.keyframe_requested());
     s.on_datagram(&feedback(CAM, &ask), 300_000).expect("feedback");
     assert!(s.keyframe_requested(), "keyframe 1 never arrived");
+}
+
+#[test]
+fn a_slow_path_waits_for_the_keyframe_on_its_way_instead_of_asking_again() {
+    let mut s = camera();
+    s.send_frame(&[1u8; 100], 0, true, 0).expect("packetize").expect("sent");
+    // Keyframe 1 took 400 ms to be acknowledged: the round trip is past the fixed retry.
+    let acked = Feedback { acked_frame: 1, ..Feedback::default() };
+    s.on_datagram(&feedback(CAM, &acked), 400_000).expect("feedback");
+    let lost = Feedback { acked_frame: 1, need_recovery: true, ..Feedback::default() };
+    s.on_datagram(&feedback(CAM, &lost), 500_000).expect("feedback");
+    assert!(s.keyframe_requested());
+    s.send_frame(&[2u8; 100], 500_000, true, 500_000).expect("packetize").expect("sent");
+    // The host keeps asking until keyframe 2 arrives; 400 ms on is still in flight.
+    s.on_datagram(&feedback(CAM, &lost), 900_000).expect("feedback");
+    assert!(!s.keyframe_requested(), "keyframe 2 is still on its way");
+    // Past twice the measured ack time it was lost.
+    s.on_datagram(&feedback(CAM, &lost), 1_300_000).expect("feedback");
+    assert!(s.keyframe_requested(), "keyframe 2 never arrived");
 }
 
 #[test]

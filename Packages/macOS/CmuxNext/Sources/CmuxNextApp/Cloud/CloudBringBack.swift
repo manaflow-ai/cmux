@@ -111,13 +111,16 @@ struct CloudBringBack {
         let progress = CloudMoveProgress(toMachine ? .move : .bringBack) { [services] in
             CloudMove.toast(services, toastID, headline + "\n" + $0, duration: CloudMove.working, working: true)
         }
+        // Back here, the row goes to this Mac at once; to another machine, once the run picks it.
+        cloud.chatMoves.begin(tab, of: services.machines.daemon(forTab: tab).store, to: toMachine ? nil : services.machines.local.machineID, progress: progress)
         let place = cloud.place
-        let work: ActionWork = Task { @MainActor in
+        let work: ActionWork = Task { @MainActor [services] in
             defer { cloud.movingBack.remove(tabID); if let session { place.finished(session) } }
             defer { progress.end() }
             do {
                 let machine = try await body(progress)
                 retries[tabID] = nil
+                cloud.chatMoves.landed(tab: tabID) // its row stays on the machine until the chat's own row is there
                 place.live(session)
                 CloudMove.toast(services, toastID, toMachine ? CloudMoveStrings.moved(machine) : CloudBringBackStrings.broughtBack, duration: .seconds(6))
                 return nil
@@ -255,8 +258,9 @@ struct CloudBringBack {
         if let target {
             again = .move(machineID: target.machineID)
             services.cloud.bringBackRetries[tab.id] = again
+            services.cloud.chatMoves.reach(tab: tab.id, machine: target.machineID) // its sidebar row goes there now
         }
-        try place.advance(flow, "freeze") // the CLI's answer names no phases: freeze before the move, commit after it
+        try place.advance(flow, "freeze", kept: ("sync", pulled.phases)) // the pull's phases stay with sync; freeze before the move
         // To another machine the move's relay fills its folder, then hands the agent over, in one call.
         if let target { progress.enter(.copy, name: target.machine.title) } else { progress.enter(.agent, name: name) }
         // The agent move call (below) freezes the chat, carries it with its frozen sync, then commits; it streams no phases,
@@ -284,7 +288,7 @@ struct CloudBringBack {
             if target != nil, failure.retry == nil { failure.retry = again }
             throw failure
         }
-        place.step(flow, "commit")
+        place.step(flow, "commit", kept: ("carry", moved.phases))
         if let target, let landing {
             progress.enter(.tab, name: target.machine.title)
             return try await landed(on: target, landing, session: session, entry: entry, key: moved.transferID, tab: tab)

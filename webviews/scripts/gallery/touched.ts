@@ -17,6 +17,14 @@
 //
 //   bun scripts/gallery/touched.ts --changed changed.txt            # one repo path per line
 //   -> {"all": false, "entries": ["agent-pane.composer"], "reasons": {...}, "ranked": [{"id": ..., "tier": 0, ...}]}
+//   ... --inputs 8 [--base SHA]   # plus "inputs": the files each of the first 8 ranked entries' picture is made of
+//   bun scripts/gallery/touched.ts --entries ids.txt --inputs 8      # the inputs of the listed entries only
+//
+// The inputs key the UI preview worker's shot cache (scripts/cmux-next/ui-preview-worker.py): an entry's picture at
+// a commit is its picture at any commit with the same blobs at its inputs, the same EVERYTHING files and the same
+// gallery config. With --base, "base_inputs" are the same files walked at SHA (the checkout is the head): the files
+// the two commits differ in are read from git at SHA, the rest from disk.
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -34,12 +42,18 @@ const EVERYTHING = [
   // What derives that list (galleryHost.ts runs bundle.mjs --css-inputs-only with these plugins).
   /^webviews\/scripts\/agent-pane\/(bundle|tailwindCompile|jsonParsePlugin|katexStylePlugin)\.mjs$/,
   /^webviews\/vite\.config(\.gallery)?\.ts$/,
+  // Every webviews build loads postcss.config.mjs and its plugins (scripts/postcss/): they rewrite every sheet.
+  /^webviews\/postcss\.config\.mjs$/,
+  /^webviews\/scripts\/postcss\//,
   /^webviews\/package\.json$/,
   /^bun\.lock$/,
   /^scripts\/gallery-matrix\//,
   // A string catalog gen-strings.mjs compiles into the strings every page loads; no import reaches it.
   /^webviews\/src\/.*\.xcstrings$/,
 ];
+
+/** Where vite.config.ts points a package import at a file of src/ (monaco-vim's shiftCommand): no import reaches it. */
+const ALIAS_SOURCE = /new URL\(\s*["']\.\/(src\/[^"']+)["']/g;
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".css"];
 // `new URL("./x.png", import.meta.url)` loads an asset as surely as an import does (ChiefDock's mascots).
@@ -251,27 +265,166 @@ export function touchedEntries(
   return { all: broad.length > 0, entries: Object.keys(reasons).sort(), reasons, ranked };
 }
 
-/** The entries under src/ with the file each one comes from. */
-export async function loadEntryRoots(): Promise<EntryRoots[]> {
-  return Promise.all(
-    galleryFiles().map(async (file) => {
-      const { default: entry } = (await import(file)) as { default: { id: string; host: string; covers: string[] } };
-      return { id: entry.id, host: entry.host, file, covers: entry.covers };
+/** The repo files one entry's picture is made of: what its gallery file and its covers reach through relative imports
+ * (covers widen it: a superset only costs a cache hit), its host's stage module and stylesheets, and the src files
+ * vite.config.ts aliases a package import to. Sorted repo paths. Package code and the gallery config are the
+ * gallery config key's; the EVERYTHING files are the caller's (one set for every entry). */
+export function entryInputs(
+  entry: EntryRoots,
+  options: {
+    src?: string;
+    repoRoot?: string;
+    read?: (file: string) => string | undefined;
+    paneStylesheets?: () => string[];
+  } = {},
+): string[] {
+  const src = options.src ?? SRC;
+  const repoRoot = options.repoRoot ?? path.resolve(src, "../..");
+  const read = options.read ?? readSource;
+  const paneStylesheets = options.paneStylesheets ?? (() => agentPaneStylesheets());
+  const webviews = path.dirname(src);
+  const aliased = [...(read(path.join(webviews, "vite.config.ts")) ?? "").matchAll(ALIAS_SOURCE)].map((m) =>
+    path.join(webviews, m[1]!),
+  );
+  const frame = HOST_FRAMES[entry.host];
+  const roots = [
+    entry.file,
+    ...entry.covers.flatMap((cover) => coverFiles(cover, src)),
+    ...(frame ? [path.join(src, frame)] : []),
+    ...hostStylesheets(entry.host, src, read, paneStylesheets),
+    ...aliased,
+  ].filter((file) => read(file) !== undefined);
+  return [...closure(roots, read)].map((file) => path.relative(repoRoot, file)).sort();
+}
+
+/** Repo paths the EVERYTHING patterns name, as regex sources (the worker matches its tree listing with them). */
+export const everythingPatterns = () => EVERYTHING.map((pattern) => pattern.source);
+
+/** git in the checkout; undefined when it fails. */
+function gitOut(args: string[], cwd: string, input?: string): Buffer | undefined {
+  // No lazy fetch: a blob the clone lacks is no base inputs, not a fetch on the look's path.
+  const run = spawnSync("git", args, {
+    cwd,
+    input,
+    maxBuffer: 1 << 30,
+    env: { ...process.env, GIT_NO_LAZY_FETCH: "1" },
+  });
+  return run.status === 0 ? run.stdout : undefined;
+}
+
+/** A reader of the files at BASE for a checkout of another commit: the files the two differ in from git (one
+ * cat-file), the rest from disk. undefined when git cannot say (a blob not in the clone, an unknown commit), or when
+ * an EVERYTHING file differs (the pane's stylesheet list is the checkout's). */
+export function baseReader(base: string, repoRoot: string): ((file: string) => string | undefined) | undefined {
+  const listed = gitOut(["diff", "--no-renames", "--name-only", "-z", base, "HEAD", "--"], repoRoot);
+  if (listed === undefined) return undefined;
+  const differ = listed.toString("utf8").split("\0").filter(Boolean);
+  if (differ.some((file) => EVERYTHING.some((pattern) => pattern.test(file)))) return undefined;
+  const texts = new Map<string, string | undefined>();
+  if (differ.length) {
+    const out = gitOut(["cat-file", "--batch"], repoRoot, differ.map((file) => `${base}:${file}\n`).join(""));
+    if (out === undefined) return undefined;
+    let at = 0;
+    for (const file of differ) {
+      const end = out.indexOf(10, at);
+      const header = out.subarray(at, end).toString("utf8");
+      if (header.endsWith(" missing")) {
+        // Not at BASE (the head adds it), or a blob the clone lacks: tell the two apart.
+        if (gitOut(["cat-file", "-e", `${base}:${file}`], repoRoot) !== undefined) return undefined;
+        texts.set(path.join(repoRoot, file), undefined);
+        at = end + 1;
+        continue;
+      }
+      const size = Number(header.split(" ")[2]);
+      if (!Number.isFinite(size)) return undefined;
+      texts.set(path.join(repoRoot, file), out.subarray(end + 1, end + 1 + size).toString("utf8"));
+      at = end + 1 + size + 1;
+    }
+  }
+  return (file) => (texts.has(file) ? texts.get(file) : readSource(file));
+}
+
+/** A gallery file the ranker could not import (a parse error, a missing import), and why. */
+export type UnloadedEntry = { file: string; error: string };
+
+/** The entries under src/ with the file each one comes from, and the gallery files that do not load. One broken
+ * gallery file used to reject the whole run ("has already been declared" in ClaudeConnectRow.gallery.tsx, a missing
+ * SignInButton import in SetupCard), so no push on that tree got a preview of any other entry; it is skipped and
+ * named instead. */
+export async function loadEntryRoots(
+  files: string[] = galleryFiles(),
+  load: (file: string) => Promise<unknown> = (file) => import(file),
+): Promise<{ entries: EntryRoots[]; unloaded: UnloadedEntry[] }> {
+  const settled = await Promise.allSettled(
+    files.map(async (file) => {
+      const { default: entry } = (await load(file)) as { default: { id: string; host: string; covers: string[] } };
+      return { id: entry.id, host: entry.host, file, covers: entry.covers ?? [] };
     }),
   );
+  const entries: EntryRoots[] = [];
+  const unloaded: UnloadedEntry[] = [];
+  settled.forEach((result, index) => {
+    if (result.status === "fulfilled") entries.push(result.value);
+    else unloaded.push({ file: files[index]!, error: String(result.reason?.message ?? result.reason).slice(0, 300) });
+  });
+  if (!entries.length && unloaded.length)
+    throw new Error(`no gallery file loads: ${unloaded[0]!.file}: ${unloaded[0]!.error}`);
+  return { entries, unloaded };
 }
 
 if (import.meta.main) {
-  const { values } = parseArgs({ options: { changed: { type: "string" }, out: { type: "string" } } });
-  if (!values.changed) throw new Error("--changed <file with one repo path per line> is required");
-  const changed = fs
-    .readFileSync(values.changed, "utf8")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const result = touchedEntries(await loadEntryRoots(), changed);
+  const { values } = parseArgs({
+    options: {
+      changed: { type: "string" },
+      entries: { type: "string" },
+      inputs: { type: "string" },
+      base: { type: "string" },
+      out: { type: "string" },
+    },
+  });
+  if (!values.changed && !values.entries)
+    throw new Error("--changed <file with one repo path per line> (or --entries <one entry id per line>) is required");
+  const lines = (file: string) =>
+    fs
+      .readFileSync(file, "utf8")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  const { entries, unloaded } = await loadEntryRoots();
+  for (const { file, error } of unloaded) console.error(`gallery: ${path.relative(SRC, file)} does not load: ${error}`);
+  const result: Record<string, unknown> = values.changed
+    ? { ...touchedEntries(entries, lines(values.changed)), ...(unloaded.length ? { unloaded } : {}) }
+    : {};
+  if (values.inputs) {
+    const wanted = values.entries
+      ? lines(values.entries)
+      : (result.ranked as RankedEntry[]).map((r) => r.id).slice(0, Number(values.inputs));
+    const byId = new Map(entries.map((entry) => [entry.id, entry]));
+    const picked = wanted.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
+    const repoRoot = path.resolve(SRC, "../..");
+    const sheets = (() => {
+      let memo: string[] | undefined;
+      return () => (memo ??= agentPaneStylesheets());
+    })();
+    const read = onceReader(readSource);
+    result.everything = everythingPatterns();
+    result.inputs = Object.fromEntries(picked.map((e) => [e.id, entryInputs(e, { read, paneStylesheets: sheets })]));
+    if (values.base) {
+      const atBase = baseReader(values.base, repoRoot);
+      const readBase = atBase && onceReader(atBase);
+      result.base_inputs = Object.fromEntries(
+        picked.map((e) => [
+          e.id,
+          readBase && readBase(e.file) !== undefined
+            ? entryInputs(e, { read: readBase, paneStylesheets: sheets })
+            : null,
+        ]),
+      );
+    }
+  }
   const json = `${JSON.stringify(result, null, 2)}\n`;
   if (values.out) fs.writeFileSync(values.out, json);
   else process.stdout.write(json);
-  console.error(`gallery: ${result.all ? "every entry" : `${result.entries.length} entries`} touched`);
+  if (values.changed)
+    console.error(`gallery: ${result.all ? "every entry" : `${(result.entries as string[]).length} entries`} touched`);
 }

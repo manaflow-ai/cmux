@@ -24,6 +24,7 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
+from cmux_next_step_text import inline_steps  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next.yml"
 
@@ -103,7 +104,7 @@ class RevertStep(unittest.TestCase):
     """The workflow's revert command on a real repository: a squash and a two-parent commit both revert."""
 
     def revert_script(self) -> str:
-        job_ = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-revert"]
+        job_ = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile-revert"]
         run = next(step["run"] for step in job_["steps"] if step.get("name") == "Open the revert pull request")
         return run[run.index("mainline=()"):run.index("auth=")]
 
@@ -199,7 +200,7 @@ class RefusedRead(unittest.TestCase):
 class WorkflowJob(unittest.TestCase):
     def test_the_reads_use_the_cmux_bot_read_token(self):
         # Off the repository token's hourly budget, as push attribution reads.
-        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-revert"]["steps"]
+        steps = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile-revert"]["steps"]
         names = [step.get("name") for step in steps]
         mint = steps[names.index("Mint the cmux-bot read token")]
         self.assertLess(names.index("Mint the cmux-bot read token"), names.index("Find the one merge to revert"))
@@ -211,7 +212,7 @@ class WorkflowJob(unittest.TestCase):
         self.assertEqual(find["env"]["GH_TOKEN"], "${{ github.token }}")
 
     def test_it_runs_after_a_failed_base_push_compile_only(self):
-        job_ = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-revert"]
+        job_ = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile-revert"]
         self.assertEqual(job_["needs"], ["release-compile", "release-compile-fast-admission"])
         for needle in ("needs.release-compile.result == 'failure'", "needs.release-compile-fast-admission.result == 'failure'",
                        "github.event_name == 'push'", "github.ref == 'refs/heads/feat-cmux-next'"):

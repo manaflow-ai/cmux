@@ -7,127 +7,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Connect gives Claude desktop, Claude Code or the Codex desktop app the cmux tools. A chat there can then start sessions on any of your machines and Cloud machines, and you follow them here and on your phone."
+            "value" : "Connect gives Claude desktop, Claude Code or the Codex app the cmux tools, so a chat there can start sessions on any of your machines."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "الربط يمنح Claude desktop أو Claude Code أو تطبيق Codex لسطح المكتب أدوات cmux. يمكن لمحادثة هناك بعد ذلك بدء جلسات على أي من أجهزتك وأجهزة Cloud، وتتابعها هنا وعلى هاتفك."
+            "value" : "الربط يمنح Claude desktop أو Claude Code أو تطبيق Codex أدوات cmux، فتبدأ محادثة هناك جلسات على أي من أجهزتك."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Povezivanjem Claude desktop, Claude Code ili Codex desktop aplikacija dobiva cmux alate. Chat u njima tada može pokrenuti sesije na bilo kojem vašem računaru i Cloud računaru, a vi ih pratite ovdje i na telefonu."
+            "value" : "Povezivanjem Claude desktop, Claude Code ili Codex aplikacija dobiva cmux alate, pa chat u njima može pokrenuti sesije na bilo kojem vašem računaru."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Når du forbinder, får Claude desktop, Claude Code eller Codex-skrivebordsappen cmux-værktøjerne. En chat dér kan så starte sessioner på alle dine maskiner og Cloud-maskiner, og du følger dem her og på din telefon."
+            "value" : "Når du forbinder, får Claude desktop, Claude Code eller Codex-appen cmux-værktøjerne, så en chat dér kan starte sessioner på alle dine maskiner."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mit „Verbinden“ bekommen Claude desktop, Claude Code oder die Codex-Desktop-App die cmux-Tools. Ein Chat dort kann dann Sitzungen auf allen deinen Rechnern und Cloud-Rechnern starten, und du verfolgst sie hier und auf deinem Handy."
+            "value" : "Mit „Verbinden“ bekommen Claude desktop, Claude Code oder die Codex-App die cmux-Tools, und ein Chat dort startet Sitzungen auf allen deinen Rechnern."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Al conectar, Claude desktop, Claude Code o la app de escritorio de Codex reciben las herramientas de cmux. Un chat allí puede iniciar sesiones en cualquiera de tus equipos y equipos Cloud, y tú las sigues aquí y en tu teléfono."
+            "value" : "Al conectar, Claude desktop, Claude Code o la app de Codex reciben las herramientas de cmux, y un chat allí puede iniciar sesiones en cualquiera de tus equipos."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Connecter donne à Claude desktop, Claude Code ou à l’app de bureau Codex les outils cmux. Une conversation là-bas peut alors lancer des sessions sur toutes vos machines et machines Cloud, et vous les suivez ici et sur votre téléphone."
+            "value" : "Connecter donne à Claude desktop, Claude Code ou à l’app Codex les outils cmux : une conversation là-bas peut lancer des sessions sur toutes vos machines."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Collegando, Claude desktop, Claude Code o l’app desktop di Codex ottengono gli strumenti di cmux. Una chat lì può avviare sessioni su qualsiasi tuo computer e computer Cloud, e tu le segui qui e sul telefono."
+            "value" : "Collegando, Claude desktop, Claude Code o l’app Codex ottengono gli strumenti di cmux, e una chat lì può avviare sessioni su qualsiasi tuo computer."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "接続すると、Claude desktop、Claude Code、Codex デスクトップアプリで cmux のツールが使えます。そこでのチャットから、お使いのどのマシンやクラウドマシンでもセッションを開始でき、ここやスマートフォンで進行を確認できます。"
+            "value" : "接続すると、Claude desktop、Claude Code、Codex アプリで cmux のツールが使え、そこでのチャットからお使いのどのマシンでもセッションを開始できます。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ការភ្ជាប់ផ្តល់ឧបករណ៍ cmux ដល់ Claude desktop, Claude Code ឬកម្មវិធី Codex សម្រាប់កុំព្យូទ័រ។ ការជជែកនៅទីនោះអាចចាប់ផ្តើមសម័យលើម៉ាស៊ីនណាមួយរបស់អ្នក និងម៉ាស៊ីន Cloud ហើយអ្នកតាមដានវានៅទីនេះ និងលើទូរសព្ទរបស់អ្នក។"
+            "value" : "ការភ្ជាប់ផ្តល់ឧបករណ៍ cmux ដល់ Claude desktop, Claude Code ឬកម្មវិធី Codex ដូច្នេះការជជែកនៅទីនោះអាចចាប់ផ្តើមសម័យលើម៉ាស៊ីនណាមួយរបស់អ្នក។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "연결하면 Claude desktop, Claude Code 또는 Codex 데스크톱 앱에서 cmux 도구를 쓸 수 있습니다. 그곳의 채팅에서 내 모든 기기와 Cloud 머신에 세션을 시작할 수 있고, 여기와 휴대폰에서 진행 상황을 볼 수 있습니다."
+            "value" : "연결하면 Claude desktop, Claude Code 또는 Codex 앱에서 cmux 도구를 쓸 수 있어, 그곳의 채팅에서 내 모든 기기에 세션을 시작할 수 있습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Når du kobler til, får Claude desktop, Claude Code eller Codex-skrivebordsappen cmux-verktøyene. En chat der kan da starte økter på alle maskinene dine og Cloud-maskiner, og du følger dem her og på telefonen."
+            "value" : "Når du kobler til, får Claude desktop, Claude Code eller Codex-appen cmux-verktøyene, så en chat der kan starte økter på alle maskinene dine."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Po połączeniu Claude desktop, Claude Code lub aplikacja Codex na komputer dostają narzędzia cmux. Czat w nich może wtedy uruchamiać sesje na dowolnym z Twoich komputerów i maszyn Cloud, a Ty śledzisz je tutaj i na telefonie."
+            "value" : "Po połączeniu Claude desktop, Claude Code lub aplikacja Codex dostają narzędzia cmux, więc czat w nich może uruchamiać sesje na dowolnym z Twoich komputerów."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ao conectar, o Claude desktop, o Claude Code ou o app de desktop do Codex recebem as ferramentas do cmux. Um chat lá pode então iniciar sessões em qualquer uma das suas máquinas e máquinas Cloud, e você acompanha aqui e no celular."
+            "value" : "Ao conectar, o Claude desktop, o Claude Code ou o app do Codex recebem as ferramentas do cmux, e um chat lá pode iniciar sessões em qualquer uma das suas máquinas."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "После подключения Claude desktop, Claude Code или приложение Codex для компьютера получают инструменты cmux. Чат в них сможет запускать сессии на любых ваших компьютерах и машинах Cloud, а вы следите за ними здесь и на телефоне."
+            "value" : "После подключения Claude desktop, Claude Code или приложение Codex получают инструменты cmux, и чат в них сможет запускать сессии на любых ваших компьютерах."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "เมื่อเชื่อมต่อ Claude desktop, Claude Code หรือแอป Codex บนเดสก์ท็อปจะได้เครื่องมือของ cmux แชตในแอปเหล่านั้นจึงเริ่มเซสชันบนเครื่องของคุณและเครื่อง Cloud ได้ทุกเครื่อง และคุณติดตามได้ที่นี่และบนโทรศัพท์"
+            "value" : "เมื่อเชื่อมต่อ Claude desktop, Claude Code หรือแอป Codex จะได้เครื่องมือของ cmux แชตในแอปเหล่านั้นจึงเริ่มเซสชันบนเครื่องใดก็ได้ของคุณ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bağlayınca Claude desktop, Claude Code veya Codex masaüstü uygulaması cmux araçlarını alır. Oradaki bir sohbet, tüm makinelerinizde ve Cloud makinelerinde oturum başlatabilir; siz de onları burada ve telefonunuzda takip edersiniz."
+            "value" : "Bağlayınca Claude desktop, Claude Code veya Codex uygulaması cmux araçlarını alır; oradaki bir sohbet tüm makinelerinizde oturum başlatabilir."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Після підключення Claude desktop, Claude Code або застосунок Codex для комп’ютера отримують інструменти cmux. Чат у них зможе запускати сесії на будь-яких ваших комп’ютерах і машинах Cloud, а ви стежите за ними тут і на телефоні."
+            "value" : "Після підключення Claude desktop, Claude Code або застосунок Codex отримують інструменти cmux, і чат у них зможе запускати сесії на будь-яких ваших комп’ютерах."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Khi kết nối, Claude desktop, Claude Code hoặc ứng dụng Codex trên máy tính sẽ có các công cụ của cmux. Một cuộc trò chuyện ở đó có thể bắt đầu phiên trên bất kỳ máy nào của bạn và máy Cloud, còn bạn theo dõi chúng tại đây và trên điện thoại."
+            "value" : "Khi kết nối, Claude desktop, Claude Code hoặc ứng dụng Codex sẽ có các công cụ của cmux, nên cuộc trò chuyện ở đó có thể bắt đầu phiên trên bất kỳ máy nào của bạn."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "连接后，Claude desktop、Claude Code 或 Codex 桌面应用就能使用 cmux 的工具。在那里的聊天可以在你的任何设备和 Cloud 机器上启动会话，你可以在这里和手机上跟进。"
+            "value" : "连接后，Claude desktop、Claude Code 或 Codex 应用就能使用 cmux 的工具，在那里的聊天可以在你的任何设备上启动会话。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "連接後，Claude desktop、Claude Code 或 Codex 桌面版 App 就能使用 cmux 的工具。在那裡的對話可以在你的任何裝置和 Cloud 機器上開始工作階段，你可以在這裡和手機上追蹤。"
+            "value" : "連接後，Claude desktop、Claude Code 或 Codex App 就能使用 cmux 的工具，在那裡的對話可以在你的任何裝置上開始工作階段。"
           }
         }
       }

@@ -13,8 +13,9 @@
 // - `footer` (the pointer on the first turn's footer): every footer's first element is its button
 //   group, and its first glyph's box (the 16px icon box, design/grid.md 5.5) starts on the prose's
 //   left edge, and every footer draws its age after its buttons;
-// - `finished` (a finished chat): at rest every footer's row is hidden, the last one's too; pointed
-//   at, the row and its age show, and neither the buttons nor any transcript row moves.
+// - `finished` (a finished chat): at rest every earlier footer's row is hidden and the last one shows
+//   its buttons without its age (Lucas, 2026-11-26); pointed at, the age shows, and neither the
+//   buttons nor any transcript row moves.
 //
 // CMUX_REPLY_FOOTER_ARTIFACT_DIR=DIR (or fast-checks' FAST_CHECKS_OUT) also writes 2x stills of the
 // last reply and its footer, at rest and pointed at, in each theme.
@@ -169,9 +170,11 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         await still(page, `${theme.file}-rest`);
         expect(rest, "the chat's last footer").toBeDefined();
         expect(rest!.buttons.length).toBeGreaterThan(0);
-        // Hidden at rest, the chat's last turn too (Claude's; Codex keeps its latest shown).
-        expect(rest!.actionsOpacity).toBe(0);
+        // The chat's last turn keeps its buttons shown at rest (Lucas, 2026-11-26); its age shows on
+        // hover only.
+        expect(rest!.actionsOpacity).toBe(1);
         expect(rest!.time).toBeDefined();
+        expect(rest!.time!.opacity).toBe(0);
         expect(Math.abs(rest!.glyph!)).toBeLessThanOrEqual(TOLERANCE);
         // Every transcript row's box at rest: hovering must not move or resize any of them.
         const boxes = () =>
@@ -186,7 +189,7 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         const replies = page.locator(".acpmux-row.acpmux-assistant");
         await replies.nth((await replies.count()) - 1).hover();
         await page.waitForFunction(
-          (selector) => getComputedStyle(document.querySelector(`${selector} .cv-turn-actions`)!).opacity === "1",
+          (selector) => getComputedStyle(document.querySelector(`${selector} .cv-turn-time`)!).opacity === "1",
           last,
         );
         const [hover] = await footers(page, last);
@@ -221,7 +224,7 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
       }
     });
     // Whether the last turn ended on a reply (`finished`) or on a run of commands (`finished-work`),
-    // its row (hidden at rest since Leo, 2026-11-22, its line kept) sits one --grid-gap-footer under
+    // its row (shown at rest, the last turn's, since Lucas, 2026-11-26) sits one --grid-gap-footer under
     // the turn's last line, and is its 32 line alone: no blank band between the turn's last line and
     // the buttons.
     for (const variant of ["finished", "finished-work"]) {
@@ -234,7 +237,7 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
           const [rest] = await footers(page, last);
           expect(rest, "the chat's last footer has a row").toBeDefined();
           expect(rest!.buttons.length).toBeGreaterThan(0);
-          expect(rest!.actionsOpacity).toBe(0);
+          expect(rest!.actionsOpacity).toBe(1);
           expect(Math.abs(rest!.glyph!)).toBeLessThanOrEqual(TOLERANCE);
           const geometry = await page.evaluate((selector) => {
             const length = (name: string) => {

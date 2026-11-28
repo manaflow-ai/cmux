@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDaemon
 public import CmuxNextDesign
+public import CmuxNextOnboarding
 import CmuxNextImportSuggestions
 import Foundation
 
@@ -21,6 +22,15 @@ extension ClassicImportPreview {
             ],
             identifier: Self.dialogIdentifier
         )
+    }
+
+    /// The Set Up cmux card's cmux Classic row for this preview: what the dialog says, as the row's facts. Nil
+    /// before the person consents to the read (no `counts`): the consent dialog asks, not the row.
+    public var setupOffer: FirstRunSetup.ClassicOffer? {
+        guard let counts else { return nil }
+        return FirstRunSetup.ClassicOffer(workspaces: counts.workspaces, app: ClassicImportPreviewStrings.appName(bundleID), savedAt: savedAt,
+                                   running: classicRunning, browserTabs: counts.browserTabs, sshWorkspaces: counts.sshWorkspaces,
+                                   agentChats: counts.agentChats)
     }
 
     public func promptLines(atLaunch: Bool) -> [String] {

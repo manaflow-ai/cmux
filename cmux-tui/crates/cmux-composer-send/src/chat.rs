@@ -447,9 +447,38 @@ impl PromptOutbox {
         tapped: Instant,
         now: Instant,
     ) -> bool {
-        let id = id.into();
-        if self.entries.iter().any(|e| e.id == id) {
+        self.insert(id.into(), text.into(), attachments, resend, tapped, now).is_some()
+    }
+
+    /// Preparation (including uploads and the previous prompt's handoff) just completed.
+    /// Keep tap order, but let this prompt spend its hold on the remaining work.
+    pub fn push_prepared(
+        &mut self,
+        id: impl Into<String>,
+        text: impl Into<String>,
+        resend: bool,
+        tapped: Instant,
+        now: Instant,
+    ) -> bool {
+        let Some(entry) = self.insert(id.into(), text.into(), Vec::new(), resend, tapped, now)
+        else {
             return false;
+        };
+        entry.progress_at = Some(now);
+        true
+    }
+
+    fn insert(
+        &mut self,
+        id: String,
+        text: String,
+        attachments: Vec<String>,
+        resend: bool,
+        tapped: Instant,
+        now: Instant,
+    ) -> Option<&mut Entry> {
+        if self.entries.iter().any(|e| e.id == id) {
+            return None;
         }
         self.failed.retain(|f| *f != id);
         let slots = Entry::slots_for(&attachments, &[]);
@@ -458,7 +487,7 @@ impl PromptOutbox {
             || self.entries.iter().any(|e| matches!(e.state, State::Queued | State::Writing));
         let entry = Entry {
             id,
-            text: text.into(),
+            text,
             slots,
             tapped,
             waiting_since: if waits { now } else { tapped },
@@ -477,7 +506,7 @@ impl PromptOutbox {
         let index =
             self.entries.iter().position(|e| e.tapped > tapped).unwrap_or(self.entries.len());
         self.entries.insert(index, entry);
-        true
+        self.entries.get_mut(index)
     }
 
     /// The link made progress at `now` (bytes heard from the Mac, a channel bound, a write

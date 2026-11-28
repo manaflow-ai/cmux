@@ -12,18 +12,20 @@ import SwiftUI
 struct CloudChatsScreen: View {
     let shell: ShellModel
     let attention: CloudChatAttention?
+    /// A New Task on a Cloud machine: opens that machine and starts its chat with the task.
+    var task: CloudChatTask? = nil
     @State private var selectedMac: String?
 
     var body: some View {
         let macs = shell.store.activeTeam?.macs ?? []
-        let candidates = [selectedMac, shell.live?.focusedMacID].compactMap { $0 }
+        let candidates = [task?.location.macID, selectedMac, shell.live?.focusedMacID].compactMap { $0 }
         let macID = candidates.first { id in macs.contains { $0.id == id } } ?? macs.first?.id
         let ids = attention == nil ? macID.map { [$0] } ?? [] : macs.map(\.id).filter {
             shell.live?.canLink(macID: $0) != false
         }
         let scope = CloudDirectoryScope(account: shell.auth.user?.id, team: shell.store.activeTeamID,
                                         macs: ids, attention: attention)
-        CloudDirectoryList(shell: shell, scope: scope, macID: macID, select: { selectedMac = $0 })
+        CloudDirectoryList(shell: shell, scope: scope, macID: macID, task: task, select: { selectedMac = $0 })
             .id(scope)
     }
 }
@@ -40,10 +42,13 @@ private struct CloudDirectoryList: View {
     let shell: ShellModel
     let scope: CloudDirectoryScope
     let macID: String?
+    let task: CloudChatTask?
     let select: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var directories: [String: [CloudChatMachine]]
     @State private var selectedLocation: CloudChatLocation?
+    /// New Task's chat was started: going back and opening the machine again starts no second one.
+    @State private var taskStarted = false
     @State private var failed = false
     @State private var refresh = 0
     /// A failed directory read is read again on its own (no Retry): the spinner stays, and the
@@ -55,11 +60,15 @@ private struct CloudDirectoryList: View {
     /// The list shows the Auto section: the setting is on, and this is not one chat from a notification.
     private var showsAuto: Bool { scope.attention == nil && shell.settings.cloudAutoMode }
 
-    init(shell: ShellModel, scope: CloudDirectoryScope, macID: String?, select: @escaping (String) -> Void) {
+    init(shell: ShellModel, scope: CloudDirectoryScope, macID: String?, task: CloudChatTask? = nil,
+         select: @escaping (String) -> Void) {
         self.shell = shell
         self.scope = scope
         self.macID = macID
+        self.task = task
         self.select = select
+        // New Task named the machine and its Mac: open it at once (its screen connects).
+        _selectedLocation = State(initialValue: task?.location)
         let saved = scope.macs.compactMap { id -> (String, [CloudChatMachine])? in
             shell.auth.lastKnownList(screen: "cloud-chats", teamID: scope.team, context: [id])?
                 .read([CloudChatMachine].self).map { (id, $0) }
@@ -75,7 +84,7 @@ private struct CloudDirectoryList: View {
         NavigationStack {
             List {
                 if showsAuto { AutoChatsSection(auto: auto) }
-                if scope.attention == nil, let macs = shell.store.activeTeam?.macs, !macs.isEmpty {
+                if scope.attention == nil, task == nil, let macs = shell.store.activeTeam?.macs, !macs.isEmpty {
                     Picker("Mac", selection: Binding(get: { macID ?? "" }, set: select)) {
                         ForEach(macs) { mac in Text(mac.name).tag(mac.id) }
                     }
@@ -128,7 +137,9 @@ private struct CloudDirectoryList: View {
                 CloudMachineChatsScreen(live: shell.live, macID: location.macID, machine: location.machine,
                                         macName: name, preferredSession: scope.attention?.sessionID,
                                         cachedList: shell.auth.lastKnownList(screen: "cloud-chat-sessions", teamID: scope.team,
-                                            context: [location.macID, location.machine.teamID, location.machine.machineID]))
+                                            context: [location.macID, location.machine.teamID, location.machine.machineID]),
+                                        firstPrompt: !taskStarted && task?.location == location ? task?.prompt : nil,
+                                        onFirstStarted: { taskStarted = true })
             }
             .modifier(AutoChatsHost(auto: auto, enabled: showsAuto, refresh: refresh) { openCloudMachines() })
             .task(id: Refresh(live: shell.live.map(ObjectIdentifier.init), revision: refresh)) {
@@ -315,6 +326,16 @@ private struct CloudMachineChatsScreen: View {
     let macName: String
     let preferredSession: String?
     private let cachedList: LastKnownList?
+    /// New Task's prompt: once connected, a new chat starts and this is its first message.
+    private let firstPrompt: String?
+    /// The first message's chat was started (a reconnect never starts a second).
+    @State private var startedFirst = false
+    /// The started chat the first message waits on: the machine lists a new chat after it answers.
+    @State private var unsentFirst: String?
+    /// The first message, kept once its chat started (the list then passes no `firstPrompt`).
+    @State private var unsentPrompt: String?
+    /// Tells the list New Task's chat started, so opening this machine again starts no second chat.
+    private let onFirstStarted: () -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var relay: CloudChatRelay?
     @State private var selectedSession: String?
@@ -330,6 +351,8 @@ private struct CloudMachineChatsScreen: View {
     @State private var starting = false
     @State private var startFailed = false
     @State private var startError = ""
+    /// The last start was refused for want of GitHub on the machine: its Sign in with GitHub card.
+    @State private var gitHubNeed: GitHubSignInNeed?
     /// A New Chat tap made before the relay was ready.
     @State private var startQueue = CloudChatStartQueue()
     /// How many of the machine's chats the list draws, newest first (Show Older Chats adds a page).
@@ -343,13 +366,16 @@ private struct CloudMachineChatsScreen: View {
     @State private var page: CloudChatList.CachedPage?
 
     init(live: LiveCoordinator?, macID: String, machine: CloudChatMachine, macName: String,
-         preferredSession: String?, cachedList: LastKnownList?) {
+         preferredSession: String?, cachedList: LastKnownList?, firstPrompt: String? = nil,
+         onFirstStarted: @escaping () -> Void = {}) {
         self.live = live
         self.macID = macID
         self.machine = machine
         self.macName = macName
         self.preferredSession = preferredSession
         self.cachedList = cachedList
+        self.firstPrompt = firstPrompt
+        self.onFirstStarted = onFirstStarted
         _page = State(initialValue: cachedList?.read(CloudChatList.CachedPage.self))
     }
 
@@ -371,6 +397,16 @@ private struct CloudMachineChatsScreen: View {
                 }
             } else {
                 List {
+                    if let need = gitHubNeed {
+                        // Back from GitHub, the start runs again.
+                        GitHubSignInCard(need: need) {
+                            gitHubNeed = nil
+                            // New Task's chat keeps its first prompt through the sign-in.
+                            if firstPrompt != nil, !startedFirst { startFirst() } else { startChat() }
+                        }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .listRowBackground(Color.clear)
+                    }
                     if relay?.hub.isReady == true, let cause = listError {
                         Text(cause).foregroundStyle(.secondary)
                         // retry-prompt-ok: a list read that failed on a live link has no automatic redo; reading it is the person's call
@@ -418,6 +454,9 @@ private struct CloudMachineChatsScreen: View {
             }
         }
         .alert("Couldn't start the chat", isPresented: $startFailed) {
+            if firstPrompt != nil, !startedFirst {
+                Button("Try Again") { startFirst() }
+            }
             Button("OK", role: .cancel) {}
         } message: {
             Text(startError)
@@ -449,6 +488,13 @@ private struct CloudMachineChatsScreen: View {
                 startFailed = true
             case .none: break
             }
+        }
+        // New Task's chat starts once the machine is connected.
+        .onChange(of: relay?.hub.isReady == true, initial: true) { _, ready in
+            if ready { startFirst() }
+        }
+        .onChange(of: unsentFirst.flatMap { relay?.hub.sessions[$0] } != nil) { _, listed in
+            if listed { sendFirst() }
         }
         // Wake on intent: the app became active (the phone unlocked) with this machine's chats in
         // front, so a paused machine starts waking before the first key (`CloudWakeOnIntent`).
@@ -518,6 +564,42 @@ private struct CloudMachineChatsScreen: View {
         return nil
     }
 
+    /// New Task's chat: started once, its prompt sent as the first message, then opened. A
+    /// failed start keeps the prompt here for Try Again.
+    private func startFirst() {
+        guard firstPrompt != nil, !startedFirst, let relay, relay.hub.isReady, !starting else { return }
+        starting = true
+        Task {
+            defer { starting = false }
+            do {
+                let session = try await relay.startChat()
+                startedFirst = true
+                unsentPrompt = firstPrompt
+                unsentFirst = session
+                onFirstStarted()
+                sendFirst()
+                selectedSession = session
+                gitHubNeed = nil
+            } catch {
+                // Same Sign in with GitHub card as a plain New Chat start.
+                if let need = (error as? CloudChatStartError)?.github {
+                    gitHubNeed = need
+                    return
+                }
+                startError = (error as? CloudChatStartError)?.message ?? "Try again."
+                startFailed = true
+            }
+        }
+    }
+
+    /// Sends the first message once the started chat is listed.
+    private func sendFirst() {
+        guard let session = unsentFirst, let prompt = unsentPrompt, let store = relay?.store(sessionID: session) else { return }
+        unsentFirst = nil
+        unsentPrompt = nil
+        store.send(prompt: prompt)
+    }
+
     private func newChatTapped() {
         if startQueue.tap(ready: relay?.hub.isReady == true, starting: starting) == .start { startChat() }
     }
@@ -530,7 +612,13 @@ private struct CloudMachineChatsScreen: View {
             defer { starting = false }
             do {
                 selectedSession = try await relay.startChat()
+                gitHubNeed = nil
             } catch {
+                // No GitHub access on the machine: one Sign in with GitHub card, not an alert.
+                if let need = (error as? CloudChatStartError)?.github {
+                    gitHubNeed = need
+                    return
+                }
                 startError = (error as? CloudChatStartError)?.message ?? "The Cloud machine didn't start the chat."
                 startFailed = true
             }

@@ -82,7 +82,7 @@ fn attach_at(mut command: Command, path: &mut Vec<String>, front_door: bool) -> 
     }
     if front_door {
         // clap uses the canonical name in Usage, including for nested subcommands.
-        if path.len() == 1 && path[0] == "inbox" {
+        if matches!(path.as_slice(), [only] if only == "inbox") {
             command = command.alias(None).name("team-inbox");
         }
         if let Some(text) = front_door_text(command.get_after_help()) {

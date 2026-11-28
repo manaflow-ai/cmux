@@ -43,6 +43,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public private(set) var browserID: Int32?
     /// Set once by `markAgentDriven`; saved passwords do not fill in this tab.
     @ObservationIgnored public internal(set) var isAgentDriven = false
+    /// The agent session that last drove this page (``BrowserTab/noteAgentSession(_:)``).
+    @ObservationIgnored public private(set) var agentSessionID: String?
+    public func noteAgentSession(_ session: String) { agentSessionID = session }
     /// The fork refuses this page's WebAuthn now (CMUX_WEBAUTHN_MODE_REFUSE, set by ``applyWebAuthnRefusal()`` or
     /// copied by the fork from an opener that had it), until the person takes the page (``allowWebAuthnForPerson()``).
     @ObservationIgnored var webAuthnRefused = false
@@ -300,6 +303,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The read of a document's icon list when Chromium reported none for it (#42435).
     @ObservationIgnored var documentFaviconRead: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
+    /// The flow this tab was opened for (a sign-in, GitHub's install) handed back to the app and asked for the tab's
+    /// close (``closeAfterHandoff()``): nobody's close for the page to decide (`CEFTab+UserClose`).
+    @ObservationIgnored var handedOff = false
     /// The browser went with the engine's stop for quit (``browserDidClose(closesTab:)`` false), not by
     /// itself: a cmux page on it is not reopened elsewhere and reports no crash (`PageChromiumEvent.engineStopped`).
     @ObservationIgnored public private(set) var browserEndedForQuit = false
@@ -443,6 +449,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     func attach(browser: Int32) {
         browserID = browser
+        runtime.ownChatRenderer.attached(ObjectIdentifier(self), browser: browser)
         // A page asked to show something (an address, a saved navigation, an agent's load) waits for that document; a
         // page with nothing to load takes keys now (lead on STATUS 7916: a reopen by address is no saved navigation).
         let navigates = pendingURL != nil || pendingRestore != nil || loadAfterAttach != nil || loadSinceCreation != nil
@@ -775,6 +782,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func setFocused(_ focused: Bool) {
         let shown = isShown
         host.lifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(shown)")
+        if focused { runtime.ownChatRenderer.focused(ObjectIdentifier(self), url: state.url ?? pendingURL, browser: browserID) }
         // Never activate a hidden page's window (see `attach`): a hidden page keeps the ask until it shows.
         let canTake = shown && pageWindowHostHasArea && !appearedThisTurn
         pendingFocus = focused && (!canTake || browserID == nil)

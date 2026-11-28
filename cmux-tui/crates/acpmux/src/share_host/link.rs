@@ -20,6 +20,10 @@ use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 const PING_EVERY: Duration = Duration::from_secs(30);
+/// How long a ping may go unanswered (the hub's auto-response answers it at once) before the
+/// socket counts as dead and is reconnected. Well under the hub's 75 s silence bound, so a host
+/// ticket pushed meanwhile reaches the new socket rather than one that no longer delivers.
+const PONG_WAIT: Duration = Duration::from_secs(10);
 /// The first and the longest wait before signing in again after the hub refused.
 const SIGN_IN_FIRST: Duration = Duration::from_secs(30);
 const SIGN_IN_MOST: Duration = Duration::from_secs(30 * 60);
@@ -219,23 +223,42 @@ fn hold_socket(shared: &Arc<Shared>, stop: &CancellationToken) -> Res<()> {
         link.detail = None;
     });
     tracing::info!("{LOG}: online as \"{}\" ({})", printable(&hub.device.name), hub.device.id);
+    // An app that asked for the identity before the daemon signed in (or before a new device)
+    // runs another one; this tells it to take the daemon's.
+    shared.announce_online();
     refresh_devices(shared);
     // Within the hub's offline grace: the shares a daemon left running that ended meanwhile.
     check_adopted(shared);
     let mut sent_status = helper::status(&shared.home);
     let mut last_ping = Instant::now();
+    // The last ping and whether anything arrived after it: a socket that dropped without a FIN
+    // (a NAT or Wi-Fi change) still takes writes, so only a missing pong says it is gone.
+    let mut ping_at: Option<Instant> = None;
+    let mut heard_after_ping = true;
     loop {
         if stop.is_cancelled() {
             ws.close();
             return Ok(());
         }
+        let since_ping = ping_at.map(|at| at.elapsed());
+        if pong_overdue(since_ping, heard_after_ping) {
+            ws.close();
+            let secs = since_ping.unwrap_or_default().as_secs();
+            return Err(format!("no pong from the hub for {secs} s").into());
+        }
         if last_ping.elapsed() >= PING_EVERY {
             // Exactly these bytes: the hub's auto-response matches them.
             ws.send_text(r#"{"type":"ping"}"#)?;
             last_ping = Instant::now();
+            ping_at = Some(last_ping);
+            heard_after_ping = false;
             sent_status = send_screen_share(shared, sent_status.as_ref()).or(sent_status);
         }
-        match ws.recv(Duration::from_secs(1))? {
+        let message = ws.recv(Duration::from_secs(1))?;
+        if message.is_some() {
+            heard_after_ping = true;
+        }
+        match message {
             None => {}
             Some(Message::Closed(code, reason)) => {
                 let removed = |message: &str| HubError {
@@ -252,6 +275,12 @@ fn hold_socket(shared: &Arc<Shared>, stop: &CancellationToken) -> Res<()> {
             Some(Message::Text(text)) => handle_push(shared, &text, Consent::read),
         }
     }
+}
+
+/// Whether the hub missed its pong: a ping went out `since_ping` ago and nothing arrived after it
+/// within [`PONG_WAIT`].
+pub(crate) fn pong_overdue(since_ping: Option<Duration>, heard_after_ping: bool) -> bool {
+    !heard_after_ping && since_ping.is_some_and(|since| since > PONG_WAIT)
 }
 
 /// `GET /v1/devices`: the platform of each device, to route tickets.

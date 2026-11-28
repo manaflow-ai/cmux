@@ -60,6 +60,19 @@ struct LayoutShiftCounterTests {
         #expect(counter.shiftedRows == 1)
     }
 
+    @Test func rowsOneScrollMovedEitherSideOfABucketEdgeAreTheScroll() {
+        var counter = LayoutShiftCounter()
+        counter.frame(["a": row(100, .window), "b": row(160, .window), "c": row(220, .window)])
+        // A decelerating scroll: -2.9 and -3.1 pt round to different 2 pt buckets, but are one scroll.
+        counter.frame(["a": row(97.1, .window), "b": row(157.1, .window), "c": row(216.9, .window)])
+        #expect(counter.shiftFrames == 0)
+        // A row 3 pt off the scroll still counts.
+        counter.frame(["a": row(94.2, .window), "b": row(154.2, .window), "c": row(211, .window)])
+        #expect(counter.shiftFrames == 1)
+        #expect(counter.lastMoved == "c 216/60->211/60")
+        #expect(counter.moves == ["3:c 216/60->211/60 dy -5.9 dh 0.0 scroll -2.9"])
+    }
+
     @Test func aRowThatLeavesAndComesBackIsComparedOnlyWhileDrawn() {
         var counter = LayoutShiftCounter()
         counter.frame(["a": row(0)])

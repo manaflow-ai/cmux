@@ -314,6 +314,7 @@ public final class ScreenSharingViewer: Identifiable {
         let session = ScreenSession(title: hostName, preferences: preferences.screen(for: hostID),
                                     signaling: { [weak self] in self?.takeSignaling() })
         session.reconnectLimit = 0
+        session.vncRules = ScreenSharingVNCRules.rules
         // Follow mode: the Follow button shows once the Mac sends focus signals.
         ScreenSharingFollowCamera().attach(to: session)
         // A drop goes straight to the reattach (no failed card first, over the last frame).

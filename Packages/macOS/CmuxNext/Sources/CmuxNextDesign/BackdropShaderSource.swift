@@ -6,7 +6,7 @@
 /// position needs no flip. Every function draws light or dark from `u.dark`.
 nonisolated enum BackdropShaderSource {
     /// Bumped whenever a shader's look changes: the posters' file names carry it.
-    static let version = 2
+    static let version = 3
 
     /// The Metal source: the shared helpers and the first five shaders, then the calm ones
     /// (``calmSource``). ``BackdropShaderUniforms`` is the Swift twin of the uniforms every fragment reads.
@@ -43,9 +43,12 @@ nonisolated enum BackdropShaderSource {
         return fract(p.x * p.y);
     }
 
+    // Value noise with the quintic fade 6t^5 - 15t^4 + 10t^3 (Perlin, "Improving Noise", 2002):
+    // zero first and second derivatives at the lattice, so a slowly drifting field shows no grid
+    // creases. The cubic 3t^2 - 2t^3 has a second-derivative jump there that slow motion exposes.
     static float vnoise(float2 p) {
         float2 i = floor(p), f = fract(p);
-        float2 u = f * f * (3.0 - 2.0 * f);
+        float2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
         return mix(mix(hash21(i), hash21(i + float2(1, 0)), u.x),
                    mix(hash21(i + float2(0, 1)), hash21(i + float2(1, 1)), u.x), u.y);
     }

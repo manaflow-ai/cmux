@@ -16,7 +16,31 @@ fn running(id: &str) -> Value {
 }
 
 fn target(name: &str, room: f64) -> Target {
-    Target { name: name.into(), room }
+    Target { name: name.into(), room, rearm: false }
+}
+
+fn rearming(name: &str, room: f64) -> Target {
+    Target { rearm: true, ..target(name, room) }
+}
+
+/// A `bgWaits` entry (`rearm.rs`'s wire form) for task `id`, `left_min` minutes from its deadline
+/// (0: half a minute).
+fn wait(id: &str, left_min: u64) -> Value {
+    let line = format!(
+        "acpmux pr-wait 58117 --repo manaflow-ai/cmux --sha e0ef135d --timeout {}",
+        (left_min * 60).max(30)
+    );
+    let mut w = crate::rearm::parse(&line, NOW).unwrap().to_json();
+    w["id"] = json!(id);
+    w
+}
+
+/// A session idle an hour running `waits` and `others` tasks that are not waits.
+fn with_tasks(id: &str, waits: Vec<Value>, others: u64) -> Value {
+    let mut r = idle(id, 60);
+    r["bgTasksRunning"] = json!(waits.len() as u64 + others);
+    r["bgWaits"] = json!(waits);
+    r
 }
 
 fn on() -> Conf {
@@ -292,6 +316,86 @@ fn a_running_background_task_holds_the_session() {
     let moved: Vec<&str> = p.moves.iter().map(|m| m.session_id.as_str()).collect();
     assert_eq!(moved, ["free"]);
     assert!(p.held.iter().any(|(id, why)| id == "waits" && why.contains("background task runs")));
+}
+
+#[test]
+fn a_session_whose_every_task_is_a_wait_moves_and_any_other_task_holds_it() {
+    // The dictator's (a) spec: movable only when every background task is a re-armable wait,
+    // and only to a destination that re-arms them.
+    let mut rows: Vec<Value> = (0..6).map(|i| running(&format!("r{i}"))).collect();
+    rows.extend([
+        with_tasks("waits", vec![wait("bg-1", 50), wait("bg-2", 30)], 0),
+        // A wait and a sleep (or a shell, a build, a test): the sleep cannot be re-armed.
+        with_tasks("mixed", vec![wait("bg-3", 50)], 1),
+        // Its only wait ends within a minute: it ends here, sooner than a move.
+        with_tasks("ending", vec![wait("bg-4", 0)], 0),
+    ]);
+    let p = plan(&rows, true, Some(6), vec![rearming("b", 10.0)], &on(), NOW);
+    let moved: Vec<&str> = p.moves.iter().map(|m| m.session_id.as_str()).collect();
+    assert_eq!(moved, ["waits"]);
+    let why = |id: &str| p.held.iter().find(|(i, _)| i == id).map(|(_, w)| *w).unwrap();
+    assert!(why("mixed").contains("cannot re-arm"), "{}", why("mixed"));
+    assert!(why("ending").contains("within a minute"), "{}", why("ending"));
+
+    let mut tampered = with_tasks("bad", vec![wait("bg-5", 50)], 0);
+    tampered["bgWaits"][0]["form"] = json!("sleep");
+    assert_eq!(
+        held(&tampered, true, NOW, 0),
+        Some("a wait's target is not one this acpmux re-arms")
+    );
+    let mut no_id = with_tasks("noid", vec![wait("bg-6", 50)], 0);
+    no_id["bgWaits"][0].as_object_mut().unwrap().remove("id");
+    assert!(held(&no_id, true, NOW, 0).is_some());
+}
+
+#[test]
+fn waits_go_only_to_a_destination_that_rearms_them() {
+    let mut rows: Vec<Value> = (0..6).map(|i| running(&format!("r{i}"))).collect();
+    rows.extend([with_tasks("waits", vec![wait("bg-1", 50)], 0), idle("free", 50)]);
+    let conf = Conf { max_moves: 2, ..on() };
+    // Old destination (no bgRearm): the waiting session stays, the free one moves.
+    let p = plan(&rows, true, Some(5), vec![target("old", 10.0)], &conf, NOW);
+    let moved: Vec<&str> = p.moves.iter().map(|m| m.session_id.as_str()).collect();
+    assert_eq!(moved, ["free"]);
+    assert!(p.held.iter().any(|(id, why)| id == "waits" && why.contains("bgRearm")));
+    // New destination listed after an old one with more room: the waits go to the new one.
+    let p = plan(&rows, true, Some(5), vec![target("old", 10.0), rearming("new", 2.0)], &conf, NOW);
+    let by: Vec<(&str, &str)> =
+        p.moves.iter().map(|m| (m.session_id.as_str(), m.target.as_str())).collect();
+    assert_eq!(by, [("waits", "new"), ("free", "old")]);
+
+    let peers = json!({"peers": [{"name": "new", "bgRearm": true}, {"name": "old"},
+        {"name": "older", "bgRearm": false}]});
+    let mut t = vec![target("old", 1.0), target("new", 1.0), target("older", 1.0)];
+    rearm_targets(&mut t, &peers);
+    assert_eq!(t.iter().map(|t| t.rearm).collect::<Vec<_>>(), [false, true, false]);
+    assert!(rearms(&peers, "new") && !rearms(&peers, "old") && !rearms(&peers, "nowhere"));
+}
+
+#[test]
+fn an_old_daemon_without_bg_waits_keeps_a_waiting_session_held() {
+    // Old (session-bg-facts-v1 only): a count and no bgWaits. New: the same task as a wait.
+    let mut old = idle("old", 60);
+    old["bgTasksRunning"] = json!(1);
+    assert!(held(&old, true, NOW, 0).unwrap().contains("predates session-bg-waits-v1"));
+    let new = with_tasks("new", vec![wait("bg-1", 50)], 0);
+    assert_eq!(held(&new, true, NOW, 0), None);
+    // No tasks: no bgWaits needed, old or new.
+    assert_eq!(held(&idle("none", 60), true, NOW, 0), None);
+}
+
+#[test]
+fn a_move_receipt_records_its_waits_handoff() {
+    let d = Done {
+        source: "a".into(),
+        session_id: "s".into(),
+        there: Some(("b".into(), "t".into())),
+        rearm: Some(json!({"rearmed": [{"from": "bg-1", "id": "bg-9"}], "released": ["bg-1"]})),
+        ..Done::default()
+    };
+    let r = receipt("rb-1", NOW, &d, "why");
+    assert_eq!(r["rearm"]["released"], json!(["bg-1"]));
+    assert_eq!(undo_of(&r).unwrap(), ("b".to_owned(), "t".to_owned()));
 }
 
 #[test]

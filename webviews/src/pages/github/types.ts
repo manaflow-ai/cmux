@@ -212,7 +212,10 @@ export function routedIssues(hash: string): { repo: string } | undefined {
   const route = hash.startsWith("#") ? hash.slice(1) : hash;
   if (!route.startsWith("/issues?")) return undefined;
   const repo = new URLSearchParams(route.slice("/issues?".length)).get("repo");
-  return repo && /^[\w.-]+\/[\w.-]+$/.test(repo) ? { repo } : undefined;
+  // An owner/name pair; a "." or ".." part is a path step, never a repository ("../x").
+  return repo && /^[\w.-]+\/[\w.-]+$/.test(repo) && !repo.split("/").some((part) => /^\.{1,2}$/.test(part))
+    ? { repo }
+    : undefined;
 }
 
 /** The issue a route names (`#/issue?url=<address>`), else undefined. */

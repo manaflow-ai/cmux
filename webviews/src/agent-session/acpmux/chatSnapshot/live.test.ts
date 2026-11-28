@@ -4,6 +4,7 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { RIDE_SLACK_MS } from "../../../pages/shared/slackTimers";
 import { noteChatTheme, watchChatSnapshot } from "./live";
+import { TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE } from "./shared";
 
 let clock = 0;
 const now = spyOn(performance, "now").mockImplementation(() => clock);
@@ -101,4 +102,33 @@ test("a resize with no markup change writes the copy again once it rests, inside
   win.dispatchEvent(new win.Event("resize"));
   advance(6_000);
   expect(writes).toHaveLength(2);
+});
+
+test("a transcript a hidden page let go of writes no copy; the rows drawn again do", () => {
+  noteChatTheme("light");
+  clock = 0;
+  const { win, advance } = page();
+  const writes: Record<string, unknown>[] = [];
+  const scroller = win.document.createElement("div");
+  win.document.getElementById("root")!.append(scroller);
+  // Released (VirtualTranscript.tsx HIDDEN RELEASE): the copy written as the page hid stays the one kept.
+  scroller.setAttribute(TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE, "");
+  const stop = watchChatSnapshot(
+    "chat",
+    async (params) => {
+      writes.push(params);
+      return { kept: true };
+    },
+    win.document,
+  );
+  advance(1_500 + RIDE_SLACK_MS);
+  win.dispatchEvent(new win.Event("resize"));
+  advance(3_000);
+  expect(writes).toHaveLength(0);
+  // Shown again with its rows: the next quiet write comes.
+  scroller.removeAttribute(TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE);
+  win.dispatchEvent(new win.Event("resize"));
+  advance(4_000);
+  expect(writes).toHaveLength(1);
+  stop();
 });

@@ -813,6 +813,10 @@ pub struct SshWorld {
     /// While this file exists the fake ssh writes junk to its stderr and
     /// exits 255, as ssh does when it cannot connect.
     pub ssh_junk: std::path::PathBuf,
+    /// While this file exists the fake ssh waits the seconds it holds
+    /// before its forced command speaks, as a cold ssh through the team
+    /// tunnel does (the tunnel, sshd, the key's first use).
+    pub ssh_slow: std::path::PathBuf,
     /// Cuts every relay connection, and refuses new ones.
     pub cut: watch::Sender<bool>,
     /// In a [`world_ssh_via_hub`]: while set, the stand-in hub ends every
@@ -888,6 +892,7 @@ fn ssh_world(relay_up: bool, via_hub: bool) -> SshWorld {
     let fake_ssh = dir.path().join("fake-ssh");
     let ssh_cut = dir.path().join("ssh-cut");
     let ssh_junk = dir.path().join("ssh-junk");
+    let ssh_slow = dir.path().join("ssh-slow");
     // sshd runs the key's forced command whatever the client asks; this
     // stand-in does the same, without the network or the ProxyCommand. The
     // link ends when `ssh_cut` appears (by SIGKILL, so it ends whatever
@@ -902,6 +907,7 @@ fn ssh_world(relay_up: bool, via_hub: bool) -> SshWorld {
              [ -e '{cut}' ] && exit 255\n\
              if [ -e '{junk}' ]; then printf 'ssh: connect to host {SSH_HOST} port 22: \
              Connection refused\\r\\n{{\"ok\": \"junk\"}}\\n' >&2; exit 255; fi\n\
+             [ -e '{slow}' ] && sleep \"$(cat '{slow}')\"\n\
              exec 3<&0\n\
              '{BIN}' remote-link --stdio --session carrier-ssh --link-socket '{link}' <&3 &\n\
              child=$!\n\
@@ -913,6 +919,7 @@ fn ssh_world(relay_up: bool, via_hub: bool) -> SshWorld {
             args = ssh_args.display(),
             cut = ssh_cut.display(),
             junk = ssh_junk.display(),
+            slow = ssh_slow.display(),
             link = link.display(),
         )
     };
@@ -984,6 +991,7 @@ fn ssh_world(relay_up: bool, via_hub: bool) -> SshWorld {
         ssh_args,
         ssh_cut,
         ssh_junk,
+        ssh_slow,
         cut,
         hub_cut,
         hub_dialed,

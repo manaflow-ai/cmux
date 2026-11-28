@@ -4,13 +4,22 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
-import { chromium, webkit, type Browser } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType } from "playwright";
 import strings from "../src/pages/apps/generated/strings.json";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("apps-flow.test.ts", async () => {
   setDefaultTimeout(360_000);
+  // An engine that cannot launch here (no WebKit host libraries on a fleet worker) skips its tests;
+  // on GitHub Actions it fails the file (probeEngineOrSkip).
+  const engines: ["webkit" | "chromium", BrowserType][] = [];
+  for (const engine of [
+    ["webkit", webkit],
+    ["chromium", chromium],
+  ] as ["webkit" | "chromium", BrowserType][])
+    if (await probeEngineOrSkip("apps-flow.test.ts", engine[0], engine[1])) engines.push(engine);
+  if (engines.length === 0) return;
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -40,8 +49,7 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
       timeoutMs: 120_000,
       limit: 600,
     });
-    browsers.chromium = await chromium.launch({ headless: true });
-    browsers.webkit = await webkit.launch({ headless: true });
+    for (const [name, engine] of engines) browsers[name] = await engine.launch({ headless: true });
   });
 
   afterAll(async () => {
@@ -76,7 +84,7 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
     throw lastError;
   }
 
-  for (const engine of ["webkit", "chromium"] as const) {
+  for (const engine of engines.map(([name]) => name)) {
     for (const locale of ["en", "de", "ja"] as const) {
       test(`${engine}: App Store action widths stay fixed in ${locale}`, async () => {
         const page = await open(engine, "list", locale);

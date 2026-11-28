@@ -256,411 +256,11 @@ describe("SEO metadata helpers", () => {
     }
   });
 
-  test("selects bounded, route-specific copy for the audited matrix", async () => {
-    for (const locale of locales) {
-      const messages = await messagesFor(locale);
-      const siteMeta = messageLookup(messages.meta);
-      const rows = [
-        auditedRow("/", homeSeoCopy(locale, siteMeta), [
-          "cmux",
-          messages.meta.description,
-          messages.meta.ogDescription,
-        ]),
-        auditedRow(
-          "/assets",
-          assetsSeoCopy(locale, messageLookup(messages.brandAssets), siteMeta),
-          [
-            messages.brandAssets.title,
-            messages.brandAssets.metaDescription,
-            messages.brandAssets.description,
-          ],
-        ),
-        auditedRow(
-          "/blog",
-          blogIndexSeoCopy(locale, messageLookup(messages.blog), siteMeta),
-          [
-            messages.blog.title,
-            messages.blog.metaDescription,
-            messages.blog.description,
-          ],
-        ),
-        auditedRow(
-          "/blog/cmux-history",
-          cmuxHistorySeoCopy(
-            locale,
-            messageLookup(messages.blog.cmuxHistory),
-            messageLookup(messages.blog.posts.cmuxHistory),
-            siteMeta,
-          ),
-          [
-            messages.blog.cmuxHistory.metaDescription,
-            messages.blog.posts.cmuxHistory.title,
-            messages.blog.posts.cmuxHistory.summary,
-            messages.blog.posts.cmuxHistory.p1,
-            messages.blog.posts.cmuxHistory.focusP,
-            messages.blog.posts.cmuxHistory.fullHistoryP,
-            messages.blog.posts.cmuxHistory.reopenTitle,
-            messages.blog.posts.cmuxHistory.agentTitle,
-            messages.blog.posts.cmuxHistory.focusTitle,
-          ],
-          [
-            messages.blog.cmuxHistory.metaTitle,
-            messages.blog.posts.cmuxHistory.title,
-            messages.blog.posts.cmuxHistory.reopenTitle,
-            messages.blog.posts.cmuxHistory.agentTitle,
-            messages.blog.posts.cmuxHistory.focusTitle,
-          ],
-        ),
-        auditedRow(
-          "/community",
-          communitySeoCopy(locale, messageLookup(messages.community), siteMeta),
-          [
-            messages.community.title,
-            messages.community.metaDescription,
-            messages.community.description,
-          ],
-        ),
-        auditedRow(
-          "/best-terminal-for-mac",
-          bestTerminalSeoCopy(
-            locale,
-            messageLookup(messages.landing.bestTerminal),
-            siteMeta,
-          ),
-          [
-            messages.landing.bestTerminal.title,
-            messages.landing.bestTerminal.metaDescription,
-            messages.landing.bestTerminal.cmuxBuiltFor,
-          ],
-        ),
-        auditedRow(
-          "/compare",
-          compareIndexSeoCopy(
-            locale,
-            messageLookup(messages.landing.compare),
-            siteMeta,
-          ),
-          [
-            messages.landing.compare.title,
-            messages.landing.compare.metaDescription,
-            messages.landing.compare.intro,
-          ],
-          [messages.landing.compare.metaTitle, messages.landing.compare.title],
-        ),
-      ];
-
-      const compareTitles: string[] = [];
-      for (const page of comparePages) {
-        const pageMessages = messages.landing.compare.pages[page.key];
-        const copy = comparePageSeoCopy(
-          locale,
-          page.key,
-          messageLookup(pageMessages),
-          messageLookup(messages.landing.links),
-          siteMeta,
-        );
-        compareTitles.push(copy.title);
-        rows.push(
-          auditedRow(
-            `/compare/${page.slug}`,
-            copy,
-            [
-              pageMessages.title,
-              pageMessages.metaDescription,
-              pageMessages.faqQ1,
-              pageMessages.faqQ2,
-              pageMessages.faqQ3,
-              pageMessages.summaryBody,
-              pageMessages.intro,
-              ...(page.key === "bestTerminalForAgents"
-                ? [messages.landing.links.agents]
-                : []),
-              ...(page.key === "multipleClaudeAgents"
-                ? [messages.landing.links.claudeTeams]
-                : []),
-            ],
-            page.key === "bestTerminalForAgents"
-              ? [
-                  pageMessages.metaTitle,
-                  pageMessages.title,
-                  messages.landing.links.bestTerminal,
-                ]
-              : [
-                  pageMessages.metaTitle,
-                  pageMessages.title,
-                  ...(page.key === "multipleClaudeAgents"
-                    ? [messages.landing.links.claudeTeams]
-                    : []),
-                ],
-          ),
-        );
-      }
-      expect(new Set(compareTitles).size).toBe(comparePages.length);
-
-      const auditedBlogPosts = [
-        ["367-billion-tokens", "tokenMultitasking"],
-        ["cmux-omo", "cmuxOmo"],
-        ["gpl", "gpl"],
-        ["show-hn-launch", "showHnLaunch"],
-        ["session-restore", "sessionRestore"],
-        ["cmux-home", "cmuxHome"],
-        ["introducing-cmux", "introducingCmux"],
-        ["claude-code-best-worktree-manager", "claudeCodeBestWorktreeManager"],
-        ["zen-of-cmux", "zenOfCmux"],
-        ["cmd-shift-u", "cmdShiftU"],
-        ["unread-shortcuts", "unreadShortcuts"],
-        ["passkey-auth", "passkeyAuth"],
-      ] as const;
-      for (const [slug, postKey] of auditedBlogPosts) {
-        if (locale !== "en" && (postKey === "cmuxOmo" || postKey === "gpl")) {
-          continue;
-        }
-        if (
-          postKey === "tokenMultitasking" &&
-          locale !== "en" &&
-          locale !== "ja"
-        ) {
-          continue;
-        }
-        const metadata = messages.blog[postKey];
-        const post = messages.blog.posts[postKey];
-        rows.push(
-          auditedRow(
-            `/blog/${slug}`,
-            blogPostSeoCopy(
-              locale,
-              postKey,
-              messageLookup(metadata),
-              plainSeoMessageLookup(post),
-              siteMeta,
-            ),
-            [
-              metadata.metaDescription,
-              ...Object.values(post).filter(
-                (value): value is string =>
-                  typeof value === "string" && !value.includes("<"),
-              ),
-            ],
-            [metadata.metaTitle, post.title],
-          ),
-        );
-      }
-
-      const auditedDocsPages = [
-        ["/docs/agent-integrations/oh-my-opencode", "ohMyOpenCode"],
-        ["/docs/api", "api"],
-        ["/docs/configuration", "configuration"],
-        ["/docs/browser-automation", "browserAutomation"],
-        ["/docs/ios", "ios"],
-        ["/docs/ssh", "ssh"],
-        ["/docs/workspace-groups", "workspaceGroups"],
-        ["/docs/textbox", "textBox"],
-        ["/docs/concepts", "concepts"],
-        ["/docs/custom-commands", "customCommands"],
-        ["/docs/notifications", "notifications"],
-        ["/docs/session-restore", "sessionRestore"],
-        ["/docs/skills", "skills"],
-        ["/docs/dock", "dock"],
-        ["/docs/keyboard-shortcuts", "keyboardShortcuts"],
-        ["/docs/getting-started", "gettingStarted"],
-        ["/docs/remote-tmux", "remoteTmux"],
-        ["/docs/cloud", "cloudOverview"],
-        ["/docs/cloud/machines", "cloudMachines"],
-        ["/docs/cloud/workspaces", "cloudWorkspaces"],
-        ["/docs/cloud/networking", "cloudNetworking"],
-        ["/docs/cloud/cli", "cloudCli"],
-        ["/docs/cloud/troubleshooting", "cloudTroubleshooting"],
-        ["/docs/coderouter", "coderouterOverview"],
-        ["/docs/coderouter/agents", "coderouterAgents"],
-        ["/docs/coderouter/cli", "coderouterCli"],
-      ] as const;
-      for (const [path, pageKey] of auditedDocsPages) {
-        if (pageKey === "remoteTmux" && locale !== "en" && locale !== "ja") {
-          continue;
-        }
-        const page = messages.docs[pageKey];
-        rows.push(
-          auditedRow(
-            path,
-            docsPageSeoCopy(
-              locale,
-              pageKey,
-              messageLookup(page),
-              messages.docs.layoutTitle,
-              {
-                curatedDescription:
-                  typeof (page as Record<string, unknown>)
-                    .metaDescriptionShort === "string"
-                    ? ((page as Record<string, unknown>)
-                        .metaDescriptionShort as string)
-                    : undefined,
-                intro:
-                  typeof (page as Record<string, unknown>).intro === "string"
-                    ? ((page as Record<string, unknown>).intro as string)
-                    : undefined,
-              },
-            ),
-            Object.values(page)
-              .filter((value): value is string => typeof value === "string")
-              .flatMap((value) => {
-                const sentences = metadataSentenceFragments(value);
-                return sentences;
-              }),
-            [
-              page.metaTitle,
-              page.title,
-              ...(pageKey === "ohMyOpenCode" ? ["oh-my-opencode"] : []),
-            ].filter((value): value is string => typeof value === "string"),
-            ` — ${messages.docs.layoutTitle}`,
-          ),
-        );
-      }
-
-      rows.push(
-        auditedRow(
-          "/nightly",
-          landingPageSeoCopy(
-            locale,
-            messageLookup(messages.nightly),
-            siteMeta,
-            {
-              complete: ["description", "subtitle"],
-              context: ["title"],
-            },
-          ),
-          [
-            messages.nightly.metaDescription,
-            messages.nightly.title,
-            messages.nightly.description,
-            messages.nightly.subtitle,
-          ],
-          [messages.nightly.metaTitle, messages.nightly.title],
-        ),
-        auditedRow(
-          "/guides",
-          landingPageSeoCopy(
-            locale,
-            messageLookup(messages.landing.guides),
-            siteMeta,
-            {
-              complete: ["intro"],
-              context: ["title"],
-            },
-          ),
-          [
-            messages.landing.guides.metaDescription,
-            messages.landing.guides.title,
-            messages.landing.guides.intro,
-          ],
-          [messages.landing.guides.metaTitle, messages.landing.guides.title],
-        ),
-      );
-      for (const platform of ["windows", "linux"] as const) {
-        const page = messages.browserDownloads[platform];
-        const copy = browserDownloadSeoCopy(
-          locale,
-          messageLookup(page),
-          messages.browserDownloads.eyebrow,
-        );
-        expect(`${copy.title}${copy.description}`).not.toContain("macOS");
-        if (copy.title !== page.metaTitle) {
-          expect(copy.title).toContain(messages.browserDownloads.eyebrow);
-        }
-        rows.push(
-          auditedRow(
-            `/${platform}`,
-            copy,
-            [
-              page.metaDescription,
-              page.subtitle,
-              page.installBody,
-              page.name,
-            ],
-            [page.metaTitle, page.name],
-          ),
-        );
-      }
-      if (locale === "en" || locale === "ja") {
-        const pricing = messageLookup(messages.pricing);
-        rows.push(
-          auditedRow(
-            "/pricing",
-            pricingSeoCopy(locale, pricing, siteMeta, "metaDescription"),
-            [
-              messages.pricing.title,
-              messages.pricing.metaDescription,
-              messages.pricing.metaDescriptionShort,
-            ],
-          ),
-          auditedRow(
-            "/pricing?without-vault",
-            pricingSeoCopy(locale, pricing, siteMeta, "metaDescriptionNoVault"),
-            [
-              messages.pricing.title,
-              messages.pricing.metaDescriptionNoVault,
-              messages.pricing.metaDescriptionNoVaultShort,
-            ],
-          ),
-          auditedRow(
-            "/docs/agent-integrations/oh-my-pi",
-            ohMyPiSeoCopy(
-              locale,
-              messageLookup(messages.docs.ohMyPi),
-              siteMeta,
-            ),
-            [
-              messages.docs.ohMyPi.title,
-              messages.docs.ohMyPi.metaDescription,
-              messages.docs.ohMyPi.intro,
-            ],
-          ),
-        );
-      }
-
-      for (const row of rows) {
-        const renderedTitle = `${row.copy.title}${row.titleSuffix}`;
-        const titleLength = searchSnippetLength(renderedTitle);
-        const descriptionLength = searchSnippetLength(row.copy.description);
-        if (descriptionLength < 110 || descriptionLength > 160) {
-          throw new Error(
-            `${locale}${row.route} description length ${descriptionLength}: ${row.copy.description}`,
-          );
-        }
-        if (!conciseTitleLocales.has(locale)) {
-          expect(titleLength).toBeGreaterThanOrEqual(30);
-        }
-        expect(titleLength).toBeLessThanOrEqual(60);
-        expect(renderedTitle).not.toMatch(/cmux\s*—\s*cmux/iu);
-        expect(`${renderedTitle}${row.copy.description}`).not.toMatch(
-          /…|<\/?(?:link|code)>/u,
-        );
-        expect(`${renderedTitle}${row.copy.description}`).not.toMatch(
-          /[{}]|__CMUXPH/iu,
-        );
-        expect(row.copy.description).not.toMatch(/[!?។៕。！？؟]\./u);
-        expect(row.copy.description).not.toMatch(/[:：][.!?។៕。！？؟]/u);
-        expect(row.copy.description).toMatch(/[.!?。！？؟។៕]$/u);
-        const hasRouteContext = row.contexts.some(
-          (context) =>
-            context.length > 0 && row.copy.description.includes(context),
-        );
-        if (!hasRouteContext) {
-          throw new Error(
-            `${locale}${row.route} lost route context: ${row.copy.description}`,
-          );
-        }
-        if (
-          !row.titleContexts.some(
-            (context) => context.length > 0 && row.copy.title.includes(context),
-          )
-        ) {
-          throw new Error(
-            `${locale}${row.route} lost title identity: ${row.copy.title}`,
-          );
-        }
-      }
-    }
-  });
+  for (const locale of locales) {
+    test(`selects bounded, route-specific copy for the audited matrix (${locale})`, async () => {
+      await assertAuditedSeoMatrix(locale);
+    });
+  }
 
   test("uses deterministic code-point widths for Khmer metadata", async () => {
     const messages = await messagesFor("km");
@@ -1303,6 +903,410 @@ describe("SEO middleware", () => {
     }
   });
 });
+
+async function assertAuditedSeoMatrix(locale: (typeof locales)[number]) {
+  const messages = await messagesFor(locale);
+  const siteMeta = messageLookup(messages.meta);
+  const rows = [
+    auditedRow("/", homeSeoCopy(locale, siteMeta), [
+      "cmux",
+      messages.meta.description,
+      messages.meta.ogDescription,
+    ]),
+    auditedRow(
+      "/assets",
+      assetsSeoCopy(locale, messageLookup(messages.brandAssets), siteMeta),
+      [
+        messages.brandAssets.title,
+        messages.brandAssets.metaDescription,
+        messages.brandAssets.description,
+      ],
+    ),
+    auditedRow(
+      "/blog",
+      blogIndexSeoCopy(locale, messageLookup(messages.blog), siteMeta),
+      [
+        messages.blog.title,
+        messages.blog.metaDescription,
+        messages.blog.description,
+      ],
+    ),
+    auditedRow(
+      "/blog/cmux-history",
+      cmuxHistorySeoCopy(
+        locale,
+        messageLookup(messages.blog.cmuxHistory),
+        messageLookup(messages.blog.posts.cmuxHistory),
+        siteMeta,
+      ),
+      [
+        messages.blog.cmuxHistory.metaDescription,
+        messages.blog.posts.cmuxHistory.title,
+        messages.blog.posts.cmuxHistory.summary,
+        messages.blog.posts.cmuxHistory.p1,
+        messages.blog.posts.cmuxHistory.focusP,
+        messages.blog.posts.cmuxHistory.fullHistoryP,
+        messages.blog.posts.cmuxHistory.reopenTitle,
+        messages.blog.posts.cmuxHistory.agentTitle,
+        messages.blog.posts.cmuxHistory.focusTitle,
+      ],
+      [
+        messages.blog.cmuxHistory.metaTitle,
+        messages.blog.posts.cmuxHistory.title,
+        messages.blog.posts.cmuxHistory.reopenTitle,
+        messages.blog.posts.cmuxHistory.agentTitle,
+        messages.blog.posts.cmuxHistory.focusTitle,
+      ],
+    ),
+    auditedRow(
+      "/community",
+      communitySeoCopy(locale, messageLookup(messages.community), siteMeta),
+      [
+        messages.community.title,
+        messages.community.metaDescription,
+        messages.community.description,
+      ],
+    ),
+    auditedRow(
+      "/best-terminal-for-mac",
+      bestTerminalSeoCopy(
+        locale,
+        messageLookup(messages.landing.bestTerminal),
+        siteMeta,
+      ),
+      [
+        messages.landing.bestTerminal.title,
+        messages.landing.bestTerminal.metaDescription,
+        messages.landing.bestTerminal.cmuxBuiltFor,
+      ],
+    ),
+    auditedRow(
+      "/compare",
+      compareIndexSeoCopy(
+        locale,
+        messageLookup(messages.landing.compare),
+        siteMeta,
+      ),
+      [
+        messages.landing.compare.title,
+        messages.landing.compare.metaDescription,
+        messages.landing.compare.intro,
+      ],
+      [messages.landing.compare.metaTitle, messages.landing.compare.title],
+    ),
+  ];
+
+  const compareTitles: string[] = [];
+  for (const page of comparePages) {
+    const pageMessages = messages.landing.compare.pages[page.key];
+    const copy = comparePageSeoCopy(
+      locale,
+      page.key,
+      messageLookup(pageMessages),
+      messageLookup(messages.landing.links),
+      siteMeta,
+    );
+    compareTitles.push(copy.title);
+    rows.push(
+      auditedRow(
+        `/compare/${page.slug}`,
+        copy,
+        [
+          pageMessages.title,
+          pageMessages.metaDescription,
+          pageMessages.faqQ1,
+          pageMessages.faqQ2,
+          pageMessages.faqQ3,
+          pageMessages.summaryBody,
+          pageMessages.intro,
+          ...(page.key === "bestTerminalForAgents"
+            ? [messages.landing.links.agents]
+            : []),
+          ...(page.key === "multipleClaudeAgents"
+            ? [messages.landing.links.claudeTeams]
+            : []),
+        ],
+        page.key === "bestTerminalForAgents"
+          ? [
+              pageMessages.metaTitle,
+              pageMessages.title,
+              messages.landing.links.bestTerminal,
+            ]
+          : [
+              pageMessages.metaTitle,
+              pageMessages.title,
+              ...(page.key === "multipleClaudeAgents"
+                ? [messages.landing.links.claudeTeams]
+                : []),
+            ],
+      ),
+    );
+  }
+  expect(new Set(compareTitles).size).toBe(comparePages.length);
+
+  const auditedBlogPosts = [
+    ["367-billion-tokens", "tokenMultitasking"],
+    ["cmux-omo", "cmuxOmo"],
+    ["gpl", "gpl"],
+    ["show-hn-launch", "showHnLaunch"],
+    ["session-restore", "sessionRestore"],
+    ["cmux-home", "cmuxHome"],
+    ["introducing-cmux", "introducingCmux"],
+    ["claude-code-best-worktree-manager", "claudeCodeBestWorktreeManager"],
+    ["zen-of-cmux", "zenOfCmux"],
+    ["cmd-shift-u", "cmdShiftU"],
+    ["unread-shortcuts", "unreadShortcuts"],
+    ["passkey-auth", "passkeyAuth"],
+  ] as const;
+  for (const [slug, postKey] of auditedBlogPosts) {
+    if (locale !== "en" && (postKey === "cmuxOmo" || postKey === "gpl")) {
+      continue;
+    }
+    if (
+      postKey === "tokenMultitasking" &&
+      locale !== "en" &&
+      locale !== "ja"
+    ) {
+      continue;
+    }
+    const metadata = messages.blog[postKey];
+    const post = messages.blog.posts[postKey];
+    rows.push(
+      auditedRow(
+        `/blog/${slug}`,
+        blogPostSeoCopy(
+          locale,
+          postKey,
+          messageLookup(metadata),
+          plainSeoMessageLookup(post),
+          siteMeta,
+        ),
+        [
+          metadata.metaDescription,
+          ...Object.values(post).filter(
+            (value): value is string =>
+              typeof value === "string" && !value.includes("<"),
+          ),
+        ],
+        [metadata.metaTitle, post.title],
+      ),
+    );
+  }
+
+  const auditedDocsPages = [
+    ["/docs/agent-integrations/oh-my-opencode", "ohMyOpenCode"],
+    ["/docs/api", "api"],
+    ["/docs/configuration", "configuration"],
+    ["/docs/browser-automation", "browserAutomation"],
+    ["/docs/ios", "ios"],
+    ["/docs/ssh", "ssh"],
+    ["/docs/workspace-groups", "workspaceGroups"],
+    ["/docs/textbox", "textBox"],
+    ["/docs/concepts", "concepts"],
+    ["/docs/custom-commands", "customCommands"],
+    ["/docs/notifications", "notifications"],
+    ["/docs/session-restore", "sessionRestore"],
+    ["/docs/skills", "skills"],
+    ["/docs/dock", "dock"],
+    ["/docs/keyboard-shortcuts", "keyboardShortcuts"],
+    ["/docs/getting-started", "gettingStarted"],
+    ["/docs/remote-tmux", "remoteTmux"],
+    ["/docs/cloud", "cloudOverview"],
+    ["/docs/cloud/machines", "cloudMachines"],
+    ["/docs/cloud/workspaces", "cloudWorkspaces"],
+    ["/docs/cloud/networking", "cloudNetworking"],
+    ["/docs/cloud/cli", "cloudCli"],
+    ["/docs/cloud/troubleshooting", "cloudTroubleshooting"],
+    ["/docs/coderouter", "coderouterOverview"],
+    ["/docs/coderouter/agents", "coderouterAgents"],
+    ["/docs/coderouter/cli", "coderouterCli"],
+  ] as const;
+  for (const [path, pageKey] of auditedDocsPages) {
+    if (pageKey === "remoteTmux" && locale !== "en" && locale !== "ja") {
+      continue;
+    }
+    const page = messages.docs[pageKey];
+    rows.push(
+      auditedRow(
+        path,
+        docsPageSeoCopy(
+          locale,
+          pageKey,
+          messageLookup(page),
+          messages.docs.layoutTitle,
+          {
+            curatedDescription:
+              typeof (page as Record<string, unknown>)
+                .metaDescriptionShort === "string"
+                ? ((page as Record<string, unknown>)
+                    .metaDescriptionShort as string)
+                : undefined,
+            intro:
+              typeof (page as Record<string, unknown>).intro === "string"
+                ? ((page as Record<string, unknown>).intro as string)
+                : undefined,
+          },
+        ),
+        Object.values(page)
+          .filter((value): value is string => typeof value === "string")
+          .flatMap((value) => {
+            const sentences = metadataSentenceFragments(value);
+            return sentences;
+          }),
+        [
+          page.metaTitle,
+          page.title,
+          ...(pageKey === "ohMyOpenCode" ? ["oh-my-opencode"] : []),
+        ].filter((value): value is string => typeof value === "string"),
+        ` — ${messages.docs.layoutTitle}`,
+      ),
+    );
+  }
+
+  rows.push(
+    auditedRow(
+      "/nightly",
+      landingPageSeoCopy(
+        locale,
+        messageLookup(messages.nightly),
+        siteMeta,
+        {
+          complete: ["description", "subtitle"],
+          context: ["title"],
+        },
+      ),
+      [
+        messages.nightly.metaDescription,
+        messages.nightly.title,
+        messages.nightly.description,
+        messages.nightly.subtitle,
+      ],
+      [messages.nightly.metaTitle, messages.nightly.title],
+    ),
+    auditedRow(
+      "/guides",
+      landingPageSeoCopy(
+        locale,
+        messageLookup(messages.landing.guides),
+        siteMeta,
+        {
+          complete: ["intro"],
+          context: ["title"],
+        },
+      ),
+      [
+        messages.landing.guides.metaDescription,
+        messages.landing.guides.title,
+        messages.landing.guides.intro,
+      ],
+      [messages.landing.guides.metaTitle, messages.landing.guides.title],
+    ),
+  );
+  for (const platform of ["windows", "linux"] as const) {
+    const page = messages.browserDownloads[platform];
+    const copy = browserDownloadSeoCopy(
+      locale,
+      messageLookup(page),
+      messages.browserDownloads.eyebrow,
+    );
+    expect(`${copy.title}${copy.description}`).not.toContain("macOS");
+    if (copy.title !== page.metaTitle) {
+      expect(copy.title).toContain(messages.browserDownloads.eyebrow);
+    }
+    rows.push(
+      auditedRow(
+        `/${platform}`,
+        copy,
+        [
+          page.metaDescription,
+          page.subtitle,
+          page.installBody,
+          page.name,
+        ],
+        [page.metaTitle, page.name],
+      ),
+    );
+  }
+  if (locale === "en" || locale === "ja") {
+    const pricing = messageLookup(messages.pricing);
+    rows.push(
+      auditedRow(
+        "/pricing",
+        pricingSeoCopy(locale, pricing, siteMeta, "metaDescription"),
+        [
+          messages.pricing.title,
+          messages.pricing.metaDescription,
+          messages.pricing.metaDescriptionShort,
+        ],
+      ),
+      auditedRow(
+        "/pricing?without-vault",
+        pricingSeoCopy(locale, pricing, siteMeta, "metaDescriptionNoVault"),
+        [
+          messages.pricing.title,
+          messages.pricing.metaDescriptionNoVault,
+          messages.pricing.metaDescriptionNoVaultShort,
+        ],
+      ),
+      auditedRow(
+        "/docs/agent-integrations/oh-my-pi",
+        ohMyPiSeoCopy(
+          locale,
+          messageLookup(messages.docs.ohMyPi),
+          siteMeta,
+        ),
+        [
+          messages.docs.ohMyPi.title,
+          messages.docs.ohMyPi.metaDescription,
+          messages.docs.ohMyPi.intro,
+        ],
+      ),
+    );
+  }
+
+  for (const row of rows) {
+    const renderedTitle = `${row.copy.title}${row.titleSuffix}`;
+    const titleLength = searchSnippetLength(renderedTitle);
+    const descriptionLength = searchSnippetLength(row.copy.description);
+    if (descriptionLength < 110 || descriptionLength > 160) {
+      throw new Error(
+        `${locale}${row.route} description length ${descriptionLength}: ${row.copy.description}`,
+      );
+    }
+    if (!conciseTitleLocales.has(locale)) {
+      expect(titleLength).toBeGreaterThanOrEqual(30);
+    }
+    expect(titleLength).toBeLessThanOrEqual(60);
+    expect(renderedTitle).not.toMatch(/cmux\s*—\s*cmux/iu);
+    expect(`${renderedTitle}${row.copy.description}`).not.toMatch(
+      /…|<\/?(?:link|code)>/u,
+    );
+    expect(`${renderedTitle}${row.copy.description}`).not.toMatch(
+      /[{}]|__CMUXPH/iu,
+    );
+    expect(row.copy.description).not.toMatch(/[!?។៕。！？؟]\./u);
+    expect(row.copy.description).not.toMatch(/[:：][.!?។៕。！？؟]/u);
+    expect(row.copy.description).toMatch(/[.!?。！？؟។៕]$/u);
+    const hasRouteContext = row.contexts.some(
+      (context) =>
+        context.length > 0 && row.copy.description.includes(context),
+    );
+    if (!hasRouteContext) {
+      throw new Error(
+        `${locale}${row.route} lost route context: ${row.copy.description}`,
+      );
+    }
+    if (
+      !row.titleContexts.some(
+        (context) => context.length > 0 && row.copy.title.includes(context),
+      )
+    ) {
+      throw new Error(
+        `${locale}${row.route} lost title identity: ${row.copy.title}`,
+      );
+    }
+  }
+}
 
 const wideSearchBaseCodePoint =
   /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Khmer}\p{Extended_Pictographic}]/u;

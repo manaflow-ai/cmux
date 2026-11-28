@@ -89,11 +89,73 @@ pub(super) fn bundle_files(root: &Path) -> std::io::Result<Vec<(String, u64)>> {
     Ok(files)
 }
 
-/// Removes moves left behind: a receive never finished, a bundle no chat here is in.
+/// A scratch folder in `transfers/` for one pack of a chat's lines (`kind`: `outline`,
+/// `history-read`, `prepack`), named for this process: `work-<pid>-<kind>-<uuid>`. Its owner
+/// removes it when done; one a daemon left as it died is removed by the next sweep at once
+/// ([`sweep_transfers`]), not a day later. A compaction's outline of an 8.6 GB chat once left
+/// 8 GB there for a day after the daemon that wrote it died.
+pub(super) fn scratch_dir(kind: &str) -> PathBuf {
+    transfers_dir().join(format!("{SCRATCH}{}-{kind}-{}", std::process::id(), uuid::Uuid::now_v7()))
+}
+
+const SCRATCH: &str = "work-";
+/// Scratch folders named before [`scratch_dir`], without their owner's pid.
+const UNOWNED_SCRATCH: [&str; 2] = ["outline-", "history-read-"];
+
+/// When this daemon began: an unowned scratch folder last changed before it is a dead daemon's.
+static STARTED: std::sync::OnceLock<std::time::SystemTime> = std::sync::OnceLock::new();
+
+/// Notes when this daemon began, for [`sweep_transfers`]; the hub calls it as it starts.
+pub(super) fn note_started() {
+    STARTED.get_or_init(std::time::SystemTime::now);
+}
+
+/// Whether the transfers entry `name`, last changed at `changed`, is scratch no running daemon
+/// owns: a [`scratch_dir`] of a process that no longer runs, or one named before them that
+/// predates this daemon.
+pub(in crate::hub) fn dead_scratch(name: &str, changed: Option<std::time::SystemTime>) -> bool {
+    let before_start =
+        || STARTED.get().zip(changed).is_some_and(|(started, changed)| changed < *started);
+    if let Some(rest) = name.strip_prefix(SCRATCH) {
+        let pid = rest.split('-').next().and_then(|p| p.parse::<u32>().ok());
+        if let Some(pid) = pid {
+            return pid != std::process::id() && !process_runs(pid);
+        }
+        // A chat pack's seal scratch named before pids, `work-<uuid>` (`pack_trust.rs`).
+        return rest.len() == 32 && rest.bytes().all(|b| b.is_ascii_hexdigit()) && before_start();
+    }
+    UNOWNED_SCRATCH.iter().any(|p| name.starts_with(p)) && before_start()
+}
+
+#[cfg(unix)]
+fn process_runs(pid: u32) -> bool {
+    let Ok(pid) = i32::try_from(pid) else { return false };
+    // SAFETY: signal 0 only checks that the pid exists.
+    let signalled = unsafe { libc::kill(pid, 0) == 0 };
+    signalled || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(not(unix))]
+fn process_runs(_pid: u32) -> bool {
+    true
+}
+
+/// Removes moves left behind: a receive never finished, a bundle no chat here is in, and at once
+/// the scratch of a daemon that died packing ([`scratch_dir`]).
 pub(super) fn sweep_transfers(moving: &[String]) {
-    let Ok(entries) = std::fs::read_dir(transfers_dir()) else { return };
+    sweep_transfers_in(&transfers_dir(), moving);
+}
+
+/// [`sweep_transfers`] of the folder `dir`.
+pub(super) fn sweep_transfers_in(dir: &Path, moving: &[String]) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
+        if dead_scratch(&name, entry.metadata().and_then(|m| m.modified()).ok()) {
+            tracing::info!("removing {name} in transfers: scratch of a daemon that is gone");
+            let _ = crate::home_fs::remove_dir_all(entry.path());
+            continue;
+        }
         // A receive's last page touched its `alive` file (`transfer_in.rs`).
         let alive = entry.path().join("alive");
         let stamp = std::fs::metadata(&alive).or_else(|_| entry.metadata());
@@ -262,6 +324,27 @@ pub(super) fn names_a_move(mark: &str) -> bool {
     mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING && mark != super::AUTO_AWAY
 }
 
+/// The close of a chat's copy here once its move committed: reason `moved to HOST/NAME` (`to` is
+/// the commit's `movedTo`; NAME the chat's, which a move keeps), outcome `moved`, never
+/// `unfinished`: the work runs on at HOST. Before this, every source copy of a moved chat read
+/// `daemon`/`unrecorded`/`unfinished`, so a tool that revives unfinished chats started it again
+/// on the machine it had left.
+pub(super) fn moved_close_why(to: &Value, name: &str) -> crate::close_why::CloseWhy {
+    let host = to
+        .get("host")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|h| !h.is_empty())
+        .unwrap_or("another daemon");
+    let name = Some(name.trim())
+        .filter(|n| !n.is_empty())
+        .or_else(|| to.get("sessionId").and_then(Value::as_str))
+        .unwrap_or("?");
+    crate::close_why::CloseWhy::by("daemon", &format!("moved to {host}/{name}")).outcome("moved")
+}
+
+#[path = "compaction_outline.rs"]
+pub(super) mod compaction_outline;
 /// Where a move's begin token is kept, in its bundle folder.
 const BEGIN_TOKEN_FILE: &str = "begin-token";
 
@@ -286,6 +369,9 @@ pub(super) fn moving_begin_token(transfer_id: &str) -> Option<String> {
 #[cfg(test)]
 #[path = "auto_startup_tests.rs"]
 mod auto_startup_tests;
+#[cfg(test)]
+#[path = "move_out_unlist_tests.rs"]
+mod move_out_unlist_tests;
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
@@ -466,6 +552,8 @@ impl Hub {
                 )
             }
             "preflight" => self.transfer_preflight(params).await,
+            // What a move of the chat would interrupt (RFD 0063 item 6, `move_interrupts.rs`).
+            "interrupts" => self.transfer_interrupts(params).await,
             "receive" => self.transfer_receive(params).await,
             "write" => self.transfer_write(params),
             "finish" => self.transfer_finish(params).await,
@@ -486,6 +574,56 @@ impl Hub {
         }
         #[cfg(not(feature = "hub-carrier"))]
         None
+    }
+
+    /// A saved local ChatGPT plan has no portable account binding in a move bundle.
+    async fn transfer_has_local_chatgpt_plan(&self, session: &Session) -> bool {
+        let meta = session.meta();
+        let config = self.config.read().await;
+        let profile =
+            super::resolve::session_profile(&config, &meta.harness, &meta.cwd, meta.remote_origin)
+                .ok();
+        let family = profile
+            .as_ref()
+            .map(|profile| crate::config::derive_family(&meta.harness, profile))
+            .or_else(|| meta.family.clone())
+            .unwrap_or_else(|| meta.harness.clone());
+        if crate::agent_credentials::Family::of_harness(&family)
+            != Some(crate::agent_credentials::Family::Codex)
+        {
+            return false;
+        }
+        let (dir, state) = crate::routes::places(&config);
+        drop(config);
+        let bindings = crate::routes::bindings(&state);
+        let env = profile.map(|profile| profile.env).unwrap_or_default();
+        let selected = crate::routes::spawn_route(
+            dir.as_deref(),
+            &bindings,
+            &session.id,
+            meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str),
+            &family,
+            &env,
+        );
+        if selected.is_some_and(|(id, _)| crate::chatgpt::is_chatgpt_route(dir.as_deref(), &id)) {
+            return true;
+        }
+        let uses_local_plan = session
+            .launch_env
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|env| env.contains_key(crate::chatgpt::LOCAL_EXPIRY_ENV));
+        if let Some(uses_local_plan) = uses_local_plan {
+            return uses_local_plan;
+        }
+        session
+            .child
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|child| child.host_record())
+            .is_some_and(|record| record.local_chatgpt_expiry.is_some())
     }
 
     /// Freezes the chat for its move and makes its bundle. With `after_turn` (how long to wait), a
@@ -515,6 +653,22 @@ impl Hub {
         if let Some(to) = session.meta().moved_to {
             return Err(moved_error(&to));
         }
+        // An Auto chat changes machine only as a holder change in the Cloud store
+        // (`move_authority.rs`, RFD 0172): a bundle moved here would run it on another host
+        // while the store still names this machine its holder.
+        if let super::move_authority::Authority::Store { .. } = self.move_authority(session) {
+            let name = session.read_meta(|m| m.name.clone());
+            let to_cloud =
+                crate::chat_place::person_command(&name, crate::chat_place::Place::Cloud);
+            return Err(transfer_error(
+                "auto",
+                format!(
+                    "this is an Auto chat, so the Cloud store moves it, not a session move; \
+                     `{to_cloud}` sends it to the Cloud and `--on local` brings it home"
+                ),
+            )
+            .with_data(json!({"reason": "auto_chat"})));
+        }
         // Taken before the freeze, so nothing is refused while the turn finishes: its
         // permission answers, steering and new prompts go in as usual.
         // The lock alone is not the turn: a turn an agent host runs (a chat whose host is
@@ -525,7 +679,7 @@ impl Hub {
             let deadline = tokio::time::Instant::now() + wait;
             let busy = || {
                 let why = format!(
-                    "the running turn did not end within {}s; try again, or pass --interrupt",
+                    "the running turn did not end within {}s, so nothing moved; --interrupt stops it and moves the chat now",
                     wait.as_secs()
                 );
                 transfer_error("busy", why)
@@ -619,6 +773,12 @@ impl Hub {
             }
             e
         };
+        if self.transfer_has_local_chatgpt_plan(session).await {
+            return Err(unfreeze(
+                transfer_error("account", super::credentials::credential_needed().message),
+                None,
+            ));
+        }
         // No turn may run while the bundle is made: one that runs stops only if asked.
         if let Some(running) = session.turn().map(|t| t.turn_id) {
             match cut {
@@ -902,6 +1062,7 @@ impl Hub {
         }
         let (data, start, len) = page().map_err(|e| transfer_error("read", e))?;
         let next = start + data.len() as u64;
+        super::transfer_watch::note_paged(&dir);
         super::transfer_watch::note_activity(&dir, (next == len).then_some(path));
         Ok(json!({"data": BASE64.encode(&data), "next": next, "eof": next == len}))
     }
@@ -973,6 +1134,7 @@ impl Hub {
             meta.bookmarks.clear();
             meta.moved_to = Some(if to.is_object() { to.clone() } else { json!({}) });
         }
+        self.forget_draft_attachments(session);
         // Saved now: a stopped chat is closed already, so `kill` below saves nothing, and the
         // mark must outlive a restart or the source could reopen and run it: `committed` is
         // answered only once it is on disk.
@@ -983,10 +1145,19 @@ impl Hub {
             moved.set("freeze", freeze);
         }
         self.append(session, "mux", "transferred", moved);
-        self.kill(session, false).await?;
+        // Its close says where it went, outcome `moved`: recorded `daemon`/`unrecorded`, a lane's
+        // old copy read `unfinished`, and lane-deaths restarted it on the machine it had left.
+        let why = moved_close_why(&to, &session.meta().name);
+        self.kill_why(session, false, why).await?;
         self.note_shipped(session, transfer_id);
         transfer_precopy::forget_prepared(&dir);
         let _ = crate::home_fs::remove_dir_all(transfers_dir().join(transfer_id));
+        // Unlisted from the hub's address book now, as the arriving side lists it before its
+        // pull answers (`transfer_pull.rs`). Else the hub keeps this closed copy's row until the
+        // next heartbeat (~30 s): a bare-id control for the chat then finds two rows
+        // (`mesh.ambiguous`), as a purge right after a move back home did. Not waited for: the
+        // commit ends the move's freeze, and a heartbeat waits up to its floor (2.5 s).
+        self.unlist_on_mesh_soon();
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}))
     }
 

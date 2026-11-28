@@ -264,6 +264,20 @@ struct CloudMoveTests {
         }
     }
 
+    /// The transfer refuses after the ordinary control deadline. The waiter needs that
+    /// refusal even though its source chat stays in this Mac's workspace.
+    @Test func waitedMoveReturnsTheLateTransferRefusal() async throws {
+        try await Self.withMove("lateRefusal") { move in
+            let error = await CloudCLIActionRun(services: move.services, deadline: .seconds(2))([
+                "action": "cloud move", "cli": true, "origin": "cli", "wait": true,
+                "target": .string("tab:" + move.tabID), "args": ["path": .string(move.project.path)],
+            ])
+            let refusal = try #require(error)
+            #expect(refusal.message.contains("transfer refused by test destination"), "\(refusal)")
+            #expect(move.services.locateTab(move.tabID, onMachine: move.services.machines.local.machineID) != nil)
+        }
+    }
+
     /// A sync that throws instead of answering (the CLI timed out, or didn't launch) keeps this
     /// Mac's tab and the move retryable on the same machine; it never clears that Retry (cx-rppd.8).
     @Test func aSyncThatThrowsKeepsTheMoveRetryableOnItsMachine() async throws {
@@ -883,6 +897,7 @@ struct CloudMoveTests {
                     fi ;;
                 esac
                 case '\(mode)' in
+                lateRefusal) sleep 3; echo '{"ok":false,"error":"transfer refused by test destination","error_code":"agent_transfer.unavailable"}'; exit 1 ;;
                 unresolved) echo '{"ok":false,"error":"the move did not finish","error_code":"move_unresolved","retry_after_seconds":5}'; exit 1 ;;
                 inProgress) echo '{"ok":false,"error":"the chat is moving","error_code":"move_in_progress"}'; exit 1 ;;
                 badAnswer) echo 'thread main panicked'; exit 101 ;;

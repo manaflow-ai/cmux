@@ -48,10 +48,11 @@ struct CloudMachineCreateFlow {
 
     /// The plan gate from the last known limits; unknown limits, or a cap the server makes room at (`makesRoom`), leave it to the server.
     static func gate(_ limits: CloudMachineLimits?, makesRoom: Bool = false) -> Gate {
-        guard let limits else { return .allowed }
-        if limits.maxActiveVms == 0 || limits.planId?.lowercased() == "free" { return .upgrade(Upgrade(reason: .freePlan)) }
-        if let max = limits.maxActiveVms, limits.activeVmCount >= max, !makesRoom { return .upgrade(Upgrade(reason: .atLimit(max))) }
-        return .allowed
+        switch CloudStartCore().launchGate(limits, makesRoom: makesRoom) {
+        case .allowed: .allowed
+        case .freePlan: .upgrade(Upgrade(reason: .freePlan))
+        case .atLimit(let max): .upgrade(Upgrade(reason: .atLimit(max)))
+        }
     }
 
     // app-type-allow: an existing enum that gains one case (upgradeRequired)
@@ -59,8 +60,8 @@ struct CloudMachineCreateFlow {
         /// The person declined the confirmation; nothing was created.
         case declined
         /// The approval was answered, and the backend still held the create
-        /// after every retry; the request stays in the feed.
-        case stillPending(request: String)
+        /// after every retry; the request stays in the feed. `lastRunError`: why the backend's approved run went back to pending.
+        case stillPending(request: String, lastRunError: String? = nil)
         /// A pending answer without its request id (a protocol break).
         case noApprovalRequest
         /// The plan cannot create a machine; nothing was created. A person's create then shows the cap card
@@ -71,9 +72,8 @@ struct CloudMachineCreateFlow {
     var run: CloudAppOp
     /// The native confirmation sheet; true only for a person's click.
     var confirm: @MainActor (Prompt) async -> Bool
-    /// Answers approval `request` as the person's own session, only when
-    /// it holds `op` (the op this flow sent) with exactly `params`.
-    var approve: @MainActor (_ request: String, _ op: String, _ params: JSONValue) async throws -> Void
+    /// Answers approval `request` as the person's own session, only when it holds `op` with exactly `params`; returns the run's answer when the answer call carried it.
+    var approve: @MainActor (_ request: String, _ op: String, _ params: JSONValue) async throws -> JSONValue?
     /// Waits before the next same-key retry after the approval (cancellable).
     var pause: @MainActor (_ attempt: Int) async throws -> Void
     /// Rust checks the selected backend's capabilities before an option-bearing create is sent.
@@ -86,7 +86,8 @@ struct CloudMachineCreateFlow {
     /// The default machine named `name` (trimmed; empty is none): 2 vCPU, 4 GB, 20 GB disk, the platform's spare size (cmux-platform#1756),
     /// so a start claims a warm spare; a larger folder raises the disk (`atLeast`); `sizeShown` false when the plan picks the size.
     static func named(_ name: String?, sizeShown: Bool = true, askedBy: String? = nil) -> Machine {
-        Machine(name: name.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }, cpu: 2, memoryMB: 4096, diskMB: 20480, sizeShown: sizeShown, askedBy: askedBy)
+        let made = CloudStartCore().defaultMachine(named: name)
+        return Machine(name: made.name, cpu: made.cpu, memoryMB: made.memoryMb, diskMB: made.diskMb, sizeShown: sizeShown, askedBy: askedBy)
     }
 
     /// Creates a machine; `startedByPerson` is true for the person's own
@@ -108,28 +109,10 @@ struct CloudMachineCreateFlow {
         // A person's own gesture is the confirmation, so the backend's hold gets no second prompt.
         if !startedByPerson, asksFirst { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
         let sized: (cpu: Int, memoryMb: Int, diskMb: Int) = request?.atLeast(cpu: machine.cpu, memoryMb: request?.memoryMb ?? machine.memoryMB, diskMb: machine.diskMB) ?? (cpu: machine.cpu, memoryMb: machine.memoryMB, diskMb: machine.diskMB) // a chat's folder size raises each axis
-        var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(sized.cpu)), "memory_mb": .number(Double(sized.memoryMb)), "disk_mb": .number(Double(sized.diskMb))])]
-        if let name = machine.name { args["name"] = .string(name) }
-        if let environment { args["environment"] = .string(environment) }
-        // This Mac applies these once the machine exists (bootstrap, machine config, idle pause; the size goes as
-        // `memory_mb`). A backend that does not advertise one refuses the create here. The op takes only its name and
-        // size, and its held approval keeps only those: checked, never sent, so the approval answered is what was sent.
-        var options = args
-        if let request {
-            if let size = request.size { options["size_name"] = .string(size) }
-            if request.persistent { options["idle_seconds"] = .number(0) }
-            if let script = request.script {
-                options["bootstrap"] = .object([
-                    "kind": .string(script.kind.rawValue),
-                    "contents_base64": .string(script.contents.base64EncodedString()),
-                    "repo": script.repo.map { .string($0.spec) } ?? .null,
-                ])
-            }
-            if let config = request.machineConfig { options["machine_config_base64"] = .string(config.contents?.base64EncodedString() ?? "") }
-        }
-        try await validateOptions(.object(options))
-        let op = environment == nil ? "cloud.machine.create" : "cloud.environment.boot"
-        let answer = try await approvalLoop(op, args: .object(args), key: key ?? newKey(), confirmed: true,
+        guard let (op, args, options) = CloudStartCore().createParams(name: machine.name, environment: environment, cpu: sized.cpu, memoryMb: sized.memoryMb,
+                                                                       diskMb: sized.diskMb, request: request) else { throw Self.rulesUnavailable }
+        try await validateOptions(options)
+        let answer = try await approvalLoop(op, args: args, key: key ?? newKey(), confirmed: true,
                                             approved: key == nil ? nil : approved, onApproved: onApproved,
                                             answering: key == nil ? nil : answering, onAnswering: onAnswering) { _ in true }
         if let room = CloudMachineCap.madeRoom(answer) { madeRoom(room) }
@@ -151,70 +134,66 @@ struct CloudMachineCreateFlow {
                               onApproved: @MainActor (String) -> Void = { _ in },
                               answering: String? = nil, onAnswering: @MainActor (String) -> Void = { _ in },
                               ask: @MainActor (_ request: String) async -> Bool) async throws -> JSONValue {
-        var confirmed = confirmed
-        var approved: String?, since = now() // `since`: when this attempt learned the approval was answered
-        var attempt = 0; let ensure = self.beside, waits = Self.waits(within: patience) // the clock ends it first
+        let ensure = self.beside, origin = now()
+        let nowMs = { [now] in Int((now() - origin) / .milliseconds(1)) }
         async let besideDone: Void = ensure()
-        for _ in 0...max(waits, 0) {
-            do {
-                let answer = try await run(op, args, key, .user); await besideDone; return answer
-            } catch let failure as CloudAppOpFailure where failure.code == CloudAppOpFailure.approvalPending {
-                guard let request = failure.approvalRequest else { throw Failure.noApprovalRequest }
-                if approved == nil, request == earlier { approved = request; since = now() }
-                if let approved {
-                    // The answer is in; the approved op runs in the backend, for as long as `patience` (and a clock that stands still ends at `waits`).
-                    guard approved == request, now() - since < patience, attempt < waits else { throw Failure.stillPending(request: request) }
-                    try await pause(attempt)
-                    attempt += 1
-                    continue
+        var approval = CloudLaunchApproval(), answer: JSONValue?, carried: JSONValue?, lastRunError: String?
+        var effects = approval.next(.start(confirmed: confirmed, earlier: earlier, patienceMs: Int(patience / .milliseconds(1)), nowMs: nowMs())) ?? []
+        while !effects.isEmpty {
+            let event: CloudLaunchApproval.Event
+            switch effects.removeFirst() {
+            case .call:
+                do {
+                    answer = try await run(op, args, key, .user); event = .answered
+                } catch let failure as CloudAppOpFailure where failure.code == CloudAppOpFailure.approvalPending {
+                    lastRunError = failure.lastRunError ?? lastRunError; event = .pending(request: failure.approvalRequest, nowMs: nowMs())
                 }
-                if !confirmed {
-                    guard await ask(request) else { throw Failure.declined }
-                    confirmed = true
-                }
+            case .done:
+                await besideDone
+                guard let answer else { throw Self.rulesUnavailable }
+                return answer
+            case .ask(let request): event = .asked(yes: await ask(request))
+            case .approve(let request):
                 onAnswering(request)
+                var outcome = "done"
                 let steps = Self.steps() // a measured start's `machine.ensure` and `machine.approve`
+                var runAnswer: JSONValue?
                 do {
                     await besideDone; steps?.done("machine.ensure")
-                    defer { steps?.done("machine.approve") }; try await approve(request, op, args)
+                    defer { steps?.done("machine.approve") }; runAnswer = try await approve(request, op, args)
                 } catch let failure as CloudApprovalAnswer.Failure
                             where failure.alreadyAnswered(request: request, answeredEarlier: request == answering) {
                     // An earlier attempt answered it and was cancelled before it could record that: the
                     // item is closed, so wait for the approved op like any answered request.
+                    outcome = "already_answered"
                 } catch let failure as CloudApprovalAnswer.Failure where failure.answeredElsewhere(request: request) {
                     // Answered elsewhere (the feed on a phone, the dashboard) before this Mac could: nothing
                     // was answered here, so it is not recorded; the bounded same-key retries read the op's answer.
-                    approved = request; since = now(); attempt = 1
-                    continue
+                    outcome = "answered_elsewhere"
                 }
-                approved = request; since = now()
+                carried = runAnswer
+                event = .approved(outcome: outcome, nowMs: nowMs())
+            case .recordApproved(let request):
                 onApproved(request)
-                // The call right after the answer is the first same-key retry.
-                attempt = 1
+                if let carried { return carried } // carried by the one-call approve; else the next call is the first same-key retry
+                continue
+            case .pause(let attempt): try await pause(attempt); event = .paused
+            case .declined: throw Failure.declined
+            case .noApprovalRequest: throw Failure.noApprovalRequest
+            case .stillPending(let request): throw Failure.stillPending(request: request, lastRunError: lastRunError)
             }
+            guard let next = approval.next(event) else { throw Self.rulesUnavailable }
+            effects = next
         }
-        throw Failure.stillPending(request: approved ?? "")
+        throw Self.rulesUnavailable
     }
 
-    /// 250 ms, 500 ms, then 1 s between the same-key calls after the approval. A pending call costs about 200 ms, and
-    /// an op the server finishes while the flow waits is only seen at the next call: the old 1, 2, 4, 8 s (capped at
-    /// 8 s) left a start whose server held the create 8 to 70 s waiting about 3.5 s past its machine (the chat probe's
-    /// starts, 2026-11-21).
-    static func backoff(_ attempt: Int) -> Duration {
-        switch attempt {
-        case ...1: .milliseconds(250)
-        case 2: .milliseconds(500)
-        default: .seconds(1)
-        }
-    }
+    /// The app FFI did not answer: nothing more is sent.
+    private static var rulesUnavailable: CloudAppOpFailure { CloudAppOpFailure(code: "cmux.cloud.rules_unavailable", message: "") }
 
-    /// The most same-key calls after the approval: enough that their backoffs add up to `patience`, so the flow's
-    /// deadline ends the calls, and a clock that stands still still ends at this count.
-    static func waits(within patience: Duration) -> Int {
-        var waited = Duration.zero, attempt = 1
-        while waited < patience { waited += backoff(attempt); attempt += 1 }
-        return attempt
-    }
+    /// 250 ms, 500 ms, then 1 s between the same-key calls after the approval (cmux-cloud-start-core `create_flow::backoff_ms`).
+    /// A pending call costs about 200 ms, and an op the server finishes while the flow waits is only seen at the next call.
+    static func backoff(_ attempt: Int) -> Duration { CloudStartCore().launchBackoff(attempt) }
 
     /// The clock that marks the approval's parts of a measured start's `machine` step (``CloudStartSteps``): the wait
     /// for the create's `user.ensure`, then the approval's answer (its reads and `feed.answer`). None outside a start.
@@ -230,7 +209,7 @@ extension CloudMachineCreateFlow.Failure: CustomStringConvertible, LocalizedErro
     nonisolated var description: String {
         switch self {
         case .declined: "declined"
-        case .stillPending: CloudStrings.createStillPending
+        case .stillPending(_, let why): why.map { "\(CloudStrings.createStillPending) (\($0))" } ?? CloudStrings.createStillPending
         case .noApprovalRequest: CloudStrings.createApproveInFeed
         case .upgradeRequired: CloudStrings.upgradeRequired
         }

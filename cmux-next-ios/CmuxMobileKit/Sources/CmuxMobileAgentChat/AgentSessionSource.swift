@@ -126,6 +126,10 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// `_meta.acpmux.fullAccess`, read on each connection; false after acpmux refuses it).
     case fullAccess(Bool)
     case status(AgentSessionSummary.Status)
+    /// The session's footer facts (`composerStatus.facts` on its row, RFD 0130): a whole row's
+    /// (attach, the chat's own `session_changed`) or a census row's, which leaves out the facts
+    /// that repeat the row's fields (``AgentFooterFacts/updated(with:)``).
+    case footerFacts(AgentFooterFacts)
     /// A call the source made for the person failed (refused allow, trust gate, link down).
     case clientError(String)
     /// A prompt that never reached the agent (an attachment upload failed, the
@@ -146,6 +150,17 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// Several records applied as one change (a replayed history), so no
     /// half-replayed state (a past turn still "Working") is ever on screen.
     case batch([AgentSessionEvent])
+}
+
+extension AgentSessionEvent {
+    /// The source's or link's state (still reading history, connected, what models and modes
+    /// the Mac offers), not a change to the chat's turns, ask or queue.
+    var isLinkState: Bool {
+        switch self {
+        case .historyLoading, .status, .fullAccess, .modelsAvailable, .modesAvailable, .earlierHistory: true
+        default: false
+        }
+    }
 }
 
 /// A person's action in the chat, encoded by the source into acpmux calls:

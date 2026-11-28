@@ -158,7 +158,7 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     ("rpc.rs", "\"session/list\"", 1, "the method's name"),
     ("rpc.rs", "\"_acpmux/sessions\"", 1, "the method's name"),
     ("rpc.rs", "\"_acpmux/watch\"", 1, "the method's name"),
-    ("capabilities.rs", "method::MUX_SESSIONS", 5, "the capability ids, no read"),
+    ("capabilities.rs", "method::MUX_SESSIONS", 6, "the capability ids, no read"),
     ("capabilities.rs", "method::MUX_WATCH", 3, "the capability ids and the batch wire, no read"),
     ("pairing/read_only.rs", "method::SESSION_LIST", 1, "a paired device's read-only methods"),
     ("pairing/read_only.rs", "method::MUX_SESSIONS", 1, "a paired device's read-only methods"),

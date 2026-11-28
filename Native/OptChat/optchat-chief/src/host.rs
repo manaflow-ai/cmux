@@ -70,8 +70,7 @@ pub fn harness_choice(
 /// The compactor's harness when none is set (Lawrence 2026-10-09: "just
 /// always use haiku for default compactor"): the turns' own when it is a
 /// Claude harness (claude-sr stays claude-sr), else `claude`, the Claude
-/// route acpmux has (the configured CodeRouter route, else the user's own
-/// login).
+/// route acpmux has (the user's own login).
 pub fn default_compactor_harness(turn: &str, family: Family, claude: &str) -> String {
     if family == Family::Claude {
         turn.to_owned()
@@ -111,7 +110,7 @@ pub fn compactor_harness_for(
 /// harnesses the Chief can use, so its model probes never start another
 /// harness's agent (a Claude-only Chief never starts codex-acp). The set
 /// turn, compactor and subagent harnesses and engine.json's, and always the
-/// Claude routes (`DEFAULT_HARNESS`, `CODEROUTER_HARNESS`, `SR2_HARNESS`): the default turn
+/// Claude routes (`DEFAULT_HARNESS`, `SR2_HARNESS`): the default turn
 /// harness, and the compactor of a turn harness that is not Claude.
 pub fn probe_harnesses(
     chief: Option<&str>,
@@ -128,7 +127,7 @@ pub fn probe_harnesses(
     ]
     .into_iter()
     .flatten()
-    .chain([DEFAULT_HARNESS, CODEROUTER_HARNESS, SR2_HARNESS])
+    .chain([DEFAULT_HARNESS, SR2_HARNESS])
     .collect();
     names.into_iter().collect::<Vec<_>>().join(",")
 }
@@ -138,33 +137,19 @@ pub fn probe_harnesses(
 /// is only an explicit choice.
 pub const DEFAULT_HARNESS: &str = "claude";
 
-/// The harness the Chief uses when none is set: the configured CodeRouter
-/// route (`claude-cr`, which acpmux has only when `coderouterClaudeRoute`
-/// names one) whether or not it can run, so an unavailable route is
-/// refused with its reason instead of silently moving to another account;
-/// else the user's own Claude CLI (`DEFAULT_HARNESS`: the `claude` acpmux
-/// finds on the login shell's PATH, run with the user's own
-/// `~/.claude/settings.json` and login; Lawrence 2026-10-19: "make sure
-/// Chief, by default, will talk to the correct Claude, using the user's
-/// Claude CLI"). The subrouter2 route (`claude-sr2`) is an explicit choice
-/// (`chief engine set --harness claude-sr2`), and the default only when
-/// acpmux has no usable `claude` but can run sr2.
-pub fn default_harness(answer: &serde_json::Value) -> &'static str {
-    let harnesses = answer.get("harnesses");
-    if harnesses.and_then(|h| h.get(CODEROUTER_HARNESS)).is_some() {
-        return CODEROUTER_HARNESS;
-    }
-    let runnable_stdio = |name: &str| {
-        harnesses.and_then(|h| h.get(name)).is_some_and(|p| {
-            p.get("kind").and_then(serde_json::Value::as_str) == Some("claude-stdio")
-                && p.get("unavailable").is_none()
-        })
-    };
-    if !runnable_stdio(DEFAULT_HARNESS) && runnable_stdio(SR2_HARNESS) {
-        SR2_HARNESS
-    } else {
-        DEFAULT_HARNESS
-    }
+/// The harness the Chief uses when none is set: the user's own Claude CLI
+/// (`DEFAULT_HARNESS`: the `claude` acpmux finds on the login shell's PATH,
+/// run with the user's own `~/.claude/settings.json` and login; Lawrence
+/// 2026-10-19: "make sure Chief, by default, will talk to the correct
+/// Claude, using the user's Claude CLI"). No other route is ever picked for
+/// the person: not the CodeRouter route (Leo: "For cmux next, just rip it out
+/// for now then"), and the subrouter2 route (`claude-sr2`) only as an
+/// explicit choice (`chief engine set --harness claude-sr2`): a missing
+/// `claude` is refused with its reason, never moved to another route (Leo
+/// 2026-11-26: "identify all the weird opinoinated fleet things we shipped
+/// into the app and remove them").
+pub fn default_harness(_answer: &serde_json::Value) -> &'static str {
+    DEFAULT_HARNESS
 }
 
 /// Records which executable (and its `--version`) the turns, compactor and
@@ -230,9 +215,6 @@ fn trace_codex(paths: &Paths, trace: &crate::trace::Trace, log: &dyn Fn(String))
         log(format!("codex: {} ({version})", path.display()));
     }
 }
-
-/// acpmux's profile for a configured CodeRouter Claude route.
-pub const CODEROUTER_HARNESS: &str = "claude-cr";
 
 /// acpmux's profile for Claude Code through the subrouter2 gateway
 /// (`~/.config/cmux/harnesses/claude-sr2.toml`, command `sr2 claude`).
@@ -1059,8 +1041,7 @@ fn start(
             );
             brain_states = crate::brain_home::prepare(paths, &answer, &setup, &|line| log(line));
         }
-        // Nothing set: the configured CodeRouter route when acpmux has one,
-        // else the user's own Claude CLI (default_harness).
+        // Nothing set: the user's own Claude CLI (default_harness).
         if chief_set.is_none() {
             harness = default_harness(&answer).to_owned();
             if sub_set.is_none() {

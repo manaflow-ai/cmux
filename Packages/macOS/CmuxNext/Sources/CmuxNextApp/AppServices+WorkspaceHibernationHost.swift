@@ -8,4 +8,5 @@ extension AppServices: WorkspaceHibernationHost {
     func hibernationPolicy() -> WorkspaceHibernationPlanner.Policy { WorkspaceHibernationPlanner.Policy(settings?.snapshot.workspaceHibernation) }
     func hibernate(workspace id: String) { hibernateWorkspace(id) }
     func hibernate(workspace id: String, byPerson: Bool) { hibernateWorkspace(id, byPerson: byPerson) }
+    func mirrorKeepAwake(_ workspaces: Set<String>, keptAwake: Bool) { WorkspaceKeepAwakeFlags.live(owner: machines.workspace(id:)).mirror(workspaces, keptAwake: keptAwake) }
 }

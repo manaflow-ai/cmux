@@ -74,7 +74,6 @@ enum FirstPartyPageSchemes {
         .homeChannels,
         .iconPicker,
         .keybindings,
-        .machines,
         .markdown,
         .onboarding,
         .passwords,

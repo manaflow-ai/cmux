@@ -4,7 +4,11 @@
 // useChatCloudEnvironment holds it as the chat's pick until the chat picks its own.
 import { afterEach, expect, test } from "bun:test";
 import { renderToString } from "react-dom/server";
-import { chatEnvironmentPick, useChatCloudEnvironment } from "../src/agent-session/acpmux/chatCloudEnvironment";
+import {
+  chatEnvironmentPick,
+  retryEnvironmentFor,
+  useChatCloudEnvironment,
+} from "../src/agent-session/acpmux/chatCloudEnvironment";
 import {
   DEFAULT_IMAGE_KEY,
   defaultCloudImage,
@@ -64,4 +68,18 @@ test("a denv_ environment id is a Default Image too; anything else reads as Auto
   expect(defaultCloudImage()).toBe(AUTO_ENVIRONMENT);
   setChatDisplay({ [DEFAULT_IMAGE_KEY]: "env_123" });
   expect(defaultCloudImage()).toBe(AUTO_ENVIRONMENT);
+});
+
+// CAPY-2 (cmux#47627): a failed start's Retry keeps its environment unless the chat picks another.
+test("a failed start's retry keeps its environment until a deliberate pick, Auto included", () => {
+  // No pick since the failed send (the pick reset after Send): Retry names the failed start's target.
+  expect(retryEnvironmentFor(undefined, undefined, "env_gpu")).toBe("env_gpu");
+  expect(cloudStartEnvironment(retryEnvironmentFor(undefined, undefined, "env_gpu"), AUTO_ENVIRONMENT)).toBe("env_gpu");
+  // A deliberate pick replaces it, Auto included.
+  expect(retryEnvironmentFor(undefined, "env_web", "env_gpu")).toBeUndefined();
+  expect(retryEnvironmentFor(undefined, AUTO_ENVIRONMENT, "env_gpu")).toBeUndefined();
+  // A changed prompt supplies no retry, so it never inherits the previous target.
+  expect(retryEnvironmentFor(undefined, undefined, undefined)).toBeUndefined();
+  // A start that names its own environment still names it.
+  expect(retryEnvironmentFor("env_start", undefined, "env_gpu")).toBe("env_start");
 });

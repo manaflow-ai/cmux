@@ -192,7 +192,7 @@ final class StagedUpdateRefresh {
             return install()
         }
         let why = pulled ? "staged build \(staged) was pulled" : "build \(newer ?? "") is newer than staged build \(staged)"
-        guard isCancellable(updater), updater.cancelStaged() else {
+        guard isCancellable(updater), updater.cancelStagedUpdate() else {
             guard !pulled else {
                 // A pulled build is never installed: the update sheet says what failed, so the click never ends in silence.
                 updater.log.append("install click: \(why), but no installer was held to cancel; not installing it")
@@ -360,7 +360,7 @@ final class StagedUpdateRefresh {
         guard let newer = newerBuild(than: staged, failure: failure, asked: asked, updater: updater) else {
             return keep(updater, asked: asked)
         }
-        guard updater.cancelStaged() else {
+        guard updater.cancelStagedUpdate() else {
             updater.log.append("build \(newer) is newer than staged build \(staged), but no installer was held to cancel")
             return keep(updater, asked: asked)
         }
@@ -409,7 +409,7 @@ final class StagedUpdateRefresh {
         let running = updater.identity.build
         guard case .ready = updater.sourcePhase, let build = updater.stagedBuild(), !build.isEmpty,
               SUStandardVersionComparator.default.compareVersion(build, toVersion: running) != .orderedDescending,
-              updater.cancelStaged() else { return }
+              updater.cancelStagedUpdate() else { return }
         updater.log.append("staged build \(build) is not newer than build \(running): cancelling its installer")
     }
 }

@@ -159,8 +159,11 @@ impl GitHub {
         if !(url.scheme() == "https" || loopback) {
             bail!("{api} is not an https API; the token goes only to one");
         }
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let mut builder = reqwest::Client::builder()
+        if api != GITHUB_API && !loopback {
+            // A GitHub Enterprise API the caller named is theirs to reach.
+            cmux_egress::allow_named(api);
+        }
+        let mut builder = cmux_egress::client_builder("cmux_no_checkout::github")
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(CALL_TIMEOUT)
@@ -234,7 +237,7 @@ impl GitHub {
         if !status.is_success() {
             let message = serde_json::from_slice::<Value>(&bytes)
                 .ok()
-                .and_then(|v| v["message"].as_str().map(str::to_owned))
+                .and_then(|v| v.get("message").and_then(Value::as_str).map(str::to_owned))
                 .unwrap_or_default();
             return Err(ApiError {
                 what: format!("{method} {path}"),
@@ -259,16 +262,24 @@ impl GitHub {
     /// The default branch's name.
     pub async fn default_branch(&self) -> anyhow::Result<String> {
         let repo = self.json(reqwest::Method::GET, "", None).await?;
-        repo["default_branch"].as_str().map(str::to_owned).context("no default branch")
+        repo.get("default_branch")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .context("no default branch")
     }
 
     /// The commit `branch` points at, and its tree.
     pub async fn branch_head(&self, branch: &str) -> anyhow::Result<Head> {
         let v =
             self.json(reqwest::Method::GET, &format!("/branches/{}", escape(branch)), None).await?;
-        let commit = v["commit"]["sha"].as_str().context("the branch names no commit")?;
-        let tree =
-            v["commit"]["commit"]["tree"]["sha"].as_str().context("the commit has no tree")?;
+        let commit = v
+            .pointer("/commit/sha")
+            .and_then(Value::as_str)
+            .context("the branch names no commit")?;
+        let tree = v
+            .pointer("/commit/commit/tree/sha")
+            .and_then(Value::as_str)
+            .context("the commit has no tree")?;
         Ok(Head { commit: commit.to_owned(), tree: tree.to_owned() })
     }
 
@@ -278,10 +289,10 @@ impl GitHub {
         let v = self
             .json(reqwest::Method::GET, &format!("/git/trees/{}?recursive=1", escape(tree)), None)
             .await?;
-        if v["truncated"] == true {
+        if v.get("truncated").and_then(Value::as_bool) == Some(true) {
             bail!("the tree is too big to list in one read (GitHub truncated it): use a checkout");
         }
-        Ok(serde_json::from_value(v["tree"].clone())?)
+        Ok(serde_json::from_value(v.get("tree").cloned().context("no tree entries")?)?)
     }
 
     /// A blob's bytes: every read of a file's bytes goes through here.
@@ -297,7 +308,7 @@ impl GitHub {
         let content = base64::engine::general_purpose::STANDARD.encode(bytes);
         let body = json!({"content": content, "encoding": "base64"});
         let v = self.json(reqwest::Method::POST, "/git/blobs", Some(&body)).await?;
-        v["sha"].as_str().map(str::to_owned).context("no blob sha")
+        v.get("sha").and_then(Value::as_str).map(str::to_owned).context("no blob sha")
     }
 
     /// A tree that is `base` with `changes`.
@@ -313,7 +324,7 @@ impl GitHub {
             .collect();
         let body = json!({"base_tree": base, "tree": entries});
         let v = self.json(reqwest::Method::POST, "/git/trees", Some(&body)).await?;
-        v["sha"].as_str().map(str::to_owned).context("no tree sha")
+        v.get("sha").and_then(Value::as_str).map(str::to_owned).context("no tree sha")
     }
 
     /// A commit of `tree` on `parent`.
@@ -325,7 +336,7 @@ impl GitHub {
     ) -> anyhow::Result<String> {
         let body = json!({"message": message, "tree": tree, "parents": [parent]});
         let v = self.json(reqwest::Method::POST, "/git/commits", Some(&body)).await?;
-        v["sha"].as_str().map(str::to_owned).context("no commit sha")
+        v.get("sha").and_then(Value::as_str).map(str::to_owned).context("no commit sha")
     }
 
     /// Points `branch` at `commit`: a new branch, or a fast-forward of an existing one (never a
@@ -356,8 +367,8 @@ impl GitHub {
         let req = json!({"title": title, "body": body, "head": head, "base": base, "draft": draft});
         let v = self.json(reqwest::Method::POST, "/pulls", Some(&req)).await?;
         Ok(Pull {
-            number: v["number"].as_u64().context("no pull request number")?,
-            url: v["html_url"].as_str().unwrap_or_default().to_owned(),
+            number: v.get("number").and_then(Value::as_u64).context("no pull request number")?,
+            url: v.get("html_url").and_then(Value::as_str).unwrap_or_default().to_owned(),
         })
     }
 
@@ -433,6 +444,10 @@ impl GitWriter for GitHub {
         Self::open_pull(self, title, body, head, base, draft).await
     }
 }
+
+#[cfg(test)]
+#[path = "github_seeded_tests.rs"]
+mod seeded_tests;
 
 #[cfg(test)]
 mod tests {

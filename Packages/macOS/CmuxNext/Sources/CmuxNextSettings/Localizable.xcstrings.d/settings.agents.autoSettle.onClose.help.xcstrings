@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.autoSettle.onClose.help" : {
+      "comment" : "Settings > Agents > Settle Chats: help for the settle-on-close toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moves a chat to Settled once every pull request it opened was closed without a merge."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ينقل المحادثة إلى «المسوّاة» بعد إغلاق كل طلبات السحب التي فتحتها دون دمج."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Premješta razgovor u Smireno kada je svaki pull request koji je otvorio zatvoren bez spajanja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flytter en chat til Afsluttet, når alle de pull requests, den åbnede, er lukket uden merge."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verschiebt einen Chat nach „Abgelegt“, sobald jeder von ihm geöffnete Pull Request ohne Merge geschlossen wurde."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mueve un chat a Archivados cuando todos los pull requests que abrió se cerraron sin fusionar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplace un chat vers Classés dès que chaque pull request qu’il a ouverte a été fermée sans fusion."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sposta una chat in Archiviate quando ogni pull request che ha aperto è stata chiusa senza merge."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開いたすべてのプルリクエストがマージされずにクローズされたら、チャットを「整理済み」に移動します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ផ្លាស់ការជជែកទៅ «បានបញ្ចប់» នៅពេល Pull Request ទាំងអស់ដែលវាបានបើកត្រូវបានបិទដោយមិន merge។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "연 모든 풀 리퀘스트가 병합 없이 닫히면 채팅을 정리됨으로 옮깁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flytter en chat til Avsluttet når alle pull requestene den åpnet er lukket uten merge."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przenosi czat do Odłożonych, gdy każdy otwarty przez niego pull request zostanie zamknięty bez scalenia."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move um chat para Arquivados quando todos os pull requests que ele abriu forem fechados sem merge."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перемещает чат в «Убранные», когда все открытые им пул-реквесты закрыты без слияния."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ย้ายแชตไปที่ จัดเก็บแล้ว เมื่อ Pull Request ทุกรายการที่แชตเปิดถูกปิดโดยไม่ merge"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Açtığı her pull request birleştirilmeden kapatıldığında sohbeti Kaldırılanlar’a taşır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переміщує чат до «Прибраних», коли всі відкриті ним пул-реквести закрито без злиття."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chuyển cuộc trò chuyện sang Đã xếp gọn khi mọi pull request nó mở đều bị đóng mà không merge."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当它打开的每个拉取请求都未合并即关闭时，将聊天移到“已归档”。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "當它開啟的每個拉取請求都未合併即關閉時，將聊天移到「已歸檔」。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

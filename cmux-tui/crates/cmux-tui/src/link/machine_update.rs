@@ -68,10 +68,11 @@ const USAGE: &str =
 /// Every Cloud image bakes an x86_64 machine (images/cmux-vm inputs.lock.json).
 const CLOUD_ARCH: &str = "x86_64";
 /// The verbs whose absence makes a machine worth updating.
-const NEEDED: [&str; 3] = [
+const NEEDED: [&str; 4] = [
     cmux_tui_core::fs_ops::FS_CAPABILITY,
     cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_CAPABILITY,
     cmux_tui_core::server::agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY,
+    cmux_tui_core::server::agent_transfer::chat_folders::CHAT_FOLDER_CAPABILITY,
 ];
 /// What the old daemon must serve for the update to reach it.
 const REACHES: [&str; 2] = [cmux_tui_core::fs_ops::FS_CAPABILITY, "detached-terminals-v1"];
@@ -110,7 +111,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         eprintln!("{USAGE}");
         return 64;
     };
-    match update(&request) {
+    match update_when_free(&request, BUSY_PATIENCE) {
         Ok(mut line) => {
             line.set("ok", json!(true));
             println!("{line}");
@@ -125,6 +126,31 @@ pub(super) fn run(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+/// How long a `busy` machine (another update of it runs, or its daemon
+/// restarted since it was read) is waited for: the update starts over by
+/// itself, and a machine the other update already moved to this build ends
+/// as `updated: false`.
+const BUSY_PATIENCE: Duration = Duration::from_secs(120);
+
+/// [`update`], started over while the machine answers `busy`.
+fn update_when_free(request: &Request, patience: Duration) -> Result<Value, Failed> {
+    retry_busy(patience, || update(request))
+}
+
+fn retry_busy<T>(
+    patience: Duration,
+    mut attempt: impl FnMut() -> Result<T, Failed>,
+) -> Result<T, Failed> {
+    use cmux_tui_core::retry::{Attempt, Patience};
+    Patience::new("the machine's other update to finish", patience)
+        .spaced(Duration::from_secs(2), Duration::from_secs(15))
+        .run(|| match attempt() {
+            Err(failed) if failed.code == "machine_update_busy" => Err(Attempt::Retry(failed)),
+            Err(failed) => Err(Attempt::Fail(failed)),
+            Ok(value) => Ok(value),
+        })
 }
 
 /// One `link machine update`'s arguments.
@@ -180,7 +206,7 @@ fn update(request: &Request) -> Result<Value, Failed> {
         .map_err(|unreached| Failed::new("machine_unreachable", unreached.to_string()))?;
     let previous = machine_gate::build_id(&before).map(str::to_owned);
     let current = if request.to_bundled {
-        previous.as_deref() == Some(cmux_build_identity::BUILD_IDENTITY)
+        previous.as_deref() == Some(crate::build_identity::identity())
     } else {
         machine_gate::outdated_identity(&before, &NEEDED).is_none()
     };
@@ -198,7 +224,7 @@ fn update(request: &Request) -> Result<Value, Failed> {
                 format!("the machine daemon did not say its build time: {error}"),
             )
         })?;
-        if !machine_is_older(revisions["build_time"].as_u64(), cmux_build_identity::BUILD_TIME) {
+        if !machine_is_older(revisions["build_time"].as_u64(), crate::build_identity::time()) {
             return Ok(json!({"updated": false, "build": previous, "not_older": true}));
         }
     }
@@ -392,10 +418,9 @@ fn pinned_payload() -> Result<(PathBuf, String, String), Failed> {
         .enable_all()
         .build()
         .map_err(|e| Failed::new("machine_update_failed", e.to_string()))?;
-    match runtime.block_on(cmux_remote::pinned_linux_payload(
-        CLOUD_ARCH,
-        cmux_build_identity::BUILD_IDENTITY,
-    )) {
+    match runtime
+        .block_on(cmux_remote::pinned_linux_payload(CLOUD_ARCH, crate::build_identity::identity()))
+    {
         Ok(Some(pinned)) if apply::is_sha256(&pinned.sha256) => {
             Ok((pinned.path, pinned.sha256, pinned.commit))
         }
@@ -458,7 +483,7 @@ fn stage(
 
 /// Waits for the apply step's recorded outcome; the new build on success.
 fn wait_for_outcome(socket: &Path, result: &str, daemon_pid: u64) -> Result<String, Failed> {
-    let own = cmux_build_identity::BUILD_IDENTITY;
+    let own = crate::build_identity::identity();
     let deadline = Instant::now() + OUTCOME_TIMEOUT;
     let mut new_seen: Option<Instant> = None;
     while Instant::now() < deadline {
@@ -491,7 +516,7 @@ fn ended(outcome: &Value, own: &str) -> Result<String, Failed> {
         )),
         Some("busy") => Err(Failed::new(
             "machine_update_busy",
-            format!("not now: {}; try again", detail(outcome)),
+            format!("the machine stayed busy: {}", detail(outcome)),
         )),
         // The daemon runs someone's own build from another path, or the
         // machine's updater kept its build (off, this build rolled back

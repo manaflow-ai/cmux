@@ -230,6 +230,7 @@ public:
     [[nodiscard]] Result<SurfaceResult> new_workspace(const NewWorkspaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<NoteSizeActivityResult> note_size_activity(const NoteSizeActivityRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<NotifyResult> notify(const NotifyRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<PhoneLinkOfferResult> offer_link_to_phone(const OfferLinkToPhoneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> page_credential(const PageCredentialRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> pairing_response(const PairingResponseRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PaneNeighborResult> pane_neighbor(const PaneNeighborRequest& request, RequestOptions options = {});
@@ -246,6 +247,7 @@ public:
     [[nodiscard]] Result<ReadScreenResult> read_screen(const ReadScreenRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReadScrollbackResult> read_scrollback(const ReadScrollbackRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReattachViewResult> reattach_view(const ReattachViewRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> record_notification_delivery(const RecordNotificationDeliveryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<BrowserProviderSnapshot> register_browser_provider(const RegisterBrowserProviderRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AttachedViewOutcomeResult> release_attached_view_size(const ReleaseAttachedViewSizeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> release_surface_size(const ReleaseSurfaceSizeRequest& request, RequestOptions options = {});

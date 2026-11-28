@@ -139,11 +139,12 @@ extension ActionRegistry {
                 item.submenu = submenu
                 items.append(item)
             case .group(let group, let children):
-                // The person's own submenu (Settings > Menus): their title, no icon.
+                // The person's own submenu (Settings > Menus): their title, a folder's icon so it lines up with the rows beside it.
                 let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels,
                                            machineID: machineID, menu: menu)
                 guard childItems.contains(where: { !$0.isSeparatorItem }) else { continue }
                 let item = NSMenuItem(title: group.title, action: nil, keyEquivalent: "")
+                item.image = rowIcon("folder")
                 let submenu = NSMenu(title: group.title)
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu

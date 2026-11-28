@@ -1028,6 +1028,20 @@ class LayerTests(Repo):
                                  "CmuxNextUI": ["CmuxNextDomain"], "CFFI": []})
         self.assertEqual(manifest.unreadable, {})
 
+    def test_a_ternary_dependency_variable_is_both_arms(self):
+        manifest = counts.parse_manifest(
+            'let linux = true\n'
+            'let ffi: [Target.Dependency] = linux ? ["CFFILinux"] : ["CFFI"]\n'
+            'let package = Package(name: "P", targets: [\n'
+            '    .target(name: "CFFI"),\n'
+            '    .target(name: "CFFILinux"),\n'
+            '    .target(name: "Core", dependencies: ffi + ["Base"]),\n'
+            '    .target(name: "Base"),\n'
+            '])\n')
+        self.assertEqual(sorted(manifest.targets["Core"].deps), ["Base", "CFFI", "CFFILinux"])
+        self.assertEqual(manifest.targets["Core"].unresolved, set())
+        self.assertEqual(manifest.unreadable, {})
+
     def test_an_upward_edge_from_core_is_counted_and_refused(self):
         # Core -> domain is neither hard nor soft, but edges only point down (DESIGN section 2).
         self.write("Packages/macOS/CmuxNext/Package.swift",
@@ -2339,8 +2353,7 @@ class BloblessCloneTests(Repo):
         self.git("config", "uploadpack.allowFilter", "true")
         self.git("config", "uploadpack.allowAnySHA1InWant", "true")
         self.clone = Path(self.tmp.name) / "blobless"
-        subprocess.run(["git", "clone", "--quiet", "--bare", "--filter=blob:none", f"file://{self.repo}",
-                        str(self.clone)], env=self.env, check=True, capture_output=True)
+        git_fixture_env.clone_repo(f"file://{self.repo}", self.clone, "--bare", "--filter=blob:none", env=self.env)
 
     def packs(self):
         return len(list((self.clone / "objects" / "pack").glob("*.pack")))

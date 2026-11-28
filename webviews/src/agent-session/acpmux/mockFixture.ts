@@ -32,6 +32,18 @@ export type MockSession = {
   };
   /// The agent's last reply, for sessions other than the worked one.
   reply?: string;
+  /// The composer footer's status rundown for showcase captures. This is passed through the
+  /// mock daemon's session summary exactly as acpmux sends it.
+  composerStatus?: {
+    items: {
+      kind: string;
+      level: "info" | "attention" | "problem";
+      words: string;
+      subject?: string;
+      action?: string;
+    }[];
+    facts: unknown[];
+  };
   /// Images the last reply shows under its text (the image viewer's mock chat).
   images?: { alt: string; svg: string }[];
   /// What a session needing input waits on: the tool call its permission card names.
@@ -118,11 +130,15 @@ const codexCollaboration = {
     { value: "plan", name: "Plan", description: "Write a plan before editing." },
   ],
 };
-/// A session's config options: its effort level, and Codex's collaboration mode for /plan.
-const sessionOptions = (codex: boolean) => [
+/// A session's config options: its effort level, and Codex's collaboration mode for /plan. One copy
+/// per harness, as acpmux holds one per agent: built per session, the in-page daemon held a new
+/// set for each of a 3,000-chat list in every chat's page, which acpmux's process holds outside
+/// the app's webviews (bench/sim-ladder.bench.ts). A change is a new list (`set_config_option`).
+const harnessOptions = (codex: boolean) => [
   ...effort(codex ? "high" : "medium"),
   ...(codex ? [codexCollaboration] : []),
 ];
+const sessionOptions = (codex: boolean) => (codex ? sharedOptions.codex : sharedOptions.claude);
 const effort = (currentValue: string) => [
   {
     id: "effort",
@@ -136,6 +152,8 @@ const effort = (currentValue: string) => [
     ],
   },
 ];
+// After `effort`: built as the module loads.
+const sharedOptions = { codex: harnessOptions(true), claude: harnessOptions(false) };
 
 /// The session the pane opens on: one fully worked turn.
 export const WORKED_SESSION = "mock-session";
@@ -189,6 +207,23 @@ export const mockSessions: MockSession[] = [
       state: "open",
       reviewReady: true,
       checks: "passing",
+    },
+    composerStatus: {
+      items: [
+        {
+          kind: "stuck",
+          level: "problem",
+          words: "status.stuck.spawnFailed",
+          subject: "Codex",
+        },
+        {
+          kind: "rateLimited",
+          level: "attention",
+          words: "status.rateLimited.parked",
+          subject: "Claude Code",
+        },
+      ],
+      facts: [],
     },
   },
   {

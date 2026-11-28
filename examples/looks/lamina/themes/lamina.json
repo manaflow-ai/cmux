@@ -2,11 +2,11 @@
 // one-point strokes, no reveal effects, an accent mark on the selected row. Every key is a look key.
 {
   "name": "Lamina",
-  "description": "A layered, translucent desktop look: compact and balanced, dark.",
+  "description": "Dark: frosted glass layers, compact.",
 
   // Palette: layer color, ink, selection, accent.
   "appearance.theme": "Builtin Dark",
-  "colors": {"background": "#202020", "foreground": "#f3f3f3", "selection": "#2a4a63", "accent": "#4cc2ff"},
+  "colors": {"background": "#202020", "foreground": "#f3f3f3", "selection": "#477ca6", "accent": "#4cc2ff"},
   "appearance.appTheme": "followTerminal",
   "appearance.accent": "theme",
   "appearance.highlightColor": "#2a4a63",

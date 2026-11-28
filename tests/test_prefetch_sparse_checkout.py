@@ -86,8 +86,52 @@ class PrefetchSparseCheckout(unittest.TestCase):
         self.assertNotIn("Packages/macOS/CmuxNext/Sources/icon.png", want)
         self.assertNotIn("web/index.ts", want)
         self.assertIn("Packages/macOS/Other/Package.swift", want)
-        # The prefetch named every checked-out blob (one per distinct content), so the reapply fetched none lazily.
+        # The prefetch named every checked-out blob (one per distinct content), so widening fetched none lazily.
         self.assertRegex(out, rf"sparse prefetch: {len(set(want.values()))} blobs in 3 fetches")
+
+    def test_widen_after_sparse_checkout_was_disabled_in_this_worktree(self):
+        patterns = PATTERNS.read_text(encoding="utf-8")
+        want = self.tree(self.clone("plain", patterns))
+        work = self.clone("reused", "/scripts/ci/\n")
+        git(work, "sparse-checkout", "disable")
+        # actions/checkout enables non-cone sparsity in the repository config on reuse.
+        git(work, "config", "--local", "core.sparseCheckout", "true")
+        self.assertEqual(git(work, "config", "--bool", "core.sparseCheckout").strip(), "false")
+        subprocess.run(["bash", str(SCRIPT)], cwd=work, input=patterns, check=True, capture_output=True,
+                       text=True, env={**os.environ, "GH_TOKEN": "", "PREFETCH_JOBS": "3"})
+        self.assertEqual(self.tree(work), want)
+        self.assertEqual(git(work, "config", "--bool", "core.sparseCheckout").strip(), "true")
+
+    def test_falls_back_when_the_configured_temp_directory_is_missing(self):
+        patterns = PATTERNS.read_text(encoding="utf-8")
+        want = self.tree(self.clone("plain", patterns))
+        work = self.clone(
+            "missing-temp", "/scripts/ci/prefetch-sparse-checkout.sh\n/scripts/ci/path-route-sparse-checkout.txt\n"
+        )
+        env = {**os.environ, "GH_TOKEN": "", "PREFETCH_JOBS": "3",
+               "TMPDIR": str(self.tmp / "does-not-exist")}
+        env.pop("RUNNER_TEMP", None)
+        with PATTERNS.open(encoding="utf-8") as stdin:
+            subprocess.run(["bash", str(SCRIPT)], cwd=work, stdin=stdin, check=True, capture_output=True,
+                           text=True, env=env)
+        self.assertEqual(self.tree(work), want)
+        self.assertFalse((work / ".cmux-prefetch").exists())
+
+    def test_prefers_runner_temp_when_tmpdir_is_missing(self):
+        patterns = PATTERNS.read_text(encoding="utf-8")
+        want = self.tree(self.clone("plain", patterns))
+        work = self.clone(
+            "runner-temp", "/scripts/ci/prefetch-sparse-checkout.sh\n/scripts/ci/path-route-sparse-checkout.txt\n"
+        )
+        runner_temp = self.tmp / "runner-temp-root"
+        runner_temp.mkdir()
+        env = {**os.environ, "GH_TOKEN": "", "PREFETCH_JOBS": "3", "RUNNER_TEMP": str(runner_temp),
+               "TMPDIR": str(self.tmp / "does-not-exist")}
+        with PATTERNS.open(encoding="utf-8") as stdin:
+            subprocess.run(["bash", str(SCRIPT)], cwd=work, stdin=stdin, check=True, capture_output=True,
+                           text=True, env=env)
+        self.assertEqual(self.tree(work), want)
+        self.assertEqual(list(runner_temp.glob("prefetch.*")), [])
 
     def test_a_failed_chunk_fetch_is_tried_again_before_the_lazy_fallback(self):
         """A stalled or dropped pack (GitHub, 2026-11-25) costs one retry, not a one-by-one lazy fetch."""

@@ -23,8 +23,6 @@ pub(crate) const SETTING_DAYS: &str = "agents.chats.cloudOffloadAfterDays";
 const DEFAULT_DAYS: u64 = 14;
 /// The newest chats always kept on this disk, whatever their age (a working set after a break).
 pub(crate) const KEEP_NEWEST: usize = 20;
-/// The tag that keeps a chat local and whole (as `history_delete.rs`).
-const KEPT_TAG: &str = "pinned";
 
 /// How long a cold chat stays unchanged before a pass offloads it; None when the setting is off.
 pub(crate) fn offload_after(doc: &Value) -> Option<std::time::Duration> {
@@ -71,8 +69,7 @@ impl Hub {
         if !matches!(meta.status, SessionStatus::Closed | SessionStatus::Idle) {
             return Err("open");
         }
-        if meta.tags.get(KEPT_TAG).is_some_and(|tag| tag.expires_at.is_none_or(|at| at > now_ms()))
-        {
+        if super::history_delete::kept_by_person(&meta) {
             return Err("kept");
         }
         if newest.contains(&session.id) {

@@ -7,14 +7,19 @@ import { afterAll, afterEach, beforeAll, expect, setSystemTime, test } from "bun
 import { JSDOM } from "jsdom";
 import { act, createRef, type ComponentProps, type RefObject } from "react";
 import type { Root } from "react-dom/client";
-import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { promptBlocks, type ComposerAttachment, type DroppedKind } from "../src/agent-session/acpmux/attachments";
-import { droppedPaths } from "../src/agent-session/acpmux/composer/intakeFiles";
-import { liftInlineImages, withoutDataUris } from "../src/agent-session/acpmux/inlineImages";
+import type { ComposerAttachment, DroppedKind } from "../src/agent-session/acpmux/attachments";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { promptBlocks } = await importWithDom(() => import("../src/agent-session/acpmux/attachments"));
+const { droppedPaths } = await importWithDom(() => import("../src/agent-session/acpmux/composer/intakeFiles"));
+const { liftInlineImages, withoutDataUris } = await importWithDom(
+  () => import("../src/agent-session/acpmux/inlineImages"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -479,6 +484,21 @@ test("an image copied as HTML alone (no file on the clipboard) still comes in as
   expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image", "image"]);
   await until(() => field().querySelectorAll("[data-inline-attachment] img").length === 2, "inline thumbnails");
   expect(field().textContent).toContain("look at these");
+});
+
+// https://github.com/manaflow-ai/cmux/issues/59851: "I do Command-C, copy this whole thing, but it
+// only copies the image and not the text." A draft with an image and text copied in one composer
+// and pasted into another chat's (another web view's storage, so no remembered order): WebKit gives
+// the paste its file and HTML but withholds text/plain beside a file URL. Both come in.
+test("a copy of text with an image pastes both, its text read from the HTML WebKit keeps", async () => {
+  const composer = await openComposer();
+  await paste({
+    files: [screenshot(1)],
+    html: `<span data-cmux-composer-copy="other-chat" style="white-space: pre-wrap">look at this\nmodal</span>`,
+  });
+  expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image"]);
+  await until(() => (field().textContent ?? "").includes("modal"), "the pasted text");
+  expect(field().textContent).toContain("look at this");
 });
 
 test("a pasted image goes to the agent as an image block; the prompt's text has no data: URI", async () => {
@@ -1377,6 +1397,10 @@ test("each paste of text is its own undo step, apart from the typing around it",
   await act(async () => markdownField().insertTyped("a "));
   await act(async () => markdownField().pasteText("one "));
   await act(async () => markdownField().pasteText("two"));
+  // A person's next key comes in a later task than the paste, after the paste's step has ended
+  // (MarkdownField `beginPasteStep`'s timer). `act` alone yields no task when the paste rendered
+  // nothing more, so the key would join the paste's step.
+  await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   await act(async () => markdownField().insertTyped("!"));
   expect(markdownField().plainText()).toBe("a one two!");
   const steps: string[] = [];

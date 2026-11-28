@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "Sharing a person's GitHub login with Cloud machines is an explicit consent choice that only the person may make."
+}

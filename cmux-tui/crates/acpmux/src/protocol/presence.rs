@@ -58,6 +58,38 @@ pub struct TypingParams {
     pub meta: Option<AuthorMeta>,
 }
 
+/// `_acpmux/live` (RFD 0141 phase 1): turns the owner's Live on or off; no `live` only reads it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct LiveParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live: Option<bool>,
+}
+
+/// `_acpmux/live`'s answer: Live now.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct LiveResult {
+    pub live: bool,
+}
+
+/// `_acpmux/live_list` takes no params.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct LiveListParams {}
+
+/// `_acpmux/live_list`'s answer: the `cmux-presence` records of everyone Live here (none while
+/// the owner is not Live).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct LiveListResult {
+    pub live: bool,
+    pub people: Vec<serde_json::Value>,
+}
+
 /// `_acpmux/rooms` (RFD 0141 phase 2): every room the client shows now, replacing the set it
 /// named before; both empty unsubscribes. A chat must be attached on this connection.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -75,6 +107,26 @@ pub struct RoomsParams {
 #[schemars(transform = require_all)]
 pub struct RoomsResult {
     pub rooms: u64,
+}
+
+/// `_acpmux/follow` (RFD 0141 phase 3): follow the person `target` (an id live in a chat on this
+/// daemon, never the caller's own), or nobody (`null`). The caller's rooms hear it as the
+/// record's `following`. Refusals: `presence.follow_not_live`, `presence.follow_self`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct FollowParams {
+    #[serde(default)]
+    pub target: Option<String>,
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<AuthorMeta>,
+}
+
+/// `_acpmux/follow`'s answer: whom the caller follows now.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FollowResult {
+    pub following: Option<String>,
 }
 
 /// `_acpmux/room`: one watched room's snapshot (`snapshot: true`, `presence` every record) or

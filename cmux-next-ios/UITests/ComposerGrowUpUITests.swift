@@ -34,7 +34,7 @@ final class ComposerGrowUpUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
         let field = app.textViews["chat.composer.field"]
-        if !field.waitForExistence(timeout: 30) { app.buttons["Reply to Claude"].firstMatch.tap() }
+        if !field.waitForExistence(timeout: 30) { app.buttons["agentChat.composer.collapsed"].firstMatch.tap() }
         XCTAssertTrue(field.waitForExistence(timeout: 10), "chat composer field\n\(app.debugDescription)")
         if !app.keyboards.firstMatch.exists { field.tap() }
         try grow(app, field, "chat")

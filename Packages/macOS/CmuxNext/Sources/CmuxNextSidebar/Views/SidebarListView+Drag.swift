@@ -97,6 +97,7 @@ extension SidebarListViewComponents {
         if let doc = model.docDrag, let items = doc.items(payload) {
             drag.docItems = items
             drag.docAcceptance = keepingFixed(doc.begin(items))
+            if case let .workspaces(ids) = payload, ids.count == 1, let id = ids.first { drag.chatMoveTargets = model.chatMoveTargets?(id) ?? [] }
         }
         // A group drag freezes its base and cuts its card here (`SidebarListView+GroupDrag`).
         if case .group = payload { beginGroupDrag(drag, lifted: rows, card: rowFrame) }
@@ -147,7 +148,10 @@ extension SidebarListViewComponents {
         let sections = listSections
         let o = options(includeGap: false)
         let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: o)
-        let rules = DropResolver.DragRules(payload: drag.payload, base: layout, sections: sections, ungroupedFirst: model.ungroupedFirst)
+        // One dragged row that is a chat may drop on the machines it can move to.
+        var moveTo: [MachineID] = []
+        if case let .workspaces(ids) = drag.payload, ids.count == 1, let id = ids.first { moveTo = model.chatMoveTargets?(id) ?? [] }
+        let rules = DropResolver.DragRules(payload: drag.payload, base: layout, sections: sections, ungroupedFirst: model.ungroupedFirst, moveTo: moveTo)
         var look: SidebarDragLook?
         if case let .workspaces(ids) = drag.payload {
             look = SidebarDragLook(base: layout, sections: sections, options: SidebarDragLook.shown(o, leaving: leaving), moving: ids)
@@ -167,6 +171,16 @@ extension SidebarListViewComponents {
         if let windowPoint, finishDragOut(drag, at: windowPoint) { return } // the release decides; none: a programmatic end
         // A group dropped where it came from, or where nothing takes it, moves nothing: it goes back as for a cancel.
         if let group = drag.group, group.slot == group.plan.origin || group.drops[group.slot] == nil { return cancelDrag() }
+        if let move = drag.chatMove, case let .workspaces(ids) = drag.payload {
+            // A lone chat dropped on another machine: its Move to… takes the drop (`ChatMoveDrop`), and the row
+            // travels there with the move's step (`SidebarChatMove`).
+            self.drag = nil
+            revealedActive = selectionRevealKey
+            model.send(.reorder(ids, to: move))
+            suppressed = drag.hiddenKeys
+            reload(animated: true, adopt: true)
+            return land(drag)
+        }
         if let items = drag.docItems, let doc = model.docDrag {
             guard let target = drag.docTarget else { return cancelDrag() }
             // Released where it started: a move there changes nothing the list shows (it may still re-key the items,
@@ -243,7 +257,7 @@ extension SidebarListViewComponents {
         }
         guard let hit = geometry.hit(CGPoint(x: point.x, y: y)) else {
             // Nowhere to drop: no gap shows.
-            drag.docTarget = nil
+            (drag.docTarget, drag.chatMove) = (nil, nil)
             drag.lift.setRefused(true)
             if drag.target != nil || drag.blockTarget != nil {
                 (drag.target, drag.blockTarget) = (nil, nil)
@@ -252,6 +266,15 @@ extension SidebarListViewComponents {
             return
         }
         drag.probe = SidebarDropProbe(hit, displayY: displayY, baseY: y)
+        drag.chatMove = SidebarDocDrag.chatMove(hit, rows: rows, targets: drag.chatMoveTargets)
+        if let move = drag.chatMove {
+            drag.docTarget = nil
+            drag.lift.setRefused(false)
+            guard drag.target != .position(move) || drag.blockTarget != nil else { return }
+            (drag.target, drag.blockTarget) = (.position(move), nil)
+            showDragLayout()
+            return morphLift(drag, point: point)
+        }
         // A refused place keeps the last open gap (the drop goes there): the rows do not spring shut and open
         // again at every row the drop cannot take, and the card dims only while no gap shows.
         if hit.target == nil, drag.docTarget != nil, drag.target != nil || drag.blockTarget != nil { return }

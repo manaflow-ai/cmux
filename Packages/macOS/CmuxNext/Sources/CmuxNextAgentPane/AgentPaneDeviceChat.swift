@@ -52,7 +52,7 @@ extension AgentPaneDeviceChat {
     /// Owes `view`'s page its device chats: they go once per turn, and only while the pane is seen
     /// (``AgentPaneShownPushes``), as the value of that moment.
     @MainActor static func owe(to view: AgentPaneView) {
-        view.shownPushes.push("deviceChats", to: view) { push($0.deviceChats, to: $0) }
+        view.shownPushes.push("deviceChats", to: view, newTabOnly: true) { push($0.deviceChats, to: $0) }
     }
 
     /// Pushes `chats` to `view`'s page (not an AgentPaneView extension: that type is at its size limit).

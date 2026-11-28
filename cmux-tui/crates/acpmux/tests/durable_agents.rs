@@ -23,9 +23,17 @@ mod caller_identity_restart;
 mod carried_overload;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
+#[path = "durable_agents/claude_launch_auth.rs"]
+mod claude_launch_auth;
+#[cfg(debug_assertions)]
+#[path = "durable_agents/claude_recovery.rs"]
+mod claude_recovery;
 #[cfg(target_os = "linux")]
 #[path = "durable_agents/credential_restart.rs"]
 mod credential_restart;
+#[cfg(debug_assertions)]
+#[path = "durable_agents/credential_withdrawal.rs"]
+mod credential_withdrawal;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 #[path = "durable_agents/grant_cleared.rs"]

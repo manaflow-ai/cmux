@@ -28,13 +28,13 @@ public final class BrowserPrompt: Identifiable {
     /// The response used when the prompt is dismissed without an answer.
     public var dismissalResponse: BrowserPromptResponse {
         switch kind {
-        // Closing the tab refuses the waiting downloads and remembers nothing.
-        case .permission(.automaticDownloads), .permission(.location), .permission(.notifications): .cancel
+        // Dismissing these questions leaves the site setting unchanged.
+        case .permission(.automaticDownloads), .permission(.clipboard), .permission(.location), .permission(.notifications): .cancel
         case .permission: .deny
         case .alert: .accept
         // A tab closed without asking (quit, a replaced page) leaves the page.
         case .beforeUnload: .accept
-        case .confirm, .textInput, .credentials, .openExternalApp, .savePassword, .verificationOffer: .cancel
+        case .confirm, .textInput, .credentials, .openExternalApp, .noAppForScheme, .savePassword, .verificationOffer: .cancel
         }
     }
 }
