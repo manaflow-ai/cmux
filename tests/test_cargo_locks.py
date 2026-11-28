@@ -81,6 +81,17 @@ class CargoLocksTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("2 workspaces, 0 stale", result.stderr)
 
+    def test_optional_dependency_is_not_an_orphan(self):
+        self.write("ffi/Cargo.toml", '[package]\nname = "ffi"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[dependencies]\na = { path = "../core/a" }\n'
+                   'b = { path = "../core/b", optional = true }\n\n[workspace]\n')
+        self.cargo("ffi", "generate-lockfile", "--offline")
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("2 workspaces, 0 stale", result.stderr)
+
     def test_a_manifest_change_in_one_workspace_fails_the_other_workspaces_lock(self):
         self.break_ffi()
 

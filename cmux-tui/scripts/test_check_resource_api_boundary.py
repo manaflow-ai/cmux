@@ -338,6 +338,17 @@ class PublicBoundaryScanTests(unittest.TestCase):
             self.assertEqual(diagnostics, [])
             self.assertEqual(scanned, 1)
 
+    def test_rust_test_suffix_is_outside_public_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            path = tui / "crates/cmux-tui/src/cli/search_tests.rs"
+            write(path, 'const FIXTURE: &str = "surface";\n')
+
+            diagnostics, scanned = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual(diagnostics, [])
+            self.assertEqual(scanned, 0)
+
     def test_public_leaks_report_precise_file_and_line(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
