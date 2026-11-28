@@ -446,6 +446,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rust_workspaces_disk.py
 
+      - name: Validate rust-workspaces memory-capped cargo jobs
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_workspaces_jobs.py
+
       - name: Validate the cmux machine channel lane
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_machine_channel_lane.py
@@ -1981,6 +1985,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_app_ffi_release_workflow.py
 
+      - name: Validate the cmux-mobile-ffi publish-and-pin pipeline
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_mobile_ffi_pin.py
+
       - name: Validate pull request caches are read-only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
@@ -2769,6 +2777,10 @@ jobs:
       - name: Validate every build-src worktree add prunes a stale registration first
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_build_src_worktree_prune.py
+
+      - name: Validate every workflow's inline python parses before Python 3.12
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_workflow_inline_python_f_strings.py
 
       - name: Validate the cmux NEXT Edge feed composer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
