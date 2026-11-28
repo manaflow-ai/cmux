@@ -628,9 +628,22 @@ def stuck_job(jobs: Iterable[Mapping[str, Any]], now: dt.datetime, minutes: int,
 class GitHubError(RuntimeError):
     """A refused call, with GitHub's own words: `status` is the HTTP code (None for a network error)."""
 
-    def __init__(self, message: str, status: int | None = None) -> None:
+    def __init__(self, message: str, status: int | None = None, spent_until: dt.datetime | None = None) -> None:
         super().__init__(message)
         self.status = status
+        # When the token's hourly pool is spent (a 403 or 429 with x-ratelimit-remaining: 0): its reset time. Every
+        # read before then is refused the same way, so a watch waits for it, or stops, instead of asking again.
+        self.spent_until = spent_until
+
+
+def spent_until(error: urllib.error.HTTPError) -> dt.datetime | None:
+    """The reset time of a refusal from a spent pool (403/429 with x-ratelimit-remaining 0), else None."""
+    if error.code not in (403, 429) or error.headers is None:
+        return None
+    remaining, reset = error.headers.get("x-ratelimit-remaining"), error.headers.get("x-ratelimit-reset")
+    if str(remaining).strip() != "0" or not str(reset or "").strip().isdigit():
+        return None
+    return dt.datetime.fromtimestamp(int(str(reset).strip()), dt.timezone.utc)
 
 
 def http_error_text(error: urllib.error.HTTPError) -> str:
@@ -720,7 +733,7 @@ class GitHub:
         try:
             return self._send(method, path, data, token)
         except urllib.error.HTTPError as error:
-            raise GitHubError(f"{where} failed ({http_error_text(error)})", error.code) from error
+            raise GitHubError(f"{where} failed ({http_error_text(error)})", error.code, spent_until(error)) from error
         except urllib.error.URLError as error:
             raise GitHubError(f"{where} failed ({error.reason})") from error
         except (OSError, ValueError, http.client.HTTPException) as error:
@@ -818,18 +831,39 @@ def wait_for_probe(api: GitHub, run_id: int, attempt: int, minutes: int, labels:
     """Watch this run's probe jobs until every one has started or waited `minutes`."""
     deadline = now() + dt.timedelta(minutes=minutes + 5)
     while True:
+        pause: float = POLL_SECONDS
         try:
             jobs = api.jobs(run_id, attempt)
         except RuntimeError as error:
-            log(f"could not list this run's jobs ({error}); trying again")
             jobs = []
+            pause, done = _spent_pause(error, deadline, now)
+            if done:
+                # On 2026-11-28 15:37Z (run 46160799649) the cmux-bot pool was spent until after the deadline and
+                # this loop sent 42 refused reads in 10 min, every one a 403, then decided nothing anyway.
+                log(f"could not list this run's jobs ({error}); its pool stays spent past this watch's deadline, "
+                    "so nothing is asked again and nothing is decided")
+                return "unknown", []
+            log(f"could not list this run's jobs ({error}); trying again" +
+                (f" when its pool resets, in {pause:.0f} s" if pause > POLL_SECONDS else ""))
         outcome, stalled = probe_set_outcome(jobs, labels, now(), minutes)
         if outcome != "waiting":
             return outcome, stalled
         if now() >= deadline:
             # Never saw every probe decide: nothing measured, so nothing is decided.
             return "unknown", stalled
-        sleep(POLL_SECONDS)
+        sleep(pause)
+
+
+def _spent_pause(error: BaseException, deadline: dt.datetime,
+                 now: Callable[[], dt.datetime]) -> tuple[float, bool]:
+    """(seconds to wait, give up) after a failed read: a spent pool waits for its reset, and gives up when that
+    reset is past `deadline`; any other failure retries after POLL_SECONDS."""
+    until = getattr(error, "spent_until", None)
+    if until is None:
+        return POLL_SECONDS, False
+    if until >= deadline:
+        return 0.0, True
+    return max(POLL_SECONDS, (until - now()).total_seconds() + 1), False
 
 
 def wait_for_health(api: GitHub, run_id: int, attempt: int, minutes: int, labels: Sequence[str], *,
@@ -841,17 +875,22 @@ def wait_for_health(api: GitHub, run_id: int, attempt: int, minutes: int, labels
     if not labels:
         return [], []
     while True:
+        pause: float = POLL_SECONDS
         try:
             jobs = api.jobs(run_id, attempt)
         except RuntimeError as error:
-            log(f"could not list this run's jobs ({error}); trying again")
             jobs = []
+            pause, done = _spent_pause(error, deadline, now)
+            if done:
+                log(f"could not list this run's jobs ({error}); its pool stays spent past the health deadline")
+                return [], []
+            log(f"could not list this run's jobs ({error}); trying again")
         by_name = {str(job.get("name")): job for job in jobs}
         outcomes = {label: probe_outcome(by_name.get(probe_job_name(label)), now(), minutes) for label in labels}
         decided = [label for label in labels if outcomes[label] != "waiting"]
         if len(decided) == len(labels) or now() >= deadline:
             return decided, [label for label in decided if outcomes[label] == "stalled"]
-        sleep(POLL_SECONDS)
+        sleep(pause)
 
 
 def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callable[[], dt.datetime],
