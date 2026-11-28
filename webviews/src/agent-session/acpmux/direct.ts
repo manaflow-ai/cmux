@@ -324,7 +324,7 @@ import {
   OLDER_PAGE_RECORDS,
   HELD_KEPT,
   HELD_RECORDS,
-  HELD_RETRY,
+  heldBounds,
   type HeldSplit,
   FOLD_TURN_KEYS,
   FOLD_LIVE_KEYS,
@@ -409,6 +409,7 @@ export {
   REBUILD_WINDOW,
   HELD_KEPT,
   HELD_RECORDS,
+  HIDDEN_HELD_KEPT,
   firstHeldFrom,
   heldAtOrBefore,
   spanCut,
@@ -5181,6 +5182,8 @@ export class AcpmuxDirectClient {
         this.hiddenDraw = undefined;
       }
       this.pauseListWhileHidden();
+      // Hidden, the chat lets go of all but a small tail at once (`heldBounds`), not only at its next turn's end.
+      if (!this.closed) this.shedOlderHeld();
     }
     if (this.listPausedWhileHidden && pageShown() && !this.closed) {
       this.listPausedWhileHidden = false;
@@ -7909,16 +7912,17 @@ export class AcpmuxDirectClient {
       this.checkFinishedTurn(event.sessionId, event.seq);
       this.shedOlderHeld();
     } else if (
-      this.events.length > HELD_RECORDS &&
+      this.events.length > heldBounds(pageShown()).records &&
       this.events.length >= this.shedRetryAt &&
       this.turnRunning() &&
-      !(this.turnOpenedSeq !== undefined && event.seq - this.turnOpenedSeq <= HELD_KEPT)
+      !(this.turnOpenedSeq !== undefined && event.seq - this.turnOpenedSeq <= heldBounds(pageShown()).kept)
     ) {
       // A turn that does not end (a coordinator's) sheds on the count alone once it alone is longer than
       // `HELD_KEPT` records; a shorter one sheds at its `turn_result`, as every turn did. One that could not shed now
       // (scrolled up, paging, a gap) tries again `HELD_RETRY` records later, so a refused shed costs O(1) a record.
       this.shedOlderHeld();
-      if (this.events.length > HELD_RECORDS) this.shedRetryAt = this.events.length + HELD_RETRY;
+      const bounds = heldBounds(pageShown());
+      if (this.events.length > bounds.records) this.shedRetryAt = this.events.length + bounds.retry;
     }
   }
 
@@ -8008,7 +8012,9 @@ export class AcpmuxDirectClient {
   /// records at most, so a key typed while the chat streams never waits behind a refold of the held window
   /// (19-39 ms at 1,500 rows under load, composer-typing bench).
   private shedOlderHeld(): void {
-    if (this.events.length <= HELD_RECORDS || !this.following || this.newerLeft) return;
+    // A hidden page's chat keeps a smaller tail (`HIDDEN_HELD_KEPT`): nobody reads it until it shows again.
+    const { kept: keptBound, records: heldBound } = heldBounds(pageShown());
+    if (this.events.length <= heldBound || !this.following || this.newerLeft) return;
     if (this.replayThrough !== undefined || this.loadingOlder || this.snapshotHold) return;
     if (this.indexedPlaceholders?.size || this.indexedGaps.length > 0) return;
     // Native history (seq < 1) pages in by its own cursor (`fetchNativeOlder`): a chat holding it keeps it.
@@ -8016,25 +8022,25 @@ export class AcpmuxDirectClient {
     // A subagent still running keeps the turn it started in whole, unless it started before the newest
     // `HELD_RECORDS` records: one that never said it ended (its last record lost, a harness that restarted) pinned
     // the cut at its start forever. Past the cut it is drawn as a page that starts after its start draws it.
-    const oldestKept = this.events[this.events.length - HELD_RECORDS]?.at ?? -Infinity;
+    const oldestKept = this.events[this.events.length - heldBound]?.at ?? -Infinity;
     let openSince = Infinity;
     for (const agent of this.subagents.all())
       if (agent.state === "running" && agent.startedAt >= oldestKept) openSince = Math.min(openSince, agent.startedAt);
-    let pick = this.pickShedCut(openSince);
+    let pick = this.pickShedCut(openSince, undefined, keptBound, heldBound);
     // A turn that is one long call (a build, a test run, a watcher) changes that call's row with every record, and
     // the reply streaming beside it changes its own, so each spans every cut and the cut went back to the turn's
     // start: the chat shed once in 20,000 records and held every one after (29,216 under the typing bench's heavy
     // load). Such a row is kept across the cut instead (`planSplits`): a call's oldest output lines go with their
     // records, a reply keeps its text, and either is drawn again from the records left and the few held aside.
     let plans: Map<string, HeldSplit> | undefined;
-    if (this.events.length - pick.cut > HELD_RECORDS) {
+    if (this.events.length - pick.cut > heldBound) {
       const known = new Map<string, boolean>();
       const splittable = (id: string) => {
         let can = known.get(id);
         if (can === undefined) known.set(id, (can = this.splittable(id)));
         return can;
       };
-      const split = this.pickShedCut(openSince, splittable);
+      const split = this.pickShedCut(openSince, splittable, keptBound, heldBound);
       if (split.cut > pick.cut) {
         plans = this.planSplits(split.cut, splittable);
         if (plans) pick = split;
@@ -8070,20 +8076,25 @@ export class AcpmuxDirectClient {
   /// from records on both sides of it (a call that runs on, a compaction whose end comes later, a subagent that goes
   /// on), so the rows kept are what a fold of the records kept draws, and none is folded again. `split`: the rows
   /// kept across the cut instead (`planSplits`), which move it back no further.
-  private pickShedCut(openSince: number, split?: (id: string) => boolean): { cut: number; opener?: EventRecord } {
+  private pickShedCut(
+    openSince: number,
+    split?: (id: string) => boolean,
+    keptBound = HELD_KEPT,
+    heldBound = HELD_RECORDS,
+  ): { cut: number; opener?: EventRecord } {
     const spanningFrom = (seq: number) => {
       if (!split) return this.rows.spanningFrom(seq);
       let from = Infinity;
       for (const [id, order] of this.rows.spanningRows(seq)) if (!split(id)) from = Math.min(from, order);
       return from;
     };
-    let cut = rebuildCut(this.events, Infinity, openSince, HELD_KEPT);
+    let cut = rebuildCut(this.events, Infinity, openSince, keptBound);
     // No turn start to cut at within the budget (a turn that never ends): cut inside the newest turn, under its
     // prompt, as a page that starts inside a turn is drawn (`turnOpener`).
     // A turn start cut stays when no cut inside the turn is found (a row or a subagent spans the whole budget).
     let opener: EventRecord | undefined;
-    if (this.events.length - cut > HELD_RECORDS) {
-      const inside = midTurnCut(this.events, HELD_KEPT, openSince, spanningFrom);
+    if (this.events.length - cut > heldBound) {
+      const inside = midTurnCut(this.events, keptBound, openSince, spanningFrom);
       if (inside > cut) {
         cut = inside;
         opener = this.openerBefore(cut);
@@ -8109,7 +8120,7 @@ export class AcpmuxDirectClient {
     const keepAt = this.keepFromRow === undefined ? undefined : this.keepFromIndex(this.keepFromRow, this.keepFromAt);
     if (keepAt !== undefined && cut > 0 && keepAt < cut) {
       const kept = unspanned(keepAt);
-      if (cut - kept <= HELD_KEPT) cut = kept;
+      if (cut - kept <= keptBound) cut = kept;
     }
     // Moved, the cut starts a turn the one before it ended, or the kept rows open under their turn's prompt.
     if (cut > 0 && cut !== chosen)

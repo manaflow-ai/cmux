@@ -24,6 +24,19 @@ export const HELD_RECORDS = 2 * HELD_KEPT;
 /// How many more records a chat that could not shed past `HELD_RECORDS` takes before it tries again
 /// (`shedOlderHeld`): the try walks the newest `HELD_KEPT` records, so a refused one costs O(1) a record.
 export const HELD_RETRY = HELD_KEPT / 4;
+/// How many records a chat on a hidden page keeps when it lets go of its oldest (`shedOlderHeld`): what an opened
+/// chat's newest page holds (`KEPT_EVENTS`), so 20 chats left running in background tabs cost what 20 freshly opened
+/// ones do. Held at the shown bound, each grown chat kept 2,000 to 4,000 records and their rows, ~21 MB of JS heap a
+/// chat in bench/chat-100k-flat.bench.ts grown-many (Leo, 2026-11-14: "the dream of never ever needing to close a
+/// tab or workspace or anything"). Shown again, the chat draws that page, as one opened cold does; scrolling up
+/// reads the rest (`loadOlder`).
+export const HIDDEN_HELD_KEPT = 400;
+/// The bounds a shed works to (`shedOlderHeld`): the shown chat's, or a hidden page's smaller ones.
+export function heldBounds(shown: boolean): { kept: number; records: number; retry: number } {
+  return shown
+    ? { kept: HELD_KEPT, records: HELD_RECORDS, retry: HELD_RETRY }
+    : { kept: HIDDEN_HELD_KEPT, records: 2 * HIDDEN_HELD_KEPT, retry: HIDDEN_HELD_KEPT / 4 };
+}
 
 /// A row a shed kept across its cut (direct.ts `splits`): a tool call's row (`callId`, `earlier` once its oldest
 /// output lines went), or a streaming reply's. `aside`: the records older than the held ones that draw it again.
