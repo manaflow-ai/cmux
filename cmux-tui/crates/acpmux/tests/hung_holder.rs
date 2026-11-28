@@ -240,3 +240,40 @@ async fn holder_without_beat_serving_another_socket_is_not_replaced() {
         .env("ACPMUX_LOGIN_ENV", "0");
     let _ = cmd.output();
 }
+
+// (f) The unit's start (`--take-over`, as a daemon in `acpmux.service`'s cgroup waits) replaces a
+// holder whose socket accepts nothing, instead of waiting on it for good. Fleet lane VMs,
+// 2026-11-28: a detached `--ready-fd` daemon held the lock and hung; the unit's daemon logged
+// "open-file limit raised" and then nothing for hours, its ask of the holder queued forever.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_units_start_replaces_a_hung_holder_and_serves() {
+    let dir = scratch("f");
+    let _ = socket(&dir);
+    let mut holder = hung_holder(&dir, "1").await;
+    let held_by = holder.id().unwrap();
+    let mut unit = daemon(&dir, STALL_MS).arg("--take-over").spawn().unwrap();
+    let ready = line(&mut unit, None, Duration::from_secs(60)).await;
+    assert_eq!(ready["ready"], true, "{ready}");
+    assert_eq!(ready["pid"], unit.id().unwrap(), "the unit's start serves itself: {ready}");
+    let status = tokio::time::timeout(Duration::from_secs(20), holder.wait())
+        .await
+        .expect("the hung holder was stopped")
+        .unwrap();
+    assert!(!status.success(), "the hung holder {held_by} ended by a signal: {status:?}");
+    let served = self::status(&dir);
+    assert!(served.status.success(), "{}", String::from_utf8_lossy(&served.stderr));
+    shutdown(&dir);
+}
+
+// (g) The unit's start never replaces a holder that answers nothing but keeps beating.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_units_start_leaves_a_beating_holder() {
+    let dir = scratch("g");
+    let _ = socket(&dir);
+    let mut holder = hung_holder(&dir, "beat").await;
+    let mut unit = daemon(&dir, STALL_MS).arg("--take-over").spawn().unwrap();
+    // Four stall bounds with no answer: only the holder's beats keep it.
+    tokio::time::sleep(Duration::from_millis(4 * 1500 + 2000)).await;
+    assert!(holder.try_wait().unwrap().is_none(), "a beating holder was killed");
+    assert!(unit.try_wait().unwrap().is_none(), "the unit's start gave up on a live holder");
+}
