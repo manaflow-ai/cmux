@@ -104,6 +104,10 @@ pub(super) const REMOTE_VIEWS_METHOD: &str = "remote_view.state";
 /// The app method `cmux app mac-screens` reads; the app registers it in every
 /// build (MacScreenPages.releaseMethods, whose test reads this line).
 pub(super) const MAC_SCREENS_METHOD: &str = "mac_screen.state";
+/// The app method `cmux app hangs` reads: the main thread's stall counts (over 100 and 250 ms),
+/// longest stall, busy share and newest stalls by top frame names. The app registers it in every
+/// build (AppHangsControl.method, whose test reads this line); it is read-only and clears nothing.
+pub(super) const APP_HANGS_METHOD: &str = "app.hangs";
 /// The app method `cmux app clicks` reads; the app registers it in every build
 /// (ClickTrace.controlMethod, whose test reads this line).
 pub(super) const CLICKS_METHOD: &str = "input.clicks";
@@ -420,6 +424,17 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 params.insert("tab".into(), json!(tab));
             }
             call(MAC_SCREENS_METHOD, Value::Object(params))
+        }
+        // The main thread's stalls (`app.hangs`, every build): counts over 100 and 250 ms,
+        // the longest, the main thread's busy share and the newest stalls' top frame names.
+        // Read-only; it clears nothing.
+        ("app", Some("hangs")) => {
+            let options = Options::parse(rest.get(1..).unwrap_or_default(), &["limit"], &[])?;
+            let mut params = Map::new();
+            if let Some(limit) = options.value("limit") {
+                params.insert("limit".into(), json!(parse_limit(limit, "app")?));
+            }
+            call(APP_HANGS_METHOD, Value::Object(params))
         }
         // Where the person's last presses went (`input.clicks`, every build): per press
         // the window it reached, whether the overlay or a divider catcher took or

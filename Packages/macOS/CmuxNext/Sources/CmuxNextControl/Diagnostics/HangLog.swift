@@ -90,6 +90,10 @@ public final class HangLog: Sendable {
         public var maxDuration: Duration = .zero
         public var totalDuration: Duration = .zero
         public var busyCount = 0
+        /// Stalls of at least 100 ms and of at least 250 ms since launch (or the last clear), kept
+        /// past the ring buffer's capacity (`app.hangs`, ``AppHangsControl``).
+        public var over100Count = 0
+        public var over250Count = 0
     }
 
     private struct State {
@@ -119,6 +123,8 @@ public final class HangLog: Sendable {
                 state.summary.count += 1
                 state.summary.maxDuration = max(state.summary.maxDuration, duration)
                 state.summary.totalDuration += duration
+                if duration >= .milliseconds(100) { state.summary.over100Count += 1 }
+                if duration >= .milliseconds(250) { state.summary.over250Count += 1 }
             case .busy:
                 state.summary.busyCount += 1
             case .overBudget:

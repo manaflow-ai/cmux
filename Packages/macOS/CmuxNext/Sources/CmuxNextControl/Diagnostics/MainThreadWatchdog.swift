@@ -159,6 +159,9 @@ public final class MainThreadWatchdog: Sendable {
     private let gapMaxNanos = Atomic<UInt64>(0)
     static let frame120Nanos: UInt64 = 8_333_333
     let mainAsleep = Atomic<Bool>(true)
+    /// `uptime()` and the main thread's CPU time at ``start()``: the base of ``busySinceStart``.
+    private let startNanos = Atomic<UInt64>(0)
+    private let startCPUNanos = Atomic<UInt64>(0)
     /// A decided quit is ending (``endHangAssertions()``).
     private let assertionsEnded = Atomic<Bool>(false)
     let running = Atomic<Bool>(false)
@@ -250,6 +253,20 @@ public final class MainThreadWatchdog: Sendable {
     /// (`debug.hangs` `main_wakes`): the budget for an idle app is 0 per second.
     public var mainRunLoopWakes: UInt64 { mainWakeCount.load(ordering: .relaxed) }
 
+    /// The main thread's CPU time and the wall time since ``start()``, and their ratio: the share of
+    /// the time the main thread was busy (`app.hangs`; readers diff two reads for a window). Nil
+    /// before ``start()`` or when the thread's CPU time cannot be read. Any thread.
+    public var busySinceStart: (wall: Duration, cpu: Duration, share: Double)? {
+        let started = startNanos.load(ordering: .acquiring)
+        guard started > 0, let cpuNow = busy.mainThreadCPUNanos() else { return nil }
+        let now = uptime()
+        let wall = now > started ? now - started : 0
+        let startCPU = startCPUNanos.load(ordering: .acquiring)
+        let cpu = cpuNow > startCPU ? cpuNow - startCPU : 0
+        let share = wall > 0 ? min(Double(cpu) / Double(wall), 1) : 0
+        return (.nanoseconds(Int64(clamping: wall)), .nanoseconds(Int64(clamping: cpu)), share)
+    }
+
     /// Main-thread work gaps over 16.7 ms since the last reset, and the longest.
     public var longFrameStats: (count: Int, max: Duration) {
         (Int(clamping: longFrames.load(ordering: .relaxed)), .nanoseconds(Int64(clamping: longFrameMaxNanos.load(ordering: .relaxed))))
@@ -280,8 +297,11 @@ public final class MainThreadWatchdog: Sendable {
     public func start() {
         guard running.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
         busy.watchCurrentThread()
-        beatNanos.store(uptime(), ordering: .releasing)
-        beatCPUNanos.store(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), ordering: .releasing)
+        let startedAt = uptime(), startedCPU = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
+        startNanos.store(startedAt, ordering: .releasing)
+        startCPUNanos.store(startedCPU, ordering: .releasing)
+        beatNanos.store(startedAt, ordering: .releasing)
+        beatCPUNanos.store(startedCPU, ordering: .releasing)
         mainAsleep.store(false, ordering: .releasing)
         nested.start(insideRun: CFRunLoopCopyCurrentMode(CFRunLoopGetMain()) != nil)
         // Two observers: every activity but before-waiting stamps first

@@ -155,6 +155,7 @@ usage: cmux app ping | identify | capabilities
        cmux app mac-screen-replay --path <movie> [--tab <tab>] [--frames <1-120>] [--loops <N>] [--timeout <s>]  (plays a recorded screen share in a Screen Sharing tab, no host; prints decode_present p50 once the frames are presented)
        cmux app clicks [--limit <n>]            (your last clicks: the window each reached, what took it, the page's focus)
        cmux app machines [--no-refresh]         (the Machines section's machines and their link state)
+       cmux app hangs [--limit <n>]             (main-thread stalls: counts over 100 and 250 ms, max, busy share)
        cmux app try . [--from APP] | . --extract | . --stop  (your working tree in a copy of your NIGHTLY: no dev build)
        cmux app try <PR|branch|sha> [--dry-run] | undo | status  (another commit's cmux in this app, live when it can)
        cmux app versions [--limit N]            (the recent builds: * this one, kept, pulled)

@@ -6,6 +6,11 @@ public import CmuxNextSettings
 extension ControlRouter {
     func diagnosticMethods() -> [ControlMethod] {
         [
+            // Every build (not `debug.*`): the stall counts and newest stalls, read-only (AppHangsControl).
+            .snapshot(AppHangsControl.method) { [weak self] call in
+                guard let self else { throw Self.stopped }
+                return AppHangsControl.reply(watchdog: self.watchdog, limit: call.params["limit"]?.intValue)
+            },
             .snapshot("debug.hangs") { [weak self] call in
                 guard let self else { throw Self.stopped }
                 guard let watchdog = self.watchdog else {
