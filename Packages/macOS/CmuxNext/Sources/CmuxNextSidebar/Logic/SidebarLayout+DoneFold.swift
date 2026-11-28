@@ -74,7 +74,7 @@ nonisolated extension SidebarLayout {
     static func foldingDone(_ drawn: [(index: Int, depth: Int)], workspace: (Int) -> SidebarWorkspace?, fold id: SidebarDoneFoldID,
                             limits: (Int) -> Bool = { _ in true }, options o: SidebarLayoutOptions) -> [(index: Int, depth: Int)] {
         guard o.filterMatches == nil else { return drawn }
-        let indices = 0..<((drawn.map(\.index).max() ?? -1) + 1)
+        let indices = 0..<((drawn.map { $0.index }.max() ?? -1) + 1)
         let rule = ListRule(rule: "fold", drawn: entries(drawn), workspaces: indices.map { workspace($0).map(ListWorkspace.init) },
                             limits: indices.map(limits), options: ListOptions(o, list: id))
         return rules(rule)?.drawn?.map { ($0.index, $0.depth) } ?? drawn

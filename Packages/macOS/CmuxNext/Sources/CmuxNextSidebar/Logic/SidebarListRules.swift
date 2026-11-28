@@ -18,7 +18,7 @@ nonisolated struct ListWorkspace: Encodable {
 
 /// `SidebarLayoutOptions` for one list's folds (`list`); `parents`: send the session tree's lineage (`dragUnfolds`).
 nonisolated struct ListOptions: Encodable {
-    struct Tree: Encodable { var parents: [String: String], hidesStarted: Bool }
+    nonisolated struct Tree: Encodable { var parents: [String: String], hidesStarted: Bool }
     var active: String?, filtering: Bool, foldsDone: Bool, foldsArchived: Bool, archiveSection: Bool, settled: [String]
     var tree: Tree?, rowLimit: Int, open: [String], showMoreOpen: Bool
 
