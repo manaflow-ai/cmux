@@ -621,6 +621,42 @@ pub(crate) fn apply_team(
     env.extend(pair);
 }
 
+/// The Claude pair the machine plane would fill (`cloud_model_plane::fill_*`) for an own-mode
+/// launch on a Cloud machine, put on the launch's unset list so it keeps its own sign-in. The
+/// plane resolves on any machine made with the team's edge rule, a spare readied while the team
+/// was in gateway mode too, so the fill would route a person who chose own (or whose team turned
+/// gateway mode off before they claimed it) through the gateway (cloud-journey-prod run
+/// 46180763455). As the image launcher's own mode (`cmux_agent_drop_model_plane_env`), only a
+/// name the profile does not set and whose value the launch would get is the plane's (or none).
+pub(crate) fn drop_plane_pair(
+    env: &mut BTreeMap<String, String>,
+    effective: &BTreeMap<String, String>,
+    plane: &BTreeMap<String, String>,
+) {
+    let mut unset: Vec<String> = env
+        .get(crate::routes::UNSET_KEY)
+        .map(|list| list.split(',').filter(|k| !k.is_empty()).map(str::to_owned).collect())
+        .unwrap_or_default();
+    let before = unset.len();
+    for key in ["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"] {
+        let Some(planed) = plane.get(key).filter(|v| !v.is_empty()) else { continue };
+        if env.contains_key(key) || unset.iter().any(|k| k == key) {
+            continue;
+        }
+        let theirs = effective.get(key).filter(|v| !v.is_empty());
+        let plane_value = |v: &String| {
+            v == planed
+                || (key == "ANTHROPIC_API_KEY" && v == crate::cloud_model_plane::PLACEHOLDER)
+        };
+        if theirs.is_none_or(plane_value) {
+            unset.push(key.to_owned());
+        }
+    }
+    if unset.len() != before {
+        env.insert(crate::routes::UNSET_KEY.to_owned(), unset.join(","));
+    }
+}
+
 #[cfg(test)]
 #[path = "claude_cloud_auth_tests.rs"]
 mod tests;
