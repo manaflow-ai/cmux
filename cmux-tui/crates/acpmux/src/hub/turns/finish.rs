@@ -179,6 +179,24 @@ impl Hub {
         if let Some(e) = harness_failure {
             result = Err(e);
         }
+        let capacity_exhausted = if let Err(error) = &result
+            && crate::hub::capacity::exhausted(&error.message)
+        {
+            let route =
+                crate::hub::capacity::Route::of(&*self.config.read().await, &session.meta());
+            if let Some(route) = route {
+                let at = now_ms();
+                let reset = crate::hub::capacity::retry_at(&error.message, at).max(
+                    crate::hub::auto_resume::reset_hint::error_reset_at(error.data.as_ref(), at),
+                );
+                self.capacity_close(route, reset);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
         // The agent messages that went in with it go back before anything here waits, so one sent
         // from now on goes behind them (`digest.rs`).
         // A turn the account's limit refused before its model read a word: every agent message in
@@ -425,7 +443,7 @@ impl Hub {
                     self.append(session, "mux", "turn_error", record);
                     self.note_model_refusal(session, &e.message);
                     self.goal_turn_ended(session, prompt_id, false);
-                    if !detached {
+                    if !detached && !capacity_exhausted {
                         self.pause_queue(session, turn_id);
                     }
                     let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn, "trigger": trigger});

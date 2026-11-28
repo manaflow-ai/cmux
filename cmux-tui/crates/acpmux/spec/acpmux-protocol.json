@@ -8409,6 +8409,12 @@
           ],
           "description": "It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,\nand from a peer on an older acpmux."
         },
+        "capacityWaitCount": {
+          "description": "Number of queued turns or retries waiting for gateway capacity.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "children": {
           "description": "Its sub-sessions that are not closed.",
           "format": "uint32",
@@ -9401,6 +9407,12 @@
             }
           ],
           "description": "It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,\nand from a peer on an older acpmux."
+        },
+        "capacityWaitCount": {
+          "description": "Number of queued turns or retries waiting for gateway capacity.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "children": {
           "description": "Its sub-sessions that are not closed.",

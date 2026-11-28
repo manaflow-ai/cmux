@@ -199,6 +199,10 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
         1 => return "permission".into(),
         n => return format!("{n} permissions"),
     }
+    // Turns held at a closed gateway gate (`hub/capacity.rs`): they go on by themselves.
+    if let Some(count) = row["capacityWaitCount"].as_u64().filter(|&count| count > 0) {
+        return format!("Waiting for capacity ({count})");
+    }
     // Parked on the rate limit: nothing starts until `acpmux retry` or the person's own prompt
     // (`hub/rate_hold.rs`).
     if row.get("rateLimitParked").and_then(Value::as_u64).is_some() {

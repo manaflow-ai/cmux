@@ -66,7 +66,7 @@ pub(in crate::hub) fn holds(p: &super::queue::Slot<'_>) -> bool {
     p.agent.is_none()
         && !p.no_queue
         && !p.admitted
-        && !p.after_turn
+        && p.after_turn.is_none()
         && !p.interrupt
         && !p.steer_on_start
         && !crate::prompt_provenance::is_trigger(p.provenance)

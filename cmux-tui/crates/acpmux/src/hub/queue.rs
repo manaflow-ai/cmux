@@ -10,6 +10,7 @@ use super::subsession_runs::{ClaimedTurn, TurnGuard, WaitMark};
 use super::*;
 use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 /// The speculative queue count while a prompt waits for the turn lock. If its
 /// admission deadline drops that wait, no queue entry exists to retire the count.
@@ -173,6 +174,7 @@ pub(super) struct PromptRun {
 }
 
 /// A prompt asking for its turn (`queue_slot`).
+#[derive(Clone, Copy)]
 pub(super) struct Slot<'a> {
     pub(super) text: &'a str,
     pub(super) blocks: &'a [Value],
@@ -206,7 +208,7 @@ pub(super) struct Slot<'a> {
     /// An automatic continuation (`PromptOptions::after_turn`, `auto_resume.rs`): it never
     /// queues, so a prompt about to start its turn (`Session::turn_claimed`) does not make it
     /// queue; it waits for the lock, and `check_cut` decides after.
-    pub(super) after_turn: bool,
+    pub(super) after_turn: Option<&'a str>,
     /// [`QueuedPrompt::steer_on_start`]: the person's steer to an agent that steers, sent before
     /// the turn it is for showed.
     pub(super) steer_on_start: bool,
@@ -323,15 +325,52 @@ impl Hub {
         p: Slot<'_>,
         accept: &mut impl FnMut(Value),
     ) -> Result<(String, bool, TurnGuard<'a>, Arc<PromptRun>), Answer> {
-        let (limits, hold_ms) = {
-            let cfg = match p.answer_due {
-                Some(due) => tokio::time::timeout_at(due, self.config.read())
-                    .await
-                    .map_err(|_| Err(super::auto_resume::retry_turn::busy()))?,
-                None => self.config.read().await,
-            };
-            (QueueLimits::of(&cfg), super::person_hold::hold_ms(&cfg, &session.meta().name))
+        // A cut-turn retry the gateway closed on again between its paced wait and its claim goes
+        // back to `wait_retry_capacity`: the chat did not move on, so it is never `superseded`
+        // (review F1 on #47897). Each pass awaits the gate, so this never spins.
+        loop {
+            let mut reclosed = false;
+            let attempt = self.queue_slot_attempt(session, p, accept, &mut reclosed).await;
+            if !reclosed {
+                return attempt;
+            }
+        }
+    }
+
+    /// One pass of [`Self::queue_slot`]. Sets `reclosed` (and leaves no count, gather or hold
+    /// behind) when a cut-turn retry found the capacity gate shut at its claim.
+    async fn queue_slot_attempt<'a>(
+        self: &Arc<Self>,
+        session: &'a Arc<Session>,
+        p: Slot<'_>,
+        accept: &mut impl FnMut(Value),
+        reclosed: &mut bool,
+    ) -> Result<(String, bool, TurnGuard<'a>, Arc<PromptRun>), Answer> {
+        let cfg = match p.answer_due {
+            Some(due) => tokio::time::timeout_at(due, self.config.read())
+                .await
+                .map_err(|_| Err(super::auto_resume::retry_turn::busy()))?,
+            None => self.config.read().await,
         };
+        let (limits, capacity_route, release_interval, hold_ms) = (
+            QueueLimits::of(&cfg),
+            super::capacity::Route::of(&cfg, &session.meta()),
+            super::capacity::release_interval(cfg.capacity.release_per_min),
+            super::person_hold::hold_ms(&cfg, &session.meta().name),
+        );
+        let capacity_route = capacity_route.as_ref();
+        self.capacity_activate(capacity_route);
+        // A cut-turn retry already has its own durable wait. Keep it there until it
+        // can take a paced slot, so restoring or stopping it uses the same attempt.
+        let mut retry_permit = None;
+        if let Some(cut) = p.after_turn {
+            retry_permit = self
+                .wait_retry_capacity(session, cut, capacity_route, release_interval)
+                .await
+                .map_err(Err)?;
+        }
+        let capacity_waits =
+            || self.capacity_waits_unless_permitted(capacity_route, retry_permit.as_ref());
         // Claimed under the queue lock, as `restore_queue` takes them: a turn of agent messages
         // joins only a restored prompt its task claimed (`digest.rs` `take_joined`).
         let restored = {
@@ -405,7 +444,7 @@ impl Hub {
                     }
                     // A rate limit's compaction goes ahead of what the hold queued: those go in
                     // after it, with the continuation (`rate_hold.rs`, `compact_first.rs`).
-                    let rate_compaction = p.after_turn
+                    let rate_compaction = p.after_turn.is_some()
                         && (super::auto_resume::rate_compaction_runs(session)
                             || super::cold_wake::goes_ahead_of_batch(session, p.provenance));
                     // A prompt that took the turn lock and has not shown its turn yet
@@ -413,9 +452,10 @@ impl Hub {
                     // the claim: a prompt counts in `queued` until it holds the claim.
                     let waiting = stop_held
                         || (session.queued() > held && !rate_compaction)
-                        || (session.turn_claimed() && !p.after_turn)
+                        || (session.turn_claimed() && p.after_turn.is_none())
                         || session.turn().is_some()
-                        || awaiting_owner;
+                        || awaiting_owner
+                        || capacity_waits();
                     // It never queues: busy when the queue's own test says it would wait. The
                     // turn lock is tried below, and the queue read again under it.
                     if p.no_queue && waiting {
@@ -556,13 +596,37 @@ impl Hub {
                     // turn.
                     // A chat the rate limit holds starts nothing now (`rate_hold.rs`): it queues;
                     // only its compaction goes ahead of what the hold queued.
-                    let rate_compaction = p.after_turn
+                    let rate_compaction = p.after_turn.is_some()
                         && (super::auto_resume::rate_compaction_runs(session)
                             || super::cold_wake::goes_ahead_of_batch(session, p.provenance));
-                    let guard = match guard {
-                        Some(guard) => guard,
-                        None => {
-                            tracing::warn!(session = %session.id, prompt = %p.prompt_id, "turn lock not free by the answer's due time: queued");
+                    let queues = (queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
+                        || Self::rate_holds(session, p.provenance);
+                    // Keep the gate state locked through the claim. A concurrent 503 cannot close
+                    // the gate between this final check and `ClaimedTurn::new` (review F1). A
+                    // retry's paced permit admits it while the gate releases.
+                    let capacity_gate = self.capacity.get(capacity_route);
+                    let capacity_admission =
+                        capacity_gate.as_ref().map(|gate| gate.admit(retry_permit.as_ref()));
+                    let capacity_held = capacity_admission.as_ref().is_some_and(Option::is_none);
+                    match guard {
+                        Some(guard) if !queues && !capacity_held => {
+                            ClaimedTurn::new(session, guard)
+                        }
+                        guard => {
+                            if guard.is_none() {
+                                tracing::warn!(session = %session.id, prompt = %p.prompt_id, "turn lock not free by the answer's due time: queued");
+                            }
+                            drop(guard);
+                            if capacity_held && p.after_turn.is_some() {
+                                // The gateway closed again: wait at the gate once more
+                                // (`queue_slot`), with nothing of this pass left behind.
+                                session.queued.fetch_sub(1, Ordering::SeqCst);
+                                super::digest::end_gather(session, &turn_id);
+                                super::person_hold::end(session, &turn_id);
+                                *reclosed = true;
+                                return Err(Err(super::auto_resume::superseded()));
+                            }
+                            // Its queued reservation is still counted.
                             let (waits, position) =
                                 self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
                             accept(
@@ -571,21 +635,7 @@ impl Hub {
                             self.persons_prompt_unparks(session, p.agent, p.provenance);
                             break 'run (waits, None);
                         }
-                    };
-                    if (queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
-                        || Self::rate_holds(session, p.provenance)
-                    {
-                        drop(guard);
-                        // Its `queued` reservation is still counted.
-                        let (waits, position) =
-                            self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
-                        accept(
-                            json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position}),
-                        );
-                        self.persons_prompt_unparks(session, p.agent, p.provenance);
-                        break 'run (waits, None);
                     }
-                    ClaimedTurn::new(session, guard)
                 };
                 // Claimed before it leaves the count: a prompt that comes between sees one.
                 session.queued.fetch_sub(1, Ordering::SeqCst);
@@ -663,7 +713,7 @@ impl Hub {
         let (withdraw, joined, declined) = withdraw;
         // A steer the agent cannot take goes next, and stops the turn that runs now, unless it was
         // aimed at a turn that has ended since: the one running now is another prompt's.
-        if p.interrupt {
+        if p.interrupt && !capacity_waits() {
             let running = session.turn().map(|t| t.turn_id);
             if self.put_next(session, p.prompt_id, None).is_ok_and(|next| next)
                 && let Some(running) = running
@@ -676,7 +726,16 @@ impl Hub {
         // A lane's report queued behind a turn its parent's close then ended is refused before
         // its turn starts (`turns.rs`), so it never reopens the parent.
         let (guard, run) = loop {
-            match self.queue_turn(session, &turn_id, &withdraw).await {
+            match self
+                .queue_turn_with_capacity(
+                    session,
+                    &turn_id,
+                    &withdraw,
+                    capacity_route,
+                    release_interval,
+                )
+                .await
+            {
                 Wait::Turn(guard) => match self.take_queued(session, p.prompt_id, &turn_id) {
                     Ok(Some(run)) => break (guard, run),
                     // It still waits for the owner, whatever let it out (`queue_approve.rs`).
@@ -835,7 +894,7 @@ impl Hub {
     ) -> Result<(Waits, u64), Answer> {
         // Config, restore and turn-lock waits can overtake the pre-admission cut check.
         // A continuation that would queue has lost its cut before we write or accept it.
-        if p.after_turn {
+        if p.after_turn.is_some() {
             session.queued.fetch_sub(1, Ordering::SeqCst);
             return Err(Err(super::auto_resume::superseded()));
         }
@@ -1100,15 +1159,35 @@ impl Hub {
     /// runs, and returns the turn lock; or until `remove_queued` withdraws it, or `send_now`
     /// sends it into the running turn. A turn recovered from an agent host runs first, though its
     /// task may take the lock later.
+    #[cfg(test)]
     pub(super) async fn queue_turn<'a>(
         &self,
         session: &'a Session,
         turn_id: &str,
         withdraw: &Notify,
     ) -> Wait<'a> {
+        self.queue_turn_with_capacity(session, turn_id, withdraw, None, Duration::ZERO).await
+    }
+
+    async fn queue_turn_with_capacity<'a>(
+        &self,
+        session: &'a Session,
+        turn_id: &str,
+        withdraw: &Notify,
+        route: Option<&super::capacity::Route>,
+        interval: Duration,
+    ) -> Wait<'a> {
         // Set while it waits for a run slot of its parent (`subsession_runs.rs`).
         let mut slot_wait: Option<WaitMark<'_>> = None;
+        let mut capacity_ticket: Option<super::capacity::Ticket> = None;
+        let mut backlog = None;
         loop {
+            let gateway_changed = self.capacity.changed.notified();
+            tokio::pin!(gateway_changed);
+            gateway_changed.as_mut().enable();
+            if backlog.is_none() {
+                backlog = self.capacity.get(route).and_then(|gate| gate.watch_backlog());
+            }
             let moved = session.queue_moved.notified();
             tokio::pin!(moved);
             moved.as_mut().enable();
@@ -1142,7 +1221,7 @@ impl Hub {
                     },
                 );
             // A chat being moved sends nothing into its turn; an abort lets it steer again.
-            if steer && session.moving().is_none() {
+            if steer && session.moving().is_none() && !self.capacity_waits(route) {
                 return Wait::Steer;
             }
             // Another agent's message to an idle chat waits out its gather window first
@@ -1175,6 +1254,7 @@ impl Hub {
                 guard = session.turn_lock.lock() => guard,
                 () = withdraw.notified() => return Wait::Withdrawn,
                 () = moved.as_mut() => continue,
+                () = gateway_changed.as_mut() => continue,
             };
             // A journal restore holds the chat for its whole try and the hold between tries
             // (`journal_restore.rs`, review of #37284 at 91b1343d, F2): a prompt that waited
@@ -1183,6 +1263,7 @@ impl Hub {
                 drop(guard);
                 tokio::select! {
                     () = done.as_mut() => continue,
+                    () = gateway_changed.as_mut() => continue,
                     () = withdraw.notified() => return Wait::Withdrawn,
                 }
             }
@@ -1191,7 +1272,7 @@ impl Hub {
             // held this one.
             // A chat the rate limit holds starts no queued turn until its reset but acpmux's own
             // continuation, which goes ahead of what the hold keeps (`rate_hold.rs`).
-            let (head, held, provenance) = {
+            let (head, held, provenance, candidate) = {
                 let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let mine = queue.iter().find(|q| q.turn_id == turn_id);
                 let held = mine.is_some_and(QueuedPrompt::aside);
@@ -1200,8 +1281,11 @@ impl Hub {
                     q.aside() || Self::rate_holds(session, q.run.provenance.as_ref())
                 };
                 let head = queue.iter().find(|q| !waits(q)).is_none_or(|q| q.turn_id == turn_id);
-                (head, held, provenance)
+                (head, held, provenance, mine.map(|q| q.run.clone()))
             };
+            if held {
+                backlog.take();
+            }
             let moving = session.moving().is_some();
             let rate_held = Self::rate_holds(session, provenance.as_ref());
             if head && !held && !moving && !rate_held && session.turn().is_none() {
@@ -1209,6 +1293,32 @@ impl Hub {
                     match self.take_run_slot(session, provenance.as_ref()) {
                         // Claimed before `take_queued` takes it out of the count.
                         Ok(slot) => {
+                            if let Some(gate) =
+                                self.capacity.get(route).filter(|gate| gate.waiting())
+                            {
+                                if capacity_ticket
+                                    .as_ref()
+                                    .is_some_and(|ticket| !ticket.belongs_to(&gate))
+                                {
+                                    capacity_ticket.take();
+                                }
+                                let ticket = capacity_ticket.get_or_insert_with(|| {
+                                    let text =
+                                        candidate.as_ref().map(|run| prompt_text(&run.blocks));
+                                    gate.join(super::capacity::priority(session, text.as_deref()))
+                                });
+                                if ticket.take(interval).is_none() {
+                                    drop(slot);
+                                    drop(guard);
+                                    tokio::select! {
+                                        () = ticket.ready.notified() => {}
+                                        () = moved => {}
+                                        () = gateway_changed.as_mut() => {}
+                                        () = withdraw.notified() => return Wait::Withdrawn,
+                                    }
+                                    continue;
+                                }
+                            }
                             return Wait::Turn(TurnGuard::new(
                                 ClaimedTurn::new(session, guard),
                                 slot,
@@ -1217,6 +1327,7 @@ impl Hub {
                         // Its parent's run slots are all taken: it waits for one to free (or a
                         // limit to change), or to be withdrawn.
                         Err(parent) => {
+                            capacity_ticket.take();
                             drop(guard);
                             if slot_wait.is_none() {
                                 slot_wait = Some(self.mark_waiting_for_slot(&parent, session));
@@ -1224,6 +1335,7 @@ impl Hub {
                             tokio::select! {
                                 () = moved => {}
                                 () = freed => {}
+                                () = gateway_changed.as_mut() => {}
                                 () = withdraw.notified() => return Wait::Withdrawn,
                             }
                             continue;
@@ -1236,9 +1348,11 @@ impl Hub {
                 withdraw.notified().await;
                 return Wait::Withdrawn;
             }
+            capacity_ticket.take();
             drop(guard);
             tokio::select! {
                 () = moved => {}
+                () = gateway_changed.as_mut() => {}
                 () = withdraw.notified() => return Wait::Withdrawn,
             }
         }
@@ -1659,14 +1773,57 @@ impl Hub {
             }
         }
     }
+}
 
-    /// Runs `sessions`' restored prompts not started yet (each once: its `resume` mark). A chat
-    /// in a privacy-protected folder that no client shows waits for the person instead
-    /// (`protected_hold.rs`).
-    pub(super) fn resume_restored(self: &Arc<Self>, sessions: &[Arc<Session>]) {
-        self.resume_restored_as(sessions, false);
+/// Whether the prompt is one a closing session refuses: a lane's report.
+fn refuses_closing(p: &Slot<'_>) -> bool {
+    is_lane_report(p.provenance)
+}
+
+pub(super) fn is_lane_report(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|v| v.get("kind")).and_then(Value::as_str)
+        == Some(super::lane_reports::KIND)
+}
+
+/// Whether a dequeued prompt with `provenance` is a lane's report to `session`, closing now.
+pub(super) fn refuses_closing_run(session: &Session, provenance: Option<&Value>) -> bool {
+    is_lane_report(provenance) && closing(session)
+}
+
+/// Whether `session`'s close has begun (`kill` marks it before anything else) or it is closed.
+pub(super) fn closing(session: &Session) -> bool {
+    session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed
+}
+
+/// The refusal of a lane's report to a session whose close has begun.
+pub(super) fn closing_error() -> RpcError {
+    RpcError::invalid_params("the session is closing or closed: it takes no prompt")
+        .with_data(json!({"reason": "session.closing", "closing": true}))
+}
+
+/// What a queue restore that ended quiet carries into the next one (`Hub::restore_queue_after`,
+/// `restore_point.rs`): the branch, the held prompts and the order. Every other part of the read
+/// was empty at that seq.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct QueueCarry {
+    pub(crate) git_branch: Option<String>,
+    pub(crate) held: Vec<String>,
+    pub(crate) retrying: Vec<String>,
+    pub(crate) order: Value,
+}
+
+/// The `queue_removed` record of `removed`, with the fields of `why`.
+fn removed_record(session: &Session, removed: &QueuedPrompt, why: Value) -> Value {
+    let mut msg = json!({"promptId": removed.prompt_id, "turnId": removed.turn_id,
+                         "queued": session.queued()});
+    if let (Some(msg), Value::Object(why)) = (msg.as_object_mut(), why) {
+        msg.extend(why);
     }
+    msg
+}
 
+impl Hub {
     /// `resume_restored`; `asked`: the person asked for these chats now, so a protected folder
     /// holds nothing (`release_protected_hold`).
     pub(super) fn resume_restored_as(self: &Arc<Self>, sessions: &[Arc<Session>], asked: bool) {
@@ -1745,93 +1902,4 @@ impl Hub {
             }
         }
     }
-}
-
-impl Hub {
-    /// What a restored prompt's run `result` leaves of its queue entry (`start_restored`).
-    ///
-    /// Refused before its turn (its harness is gone, or it may not start under the chat's
-    /// control): it leaves the queue, so the prompts behind it still run, and its
-    /// `prompt_refused` says why, so it never just disappears. Taken without its turn (another
-    /// agent's message the chat's inbox, its surge or a hold took): it leaves the queue too,
-    /// logged, so the next restore does not run it again. Before, only a refusal took it out:
-    /// Mango's 66 background notices went to its inbox again at every daemon start and its queue
-    /// never drained (2026-11-25). Only this copy: a turn that ran it took it out already, and
-    /// one that ran it and failed may have put it back under a new turn id (`digest.rs`
-    /// `requeue_unread`), which waits on.
-    pub(super) fn settle_restored_run(
-        &self,
-        session: &Arc<Session>,
-        q: &QueuedPrompt,
-        result: Result<Value, RpcError>,
-    ) {
-        // Check the restored run's identity under the same lock that removes it: an unread
-        // turn can requeue this prompt with a new turn id while its old run is settling.
-        let remove = |reason| {
-            self.remove_queued_by(session, &q.prompt_id, reason, None, false, Some(&q.turn_id))
-                .is_ok_and(|w| w == Withdrawn::Removed)
-        };
-        match result {
-            Err(e) => {
-                if remove(None) {
-                    tracing::warn!(session = %session.id, prompt = %q.prompt_id, "restored prompt refused: {}", e.message);
-                    let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "error": e.message, "data": e.data});
-                    self.append(session, "mux", "prompt_refused", msg);
-                }
-            }
-            Ok(_) => {
-                if remove(Some("taken")) {
-                    tracing::info!(session = %session.id, prompt = %q.prompt_id, "restored prompt taken without its turn: it leaves the queue");
-                }
-            }
-        }
-    }
-}
-
-/// Whether the prompt is one a closing session refuses: a lane's report.
-fn refuses_closing(p: &Slot<'_>) -> bool {
-    is_lane_report(p.provenance)
-}
-
-pub(super) fn is_lane_report(provenance: Option<&Value>) -> bool {
-    provenance.and_then(|v| v.get("kind")).and_then(Value::as_str)
-        == Some(super::lane_reports::KIND)
-}
-
-/// Whether a dequeued prompt with `provenance` is a lane's report to `session`, closing now.
-pub(super) fn refuses_closing_run(session: &Session, provenance: Option<&Value>) -> bool {
-    is_lane_report(provenance) && closing(session)
-}
-
-/// Whether `session`'s close has begun (`kill` marks it before anything else) or it is closed.
-pub(super) fn closing(session: &Session) -> bool {
-    session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed
-}
-
-/// The refusal of a lane's report to a session whose close has begun.
-pub(super) fn closing_error() -> RpcError {
-    RpcError::invalid_params("the session is closing or closed: it takes no prompt")
-        .with_data(json!({"reason": "session.closing", "closing": true}))
-}
-
-/// What a queue restore that ended quiet carries into the next one (`Hub::restore_queue_after`,
-/// `restore_point.rs`): the branch, the held prompts and the order. Every other part of the read
-/// was empty at that seq.
-#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct QueueCarry {
-    pub(crate) git_branch: Option<String>,
-    pub(crate) held: Vec<String>,
-    pub(crate) retrying: Vec<String>,
-    pub(crate) order: Value,
-}
-
-/// The `queue_removed` record of `removed`, with the fields of `why`.
-fn removed_record(session: &Session, removed: &QueuedPrompt, why: Value) -> Value {
-    let mut msg = json!({"promptId": removed.prompt_id, "turnId": removed.turn_id,
-                         "queued": session.queued()});
-    if let (Some(msg), Value::Object(why)) = (msg.as_object_mut(), why) {
-        msg.extend(why);
-    }
-    msg
 }

@@ -606,6 +606,18 @@ pub(super) fn check_cut(
     }
 }
 
+pub(super) fn check_capacity_cut(session: &Session, cut: &str) -> Result<(), RpcError> {
+    let pending = session.auto_resume.lock();
+    let was_stopped = matches!(
+        pending.as_ref(),
+        Some(Mark::Stopping { turn, .. } | Mark::Stopped(turn)) if turn == cut
+    );
+    if was_stopped {
+        return Err(stopped());
+    }
+    check_cut(session, Some(cut), false, None)
+}
+
 /// Whether `session`'s account rate limit holds it while its compaction runs (`rate_hold.rs`):
 /// that one prompt goes ahead of what the hold queued, which goes in after it with the
 /// continuation.
@@ -1057,9 +1069,13 @@ impl Hub {
                 return;
             };
             if set {
-                // Its wait may shorten the chat's idle period (`idle_governor.rs`): the reaper
-                // takes the new deadline.
+                // Its wait may shorten the chat's idle period: the reaper takes the new deadline.
                 hub.idle_wake.notify_one();
+            }
+            // A turn held by the gateway capacity gate resumes when that gate reopens; it skips
+            // the family probe gate, whose probe would only find the same outage.
+            let capacity_wait = set && hub.retry_waits_for_capacity(&session, &error).await;
+            if set && !capacity_wait {
                 hub.wait_retry(&session, &turn_id, reason, next_at, &wake).await;
                 let cut = CutTurn {
                     from: from.as_deref(),
@@ -1084,7 +1100,8 @@ impl Hub {
                 not_before: None,
                 slash: slash.as_deref(),
             };
-            hub.resume_or_compact(&session, cut, attempt, Some((wake, reason))).await;
+            let gate = (!capacity_wait).then_some((wake, reason));
+            hub.resume_or_compact(&session, cut, attempt, gate).await;
         });
     }
 
@@ -1589,6 +1606,7 @@ impl Hub {
             (None, None) => pending.take(),
         };
         drop(pending);
+        session.queue_moved.notify_waiters();
         // A row may have shown this turn's retry being decided: watchers and peers hear it
         // settle, though an idle Stop records nothing else (Codex review, round 3).
         if let Some(turn) = settles {

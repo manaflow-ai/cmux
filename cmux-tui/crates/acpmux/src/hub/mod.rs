@@ -67,6 +67,7 @@ mod bridge;
 mod btw;
 mod caller_registry;
 pub(crate) mod cancel;
+mod capacity;
 mod capacity_retry;
 /// A chat waiting for capacity: the one calm state every client draws.
 pub(crate) mod capacity_wait;
@@ -751,20 +752,7 @@ impl WaitReason {
     }
 }
 
-/// True when a permission request is an agent's question (`questions.rs`): what tells the
-/// person about it says the agent asks, never that it needs a permission.
-pub(crate) fn is_question(request: &Value) -> bool {
-    questions::needs_person(request)
-}
-
-/// The first prompt of an agent's question: the normalized copy, else Claude Code's own input.
-pub(crate) fn question_prompt(request: &Value) -> Option<&str> {
-    questions::question(request)
-        .and_then(|q| q.pointer("/items/0/prompt"))
-        .or_else(|| request.pointer("/toolCall/rawInput/questions/0/question"))
-        .and_then(Value::as_str)
-        .filter(|p| !p.is_empty())
-}
+pub(crate) use questions::{is_question, question_prompt};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -1660,6 +1648,8 @@ pub struct Hub {
     /// `_acpmux/wait` row evaluations since start (`server/wait.rs`): each builds the summaries of
     /// the chats it waits on. A streamed token must cost none (HOT PATH AUDIT area F, row A1).
     pub(crate) wait_evaluations: std::sync::atomic::AtomicU64,
+    /// Each gateway's capacity gate: turns wait while it reports no account left (`capacity.rs`).
+    pub(super) capacity: capacity::Gates,
     /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
     pub(super) subagent_retries: subagent_retry::Retries,
     /// Each chat's top-level subagents and their briefs, for a Resume (`subagent_resume.rs`).
@@ -1815,6 +1805,7 @@ impl Hub {
         let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
+        let capacity = capacity::Gates::open(home.as_deref());
         let team_settings_path = home.as_ref().map(|h| h.join(team_settings::FILE));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
@@ -2101,6 +2092,7 @@ impl Hub {
             open_waits: Default::default(),
             session_update_encodes: Default::default(),
             wait_evaluations: Default::default(),
+            capacity,
             subagent_retries: Default::default(),
             subagent_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),

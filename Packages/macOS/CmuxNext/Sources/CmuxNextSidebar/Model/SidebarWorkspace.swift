@@ -85,6 +85,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// What the agent working in the workspace does right now (its acpmux lane's step, masked by
     /// acpmux; `sidebar.nowLine`): the row's "Now:" line. Nil while no chat on this Mac works.
     public var agentStep: String?
+    /// Prompts held for gateway capacity in this workspace's agent chats.
+    public var capacityWaitCount = 0
     /// The user's icon or color, else the shown tab's page icon or favicon (``iconFromShownTab``). When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?

@@ -49,6 +49,7 @@ const EXTRA_KEYS: &[&str] = &[
     "turnCount",
     "retry",
     "retryDeciding",
+    "capacityWaitCount",
     "lifecycleReceipt",
     "stale",
     // What it costs its machine now, versioned (`residency.rs`): the list counts resident chats.

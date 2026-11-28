@@ -62,6 +62,7 @@ enum SidebarLaneStatus {
                     if case .done = AgentPriorityRanking.state(lane, read: read) { return true }
                     return false
                 }
+                row.capacityWaitCount = local.reduce(0) { $0 + $1.capacityWaitCount }
                 guard mergesState || namesState || saysStep else { return row }
                 let standing = withoutSupersededFailures(local)
                 if mergesState { merge(standing, into: &row) }

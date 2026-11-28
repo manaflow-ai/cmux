@@ -80,6 +80,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let agentSession: String?
     /// acpmux's short name (`shortName`, the name without its family prefix: "cloud-demo").
     public let shortName: String?
+    public let capacityWaitCount: Int
     /// The git branch of the session's folder (acpmux `gitBranch`), when acpmux knows it.
     public let branch: String?
 
@@ -90,7 +91,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                 sidebarRequiresOpen: Bool = false,
                 turnPrompt: String? = nil, turnActivity: String? = nil,
                 chiefChildren: String? = nil, chiefParticipant: String? = nil,
-                agentSession: String? = nil, shortName: String? = nil, branch: String? = nil) {
+                agentSession: String? = nil, shortName: String? = nil, branch: String? = nil,
+                capacityWaitCount: Int = 0) {
         self.id = id
         self.branch = branch
         self.agentSession = agentSession
@@ -120,6 +122,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.createdAt = createdAt
         self.markKey = markKey
         self.preview = preview
+        self.capacityWaitCount = capacityWaitCount
     }
 
     /// A person should look: it waits on them, failed or was lost.
@@ -162,7 +165,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  chiefChildren: nonEmpty((summary["tags"] as? [String: Any])?["mux.children"]),
                                  chiefParticipant: nonEmpty((summary["tags"] as? [String: Any])?["cmux.chief.participant"]),
                                  agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]),
-                                 branch: nonEmpty(summary["gitBranch"]))
+                                 branch: nonEmpty(summary["gitBranch"]),
+                                 capacityWaitCount: (summary["capacityWaitCount"] as? NSNumber)?.intValue ?? 0)
     }
 
     /// A summary's epoch-milliseconds field as a date; nil when absent or not a number.

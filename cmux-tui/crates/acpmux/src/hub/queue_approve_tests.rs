@@ -118,7 +118,7 @@ fn insert(hub: &Hub, session: &Arc<Session>, id: &str, provenance: Option<&Value
         replaced: &replaced,
         no_queue: false,
         admitted: false,
-        after_turn: false,
+        after_turn: None,
         steer_on_start: false,
         answer_due: None,
     };

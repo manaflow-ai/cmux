@@ -114,6 +114,14 @@ impl Config {
             };
             return Ok(());
         }
+        if key.trim() == "capacity.release_per_min" {
+            self.capacity.release_per_min = if value.trim().eq_ignore_ascii_case("default") {
+                CapacityConfig::default().release_per_min
+            } else {
+                value.trim().parse().context("capacity.release_per_min must be positive")?
+            };
+            return Ok(());
+        }
         self.set_session_resource(key, value)
     }
 

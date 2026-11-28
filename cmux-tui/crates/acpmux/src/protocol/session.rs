@@ -356,6 +356,10 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub retry_deciding: bool,
+    /// Number of queued turns or retries waiting for gateway capacity.
+    #[serde(default, skip_serializing_if = "capacity_wait_count_is_zero")]
+    #[schemars(default)]
+    pub capacity_wait_count: u64,
     /// It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,
     /// and from a peer on an older acpmux.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1196,6 +1200,10 @@ pub struct SessionPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peer: Option<String>,
     pub list_seq: u64,
+}
+
+fn capacity_wait_count_is_zero(count: &u64) -> bool {
+    *count == 0
 }
 
 /// To a watcher that asked for batches (`initialize` `_meta.acpmux.peerRowBatches`), in place of
