@@ -173,6 +173,32 @@ import Testing
         #expect(settle.isDone(at: 10 + ChatSendSpring.settleTime))
     }
 
+    /// The Send tap lays the rows out in its own turn, and the main thread can stay busy for a few
+    /// frames after it (the keyboard going down). The glide's clock starts at the first display
+    /// frame, so that frame moves the rows one frame's share of the spring, not the 30 to 50 pt a
+    /// clock started in the tap had already covered.
+    @Test func aGlideBegunInTheSendTapStartsAtItsFirstFrame() {
+        var settle = ChatSendSettle(rowIDs: ["u-k"], motion: .rise, fromHeight: 840)
+        let began = settle.begin(contentHeight: 950, at: 10, inFrame: false)
+        #expect(began)
+        // 45 ms of main-thread work later, the rows have not moved, nor is the glide done.
+        #expect(abs(settle.remaining(at: 10.045) - 110) < 0.001)
+        #expect(!settle.isDone(at: 10 + ChatSendSpring.settleTime + 1))
+        // The first frame: its clock starts at the frame before it (`timestamp`), and it draws at
+        // its own `targetTimestamp` one 60 Hz frame later.
+        settle.firstFrame(at: 10.045)
+        settle.noteFrame(at: 10.045 + 1.0 / 60)
+        let first = settle.firstStep ?? .infinity
+        #expect(first > 0 && first < 110 * 0.06, "first frame moved \(first) of 110 pt")
+        // The rest of the glide at 60 Hz: no frame moves the rows more than an eighth of the way.
+        for frame in 2...40 { settle.noteFrame(at: 10.045 + Double(frame) / 60) }
+        #expect(settle.largestStep < 110 * 0.125, "largest step \(settle.largestStep)")
+        #expect(settle.isDone(at: 10.045 + ChatSendSpring.settleTime))
+        // A second first frame does not restart it.
+        settle.firstFrame(at: 11)
+        #expect(settle.isDone(at: 10.045 + ChatSendSpring.settleTime))
+    }
+
     @Test func aRowGrowingMidGlideDoesNotJump() {
         var settle = ChatSendSettle(rowIDs: ["u-k"], motion: .glide, fromHeight: 450)
         let began = settle.begin(contentHeight: 500, at: 0)
