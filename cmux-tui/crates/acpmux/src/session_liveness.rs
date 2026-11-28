@@ -87,8 +87,9 @@ pub fn failure_error(summary: &Value) -> Value {
     if sandbox_failed(summary) {
         summary["harnessSandboxError"].clone()
     } else {
-        summary["lastTurn"]["errorText"]
-            .as_str()
+        summary
+            .pointer("/lastTurn/errorText")
+            .and_then(Value::as_str)
             .or_else(|| summary["preview"].as_str().and_then(blocked_reply))
             .map_or(Value::Null, |error| Value::String(error.to_owned()))
     }

@@ -97,8 +97,10 @@ pub(super) fn request(name: &str, args: &Value) -> Result<(&'static str, Value),
                 strings("until")?,
                 arg(args, "match").map(str::to_owned),
             );
-            if let Some(m) = arg(args, "matchIn") {
-                params["matchIn"] = json!(m);
+            if let Some(m) = arg(args, "matchIn")
+                && let Some(fields) = params.as_object_mut()
+            {
+                fields.insert("matchIn".into(), json!(m));
             }
             Ok((method::MUX_WATCH_ADD, params))
         }

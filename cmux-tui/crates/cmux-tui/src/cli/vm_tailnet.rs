@@ -982,7 +982,7 @@ pub(super) fn stable_name(env: &dyn Fn(&str) -> Option<String>) -> String {
     }
     let label = label.trim_end_matches('-');
     // A DNS label is at most 63 bytes; `-cmux` takes 5.
-    let label = &label[..label.len().min(58)];
+    let label = label.get(..label.len().min(58)).unwrap_or(label);
     if label.is_empty() {
         "cmux".to_owned()
     } else {
@@ -1078,22 +1078,20 @@ fn join_verb(
     match result {
         Ok(node) => {
             let mut record = read_record(env);
-            record.insert(
-                vm_id.clone(),
-                node.get("dnsName").and_then(Value::as_str).unwrap_or_default().to_owned(),
-            );
+            let dns_name =
+                node.get("dnsName").and_then(Value::as_str).unwrap_or_default().to_owned();
+            record.insert(vm_id.clone(), dns_name.clone());
             write_record(env, &record);
             let kept = match vault {
-                Some(vault) => keep_in(vault, &vm_id, None, env, &record[&vm_id]),
-                None => auto_keep(&vm_id, None, env, &record[&vm_id]),
+                Some(vault) => keep_in(vault, &vm_id, None, env, &dns_name),
+                None => auto_keep(&vm_id, None, env, &dns_name),
             };
             if vault.is_some()
                 && let Err(why) = &kept
             {
                 return fail(
                     &format!(
-                        "{vm_id} joined your tailnet as {}, but your vault did not keep it ({why}); run `cmux vm tailnet keep {vm_id}`",
-                        record[&vm_id]
+                        "{vm_id} joined your tailnet as {dns_name}, but your vault did not keep it ({why}); run `cmux vm tailnet keep {vm_id}`"
                     ),
                     1,
                 );

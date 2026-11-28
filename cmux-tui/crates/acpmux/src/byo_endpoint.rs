@@ -456,18 +456,26 @@ pub(crate) fn opencode_env(
     // The config refers to the environment variable only for a keyed endpoint.
     let base_url = base_url.trim_end_matches('/');
     let mut options = serde_json::json!({"baseURL": base_url});
-    if anthropic && !base_url.ends_with("/v1") {
-        options["baseURL"] = format!("{base_url}/v1").into();
+    if anthropic
+        && !base_url.ends_with("/v1")
+        && let Some(fields) = options.as_object_mut()
+    {
+        fields.insert("baseURL".into(), format!("{base_url}/v1").into());
     }
     if keyed {
         let key = serde_json::Value::String(format!("{{env:{OPENAI_KEY_ENV}}}"));
         if cloudflare_gateway(base_url) {
             // The compatible adapter sends only these headers when apiKey is absent.
-            options["headers"] = serde_json::json!({
-                "cf-aig-authorization": format!("Bearer {{env:{OPENAI_KEY_ENV}}}"),
-            });
-        } else {
-            options["apiKey"] = key;
+            if let Some(fields) = options.as_object_mut() {
+                fields.insert(
+                    "headers".into(),
+                    serde_json::json!({
+                        "cf-aig-authorization": format!("Bearer {{env:{OPENAI_KEY_ENV}}}"),
+                    }),
+                );
+            }
+        } else if let Some(fields) = options.as_object_mut() {
+            fields.insert("apiKey".into(), key);
         }
     }
     let mut config = serde_json::json!({
@@ -487,8 +495,9 @@ pub(crate) fn opencode_env(
 
 fn configure_reasoning(config: &mut serde_json::Value) -> bool {
     let Some(provider) = config.pointer_mut("/provider/byo") else { return false };
-    let host = provider["options"]["baseURL"]
-        .as_str()
+    let host = provider
+        .pointer("/options/baseURL")
+        .and_then(serde_json::Value::as_str)
         .and_then(|base| reqwest::Url::parse(base).ok()?.host_str().map(str::to_owned));
     if !matches!(
         host.as_deref(),
@@ -566,18 +575,20 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
     match e.kind {
         Kind::Anthropic => {
             let env = claude_env(e.base_url, e.models);
-            let m = toml_string(&env["ANTHROPIC_MODEL"]);
+            let m = toml_string(env.get("ANTHROPIC_MODEL").map_or("", String::as_str));
             let list = e.models.iter().map(|m| toml_string(m)).collect::<Vec<_>>().join(", ");
             let slots: String = claude_slots(e.models)
                 .iter()
-                .map(|(k, _)| format!("{k} = {}\n", toml_string(&env[*k])))
+                .map(|(k, _)| {
+                    format!("{k} = {}\n", toml_string(env.get(*k).map_or("", String::as_str)))
+                })
                 .collect();
             format!(
                 "{head}icon = \"claude\"\nprotocol = \"claude-stdio\"\ncommand = \"claude\"\n\n\
                  [capabilities]\npermission_modes = true\nresume = true\n\n\
                  [defaults]\nmodel = {m}\n\n[models]\nlist = [{list}]\n\n\
                  [env]\nANTHROPIC_BASE_URL = {}\n{item_line}ANTHROPIC_MODEL = {m}\n{slots}{marker}",
-                toml_string(&env["ANTHROPIC_BASE_URL"]),
+                toml_string(env.get("ANTHROPIC_BASE_URL").map_or("", String::as_str)),
             )
         }
         Kind::OpenAi => {
@@ -593,7 +604,7 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
                  [defaults]\nmodel = {f}\n\n[models]\nlist = [{list}]\n\n\
                  [auth]\ndocs = \"https://opencode.ai/docs/providers/\"\n\n\
                  [env]\nOPENCODE_CONFIG_CONTENT = {}\n{item_line}{marker}",
-                toml_string(&config["OPENCODE_CONFIG_CONTENT"]),
+                toml_string(config.get("OPENCODE_CONFIG_CONTENT").map_or("", String::as_str)),
             )
         }
     }

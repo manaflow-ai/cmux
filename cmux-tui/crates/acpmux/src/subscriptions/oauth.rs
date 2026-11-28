@@ -371,8 +371,12 @@ impl OAuth {
                                 .bearer_auth(&record.access_token),
                         )
                         .await?;
-                        record.sub = user["id"].as_u64().map(|id| id.to_string());
-                        record.login = identity(&user["login"]);
+                        record.sub = user
+                            .get("id")
+                            .and_then(serde_json::Value::as_u64)
+                            .map(|id| id.to_string());
+                        record.login =
+                            identity(user.get("login").unwrap_or(&serde_json::Value::Null));
                         if record.sub.is_none() || record.login.is_none() {
                             return Err("bad_reply");
                         }
@@ -380,10 +384,17 @@ impl OAuth {
                     if provider == Provider::Kimi {
                         let region = record.region.ok_or("bad_region")?;
                         let user = self.kimi_identity(http, region, &record).await?;
-                        record.sub = identity(&user["user_id"]);
+                        record.sub =
+                            identity(user.get("user_id").unwrap_or(&serde_json::Value::Null));
                         record.login =
-                            identity(&user["nickname"]).or_else(|| identity(&user["username"]));
-                        record.email = identity(&user["email"]);
+                            identity(user.get("nickname").unwrap_or(&serde_json::Value::Null))
+                                .or_else(|| {
+                                    identity(
+                                        user.get("username").unwrap_or(&serde_json::Value::Null),
+                                    )
+                                });
+                        record.email =
+                            identity(user.get("email").unwrap_or(&serde_json::Value::Null));
                     }
                     return Ok(record);
                 }

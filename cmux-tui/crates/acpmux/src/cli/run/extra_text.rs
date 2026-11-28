@@ -113,7 +113,9 @@ pub(super) async fn place_session(
             let one = client
                 .request("_acpmux/place_undo", json!({"sessionId": id, "confirm": args.yes}))
                 .await?;
-            chats.extend(one["chats"].as_array().cloned().unwrap_or_default());
+            chats.extend(
+                one.get("chats").and_then(serde_json::Value::as_array).cloned().unwrap_or_default(),
+            );
         }
         json!({"chats": chats})
     } else if args.status {
@@ -138,7 +140,7 @@ pub(super) async fn place_session(
         }
         client.request("_acpmux/place_set", params).await?
     };
-    let chats = v["chats"].as_array().cloned().unwrap_or_default();
+    let chats = v.get("chats").and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
     if json_out {
         print_json(&v);
     } else {

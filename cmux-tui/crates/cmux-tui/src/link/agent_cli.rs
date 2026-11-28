@@ -1090,7 +1090,11 @@ impl MoveConsent {
             .await
         });
         let route = route.map_err(|_| failed())?.map_err(|_| failed())?;
-        let path = route["path"].as_str().map(std::path::Path::new).ok_or_else(failed)?;
+        let path = route
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .map(std::path::Path::new)
+            .ok_or_else(failed)?;
         acpmux::routes::lock_cloud_move_connection(path, &self.id, self.instance.as_deref())
             .map_err(|_| failed())
     }

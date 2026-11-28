@@ -109,9 +109,11 @@ impl Outgoing {
             let owner = hub.clone();
             hub.scope.spawn_until_cancelled("peer-presence-replay", async move {
                 for attempt in 0..=ATTACH_RETRY_AFTER.len() {
-                    if attempt > 0 {
+                    if let Some(&delay) =
+                        attempt.checked_sub(1).and_then(|i| ATTACH_RETRY_AFTER.get(i))
+                    {
                         // Never hold `sending` during backoff: a leave must get through.
-                        tokio::time::sleep(ATTACH_RETRY_AFTER[attempt - 1]).await;
+                        tokio::time::sleep(delay).await;
                     }
                     let _sending = entry.sending.lock().await;
                     if !entry.active.load(Ordering::Acquire)
@@ -149,7 +151,11 @@ impl Outgoing {
         mut params: Value,
         link: u64,
     ) -> Result<Value, RpcError> {
-        let chat = params["sessionId"].as_str().unwrap_or_default().to_owned();
+        let chat = params
+            .get("sessionId")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
         let author =
             crate::author::author(&params)?.ok_or_else(crate::hub::presence::peer_unsupported)?.id;
         let epoch = hub.presence.off_epoch();
@@ -177,7 +183,9 @@ impl Outgoing {
             } else {
                 let token = uuid::Uuid::now_v7().to_string();
                 let mut leave = params.clone();
-                leave["visible"] = json!(false);
+                if let Some(fields) = leave.as_object_mut() {
+                    fields.insert("visible".into(), json!(false));
+                }
                 crate::hub::merge_mux_meta(
                     &mut leave,
                     json!({"presenceClient": token, "presenceLeave": true}),
@@ -226,7 +234,9 @@ impl Outgoing {
                 // Only accepted viewing state survives reconnect. Typing has a short lifetime
                 // and must neither overwrite a view nor be resurrected after an outage.
                 if method == method::MUX_VIEW {
-                    *entry.view.lock_or_recover() = (params["visible"] == true).then_some(params);
+                    *entry.view.lock_or_recover() = (params.get("visible")
+                        == Some(&serde_json::Value::Bool(true)))
+                    .then_some(params);
                     entry.restored_link.store(link, Ordering::Release);
                 }
                 Ok(result)

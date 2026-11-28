@@ -263,7 +263,9 @@ impl Hub {
         });
         let mut text = record.text(&route.via);
         if let Some(note) = note {
-            provenance["supervisor"] = json!(note);
+            if let Some(fields) = provenance.as_object_mut() {
+                fields.insert("supervisor".into(), json!(note));
+            }
             text.push(' ');
             text.push_str(note);
         }

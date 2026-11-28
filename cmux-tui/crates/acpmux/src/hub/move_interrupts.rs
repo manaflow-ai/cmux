@@ -160,8 +160,7 @@ pub(crate) fn lines(p: &Parts) -> Vec<String> {
             "a running turn{what}: it moves at its next tool call, or is cut with --interrupt"
         ));
     }
-    if !p.processes.is_empty() {
-        let first = &p.processes[0];
+    if let Some(first) = p.processes.first() {
         let name = first.1.as_deref().filter(|d| !d.trim().is_empty()).unwrap_or(&first.0);
         let more = if p.processes.len() > 1 {
             format!(" and {} more", p.processes.len() - 1)
@@ -174,8 +173,7 @@ pub(crate) fn lines(p: &Parts) -> Vec<String> {
             cut(name, 50)
         ));
     }
-    if !p.tasks.is_empty() {
-        let first = &p.tasks[0];
+    if let Some(first) = p.tasks.first() {
         let name = first.description.as_deref().filter(|d| !d.trim().is_empty());
         let more = if p.tasks.len() > 1 {
             format!(" and {} more", p.tasks.len() - 1)

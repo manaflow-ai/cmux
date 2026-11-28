@@ -229,7 +229,8 @@ impl Live {
             .ok_or_else(|| Failure::Stop("the machine daemon runs from an unknown place".into()))?
             .to_owned();
         let name = peer_name(identity["machine_name"].as_str().unwrap_or_default());
-        let registry_id = identity["registry_id"].as_str().map(str::to_owned);
+        let registry_id =
+            identity.get("registry_id").and_then(serde_json::Value::as_str).map(str::to_owned);
         let workspace_client = WorkspaceClient::connect(multiplexer.clone())
             .await
             .map_err(|e| Failure::Retry(format!("workspace rpc: {}", e.message)))?;

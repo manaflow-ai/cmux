@@ -232,7 +232,7 @@ pub(crate) fn worktree_fingerprint(cwd: &std::path::Path) -> Option<u64> {
     head.hash(&mut h);
     out.stdout.hash(&mut h);
     for record in out.stdout.split(|b| *b == 0).filter(|r| r.len() > 3) {
-        let path = cwd.join(String::from_utf8_lossy(&record[3..]).as_ref());
+        let path = cwd.join(String::from_utf8_lossy(record.get(3..).unwrap_or_default()).as_ref());
         match std::fs::symlink_metadata(&path) {
             Ok(m) => {
                 m.len().hash(&mut h);

@@ -37,16 +37,18 @@ pub(super) async fn retention(args: RetentionArgs, json_out: bool) -> Result<()>
     if json_out {
         print_json(&v);
     } else {
-        let mb = |key: &str| v[key].as_u64().unwrap_or(0) as f64 / 1_048_576.0;
+        let mb = |key: &str| {
+            v.get(key).and_then(serde_json::Value::as_u64).unwrap_or(0) as f64 / 1_048_576.0
+        };
         println!(
             "{} closed chats older than {} days: {:.1} MB of {:.1} MB {}",
-            v["chats"],
-            v["olderThanDays"],
+            v.get("chats").unwrap_or(&serde_json::Value::Null),
+            v.get("olderThanDays").unwrap_or(&serde_json::Value::Null),
             mb("freedBytes"),
             mb("bytesBefore"),
             if args.dry_run { "would be freed (dry run)" } else { "freed" }
         );
-        println!("skipped: {}", v["skipped"]);
+        println!("skipped: {}", v.get("skipped").unwrap_or(&serde_json::Value::Null));
         let read_back = v.get("readBack").and_then(|r| r.as_array());
         for chat in read_back.into_iter().flatten() {
             let text = |key: &str| chat.get(key).and_then(|x| x.as_str()).unwrap_or("?");

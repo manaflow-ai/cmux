@@ -82,11 +82,15 @@ impl ModelClock {
         let mut state = self.state();
         let first = state.first_token_at?;
         let mut timing = json!({"firstTokenAt": first, "lastTokenAt": at.max(first)});
-        if let Some(requested) = state.requested_at {
-            timing["requestAt"] = json!(requested);
+        if let Some(requested) = state.requested_at
+            && let Some(fields) = timing.as_object_mut()
+        {
+            fields.insert("requestAt".into(), json!(requested));
         }
-        if state.thought {
-            timing["thought"] = json!(true);
+        if state.thought
+            && let Some(fields) = timing.as_object_mut()
+        {
+            fields.insert("thought".into(), json!(true));
         }
         *state = State { last_ended_at: Some(at), ..State::default() };
         Some(timing)

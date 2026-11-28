@@ -574,8 +574,10 @@ fn recovered_in(vars: &BTreeMap<&str, &str>) -> Option<AgentCredential> {
     }
     let value = *vars.get(name)?;
     let mut wire = serde_json::json!({"env": {name: value}});
-    if let Some(endpoint) = vars.get(ENDPOINT_MARKER) {
-        wire["endpoint"] = serde_json::from_str(endpoint).ok()?;
+    if let Some(endpoint) = vars.get(ENDPOINT_MARKER)
+        && let Some(fields) = wire.as_object_mut()
+    {
+        fields.insert("endpoint".into(), serde_json::from_str(endpoint).ok()?);
     }
     AgentCredential::parse(&wire).ok()
 }

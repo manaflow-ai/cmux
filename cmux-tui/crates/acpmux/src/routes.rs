@@ -971,13 +971,13 @@ fn write_credential_instance(
         if let Some(previous) = doc.get("secret").and_then(toml_edit::Item::as_value) {
             *secret.decor_mut() = previous.decor().clone();
         }
-        doc["secret"] = toml_edit::Item::Value(secret);
+        doc.insert("secret", toml_edit::Item::Value(secret));
     }
     let mut notes = toml_edit::Value::from(credential_notes(file, instance)?);
     if let Some(previous) = doc.get("notes").and_then(toml_edit::Item::as_value) {
         *notes.decor_mut() = previous.decor().clone();
     }
-    doc["notes"] = toml_edit::Item::Value(notes);
+    doc.insert("notes", toml_edit::Item::Value(notes));
     write_route_text(path, &doc.to_string())
 }
 

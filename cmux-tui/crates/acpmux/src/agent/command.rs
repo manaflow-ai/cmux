@@ -260,7 +260,12 @@ fn build_harness_command(
             .filter(serde_json::Value::is_object)
             .ok_or_else(|| anyhow!("invalid OpenCode launch configuration"))?;
         // ACP restores and replays a saved model only while its provider is available.
-        config["enabled_providers"] = serde_json::json!([crate::byo_endpoint::OPENCODE_PROVIDER]);
+        if let Some(fields) = config.as_object_mut() {
+            fields.insert(
+                "enabled_providers".into(),
+                serde_json::json!([crate::byo_endpoint::OPENCODE_PROVIDER]),
+            );
+        }
         env.insert(config_key.into(), config.to_string());
     }
     if kimi || family_name == "openrouter" {

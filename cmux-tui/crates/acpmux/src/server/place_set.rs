@@ -200,7 +200,7 @@ fn last_move_from(hub: &Hub, id: &str) -> Option<(String, Option<PlaceMode>)> {
         lines.sort_by_key(|r| std::cmp::Reverse(r.seq));
         for r in lines {
             let move_id = r.msg.get("moveId").and_then(Value::as_str);
-            if r.msg["failed"] == json!(true) {
+            if r.msg.get("failed") == Some(&json!(true)) {
                 failed.extend(move_id.map(str::to_owned));
                 continue;
             }

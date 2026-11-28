@@ -239,11 +239,15 @@ impl StartCredentials {
 
     pub(in crate::server) fn wire(&self) -> Value {
         let mut wire = json!({"env": self.env});
-        if let Some(endpoint) = &self.endpoint {
-            wire["endpoint"] = json!(endpoint);
+        if let Some(endpoint) = &self.endpoint
+            && let Some(fields) = wire.as_object_mut()
+        {
+            fields.insert("endpoint".into(), json!(endpoint));
         }
-        if let Some(connection) = &self.connection {
-            wire["connection"] = json!(connection);
+        if let Some(connection) = &self.connection
+            && let Some(fields) = wire.as_object_mut()
+        {
+            fields.insert("connection".into(), json!(connection));
         }
         wire
     }

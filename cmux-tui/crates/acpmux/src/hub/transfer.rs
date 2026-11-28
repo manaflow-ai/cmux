@@ -580,14 +580,20 @@ impl Hub {
         if !crate::claude_cloud_auth::launches_claude_itself(&launch.argv) {
             return Err(unavailable());
         }
-        let cli = crate::agent_login::Cli { program: launch.argv[0].clone(), globals: vec![], env };
+        let cli = crate::agent_login::Cli {
+            program: launch.argv.first().cloned().unwrap_or_default(),
+            globals: vec![],
+            env,
+        };
         let machine = crate::agent_login::Machine {
             root: self.vm_marker_root(),
             home: dirs::home_dir().unwrap_or_default(),
         };
         let status =
             crate::agent_login::claude_status(&machine, &cli).await.map_err(|_| unavailable())?;
-        if status["signedIn"] == true || status["apiKey"] == true {
+        if status.get("signedIn") == Some(&serde_json::Value::Bool(true))
+            || status.get("apiKey") == Some(&serde_json::Value::Bool(true))
+        {
             Ok(())
         } else {
             Err(unavailable())

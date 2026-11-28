@@ -768,8 +768,12 @@ fn filter_threads(answer: &mut Value, args: &Value) -> usize {
     let Some(threads) = answer.get_mut("threads").and_then(Value::as_array_mut) else { return 0 };
     let sent_by = |t: &Value, who: &str| {
         let names = t["from"].as_array().into_iter().flatten().filter_map(Value::as_str);
-        let sender = ["label", "session", "machine"].map(|k| t["sender"][k].as_str());
-        let host_name = match (t["sender"]["machine"].as_str(), t["sender"]["label"].as_str()) {
+        let sender = ["label", "session", "machine"]
+            .map(|k| t.get("sender").and_then(|v| v.get(k)).and_then(serde_json::Value::as_str));
+        let host_name = match (
+            t.get("sender").and_then(|v| v.get("machine")).and_then(serde_json::Value::as_str),
+            t.get("sender").and_then(|v| v.get("label")).and_then(serde_json::Value::as_str),
+        ) {
             (Some(m), Some(l)) => Some(format!("{m}/{l}")),
             _ => None,
         };

@@ -219,8 +219,10 @@ pub(crate) fn detach_command(args: &[String]) -> anyhow::Result<Value> {
     let found = detach_record(records_at(&folder, &at)?, name.as_deref())
         .with_context(|| format!("selecting the projection of {} at {at}", folder.display()))?;
     let mut line = json!({"cmd": "projection.detach", "name": found.name});
-    if let Some(chat) = chat {
-        line["chat"] = Value::String(chat);
+    if let Some(chat) = chat
+        && let Some(fields) = line.as_object_mut()
+    {
+        fields.insert("chat".into(), Value::String(chat));
     }
     match dial_answer(&socket, &line)? {
         Ok(answer) => {
@@ -237,15 +239,22 @@ fn detached_answer(answer: &Value, stopped: anyhow::Result<bool>) -> Value {
     // so a caller can retry cleanup without treating the retained edits as still mounted.
     let mut answer = json!({"ok": true, "detached": true, "mark": field(answer, "/data/mark"),
                            "was_mounted": field(answer, "/data/was_mounted")});
-    match stopped {
-        Ok(stopped) => answer["server_stopped"] = Value::Bool(stopped),
-        Err(error) => {
-            answer["ok"] = Value::Bool(false);
-            answer["server_stopped"] = Value::Bool(false);
-            answer["error_code"] = Value::String("projection.stop_failed".into());
-            answer["error"] = Value::String(format!(
-                "the folder detached, but its server could not be stopped: {error:#}"
-            ));
+    if let Some(fields) = answer.as_object_mut() {
+        match stopped {
+            Ok(stopped) => {
+                fields.insert("server_stopped".into(), Value::Bool(stopped));
+            }
+            Err(error) => {
+                fields.insert("ok".into(), Value::Bool(false));
+                fields.insert("server_stopped".into(), Value::Bool(false));
+                fields.insert("error_code".into(), Value::String("projection.stop_failed".into()));
+                fields.insert(
+                    "error".into(),
+                    Value::String(format!(
+                        "the folder detached, but its server could not be stopped: {error:#}"
+                    )),
+                );
+            }
         }
     }
     answer

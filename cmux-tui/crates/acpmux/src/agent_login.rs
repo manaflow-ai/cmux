@@ -1040,7 +1040,7 @@ pub(crate) async fn claude_status(machine: &Machine, cli: &Cli) -> Result<Value,
             })
         });
     Ok(serde_json::json!({
-        "signedIn": status["loggedIn"] == true && status["authMethod"] == "claude.ai",
+        "signedIn": status.get("loggedIn") == Some(&serde_json::Value::Bool(true)) && status.get("authMethod").and_then(serde_json::Value::as_str) == Some("claude.ai"),
         "apiKey": api_key
     }))
 }

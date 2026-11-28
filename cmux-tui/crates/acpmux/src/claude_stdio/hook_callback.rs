@@ -123,11 +123,14 @@ impl Translator {
                 // The tool runs: the same reply carries the plugin decision, for the same
                 // Bash/MCP matcher the session-tool callback has elsewhere.
                 if output == json!({}) {
-                    let tool = input["tool_name"].as_str().unwrap_or("");
-                    let tool_callback = input["hook_event_name"] == "PreToolUse"
-                        && (tool == "Bash"
-                            || crate::bg_hook::MCP_CALLS.contains(&tool)
-                            || crate::model_router::SUBAGENT_TOOLS.contains(&tool));
+                    let tool =
+                        input.get("tool_name").and_then(serde_json::Value::as_str).unwrap_or("");
+                    let tool_callback =
+                        input.get("hook_event_name").and_then(serde_json::Value::as_str)
+                            == Some("PreToolUse")
+                            && (tool == "Bash"
+                                || crate::bg_hook::MCP_CALLS.contains(&tool)
+                                || crate::model_router::SUBAGENT_TOOLS.contains(&tool));
                     output = plugin_answer(tool_callback, home, &session, &input).await;
                 }
                 crate::gauges::hook_answers().answered(started.elapsed());

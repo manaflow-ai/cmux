@@ -41,8 +41,10 @@ impl Login {
     /// The finish's `credentials` param.
     pub fn wire(&self) -> Value {
         let mut wire = json!({"env": self.env});
-        if let Some(connection) = &self.connection {
-            wire["connection"] = json!(connection);
+        if let Some(connection) = &self.connection
+            && let Some(fields) = wire.as_object_mut()
+        {
+            fields.insert("connection".into(), json!(connection));
         }
         wire
     }
