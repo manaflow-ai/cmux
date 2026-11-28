@@ -2561,7 +2561,8 @@ async fn dispatch_method(
             let steer = steer.unwrap_or(false);
             // An outside producer's message that waits for the chat's cold batch (`acpmux send
             // --gather`, `hub/cold_wake.rs`): refused when it could not wait.
-            if flag(crate::hub::cold_wake::GATHER_META) == Some(true) {
+            let gather = flag(crate::hub::cold_wake::GATHER_META) == Some(true);
+            if gather {
                 let fire = mux_meta(&params)
                     .and_then(|m| m.pointer("/notice/severity"))
                     .and_then(Value::as_str)
@@ -2575,6 +2576,12 @@ async fn dispatch_method(
                     return Err(refused);
                 }
             }
+            let provenance = provenance.map(|mut p| {
+                if gather {
+                    p.set(crate::hub::cold_wake::GATHER_META, json!(true));
+                }
+                p
+            });
             // A subagent's prompt that starts a turn of a lane of its own lead: that turn's answer
             // reaches the subagent (`hub/lane_report_subagents.rs`), so the receiver is told to end
             // its turn with it rather than send it to the lead (`hub/prompt_attribution.rs`). Not
