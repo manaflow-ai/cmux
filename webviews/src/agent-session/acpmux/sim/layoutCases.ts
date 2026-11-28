@@ -31,6 +31,12 @@ export const CONTENT_KINDS = [
   "long-token",
   "list-quote-links",
   "one-word-deltas",
+  // The three moments Leo named (2026-11-25, ask-92452d6809: "shift when we for some reason start working
+  // then a background task "tool" comes in"): a send into a working turn, an attachment sent, a
+  // background task arriving while the reply streams.
+  "send-while-working",
+  "attach-send",
+  "background-arrival",
 ] as const;
 export type ContentKind = (typeof CONTENT_KINDS)[number];
 
@@ -157,6 +163,43 @@ export function layoutCaseScenario(content: ContentKind): SimScenario {
       .say(PARAGRAPH, { chunks: 6 })
       .tool("bun test api/client.test.ts")
       .say("Fixed.")
+      .turnEnd()
+      .build();
+  if (content === "send-while-working")
+    return sim("layout-send-while-working", "The person sends a steer into a running turn; the reply keeps streaming.")
+      .prompt("Look at the retry helper.")
+      .think("Reading it.")
+      .tool("rg -n retry src", { ms: 400 })
+      .say(PARAGRAPH, { chunks: 6 })
+      .steerPrompt("Also check the second caller.")
+      .say(PARAGRAPH, { chunks: 6 })
+      .tool("bun test api", { ms: 400 })
+      .say("Both checked.", { chunks: 2 })
+      .turnEnd()
+      .build();
+  if (content === "attach-send")
+    return sim("layout-attach-send", "A prompt sent with a screenshot and a file; the reply streams under it.")
+      .prompt("What is wrong in this screenshot?", 1_000, {
+        images: [
+          { id: "img-1", mimeType: "image/png", name: "shot.png", width: 1280, height: 800 },
+          { id: "img-2", mimeType: "image/png", name: "tall.png", width: 600, height: 1400 },
+        ],
+      })
+      .think("Looking at it.")
+      .say(PARAGRAPH, { chunks: 6 })
+      .tool("rg -n toolbar src", { ms: 400 })
+      .say("The toolbar overlaps.", { chunks: 2 })
+      .turnEnd()
+      .build();
+  if (content === "background-arrival")
+    return sim("layout-background-arrival", "A background shell starts and ends while the reply streams.")
+      .prompt("Run the dev server and tell me when it is up.")
+      .think("Starting it.")
+      .say(PARAGRAPH, { chunks: 4 })
+      .background("bun run dev", { ms: 600 })
+      .say(PARAGRAPH, { chunks: 6 })
+      .backgroundEnds()
+      .say("The server is up.", { chunks: 2 })
       .turnEnd()
       .build();
   if (content === "compaction")
