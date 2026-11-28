@@ -162,6 +162,14 @@ crate::framework! {
     }
 }
 
+// The power-efficiency key (macOS 14+), bound apart like the speed keys: without it the session
+// keeps VideoToolbox's default.
+crate::framework! {
+    mod vt_power_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
+        static kVTCompressionPropertyKey_MaximizePowerEfficiency: CFStringRef;
+    }
+}
+
 // The sRGB transfer key, bound apart from `cv_sys` like the speed keys: were it missing, the
 // session would tag BT.709 transfer as before rather than fail `frameworks()`.
 crate::framework! {
@@ -256,6 +264,30 @@ fn floor_under_ceiling(floor: i32, ceiling: Option<u8>) -> i32 {
 }
 
 /// Whether a profile runs the frame-size guard: on unless its env var says `off` (a sweep).
+/// The power-efficiency hint `CMUX_RD_VT_POWER_EFFICIENT` asks for: `1` on, `0` off, anything
+/// else (or unset) none, which leaves VideoToolbox's default.
+fn power_efficiency(env: Option<&str>) -> Option<bool> {
+    match env.map(str::trim) {
+        Some("1") => Some(true),
+        Some("0") => Some(false),
+        _ => None,
+    }
+}
+
+/// How many throwaway frames `CMUX_RD_VT_KEEPWARM` asks [`VideoToolbox::prepare`] to encode:
+/// `1` the default warm-up, a number that many (capped), anything else (or unset) none.
+fn keepwarm_frames(env: Option<&str>) -> u32 {
+    match env.map(str::trim) {
+        Some("1") => KEEPWARM_FRAMES,
+        Some(n) => n.parse::<u32>().map_or(0, |n| n.min(KEEPWARM_MAX_FRAMES)),
+        None => 0,
+    }
+}
+
+/// The warm-up's length: the r12 pair runs settled about 10 frames after a keyframe.
+const KEEPWARM_FRAMES: u32 = 12;
+const KEEPWARM_MAX_FRAMES: u32 = 60;
+
 fn guard_enabled(env: Option<&str>) -> bool {
     env.map(str::trim) != Some("off")
 }
@@ -343,6 +375,9 @@ pub struct VideoToolbox {
     session_low_latency: bool,
     /// Why the last frame was an IDR nobody asked for (see [`H264Encoder::idr_cause`]).
     idr_cause: Option<&'static str>,
+    /// The warm-up in [`VideoToolbox::prepare`] encoded frames nobody saw: the next real frame
+    /// is an IDR, so the viewer's stream starts on a keyframe as before.
+    idr_after_warmup: bool,
 }
 
 // SAFETY: the session and buffer are used from one thread at a time (the media loop).
@@ -589,6 +624,17 @@ fn create_session(
             set(vt_speed_sys::kVTCompressionPropertyKey_MaxFrameDelayCount(), no_delay);
             CFRelease(no_delay);
         }
+        // Power efficiency, for a measurement only: CMUX_RD_VT_POWER_EFFICIENT=1 asks for it, 0
+        // asks against it, unset leaves VideoToolbox's default (the session as before). A screen
+        // share encodes a frame per change, often hundreds of ms apart, so the encoder idles
+        // between frames; the encode self-test's gap-ms measures what each setting costs then.
+        let power = power_efficiency(std::env::var("CMUX_RD_VT_POWER_EFFICIENT").ok().as_deref());
+        if let Some(efficient) = power.filter(|_| vt_power_sys::available().is_ok()) {
+            set(
+                vt_power_sys::kVTCompressionPropertyKey_MaximizePowerEfficiency(),
+                if efficient { kCFBooleanTrue() } else { kCFBooleanFalse() },
+            );
+        }
     }
     Ok(session)
 }
@@ -674,6 +720,7 @@ impl VideoToolbox {
             applied_min_qp: NO_MIN_QP,
             last_guarded_pts: None,
             session_low_latency: true,
+            idr_after_warmup: false,
         };
         this.apply_bitrate(this.kbps);
         Ok(this)
@@ -724,7 +771,32 @@ impl VideoToolbox {
         self.ensure_session(self.width, self.height)?;
         // SAFETY: preparing our live session; it has no frame in flight.
         let _ = unsafe { VTCompressionSessionPrepareToEncodeFrames(self.session) };
+        self.warm_up(keepwarm_frames(std::env::var("CMUX_RD_VT_KEEPWARM").ok().as_deref()));
         Ok(())
+    }
+
+    /// Keep-warm, for a measurement only (`CMUX_RD_VT_KEEPWARM`): encodes `frames` throwaway
+    /// frames, a keyframe and the frames after it, before the viewer's first frame, and drops
+    /// their output. The r12 pair runs' encode tail is the ~10 frames after a keyframe (10-11 ms
+    /// against 6-7 ms); this pays that settling during the handshake instead of on the first key
+    /// presses. The next real frame is an IDR. It moves the settling off the presses, it does not
+    /// remove it: a keyframe the viewer asks for mid-stream still settles.
+    fn warm_up(&mut self, frames: u32) {
+        if frames == 0 {
+            return;
+        }
+        let interval_us = 1_000_000 / i64::from(self.fps.max(1));
+        let pb = self.pixel_buffer;
+        let mut scratch = Vec::new();
+        for i in 0..frames {
+            // Before any capture time (µs since boot), so the real frames' pts stay increasing.
+            let pts = i64::from(i) * interval_us;
+            if self.encode_buffer_at(pb, i == 0, pts, &mut scratch).is_err() {
+                break;
+            }
+        }
+        self.ltr_token = None;
+        self.idr_after_warmup = true;
     }
 
     /// Encodes captured surfaces scaled down to `size` (the resolution ladder's picture,
@@ -1053,6 +1125,11 @@ impl VideoToolbox {
         self.ltr_token = None;
         if let Ok(mut o) = self.out.lock() {
             *o = Output::default();
+        }
+        // The first real frame after a keep-warm warm-up is the viewer's keyframe.
+        if std::mem::take(&mut self.idr_after_warmup) && !force_idr {
+            self.idr_cause = Some("warmup");
+            return self.encode_buffer(pixel_buffer, true, pts, out);
         }
         // Ultra's keyframe: this frame alone with a high floor, then back. VideoToolbox does not
         // hold an IDR to DataRateLimits (the fleet sweep's 1080p keyframes ran 2.4 MB on text and
