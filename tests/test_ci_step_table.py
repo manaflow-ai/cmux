@@ -156,6 +156,16 @@ class NightlyGateTest(unittest.TestCase):
         start, why, (jobs, only) = self.landing(["docs/x.md"])
         self.assertNotIn("web-typecheck", only)
 
+    def test_a_landing_head_that_changes_the_vm_openapi_runs_the_sdk_codegen_check(self) -> None:
+        # cmux#63748 and cmux#64283 changed workers/cmux-vm/openapi.json without regenerating the committed clients;
+        # cmux-vm-sdk and cmux-vm-clients-rust are push tier, so `cmux VM clients / rust` and `/ sdk` went red on
+        # feat-cmux-next (from 25d38e9da) until cmux#64493 regenerated them.
+        start, why, (jobs, only) = self.landing(["workers/cmux-vm/openapi.json"])
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertIn("cmux-vm-sdk", only)
+        start, why, (jobs, only) = self.landing(["docs/x.md"])
+        self.assertNotIn("cmux-vm-sdk", only)
+
     def test_a_source_change_runs_the_next_checks_guards_on_the_pull_request(self) -> None:
         # 11-27 base tier run 46080642938: state roots, the FFI caller ratchet and the base-red classifier went red on
         # the feat-cmux-next tip after green merges. Their sources were whole-directory globs, which --pr-scope never
@@ -270,10 +280,11 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertIn("pr-pipeline.yml", start)
                 self.assertIn("phone speed gate", why["pr-pipeline.yml"])
                 self.assertEqual(jobs, ["linux"])
-                # A crate's Rust source also reaches the persisted-formats registry and next-state-roots (land_gate
-                # steps on every cmux-tui/crates/*/src .rs); Cargo.lock reaches the idle daemon tests.
+                # A crate's Rust source also reaches the persisted-formats registry, next-state-roots and the
+                # spawn-owner ratchet (#64665) (land_gate steps on every cmux-tui/crates/*/src .rs); Cargo.lock reaches
+                # the idle daemon tests.
                 expected = {"cmux-tui/crates/cmux-terminal-projection/src/lib.rs":
-                                ["persisted-formats", "next-state-roots", "phone-speed-icount"],
+                                ["persisted-formats", "next-state-roots", "next-spawn-owner-ratchet", "phone-speed-icount"],
                             "cmux-tui/Cargo.lock": ["cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"]
                             }.get(path, ["phone-speed-icount"])
                 self.assertEqual(only, expected)
@@ -1177,7 +1188,7 @@ class SetupTest(unittest.TestCase):
     def test_the_tables_tool_steps_are_push_tier_and_the_workflow_runs_the_pr_tier(self) -> None:
         # web-tests-affected (cmux#63314) is the one pull request tier step with a tool: it runs only the web tests a
         # change reaches, so it exists for the pull request tier; a push runs every web test in the push-tier shards.
-        pr_tier_tool_steps = {"web-tests-affected"}
+        pr_tier_tool_steps = {"web-tests-affected", "memory-per-item"}  # #62594: the per-PR memory A/B
         for step in ci_steps.load().steps.values():
             if step.job == "linux" and step.needs:
                 self.assertEqual(step.tier, "pr" if step.name in pr_tier_tool_steps else "push", step.name)
