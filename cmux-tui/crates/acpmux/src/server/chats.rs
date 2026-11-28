@@ -235,6 +235,9 @@ pub(super) async fn route(
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
         return reply;
     }
+    if let Some(reply) = super::asks::dispatch(hub, conn, m, &params) {
+        return reply;
+    }
     if let Some(reply) = super::history::dispatch(hub, conn, m, &params).await {
         return reply;
     }
