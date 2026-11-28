@@ -195,15 +195,17 @@ fn a_call_past_its_declared_bound_stalls_the_turn_from_that_bound() {
     t.note(&call("a", Some(600_000)), 10_000);
     t.note(&call("b", None), 20_000);
     t.note(&call("c", Some(60_000)), 30_000);
-    // Within every bound: no stall, even with calls in flight.
+    let g = PAST_BOUND_GRACE_MS;
+    // Within every bound and its grace: no stall, even with calls in flight.
     assert_eq!(t.past_bound_since(80_000), None);
-    // c is due at 90_000; a, started first, only at 610_000: the earliest due wins.
-    assert_eq!(t.past_bound_since(90_000), Some(90_000));
-    assert_eq!(t.past_bound_since(700_000), Some(90_000));
+    assert_eq!(t.past_bound_since(90_000 + g - 1), None);
+    // c is due at 90_000 + grace; a, started first, only at 610_000 + grace: the earliest due wins.
+    assert_eq!(t.past_bound_since(90_000 + g), Some(90_000 + g));
+    assert_eq!(t.past_bound_since(700_000 + g), Some(90_000 + g));
     // c ends: a is the one past its bound; b, with no bound, never is.
     t.note(&serde_json::json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "status": "completed"}), 95_000);
-    assert_eq!(t.past_bound_since(500_000), None);
-    assert_eq!(t.past_bound_since(700_000), Some(610_000));
+    assert_eq!(t.past_bound_since(500_000 + g), None);
+    assert_eq!(t.past_bound_since(700_000 + g), Some(610_000 + g));
     // A call in flight does not hide a stall past its bound; a quiet stall without one keeps its time.
     let after = Some(600_000);
     assert_eq!(stalled_since(1_000, 0, true, 700_000, after, Some(610_000)), Some(610_000));

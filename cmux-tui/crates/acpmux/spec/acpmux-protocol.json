@@ -10844,7 +10844,7 @@
           "type": "string"
         },
         "stalledSince": {
-          "description": "Since when it has stalled: no tool call in flight and no sign of its\nmodel since then, for `stalledTurnMs` or more, or a call in flight\npast the bound it declared, from that bound (`hub/activity.rs`);\nnull while it has not.",
+          "description": "Since when it has stalled: no tool call in flight and no sign of its\nmodel since then, for `stalledTurnMs` or more, or a call in flight\n2 min past the bound it declared, from then (`hub/activity.rs`);\nnull while it has not.",
           "format": "uint64",
           "minimum": 0,
           "type": [

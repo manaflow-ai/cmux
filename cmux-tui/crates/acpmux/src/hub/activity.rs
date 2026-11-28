@@ -21,7 +21,8 @@
 //! (`rawInput.timeout`, ms, as Claude Code's Bash sends): the oldest of them is the turn's
 //! `wchan` (RFD 0179 idea 12), what the turn sleeps on, read with no agent cooperation. A call
 //! still in flight past its declared bound stalls the turn from that bound (idea 15): the
-//! harness should have ended it, so a long build stalls only once it outlives its own timeout.
+//! harness should have ended it, so a long build stalls only once it outlives its own timeout
+//! (by [`PAST_BOUND_GRACE_MS`]).
 
 use super::*;
 
@@ -141,13 +142,15 @@ impl TurnActivity {
             .map(|(id, c)| (id.clone(), c.clone()))
     }
 
-    /// Since when a call in flight has been past the bound it declared by `now`: the earliest
-    /// `started_at + bound_ms` at or before `now`; None while every call is within its bound.
+    /// Since when a call in flight has been past the bound it declared, plus [`PAST_BOUND_GRACE_MS`],
+    /// by `now`: the earliest such time at or before `now`; None while every call is within it.
     /// The harness should have ended such a call, so the turn waits on nothing that will answer.
     pub(super) fn past_bound_since(&self, now: u64) -> Option<u64> {
         self.open_calls
             .values()
-            .filter_map(|c| Some(c.started_at.saturating_add(c.bound_ms?)))
+            .filter_map(|c| {
+                Some(c.started_at.saturating_add(c.bound_ms?).saturating_add(PAST_BOUND_GRACE_MS))
+            })
             .filter(|due| *due <= now)
             .min()
     }
@@ -171,6 +174,11 @@ pub(super) fn activity_of(update: &Value) -> Option<String> {
         _ => None,
     }
 }
+
+/// How long past its declared bound a call in flight may run before it stalls its turn: the
+/// harness's own kill and its `completed` update may land a little late. The same 2 min as
+/// leo-workspace `stall_reconciler`'s `hung_call_grace_minutes`, which reports the same call.
+pub(super) const PAST_BOUND_GRACE_MS: u64 = 2 * 60 * 1000;
 
 /// Since when a running turn that started at `started_at` has stalled, or None: its model's last
 /// sign was at `heard_at` (0: none; the prompt counts as one), no tool call is in flight
