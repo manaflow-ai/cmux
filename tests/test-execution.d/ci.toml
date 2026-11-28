@@ -440,6 +440,10 @@ path = "tests/test_ci_ios_conventions_diff.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_ios_fast_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_ios_fast_verdict.py"
 lane = "linux-guard"
 
@@ -453,6 +457,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_ios_loading_placeholders.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ios_presence_claims.py"
 lane = "linux-guard"
 
 [[test]]
@@ -471,7 +479,8 @@ reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Proves each 
 
 [[test]]
 path = "tests/test_ci_job_own_home.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_job_own_home.py"
 
 [[test]]
 path = "tests/test_ci_killpg_tolerates_eperm.py"
@@ -1036,6 +1045,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_rust_targets_installed_first.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_rust_workspaces_disk.py"
 lane = "linux-guard"
 
 [[test]]
