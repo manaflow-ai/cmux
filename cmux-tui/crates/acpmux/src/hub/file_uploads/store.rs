@@ -87,7 +87,7 @@ impl Record {
 /// The record in upload folder `dir`, if it has one (an upload from before the store has none).
 pub(crate) fn record(dir: &Path) -> Option<Record> {
     let file = crate::config::private_state_file(&dir.join(RECORD)).ok()?;
-    Record::from_json(&serde_json::from_reader(file).ok()?)
+    Record::from_json(&serde_json::from_reader(std::io::BufReader::new(file)).ok()?)
 }
 
 #[cfg(test)]
