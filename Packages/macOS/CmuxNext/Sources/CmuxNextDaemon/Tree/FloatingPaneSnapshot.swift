@@ -1,9 +1,8 @@
 import Foundation
 
-/// One floating pane of a screen (`floating-panes-v1`): a leaf of the
-/// screen's layout that the tiled layout leaves out, shown above the tiled
-/// panes in `frame`. `Screen.floating` lists them back to front.
-public struct FloatingPaneSnapshot: Sendable, Hashable, Decodable {
+// The struct is generated from the schema's `FloatingPane` (cmux-tui/bindings/codegen/swift_app,
+// family Tree): the wire's flat `{pane, x, y, w, h}`. This file groups the four numbers as `frame`.
+extension FloatingPaneSnapshot {
     /// Where a floating pane is, as fractions of the screen's pane area:
     /// the top left corner and the size, as the daemon sent it; not checked
     /// against the layout, the range or repeats. The daemon bounds each
@@ -22,21 +21,13 @@ public struct FloatingPaneSnapshot: Sendable, Hashable, Decodable {
         }
     }
 
-    public var pane: PaneID
-    public var frame: Frame
-
-    public init(pane: PaneID, frame: Frame) {
-        self.pane = pane
-        self.frame = frame
+    public var frame: Frame {
+        get { Frame(x: x, y: y, w: w, h: h) }
+        set { (x, y, w, h) = (newValue.x, newValue.y, newValue.w, newValue.h) }
     }
 
-    enum CodingKeys: String, CodingKey { case pane, x, y, w, h }
-
-    public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        pane = try c.decode(PaneID.self, forKey: .pane)
-        frame = Frame(x: try c.decode(Double.self, forKey: .x), y: try c.decode(Double.self, forKey: .y),
-                      w: try c.decode(Double.self, forKey: .w), h: try c.decode(Double.self, forKey: .h))
+    public init(pane: PaneID, frame: Frame) {
+        self.init(pane: pane, x: frame.x, y: frame.y, w: frame.w, h: frame.h)
     }
 
     /// The list at `key`. A list that does not decode is no list: every pane

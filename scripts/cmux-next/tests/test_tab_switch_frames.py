@@ -81,6 +81,28 @@ class ControlCalls(unittest.TestCase):
         self.assertEqual((sent["action"], sent["args"], sent["focus"]), ("x.y", {"action": "inner"}, True))
 
 
+class DaemonHome(unittest.TestCase):
+    """The app daemon's ACPMUX_HOME recovered from the socket it listens on, so `acpmux new` pairs the two."""
+
+    def test_hash_matches_the_shared_policy_fixture(self):
+        key = "/Library/Application Support/cmux-build-worker/work/steps/efa0692bd81cf13857d13ae1/tmp/amd-clisid-43762/s.sock"
+        self.assertEqual(f"{tsf.fnv1a64(key):016x}", "67717e3a5f009619")  # cases/environment.json
+
+    def test_short_home_keeps_its_own_socket(self):
+        self.assertEqual(tsf.acpmux_socket_for("/tmp/h/.acpmux", 501), "/tmp/h/.acpmux/acpmux.sock")
+
+    def test_finds_nightly_and_build_homes_by_alias(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            user = os.path.join(tmp, "x" * 80, "h")
+            build = os.path.join(user, ".acpmux", "builds", "com.cmuxterm.app.debug")
+            os.makedirs(build)
+            nightly = os.path.join(user, ".acpmux")
+            self.assertEqual(tsf.daemon_home_for(tsf.acpmux_socket_for(nightly, 501), user, 501), nightly)
+            self.assertEqual(tsf.daemon_home_for(tsf.acpmux_socket_for(build, 501), user, 501), build)
+            self.assertIsNone(tsf.daemon_home_for("/tmp/acpmux-501/0000000000000000.sock", user, 501))
+            self.assertIsNone(tsf.daemon_home_for(None, user, 501))
+
+
 class AgentsSetup(unittest.TestCase):
     """Agents.__init__ as the NIGHTLY runs it: the real Control over a fake socket, only the Mac helpers (the bundle's
     acpmux and its socket lookup) stubbed. A keyword that clashes with Control.action's own parameters fails here."""
