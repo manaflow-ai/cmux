@@ -64,6 +64,11 @@ path = "tests/test_ios_kit_bench_runs_after_red_step.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_kit_step_inputs_cover_its_scripts.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ios_kit_step_inputs_cover_its_scripts.py"
+
+[[test]]
 path = "tests/test_ios_link_ffi_cache_seed.py"
 lane = "linux-guard"
 

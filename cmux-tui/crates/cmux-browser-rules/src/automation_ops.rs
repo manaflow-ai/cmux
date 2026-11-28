@@ -80,25 +80,27 @@ struct WaitsRequest {
 fn load_waits_op(request: Value) -> Result<Value, OpError> {
     let WaitsRequest { mut waits, step } = parse(request)?;
     let mut resolved: Vec<Resolution> = Vec::new();
-    let mut extra = json!({});
+    let mut extra = serde_json::Map::new();
     match step {
-        WaitsStep::Snapshot => extra["ticket"] = encode(&waits.snapshot()),
+        WaitsStep::Snapshot => {
+            extra.insert("ticket".to_owned(), encode(&waits.snapshot()));
+        }
         WaitsStep::NavigationEvent { event } => resolved = waits.navigation_event(&event),
         WaitsStep::Signal { state, document } => resolved = waits.signal(state, &document),
         WaitsStep::LoadingEnded => resolved = waits.loading_ended(),
         WaitsStep::SameDocument => resolved = waits.same_document(),
         WaitsStep::Reach { target, ticket } => {
             let reach: Reach = waits.reach(target, &ticket);
-            extra["reach"] = encode(&reach);
+            extra.insert("reach".to_owned(), encode(&reach));
         }
         WaitsStep::TimedOut { wait, what, timeout } => {
-            extra["resolution"] = encode(&waits.timed_out(wait, &what, &timeout));
+            extra.insert("resolution".to_owned(), encode(&waits.timed_out(wait, &what, &timeout)));
         }
         WaitsStep::FailAll { error } => resolved = waits.fail_all(&error),
     }
-    extra["waits"] = encode(&waits);
-    extra["resolved"] = encode(&resolved);
-    Ok(extra)
+    extra.insert("waits".to_owned(), encode(&waits));
+    extra.insert("resolved".to_owned(), encode(&resolved));
+    Ok(Value::Object(extra))
 }
 
 #[derive(Deserialize)]
