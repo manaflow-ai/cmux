@@ -263,6 +263,44 @@ fn after_failure(backoff: &mut Backoff, e: &HubError) -> Duration {
 /// The least time between heartbeats: the hub takes fewer than 30 a minute.
 const HEARTBEAT_FLOOR: Duration = Duration::from_millis(2500);
 
+/// Requested heartbeats (a chat moved or started here waits on one, inside a move's freeze) the
+/// hub takes back to back. Each heartbeat spends one and one comes back each floor, so a minute
+/// holds at most this plus 60 s over the floor (27 at 2.5 s), under the hub's 30. Waiting out the
+/// floor instead put up to 2.5 s in every move that landed just after a timed heartbeat
+/// (super-highway freeze p95 2084 ms, answerMs 2066 ms, against 500 ms).
+const HEARTBEAT_BURST: f64 = 3.0;
+
+/// The heartbeats the hub would take now ([`HEARTBEAT_BURST`] at most, one back per `every`).
+struct BeatBudget {
+    tokens: f64,
+    at: tokio::time::Instant,
+    every: Duration,
+}
+
+impl BeatBudget {
+    fn new(every: Duration, now: tokio::time::Instant) -> Self {
+        Self { tokens: HEARTBEAT_BURST, at: now, every }
+    }
+
+    fn refill(&mut self, now: tokio::time::Instant) {
+        let back = now.saturating_duration_since(self.at).as_secs_f64() / self.every.as_secs_f64();
+        self.tokens = (self.tokens + back).min(HEARTBEAT_BURST);
+        self.at = now;
+    }
+
+    /// A heartbeat goes now.
+    fn spend(&mut self, now: tokio::time::Instant) {
+        self.refill(now);
+        self.tokens = (self.tokens - 1.0).max(0.0);
+    }
+
+    /// When the next heartbeat may go: now while one is left.
+    fn ready_at(&mut self, now: tokio::time::Instant) -> tokio::time::Instant {
+        self.refill(now);
+        if self.tokens >= 1.0 { now } else { now + self.every.mul_f64(1.0 - self.tokens) }
+    }
+}
+
 /// The wait after a heartbeat the hub took: a third of its TTL, at most `heartbeat_every`.
 fn heartbeat_wait(options: &RelayOptions, ttl_seconds: u64) -> Duration {
     let third = Duration::from_millis(ttl_seconds.saturating_mul(1000) / 3);
@@ -387,11 +425,13 @@ async fn heartbeats(
     // which waits up to 3 s on a loaded machine inside a move's freeze.
     let mut last_health: Option<serde_json::Value> = None;
     let mut last_covered = 0u64;
+    let floor = HEARTBEAT_FLOOR.max(options.min_poll_gap);
+    let mut budget = BeatBudget::new(floor, tokio::time::Instant::now());
     loop {
         if hub_ended(&hub) {
             break;
         }
-        let began = tokio::time::Instant::now();
+        budget.spend(tokio::time::Instant::now());
         let covered = beat.covers();
         let requested = std::mem::replace(&mut last_covered, covered) < covered;
         let sessions = match hub.upgrade() {
@@ -466,15 +506,16 @@ async fn heartbeats(
             },
             () = ended(&mut stop, &hub) => break,
         };
-        let floor = HEARTBEAT_FLOOR.max(options.min_poll_gap);
         let wait = wait.max(floor);
-        // A start's request beats sooner, never under the floor nor during a backoff.
-        let nudged = async {
+        // A start's or a move's request beats sooner: at once while the hub's budget has a
+        // heartbeat left (`HEARTBEAT_BURST`), never during a backoff.
+        let budget = &mut budget;
+        let nudged = async move {
             if !taken {
                 return std::future::pending().await;
             }
             beat.nudge.notified().await;
-            tokio::time::sleep_until(began + floor).await;
+            tokio::time::sleep_until(budget.ready_at(tokio::time::Instant::now())).await;
         };
         let read_receipts = async {
             if let Some(hub) = hub.upgrade() {
@@ -1602,8 +1643,8 @@ mod tests {
         }
     }
 
-    /// A requested heartbeat (a chat moved in waits on it inside the move's freeze) goes as soon
-    /// as the floor allows, carrying the last health reading instead of taking a new one, which
+    /// A requested heartbeat (a chat moved in waits on it inside the move's freeze) goes at once,
+    /// even right after the timed one, carrying the last health reading instead of taking a new one, which
     /// waits up to 3 s on a loaded machine (super-highway freeze p95 3015 ms against 500 ms).
     #[tokio::test]
     async fn a_requested_heartbeat_sends_the_last_health_reading_at_once() {
@@ -1634,7 +1675,7 @@ mod tests {
             }
         };
         tokio::time::timeout(Duration::from_secs(10), first).await.expect("a first heartbeat");
-        tokio::time::sleep(HEARTBEAT_FLOOR).await;
+        // Right after the timed one: a move landing then waited out the 2.5 s floor.
         let asked = tokio::time::Instant::now();
         beat.now(Duration::from_secs(5)).await;
         let took = asked.elapsed();
