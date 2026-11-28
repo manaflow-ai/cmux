@@ -144,12 +144,20 @@ pub fn team_requirement(id: &str, team: &str) -> String {
 }
 
 /// The designated requirement in `codesign -d -r-`'s output (`designated => <requirement>`).
+/// An ad-hoc signature (a CI or "sign to run locally" DEV build) has no explicit one, and
+/// codesign prints its implied requirement commented out, `# designated => cdhash H"…"`: that
+/// one is read when no explicit one is printed, so a copy checked against it must be the very
+/// same code (its code directory hash), which is stricter than any signer's requirement.
 pub fn parse_designated(output: &str) -> Option<String> {
-    output
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("designated =>"))
-        .map(|requirement| requirement.trim().to_owned())
-        .filter(|requirement| !requirement.is_empty())
+    let found = |prefix: &str| {
+        output
+            .lines()
+            .find_map(|line| line.trim().strip_prefix(prefix))
+            .map(|requirement| requirement.trim().to_owned())
+            .filter(|requirement| !requirement.is_empty())
+    };
+    found("designated =>")
+        .or_else(|| found("# designated =>").filter(|implied| implied.starts_with("cdhash H\"")))
 }
 
 /// `app`'s own designated requirement, as `codesign -d -r-` prints it. A copy checked against

@@ -171,18 +171,12 @@
 #           tree; baseline mode selects its original-view adapter.
 #           bench/ retains each log, console output and result bundle.
 #   pair-e2e
-#           build, plus a tagged DEBUG cmux NEXT Mac app built here
-#           (reload.sh), and pairing by its QR code end to end
-#           (cmux_next_pair_e2e.py): the Mac's Mobile Pairing link, opened on
-#           the iPhone, pairs it with no Allow prompt and no test seed. Screens
-#           of the Mac page (never while it shows a code: its image carries
-#           the token), the phone's Settings > Devices (a base ref gives
-#           the "before") and its scanner with the camera off; the Mac's
-#           pairing log, hostd's log and paired-devices.json, keys redacted.
-#           Then the upload leg: the phone streams a sparse ~150 MB file (past
-#           the old 100 MiB cap) to the Mac with its own LinkUpload, and the
-#           stored file's size and SHA-256 must match (UploadProbe.swift).
-#           Optional upload words (each one `--arg`): upload-mb=N (N MiB, 1-4096,
+#           Build a tagged DEBUG Mac app and simulator iPhone in the same build
+#           space. Check pairing on both devices, upload, and reconnection. Then
+#           quit the Mac app with standing consent off and have the phone tap
+#           Share. Require Mac admission, a decoded frame, and a click on the Mac.
+#           The upload leg (UploadProbe.swift) takes these optional words.
+#           Each is one `--arg`: upload-mb=N (N MiB, 1-4096,
 #           instead of ~150 MB), upload-random (random bytes, as a video's, not a
 #           sparse file), upload-relay (the phone's link relay only),
 #           upload-block-udp (the phone's link with UDP blocked), upload-wait=S
@@ -290,6 +284,7 @@
 #           The artifact (evidence.zip) holds CmuxMobileApp-Dev-device-unsigned.app.zip,
 #           try.json (commit, bundle id, build seconds) and SUMMARY.md.
 #
+# Pair-e2e makes a unique default-set iPhone for AXe and deletes it by UDID.
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
 # deletes the set when it ends. Every simulator comes from sim_create, which a
@@ -715,6 +710,7 @@ fi
 # pinned xcodegen's temp dir and, once made, the simulator device set.
 xcodegen_dir=""
 sims=""
+pair_udid=""
 perf_udid=""
 cleanup() {
   local result=$?
@@ -728,6 +724,10 @@ cleanup() {
     xcrun simctl shutdown "$d" >/dev/null 2>&1 || true
     xcrun simctl delete "$d" >/dev/null 2>&1 || true
   done
+  if [[ -n "${pair_udid:-}" ]]; then
+    xcrun simctl shutdown "$pair_udid" >/dev/null 2>&1 || true
+    xcrun simctl delete "$pair_udid" >/dev/null 2>&1 || result=1
+  fi
   if [[ -n "$sims" ]]; then
     xcrun simctl --set "$sims" shutdown all >/dev/null 2>&1 || { [[ "$mode" != screen-proof ]] || result=1; }
     xcrun simctl --set "$sims" delete all >/dev/null 2>&1 || { [[ "$mode" != screen-proof ]] || result=1; }
@@ -914,14 +914,22 @@ if [[ "$mode" != release-build && "$mode" != try && "$mode" != ui-build ]]; then
   esac
   # The step's iPhone is made before anything is built (booted after the build), so a creation that
   # cannot succeed fails the step in seconds, not after the build.
-  sims="$(sim_set_dir "$work" "$(df -P "$work" | awk 'NR==2 {print $6}')")"
   sim_name=cmux-next-ios-sim
+  if [[ "$mode" == pair-e2e ]]; then
+    # AXe uses the default device set. Target this run's phone by UDID.
+    sim_name="pair-e2e-$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
+    axe_bin_dir="$(scripts/install-axe-ci.sh)"
+    export PATH="$axe_bin_dir:$PATH"
+  else
+    sims="$(sim_set_dir "$work" "$(df -P "$work" | awk 'NR==2 {print $6}')")"
+  fi
   if [[ "$mode" == screen-proof ]]; then
     sim_name="screen-proof-$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
   fi
   udid="$(sim_create "$sim_name" "$device_type" "$runtime" "$sims")"
+  if [[ "$mode" == pair-e2e ]]; then pair_udid="$udid"; fi
 fi
-simctl() { xcrun simctl --set "$sims" "$@"; }
+simctl() { xcrun simctl ${sims:+--set "$sims"} "$@"; }
 
 note "# cmux-next-ios simulator step ($mode)"
 note ""
@@ -1332,7 +1340,7 @@ fi
 # The simulator's memory at launch (simslim measure: phys_footprint of its processes, slim or stock),
 # for the fleet's stock-versus-slim comparison. Read-only; never fails the step.
 if [[ -n "${CMUX_CI_SIMSLIM:-}" && -x "${CMUX_CI_SIMSLIM}" ]] &&
-  "${CMUX_CI_SIMSLIM}" --set "$sims" measure "$udid" --json >"$out/simulator-memory.json" 2>/dev/null; then
+  "${CMUX_CI_SIMSLIM}" ${sims:+--set "$sims"} measure "$udid" --json >"$out/simulator-memory.json" 2>/dev/null; then
   note "- simulator memory at launch: $(tr -d '\n' <"$out/simulator-memory.json" | head -c 300)"
 else
   rm -f "$out/simulator-memory.json"
@@ -2510,7 +2518,7 @@ if [[ "$mode" == screen-proof ]]; then
   exit 0
 fi
 
-# --- Pairing by QR code ----------------------------------------------------
+# --- Pairing and zero-touch sharing ---------------------------------------
 if [[ "$mode" == pair-e2e ]]; then
   t0=$SECONDS
   # mac_tag: this run's own tag, set before the phone build (the phone shares its build space).
@@ -2550,7 +2558,7 @@ if [[ "$mode" == pair-e2e ]]; then
   set -e
   cp "$work/mac-build.log" "$out/mac-build.log"
   mac_app="$mac_dd/Build/Products/Debug/cmux DEV $mac_tag.app"
-  [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
+  [[ $status -eq 0 && -d "$mac_app" ]] || { grep -E "(^|[^a-z])error:" "$work/mac-build.log" | grep -v "^error: tagged" | sort -u | head -40; tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
   note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
   set +e
   python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \

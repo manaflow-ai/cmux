@@ -93,6 +93,11 @@ pub struct Hub {
     user_id: Mutex<Option<String>>,
     /// The account session and when it ends (ms).
     session: Mutex<Option<(String, u64)>>,
+    /// This process's build space (`X-Cmux-Build-Space: dev:<slug>`, cmux_build_space), sent on
+    /// every request and socket upgrade: the hub keeps a tagged dev build's devices in their own
+    /// User DO, so a host that left it out registered among NIGHTLY's devices and the tag's
+    /// iPhone never listed it (cmuxterm-hq#18912). None for NIGHTLY, release and Linux hosts.
+    space: Option<String>,
 }
 
 impl Hub {
@@ -109,6 +114,9 @@ impl Hub {
         renewal: Renewal,
     ) -> Res<Self> {
         Url::parse(origin)?;
+        // A dev build whose launcher gave no usable space refuses here (fail closed), never
+        // registering among NIGHTLY's devices.
+        let space = cmux_build_space::process()?.map(|space| space.as_str().to_owned());
         Ok(Self {
             origin: origin.trim_end_matches('/').to_owned(),
             signer: device.signer()?,
@@ -116,7 +124,22 @@ impl Hub {
             renewal,
             user_id: Mutex::new(user_id),
             session: Mutex::new(None),
+            space,
         })
+    }
+
+    /// This client in `space` instead of the process's (tests).
+    #[cfg(test)]
+    pub fn in_space(mut self, space: Option<&str>) -> Self {
+        self.space = space.map(str::to_owned);
+        self
+    }
+
+    /// The build space header, when this process has a space.
+    fn push_space(&self, headers: &mut Vec<(String, String)>) {
+        if let Some(space) = &self.space {
+            headers.push((cmux_build_space::HEADER.into(), space.clone()));
+        }
     }
 
     pub fn user_id(&self) -> Option<String> {
@@ -166,6 +189,7 @@ impl Hub {
         if let Some(token) = bearer {
             headers.push(("Authorization".into(), format!("Bearer {token}")));
         }
+        self.push_space(&mut headers);
         let response = net::request(method, &url, &headers, bytes.as_deref())?;
         if !(200..300).contains(&response.status) {
             return Err(HubError::from_body(response.status, &response.body).into());
@@ -311,6 +335,7 @@ impl Hub {
         let url = Url::join(&self.origin, "/v1/user/ws")?;
         let mut headers = self.device_headers("GET", &url.target, None)?;
         headers.push(("Authorization".into(), format!("Bearer {}", self.session()?)));
+        self.push_space(&mut headers);
         WebSocket::connect(&url, &headers)
     }
 
@@ -327,7 +352,8 @@ impl Hub {
         if url.host != hub.host || url.tls != hub.tls || url.port != hub.port {
             return Err(format!("the ticket's signal URL is not on {}", self.origin).into());
         }
-        let headers = self.device_headers("GET", &url.target, None)?;
+        let mut headers = self.device_headers("GET", &url.target, None)?;
+        self.push_space(&mut headers);
         WebSocket::connect(&url, &headers)
     }
 }

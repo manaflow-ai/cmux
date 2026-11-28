@@ -830,7 +830,10 @@ struct ShellView: View {
             // On the model SwiftUI keeps (init also builds throwaway ones).
             FeedRouting.shared.openTerminal = { [weak shell] item in shell?.openTerminal(item) }
         }
-        .onChange(of: live.map(ObjectIdentifier.init)) { _, _ in
+        // `initial`: a restored session shows the shell before its account activates, and activating
+        // sets `accountUserID` (this view's `.id`) and `live` in one update, so the new view starts with
+        // `live` and sees no change, while the kept model still holds nil (no Screen Sharing, cmuxterm-hq#18912).
+        .onChange(of: live.map(ObjectIdentifier.init), initial: true) { _, _ in
             shell.attach(live: live)
             // A tapped notification that waited for the link (cold launch) opens now, or waits for its Mac's tree.
             if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }

@@ -321,6 +321,11 @@ pub(crate) fn device_hub_of(host: &str) -> Option<Value> {
     RUNNING.get()?.device_hub_of(host)
 }
 
+/// Whether a share host was installed in this daemon ([`Shared::install`]).
+pub(crate) fn serving() -> bool {
+    RUNNING.get().is_some()
+}
+
 /// `share-host status` in this daemon: the running host's, or why it does not run.
 /// A status that says the join keeps the host from running is read against the join now: when the
 /// machine has joined since, the daemon's check runs at once and the answer says it starts.

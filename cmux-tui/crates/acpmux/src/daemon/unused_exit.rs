@@ -36,6 +36,9 @@
 //! router running with parent 1 after every such quit (fleet repro on build 3a43a131). What
 //! keeps an observed daemon is still asked ([`crate::hub::Hub::in_use`]): a running agent, a
 //! turn, a pending permission, a background task, an agent host.
+//!
+//! A joined Mac's share host keeps it too, whatever the clients: it serves screen shares with the
+//! app closed (`share_host/`, cmuxterm-hq#18912), and a stop after the quit left that Mac Offline.
 
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -190,6 +193,10 @@ async fn unused_following(
             #[cfg(unix)]
             if super::cloud_handoff::reports_here() {
                 return Some("a Cloud machine's hand-off reports");
+            }
+            // A joined Mac's share host serves screen shares with the app closed (hq#18912).
+            if crate::share_host::serving() {
+                return Some("the share host");
             }
             match hub {
                 Some(hub) => hub.in_use().await,

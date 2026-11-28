@@ -2460,6 +2460,7 @@ dependencies = [
 name = "cmux-hub-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-build-space",
  "cmux-file-lock",
  "cmux-process",
  "cmux-rd-proto",

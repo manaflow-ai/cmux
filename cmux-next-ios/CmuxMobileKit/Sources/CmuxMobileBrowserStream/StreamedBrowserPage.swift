@@ -252,10 +252,15 @@ extension StreamedBrowserModel {
 /// The measurement overlay (DEBUG, or `-cmux-mobile-browser-meter`): frame rate,
 /// bitrate, capture-to-decoded latency, decode time, and this phone's wall
 /// clock in milliseconds to compare with a clock rendered by the Mac's page.
-struct StreamedBrowserOverlay: View {
+/// Public for the Mac screen's `cmux.rd/1` viewer (`MacScreenRdView`), which draws the same meter.
+public struct StreamedBrowserOverlay: View {
     let model: StreamedBrowserModel
 
-    static var enabled: Bool {
+    public init(model: StreamedBrowserModel) {
+        self.model = model
+    }
+
+    public static var enabled: Bool {
         #if DEBUG
         // Public fixture captures show the product controls without the diagnostic meter.
         !ProcessInfo.processInfo.arguments.contains("-cmux-mobile-browser-events")
@@ -266,7 +271,7 @@ struct StreamedBrowserOverlay: View {
         #endif
     }
 
-    var body: some View {
+    public var body: some View {
         TimelineView(.animation) { context in
             let meter = model.meter
             VStack(alignment: .leading, spacing: 1) {

@@ -297,3 +297,13 @@ fn requirements_read_and_write_as_codesign_does() {
     );
     assert_eq!(parse_designated("Executable=/x\n"), None);
 }
+
+#[test]
+fn an_ad_hoc_signature_reads_its_implied_cdhash_requirement() {
+    let printed =
+        "Executable=/x/Helper.app/Contents/MacOS/helper\n# designated => cdhash H\"0123abcd\"\n";
+    assert_eq!(parse_designated(printed).as_deref(), Some("cdhash H\"0123abcd\""));
+    // Only an implied cdhash counts; any other commented line is not a requirement.
+    assert_eq!(parse_designated("# designated => identifier \"a.b\"\n"), None);
+    assert_eq!(parse_designated("# designated =>\n"), None);
+}
