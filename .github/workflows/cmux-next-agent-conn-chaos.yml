@@ -31,6 +31,11 @@ on:
       cases:
         description: "cases (comma list; empty: all)"
         default: ""
+  # The push that adds or changes this file registers it with GitHub, so a dispatch of it does not answer 404
+  # (tests/test_ci_workflows_registered.py). That push run starts no job.
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cmux-next-agent-conn-chaos.yml]
 
 permissions:
   contents: read
@@ -103,8 +108,8 @@ jobs:
     name: agent connection chaos
     needs: route
     if: >-
-      !cancelled() && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' &&
-      (github.event_name != 'pull_request' || (needs.route.outputs.run == 'true' &&
+      !cancelled() && github.event_name != 'push' && github.repository_owner == 'manaflow-ai' &&
+      vars.CI_EVAL_STEP_GATEWAY != '' && (github.event_name != 'pull_request' || (needs.route.outputs.run == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 120

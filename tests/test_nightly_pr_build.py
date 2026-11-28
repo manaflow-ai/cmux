@@ -267,7 +267,12 @@ class Workflow(unittest.TestCase):
         text = (ROOT / npb.WORKFLOW).read_text()
         match = re.search(r"(?ms)^  swift-fleet:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", text)
         self.assertIsNotNone(match)
-        self.assertIn("if: ${{ needs.route.outputs.swift == 'true' }}", match.group(1))
+        # route runs past a skipped coalesce job (#63705), so the gate also says !cancelled() and route succeeded
+        # (tests/test_ci_needs_skip_propagation.py, #63984).
+        self.assertIn(
+            "if: ${{ !cancelled() && needs.route.result == 'success' && needs.route.outputs.swift == 'true' }}",
+            match.group(1),
+        )
         self.assertIn("vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux'", match.group(1))
 
     def test_queue_wait_is_bounded_and_an_unstarted_step_is_cancelled(self) -> None:
