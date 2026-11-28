@@ -6,8 +6,14 @@
 //   swiftc -O -o screen-eval-ocr ocr.swift
 //   screen-eval-ocr HOST_IMAGE VIEWER_IMAGE TRUTH_TXT [--host-crop X,Y,W,H --viewer-crop X,Y,W,H
 //     --calibration FILE --source-geometry FILE --readiness FILE]
+//   screen-eval-ocr HOST_IMAGE VIEWER_IMAGE TRUTH_TXT [--cut-host X,Y,W,H] [--cut-viewer X,Y,W,H]
 // Crops use explicit top-left image pixels. A common-marker comparison needs
 // a real-pair calibration bound to the current source and selected window.
+// --cut-host and --cut-viewer only cut each image to its rect before OCR, for a caller whose own
+// receipt vouches for the rect (rd_marker_calibration.py, same_pixels.py). The cut happens here, on
+// the decoded pixels: `sips --cropOffset` on macOS 27 left the 1080 p host screenshot 1920x1080, so
+// the host side OCR'd the wrong pixels (11-28 ssqc-1141: 42 % and 100 % vs the drawn text). The
+// report's host_ocr_image and viewer_ocr_image are the sizes Vision read, for the receipts to check.
 //
 // Prints one JSON object. Lines are compared in reading order with runs of spaces collapsed, since
 // OCR does not keep a code file's indentation.
@@ -163,13 +169,23 @@ guard args.count >= 4, (args.count - 4) % 2 == 0 else { fail("usage: screen-eval
 var options: [String: String] = [:]
 for index in stride(from: 4, to: args.count, by: 2) {
     let key = args[index]
-    guard ["--host-crop", "--viewer-crop", "--calibration", "--source-geometry", "--readiness"].contains(key), options[key] == nil else { fail("unknown or repeated option: \(key)") }
+    guard ["--host-crop", "--viewer-crop", "--calibration", "--source-geometry", "--readiness", "--cut-host", "--cut-viewer"].contains(key), options[key] == nil else { fail("unknown or repeated option: \(key)") }
     options[key] = args[index + 1]
 }
 let hostImage = image(args[1]), viewerImage = image(args[2])
 var hostInput = hostImage, viewerInput = viewerImage
 var cropReceipt: [String: Any]?
 var comparisonReady = true
+let cuts = (host: options.removeValue(forKey: "--cut-host"), viewer: options.removeValue(forKey: "--cut-viewer"))
+if (cuts.host != nil || cuts.viewer != nil) && !options.isEmpty { fail("--cut-host and --cut-viewer do not combine with calibrated crops") }
+if let value = cuts.host {
+    guard let cut = hostImage.cropping(to: PixelCrop(value, image: hostImage).rect) else { fail("cannot cut the host image") }
+    hostInput = cut
+}
+if let value = cuts.viewer {
+    guard let cut = viewerImage.cropping(to: PixelCrop(value, image: viewerImage).rect) else { fail("cannot cut the viewer image") }
+    viewerInput = cut
+}
 if !options.isEmpty {
     guard let hostValue = options["--host-crop"], let viewerValue = options["--viewer-crop"] else { fail("explicit host and viewer crops must be supplied together") }
     let hostCrop = PixelCrop(hostValue, image: hostImage), viewerCrop = PixelCrop(viewerValue, image: viewerImage)
@@ -227,6 +243,8 @@ var report: [String: Any] = [
     "truth_chars": truth.count,
     "host_image": ["width": hostImage.width, "height": hostImage.height],
     "viewer_image": ["width": viewerImage.width, "height": viewerImage.height],
+    "host_ocr_image": ["width": hostInput.width, "height": hostInput.height],
+    "viewer_ocr_image": ["width": viewerInput.width, "height": viewerInput.height],
     "engine": ["scale": ocrScale, "min_text_px": ocrMinTextPixels, "level": "accurate", "language_correction": false],
 ]
 // The recognized text itself, for diagnosing a CER (off by default: the receipts stay small).

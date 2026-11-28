@@ -51,6 +51,13 @@ def receipt(ocr: dict, host: tuple[int, int] | None, viewer: tuple[int, int] | N
         reason = f"host {host[0]}x{host[1]} and viewer {viewer[0]}x{viewer[1]} differ: not the same pixels"
     elif type(cer) not in (int, float) or not math.isfinite(cer):
         reason = "OCR measured no CER"
+    elif crop is not None:
+        # The pixels OCR read must be the crop (ocr.swift --cut-host/--cut-viewer report their size).
+        want = {"width": crop[2], "height": crop[3]}
+        for side in ("host", "viewer"):
+            if ocr.get(f"{side}_ocr_image") != want:
+                reason = f"OCR read a {side} image of {ocr.get(f'{side}_ocr_image')}, not the crop {want}"
+                break
     crops = {
         "coordinate_space": COORDINATE_SPACE,
         "host_image": {"width": host[0], "height": host[1]} if host else None,
