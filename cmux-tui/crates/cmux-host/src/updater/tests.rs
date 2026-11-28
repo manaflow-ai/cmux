@@ -528,6 +528,7 @@ fn the_first_bind_steps_again_after_any_stop_since_the_last_step() {
         pauses,
         last_look_ns,
         pause_from_ns: i128::from(crate::agent::PAUSE_FROM_NONE),
+        waking_after_ns: 30_000_000_000,
     };
     let (offset, boot) = (50 * second, 100 * second);
     // Never stepped in this process (or the bake's snapshot never did): step.
@@ -779,8 +780,8 @@ fn a_pause_the_watch_has_not_woken_from_yet_holds() {
     let paths = Paths::new(dir.path());
     let watch = watch_at_b0();
     let handled = AtomicU64::new(watch.pause_seq());
-    // 25 s since its last look: within a tick and its slack.
-    assert!(!role::hold_if_paused(&paths, &watch, &handled, at(25)));
+    // 2 s since its last look: within a tick and its slack.
+    assert!(!role::hold_if_paused(&paths, &watch, &handled, at(2)));
     // 3 minutes since: the machine was stopped.
     assert!(role::hold_if_paused(&paths, &watch, &handled, at(180)));
     assert!(gate::Gate::new(&paths).held_left(at(180).1).unwrap().is_some());
