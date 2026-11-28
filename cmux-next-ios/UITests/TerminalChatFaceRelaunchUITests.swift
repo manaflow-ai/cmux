@@ -127,6 +127,47 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
         expectFace(app, "terminal", "06-after-relaunch-codex-on-terminal")
     }
 
+    /// Leo, 2026-11-16: "it's not usable like the regular gui". A terminal's Chat face has the
+    /// regular chat's composer, and a prompt sent there is typed into the terminal that runs the
+    /// session (#44137). On mock data the terminal is the DEBUG mock shell, which echoes what it is
+    /// typed: the Terminal face then shows the line.
+    @MainActor
+    func testAPromptOnTheChatFaceIsTypedIntoItsTerminal() throws {
+        let app = launch()
+        open(app, Self.claude)
+        expectFace(app, "terminal", "11-claude-opens-on-terminal")
+        show(app, "chat")
+        expectFace(app, "chat", "12-claude-on-chat")
+
+        // The regular chat's composer, under the View Only chat.
+        let bar = app.buttons["Reply to Claude"].firstMatch
+        let field = app.textViews["chat.composer.field"].firstMatch
+        if !field.waitForExistence(timeout: 5) {
+            XCTAssertTrue(bar.waitForExistence(timeout: 15), "the Chat face shows a composer\n\(app.debugDescription)")
+            bar.tap()
+        }
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "the composer opens\n\(app.debugDescription)")
+        attach(app, "13-chat-face-composer")
+        for _ in 0..<5 where !((field.value(forKey: "hasKeyboardFocus") as? Bool) ?? false) {
+            field.tap()
+            _ = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == true"),
+                                                                 object: field)], timeout: 2)
+        }
+        field.typeText("echo sent-from-the-chat-face")
+        attach(app, "14-chat-face-typed")
+        app.buttons["Send"].firstMatch.tap()
+
+        // Taken by the terminal: no "Not sent" notice, and the draft does not come back.
+        let refused = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Not sent'")).firstMatch
+        XCTAssertFalse(refused.waitForExistence(timeout: 3), "the terminal took the prompt\n\(app.debugDescription)")
+        attach(app, "15-chat-face-sent")
+
+        // The terminal ran it: its face shows the mock shell's echo.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        show(app, "terminal")
+        expectFace(app, "terminal", "16-terminal-face-shows-the-prompt")
+    }
+
     @MainActor
     private func attach(_ app: XCUIApplication, _ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot())
