@@ -13,8 +13,9 @@ shift 2
 [[ $# -gt 0 ]] || set -- 1 4 8
 root=$(git rev-parse --show-toplevel)
 work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/acpmux-zthreads.XXXXXX")
-# The worktree and its target dir (tens of GiB of build state) go with the run; the logs stay when they are under it.
-trap 'git -C "$root" worktree remove --force "$work/wt" 2>/dev/null; if [[ $out == "$work"/* ]]; then rm -rf "$work/wt" "$work/target"; echo "logs: $out"; else rm -rf "$work"; fi' EXIT
+# The worktree and its multi-GiB target go on every exit, not only the last line (mktemp-trap.test.py); the
+# summary is on stdout, and FAST_CHECKS_OUT (outside $work) keeps it.
+trap 'git -C "$root" worktree remove --force "$work/wt" 2>/dev/null; rm -rf "$work"' EXIT
 out=${FAST_CHECKS_OUT:-$work/out}
 mkdir -p "$out"
 jobs=${J:-16}
@@ -52,4 +53,3 @@ for n in "$@"; do
   sha=$( [[ -n $rlib ]] && sha256sum "$rlib" | cut -c1-16 || echo none)
   printf '%-8s %8s %8s %8s %8s  %s\n' "$n" "$bw" "$hw" "$hrss" "$brc/$hrc" "$sha" | tee -a "$out/summary.txt"
 done
-git -C "$root" worktree remove --force "$work/wt"
