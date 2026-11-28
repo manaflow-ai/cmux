@@ -36,7 +36,7 @@ function asksInAnHour(bounded: boolean, error: unknown = daemonGone): number {
     let wait = delay;
     if (bounded) {
       const step = hostRetryStep({ error, troubleForMs: now, waitMs: delay });
-      if (step.kind === "stop") break;
+      if (step.kind !== "retry") break;
       wait = step.waitMs;
     }
     now += wait;

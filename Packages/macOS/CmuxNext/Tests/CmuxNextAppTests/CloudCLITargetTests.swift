@@ -293,6 +293,16 @@ struct CloudCLITargetTests {
         #expect(served["missing_features"]?.arrayValue?.contains(.string("fs-v1")) != true)
     }
 
+    /// A paused machine's daemon is not being reached (cmux#57136): its row says `paused`, never the
+    /// store's initial `connecting`, which `cmux machine list` showed as a reconnect loop.
+    @Test func aPausedMachineNotDialedReadsPausedNotConnecting() {
+        let f = Self.fixture()
+        f.session.machine.status = .paused
+        #expect(AppControl.cloudMachineRow(f.session, f.services.machines)["daemon"] == .string("paused"))
+        f.session.machine.status = .running
+        #expect(AppControl.cloudMachineRow(f.session, f.services.machines)["daemon"] == .string("connecting"))
+    }
+
     /// `cloud.machines` names each machine's own team (its record's), which the carrier fault drill mints its ticket
     /// credential for, as the app's dial sends it; nil on a record without one.
     @Test func aCloudMachineRowNamesTheMachinesOwnTeam() {

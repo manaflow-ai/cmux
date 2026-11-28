@@ -539,7 +539,7 @@
 }
 .acpmux-pr-head {
   display: block;
-  padding: 6px;
+  padding: var(--ds-space-2);
   overflow-wrap: anywhere;
   color: var(--agent-muted);
   font-size: var(--text-detail);
@@ -547,13 +547,13 @@
 .acpmux-pr-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 6px;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2);
 }
 .acpmux-pr-actions button {
   min-height: 24px;
   max-width: 100%;
-  padding: 2px 10px;
+  padding: var(--grid-half-step) var(--ds-space-2);
   border: 0;
   border-radius: var(--ds-radius-control);
   background: var(--agent-control, color-mix(in srgb, var(--agent-text) 10%, var(--agent-page-bg)));
@@ -572,7 +572,7 @@
 }
 .acpmux-pr-action-error {
   display: block;
-  padding: 6px;
+  padding: var(--ds-space-2);
   overflow-wrap: anywhere;
   color: var(--agent-status-failure);
 }

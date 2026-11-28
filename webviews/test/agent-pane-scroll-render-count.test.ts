@@ -50,6 +50,7 @@ await requireBrowserLane("agent-pane-scroll-render-count.test.ts", async () => {
   });
 
   /// Two frames and a task after them: whatever the event scheduled has committed.
+  // fixed-wait: a wheel event has no completion signal; the task after it (0 ms, or 300 ms for the step that leaves the followed end) is the measured settle
   const settle = (page: Page, ms = 0) =>
     page.evaluate(
       (wait) =>

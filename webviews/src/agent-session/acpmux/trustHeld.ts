@@ -23,6 +23,7 @@ import type { ComposerAttachment } from "./attachments";
 import type { SendGesture } from "./heldPrompt";
 import { attachedImages } from "./direct";
 import type { QueueEdit, QueuedPrompt } from "./model";
+import type { StartingSend } from "./startingSends";
 
 export type TrustHeldPrompt = {
   /// Its prompt id, kept when it goes (its gesture ticket names it).
@@ -39,6 +40,8 @@ export type TrustHeldPrompt = {
   /// reserves no ticket (a ticket ends with the connection the wake replaces) and goes with the
   /// send's gesture once the chat is back.
   waking?: true;
+  /// When it was sent (Date.now()): a waking prompt's transcript row shows it (startingSends.ts).
+  at?: number;
 };
 
 /// Whether `entry` was sent in the chat shown: its session, or for a new chat (no session yet) its
@@ -94,6 +97,24 @@ export function heldQueueRows(
         ...(images.length ? { images } : {}),
       };
     });
+}
+
+/// The held prompts of the chat shown that wait for its Cloud machine, as transcript rows draw them
+/// (startingSends.ts `withWakingPrompts`).
+export function wakingStartingSends(
+  held: readonly TrustHeldPrompt[],
+  chat: string | undefined,
+  cwd: string | undefined,
+): StartingSend[] {
+  return held
+    .filter((entry) => entry.waking && sentIn(entry, chat, cwd))
+    .map((entry) => ({
+      id: entry.id,
+      text: entry.text,
+      attachments: entry.attachments,
+      at: entry.at ?? 0,
+      sentIn: { chat: entry.chat, visit: 0 },
+    }));
 }
 
 /// `held` with `edit` made to its prompt `id`: new text, and the images the edit kept.
@@ -284,7 +305,7 @@ export function useTrustHeldPrompts({
         text,
         attachments,
         ticket,
-        ...(waking ? { waking: true as const } : {}),
+        ...(waking ? { waking: true as const, at: Date.now() } : {}),
       };
       now.current = { ...now.current, held: [...now.current.held, entry] };
       setHeld((list) => [...list, entry]);
@@ -301,6 +322,8 @@ export function useTrustHeldPrompts({
     [held],
   );
   return {
+    /// Every held prompt, the same list until one comes, goes or changes (`wakingStartingSends` reads it).
+    all: held,
     /// The shown chat's held prompts, for the composer's queue.
     rows,
     /// A new chat's held prompts' text, in order, for the host's copy of the tab's new chat.

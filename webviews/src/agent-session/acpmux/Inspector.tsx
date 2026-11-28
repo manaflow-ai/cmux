@@ -17,6 +17,7 @@ import type { PerfSend } from "./perfReporter";
 import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
 import "./Inspector.css";
 import { exportFileName, clockTime, wireRow, sessionRow, visibleRows } from "./inspectorModel";
+import { Button } from "../../ui/Button";
 export type InspectorView = "wire" | "session" | "timing" | "perf";
 
 /** What the host did with an export: saved it, the user cancelled its save panel, or it cannot save (the log is copied instead). */
@@ -132,7 +133,8 @@ export function Inspector({
   return (
     <section className="acpmux-inspector" data-enter="right" aria-label={t("inspector.title")}>
       <div className="acpmux-diff-header">
-        <button
+        <Button
+          bare
           ref={firstControlRef}
           type="button"
           className="acpmux-diff-back"
@@ -140,46 +142,50 @@ export function Inspector({
           onClick={onClose}
         >
           ‹
-        </button>
+        </Button>
         <strong>{t("inspector.title")}</strong>
         <div className="acpmux-diff-tools acpmux-inspector-views ui-slide-host" aria-label={t("inspector.view")}>
           {/* The pressed plate travels between the views (ui/motion, transform only). */}
           <SlidingIndicator selected={view} look="plate" />
-          <button
+          <Button
+            bare
             type="button"
             className="acpmux-diff-tool ui-slide-item"
             aria-pressed={view === "wire"}
             onClick={() => setView("wire")}
           >
             {t("inspector.wire")}
-          </button>
-          <button
+          </Button>
+          <Button
+            bare
             type="button"
             className="acpmux-diff-tool ui-slide-item"
             aria-pressed={view === "session"}
             onClick={() => setView("session")}
           >
             {t("inspector.session")}
-          </button>
+          </Button>
           {readHistory && (
-            <button
+            <Button
+              bare
               type="button"
               className="acpmux-diff-tool ui-slide-item"
               aria-pressed={view === "timing"}
               onClick={() => setView("timing")}
             >
               {t("inspector.timing")}
-            </button>
+            </Button>
           )}
           {perf && (
-            <button
+            <Button
+              bare
               type="button"
               className="acpmux-diff-tool ui-slide-item"
               aria-pressed={view === "perf"}
               onClick={() => setView("perf")}
             >
               {t("inspector.perf")}
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -255,15 +261,16 @@ export function Inspector({
             </span>
             {notice && <output className="acpmux-inspector-count">{notice}</output>}
             {anyPointed && (
-              <button type="button" aria-pressed={pointedOnly} onClick={() => setPointedOnly((on) => !on)}>
+              <Button bare type="button" aria-pressed={pointedOnly} onClick={() => setPointedOnly((on) => !on)}>
                 {t("inspector.pointed")}
-              </button>
+              </Button>
             )}
-            <button type="button" onClick={() => void exportLog()}>
+            <Button bare type="button" onClick={() => void exportLog()}>
               {t("inspector.export")}
-            </button>
+            </Button>
             {view === "wire" && (
-              <button
+              <Button
+                bare
                 type="button"
                 onClick={() => {
                   wire.clear();
@@ -271,13 +278,14 @@ export function Inspector({
                 }}
               >
                 {t("inspector.clear")}
-              </button>
+              </Button>
             )}
           </div>
           <ol className="acpmux-inspector-list">
             {rows.map((row) => (
               <li key={row.key} className={`acpmux-inspector-row acpmux-inspector-${row.kind}`}>
-                <button
+                <Button
+                  bare
                   type="button"
                   aria-expanded={open === row.key}
                   onClick={() => setOpen((current) => (current === row.key ? undefined : row.key))}
@@ -310,7 +318,7 @@ export function Inspector({
                         : t("inspector.kilobytes", { value: (row.size / 1024).toFixed(1) })}
                     </span>
                   )}
-                </button>
+                </Button>
                 {open === row.key && <pre>{row.body}</pre>}
               </li>
             ))}

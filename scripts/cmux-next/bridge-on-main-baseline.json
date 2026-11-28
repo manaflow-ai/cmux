@@ -2,6 +2,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/HostsSidebar.swift": {
   "sync Rust bridge call in row, frame or body code": 2
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoRow.swift": {
+  "sync Rust bridge call in row, frame or body code": 2
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarBridge.swift": {
   "sync Rust bridge call in row, frame or body code": 1
  },

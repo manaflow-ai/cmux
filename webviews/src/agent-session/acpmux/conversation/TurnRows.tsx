@@ -89,6 +89,7 @@ import { PresentationContext } from "./presentationContextModel";
 import { useTurnWaterfall } from "./useTurnWaterfall";
 import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds, runLinks } from "./turnRowsModel";
 import { WithFacts } from "../chips/FactsHoverCard";
+import { Button } from "../../../ui/Button";
 
 /// Parts of a closed line after a " · ", failures in the failure red (workedOutcome.ts).
 function WorkedParts({ parts }: { parts: readonly WorkedPart[] }) {
@@ -207,7 +208,8 @@ export function WorkedFor({
   onToggle: () => void;
 }) {
   return (
-    <button
+    <Button
+      bare
       type="button"
       className="cv-worked has-divider is-toggle"
       data-alone={row.workedAlone ? "" : undefined}
@@ -219,7 +221,7 @@ export function WorkedFor({
         <WorkedLabel row={row} />
       </span>
       <DisclosureChevron open={expanded} look="worked" />
-    </button>
+    </Button>
   );
 }
 
@@ -640,7 +642,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               // chevron tight against it (conversation.css .cv-turn-retry).
               <span className="cv-turn-retry">
                 {footerRetry && (
-                  <button
+                  <Button
+                    bare
                     type="button"
                     className="cv-iconbtn cv-iconbtn--compact"
                     // retry-prompt-ok: sends the turn's prompt again, a paid model request.
@@ -650,7 +653,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                     onClick={footerRetry}
                   >
                     <Retry size={ROW_ICON} />
-                  </button>
+                  </Button>
                 )}
                 {retryModels && prompt !== undefined && (
                   <RetryModelMenu
@@ -788,9 +791,9 @@ function TurnFailure({
   const accessOffer = kind === "needs-credits" ? access : undefined;
   const accessLeads = accessOffer !== undefined;
   const accessButtons = accessOffer && (
-    <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={accessOffer.addCredits}>
+    <Button bare type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={accessOffer.addCredits}>
       {t("access.addCredits")}
-    </button>
+    </Button>
   );
   // An expired login leads with Sign in again, and Continue or Retry follows it for once the login
   // is done. Where the chat has no login to run (a Cloud chat, a harness that names none), the card
@@ -844,13 +847,14 @@ function TurnFailure({
   const otherAccountKeyOnly = route?.hostKind === "cloud" && route.teamMachine === true;
   const otherAccountHere = accountLimit && otherAccount === undefined ? reauthenticate : undefined;
   const switchButton = offersSwitch && (
-    <button
+    <Button
+      bare
       type="button"
       className={`cv-turn-auth-action${switchFirst && !accessLeads ? " cv-turn-error__primary" : ""}`}
       onClick={switchModel}
     >
       {accountLimit ? t("turn.failure.useAnotherAgent") : t("turn.failure.switchModel")}
-    </button>
+    </Button>
   );
   return (
     <div className={`cv-turn-note cv-turn-error cv-turn-error--${arm}`} data-failure-kind={kind}>
@@ -860,22 +864,22 @@ function TurnFailure({
       </span>
       <span className="cv-turn-error__actions">
         {trustFix && (
-          <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={trustFix}>
+          <Button bare type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={trustFix}>
             {t("trust.trustFolder")}
-          </button>
+          </Button>
         )}
         {teamAccountKey && <CloudSignIn signIn={teamAccountKey} rowId={retryRowId} prompt={prompt} keyOnly />}
         {renewClaude && (
-          <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={renewClaude}>
+          <Button bare type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={renewClaude}>
             {t("turn.action.claudeCloudSetup")}
-          </button>
+          </Button>
         )}
         {accessButtons}
         {switchFirst && switchButton}
         {otherAccountHere && (
-          <button type="button" className="cv-turn-auth-action" onClick={otherAccountHere}>
+          <Button bare type="button" className="cv-turn-auth-action" onClick={otherAccountHere}>
             {t("turn.failure.signInAnotherAccount")}
-          </button>
+          </Button>
         )}
         {otherAccount && (
           <CloudSignIn
@@ -888,7 +892,8 @@ function TurnFailure({
           />
         )}
         {compactFirst && (
-          <button
+          <Button
+            bare
             type="button"
             className="cv-turn-auth-action cv-turn-error__primary"
             disabled={compacting}
@@ -898,7 +903,7 @@ function TurnFailure({
             }}
           >
             {t("context.compact")}
-          </button>
+          </Button>
         )}
         {(cloudSignInLeads || (teamMachine && cloudSignIn)) && (
           <CloudSignIn
@@ -910,14 +915,15 @@ function TurnFailure({
           />
         )}
         {signInFirst && (
-          <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={reauthenticate}>
+          <Button bare type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={reauthenticate}>
             {/* retry-prompt-ok: a sign-in the person does. */}
             {t("turn.signInAgain")}
-          </button>
+          </Button>
         )}
         {localKey && <CloudSignIn signIn={localKey} rowId={retryRowId} prompt={prompt} keyOnly />}
         {offersRetry && (
-          <button
+          <Button
+            bare
             type="button"
             className={`cv-turn-auth-action${switchFirst || accessLeads || compactFirst || signInFirst || renewClaude ? "" : " cv-turn-error__primary"}`}
             // The card's first stop in the tab order, so Return on the focused card goes on.
@@ -927,7 +933,7 @@ function TurnFailure({
           >
             {/* retry-prompt-ok: sends the failed turn again, a paid model request. */}
             {goOnLabel === "continue" ? t("turn.continue") : t("turn.retry")}
-          </button>
+          </Button>
         )}
         {!switchFirst && switchButton}
         {retryNote ? (
@@ -944,7 +950,8 @@ function TurnFailure({
         {message && <ErrorDetails text={message} />}
       </span>
       {onDismiss && (
-        <button
+        <Button
+          bare
           type="button"
           className="cv-iconbtn cv-iconbtn--compact cv-turn-error__dismiss text-dim"
           aria-label={t("toast.dismiss")}
@@ -952,7 +959,7 @@ function TurnFailure({
           onClick={onDismiss}
         >
           <Close size={14} />
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -971,7 +978,8 @@ function TryAnotherApproachButton({ onTry }: { onTry(): Promise<unknown> }) {
         ? t("notice.forkFailed")
         : t("turn.tryAnotherApproach");
   return (
-    <button
+    <Button
+      bare
       type="button"
       className="cv-iconbtn cv-iconbtn--compact cv-turn-try-another"
       aria-label={label}
@@ -988,6 +996,6 @@ function TryAnotherApproachButton({ onTry }: { onTry(): Promise<unknown> }) {
     >
       {state === "failed" && <AlertCircle size={ROW_ICON} />}
       {label}
-    </button>
+    </Button>
   );
 }

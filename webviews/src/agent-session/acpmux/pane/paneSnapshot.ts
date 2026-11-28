@@ -436,6 +436,9 @@ export type PaneSnapshotArgs = {
   /// When the pane's trouble began (`troubleSince` below): bounds the bare "Reconnecting…".
   setHostTroubleSince: React.Dispatch<React.SetStateAction<number | undefined>>;
   setHostRestoring: React.Dispatch<React.SetStateAction<HostRestoring | undefined>>;
+  /// The chat's Cloud machine is paused (cloudSleep.ts `cloudChatAsleep`), read at each failure: the
+  /// loop rests instead of asking again (hostRetry.ts `rest`), and the machine's wake asks.
+  cloudAsleep: React.RefObject<boolean>;
   runPendingAdoption: React.RefObject<() => void>;
   freshRef: React.RefObject<boolean>;
   inheritedFolderRef: React.MutableRefObject<string | undefined>;
@@ -582,6 +585,7 @@ export function paneSnapshotEffect({
   setLinkDown,
   setHostTroubleSince,
   setHostRestoring,
+  cloudAsleep,
   runPendingAdoption,
   freshRef,
   inheritedFolderRef,
@@ -994,6 +998,20 @@ export function paneSnapshotEffect({
   let stopped = false;
   /// The host's `acpmux-daemon-answered` already asked once in this slow spell (hostRetry.ts `hostWakeAsks`).
   let answerSpent = false;
+  /// The chat's Cloud machine is paused (hostRetry.ts `rest`, cloudSleep.ts): no timer asks again and
+  /// nothing is said. The chat keeps the rows it shows; the machine's wake asks again (`retryHost`).
+  const restAsleep = () => {
+    stopped = true;
+    // A rest is no trouble: the machine's wake starts a fresh recovery, with its own quick asks and
+    // deadlines, not one already past its bound from before the pause (else its first failed ask
+    // would stop the loop for good and say the failure at once).
+    failingSince = undefined;
+    troubleSince = undefined;
+    retryDelay = RETRY_FIRST_MS;
+    setHostTroubleSince(undefined);
+    setLinkDown(false);
+    setHostErrorShown(false);
+  };
   /// The user asked to retry while an attempt was in flight; run a full one when it ends.
   let retryPending = false;
   // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
@@ -1471,7 +1489,12 @@ export function paneSnapshotEffect({
             troubleForMs: failingSince - troubleSince,
             upForMs: failingSince - connectedAt,
             waitMs: lost.wait,
+            asleep: cloudAsleep.current === true,
           });
+          if (step.kind === "rest") {
+            restAsleep();
+            return;
+          }
           stopped = step.kind === "retry" && step.slow === true;
           if (step.kind === "stop") return;
           retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(step.waitMs));
@@ -3143,8 +3166,15 @@ export function paneSnapshotEffect({
         // is asked to start at once. Only a chat too large to open waits for the line's Retry.
         const step = startsNext
           ? { kind: "retry" as const, waitMs: RETRY_FIRST_MS }
-          : hostRetryStep({ error, troubleForMs: Date.now() - troubleSince, waitMs: retryDelay });
+          : hostRetryStep({
+              error,
+              troubleForMs: Date.now() - troubleSince,
+              waitMs: retryDelay,
+              asleep: cloudAsleep.current === true,
+            });
         stopped = step.kind === "retry" && step.slow === true;
+        // A paused Cloud machine's chat rests (cmux#57136): no timer, nothing said.
+        if (step.kind === "rest") restAsleep();
         if (step.kind === "retry" && restartGate.mayAsk()) {
           retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(step.waitMs));
           retryDelay = nextRetryDelay(
@@ -3201,7 +3231,8 @@ export function paneSnapshotEffect({
   const wake = (event: Event) => {
     if (cancelled || !restartGate.mayAsk() || directClient.current) return;
     const hidden = document.visibilityState === "hidden";
-    if (!hostWakeAsks({ event: event.type, stopped, connecting, hidden, answerSpent })) return;
+    const asleep = cloudAsleep.current === true;
+    if (!hostWakeAsks({ event: event.type, stopped, connecting, hidden, answerSpent, asleep })) return;
     answerSpent = event.type === "acpmux-daemon-answered";
     if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     retryTimer = undefined;
