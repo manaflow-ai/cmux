@@ -3857,6 +3857,29 @@
               ]
             }
           }
+        },
+        "CellSize": {
+          "type": "Size",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Codable"
+          ],
+          "doc": [
+            "A terminal grid size in cells (`Size`)."
+          ],
+          "order": [
+            "cols",
+            "rows"
+          ],
+          "fields": {
+            "cols": {
+              "type": "Int"
+            },
+            "rows": {
+              "type": "Int"
+            }
+          }
         }
       }
     },
