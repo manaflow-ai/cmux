@@ -605,7 +605,11 @@ class Scenario:
 
     def summary(self, series, surface, watch, others, runs, sample="first_change_ms"):
         rows = [r.get("regions", {}) for r in runs]
-        seen = [float(r.get(watch, {}).get(sample)) for r in rows if r.get(watch, {}).get(sample) is not None]
+        # A film whose watched region never changed saw no swap: it is missed, not 0 ms. settled_ms reads 0 when
+        # nothing differs, so without this the hidden series scored 18 empty films of 20 as 0 ms (step 8c6948cc,
+        # 2026-11-28: samples [56, 0, 0, 57, 0 x16] published as a passing p95 56 ms).
+        seen = [float(r[watch][sample]) for r in rows
+                if r.get(watch, {}).get(sample) is not None and r.get(watch, {}).get("changed_frames", 1) > 0]
         out = {"version": GS.VERSION, "label": f"fleet-{series}", "runs": len(runs), "watch": watch, "surface": surface,
                "sample": sample, "window_ms": round(LATENCY_WINDOW_S * 1000),
                "fps": [r.get("video", {}).get("fps") for r in runs], "regions": {}}
