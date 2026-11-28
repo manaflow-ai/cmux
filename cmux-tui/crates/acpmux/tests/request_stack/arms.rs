@@ -240,10 +240,6 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ("_acpmux/attachments_held", Run(json!({"sessionId": "$S", "files": []}))),
         ("_acpmux/directories", Run(json!({"cwd": "$CWD"}))),
         ("_acpmux/models", Run(json!({}))),
-        (
-            "_acpmux/host_overload",
-            Any(json!({}), "retired with the overload banner (#55840); the relay still passes old pages' polls, which get method not found"),
-        ),
         ("catalog.get", Run(json!({}))),
         ("catalog.refresh", Run(json!({}))),
         ("_acpmux/peer_add", Skip("dials the peer URL and keeps a reconnecting link (network)")),
