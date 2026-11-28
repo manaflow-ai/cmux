@@ -246,6 +246,32 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(len(lists), 2, "jobs and artifacts are each one bounded page")
         self.assertFalse(any("--paginate" in c for c in calls))
 
+    def test_a_superseded_feat_run_is_not_rerun(self):
+        # Latest wins: a newer feat-cmux-next push at another commit builds its own tree, so an older deferred
+        # run is not rebuilt whole. Same-commit newest, other branches and an unreadable newest are re-run as before.
+        feat = {"status": "completed", "run_attempt": 1, "head_branch": "feat-cmux-next", "head_sha": "a" * 40}
+        newer = {"status": "in_progress", "run_attempt": 1, "head_branch": "feat-cmux-next", "head_sha": "b" * 40}
+        base = {"jobs_pages": [[job(1, "build", "failure", "cargo build")]], "artifacts": [marker(31, 12)]}
+        result, calls = self.run_handoff({**base, "runs": {"12": feat, "20": newer}, "run_list_ids": ["20"]})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("superseded by run 20", result.stdout)
+        self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
+        for state in ({**base, "runs": {"12": feat, "20": dict(newer, head_sha="a" * 40)}, "run_list_ids": ["20"]},
+                      {**base, "runs": {"12": feat, "20": newer}, "run_list_ids": []},
+                      {**base, "runs": {"12": dict(feat, head_branch="main"), "20": newer}, "run_list_ids": ["20"],
+                       "artifacts": [marker(31, 12, "main")]}):
+            with self.subTest(state=state["runs"]["12"]["head_branch"]):
+                result, calls = self.run_handoff(state)
+                self.assertIn(["run", "rerun", "12", "--repo", "o/r"], calls, result.stdout + result.stderr)
+
+    def test_superseded(self):
+        run = {"id": 12, "head_branch": "feat-cmux-next", "head_sha": "a"}
+        self.assertTrue(handoff.superseded(run, {"id": 20, "head_sha": "b"}))
+        self.assertFalse(handoff.superseded(run, {"id": 20, "head_sha": "a"}))
+        self.assertFalse(handoff.superseded(run, {"id": 10, "head_sha": "b"}))
+        self.assertFalse(handoff.superseded(run, None))
+        self.assertFalse(handoff.superseded(dict(run, head_branch="main"), {"id": 20, "head_sha": "b"}))
+
     def test_quota_only_owner_hands_nothing_off(self):
         state = {"jobs_pages": [[job(2, "publish to R2", "failure", "Upload to R2")]],
                  "logs": {"2": "Error: Failed to persist attestation: API rate limit exceeded for installation."},
