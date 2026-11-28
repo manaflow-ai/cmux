@@ -579,6 +579,19 @@ def timed_gate_argv(argv: list[str]) -> list[str]:
     return [str(timer), "-p", *argv] if timer.is_file() else argv
 
 
+# The gate holding the job's critical path (its bundle matrix's agent-pane build) keeps full CPU priority; the
+# other gates run niced so they fill the cores it leaves idle instead of halving its share (105 s alone, ~200 s
+# shared, 2026-11-28). CMUX_FAST_GATES_NICE=0 turns it off.
+CRITICAL_GATES = ("webviews checks",)
+
+
+def niced_gate_argv(name: str, argv: list[str]) -> list[str]:
+    level = os.environ.get("CMUX_FAST_GATES_NICE", "10")
+    if name in CRITICAL_GATES or level in ("", "0") or not shutil.which("nice"):
+        return argv
+    return ["nice", "-n", level, *argv]
+
+
 def child_cpu_seconds(output: str) -> float | None:
     """Return user+system CPU seconds from the private ``time -p`` log."""
     values = []
@@ -610,7 +623,7 @@ def run_gate_batch(lanes: list[list[tuple[str, list[str]]]], repo: Path, deadlin
         slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-").lower() or "gate"
         path = log_dir / f"{slug}.log"
         handle = path.open("w+", encoding="utf-8")
-        process = subprocess.Popen(timed_gate_argv(argv), cwd=repo, start_new_session=True, stdout=handle,
+        process = subprocess.Popen(timed_gate_argv(niced_gate_argv(name, argv)), cwd=repo, start_new_session=True, stdout=handle,
                                    stderr=subprocess.STDOUT, text=True)
         active[name] = (process, handle, time.monotonic(), path, lane)
 

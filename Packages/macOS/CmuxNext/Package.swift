@@ -295,6 +295,25 @@ let uiLayerPreviewTargets: [Target] = [
 // (scripts/live-code/lib/xcodebuild-args.sh).
 let appLinksStatically = Context.environment["CMUX_LIVE_CODE_BUILD"] == "1"
 
+/// The framework's code in the order a launch first runs it (scripts/measure/link-order.sh writes the
+/// file from a probe build's launch, scripts/cmux-next/link-order.py): the Release link places those
+/// functions first and together, so a cold launch faults in fewer of the framework's text pages. A
+/// symbol the file names that the build no longer has is skipped; with no file the link is as before.
+/// A live code build or a probe build (CMUX_LINK_ORDER_PROBE=1, which writes the file) reads none.
+let appOrderFile = Context.packageDirectory + "/LinkOrder/CmuxNextApp.order"
+let appOrderFileFlags: [LinkerSetting] =
+    appLinksStatically || Context.environment["CMUX_LINK_ORDER_PROBE"] == "1"
+        || !FileManager.default.fileExists(atPath: appOrderFile)
+    ? []
+    : [.unsafeFlags(["-Xlinker", "-order_file", "-Xlinker", appOrderFile], .when(configuration: .release))]
+
+/// A probe build's framework exports the coverage guards: the app's stub, instrumented too, links them
+/// as dynamic lookups (scripts/reload.sh) and binds them here.
+let appProbeExportFlags: [LinkerSetting] = Context.environment["CMUX_LINK_ORDER_PROBE"] == "1"
+    ? [.unsafeFlags(["-Xlinker", "-exported_symbol", "-Xlinker", "___sanitizer_cov_trace_pc_guard*"],
+                   .when(configuration: .release))]
+    : []
+
 /// The framework's link, outside live code builds: it exports only the C
 /// symbols named `cmux_next_*`, the stub's entry point (`cmux_next_app_main`,
 /// CmuxNextApp.swift) and, in a release `swift build --build-tests`, the test
@@ -322,7 +341,7 @@ let appFrameworkLinkerSettings: [LinkerSetting] = [
     .unsafeFlags(["-Xlinker", "-exported_symbol", "-Xlinker", "_cmux_next_*",
                   "-Xlinker", "-exported_symbol", "-Xlinker", "_mai[n]", "-Xlinker", "-dead_strip"],
                  .when(configuration: .release)),
-])
+] + appOrderFileFlags + appProbeExportFlags)
 
 let packageProducts: [Product] = [
     .library(name: "CmuxNextApp", type: appLinksStatically ? nil : .dynamic, targets: ["CmuxNextApp"]),
@@ -455,6 +474,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextKeys",
                 "CmuxNextLaunchImages",
                 "CmuxNextLayout",
+                "CmuxNextLinkOrder",
                 "CmuxNextLiveCode",
                 "CmuxNextMacScreen",
                 "CmuxNextMallocZone",
@@ -506,8 +526,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // The free tier's App Attest provider is composed here (cx-ds09i).
                 .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
-                // The signed approve answer format shared with the iPhone (cx-aocz).
-                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
@@ -639,6 +657,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextFeedClient",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // The feed push rules (cmux-feed-push-core) the approve check hashes and signs with.
+                "CCmuxAppFFI",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
@@ -1020,6 +1040,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Header-only: the Screenshots pane's C ABI (cmux-screenshots); CCmuxAppFFI links the symbols.
         .target(name: "CCmuxScreenshots"),
+        // The link order probe (include/CmuxNextLinkOrder.h): empty unless a CMUX_LINK_ORDER_PROBE build.
+        .target(name: "CmuxNextLinkOrder"),
         // Chromium's EarlyMallocZoneRegistration, run first thing in main.
         .target(name: "CmuxNextMallocZone"),
         // QuartzCore's CALayerHost, declared for a typed call (layer-hosted Chromium pages).
@@ -3267,7 +3289,6 @@ let package = !targetsLinux ? Package(
         .package(path: "../../Shared/CmuxHomeCore"),
         // The one Chief list rule, shared with the iPhone's Home.
         .package(path: "../../Shared/CmuxChiefList"),
-        .package(path: "../../Shared/CmuxFeedPushCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
         // Agent questions: one harness-neutral model (plans/cmux-next/agent-questions.md).
         .package(path: "../../Shared/CmuxAgentQuestion"),
