@@ -8156,6 +8156,7 @@ jobs:
       actions: read
       contents: read
     steps:
+      - *github-token-for-git
       - *checkout-publication-tooling-a
       - name: Take the nightly-next publish lease
         id: lease
