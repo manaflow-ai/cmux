@@ -405,12 +405,12 @@ impl AcpmuxLink {
         Ok(id)
     }
 
-    /// Sends a request now and hands back its answer to wait for later ([`Pending::wait`]), so a
+    /// Sends a request now and hands back its answer to wait for later ([`InFlight::wait`]), so a
     /// caller overlaps it with another call on this link instead of paying the two round trips in
     /// turn (a Cloud start's Auto move and its family read, `agent_session_start`).
-    pub(super) fn begin(&self, method: &str, params: Value) -> Result<Pending<'_>, LinkError> {
+    pub(super) fn begin(&self, method: &str, params: Value) -> Result<InFlight<'_>, LinkError> {
         let (id, receiver) = self.send(method, params)?;
-        Ok(Pending { link: self, id, receiver })
+        Ok(InFlight { link: self, id, receiver })
     }
 
     /// Sends a notification (no reply).
@@ -586,20 +586,20 @@ impl crate::mux::Mux {
 
 /// A request [`AcpmuxLink::begin`] sent, its answer not yet read. Dropped unread, its slot is
 /// forgotten, as a timed-out [`AcpmuxLink::call`]'s is.
-pub(super) struct Pending<'a> {
+pub(super) struct InFlight<'a> {
     link: &'a AcpmuxLink,
     id: u64,
     receiver: Receiver<Result<Value, LinkError>>,
 }
 
-impl Pending<'_> {
+impl InFlight<'_> {
     /// Waits up to `timeout` more for the answer.
     pub(super) fn wait(self, timeout: Duration) -> Result<Value, LinkError> {
         self.receiver.recv_timeout(timeout).unwrap_or(Err(LinkError::Timeout))
     }
 }
 
-impl Drop for Pending<'_> {
+impl Drop for InFlight<'_> {
     fn drop(&mut self) {
         self.link.forget(self.id);
     }

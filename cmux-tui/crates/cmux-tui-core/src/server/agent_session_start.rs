@@ -1376,7 +1376,7 @@ fn begin_cloud_default_mode<'a>(
     link: &'a AcpmuxLink,
     session: &str,
     mode: &str,
-) -> Option<super::agent_session_link::Pending<'a>> {
+) -> Option<super::agent_session_link::InFlight<'a>> {
     link.begin("session/set_mode", json!({"sessionId": session, "modeId": mode})).ok()
 }
 
