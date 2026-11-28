@@ -392,7 +392,8 @@ def still_quiet(repo: str, pr: dict, since: dt.datetime) -> bool:
     now = gh_json("pr", "view", str(pr["number"]), "-R", repo, "--json", "state,headRefOid,labels,isDraft,comments")
     if now["state"] != "OPEN" or now["headRefOid"] != pr["headRefOid"] or now.get("isDraft"):
         return False
-    if {label["name"].lower() for label in now["labels"]} & KEEP_LABELS:
+    names = {label["name"].lower() for label in now["labels"]}
+    if names & KEEP_LABELS or any("security" in name for name in names):
         return False
     return all(parse_time(c["createdAt"]) <= since for c in now["comments"] if not is_bot((c.get("author") or {}).get("login")))
 

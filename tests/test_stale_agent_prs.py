@@ -238,3 +238,20 @@ class SearchPastCapTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StillQuietTests(unittest.TestCase):
+    def test_security_label_added_after_scan_blocks_the_close(self):
+        # The scan saw a clean PR; the security label lands before the close.
+        scanned = pr(idle=20)
+        scanned["headRefOid"] = "abc"
+        reread = pr(idle=20, labels=("security",))
+        original = module.gh_json
+        module.gh_json = lambda *args: {
+            "state": "OPEN", "headRefOid": "abc", "isDraft": False,
+            "labels": reread["labels"]["nodes"], "comments": [],
+        }
+        try:
+            self.assertFalse(module.still_quiet("manaflow-ai/cmux", scanned, NOW))
+        finally:
+            module.gh_json = original
