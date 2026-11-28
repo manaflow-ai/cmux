@@ -91,6 +91,9 @@
   --agent-motion-send: 0ms !important;
   --agent-motion-send-fade: 0ms !important;
   --agent-motion-send-rise: 0ms !important;
+  /* The exit lead (conversation.css, half the quick step) is a chat motion too: the live line's
+     hand-over played its 40 ms fade under the mark. */
+  --cv-exit-lead: 0ms !important;
 }
 [data-chat-motion="minimal"] .acpmux-scroll[data-send-entrance] {
   --agent-motion-send: 0ms !important;
