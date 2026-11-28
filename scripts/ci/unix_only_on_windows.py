@@ -364,6 +364,8 @@ class Source:
     items: list[tuple[int, str]] | None = None
     uses: list[tuple[int, list[str]]] | None = None
     rels: list[tuple[int, int, str]] | None = None
+    # Whether code names any of an off-name set, by that set: the test and non-test passes usually share one.
+    off_hit: tuple[frozenset, bool] | None = None
 
     @classmethod
     def load(cls, path: str, text: str) -> "Source":
@@ -897,7 +899,7 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
         for k in off:
             children.setdefault(k[:-1], set()).add(k[-1])
         # A path can only name an item that is off if the file has that item's name in it.
-        off_names = {n for k in off for n in k[1:]}
+        off_names = frozenset(n for k in off for n in k[1:])
         for path, v in visits.items():
             src, dead = v.src, v.dead
             for pos, w, ident in hits[path]:
@@ -907,7 +909,11 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
                 if ident and _module_at(v, pos) + (ident,) in live_decl:
                     continue
                 found[(path, src.line_of(pos), w)] = None
-            if not off or not any(n in src.code for n in off_names):
+            if not off:
+                continue
+            if src.off_hit is None or src.off_hit[0] != off_names:
+                src.off_hit = (off_names, any(n in src.code for n in off_names))
+            if not src.off_hit[1]:
                 continue
             for at, end, kind in _rels(src):
                 if is_dead(dead, at):
