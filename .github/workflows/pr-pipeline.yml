@@ -99,9 +99,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Budget from ci/steps.toml: setup 10 min + tools 3 min + 65 shared steps
     # in 33 waves at 15 min + 552 min of alone steps (including the roaming cold
-    # build's 20 min) = 1060 min. test_the_job_timeout_covers_setup_and_every_wave
+    # build's 20 min) = 1090 min. test_the_job_timeout_covers_setup_and_every_wave
     # checks that the job covers every step instead of cutting off a slow runner.
-    timeout-minutes: 1060
+    timeout-minutes: 1090
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.

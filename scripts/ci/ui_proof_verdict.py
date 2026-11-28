@@ -75,6 +75,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import gh_http  # noqa: E402
 import proof_record  # noqa: E402
 
 STATUS_CONTEXT = "cmux/ui-proof"
@@ -383,8 +384,9 @@ def api(path: str, token: str, method: str = "GET", body: dict | None = None):
                                  data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                                           "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return json.loads(resp.read() or b"null")
+    # gh_http asks a read again after a refusal that can change; a write is sent once (its rule).
+    _, raw, _ = gh_http.request(req, 20, raise_errors=True)
+    return json.loads(raw or b"null")
 
 
 def post_status(state: str, description: str, repo: str, sha: str, tokens: list[str], target_url: str = "") -> bool:
@@ -594,7 +596,8 @@ def record_at(repo: str, pr: int, sha: str, token: str, bots: list[str]) -> str:
     """When the newest trusted proof record at SHA was posted on PR (any look suite, "" for none)."""
     comments = proof_record.pr_comments(repo, pr, token)
     when = {c.get("html_url", ""): c.get("created_at") or "" for c in comments}
-    found = [proof_record.find(comments, suite, sha, bots) for suite in proof_record.SUITES]
+    can_write = proof_record.writer_check(repo, [token])
+    found = [proof_record.find(comments, suite, sha, bots, can_write) for suite in proof_record.SUITES]
     return max((when.get(r.get("_comment", ""), "") for r in found if r), default="")
 
 
@@ -667,6 +670,89 @@ def sweep(repo: str, tokens: list[str], hours: float, now: dt.datetime | None = 
     return out
 
 
+# A look carries across base merges alone. The merge train's update-branch (and cmux-bot's hourly base merge) moves a
+# PR's head with no change of its own, and before this every such head was "no look at this head" again: a 2 h look
+# per move (light-class queue p90 ~98 min), and land-judge refused the land at the new head on the old look's status
+# (cmux#46235, 2026-11-28: looked at 0bbdc46b, base-merged to cca4e6ce by the train at 12:48Z and again to 4abda3b6,
+# refused "its status links run 46146803376, which tested d0e92049e172"). A trusted record at an earlier head R counts
+# at HEAD when (1) every first-parent step from HEAD back to R is a merge commit (a push of the PR's own is not), and
+# (2) every file the PR changes at HEAD (the merge commit's diff against the base tip) has the same blob at R and at
+# HEAD. Then HEAD is the base tip outside the PR's files and R's text inside them: what the look saw, on a newer base.
+# Reads are the small Git-data and directory listings (a compare of a base merge 246 commits back is over 2 MB).
+# Anything unread or past the caps carries nothing: the head waits for its own look, as before. land-judge's iOS
+# carry (leo-workspace tools/land_judge/engine.py ios_proven_carry) holds the same two conditions for a SHIP.
+CARRY_MAX_MERGES = 6
+CARRY_MAX_DIRS = 25
+CARRIED = "carried from {sha} (base merges only)"
+_RECORD_SHA = re.compile(r"<!--\s*" + re.escape(proof_record.KIND) + r"\s+\S+\s+([0-9a-f]{40})\s*-->")
+
+
+def _blobs(repo: str, ref: str, files: list[str], token: str, call) -> dict[str, str | None]:
+    """path -> its blob sha at REF (None: absent), read one directory listing per directory."""
+    out: dict[str, str | None] = {}
+    dirs: dict[str, list[str]] = {}
+    for f in files:
+        dirs.setdefault(f.rpartition("/")[0], []).append(f)
+    for d, paths in dirs.items():
+        try:
+            listing = call(f"repos/{repo}/contents/{urllib.parse.quote(d)}?ref={ref}", token) or []
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+            listing = []  # the directory is absent at REF: so is every file in it
+        if not isinstance(listing, list):
+            raise ValueError(f"{d or '/'} at {ref[:12]} is not a directory")
+        have = {e.get("path"): e.get("sha") for e in listing}
+        out.update({p: have.get(p) for p in paths})
+    return out
+
+
+def base_merge_carry(repo: str, older: str, head: str, files: list[str], token: str, call=None) -> str:
+    """"" when a look at OLDER carries to HEAD (see above), else why not. FILES: the PR's changed files at HEAD."""
+    call = call or api
+    if not (older and head and files):
+        return "unread: an older head, the head and the PR's files are all needed"
+    at, merges = head, 0
+    while at != older:
+        parents = [p.get("sha") for p in (call(f"repos/{repo}/git/commits/{at}", token) or {}).get("parents") or []]
+        if len(parents) != 2:
+            return f"{at[:12]} is not a merge commit"
+        merges += 1
+        if merges > CARRY_MAX_MERGES:
+            return f"{older[:12]} is not within {CARRY_MAX_MERGES} first-parent merges of {head[:12]}"
+        at = parents[0]
+    if len({f.rpartition("/")[0] for f in files}) > CARRY_MAX_DIRS:
+        return f"the PR's files span more than {CARRY_MAX_DIRS} directories"
+    then, now = _blobs(repo, older, files, token, call), _blobs(repo, head, files, token, call)
+    moved = [f for f in files if then.get(f) != now.get(f)]
+    if moved:
+        return f"the PR's own files differ from {older[:12]}: {', '.join(moved[:3])}"
+    return ""
+
+
+def carried_records(repo: str, sha: str, comments: list[dict], suites, bots: list[str], can_write, files,
+                    token: str, call=None) -> tuple[str, dict[str, dict | None]]:
+    """(older head, its records) for the newest older head whose trusted records carry to SHA, else ("", {})."""
+    older = []
+    for c in reversed(comments):
+        for m in _RECORD_SHA.findall(c.get("body") or ""):
+            if m != sha and m not in older:
+                older.append(m)
+    for r in older:
+        records = {s: proof_record.find(comments, s, r, bots, can_write) for s in suites}
+        if not any(records.values()):
+            continue
+        try:
+            why = base_merge_carry(repo, r, sha, list(files or []), token, call)
+        except Exception as e:  # noqa: BLE001 - unread carries nothing
+            why = f"unread ({type(e).__name__})"
+        print(f"{STATUS_CONTEXT}: look at {r[:12]} " + (f"does not carry: {why}" if why else "carries"),
+              file=sys.stderr)
+        if not why:
+            return r, records
+    return "", {}
+
+
 def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple[str, str]:
     if os.environ.get("CI_UI_PROOF", "").strip() == "0":
         return verdict("", "", {}, [], pr, off=True)
@@ -676,9 +762,16 @@ def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple
         return verdict(need, "", {}, [], pr)
     body = (api(f"repos/{repo}/pulls/{pr}", token) or {}).get("body") or ""
     comments = proof_record.pr_comments(repo, pr, token)
-    records = {s: proof_record.find(comments, s, sha, bots) for s in suites_for(need)}
+    can_write = proof_record.writer_check(repo, proof_record.read_tokens() or [token])
+    records = {s: proof_record.find(comments, s, sha, bots, can_write) for s in suites_for(need)}
     ui = new_ui(added_files(), read=show)
     state, desc = verdict(need, body, records, ui, pr)
+    if state == "pending" and desc.startswith(NO_LOOK) and files:
+        older, carried = carried_records(repo, sha, comments, suites_for(need), bots, can_write, files, token)
+        if older:
+            c_state, c_desc = verdict(need, body, carried, ui, pr)
+            if c_state == "success":
+                return c_state, c_desc.replace("at this head", CARRIED.format(sha=older[:12]), 1)[:140]
     if state == "pending" and desc.startswith(NO_LOOK):
         try:
             kept = kept_look_failure(current_status(repo, sha, token))
