@@ -724,6 +724,15 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
             facts, time.time() if now is None else now):
         return "none", (f"this head only merges the base into a pull request with no commit of its own for "
                         f"{IDLE_HOURS} h: nothing runs until a new commit, the land's merge run, or full-ci")
+    # The land carry rule before the green-head rule: on a ready-to-land head whose previous head landed, the green
+    # rule's `none` leaves cmux/land-tier pending, land-judge then pulses ready-to-land (land_tier pulse_due) and that
+    # `labeled` event runs the affected landing tier anyway; the carry keeps success, so nothing is pulsed.
+    if (landing and facts and facts.get("base_merge_only") and facts.get("previous_landed") is True
+            and carry_rule_applies(event, carry_switch, land_switch, one_shot)):
+        return "cheap", (f"{CARRY_REASON}: this head only merges the base onto "
+                         f"{str(facts.get('previous') or '')[:10]}, whose full tier passed ({LAND_STATUS} success, "
+                         f"every run green): the cheap tier runs and {LAND_STATUS} carries success; a commit of its "
+                         f"own or {FULL_CI} runs the full tier")
     if (facts and facts.get("base_merge_only") and facts.get("previous_green") is True
             and green_rule_applies(event, green_switch, land_switch, labelled_switch, one_shot)):
         return "none", (f"this head only merges the base onto {str(facts.get('previous') or '')[:10]}, whose every "
@@ -745,12 +754,6 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
         return "cheap", ("this head only merges the base into the pull request, with a merge commit that was made "
                          "by git, not GitHub: the cheap tier runs, and the branch's next commit of its own, "
                          "`full-ci`, or land's update-branch runs the full tier")
-    if (landing and facts and facts.get("base_merge_only") and facts.get("previous_landed") is True
-            and carry_rule_applies(event, carry_switch, land_switch, one_shot)):
-        return "cheap", (f"{CARRY_REASON}: this head only merges the base onto "
-                         f"{str(facts.get('previous') or '')[:10]}, whose full tier passed ({LAND_STATUS} success, "
-                         f"every run green): the cheap tier runs and {LAND_STATUS} carries success; a commit of its "
-                         f"own or {FULL_CI} runs the full tier")
     if (switch or "1").strip() == "0" and pr.get("draft") is True:
         return "full", "CI_DRAFT_CHEAP_TIER=0"
     if pr.get("draft") is True:

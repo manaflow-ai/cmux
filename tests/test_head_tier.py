@@ -933,6 +933,29 @@ class LandCarryTests(BranchRepo):
                             facts={**facts, "previous_landed": True}, now=self.now)
         self.assertTrue(head_tier.carried(decided), decided)
 
+    def test_a_landed_green_previous_head_carries_rather_than_none(self) -> None:
+        """Both the green-head rule and the carry rule fit a ready-to-land update-branch onto a landed head whose
+        every run passed: the carry wins, so cmux/land-tier stays success and land-judge pulses nothing (the green
+        rule's `none` left it pending, and the pulse's `labeled` event ran the affected tier anyway: #63966 03df0990)."""
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.git("commit", "-q", "--allow-empty", "-m", "base moves again", when=self.now - 20)
+        self.git("checkout", "-q", "lane/x")
+        env = git_fixture_env.fixture_env()
+        env.update(GIT_COMMITTER_NAME="GitHub", GIT_COMMITTER_EMAIL="noreply@github.com",
+                   GIT_COMMITTER_DATE=f"{self.now - 10} +0000", GIT_AUTHOR_DATE=f"{self.now - 10} +0000")
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "merge", "-q", "--no-ff", "-m",
+                        "Merge branch 'feat-cmux-next' into lane/x", "feat-cmux-next"],
+                       cwd=self.dir, env=env, check=True, capture_output=True)
+        facts = head_tier.head_facts(self.event(self.git("rev-parse", "HEAD")))
+        landing = self.landing(self.git("rev-parse", "HEAD"))
+        decided = self.tier("pull_request", landing,
+                            facts={**facts, "previous_landed": True, "previous_green": True}, now=self.now)
+        self.assertTrue(head_tier.carried(decided), decided)
+        # Not landed there: the green rule's none, as before.
+        decided = self.tier("pull_request", landing,
+                            facts={**facts, "previous_landed": False, "previous_green": True}, now=self.now)
+        self.assertEqual(decided[0], "none", decided)
+
     def test_an_unproved_previous_head_an_own_commit_full_ci_or_the_switch_keep_the_full_tier(self) -> None:
         for landed in (False, None):
             self.assertEqual(self.tier("pull_request", self.landing(), facts=self.landed(landed),
