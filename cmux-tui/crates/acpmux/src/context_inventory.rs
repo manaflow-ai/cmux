@@ -427,8 +427,8 @@ fn is_rule(part: &ContextPart) -> bool {
 }
 
 /// Every `contextSource` of a hidden cmux block: each goes out as `<SOURCE-context>` and the
-/// transcript hides it. The acpmux test fakes strip exactly these, read from
-/// `tests/guidance_sources.json`; `context_inventory_tests` fails when the two differ, so a new
+/// transcript hides it. The acpmux test fakes strip exactly these, from each fake's own
+/// `GUIDANCE_SOURCES` line; `context_inventory_tests` fails when one differs, so a new
 /// block cannot reach the fakes unstripped (cmux#56653 added `cmux-card` and the session-move
 /// matrix went red after merge).
 pub const RULE_SOURCES: [&str; 5] =

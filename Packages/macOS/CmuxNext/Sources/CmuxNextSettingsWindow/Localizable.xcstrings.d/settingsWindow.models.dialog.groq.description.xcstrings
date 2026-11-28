@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.groq.description" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيستخدم cmux مفتاح API الخاص بك لدى Groq للوصول إلى النماذج المفتوحة السريعة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux će koristiti tvoj API ključ za Groq za pristup opciji brzi otvoreni modeli."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruger din API-nøgle til Groq til at tilgå hurtige, åbne modeller."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux verwendet deinen API-Schlüssel für Groq für den Zugriff auf schnelle offene Modelle."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux will use your Groq API key for fast open models."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux usará tu clave de API de Groq para acceder a modelos abiertos rápidos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux utilisera votre clé API Groq pour accéder à des modèles ouverts rapides."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux userà la tua chiave API di Groq per accedere a modelli aperti veloci."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxはお使いのGroqのAPIキーを使用して高速なオープンモデルにアクセスします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នឹងប្រើ សោ API របស់អ្នកសម្រាប់ Groq ដើម្បីចូលប្រើ ម៉ូដែលបើកចំហល្បឿនលឿន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에서 Groq API 키로 빠른 공개 모델에 액세스합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruker API-nøkkelen din for Groq for å få tilgang til raske, åpne modeller."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux użyje Twojego klucza API usługi Groq, aby uzyskać dostęp do szybkich otwartych modeli."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux usará sua chave de API de Groq para acessar modelos abertos rápidos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux будет использовать ваш ключ API для Groq для доступа к следующему: быстрые открытые модели."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะใช้คีย์ API ของ Groqเพื่อเข้าถึงโมเดลแบบเปิดที่รวดเร็ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux hızlı açık modellere erişmek için Groq API anahtarınızı kullanacak."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux використає ваш ключ API для Groq для доступу до такого: швидкі відкриті моделі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sẽ dùng khóa API Groq của bạn để truy cập các mô hình mở tốc độ cao."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 将使用你的Groq API 密钥访问高速开放模型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 將使用你的Groq API 金鑰存取高速開放模型。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

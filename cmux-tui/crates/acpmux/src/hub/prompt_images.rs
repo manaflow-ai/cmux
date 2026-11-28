@@ -206,6 +206,20 @@ pub(super) fn restore_images(bundle: &std::path::Path) -> std::io::Result<usize>
     Ok(kept)
 }
 
+/// The images a bundle carries that [`restore_images`] did not keep here: each id under the
+/// bundle's images folder with no file at its place, as when its bytes do not hash to its id or
+/// its write failed. An image the source had pruned is not in the bundle and is not named.
+pub(super) fn unacked_images(bundle: &std::path::Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(bundle.join(BUNDLE_DIR)) else { return vec![] };
+    let mut out: Vec<String> = entries
+        .flatten()
+        .filter_map(|entry| entry.file_name().to_str().map(str::to_owned))
+        .filter(|id| image_path(id).is_some_and(|dest| !dest.is_file()))
+        .collect();
+    out.sort();
+    out
+}
+
 /// The ids of the images a record's `msg` names (`images: [{id, ..}]`).
 pub(crate) fn named_ids(msg: &Value) -> impl Iterator<Item = &str> {
     let images = msg.get("images").and_then(Value::as_array).into_iter().flatten();
