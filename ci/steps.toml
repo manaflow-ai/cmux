@@ -300,6 +300,27 @@ inputs = [
 ]
 run = "python3 tests/test_vendored_cmux_agent_cursor.py"
 
+# Native split detector fixtures exercise the same acceptance command used on dev captures.
+[step.new-tab-split-acceptance]
+job = "linux"
+timeout = 120
+title = "New Tab split first-frame acceptance"
+about = "reject late or blank split content against an independently settled frame"
+inputs = [
+  "scripts/cmux-next/new_tab_split_acceptance.py",
+  "scripts/cmux-next/fixtures/new-tab-split-baseline/**",
+  "tests/test_new_tab_split_acceptance.py",
+]
+run = '''
+if ! python3 -c 'from PIL import Image, ImageChops' 2>/dev/null; then
+  detector_python="$CI_TOOLS/new-tab-split-python"
+  python3 -m venv --system-site-packages "$detector_python"
+  "$detector_python/bin/python" -m pip install --disable-pip-version-check --no-input --quiet Pillow==11.3.0
+  export PATH="$detector_python/bin:$PATH"
+fi
+python3 tests/test_new_tab_split_acceptance.py
+'''
+
 [step.r2-upload]
 job = "linux"
 timeout = 300
@@ -1464,6 +1485,7 @@ if want tt-asc-developer-id-app; then python3 tests/test_asc_developer_id_app.py
 if want tt-fixture-dates-2101; then CMUX_NOW_EPOCH=4133980800 python3 tests/test_asc_developer_id_app.py && CMUX_NOW_EPOCH=4133980800 python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_lint_feature_flags_review_date.py || status=1; fi
 if want tt-cmux-now-epoch; then python3 -I tests/test_cmux_now_epoch.py || status=1; fi
 if want tt-tooling-tests-batch; then python3 tests/test_ci_tooling_tests_batch.py || status=1; fi
+if want tt-pool-checkout-reuse-sparse; then python3 tests/test_ci_pool_checkout_reuse_sparse.py || status=1; fi
 if want tt-cmux-tui-republish; then python3 tests/test_cmux_tui_republish_same_commit.py || status=1; fi
 if want tt-verify-cmux-tui-hosted; then python3 tests/test_verify_cmux_tui_hosted.py || status=1; fi
 if want tt-crash-ratchet; then python3 tests/test_crash_ratchet_compare.py || status=1; fi

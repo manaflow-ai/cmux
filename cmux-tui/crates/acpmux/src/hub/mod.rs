@@ -490,6 +490,8 @@ pub(crate) mod turn_frames;
 mod turn_git;
 mod turn_retry;
 mod turn_rules;
+// RFD 0158 §2: rules over whole turns that steer with no tokens: spin, done without push.
+mod sidecars_turn;
 pub(crate) mod turn_shots;
 mod turn_usage;
 mod turns;
@@ -1387,6 +1389,9 @@ pub struct Hub {
     /// yet, and the wake of the worker that drops it (`cold_archive.rs`).
     pub(super) cold_rehydrated: Arc<StdMutex<std::collections::BTreeSet<String>>>,
     pub(super) cold_wake: Arc<Notify>,
+    /// When each chat came back from its cold archive lately, so the automatic passes do not
+    /// archive it again right away (`cold_archive.rs` `Recent`): bounded, oldest let go first.
+    pub(super) cold_recent: Arc<StdMutex<cold_archive::Recent>>,
     /// Chats whose log sealed a segment since the cold segments' worker last looked, and its wake
     /// (`cold_segments.rs`).
     pub(super) cold_sealed: Arc<StdMutex<std::collections::BTreeSet<String>>>,
@@ -1950,6 +1955,7 @@ impl Hub {
             lifecycle_wake: Arc::new(Notify::new()),
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
+            cold_recent: Default::default(),
             cold_sealed: Default::default(),
             cold_sealed_wake: Arc::new(Notify::new()),
             pack_grown: Default::default(),
