@@ -54,6 +54,13 @@ class TransferProgressTests(unittest.TestCase):
                                     stream.flush()
                                     continue
                                 request = json.loads(raw)
+                                if request["method"] == "vm.list":
+                                    # The CLI resolves a label that is not id-shaped
+                                    # against the listed machines first; none match,
+                                    # so the reference goes through as typed.
+                                    stream.write(json.dumps({"id": request["id"], "ok": True, "result": {"vms": []}}).encode() + b"\n")
+                                    stream.flush()
+                                    continue
                                 if request["method"] != "vm.exec":
                                     raise AssertionError(f"Unexpected method: {request['method']}")
                                 command = request["params"]["command"]

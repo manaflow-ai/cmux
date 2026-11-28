@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -29,6 +30,9 @@ async function underDeadline(operation: VmRouteDeadlineOperation, program: Effec
 const providerFailure = (operation: string, cause: unknown) =>
   new VmProviderOperationError({ provider: "freestyle", operation, cause });
 
+/** A provider call that answers `outcome` after `virtual` on the test clock (no real waiting). */
+const afterVirtual = <A, E>(virtual: Duration.DurationInput, outcome: Effect.Effect<A, E>) =>
+  Effect.sleep(virtual).pipe(Effect.andThen(outcome));
 const gateway502 = () => Object.assign(new Error("Bad Gateway"), { name: "FreestyleApiError", status: 502, code: "INTERNAL_ERROR" });
 const early401 = () => Object.assign(new Error("invalid api key"), { name: "FreestyleApiError", status: 401, code: "UNAUTHORIZED" });
 
@@ -132,7 +136,7 @@ describe("remaining VM routes", () => {
     const overloaded = providerFailure("create", new ProviderError("freestyle", "create", new FreestyleApiError(429, {
       code: "INFRASTRUCTURE_OVERLOADED", message: "infrastructure overloaded: VM start capacity queue wait expired",
     })));
-    const { answer, virtualMs } = await underDeadline("create", Effect.sleep("121 seconds").pipe(Effect.andThen(Effect.fail(overloaded))), 300, 959_400);
+    const { answer, virtualMs } = await underDeadline("create", afterVirtual("121 seconds", Effect.fail(overloaded)), 300, 959_400);
     expect(virtualMs).toBe(121_000);
     const response = await vmWorkflowErrorResponse(answer?._tag === "Left" ? answer.left : null);
     expect(response?.status).toBe(503);
