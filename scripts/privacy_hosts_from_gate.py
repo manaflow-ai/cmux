@@ -3,9 +3,13 @@
 
 The allowlist is the one source: cmux-tui/crates/cmux-egress/hosts.txt, which the Rust gate compiles in
 (include_str!) and the Swift gate (Packages/Shared/CmuxEgress/.../EgressHosts.swift) is checked equal to. Each
-host there carries what the app sends to it, as the `#` comment lines directly above it:
+host there carries, in the `#` comment lines directly above it, what it is for and three required keys: what the
+app sends there, what makes it connect, and how a person turns it off:
 
     # the Anthropic API, when you use an Anthropic key or sign in a Cloud machine's Claude
+    # sends: your prompts, the files and output the agent sends, and your Anthropic key
+    # when: when an agent uses your Anthropic key or sign-in
+    # off: remove the Anthropic key or sign-in
     api.anthropic.com
 
 A comment block with a blank line after it (the file header) belongs to no host. The doc's table, between the
@@ -19,6 +23,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parents[1]
 HOSTS = ROOT / "cmux-tui" / "crates" / "cmux-egress" / "hosts.txt"
@@ -28,37 +33,66 @@ BEGIN = ("<!-- egress-hosts:begin: generated from cmux-tui/crates/cmux-egress/ho
 END = "<!-- egress-hosts:end -->"
 
 
-def read_hosts(text: str) -> list[tuple[str, str]]:
-    """[(host, what the app sends there)] in file order; raises ValueError on a host with no description or a
-    host listed twice."""
-    out: list[tuple[str, str]] = []
+FIELDS = ("sends", "when", "off")  # what the app sends there, what makes it connect, how a person stops it
+
+
+class Host(NamedTuple):
+    host: str
+    what: str  # what the host is for
+    sends: str
+    when: str
+    off: str
+
+
+def read_hosts(text: str) -> list[Host]:
+    """The allowlist's rows in file order. Raises ValueError on a host listed twice, or one missing its description
+    or any of the `# sends:`, `# when:` and `# off:` lines."""
+    out: list[Host] = []
     seen: set[str] = set()
-    comment: list[str] = []
+    plain: list[str] = []
+    keyed: dict[str, str] = {}
     for n, raw in enumerate(text.splitlines(), 1):
         line = raw.strip()
         if not line:
-            comment = []
+            plain, keyed = [], {}
         elif line.startswith("#"):
-            comment.append(line[1:].strip())
+            body = line[1:].strip()
+            key, sep, value = body.partition(":")
+            if sep and key in FIELDS:
+                if key in keyed:
+                    raise ValueError(f"hosts.txt:{n}: `# {key}:` given twice")
+                keyed[key] = value.strip()
+            elif body:
+                plain.append(body)
         else:
             host = line.lower()
             if host in seen:
                 raise ValueError(f"hosts.txt:{n}: {host} is listed twice")
-            what = " ".join(c for c in comment if c)
+            what = " ".join(plain)
             if not what:
-                raise ValueError(f"hosts.txt:{n}: {host} has no `# what the app sends there` line above it")
+                raise ValueError(f"hosts.txt:{n}: {host} has no `# what the host is for` line above it")
+            gone = [f"`# {k}:`" for k in FIELDS if not keyed.get(k)]
+            if gone:
+                raise ValueError(f"hosts.txt:{n}: {host} has no {', '.join(gone)} line above it "
+                                 "(what the app sends there, what makes it connect, how a person turns it off)")
             seen.add(host)
-            out.append((host, what))
-            comment = []
+            out.append(Host(host, what, keyed["sends"], keyed["when"], keyed["off"]))
+            plain, keyed = [], {}
     return out
 
 
-def table(hosts: list[tuple[str, str]]) -> str:
-    rows = "".join(f"| `{h}` | connects | {what} |\n" for h, what in hosts)
-    return f"{BEGIN}\n\n| Host | Kind | What for |\n|---|---|---|\n{rows}\n{END}"
+def cell(text: str) -> str:
+    return text.replace("|", "\\|")
 
 
-def render(doc: str, hosts: list[tuple[str, str]]) -> str:
+def table(hosts: list[Host]) -> str:
+    rows = "".join(f"| `{h.host}` | connects | {cell(h.what)} | {cell(h.sends)} | {cell(h.when)} | {cell(h.off)} |\n"
+                   for h in hosts)
+    head = "| Host | Kind | What for | Sends | When | Turn it off |\n|---|---|---|---|---|---|\n"
+    return f"{BEGIN}\n\n{head}{rows}\n{END}"
+
+
+def render(doc: str, hosts: list[Host]) -> str:
     """The doc with the text between the markers replaced by the table."""
     start, end = doc.find("<!-- egress-hosts:begin"), doc.find(END)
     if start < 0 or end < start:

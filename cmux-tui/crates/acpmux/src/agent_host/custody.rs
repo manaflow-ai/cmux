@@ -157,7 +157,7 @@ impl Ring {
                 .create_new(true)
                 .mode(0o600)
                 .open(&path)?;
-            let _ = crate::home_fs::remove_file(&path);
+            crate::home_fs::remove_file(&path)?;
             Ok(Self { fd: OwnedFd::from(file) })
         }
     }
@@ -234,17 +234,12 @@ impl Ring {
             }
         }
         let mut buf = vec![0u8; max.min(64 << 10)];
-        let n = loop {
-            // SAFETY: `buf` is valid for its length.
-            let n = unsafe { libc::read(pipe, buf.as_mut_ptr().cast(), buf.len()) };
-            if n >= 0 {
-                break n as usize;
-            }
-            let e = std::io::Error::last_os_error();
-            if e.kind() != std::io::ErrorKind::Interrupted {
-                return Err(e);
-            }
-        };
+        let n = read_pipe(pipe, &mut buf)?;
+        self.append(&buf[..n], at)
+    }
+
+    fn append(&self, buf: &[u8], at: u64) -> std::io::Result<usize> {
+        let n = buf.len();
         let mut done = 0;
         while done < n {
             // SAFETY: the filled part of `buf`.
@@ -300,6 +295,20 @@ impl Ring {
     }
 }
 
+fn read_pipe(pipe: RawFd, buf: &mut [u8]) -> std::io::Result<usize> {
+    loop {
+        // SAFETY: `buf` is valid for its length.
+        let n = unsafe { libc::read(pipe, buf.as_mut_ptr().cast(), buf.len()) };
+        if n >= 0 {
+            return Ok(n as usize);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
 /// The harness's stdout through the ring: bytes from `read_off` on, read back from the ring, and
 /// moved there from the pipe as the reader needs more.
 pub(crate) struct RingPipe {
@@ -320,6 +329,8 @@ impl RingPipe {
         set_nonblocking(pipe.as_raw_fd())?;
         let end = ring.end()?;
         let pipe = tokio::io::unix::AsyncFd::with_interest(pipe, tokio::io::Interest::READABLE)?;
+        // Keep exact stream offsets for a replacement host. The journal and tap redact
+        // completed entries before publishing them.
         Ok(Self { pipe, ring, read_off: from.min(end), end, eof: false })
     }
 }
@@ -348,9 +359,12 @@ impl tokio::io::AsyncRead for RingPipe {
                 Poll::Ready(g) => g?,
                 Poll::Pending => return Poll::Pending,
             };
-            match this.ring.append_from(this.pipe.get_ref().as_raw_fd(), this.end, 256 << 10) {
-                Ok(0) => this.eof = true,
-                Ok(n) => this.end += n as u64,
+            let pipe = this.pipe.get_ref().as_raw_fd();
+            match this.ring.append_from(pipe, this.end, 256 << 10) {
+                Ok(n) => {
+                    this.end += n as u64;
+                    this.eof = n == 0;
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => guard.clear_ready(),
                 Err(e) => return Poll::Ready(Err(e)),
             }
@@ -593,4 +607,40 @@ pub(crate) fn inherited(
     let (stdin, stdout, stderr, ring) = (take(0)?, take(1)?, take(2)?, take(3)?);
     let pidfd = if adopt.pidfd { Some(take(4)?) } else { None };
     Ok((stdin, stdout, stderr, Ring::from_fd(ring), pidfd))
+}
+
+#[cfg(test)]
+mod ring_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_replacement_reader_recovers_a_partial_frame_with_a_key_prefix() {
+        use tokio::io::AsyncReadExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let ring = std::sync::Arc::new(Ring::create(dir.path()).unwrap());
+        let mut fds = [-1; 2];
+        // SAFETY: pipe fills both owned descriptors on success.
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        let reader = unsafe { OwnedFd::from_raw_fd(fds[0]) };
+        let mut writer = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fds[1]) });
+        let mut original =
+            RingPipe::new(dup(reader.as_raw_fd()).unwrap(), ring.clone(), 0).unwrap();
+        let prefix = b"{\"text\":\"fixture-";
+        writer.write_all(prefix).unwrap();
+        let mut partial = [0; 1];
+        // The pipe was consumed before the first byte was returned. The replacement must be
+        // able to replay the unpublished suffix as well as the byte the old reader returned.
+        original.read_exact(&mut partial).await.unwrap();
+        assert_eq!(partial, [prefix[0]]);
+        assert_eq!(ring.end().unwrap(), prefix.len() as u64);
+        drop(original);
+
+        writer.write_all(b"ordinary\"}\n").unwrap();
+        drop(writer);
+        let mut replacement = RingPipe::new(reader, ring, 0).unwrap();
+        let mut replay = Vec::new();
+        replacement.read_to_end(&mut replay).await.unwrap();
+        assert_eq!(replay.as_slice(), b"{\"text\":\"fixture-ordinary\"}\n");
+    }
 }
