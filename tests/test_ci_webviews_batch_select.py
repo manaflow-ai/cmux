@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 import webviews_batch_select as bs  # noqa: E402
 
-NOW = 1_800_000_000.0
+NOW = 1_800_000_000.0 + 12 * 3600 - 1_800_000_000.0 % 86400  # 12:00 UTC
 TESTS = {f"webviews/src/t{i}.test.ts" for i in range(10)}
 
 
@@ -76,14 +76,14 @@ class Select(unittest.TestCase):
         picked, _, _ = self.pick([run("a", TESTS)], {"a": []}, FakeSelector(always={"webviews/src/t6.test.ts"}))
         self.assertEqual(picked, {"webviews/src/t6.test.ts"})
 
-    def test_daily_full_run(self):
-        picked, why, _ = self.pick([run("a", TESTS, time=NOW - bs.FULL_EVERY - 1)], {"a": []})
+    def test_the_first_tick_of_a_utc_day_runs_every_file(self):
+        picked, why, _ = self.pick([run("a", TESTS, time=NOW - 13 * 3600)], {"a": []})
         self.assertIsNone(picked)
         self.assertIn("daily", why)
 
-    def test_partial_runs_do_not_count_as_the_daily_full_run(self):
-        runs = [run("a", TESTS, time=NOW - bs.FULL_EVERY - 1), run("b", ["webviews/src/t1.test.ts"])]
-        self.assertIsNone(self.pick(runs, {"a": [], "b": []})[0])
+    def test_a_later_tick_that_day_selects(self):
+        runs = [run("a", TESTS, time=NOW - 13 * 3600), run("b", ["webviews/src/t1.test.ts"], time=NOW - 11 * 3600)]
+        self.assertEqual(self.pick(runs, {"a": [], "b": []})[0], set())
 
     def test_no_history_runs_every_file(self):
         self.assertIsNone(self.pick([], {})[0])

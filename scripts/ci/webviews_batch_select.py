@@ -19,7 +19,9 @@ of this tick only when all of these hold, else it runs:
   - it is not in the always-run set (a test that reads files, spawns, runs Vite or a browser: no graph follows it);
   - the commit it passed at still diffs against HEAD (a commit the checkout cannot fetch runs the file).
 What the repository does not hold (the runner image, its Node, a repository variable) is bounded by a daily
-backstop: HEAD runs every file when no run in the last FULL_EVERY seconds ran FULL_SHARE of today's test files.
+backstop: the first tick of each UTC day (no recorded run yet that day) runs every file. A full tick's own shards
+still stop at their deadline (tick 46081509797 left 279 of 3,699 unrun; the 11-27 ticks recorded 2,186 to 3,652), so
+"full" is a day boundary, not a file count.
 
 The shard count is the full matrix's share for the selected files' recorded seconds: a tick whose files take a tenth
 of the suite's seconds runs on a tenth of the shards (at least 1), so each shard carries what a full-matrix shard does.
@@ -43,10 +45,7 @@ import webviews_affected as wa  # noqa: E402
 import webviews_test_history as th  # noqa: E402
 
 WEB = wa.WEB
-FULL_EVERY = 24 * 3600
-# A full tick still leaves files unrun at its shards' deadline (tick 46081509797: 279 of 3,699), so a run counts as
-# full at 80% of today's files.
-FULL_SHARE = 0.8
+DAY = 24 * 3600
 DEFAULT_SECONDS = 13.0  # a file with no recorded duration: the suite's median
 
 
@@ -64,11 +63,9 @@ def last_verdicts(runs: list[dict]) -> dict[str, tuple[str, bool]]:
     return out
 
 
-def full_due(runs: list[dict], tests: set[str], now: float) -> bool:
-    for run in runs:
-        if run["time"] >= now - FULL_EVERY and len({repo_path(f) for f in run["files"]} & tests) >= FULL_SHARE * len(tests):
-            return False
-    return True
+def full_due(runs: list[dict], now: float) -> bool:
+    """No run recorded yet in NOW's UTC day: this tick is the day's full run."""
+    return not any(int(run["time"] // DAY) == int(now // DAY) for run in runs)
 
 
 def select(selector: wa.Selector, runs: list[dict], head: str, now: float, diff=None) -> tuple[set[str] | None, str, dict]:
@@ -76,8 +73,8 @@ def select(selector: wa.Selector, runs: list[dict], head: str, now: float, diff=
     tests = set(selector.graph.tests)
     if not runs:
         return None, "no webview test history", {}
-    if full_due(runs, tests, now):
-        return None, f"no run in the last {FULL_EVERY // 3600} h ran {FULL_SHARE:.0%} of the files (the daily full run)", {}
+    if full_due(runs, now):
+        return None, "the first tick of the UTC day (the daily full run)", {}
     diff = diff or (lambda base: wa.changed(selector.root, base, head))
     verdicts = last_verdicts(runs)
     by_sha: dict[str, set[str]] = {}
