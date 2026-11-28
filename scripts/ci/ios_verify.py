@@ -7,10 +7,10 @@
    holds the base: a merge-combination break (iOS regressions rows 4, 5, 7) fails here, not after landing.
    --no-merge-base skips it. A conflict stops with the files to resolve.
 2. Select. cmux-next-ios/FlowSuite/select_flows.py picks the flows the diff can affect (flows.json).
-3. Run, in parallel, on the warm pool (env CMUX_IOS_VERIFY_WORKERS, default cmux22,cmux23; never cosmic-gray or
-   air-blue): one `cmux-ci run --class simulator` per shard of `test only=KIT ui=UI video` against
-   scripts/ci/cmux-next-ios-sim.sh, pinned (--target-worker) so each worker's cached DerivedData, FFI/cargo cache and
-   booted slim simulator (--sim-features none) are reused; `pair-e2e` (a tagged DEBUG Mac pairs by QR, drops and
+3. Run, in parallel, on the simulator fleet: two shards by default, placed by the controller. Explicit --workers
+   (or env CMUX_IOS_VERIFY_WORKERS; never cosmic-gray or air-blue) selects worker hints, one shard per worker.
+   Each `cmux-ci run --class simulator` runs `test only=KIT ui=UI video` against scripts/ci/cmux-next-ios-sim.sh,
+   reusing cached DerivedData, FFI/cargo cache and a slim simulator (--sim-features none); `pair-e2e` (a tagged DEBUG Mac pairs by QR, drops and
    reconnects) when a selected flow has "pair_e2e": true; the flows' `scripts` here. A flow's macOS `swift` tests
    are named as delegated to pr-pipeline's mac job, which runs them on the same head.
 4. Compare. Each screenshot is diffed against the newest passing ios-flows proof on a PR merged into the base (the
@@ -63,12 +63,27 @@ REEXEC_HEAD = "CMUX_IOS_VERIFY_MERGED_HEAD"
 SUITE = "ios-flows"
 SIM_SCRIPT = "scripts/ci/cmux-next-ios-sim.sh"
 ARTIFACT = "artifacts/ios-sim/evidence.zip"
-DEFAULT_WORKERS = "cmux22,cmux23"
+DEFAULT_SHARDS = 2
+LEGACY_WORKERS = ("cmux22", "cmux23")  # Scrub old worker names from public proof text too.
 FORBIDDEN_WORKERS = {"cosmic-gray", "air-blue"}
 GATE_JOB = "ios fast verdict status"
 BROKER_ID = re.compile(r"through the broker as (\S+)")
 STEP_ID = re.compile(r"\bstep[: ]+([0-9a-f]{8,})\b")
 SAME_RATIO = 0.002
+XCODE_PINS = REPO_ROOT / "scripts" / "ci" / "xcode-pins.txt"
+
+
+def xcode_label(pins: Path = XCODE_PINS) -> str | None:
+    """The worker label naming the Xcode cmux-next-ios-sim.sh will select: the pin of the newest macOS row in
+    xcode-pins.txt (the simulator pool runs the newest macOS). Without it the controller may move a step pinned to a
+    warm worker onto any simulator host, and one without that Xcode exits 3 ("no Xcode at ..."): cmux#38805's proof
+    went from cmux22 to a host that advertised simulator but no xcode-27.2."""
+    rows = []
+    for line in pins.read_text().splitlines() if pins.is_file() else []:
+        parts = line.split("#", 1)[0].split()
+        if len(parts) == 2 and parts[0].isdigit():
+            rows.append((int(parts[0]), parts[1]))
+    return f"xcode-{max(rows)[1]}" if rows else None
 # Above this a changed screen needs a Visual-change line (ios_gate_screen_diff.CHANGED_RATIO).
 FAIL_RATIO = ios_gate_screen_diff.CHANGED_RATIO
 
@@ -97,26 +112,30 @@ def workers_from(spec: str) -> list[str]:
     bad = [w for w in out if w.split(".")[0] in FORBIDDEN_WORKERS]
     if bad:
         raise SystemExit(f"ios verify: {', '.join(bad)} take no builds (Leo's GUI Macs); pick fleet minis")
-    return out or [w for w in DEFAULT_WORKERS.split(",")]
+    return out
 
 
 # ---------- plan ----------
 
 def plan(selection: dict, flows: list[dict], workers: list[str], pair: str) -> list[dict]:
-    """The cmux-ci simulator runs for SELECTION, one per worker shard, plus pair-e2e when it applies."""
+    """Plan automatic fleet shards, or one shard per explicit worker, plus pair-e2e when it applies."""
     steps = []
-    lines = select_flows.sim_args(selection, len(workers)) if selection["ios"] else []
+    placements = workers or [None] * DEFAULT_SHARDS
+    lines = select_flows.sim_args(selection, len(placements)) if selection["ios"] else []
     for i, line in enumerate(lines):
         words = line.split()
         if words[0] == "test":
             words.append("video")
         steps.append({"name": f"sim {i + 1}/{len(lines)}: {line}", "mode": words[0], "args": words,
-                      "worker": workers[i % len(workers)]})
+                      "worker": placements[i % len(placements)]})
+    if pair == "never":
+        steps = [s for s in steps if s["mode"] != "pair-e2e"]
     chosen = {f["id"] for f in flows if f["id"] in selection["flows"]}
     wants_pair = any(f.get("pair_e2e") for f in flows if f["id"] in chosen)
-    if selection["ios"] and (pair == "always" or (pair == "auto" and wants_pair)):
+    has_pair = any(s["mode"] == "pair-e2e" for s in steps)  # sim_args already names it (with its words)
+    if selection["ios"] and not has_pair and (pair == "always" or (pair == "auto" and wants_pair)):
         steps.append({"name": "pair-e2e: tagged Mac pairs, drops, reconnects", "mode": "pair-e2e",
-                      "args": ["pair-e2e"], "worker": workers[len(steps) % len(workers)]})
+                      "args": ["pair-e2e"], "worker": placements[len(steps) % len(placements)]})
     return steps
 
 
@@ -132,25 +151,41 @@ def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str 
     shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
     workload = json.dumps([head, SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
     digest = hashlib.sha256(workload.encode()).hexdigest()[:32]
-    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker']}-{digest}"
+    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker'] or 'auto'}-{digest}"
+
+
+def stream(cmd: list[str], tag: str) -> tuple[int, str]:
+    """Run CMD, echo each line to stderr as "[TAG] line" while it runs, and return its exit code and output. A
+    capture-only run printed nothing until the step ended, so a step waiting in the fleet queue (a pinned worker busy
+    with a runner job) looked hung: two proofs sat silent for 90 min and ended at the caller's timeout, exit 124."""
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    lines = []
+    for line in p.stdout:
+        lines.append(line)
+        print(f"[{tag}] {line}", end="", file=sys.stderr, flush=True)
+    return p.wait(), "".join(lines)
 
 
 def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
-           "--key", step_key(step, head, pr, strict, attempt), "--target-worker", step["worker"],
+           "--key", step_key(step, head, pr, strict, attempt),
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
            "--reason", f"cmux ios verify #{pr}"]
+    label = xcode_label()
+    if label:
+        cmd += ["--label", label]
+    if step["worker"]:
+        cmd += ["--target-worker", step["worker"]]
     if strict:
         cmd.append("--pin-strict")
     for a in step["args"]:
         cmd += ["--arg", a]
     t0 = time.monotonic()
-    p = subprocess.run(cmd, capture_output=True, text=True)
-    text = p.stdout + "\n" + p.stderr
+    code, text = stream(cmd, step["name"])
     m = BROKER_ID.search(text) or STEP_ID.search(text)
     return {"name": step["name"], "mode": step["mode"], "worker": step["worker"], "args": step["args"],
-            "step": m.group(1) if m else None, "result": "pass" if p.returncode == 0 else "fail",
-            "exit": p.returncode, "seconds": round(time.monotonic() - t0), "tail": text.strip()[-400:]}
+            "step": m.group(1) if m else None, "result": "pass" if code == 0 else "fail",
+            "exit": code, "seconds": round(time.monotonic() - t0), "tail": text.strip()[-400:]}
 
 
 def run_script(script: str) -> dict:
@@ -414,7 +449,8 @@ def main(argv: list[str] | None = None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pr")
     ap.add_argument("--repo")
-    ap.add_argument("--workers", default=os.environ.get("CMUX_IOS_VERIFY_WORKERS", DEFAULT_WORKERS))
+    ap.add_argument("--workers", default=os.environ.get("CMUX_IOS_VERIFY_WORKERS", ""),
+                    help="comma-separated worker hints; by default the fleet places two shards")
     ap.add_argument("--pair-e2e", choices=("auto", "always", "never"), default="auto")
     ap.add_argument("--no-merge-base", action="store_true")
     ap.add_argument("--pin-strict", action="store_true", help="never fall back off the named workers")
@@ -425,6 +461,8 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     t_start = time.monotonic()
     workers = workers_from(a.workers)
+    if a.pin_strict and not workers:
+        ap.error("--pin-strict requires --workers or CMUX_IOS_VERIFY_WORKERS")
     view = pr_view(a.pr, a.repo)
     repo = a.repo or view["url"].split("github.com/")[1].rsplit("/pull/", 1)[0]
     merged = False
@@ -485,7 +523,7 @@ def main(argv: list[str] | None = None) -> int:
         if r["result"] in ("fail", "error"):
             print(f"FAIL {r['name']} on {r.get('worker', '?')}:\n{r.get('tail', '')}\n", file=sys.stderr)
     body = scrub_hosts(proof_record.render(record, summary_md(record)),
-                       [*workers, *DEFAULT_WORKERS.split(","), *FORBIDDEN_WORKERS, os.uname().nodename,
+                       [*workers, *LEGACY_WORKERS, *FORBIDDEN_WORKERS, os.uname().nodename,
                         *(r.get("worker", "") for r in runs)])
     if a.out:
         Path(a.out).write_text(json.dumps(record, indent=1))

@@ -352,6 +352,25 @@ def bun_install(cwd: Path) -> int:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+# The base worktree's holder in the temp folder, ~1.1 GB (webviews and its node_modules). A run killed by a timeout,
+# SIGKILL or a closed session never reaches close(), and acpmux keeps the session TMPDIR it sits in (gcp-codex-lane-5,
+# 2026-11-27: 5.4 GiB of them in one session's TMPDIR, five holders 1.2 to 6.4 h old, none with an owner file, so no
+# sweep could tell a dead run's from a live one). Each holder names its owner (.owner-pid) and the next base checkout
+# removes the holders whose owner is gone, as fast-gates-base-* and ci-receipt-* do (tests/test_ci_holder_sweep.py).
+HOLDER_PREFIX = "fast-gate-webviews-base-"
+
+
+def sweep_dead_holders(prefix: str) -> int:
+    """cmux_next_fast_gates.sweep_dead_holders (one sweep for every holder of this kind), with its worktree prune."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import cmux_next_fast_gates  # noqa: PLC0415  (scripts/ci/cmux_next_fast_gates.py)
+
+    removed = cmux_next_fast_gates.sweep_dead_holders(prefix)
+    if removed:
+        subprocess.run(["git", "worktree", "prune"], capture_output=True, check=False)
+    return removed
+
+
 class BaseTree:
     """A worktree of BASE, made on first use. Its webviews/node_modules is the merge's only when the two install
     the same thing (web_lint_prepush.shares_deps: package.json, bun.lock, file: dependencies); otherwise it installs
@@ -362,7 +381,9 @@ class BaseTree:
 
     def webviews(self) -> Path | None:
         if self.path is None:
-            holder = Path(tempfile.mkdtemp(prefix="fast-gate-webviews-base-"))
+            sweep_dead_holders(HOLDER_PREFIX)
+            holder = Path(tempfile.mkdtemp(prefix=HOLDER_PREFIX))
+            (holder / ".owner-pid").write_text(str(os.getpid()))
             made = subprocess.run(["git", "-C", str(self.repo), "worktree", "add", "--quiet", "--detach",
                                    str(holder / "base"), self.base], capture_output=True, text=True)
             if made.returncode != 0:
