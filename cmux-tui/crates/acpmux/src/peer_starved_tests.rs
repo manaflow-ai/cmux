@@ -18,7 +18,9 @@ fn starved_time_sums_over_the_window_and_old_seconds_fall_out() {
     // A second KEPT later reuses the slot and does not read the old one's time.
     let later = t0 + Duration::from_secs(1 + KEPT as u64);
     meter.record(later, Duration::from_millis(100));
-    assert_eq!(meter.within(later, Duration::from_secs(0)), Duration::from_millis(100));
+    // A window covers its last second whole; `within` never reads more than the window, so a 0 s
+    // window reads 0: one second reads the reused slot's 100 ms and nothing of the old slot.
+    assert_eq!(meter.within(later, Duration::from_secs(1)), Duration::from_millis(100));
 }
 
 /// The canary wakes the process 10 times a second; with no link loop reading the meter that was
