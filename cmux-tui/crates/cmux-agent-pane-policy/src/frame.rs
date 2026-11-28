@@ -45,6 +45,8 @@ pub struct Refused {
     pub refusal: Refusal,
     pub method: Option<String>,
     pub request_id: Option<String>,
+    /// A value-free rule cause for an intent refusal, when one is known.
+    pub cause: Option<String>,
 }
 
 impl From<Refused> for Decision {
@@ -85,6 +87,7 @@ pub fn allowlist_decision(text: &str, is_first: bool, local_app_token: Option<&s
                     refusal: Refusal::InvalidFrame,
                     method: object.get("method").and_then(Value::as_str).map(str::to_owned),
                     request_id: object.get("id").and_then(raw_id),
+                    cause: None,
                 }
                 .into(),
             }
@@ -97,7 +100,7 @@ pub fn allowlist_decision(text: &str, is_first: bool, local_app_token: Option<&s
 pub fn allowlist_check(text: &str, is_first: bool) -> Result<Map<String, Value>, Refused> {
     let p = policy();
     let refuse = |refusal, method: Option<String>, request_id: Option<String>| {
-        Err(Refused { refusal, method, request_id })
+        Err(Refused { refusal, method, request_id, cause: None })
     };
     if text.len() > p.maximum_frame_bytes {
         return refuse(Refusal::FrameTooLarge, None, None);
