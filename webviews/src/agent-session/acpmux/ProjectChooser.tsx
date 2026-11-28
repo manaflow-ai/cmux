@@ -1,4 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { DeviceGlyphShapes } from "../../ui/DeviceGlyph";
+import { DEVICE_GLYPH_VIEWBOX } from "../../ui/deviceGlyphPaths";
+import { useDeviceKind } from "../../ui/deviceKinds";
 import { ChevronIcon } from "./ComposerPickers";
 import type { BrowseRequest, BrowseResult } from "./browseProject";
 import { BrowseFailure } from "./BrowseFailure";
@@ -271,7 +274,7 @@ export function ProjectChooser({
                   </span>
                   {project?.host && (
                     <span className="acpmux-project-host" data-peer={project.peer}>
-                      <MachineIcon name={project.peer ? project.host : undefined} />
+                      <MachineIcon name={project.peer ? project.host : undefined} peer={project.peer} />
                       <span>{project.host}</span>
                     </span>
                   )}
@@ -309,14 +312,17 @@ function titledByPath(project: Project) {
 /// it, in that machine's own color (machineColor), so each machine reads as itself instead of one
 /// globe repeated on every row (Leo, 2026-10-20: "we can have them be delineated rather than just
 /// this is a computer symbol. This is a computer symbol"). This Mac stays quiet.
-function MachineIcon({ name }: { name?: string }) {
+function MachineIcon({ name, peer }: { name?: string; peer?: string }) {
+  // Its own device glyph once its daemon said what it is (Leo 2026-11-14); else the laptop.
+  const device = useDeviceKind(peer);
   return (
     <svg
-      className="acpmux-icon"
+      className={`acpmux-icon${device ? " acpmux-device-icon" : ""}`}
+      data-device={device}
       style={name ? { color: machineColor(name) } : undefined}
-      width={12}
+      width={device ? 15 : 12}
       height={12}
-      viewBox="0 0 16 16"
+      viewBox={device ? DEVICE_GLYPH_VIEWBOX : "0 0 16 16"}
       fill="none"
       stroke="currentColor"
       strokeWidth={1.25}
@@ -324,8 +330,14 @@ function MachineIcon({ name }: { name?: string }) {
       aria-hidden="true"
       focusable="false"
     >
-      <rect x="3" y="3.5" width="10" height="7" rx="1.2" />
-      <path d="M1.75 12.5h12.5" strokeLinecap="round" />
+      {device ? (
+        <DeviceGlyphShapes kind={device} />
+      ) : (
+        <>
+          <rect x="3" y="3.5" width="10" height="7" rx="1.2" />
+          <path d="M1.75 12.5h12.5" strokeLinecap="round" />
+        </>
+      )}
     </svg>
   );
 }

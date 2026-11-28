@@ -116,6 +116,9 @@ mod watch;
 mod who_else;
 #[path = "acpmux_mcp_wrap_up.rs"]
 mod wrap_up;
+/// The box a wrap-up call draws, built from the call's own input (`code_mode.rs` records it as a
+/// folded call's `shown`; the call's answer echoes none of it).
+pub use wrap_up::box_of as wrap_up_box;
 /// The most facts a wrap-up offers, and the longest one (`memory_inbox.rs`).
 pub(crate) use wrap_up::{MAX_FACT as WRAP_UP_MAX_FACT, MAX_LEARNED as WRAP_UP_MAX_LEARNED};
 
@@ -615,7 +618,9 @@ async fn team_inbox(daemon: &Arc<Client>, args: &Value) -> Value {
     let unread_only = args.get("unreadOnly").and_then(Value::as_bool).unwrap_or(true);
     let mut params = json!({"unreadOnly": unread_only});
     if let Some(before) = args.get("before").and_then(Value::as_u64) {
-        params["before"] = json!(before);
+        if let Some(object) = params.as_object_mut() {
+            object.insert("before".to_owned(), json!(before));
+        }
     }
     match daemon.request(method::MUX_TEAM_INBOX, params).await {
         Ok(result) => ok(team_result_text(&result), result),
@@ -1052,7 +1057,8 @@ fn ls_result(all: &Value, args: &Value) -> Value {
     ok(lines.join("\n"), json!({"sessions": slim, "more": more}))
 }
 
-#[cfg(test)]
+// The proxy stands in front of the daemon on a unix socket.
+#[cfg(all(test, unix))]
 #[path = "acpmux_mcp_restart_tests.rs"]
 mod restart_tests;
 #[cfg(test)]

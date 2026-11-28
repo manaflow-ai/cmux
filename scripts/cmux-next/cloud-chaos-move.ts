@@ -660,9 +660,11 @@ export async function runMoveChaos(ctx: MoveContext): Promise<MoveResult[]> {
       const [src, dst] = plan.direction === "local-cloud" ? [localSide, cloudSide(0)]
         : plan.direction === "cloud-local" ? [cloudSide(0), localSide] : [cloudSide(0), cloudSide(1)];
       ctx.log(`move: run ${run} seed ${plan.seed}: ${plan.direction} ${plan.step} ${plan.kill}`);
-      const r = await moveRun(ctx, { ...plan, run, root, src, dst, local, carriers }).catch((e: Error): MoveResult => ({
+      const trace: string[] = [];
+      const r = await moveRun(ctx, { ...plan, run, root, src, dst, local, carriers, trace }).catch((e: Error): MoveResult => ({
         run, seed: plan.seed, direction: plan.direction, step: plan.step, button_step: buttonStep(plan.step), kill: plan.kill, outcome: "unmeasured", lost: [], open: "", queued_runs: -1,
-        draft: "", edit: "", commit: "", pump_first: "", pump_retry: "", seen_ms: null, fault_s: null, detail: `the run broke: ${e.message}`, trace: [],
+        draft: "", edit: "", commit: "", pump_first: "", pump_retry: "", seen_ms: null, fault_s: null, detail: `the run broke: ${e.message}`,
+        trace: trace.length ? trace : ["(nothing traced: the run broke in its setup, before any fault)"],
       }));
       results.push(r);
       ctx.onResult?.(r);
@@ -678,7 +680,7 @@ export async function runMoveChaos(ctx: MoveContext): Promise<MoveResult[]> {
   return results;
 }
 
-export type RunArgs = { direction: MoveDirection; step: MoveStep; kill: MoveKill; seed: string; run: string; root: string; src: MoveSide; dst: MoveSide; local: LocalMachine; carriers: CarrierServe[]; /** The harness's own self-test between two local daemons, which serve no file ops: no folder sync. */ noSync?: boolean };
+export type RunArgs = { direction: MoveDirection; step: MoveStep; kill: MoveKill; seed: string; run: string; root: string; src: MoveSide; dst: MoveSide; local: LocalMachine; carriers: CarrierServe[]; /** The harness's own self-test between two local daemons, which serve no file ops: no folder sync. */ noSync?: boolean; /** The run's fault trace, the caller's so a run that throws still prints what it did. */ trace?: string[] };
 
 async function waitIdentify(socket: string, ms: number): Promise<boolean> {
   for (const until = Date.now() + ms; Date.now() < until; await sleep(2_000)) {
@@ -750,8 +752,9 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   const tag = a.run.replace(/[^A-Za-z0-9-]/g, "-");
   const dir = path.join(a.root, `r${tag.slice(-6)}`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const trace: string[] = [];
-  const note = (s: string) => trace.push(s);
+  const trace: string[] = a.trace ?? [];
+  const t0 = Date.now();
+  const note = (s: string) => trace.push(`+${((Date.now() - t0) / 1000).toFixed(1)}s ${s}`);
   const srcFolder = `${a.src.home}/work/kmm-${tag}`;
   const dstFolder = `${a.dst.home}/work/kmm-${tag}`;
   const remote = `${a.src.home}/work/kmm-${tag}-remote.git`;
@@ -764,6 +767,7 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   const files = await a.src.exec(countFilesCommand(`${srcFolder}/chaos-count/${tag}`, tag), 60_000);
   const countDir = /@@dir (\S+)/.exec(files.stdout)?.[1];
   if (!countDir) throw new Error(`counting files on ${a.src.name}: ${(files.stdout + files.stderr).slice(-200)}`);
+  note(`setup: git fixture and counted files on ${a.src.name}`);
 
   // 2. The folder's first sync, as the app makes it before a move (none for a relay: the move carries it all).
   const pumpEnv = a.local.env;
@@ -781,11 +785,14 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   const dirty = await a.src.exec(gitDirtyCommand(srcFolder, tag), 30_000);
   const sha = /@@commit ([0-9a-f]{40})/.exec(dirty.stdout)?.[1];
   if (!sha) throw new Error(`git dirty on ${a.src.name}: ${(dirty.stdout + dirty.stderr).slice(-200)}`);
+  note(`setup: first sync ${a.noSync ? "skipped" : a.direction}, edit and commit ${sha.slice(0, 12)} on ${a.src.name}`);
 
   // 3. The chat: a tab, a start in the folder, the counting turn, the queued prompt, the draft.
   const rpc = async (side: MoveSide, frame: Record<string, unknown> | Array<Record<string, unknown>>, ms = 60_000) => {
     const r = await daemonRpc(side.socket, frame, ms);
-    if (!r?.ok) throw new Error(`${[frame].flat().map((f) => String(f.cmd)).join("+")} on ${side.name}: ${r?.error_code ?? ""} ${String(r?.error ?? "").slice(0, 200)}`);
+    // The refusal's facts (`data.reason`, cmux-tui agent_session_start) name its cause; a bare code does not.
+    const facts = r?.data && typeof r.data === "object" ? ` ${JSON.stringify(r.data).slice(0, 200)}` : "";
+    if (!r?.ok) throw new Error(`${[frame].flat().map((f) => String(f.cmd)).join("+")} on ${side.name}: ${r?.error_code ?? ""} ${String(r?.error ?? "").slice(0, 200)}${facts}`);
     return r.data;
   };
   const tab = async (side: MoveSide, folder: string): Promise<number> => {
@@ -799,6 +806,7 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   };
   const tabs = new Map<number, string>();
   const surface = await tab(a.src, srcFolder);
+  note(`setup: tab ${surface} on ${a.src.name}`);
   const buildOf = (side: MoveSide) => rpc(side, { cmd: "identify" }).then((id: any) => String(id?.build_id ?? id?.build_commit ?? "?"), () => "unreadable");
   const srcBuild = await buildOf(a.src);
   const started = await rpc(a.src, { cmd: "agent-session-start", surface, harness: "claude", cwd: srcFolder, vm_kind: "owner", ...(a.src.kind === "cloud" && ctx.credentials ? { credentials: ctx.credentials } : {}) }, 120_000);

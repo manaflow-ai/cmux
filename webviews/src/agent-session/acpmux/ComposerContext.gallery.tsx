@@ -340,7 +340,7 @@ const openComputer: Play = async (ctx) => {
 };
 
 const openEnvironment: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: /^Environment/ });
+  await ctx.click({ role: "button", name: /^Computer/ });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
 };
 
@@ -381,7 +381,7 @@ const openEnvironmentWithInsetArm =
 /// Mac and Cloud, Leo 2026-10-31: "it's just a cloud button").
 /// Opens the picker, then its Move to… list.
 const openMoveTo: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: /^Environment/ });
+  await ctx.click({ role: "button", name: /^Computer/ });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-action="moveTo"]'));
   await ctx.click({ role: "option", name: /Move to…/ });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-moves [data-action="moveTarget"]'));
@@ -389,11 +389,11 @@ const openMoveTo: Play = async (ctx) => {
 // A started Cloud chat's popover opens on its machine card (MachineCard.tsx), whose Continue on
 // section lists the move targets as rows of its own: there is no Move to… row to open.
 const openMachineCardMoves: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: /^Environment/ });
+  await ctx.click({ role: "button", name: /^Computer/ });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover.acpmux-env-card [data-action="moveTarget"]'));
 };
 const openMachineList: Play = async (ctx) => {
-  await ctx.contextMenu({ role: "button", name: /^Environment/ });
+  await ctx.contextMenu({ role: "button", name: /^Computer/ });
   await ctx.click({ role: "menuitem", name: "Machines…" });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover.acpmux-env-machines [role="option"]'));
 };
@@ -443,20 +443,16 @@ const waitRows =
     await ctx.waitFor(() => ctx.document.querySelector(`.acpmux-env-popover.acpmux-env-rows-${rows} [role="option"]`));
   };
 const openWhere: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: /^Environment/ });
+  await ctx.click({ role: "button", name: /^Computer/ });
   await waitRows("where")(ctx);
 };
-const openMachineChip: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: /^Machine/ });
-  await waitRows("machines")(ctx);
-};
 const openMachineControl: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: /^Environment/ });
+  await ctx.click({ role: "button", name: /^Computer/ });
   await waitRows("machines")(ctx);
 };
 /// The combined arm's one control: This Mac and Cloud.
 const openCombined: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: /^Environment/ });
+  await ctx.click({ role: "button", name: /^Computer/ });
   await waitRows("combined")(ctx);
 };
 const openRunToggle: Play = async (ctx) => {
@@ -494,21 +490,21 @@ function stripVariants(arm: StripArm) {
   };
   const note = (what: string) => `${STRIP_NOTES[arm]} ${what}`;
   const whereOpen = arm === "cloud-toggle" ? openRunToggle : arm === "combined" ? openCombined : openWhere;
+  // `where-machine-always` is now `where-machine` (#51769 took out the machine chip): its machines
+  // open in Where's Other devices list too.
   const machineOpen =
-    arm === "where-machine"
+    arm === "where-machine" || arm === "where-machine-always"
       ? openWhereDevices
-      : arm === "where-machine-always"
-        ? openMachineChip
-        : arm === "cloud-toggle"
-          ? openMachineControl
-          : openMachineList;
+      : arm === "cloud-toggle"
+        ? openMachineControl
+        : openMachineList;
   return {
     [`strip-${arm}`]: { note: note("Closed, on This Mac with no project: nothing is required to start."), props },
     [`strip-${arm}-where`]: { note: note("Where it runs, open."), props, play: whereOpen },
     [`strip-${arm}-machines`]: {
       height: 320,
       note: note(
-        arm === "where-machine"
+        arm === "where-machine" || arm === "where-machine-always"
           ? "Other devices open in the Where menu: its heading, the person's own machines ready first with a green dot and how each connects under its name, Add Machine… last; no Cloud machine. A pick there shows the machine chip, as before."
           : "Which machine, open.",
       ),
@@ -1009,7 +1005,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         peerConnected: { "gpu-box": true, "Cloud machine": false },
       },
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.click({ role: "button", name: /^Computer/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
@@ -1066,7 +1062,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         peers: [],
       },
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.click({ role: "button", name: /^Computer/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
@@ -1082,7 +1078,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         peerConnected: { "gpu-box": true },
       },
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.click({ role: "button", name: /^Computer/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
@@ -1098,7 +1094,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         peerConnected: { "gpu-box": true },
       },
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.click({ role: "button", name: /^Computer/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
@@ -1114,7 +1110,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         peerConnected: { "gpu-box": true },
       },
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.click({ role: "button", name: /^Computer/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
@@ -1199,7 +1195,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         localName: thisMacName("office-mac", "kind-aqua-sandpiper", { hostKind: "cloud", host: "kind-aqua-sandpiper" }),
       },
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.click({ role: "button", name: /^Computer/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
@@ -1211,7 +1207,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         runMode: { mode: "persistent", onMode: () => undefined },
       },
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.click({ role: "button", name: /^Computer/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
         ctx.document.defaultView?.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt", altKey: true }));
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));
@@ -1225,7 +1221,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         runMode: { mode: "sandboxed", onMode: () => undefined },
       },
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.click({ role: "button", name: /^Computer/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));
       },
     },
@@ -1240,7 +1236,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         runMode: { mode: "persistent", onMode: () => undefined },
       },
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.click({ role: "button", name: /^Computer/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"]'));
       },
     },
@@ -1248,7 +1244,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       note: "Cloud work mode: Cloud picked. The control reads Cloud where the machine was and its row is checked; This Mac goes back to this Mac.",
       props: { ...baseProps, environments: true, runMode: { mode: "cloud", onMode: () => undefined } },
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.click({ role: "button", name: /^Computer/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"][data-current]'));
       },
     },
@@ -1344,7 +1340,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         peerKinds: { "gpu-box": "ssh" },
       },
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.click({ role: "button", name: /^Computer/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
@@ -1392,7 +1388,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         },
       },
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.click({ role: "button", name: /^Computer/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-popover .acpmux-env-new"));
       },
     },
@@ -1413,7 +1409,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         },
       },
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.click({ role: "button", name: /^Computer/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-popover .acpmux-env-new"));
       },
     },

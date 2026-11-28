@@ -940,13 +940,17 @@ fn the_cmux_server_definition_names_the_settings_file() {
     assert_eq!(server.args, ["mcp", "serve"]);
     // Always the resolved settings file, and the acpmux guest mode always off: Codex merges these
     // keys into a person's own `cmux` entry, one `cmux acp desktop link` wrote among them.
-    assert_eq!(
-        server.env,
-        [
-            ("CMUX_NEXT_CONFIG_FILE".to_owned(), "/h/cmux-next-x.json".to_owned()),
-            (crate::desktop_link::GUEST_ENV.to_owned(), String::new()),
-        ]
+    // Then macOS malloc's space-efficient mode, as the daemons get it (none off macOS).
+    let mut want = vec![
+        ("CMUX_NEXT_CONFIG_FILE".to_owned(), "/h/cmux-next-x.json".to_owned()),
+        (crate::desktop_link::GUEST_ENV.to_owned(), String::new()),
+    ];
+    want.extend(
+        cmux_tui_platform::malloc_space::child_env()
+            .into_iter()
+            .map(|(key, value)| (key.to_owned(), value.to_owned())),
     );
+    assert_eq!(server.env, want);
     let all = super::cmux_server(std::path::Path::new("/A/cmux"), true, settings);
     assert_eq!(all.args, ["mcp", "serve", "--all-tools"]);
 }
@@ -1256,7 +1260,10 @@ async fn one_start_asks_codex_once_off_the_runtime_for_everything_it_reads() {
     codex_answers(root.path(), Some("/opt/x"));
     let answer = super::CodexAnswer::default();
     super::warm_codex_answer(&work, &argv, &env, &answer).await;
-    assert!(matches!(answer.get(), Some(crate::codex_cmux_entry::CmuxEntry::Stdio { .. })));
+    assert!(matches!(
+        answer.get().map(|a| &a.entry),
+        Some(crate::codex_cmux_entry::CmuxEntry::Stdio { .. })
+    ));
     super::warm_codex_answer(&work, &argv, &env, &answer).await;
     let launch = super::CodexLaunch { cwd: &work, argv: &argv, answer: Some(&answer) };
     let tools = super::AgentTools::default();
