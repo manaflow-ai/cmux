@@ -19,6 +19,10 @@ import os
 ///   trust rule reads). A failed ask is asked again and its reason logged (cmux#48605).
 /// - Replies go back into the sender's context only (`__cmuxPageHostResolve(seq, reply)`).
 /// - ``evaluate(_:)`` runs scripts in order; the ones queued together go in one `Runtime.evaluate`.
+/// - A steady push (``receive(_:)``, ``evaluate(_:argument:text:)``) is one fixed function with its data as an
+///   argument (`Runtime.callFunctionOn` on the document's `globalThis`), never a new script text per push:
+///   V8 compiles and keeps each distinct source it is given (RFD 0062). Pushes queued together of one body
+///   go in one call, their texts as one array argument.
 /// - The Runtime domain is on only while a navigation starts: on, a new document's main world
 ///   gets the binding when it is made (before any page script runs); off, no binding reaches a new
 ///   world, but V8 also stops reporting every context and console call to the session, which made
@@ -47,7 +51,11 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     /// Called once, when the first trusted message arrives: the page reached the host.
     public var onFirstMessage: (() -> Void)?
     private var reachedHost = false
-    private var scripts: [String] = []
+    /// What waits to run in the page, in order.
+    private var scripts: [Push] = []
+    /// The page's `globalThis` handle (`Runtime.evaluate` result `objectId`) that pushes call their
+    /// function on, for the document of ``senderEpoch``; nil until a push asks for it.
+    private var globalObject: (id: String, epoch: Int)?
     private var draining = false
     /// Number of messages answered (tests wait on it).
     public private(set) var answered = 0
@@ -85,24 +93,6 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         self.fireAndForget = fireAndForget
     }
 
-    /// The DevTools calls that set the page up, in order: ``setUp(documentScripts:)`` runs them
-    /// before the first document loads. The Runtime domain stays on until that document commits
-    /// (``documentCommitted()``).
-    public static func setupCalls(handlers: [String], documentScripts: [String]) -> [(String, [String: any Sendable])] {
-        var calls: [(String, [String: any Sendable])] = [
-            // New-document scripts run only while the Page domain is on, and bindings reach worlds
-            // made later only while the Runtime domain is on.
-            ("Page.enable", [:]),
-            ("Runtime.enable", [:]),
-            bindingCall,
-            ("Page.addScriptToEvaluateOnNewDocument", ["source": pageScript(handlers: handlers), "runImmediately": true]),
-        ]
-        for source in documentScripts {
-            calls.append(("Page.addScriptToEvaluateOnNewDocument", ["source": source, "runImmediately": true]))
-        }
-        return calls
-    }
-
     public func install(_ handler: @escaping PageHostHandler) {
         guard self.handler == nil else { return }
         self.handler = handler
@@ -128,25 +118,6 @@ public final class ChromiumPageHostBridge: PageHostBridge {
             for answer in answers { _ = try await answer() }
             self.runtimeEnabled = true
         }
-    }
-
-    nonisolated static let bindingCall: (String, [String: any Sendable]) = ("Runtime.addBinding", ["name": bindingName])
-
-    /// The calls that turn the Runtime domain on for a navigation: on, then the binding again
-    /// (`Runtime.disable` dropped the session's bindings; without it the new document never gets
-    /// one, measured).
-    nonisolated static let enableCalls: [(String, [String: any Sendable])] = [("Runtime.enable", [:]), bindingCall]
-
-    /// The calls for a committed main-frame document: the Runtime domain off (when it is on), then
-    /// the binding again. The binding call puts the binding in the document's main world whatever
-    /// the domain's state: a navigation the page started itself (``navigate(_:)`` did not turn the
-    /// domain on for it) gets it this way, a few milliseconds after its start, and the page script
-    /// keeps the page's messages until then. Where the binding is there already, it is a no-op.
-    nonisolated static func commitCalls(runtimeEnabled: Bool) -> [(String, [String: any Sendable])] {
-        var calls: [(String, [String: any Sendable])] = []
-        if runtimeEnabled { calls.append(("Runtime.disable", [:])) }
-        calls.append(bindingCall)
-        return calls
     }
 
     /// Starts a navigation the app asks for (`navigate` loads or reloads the page) once the Runtime
@@ -209,6 +180,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     /// The page's contexts went with their document or renderer: their senders are asked anew.
     private func forgetSenders() {
         senderEpoch += 1
+        globalObject = nil
         senders.removeAll()
         senderAsks.removeAll()
     }
@@ -234,7 +206,23 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     }
 
     public func evaluate(_ script: String) {
-        scripts.append(script)
+        enqueue(.script(script))
+    }
+
+    /// Runs the one fixed ``PageRouter/receiveBody`` with the envelope's text as its argument (RFD 0062).
+    public func receive(_ envelopeText: String) {
+        evaluate(PageRouter.receiveBody, argument: "envelope", text: envelopeText)
+    }
+
+    /// Runs the fixed `body` with `text` as its string parameter `name`, in order with ``evaluate(_:)``:
+    /// a `Runtime.callFunctionOn` of one function text per body, so a push of new data compiles no new
+    /// script in V8 (RFD 0062).
+    public func evaluate(_ body: String, argument name: String, text: String) {
+        enqueue(.call(body: body, name: name, text: text))
+    }
+
+    private func enqueue(_ push: Push) {
+        scripts.append(push)
         guard !draining else { return }
         draining = true
         // task-owner: the bridge's script FIFO; it ends when the queue is empty or the page is gone
@@ -251,36 +239,49 @@ public final class ChromiumPageHostBridge: PageHostBridge {
             // Everything queued so far goes in one round trip (a streaming reply queues one push per
             // frame); scripts queued while it runs go in the next.
             let batch = takeBatch()
-            let expression = Self.batch(batch)
             pushes.scripts += batch.count
             pushes.batches += 1
-            pushes.bytes += expression.utf8.count
-            _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "silent": true])
+            if case let .call(body, name, _) = batch[0] {
+                let texts = batch.compactMap(\.text)
+                pushes.bytes += texts.reduce(0) { $0 + $1.utf8.count }
+                await call(Self.callDeclaration(body: body, argument: name), texts: texts, on: page)
+            } else {
+                let expression = Self.batch(batch.compactMap(\.script))
+                pushes.bytes += expression.utf8.count
+                _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "silent": true])
+            }
         }
     }
 
-    /// The scripts at the head of the queue, up to ``maximumBatchBytes`` (at least one).
-    private func takeBatch() -> [String] {
-        var bytes = 0
-        var count = 0
-        for script in scripts {
-            bytes += script.utf8.count
-            if count > 0, bytes > Self.maximumBatchBytes { break }
-            count += 1
-        }
+    /// The pushes at the head of the queue that go in one round trip, up to ``maximumBatchBytes`` (at least one).
+    private func takeBatch() -> [Push] {
+        let count = Push.batchCount(scripts)
         defer { scripts.removeFirst(count) }
         return Array(scripts.prefix(count))
     }
 
-    /// The most script bytes sent in one `Runtime.evaluate`.
-    nonisolated static let maximumBatchBytes = 2 << 20
+    /// `declaration` called on the document's `globalThis` with `texts` as its one argument. A handle
+    /// of a document that went (an error answer or a thrown call) is asked for again, once.
+    private func call(_ declaration: String, texts: [String], on page: any PageChromiumPage) async {
+        for attempt in 0..<2 {
+            guard let object = await globalObjectID(of: page, fresh: attempt > 0) else { return }
+            let answer = try? await page.devTools("Runtime.callFunctionOn", params: [
+                "functionDeclaration": declaration, "objectId": object,
+                "arguments": [["value": texts] as [String: any Sendable]], "silent": true,
+            ])
+            if let answer, ChromiumPageHostWire.object(answer)?["error"] == nil { return }
+        }
+    }
 
-    /// One expression that runs `scripts` in order, each in its own block, so that one that throws
-    /// does not stop the ones after it (as separate evaluations did) and their declarations do not meet.
-    /// A single script is sent as it is.
-    nonisolated static func batch(_ scripts: [String]) -> String {
-        guard scripts.count > 1 else { return scripts.first ?? "" }
-        return scripts.map { "try {\n\($0)\n} catch (e) { console.error(e) }" }.joined(separator: "\n")
+    /// The `objectId` of the page's `globalThis`, kept for the document it came from.
+    private func globalObjectID(of page: any PageChromiumPage, fresh: Bool) async -> String? {
+        if !fresh, let globalObject, globalObject.epoch == senderEpoch { return globalObject.id }
+        let epoch = senderEpoch
+        guard let json = try? await page.devTools("Runtime.evaluate", params: ["expression": "globalThis", "silent": true]),
+              let result = ChromiumPageHostWire.object(json)?["result"] as? [String: Any],
+              let id = result["objectId"] as? String else { return nil }
+        if epoch == senderEpoch { globalObject = (id, epoch) }
+        return id
     }
 
     nonisolated deinit {

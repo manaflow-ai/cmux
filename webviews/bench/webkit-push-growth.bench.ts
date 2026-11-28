@@ -1,15 +1,19 @@
-// Run from webviews/: MODE=A|B|C|D MINUTES=12 bun bench/webkit-push-growth.bench.ts (PLAYWRIGHT_BROWSERS_PATH with webkit).
-// RFD 0062 renderer idle growth: does WebKit grow when every push is a new script text?
+// Run from webviews/: [ENGINE=webkit|chromium] MODE=A|B|C|D MINUTES=12 bun bench/webkit-push-growth.bench.ts
+// (PLAYWRIGHT_BROWSERS_PATH with the engine).
+// RFD 0062 renderer idle growth: does the web process grow when every push is a new script text?
+// ENGINE=chromium measures the renderer processes instead: the Chromium page host pushes with
+// DevTools `Runtime.evaluate` (ChromiumPageHostBridge), which is what MODE=A does there.
 // The Mac agent pane's default host pushes each frame batch as
 // evaluateJavaScript("window.cmuxAcpmuxTransport?.receive({...json...});") (AgentPaneTransportTypes.swift `script`).
 // MODE=A  page.evaluate(<unique script string>)          (what the host does)
 // MODE=B  page.evaluate(fn, data)                          (same data, one fixed function)
 // MODE=C  in-page (0, eval)(<unique script string>)        (JSC only, no inspector in the loop)
 // MODE=D  in-page JSON.parse(<same string>)                (control for C)
-import { webkit } from "playwright";
+import { chromium, webkit } from "playwright";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 
 const MODE = process.env.MODE ?? "A";
+const ENGINE = process.env.ENGINE === "chromium" ? "chromium" : "webkit";
 const RATE = Number(process.env.RATE ?? 20);
 const BYTES = Number(process.env.BYTES ?? 2048);
 const MINUTES = Number(process.env.MINUTES ?? 10);
@@ -21,6 +25,14 @@ function pssMb(pid: number): number {
     return m ? Number(m[1]) / 1024 : 0;
   } catch {
     return 0;
+  }
+}
+function isWebProcess(pid: number, name: string): boolean {
+  if (ENGINE === "webkit") return /(WebKit|WPE)WebProces/.test(name);
+  try {
+    return readFileSync(`/proc/${pid}/cmdline`, "utf8").includes("--type=renderer");
+  } catch {
+    return false;
   }
 }
 function webProcessPssMb(): number {
@@ -37,7 +49,7 @@ function webProcessPssMb(): number {
   }
   let total = 0;
   for (const [pid] of parent) {
-    if (!/(WebKit|WPE)WebProces/.test(comm.get(pid) ?? "")) continue;
+    if (!isWebProcess(pid, comm.get(pid) ?? "")) continue;
     let p = pid;
     while (p > 1 && p !== process.pid) p = parent.get(p) ?? 1;
     if (p === process.pid) total += pssMb(pid);
@@ -64,7 +76,7 @@ function batch(): string {
   return JSON.stringify({ connection: 1, seq, frames: [frame] });
 }
 
-const browser = await webkit.launch({ headless: true });
+const browser = await (ENGINE === "chromium" ? chromium : webkit).launch({ headless: true });
 const page = await browser.newPage();
 await page.setContent(`<html><body><div id=n>0</div><script>
   let got = 0; window.cmuxAcpmuxTransport = { receive(e) { got++; if (got % 100 === 0) document.getElementById('n').textContent = got + ' ' + e.seq; } };
@@ -102,10 +114,13 @@ const start = Date.now(),
 while (Date.now() - start < MINUTES * 60_000) {
   await new Promise((r) => setTimeout(r, 15_000));
   samples.push({ t: Date.now() - start, pssMb: webProcessPssMb() });
-  console.log(`${MODE} t=${Math.round((Date.now() - start) / 1000)}s pss=${samples.at(-1)!.pssMb.toFixed(1)}MB`);
+  console.log(
+    `${ENGINE} ${MODE} t=${Math.round((Date.now() - start) / 1000)}s pss=${samples.at(-1)!.pssMb.toFixed(1)}MB`,
+  );
 }
 const after90 = samples.filter((s) => s.t >= 90_000).map((s) => ({ t: s.t, y: s.pssMb }));
 const result = {
+  engine: ENGINE,
   mode: MODE,
   rate: RATE,
   bytes: BYTES,
@@ -115,7 +130,7 @@ const result = {
   samples,
 };
 console.log(
-  `RESULT ${MODE}: ${result.pssPerMin.toFixed(2)} MB/min (${samples[0]!.pssMb.toFixed(1)} -> ${samples.at(-1)!.pssMb.toFixed(1)})`,
+  `RESULT ${ENGINE} ${MODE}: ${result.pssPerMin.toFixed(2)} MB/min (${samples[0]!.pssMb.toFixed(1)} -> ${samples.at(-1)!.pssMb.toFixed(1)})`,
 );
 if (OUT) writeFileSync(OUT, JSON.stringify(result));
 await browser.close();
