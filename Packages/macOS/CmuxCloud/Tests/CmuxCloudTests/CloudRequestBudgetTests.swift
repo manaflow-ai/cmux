@@ -115,4 +115,39 @@ struct CloudRequestBudgetSocketParamTests {
         #expect(split.seconds == nil)
         #expect(split.params["id"] as? String == "vm-1")
     }
+
+    @Test("a socket worker stops waiting when the CLI does, not at its 17 min limit")
+    func workerWaitFollowsClientBudget() {
+        // `cmux vm shell` waits 30 s for vm.cmux_remote_info; the worker's default
+        // limit is 17 min. Waiting the limit holds a control-socket slot for an
+        // answer nobody reads, and enough of them starve every other command.
+        let wait = budget.withBudgetSync(seconds: 30) { budget.workerWaitSeconds(limit: 17 * 60) }
+        #expect(wait == 30)
+    }
+
+    @Test("a worker limit shorter than the client's wait still applies")
+    func workerWaitKeepsShorterLimit() {
+        let wait = budget.withBudgetSync(seconds: 600) { budget.workerWaitSeconds(limit: 90) }
+        #expect(wait == 90)
+    }
+
+    @Test("with no client budget the worker waits its own limit")
+    func workerWaitWithoutClientBudget() {
+        #expect(budget.workerWaitSeconds(limit: 90) == 90)
+    }
+
+    @Test("a limit shorter than the minimum is never stretched")
+    func workerWaitNeverExceedsLimit() {
+        // Remote tmux and tests pass sub-second limits; the floor is for a spent
+        // client budget only, never a reason to wait longer than the caller asked.
+        #expect(budget.workerWaitSeconds(limit: 0.01) == 0.01)
+        let wait = budget.withBudgetSync(seconds: 0) { budget.workerWaitSeconds(limit: 0.01) }
+        #expect(wait == 0.01)
+    }
+
+    @Test("a spent client budget still waits the minimum")
+    func workerWaitSpentBudget() {
+        let wait = budget.withBudgetSync(seconds: 0) { budget.workerWaitSeconds(limit: 90) }
+        #expect(wait == CloudRequestBudget.minimumTimeout)
+    }
 }
