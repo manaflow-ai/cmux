@@ -71,6 +71,9 @@ export type SettingsPageVariant = VariantBase & {
   accounts?: AccountsState;
   /** Settings > Accounts > Cloud Environments fixture state. */
   environments?: CloudEnvironmentsState;
+  /** The first READS environment refreshes find the list not read yet (`environments` as given, e.g. not available:
+   * signed in a moment ago); the next one serves THEN. */
+  environmentsLate?: { reads: number; then: CloudEnvironmentsState };
   /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
   sharedLinks?: SharesState;
   /** Appearance > Customization Library fixture state; default the mock's few entries. */
