@@ -40,7 +40,7 @@ async fn a_closed_hop_leaves_no_child_record_or_slot() {
     let dir = tempfile::tempdir().unwrap();
     let ledger = ledger_dir(dir.path());
     let host = "hops-closed";
-    let child = spawn(&mut sleeper(), host, Some(&ledger)).unwrap();
+    let child = spawn(|| sleeper().spawn(), host, Some(&ledger)).unwrap();
     let pid = child.id().unwrap();
     let held = records(&ledger);
     assert_eq!(held.len(), 1, "{held:?}");
@@ -66,15 +66,15 @@ async fn a_closed_hop_leaves_no_child_record_or_slot() {
 async fn one_host_has_at_most_its_cap_of_hops() {
     let host = "hops-capped";
     let mut held: Vec<_> =
-        (0..MAX_PER_HOST).map(|_| spawn(&mut sleeper(), host, None).unwrap()).collect();
-    let refused = spawn(&mut sleeper(), host, None).unwrap_err();
+        (0..MAX_PER_HOST).map(|_| spawn(|| sleeper().spawn(), host, None).unwrap()).collect();
+    let refused = spawn(|| sleeper().spawn(), host, None).unwrap_err();
     assert!(refused.to_string().contains("the most one host may have"), "{refused}");
     assert_eq!(open_to(host), MAX_PER_HOST);
-    let other = spawn(&mut sleeper(), "hops-capped-other", None).unwrap();
+    let other = spawn(|| sleeper().spawn(), "hops-capped-other", None).unwrap();
 
     drop(held.remove(0));
     until("the ended hop's slot comes back", || open_to(host) < MAX_PER_HOST).await;
-    let again = spawn(&mut sleeper(), host, None).unwrap();
+    let again = spawn(|| sleeper().spawn(), host, None).unwrap();
     drop((held, again, other));
     until("every slot comes back", || open_to(host) == 0).await;
 }

@@ -147,12 +147,12 @@ impl Peer {
     /// leaves nothing the next one cannot end (`ssh_hops.rs`).
     pub(in crate::peer) fn spawn_hop(
         &self,
-        command: &mut tokio::process::Command,
+        spawn: impl FnOnce() -> io::Result<tokio::process::Child>,
     ) -> io::Result<tokio::process::Child> {
         let host = self.ssh_parts().map(|(destination, _)| destination).unwrap_or_default();
         let ledger =
             self.ssh_mux().dir.as_deref().and_then(Path::parent).map(|run| run.join("ssh-hops"));
-        crate::ssh_hops::spawn(command, &host, ledger.as_deref())
+        crate::ssh_hops::spawn(spawn, &host, ledger.as_deref())
     }
 
     /// The first SSH process establishes the shared transport. A per-socket advisory lock

@@ -128,15 +128,17 @@ impl Drop for Slot {
     }
 }
 
-/// Spawns the hop `command` (an ssh to `host`) under its host's cap, recorded in `ledger` (None:
-/// counted, not recorded) until it exits. The caller owns the child as before (`kill_on_drop`).
+/// Starts a hop (`spawn`: the caller's ssh to `host`, `kill_on_drop`) under its host's cap,
+/// recorded in `ledger` (None: counted, not recorded) until it exits. The caller owns the child
+/// as before. Not a `cmux_process::Child`: that ends its process group on drop, and a hop's group
+/// holds the master's relay (see the module comment); the record and the sweep own it instead.
 pub(crate) fn spawn(
-    command: &mut tokio::process::Command,
+    spawn: impl FnOnce() -> io::Result<tokio::process::Child>,
     host: &str,
     ledger: Option<&Path>,
 ) -> io::Result<tokio::process::Child> {
     let mut slot = Slot::take(host)?;
-    let child = command.spawn()?;
+    let child = spawn()?;
     let Some(pid) = child.id() else { return Ok(child) };
     let start = crate::owner_exit::process_start(pid);
     if let Some(ledger) = ledger {
@@ -277,9 +279,9 @@ fn kill(_pid: u32) -> bool {
     false
 }
 
-/// The start sweep, then one every [`SWEEP_EVERY`], for the daemon's life.
-pub(crate) fn spawn_sweeps(ledger: PathBuf) {
-    tokio::spawn(async move {
+/// The start sweep, then one every [`SWEEP_EVERY`], until `scope` (the hub's) closes.
+pub(crate) fn spawn_sweeps(ledger: PathBuf, scope: &cmux_scope::Scope) {
+    scope.spawn_until_cancelled("ssh-hop sweeps", async move {
         let mut every = tokio::time::interval(SWEEP_EVERY);
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {

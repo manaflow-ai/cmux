@@ -497,9 +497,6 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             }
         });
     }
-    // ssh hops a daemon before this one left running (it went without dropping them): ended by
-    // their recorded pid and start time, now and every minute (`ssh_hops.rs`).
-    crate::ssh_hops::spawn_sweeps(crate::ssh_hops::ledger_dir(&home()));
     // Gone already (removed between taking the lock and here): stop before the startup makes
     // anything there. A relative home is never watched (it reads as missing from the home cwd),
     // and there is no watch off Unix (`Owned::now` is always `None` there).
@@ -1295,6 +1292,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // A daemon that serves for a minute resets its unit's restart delay (`daemon/restart_backoff.rs`).
     #[cfg(target_os = "linux")]
     restart_backoff::start(&hub.scope);
+    // ssh hops a daemon before this one left running (it went without dropping them): ended by
+    // their recorded pid and start time, now (before any peer dials) and every minute (`ssh_hops.rs`).
+    crate::ssh_hops::spawn_sweeps(crate::ssh_hops::ledger_dir(&home()), &hub.scope);
     {
         let peers = hub.clone();
         hub.scope.spawn_until_cancelled("peer-start-gate", async move {
