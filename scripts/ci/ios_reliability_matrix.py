@@ -45,6 +45,11 @@ SWIFT_RESULT = re.compile(
 # on the next line. Swift Testing's `✔` prints only for a test that passed; a cut `✘` line
 # leaves the test started, which reads failed (or crashed), so only the pass needs this.
 SWIFT_PASS_MARK = re.compile(r"✔ Test (?P<name>\w+)\((?:[^)]*)\) ")
+# Stdout and stderr share the simulator pipe. A MATRIX/diagnostic line can land
+# in the middle of a Swift Testing result, including in the test name:
+# `✔ Test cellNetworkUDPBloMATRIX {...}` / `cked() passed ...`. Recover the
+# verdict once the remainder of that result arrives.
+SWIFT_FRAGMENT_MARK = re.compile(r"(?P<mark>[✔✘]) Test (?P<prefix>\w+?)(?=MATRIX \{|⎙ Attached |20\d\d-\d\d-\d\d )")
 SWIFT_STARTED = re.compile(
     r"Test (?:[Cc]ase )?['\"]?(?:-\[[\w.]+ (?P<objc>\w+)\]|(?:[\w.]+[/.])?(?P<name>\w+)\((?:[^)]*)\))['\"]? started"
 )
@@ -199,7 +204,21 @@ def parse_swift(log: str) -> dict[str, str]:
     results: dict[str, str] = {}
     crashed = False
     summary = False
+    pending_fragment: tuple[str, str] | None = None
     for line in log.splitlines():
+        if pending_fragment is not None:
+            mark, prefix = pending_fragment
+            pending_fragment = None
+            # Require an exact reconstruction on the next line, including the
+            # missing name suffix and verdict. A later unrelated result or
+            # suite summary must never turn an unfinished test into a pass.
+            match = SWIFT_RESULT.fullmatch("Test " + prefix + line.split(" after ", 1)[0])
+            if match and match["name"] in results:
+                verdict = "pass" if match["result"] == "passed" else "fail"
+                if (mark == "✔") == (verdict == "pass"):
+                    _record(results, match["name"], verdict)
+                    summary = False
+                    continue
         match = SWIFT_RESULT.search(line)
         if match:
             _record(results, match["name"] or match["objc"], "pass" if match["result"] == "passed" else "fail")
@@ -208,6 +227,11 @@ def parse_swift(log: str) -> dict[str, str]:
         match = SWIFT_PASS_MARK.search(line)
         if match:
             _record(results, match["name"], "pass")
+            summary = False
+            continue
+        match = SWIFT_FRAGMENT_MARK.search(line)
+        if match:
+            pending_fragment = (match["mark"], match["prefix"])
             summary = False
             continue
         match = SWIFT_RESTARTED.search(line)

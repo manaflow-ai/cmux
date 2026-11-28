@@ -4,6 +4,7 @@
  * rate limits, idempotency and the audit log.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import { withRequestConnection } from "../../src/db/sql.ts";
 import { bearer } from "../support/endpoints.ts";
 import { makeHarness, type HarnessOptions } from "../support/harness.ts";
 
@@ -186,6 +187,22 @@ describe("createVm", () => {
     expect(JSON.stringify(body)).not.toContain("infrastructure overloaded");
     expect(JSON.stringify(body)).not.toContain("capacity queue wait expired");
   });
+
+  it("answers a VM call past the rate limit 429 before 404, though both are read at once", async () => {
+    const t = await harness({ ratePerMinute: { write: 2 } });
+    const { vmId } = t.addVm(TENANT_A, "stopped");
+    const keyB = await t.addKey(TENANT_B, ["vm:write"]);
+    const start = () => t.request(`/v1/vms/${vmId}/start`, bearer(keyB), { method: "POST" });
+
+    // Another tenant's VM is 404 while the caller is under its limit, and is never started.
+    expect((await start()).status).toBe(404);
+    expect((await start()).status).toBe(404);
+    // Past the limit it is 429: the limit is judged before ownership, as when they were read in turn.
+    const limited = await start();
+    expect(limited.status).toBe(429);
+    expect(await json(limited)).toMatchObject({ _tag: "QuotaExceeded", budget: "rate" });
+    expect(t.upstream.callsTo("POST", /\/start$/)).toHaveLength(0);
+  });
 });
 
 describe("idempotency keys on create", () => {
@@ -306,6 +323,30 @@ describe("start, stop, pause, resume", () => {
     expect(t.audit).toEqual([expect.objectContaining({ action: "vm.start", cmuxId: vmId, outcome: "ok" })]);
     // The provider's share of the request, for the caller's own trace (cmuxterm-hq goals/cloud-resume-gap.md).
     expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="1 call"$/);
+  });
+
+  it("writes the start's audit row after the answer when the Worker can keep the request alive", async () => {
+    const deferred: Array<Promise<unknown>> = [];
+    const t = await harness({ perRequest: withRequestConnection, defer: (work) => deferred.push(work) });
+    const { vmId } = t.addVm(TENANT_A, "stopped");
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+
+    const response = await action(t, key, vmId, "start");
+
+    expect(response.status).toBe(200);
+    // The row is handed to waitUntil, not written before the response (cmuxterm-hq goals/cloud-resume-gap.md).
+    expect(deferred).toHaveLength(1);
+    await Promise.all(deferred);
+    expect(t.audit).toEqual([expect.objectContaining({ action: "vm.start", cmuxId: vmId, outcome: "ok" })]);
+  });
+
+  it("writes the audit row before the answer when nothing can keep the request alive", async () => {
+    const t = await harness({ perRequest: withRequestConnection });
+    const { vmId } = t.addVm(TENANT_A, "stopped");
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+
+    expect((await action(t, key, vmId, "start")).status).toBe(200);
+    expect(t.audit).toEqual([expect.objectContaining({ action: "vm.start", cmuxId: vmId, outcome: "ok" })]);
   });
 
   it("names no upstream time on an answer that made no upstream call", async () => {

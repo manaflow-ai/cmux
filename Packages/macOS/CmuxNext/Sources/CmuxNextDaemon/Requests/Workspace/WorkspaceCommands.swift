@@ -69,25 +69,3 @@ public struct RenameWorkspaceRequest: DaemonRequest {
         try MutationFields(identity: mutation).encode(to: encoder)
     }
 }
-
-public struct MoveWorkspaceRequest: DaemonRequest {
-    public typealias Response = WorkspaceMutationResult
-    public static let command = "move-workspace"
-    public var workspace: WorkspaceRef
-    public var index: Int
-    public var mutation: MutationIdentity?
-
-    public init(workspace: WorkspaceRef, index: Int, mutation: MutationIdentity?) {
-        self.workspace = workspace
-        self.index = index
-        self.mutation = mutation
-    }
-
-    enum CodingKeys: String, CodingKey { case index }
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(index, forKey: .index)
-        try WorkspaceRefFields(ref: workspace).encode(to: encoder)
-        try MutationFields(identity: mutation).encode(to: encoder)
-    }
-}

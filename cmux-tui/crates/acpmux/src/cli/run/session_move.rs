@@ -69,6 +69,8 @@ pub(crate) use hub::move_out;
 #[path = "session_move_link.rs"]
 mod link;
 
+#[path = "session_move_interrupts.rs"]
+mod interrupts;
 #[path = "session_move_preflight.rs"]
 mod preflight;
 use link::SLOW_COPY;
@@ -416,6 +418,9 @@ struct Outcome {
     error: Option<String>,
     error_code: Option<&'static str>,
     preflight: preflight::Preflight,
+    /// What the move interrupts, as the chat's daemon answered (`session_move_interrupts.rs`);
+    /// None from a daemon older than the question.
+    interrupts: Option<Value>,
 }
 
 impl Outcome {
@@ -435,11 +440,12 @@ impl Outcome {
             error: None,
             error_code: None,
             preflight: preflight::Preflight::default(),
+            interrupts: None,
         }
     }
 }
 
-pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
+pub(super) async fn run(mut args: MoveArgs, json_out: bool) -> Result<()> {
     if args.from_snapshot {
         return snapshot::run(args, json_out).await;
     }
@@ -448,6 +454,16 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
     super::move_end::reclaim_dead_moves(&super::move_end::journal_dir()).await;
     let peers = local.request("_acpmux/peers", json!({})).await?;
     let here = crate::pairing::machine_name();
+    // `--from MACHINE` of a machine this one reaches only through the team hub: its chats move
+    // as `MACHINE/ID` does, asked of the machine that holds them (`hub::ask_holder`).
+    if let Some(from) = args.from.clone()
+        && !args.all_idle
+        && !names_here(&from, &here)
+        && peer_ssh(&peers, &from).is_none()
+        && hub::resolve(&local, &from).await.is_ok()
+    {
+        from_hub_machine(&mut args, &from);
+    }
     // `--from`: the chats' daemon is the peer's, reached through a forward of its local socket.
     let (src, source, home, _src_forward) = match &args.from {
         None => {
@@ -572,7 +588,7 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "carried": o.carried,
                        "error": o.error, "errorCode": o.error_code,
-                       "preflight": o.preflight, "targetSessionId": o.there, "reachable": o.reachable})
+                       "preflight": o.preflight, "interrupts": o.interrupts, "targetSessionId": o.there, "reachable": o.reachable})
             })
             .collect();
         rows.splice(0..0, local_rows);
@@ -824,6 +840,17 @@ async fn move_steps(
     let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await?;
     o.preflight.running = plan::running(&info);
     o.name = info.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
+    // What the move would interrupt, said before anything begins (RFD 0063 item 6). A failed
+    // ask never stops the move: it is a statement, not a gate.
+    if info.get("peer").is_none_or(Value::is_null) {
+        o.interrupts = interrupts::ask(src, &id).await.unwrap_or_else(|e| {
+            tracing::debug!("move: what {id} interrupts was not read: {e:#}");
+            None
+        });
+        for line in interrupts::text(&o.name, o.interrupts.as_ref(), args.dry_run) {
+            eprintln!("{line}");
+        }
+    }
     if info.get("peer").is_some_and(|p| !p.is_null()) {
         bail!(
             "it runs on {}, not here: move it from there",
@@ -2037,6 +2064,16 @@ fn outdated_lines(hosts: &[Value], order: &[String]) -> Vec<String> {
             })
         })
         .collect()
+}
+
+/// `--from FROM` as `FROM/ID` keys, for a source machine reached through the team hub.
+fn from_hub_machine(args: &mut MoveArgs, from: &str) {
+    for key in &mut args.sessions {
+        if !key.contains('/') {
+            *key = format!("{from}/{key}");
+        }
+    }
+    args.from = None;
 }
 
 /// What [`walk`] found: the target (with its answer), the hosts it passed over and why, the

@@ -109,6 +109,7 @@ final class BrowserTabService {
     var isIncognitoPane: @MainActor (PaneModel) -> Bool = { _ in false }
     /// True for a tab of an incognito window, by tab id (the App sets it).
     var isIncognitoTab: @MainActor (String) -> Bool = { _ in false }
+    let privacy: BrowserTabPrivacy
     /// Where `localhost` goes for a new tab of `pane` on `daemon` with `engine` (the notice says so).
     var localhostRoute: @MainActor (DaemonService, PaneModel, BrowserEngineKind) -> RemoteLocalhostRoute? = { _, _, _ in nil }
     /// Start URLs of incognito tabs, by surface, in memory only.
@@ -129,7 +130,8 @@ final class BrowserTabService {
         let surface: SurfaceID
     }
 
-    init(daemon local: DaemonService, cef: CEFEngine) {
+    init(daemon local: DaemonService, cef: CEFEngine, privacy: BrowserTabPrivacy = BrowserTabPrivacy()) {
+        self.privacy = privacy
         offTheRecord = cef.stores.offTheRecord
         // The service lives in the cache, which the App owns beside the local daemon (no cycle).
         daemonForPane = { [local] _ in local }
@@ -368,7 +370,7 @@ final class BrowserTabService {
         // A stand-in has no daemon record to write back to: the daemon's tab tracks the page it adopts.
         guard !ProvisionalTab.isProvisional(surface: tab.surface) else { return }
         trackEmulation(page, id: tab.id)
-        guard tab.isFrontendOwned, writers[tab.id] == nil, !isIncognitoTab(tab.id) else { return }
+        guard tab.isFrontendOwned, writers[tab.id] == nil, privacy.permitsPersistence(for: tab.id, incognito: isIncognitoTab(tab.id)) else { return }
         let update = update, updateState = updateState, settled = settled, id = tab.id, daemonForTab = daemonForTab
         let keeps = keepsState(tab)
         if keeps, let zoom = tab.zoom, abs(page.state.zoom - zoom) > 0.001 { page.setZoom(zoom) }
@@ -452,7 +454,8 @@ final class BrowserTabService {
     /// address), after any earlier such write of the tab; quit's ``flushRecords()`` awaits it. Never an
     /// incognito, stand-in or another frontend's tab.
     func writeRecordURL(_ url: URL, for tab: TabModel) {
-        guard tab.isFrontendOwned, !isIncognitoTab(tab.id), !ProvisionalTab.isProvisional(surface: tab.surface) else { return }
+        guard tab.isFrontendOwned, privacy.permitsPersistence(for: tab.id, incognito: isIncognitoTab(tab.id)),
+              !ProvisionalTab.isProvisional(surface: tab.surface) else { return }
         let update = update, daemon = daemonForTab(tab), surface = tab.surface, previous = recordWrites[tab.id]
         // task-owner: recordWrites; flushRecords awaits it before quit goes on.
         recordWrites[tab.id] = Task {

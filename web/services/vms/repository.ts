@@ -236,6 +236,20 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
    */
   readonly beginSnapshotRequest?: (input: BeginSnapshotRequestInput) => Effect.Effect<SnapshotRequestBegin, VmDatabaseError>;
   readonly finishSnapshotRequest?: (input: FinishSnapshotRequestInput) => Effect.Effect<void, VmDatabaseError>;
+  /**
+   * Machines holding (or about to hold) an address on one private network:
+   * rows in the network's scope that are provisioning, running or paused and
+   * whose recorded IPv4 lies inside `cidr`, plus provisioning rows with no
+   * address yet. Address admission (networkAdmission.ts) reads it before a
+   * provider start. Optional so older test doubles compile; absent admits.
+   */
+  readonly countNetworkAddressHolders?: (input: {
+    readonly provider: ProviderId;
+    readonly userId: string;
+    readonly billingTeamId: string | null;
+    readonly scope: "user" | "team";
+    readonly cidr: string;
+  }) => Effect.Effect<number, VmDatabaseError>;
   /** The owner's private-network row for one provider, or null when they have none yet. */
   readonly findNetwork?: (
     userId: string,
@@ -1683,6 +1697,32 @@ function networkUpsertLockKey(input: { readonly userId: string; readonly provide
 export const vmRepositoryLiveShape: VmRepositoryShape = {
   beginSnapshotRequest,
   finishSnapshotRequest,
+  countNetworkAddressHolders: (input) =>
+    dbEffect("countNetworkAddressHolders", async () => {
+      const db = cloudDb();
+      // A team network holds every member's machines billed to the team; a
+      // user network holds the user's own machines that joined it. Users may
+      // share a range (privateNetwork.ts userNetworkCidr), so the CIDR test
+      // alone never decides membership.
+      const scope = input.scope === "team" && input.billingTeamId
+        ? eq(cloudVms.ownerTeamId, input.billingTeamId)
+        : eq(cloudVms.userId, input.userId);
+      const ipv4 = sql`(${cloudVms.providerMetadata} ->> 'networkIpv4')`;
+      const [row] = await db
+        .select({ total: count() })
+        .from(cloudVms)
+        .where(and(
+          scope,
+          eq(cloudVms.provider, input.provider),
+          inArray(cloudVms.status, ["provisioning", "running", "paused"]),
+          or(
+            sql`(${ipv4} ~ '^[0-9]{1,3}([.][0-9]{1,3}){3}$' and ${ipv4}::inet <<= ${input.cidr}::inet)`,
+            and(eq(cloudVms.status, "provisioning"), sql`${ipv4} is null`),
+          ),
+        ));
+      return Number(row?.total ?? 0);
+    }),
+
   findNetwork: (userId, provider) =>
     dbEffect("findNetwork", async () => {
       const db = cloudDb();
