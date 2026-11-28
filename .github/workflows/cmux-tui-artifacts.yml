@@ -2207,7 +2207,13 @@ jobs:
     # os=linux...": the name, steps and marker name no runner OS.
     # A rerun leaves the pool that failed it: 2026-11-28 run 46107444639 failed this job on hetzner-2
     # (cargo registry EACCES), and with no retry runner a promote waits on that one pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
+    # The overflow switch (vars.CI_OVERFLOW_LINUX, scripts/ci/one_linux_label.py) moves pr-pipeline.yml's linux job too,
+    # so the feat-cmux-next push that saves the test target (scripts/ci/cmux-tui-test-target.sh) builds where the pull
+    # requests restore it: its key holds the workspace path, /home/runner/work on the pool, /home/runner/_work on
+    # Blacksmith. 2026-11-28 08:30-11:40Z: every overflow PR missed (a cold 20 min), and every push's job on the pool
+    # was cut by a runner shutdown 18-23 min in (cmuxterm-hq#36618) before its save, so pool PRs kept restoring the
+    # 04:00Z save with 686-887 files changed and compiled 28-40 min.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # 60 was the green run's whole length: job 137409209815 (7d439038, 2026-11-23,
     # cmux-runner-pool) took 59:56: setup 11 min (runner 2:20, checkout 2,
     # supersede check 1:40, Zig packages 2:16), the test compile 22:40 on a
@@ -2501,7 +2507,7 @@ jobs:
           rm -rf "$home"
 
       # A feat-cmux-next push only, after a red test too (the compile is still good), before
-      # rust-cache's post step prunes the workspace crates: at most one save a 4-hour window.
+      # rust-cache's post step prunes the workspace crates: at most one save an hour.
       - name: Save the cargo build to the CI cache bucket
         if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true' }}
         continue-on-error: true
