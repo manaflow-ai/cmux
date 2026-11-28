@@ -89,7 +89,7 @@ export function PlaceControl({
           </span>
           <ChevronIcon />
         </MenuButton>
-        <MenuPopup label={t("place.label")} side="top" align="start">
+        <MenuPopup label={t("place.label")} side="top" align="start" className="acpmux-quick-menu">
           <MenuRadioGroup value={place.mode} onValueChange={(mode) => onMode(mode as PlaceMode)}>
             {modes.map((mode) => (
               <MenuRadioItem

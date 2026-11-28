@@ -112,7 +112,7 @@ function ReadOnlyChip({
           {face}
           <ChevronIcon />
         </MenuButton>
-        <MenuPopup side="top" align="start" className="acpmux-subagent-fork-menu">
+        <MenuPopup side="top" align="start" className="acpmux-quick-menu acpmux-subagent-fork-menu">
           <div className="acpmux-subagent-fork-note">{tip}</div>
           <MenuSeparator />
           {items.map((item) => (
@@ -148,7 +148,7 @@ function TakeOver({ facts, onFork }: { facts: SubagentChipFacts; onFork?: Props[
             <span className="acpmux-model-name">{t("subagents.fork.takeOver")}</span>
             <ChevronIcon />
           </MenuButton>
-          <MenuPopup side="top" align="start" className="acpmux-subagent-fork-menu">
+          <MenuPopup side="top" align="start" className="acpmux-quick-menu acpmux-subagent-fork-menu">
             {facts.forkModels.length > 0 && (
               <MenuGroup label={t("picker.model")}>
                 <MenuRadioGroup value={model ?? ""} onValueChange={(value) => setModel(String(value))}>

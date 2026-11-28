@@ -1,9 +1,12 @@
-// A rail jump far back reads the target's page directly (`indexedPage`), below the held tail. The
-// turns between that page and the tail then read forward in the background (`fillIndexedGaps`), so
-// reading down from the target reaches the tail through whole turns, not prompt-only placeholders
-// (review of #42200: "about 1,500 prompt-only placeholders with no replies or tools, then the tail").
+// A rail jump back reads the target's page directly (`indexedPage`), below the held tail. Within a
+// window of the tail (HELD_RECORDS), the turns between that page and the tail then read forward in the
+// background (`fillIndexedGaps`), so reading down from the target reaches the tail through whole turns,
+// not prompt-only placeholders (review of #42200: "about 1,500 prompt-only placeholders with no replies
+// or tools, then the tail"). Farther back, the target's page becomes the held window and the records
+// newer than it page back as the reader scrolls down (`jumpWindow`, #47373; Leo, 2026-11-19: "we need to
+// be able to have infinite chats, infinitely long chats").
 import { afterEach, expect, test } from "bun:test";
-import type { EventRecord } from "../src/agent-session/acpmux/direct";
+import { type EventRecord, HELD_RECORDS } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { PromptHeads } from "../src/agent-session/acpmux/promptHeads";
 import { connectClient, FakeDaemon, logFor, VirtualClock } from "../bench/stateGrowth";
@@ -16,20 +19,19 @@ afterEach(() => {
   clock = undefined;
 });
 
-test("a distant rail jump fills every turn between its target and the held tail", async () => {
-  clock = new VirtualClock().install();
+/// A 300-turn chat whose prompt index names every prompt older than the held tail, as `loadPromptIndex` would.
+async function indexedChat() {
   const events = logFor(SESSION, "small", { turns: 300 }).events;
   const daemon = new FakeDaemon();
   daemon.add(
-    { sessionId: SESSION, cwd: "/home/dev/x", title: "x", harness: "claude", status: "idle", updatedAt: clock.now },
+    { sessionId: SESSION, cwd: "/home/dev/x", title: "x", harness: "claude", status: "idle", updatedAt: clock!.now },
     [...events],
   );
-  const { client, rows } = await connectClient(daemon, SESSION, clock);
+  const { client, rows } = await connectClient(daemon, SESSION, clock!);
   const internal = client as any;
   const tailStart: number = internal.firstSeq;
   const prompts = events.filter((event: EventRecord) => event.kind === "user_message" && event.seq < tailStart);
   expect(prompts.length).toBeGreaterThan(100);
-  // The index names every earlier prompt, as `loadPromptIndex` would.
   internal.promptIndex = {
     sessionId: SESSION,
     generation: internal.selectionGeneration,
@@ -45,7 +47,16 @@ test("a distant rail jump fills every turn between its target and the held tail"
       })),
     ),
   };
-  const target = prompts[Math.floor(prompts.length / 10)]!.seq;
+  return { events, client, rows, internal, tailStart, prompts };
+}
+
+test("a rail jump within a window of the held tail fills every turn between its target and the tail", async () => {
+  clock = new VirtualClock().install();
+  const { events, client, rows, internal, tailStart, prompts } = await indexedChat();
+  // The oldest prompt a window of the tail reaches, and pages below the tail's own.
+  const near = prompts.filter((event: EventRecord) => tailStart - event.seq <= HELD_RECORDS);
+  expect(near.length).toBeGreaterThan(10);
+  const target = near[0]!.seq;
 
   const jumped = client.loadThrough(target);
   await clock.advance(60_000);
@@ -63,6 +74,32 @@ test("a distant rail jump fills every turn between its target and the held tail"
     .filter((row) => row.kind === "user" && typeof row.seq === "number" && row.seq >= target)
     .map((row) => row.seq);
   expect(drawn).toEqual(drawn.slice().sort((a, b) => a! - b!));
+  client.close();
+});
+
+test("a rail jump past a window of the held tail holds the target's page as the window", async () => {
+  clock = new VirtualClock().install();
+  const { client, internal, tailStart, prompts } = await indexedChat();
+  const far = prompts.filter((event: EventRecord) => tailStart - event.seq > HELD_RECORDS);
+  expect(far.length).toBeGreaterThan(10);
+  const target = far[Math.floor(far.length / 10)]!.seq;
+
+  const reads: unknown[] = [];
+  const typed = internal.typed.bind(internal);
+  internal.typed = (method: string, params: any, ...rest: unknown[]) => {
+    if (method === "_acpmux/events") reads.push(params);
+    return typed(method, params, ...rest);
+  };
+  const jumped = client.loadThrough(target);
+  await clock.advance(60_000);
+  expect(await jumped).toBe(true);
+  // One read however far the jump: the target's page is the held records, from the target on.
+  expect(reads.length).toBe(1);
+  expect(internal.firstSeq).toBe(target);
+  expect(internal.newerLeft?.after).toBeLessThan(tailStart);
+  // Nothing between it and the tail is read or drawn as placeholders; that comes back as the reader scrolls down.
+  expect(internal.indexedGaps).toEqual([]);
+  expect(internal.indexedPlaceholders.size).toBe(0);
   client.close();
 });
 
