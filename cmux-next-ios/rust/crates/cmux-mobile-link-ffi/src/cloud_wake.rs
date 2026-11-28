@@ -109,6 +109,8 @@ fn to_hint(hint: CloudWakeHint) -> Hint {
         allowed: hint.allowed,
         loaded: hint.loaded,
         status: hint.status,
+        // The phone has no shell-served read yet (RFD 0144 piece 2): a focus or unlock wakes as before.
+        reads_without_wake: false,
     }
 }
 
