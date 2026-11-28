@@ -8,14 +8,18 @@ full matrix untouched).
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -99,6 +103,32 @@ class PlanTest(unittest.TestCase):
         p = fv.plan([*files, KIT + "Tests/CmuxMobileVoiceTests/VoiceTests.swift"], root=root)
         self.assertEqual(p["tests"], ["CmuxMobileVoiceTests"])
         self.assertFalse(p["app"])
+
+    def test_a_sparse_checkout_reads_rust_from_the_commit(self) -> None:
+        # Both CI callers check out sparsely, with cmux-tui/ left off disk. Before: every Rust path read as
+        # unreadable and took the Mac, so cmux#61886 (a cloud server change whose only routed files were
+        # generated cmux-cloud-wire .rs) ran the ios fast verdict on 5 heads (2026-11-28 01:58-07:35Z).
+        # After: the commit's text decides; a path the commit lacks (a deletion) still builds.
+        server = {
+            "cmux-tui/crates/cmux-cloud-wire/src/generated/ops_02.rs": "pub struct Op { pub id: u32 }\n",
+            "cmux-tui/crates/cmux-cloud-wire/src/generated/index.rs": "pub mod ops_02;\n",
+        }
+        ffi = {"cmux-tui/crates/cmux-mobile-core/src/api.rs": "#[uniffi::export]\npub fn ping() {}\n"}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            git = ["git", "-C", tmp, "-c", "user.email=t@t", "-c", "user.name=t"]
+            subprocess.run([*git, "init", "-q"], check=True)
+            for rel, text in {**server, **ffi}.items():
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text(text)
+            subprocess.run([*git, "add", "-A"], check=True)
+            subprocess.run([*git, "commit", "-qm", "head"], check=True)
+            for rel in [*server, *ffi]:
+                (root / rel).unlink()  # what the sparse checkout leaves on disk: nothing under cmux-tui/
+            self.assertFalse(fv.affects(list(server), root=root))
+            self.assertFalse(fv.plan(list(server), root=root)["run"])
+            self.assertTrue(fv.affects(list(ffi), root=root))
+            self.assertTrue(fv.affects(["cmux-tui/crates/cmux-cloud-wire/src/gone.rs"], root=root))
 
     def test_the_matrix_cells_run_the_tests_that_read_them(self) -> None:
         p = self.plan("cmux-next-ios/reliability-matrix/cells.json")
@@ -254,6 +284,25 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         self.assertIn("not posted", r.stdout)
 
+    def test_status_refused_on_every_token_fails_so_it_can_be_rerun(self) -> None:
+        # cmux#64513: every token refused on a spent rate limit; the job passed, so the verdict was lost.
+        def refuse(req, seconds=0, **kw):
+            return 403, b'{"message": "API rate limit exceeded for installation."}', {}
+
+        old, old_sleep = fv.gh_http.request, fv.time.sleep
+        fv.gh_http.request, fv.time.sleep = refuse, (lambda s: None)
+        env = {"REPO": "o/r", "SHA": "abc", "TOKENS": "t1 t2", "GITHUB_RUN_ID": "77"}
+        out = io.StringIO()
+        try:
+            with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(out), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                code = fv.main(["status", "success", "Passed: kit build"])
+        finally:
+            fv.gh_http.request, fv.time.sleep = old, old_sleep
+        self.assertEqual(code, 1)
+        self.assertIn("::error::cmux/ios-fast (success) was not posted at abc", out.getvalue())
+        self.assertIn("gh run rerun 77 --failed", out.getvalue())
+
     def test_status_posts_the_context_capped(self) -> None:
         seen = []
 
@@ -273,6 +322,142 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(seen[1][0], "https://api.github.com/repos/o/r/statuses/abc")
         self.assertEqual(seen[1][1]["context"], "cmux/ios-fast")
         self.assertEqual(len(seen[1][1]["description"]), 140)
+
+
+class ReuseTest(unittest.TestCase):
+    """A head whose cmux/ios-fast passed on the same iOS inputs takes no Mac again (30 of 156 jobs, 405 of 2154 Mac
+    min in the 4 h to 2026-11-27 23:00Z)."""
+
+    PLAN = {"run": True, "tests": ["CmuxMobileShellTests"], "build": False, "app": True, "proof": True, "why": []}
+
+    def repo(self, tmp: str, files: dict[str, str]) -> None:
+        for path, text in files.items():
+            Path(tmp, path).parent.mkdir(parents=True, exist_ok=True)
+            Path(tmp, path).write_text(text)
+        git = ["git", "-C", tmp, "-c", "user.email=a@b", "-c", "user.name=a"]
+        subprocess.run(["git", "init", "-q", tmp], check=True)
+        subprocess.run([*git, "add", "-A"], check=True)
+        subprocess.run([*git, "commit", "-qm", "x", "--allow-empty"], check=True)
+
+    def digest(self, files: dict[str, str], plan: dict | None = None) -> str | None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.repo(tmp, files)
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                return fv.inputs_digest(plan or self.PLAN)
+            finally:
+                os.chdir(cwd)
+
+    def test_the_digest_reads_the_routed_files_only(self) -> None:
+        base = {KIT + "Sources/CmuxMobileShell/Foo.swift": "a", "docs/x.txt": "1"}
+        d = self.digest(base)
+        self.assertRegex(d or "", r"^[0-9a-f]{12}$")
+        self.assertEqual(self.digest({**base, "docs/x.txt": "2"}), d)
+        self.assertNotEqual(self.digest({**base, KIT + "Sources/CmuxMobileShell/Foo.swift": "b"}), d)
+        self.assertNotEqual(self.digest(base, {**self.PLAN, "app": False}), d)
+
+    def test_no_tree_is_no_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                self.assertIsNone(fv.inputs_digest(self.PLAN))
+            finally:
+                os.chdir(cwd)
+
+    def statuses(self, rows) -> bool:
+        def fake(req, seconds=0, **kw):
+            self.assertIn("/commits/abc/statuses", req.full_url)
+            self.assertLessEqual(kw.get("budget_s", 1e9), fv.REUSE_READ_S)
+            self.assertLessEqual(kw.get("rate_budget_s", 1e9), fv.REUSE_READ_S)
+            if isinstance(rows, Exception):
+                raise rows
+            return 200, json.dumps(rows).encode(), {}
+
+        old = fv.gh_http.request
+        fv.gh_http.request = fake
+        try:
+            return fv.passed_at("o/r", "abc", "0123456789ab", "t")
+        finally:
+            fv.gh_http.request = old
+
+    def test_only_a_pass_on_the_same_inputs_counts(self) -> None:
+        tag = "[inputs 0123456789ab]"
+        row = {"context": "cmux/ios-fast", "state": "success", "description": f"Passed: {tag} tests X"}
+        self.assertTrue(self.statuses([{"context": "cmux/ios-fast", "state": "pending"}, row]))
+        self.assertFalse(self.statuses([{**row, "description": "Passed: [inputs ffffffffffff] tests X"}]))
+        self.assertFalse(self.statuses([{**row, "state": "failure", "description": f"Failed: {tag} tests X"}]))
+        self.assertFalse(self.statuses([{**row, "description": f"Build passed; {tag} no proof"}]))
+        self.assertFalse(self.statuses([{**row, "description": fv.REUSED.format("0123456789ab")}]))
+        self.assertFalse(self.statuses([{**row, "context": "other"}]))
+        self.assertFalse(self.statuses(OSError("down")))
+
+    def test_rate_limited_reuse_read_builds_inside_the_job_timeout(self) -> None:
+        # A 403 that names a reset 20 min out was waited on past the plan job's 5-min timeout (job cancelled, no
+        # verdict). The optional read now gives up inside REUSE_READ_S and the Mac builds.
+        clock = [0.0]
+        reset = str(int(time.time()) + 1200)
+
+        def answer(req, seconds, **kw):
+            return 403, b'{"message": "API rate limit exceeded"}', {"x-ratelimit-remaining": "0", "x-ratelimit-reset": reset}
+
+        def sleep(s):
+            clock[0] += s
+
+        real = fv.gh_http.request
+        old = (fv.gh_http.request, fv.gh_http.deadline_http.request)
+        fv.gh_http.deadline_http.request = answer
+        fv.gh_http.request = lambda req, seconds=30.0, **kw: real(req, seconds, sleep=sleep, clock=lambda: clock[0],
+                                                                  log=lambda line: None, **kw)
+        try:
+            self.assertFalse(fv.passed_at("o/r", "abc", "0123456789ab", "t"))
+        finally:
+            fv.gh_http.request, fv.gh_http.deadline_http.request = old
+        self.assertLess(clock[0], 5 * 60 - 60)
+
+    def run_reuse(self, passed: bool, plan: dict | None = None) -> dict:
+        old = (fv.inputs_digest, fv.head_sha, fv.passed_at)
+        fv.inputs_digest = lambda result: "0123456789ab"
+        fv.head_sha = lambda: "abc"
+        fv.passed_at = lambda repo, sha, digest, token: passed
+        try:
+            return fv.reuse(plan or self.PLAN, {"REPO": "o/r", "GH_TOKEN": "t"})
+        finally:
+            fv.inputs_digest, fv.head_sha, fv.passed_at = old
+
+    def test_a_head_that_passed_on_these_inputs_takes_no_mac(self) -> None:
+        r = self.run_reuse(True)
+        self.assertFalse(r["run"])
+        self.assertFalse(r["proof"])
+        self.assertEqual(fv.summary(r), "Reused the pass at this head [inputs 0123456789ab]")
+
+    def test_a_new_build_names_its_inputs_in_its_pass(self) -> None:
+        r = self.run_reuse(False)
+        self.assertTrue(r["run"])
+        self.assertEqual(fv.summary(r), "[inputs 0123456789ab] tests CmuxMobileShellTests; app build")
+        self.assertTrue(f"Passed: {fv.summary(r)}".startswith("Passed: " + fv.INPUTS_TAG.format(r["inputs"])))
+
+    def test_a_plan_that_builds_nothing_reads_nothing(self) -> None:
+        nothing = {**self.PLAN, "run": False}
+        self.assertEqual(self.run_reuse(True, nothing), nothing)
+
+    def test_the_status_posts_say_reused(self) -> None:
+        for f in ("pr-router.yml", "ios-fast-verdict-dispatch.yml"):
+            text = (ROOT / ".github/workflows" / f).read_text()
+            self.assertIn('case "$SUMMARY" in Reused*) desc="$SUMMARY"', text, f)
+
+    def test_the_plan_and_its_callers_may_read_statuses(self) -> None:
+        pipeline = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        runner = pipeline["jobs"]["ios-fast-runner"]
+        self.assertEqual(runner["permissions"].get("statuses"), "read")
+        plan = next(s for s in runner["steps"] if s.get("id") == "plan")
+        self.assertEqual(set(plan["env"]), {"REPO", "GH_TOKEN"})
+        for f in ("pr-router.yml", "ios-fast-verdict-dispatch.yml"):
+            jobs = yaml.safe_load((ROOT / ".github/workflows" / f).read_text())["jobs"]
+            for name, job in jobs.items():
+                if job.get("uses") == "./.github/workflows/pr-pipeline.yml":
+                    self.assertIn(job["permissions"].get("statuses"), ("read", "write"), f"{f} {name}")
 
 
 class RouterStatusTest(unittest.TestCase):
@@ -395,7 +580,7 @@ class WorkflowTest(unittest.TestCase):
         # unset switch enabled and still lets an explicit '0' disable the verdict.
         # The hosted control probe is recorded in the 2026-11-27-ios-fast-unset-switch workflow note.
         self.assertEqual(self.jobs["ios-fast-runner"]["if"],
-                         "${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}")
+                         "${{ !cancelled() && !inputs.web_browser_only && !inputs.ios_fast_skip && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}")
 
     def test_the_picker_plans_then_picks_only_when_a_target_changed(self) -> None:
         runner = self.jobs["ios-fast-runner"]
