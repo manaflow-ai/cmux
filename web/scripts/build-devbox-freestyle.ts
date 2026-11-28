@@ -101,6 +101,7 @@ import {
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
   retryFreestyleOverload,
+  devboxBakeStepBudgetMs,
   devboxDaemonUnit,
   CMUX_TUI_STATE_IMAGE_PATH,
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
@@ -203,7 +204,9 @@ console.log(
   `cmux-tui ${cmuxTuiSource.commit.slice(0, 12)}: signed release verified (cmux-tui ${cmuxTuiSource.size} bytes); acpmux sha256 ${cmuxTuiSource.acpmuxSha256!.slice(0, 12)}…${cmuxTuiSource.acpmuxSize ? "" : " (from manifest.json until the release file lists acpmux)"}`,
 );
 
-// The exec API caps timeoutMs at 300000 (5 minutes per step).
+// A step that hangs past its budget fails the bake. Steps run detached
+// (short polls), so the exec API's 300 s cap does not bound them; a
+// downloading step gets longer (devboxBakeStepBudgetMs).
 const STEP_TIMEOUT_MS = 300_000;
 
 // Per-exec env (the API replays it into every step). The base's login PATH
@@ -248,13 +251,14 @@ const HOME_PREFIX = 'export HOME="${HOME:-$(getent passwd $(id -u) | cut -d: -f6
 let stepIndex = 0;
 async function step(label: string, command: string): Promise<void> {
   const t0 = Date.now();
+  const budgetMs = Math.max(STEP_TIMEOUT_MS, devboxBakeStepBudgetMs(command));
   // Detached, with short polls (detached-exec.ts): one exec held open for a
   // long step is what run 45920283687 lost in media-apt, with no step named.
   let r: Awaited<ReturnType<typeof detachedExec>>;
   try {
     r = await detachedExec(vm, command, {
       dir: `/var/tmp/cmux-bake-steps/${String(++stepIndex).padStart(3, "0")}-${label}`,
-      budgetMs: STEP_TIMEOUT_MS,
+      budgetMs,
       env: BUILD_ENV,
       prefix: HOME_PREFIX,
       // The 0.2 API's default guest user is uid 1000 (the work user). Every
@@ -268,7 +272,7 @@ async function step(label: string, command: string): Promise<void> {
   }
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   if (r.code !== 0) {
-    const why = r.code === 124 || r.code === 137 ? ` (its ${STEP_TIMEOUT_MS / 1000} s budget ran out)` : "";
+    const why = r.code === 124 || r.code === 137 ? ` (its ${budgetMs / 1000} s budget ran out)` : "";
     console.error(`STEP FAILED [${label}] status=${r.code}${why} (${secs}s)`);
     console.error("stdout:", r.stdout.slice(-3000));
     console.error("stderr:", r.stderr.slice(-3000));
@@ -433,7 +437,7 @@ try {
   await step("terminfo", devboxTerminfoInstallCommand);
   await step(
     "devshell",
-    `curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz -o /tmp/ble.tar.xz && tar xJf /tmp/ble.tar.xz -C /tmp && rm -rf /usr/local/share/blesh && mv /tmp/ble-nightly /usr/local/share/blesh && rm -f /tmp/ble.tar.xz && test -f /usr/local/share/blesh/ble.sh && bash -n /etc/cmux/bashrc && ${rcFiles.map((rc) => `echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> ${rc}`).join(" && ")} && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf && bash -ic 'head -2 $HOME/.bash_history' && mkdir -p /etc/cmux/blesh-cache-seed /tmp/blesh-seed-home && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' > /tmp/blesh-seed-home/.bashrc && for term in xterm-256color screen-256color tmux-256color linux xterm-ghostty; do echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; done && rm -rf /tmp/blesh-seed-home && chmod -R a+rX /etc/cmux/blesh-cache-seed && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-ghostty && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chmod a+rwxt /usr/local/share/blesh/cache.d && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000`,
+    `curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz -o /tmp/ble.tar.xz && tar xJf /tmp/ble.tar.xz -C /tmp && rm -rf /usr/local/share/blesh && mv /tmp/ble-nightly /usr/local/share/blesh && rm -f /tmp/ble.tar.xz && test -f /usr/local/share/blesh/ble.sh && bash -n /etc/cmux/bashrc && ${rcFiles.map((rc) => `echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> ${rc}`).join(" && ")} && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf && bash -ic 'head -2 $HOME/.bash_history' && mkdir -p /etc/cmux/blesh-cache-seed /tmp/blesh-seed-home && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' > /tmp/blesh-seed-home/.bashrc && for term in xterm-256color screen-256color tmux-256color linux xterm-ghostty; do echo 'ble-bind -m emacs -P >/dev/null; exit' | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; done && rm -rf /tmp/blesh-seed-home && chmod -R a+rX /etc/cmux/blesh-cache-seed && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-ghostty && test -s /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chmod a+rwxt /usr/local/share/blesh/cache.d && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs /usr/local/share/blesh/cache.d/0/ && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs /usr/local/share/blesh/cache.d/1000/ && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000`,
   );
 
   await put("agent-config.sh", "/etc/cmux/agent-config.sh");

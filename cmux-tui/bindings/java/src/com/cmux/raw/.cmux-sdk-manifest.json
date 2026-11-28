@@ -426,6 +426,11 @@
       "size": 2299
     },
     {
+      "path": "ClientDisconnectedByEvent.java",
+      "sha256": "75754d756b2813d67ea09cd7da813864bd05dc7994877062a40977d7f44507de",
+      "size": 2214
+    },
+    {
       "path": "ClientFocusRequest.java",
       "sha256": "843a7b8aded3614f09ddef26d9d53c5422baa8409cc83c5a1478895416bc1daf",
       "size": 2065
@@ -437,8 +442,8 @@
     },
     {
       "path": "ClientInfo.java",
-      "sha256": "488f27748f93986685a411376bae1d1b7f99b0637e7cc4d2a991a6f91105ba48",
-      "size": 6909
+      "sha256": "c03b437e71855b660e293f2539420aeda25551868ad09aa9ac483c77b18f9397",
+      "size": 7910
     },
     {
       "path": "ClientListInvalidatedEvent.java",
@@ -774,6 +779,26 @@
       "path": "ColorsChangedEvent.java",
       "sha256": "9c57d9e802c017a7b4d69d0f7dd6b0058c47a4d78f38ea50393f386d6c4508f4",
       "size": 8564
+    },
+    {
+      "path": "ColumnDock.java",
+      "sha256": "e811486b1da1c66a6e767cd45c45fb1ed5fede6ab615c1cee63d71b2913e0c57",
+      "size": 6453
+    },
+    {
+      "path": "ColumnDockEdge.java",
+      "sha256": "d77d92d765e269e8b0bd19e0c293a1256128405c339a6628794fcff59292a50a",
+      "size": 926
+    },
+    {
+      "path": "ColumnDockMode.java",
+      "sha256": "72ace5fd65a1a6ac5de1cb3679a20fb518f7f2a00acf15cf04c5ef8dd4e75e07",
+      "size": 896
+    },
+    {
+      "path": "ColumnDockRole.java",
+      "sha256": "d73750bc3fd7f54cd5e426f4ff065063ceb902c3bcd02c33ca2d88e4279c84b6",
+      "size": 880
     },
     {
       "path": "ColumnMoveDirection.java",
@@ -1392,8 +1417,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "86f0b19e08c377e3710e7407cdca4e3f4bd9ce20fd748fa5c8411b2573ccb349",
-      "size": 21412
+      "sha256": "535e32e9d44676d7de7b5b5edf61e4c75ec611bb622adbc4bf125b68ba2711b0",
+      "size": 21626
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1449,6 +1474,11 @@
       "path": "FloatPaneRequest.java",
       "sha256": "d07692d8d854b24e71d7c243d43d3c13caa250b25079b69a7d8c31747a21a7aa",
       "size": 5380
+    },
+    {
+      "path": "FloatingPane.java",
+      "sha256": "62a9d2bf9ec0474f775e4ff6cf152ed88d0818ceeb6c61140fc08b0179e1f1c4",
+      "size": 4254
     },
     {
       "path": "FlushLaunchSnapshotRequest.java",
@@ -1767,8 +1797,8 @@
     },
     {
       "path": "LayoutColumnNode.java",
-      "sha256": "ce81501e698a5acef9b124d5e3bb42db2493c8ee3190abcd8b8b49f48eddd22e",
-      "size": 4543
+      "sha256": "c8e874ae85976cee06b4eedff0d19aec8fa1bf01bab815c26fcb29fa59989311",
+      "size": 4470
     },
     {
       "path": "LayoutLeaf.java",
@@ -2337,8 +2367,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "bee48988a0d752144ee6c51d7b307b9efaf7551a570a8ab2dee70baa459e2547",
-      "size": 8665
+      "sha256": "a14455d9a8f558695a8ac84957efef1b366617a5684c5103940b890a6258ca7d",
+      "size": 8753
     },
     {
       "path": "ProtocolEvent.java",
@@ -2687,8 +2717,8 @@
     },
     {
       "path": "Screen.java",
-      "sha256": "48ea41f4662be4d137d176eeb98b56c13ec760a72781c10133a68ee7d437507b",
-      "size": 14808
+      "sha256": "6e29cb3452809a231de7019769dad4fd97ccbc2b6c7c355930b9dc3bfb59cc0c",
+      "size": 14853
     },
     {
       "path": "ScreenAddedEvent.java",
@@ -3932,7 +3962,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "eacbdb081ca129fd0a1d92dbb49f3fc1445a56a232c52a75e21e512cf03388b4",
+  "ir_sha256": "4fec002cc50074d54cc2ceb3cce0c5793558740f152e0e38234067f26eb505bf",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

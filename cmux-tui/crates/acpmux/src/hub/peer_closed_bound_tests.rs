@@ -90,11 +90,15 @@ fn wedge_connected_peers_and_remote_listing_do_not_wait_for_the_registry_writer(
 
 #[test]
 fn wedge_peer_listing_does_not_wait_for_a_lease_waiting_on_the_registry_writer() {
+    use crate::hub::PeerLease;
+
     let (hub, _) = hub_with_peer("vm");
     let (tx, _rx) = tokio::sync::mpsc::channel(8);
     let peer = crate::peer::Peer::new_with_lease("vm", "ws://127.0.0.1:9", None, None, tx, true);
     hub.peers.lock().unwrap().insert("vm".into(), peer.clone());
-    hub.peer_leases.lock().unwrap().insert("vm".into(), peer.generation);
+    let lease =
+        PeerLease { name: peer.name.clone(), generation: peer.generation, cloud_registry_id: None };
+    hub.peer_leases.lock().unwrap().insert(lease.name.clone(), lease.clone());
     let writer = hub.peers.lock().unwrap();
     let (held_tx, held_rx) = std::sync::mpsc::channel();
     let mutation = {
@@ -105,7 +109,7 @@ fn wedge_peer_listing_does_not_wait_for_a_lease_waiting_on_the_registry_writer()
             let mut leases = hub.peer_leases.lock().unwrap();
             held_tx.send(()).unwrap();
             let _registry = hub.peers.lock().unwrap();
-            leases.insert("vm".into(), peer.generation);
+            leases.insert(lease.name.clone(), lease);
         })
     };
     held_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();

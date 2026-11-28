@@ -64,9 +64,14 @@ impl Hub {
     /// never the segment that holds it (`Store::scan_back`). `events` from `seq - 1` parsed that
     /// whole segment, as much as a fold of the log the point is there to skip.
     pub(super) fn record_at(&self, session: &Session, seq: u64) -> Option<EventRecord> {
+        self.record_in(&session.id, seq)
+    }
+
+    /// [`Self::record_at`] of the chat `id`.
+    pub(super) fn record_in(&self, id: &str, seq: u64) -> Option<EventRecord> {
         let mut found = None;
         self.store
-            .scan_back(&session.id, seq - 1, seq + 1, &|_, _| false, &mut |rec| {
+            .scan_back(id, seq - 1, seq + 1, &|_, _| false, &mut |rec| {
                 found = Some(rec);
                 false
             })

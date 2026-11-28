@@ -20,7 +20,8 @@ import { CMUX_PASS_THROUGH, CmuxCommandRefused } from "../cmuxCommands";
 import { seedLastPicks } from "../lastPick";
 import { EMPTY_OMNIBAR } from "../omnibar";
 import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
-import type { CloudMachine } from "../cloudMachines";
+import { setCloudMachinesForTest, type CloudMachine } from "../cloudMachines";
+import { cloudPickerMachineForDraft, useCloudServed } from "../cloudServed";
 import { setNativeHost } from "../native";
 import { forgetAddedRepos, rememberAddedRepo } from "../addedRepos";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
@@ -3096,8 +3097,19 @@ test("a send held for a screenshot that is then removed runs no command", async 
 test("a Cloud machine folder starts the chat on its existing peer", async () => {
   const asks: unknown[][] = [];
   const clouded: unknown[][] = [];
-  await act(async () => {
-    root!.render(
+  const calls: Array<[string, unknown]> = [];
+  const call = async (method: string, params?: Record<string, unknown>) => {
+    calls.push([method, params]);
+    return { runnableFamilies: ["claude"], families: { claude: params?.machine !== "vm_builder" } };
+  };
+  let machineID: string | undefined;
+  let peerName: string | null | undefined;
+  let registries: Record<string, string> = { builder: "registry-a" };
+  const readMachine = () => cloudPickerMachineForDraft(machineID, peerName, registries);
+  let picker!: ReturnType<typeof useCloudServed>;
+  function Screen() {
+    picker = useCloudServed(call, true, { readMachine });
+    return (
       <NewTabScreen
         {...firstRunProps}
         snapshot={{
@@ -3118,21 +3130,49 @@ test("a Cloud machine folder starts the chat on its existing peer", async () => 
         }}
         environments
         runMode={{ mode: "cloud", onMode: () => {} }}
+        onCloudMachinePicked={(machine, peer) => {
+          machineID = machine?.id;
+          peerName = peer;
+          picker.refresh();
+        }}
         onCloud={(...args) => (clouded.push(args), false)}
         onAsk={(...args) => asks.push(args)}
-      />,
+      />
     );
-  });
+  }
   const option = (title: string) =>
     [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) => row.textContent?.includes(title));
-  await act(async () => container.querySelector<HTMLButtonElement>('.nt-location [aria-label="Folder"]')!.click());
-  await act(async () => option("/home/cmux/work/api")!.click());
-  await typePrompt("fix the flaky test");
-  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
-  expect(clouded).toEqual([]);
-  expect(asks).toHaveLength(1);
-  expect(asks[0]?.[2]).toBe("/home/cmux/work/api");
-  expect(asks[0]?.at(-1)).toMatchObject({ peer: "builder" });
+  const builder = { id: "vm_builder", name: "renamed-builder", stage: "ready", cloudRegistryId: "registry-a" };
+  const other = { id: "vm_other", name: "builder", stage: "ready", cloudRegistryId: "registry-b" };
+  setCloudMachinesForTest([other, builder]);
+  try {
+    await act(async () => root!.render(<Screen />));
+    expect(picker.served?.families.claude).toBe(true);
+    await act(async () => container.querySelector<HTMLButtonElement>('.nt-location [aria-label="Folder"]')!.click());
+    await act(async () => option("/home/cmux/work/api")!.click());
+    expect(calls.at(-1)).toEqual(["cloud.setup.state", { machine: builder.id }]);
+    expect(picker.served?.families.claude).toBe(false);
+    await act(async () => picker.openSettings("claude", () => {}));
+    expect(calls.at(-1)).toEqual(["cloud.connect", { family: "claude", machine: builder.id }]);
+
+    // A peer without an unambiguous VM match cannot open Settings for a different machine.
+    await act(async () => {
+      registries = {};
+      picker.refresh();
+      picker.openSettings("claude", () => {});
+    });
+    expect(calls).toHaveLength(3);
+    expect(picker.served).toBeUndefined();
+
+    await typePrompt("fix the flaky test");
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+    expect(clouded).toEqual([]);
+    expect(asks).toHaveLength(1);
+    expect(asks[0]?.[2]).toBe("/home/cmux/work/api");
+    expect(asks[0]?.at(-1)).toMatchObject({ peer: "builder" });
+  } finally {
+    await act(async () => setCloudMachinesForTest([]));
+  }
 });
 
 // cmux#53226 (Austin): with This Mac picked, picking a GitHub repository in the folder menu cloned it at once.

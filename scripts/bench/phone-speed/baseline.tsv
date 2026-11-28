@@ -1,0 +1,7 @@
+# Callgrind Ir, 10 operations per case. See README.md for provenance.
+echo-100	7369231
+echo-10000	7842873
+rotate-100	46123281
+rotate-10000	46621932
+stream-100	7863191
+stream-10000	8473158

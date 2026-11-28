@@ -5,6 +5,7 @@
 //! the same generic journal envelope.
 
 mod background_agent;
+pub mod cli;
 pub mod detect;
 pub mod diagnostics;
 pub mod first_scan;

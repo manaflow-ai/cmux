@@ -59,6 +59,10 @@ fn node_key(node: &Value) -> Option<&str> {
 
 /// A layout object: `items` (a tree) and `hidden` keys, or the first shape (`top` and `more`).
 /// `None` for anything else.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub(crate) fn layout(value: &Value) -> Option<Value> {
     value.as_object()?;
     let mut count = Count(0);

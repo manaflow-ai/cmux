@@ -29,7 +29,7 @@
         "verdict": {"enum": ["same", "changed", "new", "missing", "unbaselined"]},
         "diff_ratio": {"type": ["number", "null"]}}}},
     "baseline": {"type": ["object", "null"], "description": "where the compared captures came from: {source, pr, sha, merge_commit, step}"},
-    "visual": {"type": "object", "description": "what a visual-change tier checks: {screens, baselined, changed, video, diffed}"},
+    "visual": {"type": "object", "description": "what a visual-change tier checks: {screens, baselined, baseline_source (nightly, merged or none), changed, video, diffed}"},
     "video": {"type": ["string", "null"]},
     "verdict": {"enum": ["pass", "fail"]},
     "timing": {"type": "object", "properties": {"pushed_at": {"type": "string"}, "proof_at": {"type": "string"},

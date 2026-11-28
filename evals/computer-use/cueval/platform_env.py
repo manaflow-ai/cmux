@@ -192,6 +192,23 @@ def mac_new_windows(handle: dict, timeout: float = 5.0) -> list[dict]:
         time.sleep(0.25)
 
 
+# macOS processes that put up system alerts over every app (CFUserNotification prompts, Gatekeeper's
+# "downloaded from the internet", authorization dialogs). One of them took focus from the person fixture on
+# the cold first trial of NIGHTLY 8a3db889's suite (background-person-typing t0: the agent's first batch
+# reported focus moved_to com.apple.UserNotificationCenter with no foreground call of its own).
+SYSTEM_ALERT_APPS = ("com.apple.UserNotificationCenter", "com.apple.CoreServicesUIAgent", "com.apple.SecurityAgent")
+
+
+def mac_system_alerts() -> list[dict]:
+    """The system-alert windows on screen now: app_id, window_id, title (no clicks: one may be a TCC prompt)."""
+    out = []
+    for app_id in SYSTEM_ALERT_APPS:
+        data = cu_call("list_windows", {"app_id": app_id}, timeout=5) or {}
+        out += [{"app_id": app_id, "window_id": str(w.get("window_id")), "title": w.get("title") or ""}
+                for w in data.get("windows", []) if w.get("app_id") == app_id]
+    return out
+
+
 def mac_close_window(window_id: str) -> None:
     """Close a window the harness opened by pressing its close button through accessibility
     (a background cmd+w goes nowhere: the menu item is disabled while the app is in the back)."""

@@ -1110,6 +1110,27 @@ so a prompt carrying an image reaches acpmux whole. A frame sequence that is
 not JSON closes the channel with `bad_request`. This adds no new method and
 does not change acpmux's own guard.
 
+## `acpmux`: one zstd stream per channel (`zstd-stream-v1`, 2026-11-24)
+
+A phone that lists `zstd-stream-v1` in the channel's `compressions` gets every
+acpmux message from the Mac through one zstd stream kept for the channel's
+life (PROTOCOL.md "acpmux compression"). It adds no method and changes no
+policy: hostd compresses only what `acpmux_policy` already let through to this
+phone, after filtering. Two things to know:
+
+- **Size hints across messages.** Like WebSocket permessage-deflate's context
+  takeover, a message that repeats something earlier on the channel comes out
+  smaller. The plaintext and the sizes of the compressed messages are only
+  visible inside the WireGuard tunnel, which is end to end between the phone
+  and the Mac; outside it, datagram sizes were already content-dependent with
+  per-message deflate. The stream carries only the Mac's messages to the
+  phone, so the phone cannot mix chosen text with the Mac's secrets in one
+  context (the CRIME/BREACH shape), and no relay or Worker sees either.
+- **Decoder bounds.** The phone's decoder (Rust, `ZstdStreamDecoder`) refuses a
+  window over 1 MiB, a text over 64 MiB and any envelope that does not decode
+  to exactly its stated length; a refusal closes the channel. Before the
+  pairing check the joiner's held-byte budget still bounds what it keeps.
+
 ## `upload`: phone attachments into this Mac
 
 `upload {name, size, cwd?}` writes the bytes that follow into one new file

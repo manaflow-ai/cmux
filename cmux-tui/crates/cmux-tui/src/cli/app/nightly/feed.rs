@@ -38,7 +38,7 @@ pub(super) fn fetch_all(names: &[String]) -> Vec<Result<Fetched, String>> {
         Ok(runtime) => runtime,
         Err(error) => return names.iter().map(|_| Err(error.to_string())).collect(),
     };
-    let client = match reqwest::Client::builder()
+    let client = match cmux_egress::client_builder("cmux_tui::nightly::feed")
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .timeout(FETCH_TIMEOUT)
         .build()

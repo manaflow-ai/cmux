@@ -122,6 +122,8 @@ final class ShellModel {
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
     /// The Macs' terminal sizing policies (Settings and Connected Devices).
     var sizingService: (any TerminalSizingService)? { live }
+    /// The Macs that install a pull request's cmux Dev on this phone (Settings → Developer).
+    var tryPullRequestService: (any TryPullRequestService)? { live }
     /// Screen Sharing with the account's Macs while signed in (Settings → Screen Sharing).
     private(set) var screenSharing: ScreenSharingService?
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
@@ -504,6 +506,7 @@ final class ShellModel {
             terminalTabs.hasLiveSession = { [weak live] id, macID in live?.hasLiveSession(tabID: id, macID: macID) ?? false }
             terminalTabs.workspaceLookup = { [weak store] id in store?.workspace(id: id) }
             terminalTabs.macLinkUp = { [weak store] macID in store?.macConnection[macID].map { $0 == .connected } ?? true }
+            terminalTabs.linkStatus = { [weak store] macID in store?.macLinkStatus[macID] }
             terminalTabs.artifactSourceProvider = { [weak live] tab, macID in live?.terminalArtifactSource(tabID: tab.id, macID: macID) }
             terminalTabs.uploaderProvider = { [weak live] tab, macID in live?.terminalUploader(tabID: tab.id, macID: macID) }
             terminalTabs.attachmentSenderProvider = { [weak live] tab, macID in
@@ -561,6 +564,13 @@ final class ShellModel {
             NativeBrowserTabs.shared.macForwardsLocalhost = { [store] macID in
                 macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.forwardCapability) ?? false
             }
+            // Open on iPhone's sign-in hand-off, when the Mac's person turned it on.
+            NativeBrowserTabs.shared.siteData = { macID, tab, url in
+                await StreamedBrowserDirectory.shared.siteData(macID: macID, tab: tab, url: url)
+            }
+            NativeBrowserTabs.shared.macHandsSiteData = { [store] macID in
+                macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.siteDataCapability) ?? false
+            }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
@@ -576,6 +586,7 @@ final class ShellModel {
             terminalTabs.showConnectedDevices = nil
             terminalTabs.hasLiveSession = nil
             terminalTabs.macLinkUp = nil
+            terminalTabs.linkStatus = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
             terminalTabs.attachmentSenderProvider = nil

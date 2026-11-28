@@ -7,7 +7,7 @@
 // until you pick it.
 {
   "name": "Plush",
-  "description": "Light: one cool blue-gray clay surface, soft raised panes on even gaps, no borders, no glass, one saturated accent.",
+  "description": "Light: soft blue-gray, raised panels, one bright accent.",
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
   "colors": {

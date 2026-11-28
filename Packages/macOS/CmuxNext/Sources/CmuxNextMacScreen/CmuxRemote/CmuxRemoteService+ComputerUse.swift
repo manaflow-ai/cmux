@@ -191,10 +191,12 @@ extension CmuxRemoteService {
         return host
     }
 
-    /// Restarts the Computer Use worker (a new process reads new grants; grants and sessions stay).
+    /// Restarts the Computer Use worker (a new process reads new grants; grants and sessions stay):
+    /// cmux Remote's where the build embeds it, else the daemon's own (the Screen Sharing helper's
+    /// `__computer-use-worker`), which the daemon answers for the same `restart` call.
     public func restartComputerUse() async {
-        guard computerUse.embedded else { return }
         _ = try? await call("restart", .object(["worker": .string("computer-use")]))
+        guard computerUse.embedded else { return }
         _ = await computerUseStatus()
     }
 

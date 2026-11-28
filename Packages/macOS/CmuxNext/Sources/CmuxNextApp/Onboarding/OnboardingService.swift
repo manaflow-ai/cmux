@@ -212,7 +212,7 @@ final class OnboardingService {
     /// the launch's tool window closes (Make cmux Yours), none over a top page or for terminal-first.
     @discardableResult
     func openFirstChat(isFirstRun: Bool, defaults: UserDefaults = .standard) async -> String? {
-        await presenter.untilClosed()
+        await presenter.untilClosed(); await chief.untilEnded() // Home and Meet Chief stay in front until Meet Chief ended
         let terminalFirst = (firstRunChoices.pickedWorkStyle ?? firstRunChoices.currentChoices().workStyle) == .terminal
         guard services.agentTabs.canHost(on: services.daemon), services.windows.active?.shownTopPage == nil,
               OnboardingWindowPresenter.claimFirstChat(isFirstRun: isFirstRun, steps: services.environment.launchSteps,

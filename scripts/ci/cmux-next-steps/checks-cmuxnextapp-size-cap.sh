@@ -8,10 +8,15 @@ if [[ "$FULL_CI" != true ]]; then
   exit 0
 fi
 base=()
+# Only a shallow checkout fetches shallow: a full clone must not turn shallow.
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
 [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
 if [[ "$EVENT_NAME" == push && -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
+  depth=()
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
   git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
-    || git fetch --no-tags --quiet --depth=1 origin "$BEFORE" || true
+    || git fetch --no-tags --quiet ${depth[@]+"${depth[@]}"} origin "$BEFORE" || true
   base=(--base "$BEFORE")
 fi
 scripts/cmux-next/check-app-size.sh ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"

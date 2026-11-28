@@ -14,6 +14,7 @@ pub mod cap;
 pub mod changes;
 pub mod error;
 pub mod github;
+pub mod github_setup;
 pub mod harness_copy;
 mod json;
 pub mod keep_running_allowance;

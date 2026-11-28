@@ -56,12 +56,19 @@ class Resp(io.BytesIO):
 class Route:
     """A fake route: answers are consumed in order per op; a download URL serves `archive`."""
 
-    def __init__(self, submit, statuses, archive=b"", bearer="tok"):
+    def __init__(self, submit, statuses, archive=b"", bearer="tok", queue=(400, None, b'op must be "submit" or "status"')):
         self.submit, self.statuses, self.archive = submit, list(statuses), archive
         self.bodies, self.bearer = [], bearer
+        # The queue op (asked once, before the submit), kept out of `bodies`. By default an older controller's
+        # answer, which the script reads as no answer and submits anyway.
+        self.queue, self.queue_asks = queue, 0
 
     def __call__(self, req, timeout=None):
         if req.full_url == "https://store.example/out.tgz":
+            # The store sits behind the route's CDN: urllib's default agent got 403 there (run 45932893553).
+            if req.get_header("User-agent") != fib.USER_AGENT:
+                raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, io.BytesIO(b"error code: 1010"))
+            assert req.get_header("Authorization") is None, "the presigned URL is its own credential"
             return Resp(self.archive)
         assert req.full_url == fib.ROUTE, req.full_url
         if req.get_header("Authorization") != f"Bearer {self.bearer}":
@@ -70,8 +77,14 @@ class Route:
         # urllib's default agent gets HTTP 403 "error code: 1010" from the CDN (run 45898219170).
         assert req.get_header("User-agent") == fib.USER_AGENT, req.get_header("User-agent")
         body = json.loads(req.data)
-        self.bodies.append(body)
-        if body["op"] == "submit":
+        if body["op"] == "queue":
+            self.queue_asks += 1
+            ans = self.queue
+        else:
+            self.bodies.append(body)
+        if body["op"] == "queue":
+            pass
+        elif body["op"] == "submit":
             ans = self.submit.pop(0) if isinstance(self.submit, list) else self.submit
         else:
             ans = self.statuses.pop(0)
@@ -196,6 +209,19 @@ class FleetIOSBuild(unittest.TestCase):
                       tgz(FFI))
         self.assertEqual(run(route, self.out), 0)
 
+    def test_refused_download_names_its_reason(self):
+        def store(req, timeout=None):
+            if req.full_url == "https://store.example/out.tgz":
+                raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, io.BytesIO(
+                    b"<?xml version='1.0'?><Error><Code>SignatureDoesNotMatch</Code></Error>"))
+            return route(req, timeout)
+        route = Route({"job": "j1"}, [{"state": "done", "verdict": "pass", "get_url": "https://store.example/out.tgz"}])
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(err):
+            code = fib.run("ffi", self.out, 1500, 600, "tok", opener=store, clock=Clock(), sleep=lambda s: None)
+        self.assertEqual(code, 2)
+        self.assertIn("output unreadable: HTTP 403 SignatureDoesNotMatch", err.getvalue())
+
     def test_missing_output_is_2(self):
         route = Route({"job": "j1"}, [{"state": "done", "verdict": "pass", "get_url": "https://store.example/out.tgz"}],
                       tgz({"CmuxMobileLinkFFI.swift": b"x"}))
@@ -303,6 +329,17 @@ class KitWorkflow(unittest.TestCase):
         self.assertIn("|| status=$?", steps["build"]["run"])
         self.assertEqual(steps["pool"]["run"].strip(), "bash scripts/ci/kit_sim_fleet.sh pool")
 
+    def test_every_pool_submit_selects_its_bundle_mode(self):
+        for job_name, job in self.jobs.items():
+            for step in job["steps"]:
+                if step.get("run", "").strip() != "bash scripts/ci/kit_sim_fleet.sh pool":
+                    continue
+                with self.subTest(job=job_name):
+                    # The build comparison always runs all bundles. Production submits
+                    # must preserve the cutover split, including the owned-Mac fallback.
+                    expected = "shadow" if job_name == "kit-sim-fleet" else "${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}"
+                    self.assertEqual(step.get("env", {}).get("CMUX_IOS_SIM_LINUX"), expected)
+
     def test_no_pool_step_reads_an_exit_after_a_bare_command(self):
         # A step is bash -e: `cmd; status=$?` never reads a failure, and `grep -c || echo 0` prints "0\n0".
         text = WORKFLOW.read_text()
@@ -312,6 +349,41 @@ class KitWorkflow(unittest.TestCase):
     def test_kit_tests_waits_without_the_gateway_variable(self):
         for step in self.jobs["kit-tests"]["steps"]:
             self.assertNotIn("CI_EVAL_STEP_GATEWAY", str(step.get("if", "")))
+
+
+class QueueFirst(unittest.TestCase):
+    """Run 45996304968 (2026-11-27): the kit-sim-fleet job held a cmux-linux runner 604 s for a job that sat
+    queued the whole --queue-timeout and built nothing. The script now asks for the queue first."""
+
+    def test_a_full_queue_is_no_answer_at_once(self):
+        route = Route({"job": "j1", "state": "queued"}, [], queue={"queued": 3, "oldest_queued_s": 612})
+        clock = Clock()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            rc = fib.run("kit-products", "/nonexistent", 1500, 600, "tok", opener=route, clock=clock, sleep=clock.sleep)
+        self.assertEqual(rc, 2)
+        self.assertEqual(route.bodies, [], "it submitted into a full queue")
+        self.assertEqual(clock.t, 0, "it waited before giving up")
+        self.assertIn("queue full", err.getvalue())
+
+    def test_a_short_queue_submits(self):
+        route = Route({"job": "j1", "state": "queued"}, [{"job": "j1", "state": "done", "verdict": "fail", "reason": "build"}],
+                      queue={"queued": 1, "oldest_queued_s": 40})
+        clock = Clock()
+        with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            rc = fib.run("kit-products", "/nonexistent", 1500, 600, "tok", opener=route, clock=clock, sleep=clock.sleep)
+        self.assertEqual(rc, 1)
+        self.assertEqual(route.queue_asks, 1)
+        self.assertEqual([b["op"] for b in route.bodies], ["submit", "status"])
+
+    def test_no_queue_answer_submits_as_before(self):
+        for queue in ((400, None, b"op must be"), (503, "10", b"starting"), {"queued": 2}):
+            route = Route({"job": "j1", "state": "queued"}, [{"job": "j1", "state": "done", "verdict": "fail"}], queue=queue)
+            clock = Clock()
+            with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+                rc = fib.run("kit-products", "/nonexistent", 1500, 600, "tok", opener=route, clock=clock, sleep=clock.sleep)
+            self.assertEqual(rc, 1, queue)
+            self.assertEqual(route.bodies[0]["op"], "submit", queue)
 
 
 if __name__ == "__main__":

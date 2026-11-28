@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use super::{ParsedResourceRequest, content, operation_name, resource_operation_error};
 use crate::browser::BrowserStatus;
 use crate::resource::{OperationClass, ResourceError, ResourceOperation};
-use crate::server::FRONTEND_BROWSER_TABS_CAPABILITY;
+use crate::server_protocol::FRONTEND_BROWSER_TABS_CAPABILITY;
 use crate::state::frontend_browser_keys::KeyedFrontendBrowser;
 use crate::workspace_registry::FrontendBrowserRecord;
 use crate::{Mux, ResourceTarget};

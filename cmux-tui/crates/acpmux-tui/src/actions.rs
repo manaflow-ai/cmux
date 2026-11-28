@@ -96,6 +96,10 @@ impl ActionDef {
     }
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "every Action variant has a statically declared ACTIONS entry"
+)]
 pub fn def(action: Action) -> &'static ActionDef {
     ACTIONS.iter().find(|d| d.action == action).expect("every action is in ACTIONS")
 }
@@ -466,8 +470,10 @@ impl App {
             Action::Policy => match args.first() {
                 Some(p) if self.on_draft() => {
                     if POLICIES.contains(p) {
-                        self.draft_mut().unwrap().policy = p.to_string();
-                        self.status = format!("draft policy: {p}");
+                        if let Some(draft) = self.draft_mut() {
+                            draft.policy = p.to_string();
+                            self.status = format!("draft policy: {p}");
+                        }
                     } else {
                         self.report_error(format!("policy must be one of {}", POLICIES.join(", ")));
                     }

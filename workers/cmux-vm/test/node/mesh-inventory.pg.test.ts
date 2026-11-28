@@ -13,6 +13,7 @@ import overlayPolicy from "../../migrations/0013_cmux_vm_device_overlay_policy.s
  * one query, so the batch changes the round trips and nothing a compile sees.
  */
 import { PGlite } from "@electric-sql/pglite";
+import { freshPg } from "./fresh-pglite.ts";
 import { Effect, Layer } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import ownership from "../../migrations/0001_cmux_vm_ownership.sql?raw";
@@ -43,7 +44,7 @@ let layer: Layer.Layer<MeshStore | OwnershipStore | ApiKeyStore | AuditStore>;
 const run = <A, E>(effect: Effect.Effect<A, E, MeshStore | OwnershipStore>) => Effect.runPromise(Effect.provide(effect, layer));
 
 beforeEach(async () => {
-  pg = new PGlite();
+  pg = await freshPg();
   for (const migration of ALL) await pg.exec(migration);
   queries = [];
   const sql = Layer.succeed(SqlClient, {

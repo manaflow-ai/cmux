@@ -34,6 +34,12 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
+// retry-prompt-ok: a stream `gap` end's hint to the client program, which
+// reopens the stream from the cursor by itself; no person reads or acts on it.
+const GAP_HINT: &str = "reconnect with the last journal cursor";
+// retry-prompt-ok: the same client-program hint for a cursor past retention.
+const RETAINED_GAP_HINT: &str = "reconnect from a retained journal cursor";
+
 const JOURNAL_STREAM_PAGE_SIZE: usize = 1024;
 
 pub(super) struct SessionJournalStreamStart {
@@ -531,13 +537,8 @@ pub(super) fn prepare_session_journal_stream(
     }
     let indexed_subjects = filter.indexed_subjects();
     let opened_cursor = journal_cursor(&session_id, last_sequence);
-    let overflow = resource_stream_end(
-        &stream_id,
-        "gap",
-        Some(opened_cursor.clone()),
-        Some("reconnect with the last journal cursor"),
-        None,
-    );
+    let overflow =
+        resource_stream_end(&stream_id, "gap", Some(opened_cursor.clone()), Some(GAP_HINT), None);
     let outbound = writer
         .start_stream(&overflow)
         .map_err(|error| stream_start_error("session.journal.subscribe", &error))?;
@@ -670,7 +671,7 @@ pub(super) fn run_session_journal_stream(
                                 &stream.stream_id,
                                 "gap",
                                 Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                                Some("reconnect with the last journal cursor"),
+                                Some(GAP_HINT),
                                 None,
                             );
                             let _ = writer.send_terminal(&end, &stream.outbound);
@@ -683,7 +684,7 @@ pub(super) fn run_session_journal_stream(
                         &stream.stream_id,
                         "gap",
                         Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                        Some("reconnect with the last journal cursor"),
+                        Some(GAP_HINT),
                         None,
                     );
                     let _ = writer.send_terminal(&end, &stream.outbound);
@@ -694,7 +695,7 @@ pub(super) fn run_session_journal_stream(
                         &stream.stream_id,
                         "gap",
                         Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                        Some("reconnect with the last journal cursor"),
+                        Some(GAP_HINT),
                         None,
                     );
                     let _ = writer.send_terminal(&end, &stream.outbound);
@@ -717,7 +718,7 @@ pub(super) fn run_session_journal_stream(
                         &stream.stream_id,
                         "gap",
                         Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                        Some("reconnect from a retained journal cursor"),
+                        Some(RETAINED_GAP_HINT),
                         None,
                     );
                     let _ = writer.send_terminal(&end, &stream.outbound);
@@ -770,7 +771,7 @@ pub(super) fn run_session_journal_stream(
                     &stream.stream_id,
                     "gap",
                     Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                    Some("reconnect with the last journal cursor"),
+                    Some(GAP_HINT),
                     None,
                 );
                 let _ = writer.update_stream_overflow(&stream.outbound, &end);
@@ -786,7 +787,7 @@ pub(super) fn run_session_journal_stream(
                     &stream.stream_id,
                     "gap",
                     Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                    Some("reconnect with the last journal cursor"),
+                    Some(GAP_HINT),
                     None,
                 );
                 let _ = writer.update_stream_overflow(&stream.outbound, &end);

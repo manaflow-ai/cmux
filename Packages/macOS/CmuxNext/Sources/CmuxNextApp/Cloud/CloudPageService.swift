@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextIcons
 import CmuxNextPages
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     /// The Cloud page tab (`cmux-page://cmux.cloud/`): machines, snapshots, ports, files and plan.
     static let cloud = InternalPageID(rawValue: "cloud")
 }

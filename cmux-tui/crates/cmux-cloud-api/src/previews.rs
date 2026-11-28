@@ -37,6 +37,16 @@ pub(crate) fn client(request: &Request) -> Result<cmux_cloud_client::Client, Fai
     .map_err(|e| Failure::Transport(e.to_string()))
 }
 
+/// A client for cmux-platform's own HttpApi routes (`/v1/machines/...`: fork, resume, destroy),
+/// at the platform origin for `request.api` ([`cmux_cloud_client::backend::platform_for`]): the
+/// owner API serves none of them.
+pub(crate) fn platform_client(request: &Request) -> Result<cmux_cloud_client::Client, Failure> {
+    let mut on_platform = request.clone();
+    on_platform.api =
+        cmux_cloud_client::backend::platform_for(&request.api, |key| std::env::var(key).ok());
+    client(&on_platform)
+}
+
 pub(crate) async fn run(
     request: &Request,
     call: &str,
