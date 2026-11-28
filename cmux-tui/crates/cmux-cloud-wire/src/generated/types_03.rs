@@ -897,15 +897,3 @@ pub struct SsoConnectionJit {
 }
 
 pub type SsoConnectionId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum Step {
-    Sleep(StepSleep),
-    Note(StepNote),
-    Op(StepOp),
-    Machine(StepMachine),
-    Agent(StepAgent),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}

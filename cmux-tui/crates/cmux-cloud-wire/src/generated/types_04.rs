@@ -5,6 +5,18 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum Step {
+    Sleep(StepSleep),
+    Note(StepNote),
+    Op(StepOp),
+    Machine(StepMachine),
+    Agent(StepAgent),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StepSleep {
     pub r#type: LitSleep,
     pub seconds: i64,
@@ -886,21 +898,4 @@ pub struct TriggerInputContinue {
     pub cooldown_seconds: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_runs: Option<i64>,
-}
-
-wire_enum! {
-    TriggerInputPresenceWhen {
-        UserActive = "user_active",
-        UserReturnsAfter = "user_returns_after",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TriggerInputPresence {
-    pub r#type: LitPresence,
-    pub when: TriggerInputPresenceWhen,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub idle_minutes: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub earliest: Option<CronSpec>,
 }
