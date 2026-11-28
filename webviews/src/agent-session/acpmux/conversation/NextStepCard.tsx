@@ -1,6 +1,7 @@
 import React, { memo, useEffect, useRef, useState, useSyncExternalStore, useLayoutEffect, useReducer } from "react";
 import { Icon } from "../icons/Icon";
 import { useT, type StringKey } from "../i18n";
+import { askTagText } from "../question/askTag";
 import { ArrowRight } from "./icons";
 import { focusRoute } from "../../../ui/focusRoute";
 import { inlineText } from "../question/inlineText";
@@ -16,14 +17,15 @@ import {
   shareTarget,
 } from "./customizeRun";
 import { answerPrompt, type NextStepAsk, type NextStepOption } from "./nextStepAsk";
+import { shownQuestion, WRAP_UP } from "./wrapUp";
 import type { AnswerBlock } from "../subagents/restart";
 import {
   answerState,
   claimAnswer,
-  givenAnswer,
   setAnswerState,
   subscribeAnswers,
   type AnswerState,
+  givenAnswer,
 } from "./waitingAskStore";
 import "./NextStepCard.css";
 
@@ -138,6 +140,12 @@ export const NextStepCard = memo(function NextStepCard({
     if (!pending || !registerKey) return;
     return registerKey(() => primary.current?.click());
   }, [pending, registerKey]);
+  // The ask's tag (a tagged ask's, or a wrap-up question's own leading word, wrapUp.ts) as a quiet
+  // chip before the question, the hat's chip (hatQuestions.css), never as raw "[trust]" text.
+  // Leo, 2026-11-19, on a pinned "[trust] Trust ~/fun/cmux ...?": "odd looking".
+  const tag = ask.label ?? (ask.tag === WRAP_UP ? undefined : ask.tag);
+  const chip = tag ? <span className="acpmux-next-step__tag">{askTagText(tag, t)}</span> : null;
+  const question = shownQuestion(ask);
   // A failed send gives the typed answer back with the keyboard, so Return retries it.
   const field = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -191,7 +199,10 @@ export const NextStepCard = memo(function NextStepCard({
         {recap}
         <span className="acpmux-hidden-label">{t("question.answered")}</span>
         <div className="acpmux-question-answered-item">
-          <span className="acpmux-question-answered-prompt">{inlineText(ask.question)}</span>
+          <span className="acpmux-question-answered-prompt">
+            {chip}
+            {inlineText(question)}
+          </span>
           {shown !== undefined && (
             <span className="acpmux-question-answered-answer">{made ? t(made) : inlineText(shown)}</span>
           )}
@@ -252,7 +263,7 @@ export const NextStepCard = memo(function NextStepCard({
         ? customize(option.run)
         : send(option.label);
   return (
-    <fieldset ref={card} className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
+    <fieldset ref={card} className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={question}>
       <div className="acpmux-question-bar acpmux-next-step__bar">
         <span>
           <Icon name="status.question" size={14} />
@@ -262,7 +273,10 @@ export const NextStepCard = memo(function NextStepCard({
       </div>
       {recap}
       <div ref={textRef} className="acpmux-next-step__text" data-whole={whole || undefined}>
-        <p className="acpmux-next-step__question">{inlineText(ask.question)}</p>
+        <p className="acpmux-next-step__question">
+          {chip}
+          {inlineText(question)}
+        </p>
         {ask.detail && <p className="acpmux-next-step__detail">{inlineText(ask.detail)}</p>}
       </div>
       {(clipped || whole) && (

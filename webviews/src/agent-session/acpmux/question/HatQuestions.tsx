@@ -28,27 +28,19 @@
 // (App.tsx `dismissHatQuestion`, waitingAskStore.ts): it leaves the hat, while the ask itself still
 // waits where it was asked (its card, its chat, the sidebar's Needs you dot). A started chat's name
 // keeps the asker line above to itself, cut only where the pager and the × begin.
-import React, { type CSSProperties, useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
+import React, { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { DismissButton } from "../../../ui/DismissButton";
 import { useAnswerHold } from "../answerHold";
-import { useT, type StringKey } from "../i18n";
+import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { TAG_KEY } from "./askTag";
 import { hasCutText } from "./cutText";
 import { inlineText } from "./inlineText";
-import { keepShown, type HatAnswer, type HatQuestion, type HatTag } from "./hatModel";
+import { keepShown, type HatAnswer, type HatQuestion } from "./hatModel";
 import { hatQuestionsLook } from "./hatQuestions.experiment";
 import "./hatQuestions.css";
 import { focusRoute } from "../../../ui/focusRoute";
-
-const TAG_KEY: Record<HatTag, StringKey> = {
-  taste: "hat.tag.taste",
-  irreversible: "hat.tag.irreversible",
-  outward: "hat.tag.outward",
-  physical: "hat.tag.physical",
-  "check-in": "hat.tag.checkIn",
-  "for you": "hat.tag.forYou",
-};
 
 export type HatQuestionActions = {
   /// Sends one of the question's answers; rejects when it was refused (the band takes input again).
