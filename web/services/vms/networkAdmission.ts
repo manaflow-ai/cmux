@@ -21,8 +21,8 @@ import { reportError } from "../observability/report";
  * whose recorded IPv4 sits inside the network's CIDR, plus in-flight creates
  * that have no address yet. Paused machines count: a paused provider VM keeps
  * its network attachment. Mac tunnels hold addresses too; they are read from
- * the provider only once machines alone pass half the network, so a create on
- * a mostly empty network pays one indexed count and nothing else.
+ * the provider on every admission, alongside the row count (bounded at 1.5 s),
+ * since a tunnel-heavy network can be full while its machines are few.
  */
 
 /** Usable members of an IPv4 CIDR the way the provider counts them (a /24 holds 254). */
@@ -36,8 +36,6 @@ export function ipv4CidrCapacity(cidr: string | null | undefined): number | null
 
 /** Share of a network's addresses at which operators are alerted. */
 export const NETWORK_ADDRESS_ALERT_RATIO = 0.8;
-/** Machines alone past this share make the admission also count tunnel attachments. */
-const NETWORK_TUNNEL_COUNT_RATIO = 0.5;
 const NETWORK_TUNNEL_COUNT_TIMEOUT_MS = 1_500;
 const NETWORK_ALERT_INTERVAL_MS = 60 * 60 * 1000;
 const lastAlertAt = new Map<string, number>();
@@ -90,23 +88,25 @@ export function admitNetworkAddress(
     const capacity = ipv4CidrCapacity(input.network.cidr);
     const countHolders = repo.countNetworkAddressHolders;
     if (capacity === null || !countHolders || !input.network.cidr) return null;
-    const machines = yield* countHolders({
-      provider: input.provider,
-      userId: input.userId,
-      billingTeamId: input.billingTeamId ?? null,
-      scope: input.network.scope,
-      cidr: input.network.cidr,
-    }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+    const listTunnels = providers.listNetworkTunnelIds;
+    const [machines, tunnels] = yield* Effect.all([
+      countHolders({
+        provider: input.provider,
+        userId: input.userId,
+        billingTeamId: input.billingTeamId ?? null,
+        scope: input.network.scope,
+        cidr: input.network.cidr,
+      }).pipe(Effect.catchAll(() => Effect.succeed(null))),
+      listTunnels
+        ? listTunnels(input.provider, input.network.providerNetworkId).pipe(
+          Effect.map((ids) => ids.length as number | null),
+          Effect.timeoutTo({ duration: NETWORK_TUNNEL_COUNT_TIMEOUT_MS, onSuccess: (n) => n, onTimeout: () => null }),
+          Effect.catchAll(() => Effect.succeed(null)),
+        )
+        : Effect.succeed(null),
+    ], { concurrency: 2 });
     if (machines === null) return null;
 
-    let tunnels: number | null = null;
-    if (machines >= capacity * NETWORK_TUNNEL_COUNT_RATIO && providers.listNetworkTunnelIds) {
-      tunnels = yield* providers.listNetworkTunnelIds(input.provider, input.network.providerNetworkId).pipe(
-        Effect.map((ids) => ids.length),
-        Effect.timeoutTo({ duration: NETWORK_TUNNEL_COUNT_TIMEOUT_MS, onSuccess: (n) => n as number | null, onTimeout: () => null }),
-        Effect.catchAll(() => Effect.succeed(null)),
-      );
-    }
     const usage: NetworkAddressUsage = { held: machines + (tunnels ?? 0), capacity, machines, tunnels };
     const verdict = networkAdmissionVerdict(usage);
     if (verdict !== "admit") alertNetworkAddressUsage(input, usage, verdict);

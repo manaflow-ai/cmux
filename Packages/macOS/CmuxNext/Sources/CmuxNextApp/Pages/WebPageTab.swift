@@ -49,7 +49,7 @@ final class WebPageTab: InternalPageProvider {
     func tabClosed(_ key: String) { views.tabClosed(key) }
 }
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     static let github = InternalPageID(rawValue: "github")
 }
 

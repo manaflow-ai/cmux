@@ -24,6 +24,7 @@ use prompt_sender::{app_pane_unproven, owner_terminal};
 mod presets;
 mod queued;
 mod session_open;
+mod session_resources;
 mod signature;
 mod start_reason;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
@@ -2234,9 +2235,8 @@ async fn dispatch_method(
                 restricted,
                 person: person_asks(conn),
                 wait_start: asks_to_wait_on_its_harness(conn, &params),
-                // Purged by its creator right after its work (the Chief compactor's nodes): its
-                // prompts' bodies are not kept (`hub/ephemeral.rs`). An `ephemeral` run keeps
-                // them, so a failed first send can still be resent.
+                // Purged by its creator after its work (Chief compactor nodes): its prompt
+                // bodies are not kept (`hub/ephemeral.rs`); an `ephemeral` run keeps them.
                 throwaway: !adopting
                     && mux_meta(&params).and_then(|m| m.get("throwaway")).and_then(Value::as_bool)
                         == Some(true),
@@ -2245,6 +2245,7 @@ async fn dispatch_method(
                 create_key,
                 placed_by: pick("placedBy")
                     .filter(|p| p == crate::autocloud_enroll::PLACED_BY_AUTOCLOUD),
+                priority: crate::subrouter_priority::asked_tag(meta), // fleet-only-ok: Cloud
             };
             let s = match &admitted {
                 Some(admitted) => {
@@ -2262,12 +2263,11 @@ async fn dispatch_method(
             if remote_start {
                 let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
                 let cloud_mobile = super::remote_guard::cloud_mobile(&params);
-                // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a
-                // session the owner's peer daemon starts with no policy runs
-                // approve-all, as vmHost's did. Web clients still ask. Before the
-                // mode settles, so a Codex chat there settles in full access
-                // (`policy_mode.rs` `bridge_settle_modes`), not the asking mode a
-                // narrower policy needs.
+                // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a session the
+                // owner's peer daemon starts with no policy runs approve-all, as vmHost's did. Web
+                // clients still ask. Before the mode settles, so a Codex chat there settles in full
+                // access (`policy_mode.rs` `bridge_settle_modes`), not the asking mode a narrower
+                // policy needs.
                 let vm_boundary = s.meta().vm_boundary && hub.takes_vm_boundary().await;
                 if !asked_policy
                     && crate::hub::vm_boundary_peer_approves(
@@ -3496,6 +3496,8 @@ async fn dispatch_method(
         method::MUX_PROTOCOL => Ok(crate::protocol::served().clone()),
         // A pure function of the ids asked, the same for every origin (`requests/signature.rs`).
         method::SESSION_SIGNATURE => signature::handle(params),
+        // Read on request from the OS, nothing kept (`requests/session_resources.rs`).
+        method::MUX_SESSION_RESOURCES => session_resources::handle(hub, &params).await,
         method::MUX_HISTORY => {
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
@@ -3904,14 +3906,30 @@ async fn dispatch_method(
                     // the worker, not queued on the blocking pool. Under load the pool's queue
                     // held this read behind every other blocking job (cosmic-gray, 2026-11-27:
                     // `acpmux session inbox` 60 s+); the read itself takes no hub-wide lock.
-                    Ok(crate::qos::off_worker(|| hub.inbox_threads(&s)))
+                    let limit = params.get("limit").and_then(Value::as_u64).map(|n| n as usize);
+                    let before = params.get("before").and_then(Value::as_u64);
+                    Ok(crate::qos::off_worker(|| hub.inbox_threads_page(&s, limit, before)))
                 }
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
                     let thread = thread()?;
                     // Held messages that left memory are read from the log (`inbox_surge.rs`),
                     // off the worker and not behind the blocking pool's queue, as above.
-                    crate::qos::off_worker(|| hub.inbox_thread_whole(&s, thread, mark))
+                    let limit = params.get("limit").and_then(Value::as_u64).map(|n| n as usize);
+                    let mut reply =
+                        crate::qos::off_worker(|| hub.inbox_thread_whole(&s, thread, mark))?;
+                    // A page of the newest `limit` messages; `more` says the rest are there.
+                    if let (Some(limit), Some(list)) =
+                        (limit, reply.get_mut("messages").and_then(Value::as_array_mut))
+                    {
+                        let total = list.len();
+                        list.truncate(limit.max(1));
+                        if let Some(map) = reply.as_object_mut() {
+                            map.insert("total".into(), json!(total));
+                            map.insert("more".into(), json!(total > limit.max(1)));
+                        }
+                    }
+                    Ok(reply)
                 }
                 _ => {
                     let text = text_of("text")
