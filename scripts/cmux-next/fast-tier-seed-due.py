@@ -19,9 +19,10 @@ whose key holds the workspace-path hash fast-tier-cache-key.sh puts in the prefi
 never restores the pool's seed, so each pool is due on its own seeds.
 
 With --inputs (the package-inputs field of this push's prefix, 16 hex digits) only the
-seeds that carry those inputs count. A restore never takes another inputs' seed, so
-after a push that changes a Package.swift or Package.resolved every Blacksmith build
-was cold until the newest seed of any inputs aged past --minutes: on cmux#38170 (run
+seeds that carry those inputs count. A restore falls back to another inputs' seed
+(an incremental rebuild) only since the v4 key; before it, after a push that changes
+a Package.swift or Package.resolved every Blacksmith build was cold until the newest
+seed of any inputs aged past --minutes: on cmux#38170 (run
 42439414440) daemon tests built for 29 minutes cold and ran out its 60, half an hour
 after the manifests changed. The manifests changed 9 times in the 7 hours before.
 
@@ -38,8 +39,9 @@ from pathlib import Path
 import re
 import sys
 
-# The swift archive is saved last in a seed, so its time is the seed's.
-SEED_ARCHIVE = re.compile(r"^v1/[^/]+/objects/cmux-next-fast-v3-swift-[A-Za-z0-9._-]+\.tar\.(?:zst|gz)$")
+# The swift archive is saved last in a seed, so its time is the seed's. Only v4 seeds count: a
+# fresh v3 seed (the key before the path moved ahead of the inputs) never answers a v4 exact key.
+SEED_ARCHIVE = re.compile(r"^v1/[^/]+/objects/cmux-next-fast-v4-swift-[A-Za-z0-9._-]+\.tar\.(?:zst|gz)$")
 
 
 def parse_time(value: str) -> datetime:
@@ -53,9 +55,10 @@ def place(workspace: str) -> str:
 
 def due(objects: list[dict], now: datetime, minutes: int, workspace: str | None = None,
         inputs: str | None = None) -> bool:
+    # v4 order (fast-tier-cache-key.sh): ...-<place>-<inputs>-<commit>.
     marker = f"-{place(workspace)}-" if workspace else ""
     if inputs and workspace:
-        marker = f"-{inputs}{marker}"
+        marker = f"{marker}{inputs}-"
     elif inputs:
         marker = f"-{inputs}-"
     times = [parse_time(item["last_modified"]) for item in objects

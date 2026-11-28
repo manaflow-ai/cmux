@@ -2276,6 +2276,24 @@ class MacFastTierFollowsTheRoute(unittest.TestCase):
 
 SEED_WORKFLOW = WORKFLOW.parent / "cmux-next-fast-tier-seed.yml"
 CACHE_KEY_SCRIPT = ROOT / "scripts/cmux-next/fast-tier-cache-key.sh"
+
+
+def github_outputs(text: str) -> dict[str, str]:
+    """$GITHUB_OUTPUT lines: `name=value`, or `name<<DELIM` ... `DELIM` for a multi-line value."""
+    values, lines = {}, iter(text.splitlines())
+    for line in lines:
+        if "<<" in line and "=" not in line.split("<<", 1)[0]:
+            name, delim = line.split("<<", 1)
+            body = []
+            for part in lines:
+                if part == delim:
+                    break
+                body.append(part)
+            values[name] = "\n".join(body)
+        else:
+            name, value = line.split("=", 1)
+            values[name] = value
+    return values
 SEED_DUE_SCRIPT = ROOT / "scripts/cmux-next/fast-tier-seed-due.py"
 FAST_TIER_SCRIPT = ROOT / "scripts/cmux-next/fast-tier.py"
 FAST_CACHE_DIRS = {"swift": "Packages/macOS/CmuxNext/.build", "home": "Packages/Shared/CmuxHomeRender/.build"}
@@ -2590,7 +2608,7 @@ class GuiJobsStartFromTheSeed(unittest.TestCase):
                 self.assertEqual(cache["with"]["backend"], "r2")
                 self.assertEqual(cache.get("env", {}).get("CI_CACHE_R2_PUBLIC_URL"), NEXT_PUBLIC_URL)
                 self.assertEqual(cache["with"]["key"], "${{ steps.%s.outputs.swift-key }}" % key_id)
-                self.assertEqual(cache["with"]["restore-keys"], "${{ steps.%s.outputs.swift-prefix }}" % key_id)
+                self.assertEqual(cache["with"]["restore-keys"], "${{ steps.%s.outputs.swift-restore-keys }}" % key_id)
                 self.assertIn("steps.%s.outputs.cache-matched-key != ''" % restore_id, steps[replay]["if"])
                 self.assertIn(FAST_CACHE_MANIFEST, steps[replay]["run"])
                 run = steps[replay]["run"]
@@ -2644,20 +2662,25 @@ class FastTierStartsWarm(unittest.TestCase):
         by_path = {s["with"]["path"]: s for s in steps if is_cache_restore(s)}
         swift = by_path[FAST_CACHE_PATHS["swift"]]
         self.assertEqual(swift["with"]["key"], "${{ steps.%s.outputs.swift-key }}" % key_id)
-        self.assertEqual(swift["with"]["restore-keys"], "${{ steps.%s.outputs.swift-prefix }}" % key_id)
+        self.assertEqual(swift["with"]["restore-keys"], "${{ steps.%s.outputs.swift-restore-keys }}" % key_id)
         seed = steps[index_of(steps, lambda s: "cache-matched-key" in json.dumps(s.get("env", {})) and "commit=" in s.get("run", ""))]
         for name in ("home",):
             with self.subTest(name=name):
                 step = by_path[FAST_CACHE_PATHS[name]]
-                self.assertEqual(step["with"]["key"], "${{ steps.%s.outputs.%s-prefix }}${{ steps.%s.outputs.commit }}" % (key_id, name, seed["id"]))
+                self.assertEqual(step["with"]["key"], "${{ steps.%s.outputs.%s-key }}" % (seed["id"], name))
                 self.assertFalse(step["with"].get("restore-keys"), "an exact key, never a prefix")
                 self.assertIn("steps.%s.outputs.commit != ''" % seed["id"], step.get("if", ""))
-        # The commit is the matched key minus the swift prefix.
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp) / "out"
-            env = dict(os.environ, GITHUB_OUTPUT=str(out), MATCHED="cmux-next-fast-v3-swift-macOS-a-b-c-0123abc", PREFIX="cmux-next-fast-v3-swift-macOS-a-b-c-")
-            subprocess.run(["bash", "-c", seed["run"]], env=env, check=True)
-            self.assertEqual(out.read_text().strip(), "commit=0123abc")
+        # The commit is the matched key's last field and home follows that seed, under whichever
+        # restore key matched: the exact-inputs prefix, another package graph's, or a v3 seed.
+        prefix = "cmux-next-fast-v4-swift-macOS-a-b-c-d-"
+        for matched in (prefix + "0123abc", "cmux-next-fast-v4-swift-macOS-a-b-c-e-0123abc",
+                        "cmux-next-fast-v3-swift-macOS-a-b-d-c-0123abc"):
+            with self.subTest(matched=matched), tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "out"
+                env = dict(os.environ, GITHUB_OUTPUT=str(out), MATCHED=matched, PREFIX=prefix)
+                subprocess.run(["bash", "-c", seed["run"]], env=env, check=True)
+                self.assertEqual(out.read_text().splitlines(),
+                                 ["commit=0123abc", "home-key=" + matched.replace("-swift-", "-home-", 1)])
 
     def test_fast_tier_replays_the_seed_input_times_before_building(self):
         steps = self.fast_tier()["steps"]
@@ -2789,18 +2812,27 @@ class FastTierStartsWarm(unittest.TestCase):
                             "RUNNER_OS": "macOS", "RUNNER_ARCH": "ARM64", "GITHUB_SHA": "abc123"})
                 env.update(overrides)
                 out = subprocess.run(["bash", str(CACHE_KEY_SCRIPT), str(repo)], env=env, check=True, capture_output=True, text=True).stdout
-                return dict(line.split("=", 1) for line in out.splitlines())
+                return github_outputs(out)
 
             base = keys()
-            self.assertEqual(sorted(base), sorted(f"{d}-{kind}" for d in FAST_CACHE_DIRS for kind in ("prefix", "key")))
+            self.assertEqual(sorted(base), sorted(["inputs"] + [f"{d}-{kind}" for d in FAST_CACHE_DIRS for kind in ("prefix", "key", "restore-keys")]))
             stems = set()
             for name in FAST_CACHE_DIRS:
-                self.assertTrue(base[f"{name}-prefix"].startswith(f"cmux-next-fast-v3-{name}-macOS-ARM64-"), base)
+                self.assertTrue(base[f"{name}-prefix"].startswith(f"cmux-next-fast-v4-{name}-macOS-ARM64-"), base)
                 self.assertEqual(base[f"{name}-key"], base[f"{name}-prefix"] + "abc123")
                 self.assertRegex(base[f"{name}-key"], r"^[A-Za-z0-9._-]+$", "r2-cache.sh's key alphabet")
-                stems.add(base[f"{name}-prefix"].removeprefix(f"cmux-next-fast-v3-{name}-"))
+                stems.add(base[f"{name}-prefix"].removeprefix(f"cmux-next-fast-v4-{name}-"))
+                # Restore order: this package graph's newest seed, any package graph's at this toolchain
+                # and path (SwiftPM rebuilds what the new manifests changed), then the v3 seed of this graph.
+                exact, near, v3 = base[f"{name}-restore-keys"].splitlines()
+                self.assertEqual(exact, base[f"{name}-prefix"])
+                self.assertTrue(exact.startswith(near) and exact == f"{near}{base['inputs']}-", (exact, near))
+                self.assertRegex(v3, rf"^cmux-next-fast-v3-{name}-macOS-ARM64-[0-9a-f]{{16}}-{base['inputs']}-[0-9a-f]{{12}}-$")
+                for line in (exact, near, v3):
+                    self.assertRegex(line, r"^[A-Za-z0-9._-]+-$", "a dash-terminated prefix r2-cache.sh publishes a pointer for")
             self.assertEqual(len(stems), 1, "one stem: the home key follows the swift seed's commit")
             prefix = base["swift-prefix"]
+            near = base["swift-restore-keys"].splitlines()[1]
             self.assertEqual(keys(GITHUB_SHA="def456")["swift-prefix"], prefix, "a newer commit is a fallback, not a miss")
             for change in ({"CMUX_FAST_CACHE_XCODE_VERSION": "Xcode 26.7"}, {"GITHUB_WORKSPACE": "/Users/runner/work/cmux/cmux"}):
                 with self.subTest(change=change):
@@ -2812,6 +2844,8 @@ class FastTierStartsWarm(unittest.TestCase):
             (repo / "Packages/macOS/A/Package.resolved").write_text("{\"pins\": []}\n")
             commit("resolved", "Packages/macOS/A/Package.resolved")
             self.assertNotEqual(keys()["swift-prefix"], before)
+            self.assertEqual(keys()["swift-restore-keys"].splitlines()[1], near,
+                             "a manifest change still restores the newest seed at this toolchain and path")
             # The cargo entries left the Mac: Rust, Cargo and ghostty-next no longer key its seed,
             # and the script needs no rustc (the Mac job sets up no Rust).
             before = keys()["swift-prefix"]
@@ -2829,15 +2863,15 @@ class FastTierStartsWarm(unittest.TestCase):
                 return subprocess.run([sys.executable, "-I", str(SEED_DUE_SCRIPT), "--minutes", "30", "--now", now,
                                        "--listing", str(listing)], check=True, capture_output=True, text=True).stdout.strip()
 
-        swift = lambda modified, name="cmux-next-fast-v3-swift-macOS-ARM64-a-b-c-abc": {
+        swift = lambda modified, name="cmux-next-fast-v4-swift-macOS-ARM64-a-b-c-abc": {
             "key": f"v1/macOS-ARM64/objects/{name}.tar.zst", "last_modified": modified}
         self.assertEqual(due([]), "due=true")
         self.assertEqual(due([swift("2026-10-19T21:45:00.000Z")]), "due=false")
         self.assertEqual(due([swift("2026-10-19T21:20:00.000Z")]), "due=true")
         self.assertEqual(due([swift("2026-10-19T21:20:00.000Z"), swift("2026-10-19T21:50:00.000Z")]), "due=false")
-        self.assertEqual(due([swift("2026-10-19T21:59:00.000Z", name="cmux-next-fast-v3-cargo-macOS-ARM64-a-b-c-abc")]), "due=true",
+        self.assertEqual(due([swift("2026-10-19T21:59:00.000Z", name="cmux-next-fast-v4-cargo-macOS-ARM64-a-b-c-abc")]), "due=true",
                          "the swift archive is written last; only it marks a finished seed")
-        self.assertEqual(due([{"key": "v1/macOS-ARM64/latest/cmux-next-fast-v3-swift-", "last_modified": "2026-10-19T21:59:00.000Z"}]),
+        self.assertEqual(due([{"key": "v1/macOS-ARM64/latest/cmux-next-fast-v4-swift-", "last_modified": "2026-10-19T21:59:00.000Z"}]),
                          "due=true", "pointers are not archives")
 
     def test_each_pool_is_due_on_its_own_seeds(self):
@@ -2849,7 +2883,7 @@ class FastTierStartsWarm(unittest.TestCase):
         pools = [{"pool": "other", "runner": "blacksmith-12vcpu-macos-26", "workspace": hosted},
                  {"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": blacksmith}]
         swift = lambda modified, path: {
-            "key": f"v1/macOS-ARM64/objects/cmux-next-fast-v3-swift-macOS-ARM64-0123456789abcdef-fedcba9876543210-{place(path)}-abc.tar.zst",
+            "key": f"v1/macOS-ARM64/objects/cmux-next-fast-v4-swift-macOS-ARM64-0123456789abcdef-{place(path)}-fedcba9876543210-abc.tar.zst",
             "last_modified": modified}
 
         def due(objects: list[dict]) -> list[str]:
@@ -2884,7 +2918,7 @@ class FastTierStartsWarm(unittest.TestCase):
         pools = [{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": workspace}]
         old, new = "b5d64095f7cfdaef", "2d3c58426a71203a"
         swift = lambda modified, inputs: {
-            "key": f"v1/macOS-ARM64/objects/cmux-next-fast-v3-swift-macOS-ARM64-18730ed2ae28a2c9-{inputs}-{place}-abc.tar.zst",
+            "key": f"v1/macOS-ARM64/objects/cmux-next-fast-v4-swift-macOS-ARM64-18730ed2ae28a2c9-{place}-{inputs}-abc.tar.zst",
             "last_modified": modified}
 
         def due(objects: list[dict], *extra: str) -> list[str]:
@@ -2923,11 +2957,11 @@ class FastTierStartsWarm(unittest.TestCase):
             script = re.search(r"(?s)inputs=\"\$\((.*?)\)\"", run).group(1)
             got = subprocess.run(["/bin/bash", "-c", script.replace("scripts/cmux-next/", str(ROOT / "scripts/cmux-next") + "/")],
                                  cwd=repo, env=env, check=True, capture_output=True, text=True).stdout.strip()
-            keys = dict(line.split("=", 1) for line in subprocess.run(
+            keys = github_outputs(subprocess.run(
                 [str(ROOT / "scripts/cmux-next/fast-tier-cache-key.sh")], cwd=repo, check=True, capture_output=True, text=True,
-                env={**env, "CMUX_FAST_CACHE_XCODE_VERSION": "Xcode 26.6"}).stdout.split())
+                env={**env, "CMUX_FAST_CACHE_XCODE_VERSION": "Xcode 26.6"}).stdout)
             self.assertRegex(got, r"^[0-9a-f]{16}$")
-            self.assertIn(f"-{got}-", keys["swift-prefix"], "the same inputs field the seed's key holds")
+            self.assertTrue(keys["swift-prefix"].endswith(f"-{got}-"), "the same inputs field the seed's key holds")
 
     def test_receipt_names_the_seed_a_prefix_restore_picked(self):
         with tempfile.TemporaryDirectory() as tmp:
