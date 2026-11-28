@@ -90,7 +90,7 @@ impl PageFirstKeyOffer {
     /// was offered to. The key and every older one are released.
     pub fn take(&mut self, key: OfferedKey, tab: u64) -> Option<u64> {
         let index = self.entries.iter().position(|entry| entry.matches(&key))?;
-        let entry = self.entries[index];
+        let entry = *self.entries.get(index)?;
         self.entries.drain(..=index);
         (entry.tab == tab).then_some(entry.held)
     }
@@ -99,7 +99,7 @@ impl PageFirstKeyOffer {
     /// sent back by its page (WebKit's report). Releases it and every older key.
     pub fn take_resent(&mut self, event: u64) -> Option<u64> {
         let index = self.entries.iter().position(|entry| entry.event == event)?;
-        let held = self.entries[index].held;
+        let held = self.entries.get(index)?.held;
         self.entries.drain(..=index);
         Some(held)
     }

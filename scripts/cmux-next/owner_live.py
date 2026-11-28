@@ -5,35 +5,56 @@ names ends, and nothing rewrote the row, so every push into the acpmux crate pri
 cmux-4f ...)" for a month after cmux-4f was gone and reached no one (cmux#50549, 2026-11-22). The owner of a row is
 whoever holds it now, read from the live sessions at push time, in this order:
 
+0. the pushing lane itself, when the row names it: its own `owns=` tag, or its session name or its branch's lane name
+   (`lane/layout-x`) filling the role's globs (pusher_holds); it is told nothing. A stale `owns=` tag on another
+   session no longer outranks the lane doing the work (2026-11-27: five Layout motion pushes went to a theme lane);
 1. a live session tagged `owns=` with the row's workstream (`acpmux session tag SESSION owns=PL-acpmux`; a comma list holds
-   several): a holder takes a workstream by tagging itself, and gives it up by ending;
-2. a live lane the row's role names: `lanes tabs-refine,tab-strip-*` (fnmatch globs on the session's short name, commas
-   between them; `|` would split the OWNERS.md table cell), the most recently active one (never a PR finisher, `finish-REPO-N-...`, which holds one PR). A role outlives every session that fills it, so a row written
+   several), or with the area's name or its start (`owns=package-layering`, `owns=Chromium hosting`; owns_area): a
+   holder takes a workstream by tagging itself, and gives it up by ending;
+2. a live session that committed under the area's paths in the last WORK_DAYS days, the one with the newest commit
+   (area_work: a commit's `Agent-Session: .../deeplink/agent?id=aid-...` trailer is the HMAC of its host, harness and
+   harness session id with the fleet's agent-link key, so the listing's rows hash to it; worked_by). Never a session
+   younger than its first commit in the area: that session did not write it. Once the commits are read, a name alone
+   never holds the row (step 3 is skipped): on 2026-11-28 sidebar-bench-chiefs-61230-2, a benchmark lane that had
+   never committed in CmuxNextSidebar, got "you hold it now" for seven other lanes' sidebar pushes (ab1d2f99adce,
+   e54670f4e797, 3a4c51c69703, 8b4698939870, c5b79e731ed2, 0c2a2f26cd29, d0e77039331c) because its name starts with
+   the word the anchored `*sidebar*` glob reads;
+3. with no commits read (no key on this host, git failed or timed out): a live lane the row's role names: `lanes tabs-refine,tab-strip-*` (fnmatch globs on the session's short name, commas
+   between them; `|` would split the OWNERS.md table cell), the most recently active one (never a PR finisher, `finish-REPO-N-...`, which holds one PR).
+   A glob is anchored at the name's start (`role_glob`): `*sidebar*` holds `sidebar-owner`, never `rex-sidebar-look`,
+   a lane on one sidebar PR that the bare glob made holder of every sidebar push (about 12 notices in two days,
+   2026-11-25). A lane whose name only mentions the area is not its lane; with none, the push goes the unheld way
+   (steps 6-7). A role outlives every session that fills it, so a row written
    `lanes ...` does not go dead when one lane ends (2026-11-23: seven rows named ended sessions, cmux-b6, cmux-4f,
    a590, and their pushes went to the coordinator);
-3. the session the cell names (`session cmux-4f`), if it is live;
-4. its successor: a live session tagged `succeeds=` with the named session's id, or the named row's `failover=HOST/NEW`,
+4. the session the cell names (`session cmux-4f`), if it is live;
+5. its successor: a live session tagged `succeeds=` with the named session's id, or the named row's `failover=HOST/NEW`,
    followed to the end of the chain;
-5. the row's fallback, as OWNERS.md says ("When a workstream ends, its row goes back to the Performance Lead"): a
+6. the row's fallback, as OWNERS.md says ("When a workstream ends, its row goes back to the Performance Lead"): a
    live session tagged `owns=PL-lead`;
-6. the coordinator: a live session tagged `owns=coordinator`, else the fleet registry's `coordinators.current`
+7. the coordinator: a live session tagged `owns=coordinator`, else the fleet registry's `coordinators.current`
    (`CMUX_FLEET_REGISTRY`, else ~/Projects/leo-workspace/machines/fleet-registry.json), followed through
    `coordinators.retired` to its successor, if that session is live.
+
+No step answers with the pushing session itself (steps 1-7 skip its rows): step 0 already says when it holds the row.
 
 The pre-push hook prints the holder on the owner line and sends it one `acpmux send --class action` notice per area
 and pushed head (a stand-in, the Performance Lead or the coordinator, one per area a UTC day, asking for a holder) (deduplicated in ~/.cache/cmux/owner-notices.json), so a push into an area reaches a live session
 without the pusher looking anyone up. Never on CI (`CI` set), never when acpmux is missing, never longer than
 LIST_TIMEOUT_S plus SEND_TIMEOUT_S, and never a refusal: a failed listing or send is one line in the report.
-`CMUX_OWNER_NOTIFY=0` prints the holder and sends nothing.
+`CMUX_OWNER_NOTIFY=0` prints the holder and sends nothing, as does a push outside an acpmux session (no sender).
 """
 from __future__ import annotations
 
+import base64
 import fnmatch
 import hashlib
+import hmac
 import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -42,7 +63,9 @@ LIST_TIMEOUT_S = 20
 SEND_TIMEOUT_S = 10
 CHAIN_MAX = 8
 NOTICES_KEEP = 500
-DEAD = {"closed", "stopped", "failed", "dead", "disconnected", "retired"}
+# "unreachable": the hub cannot reach the session's host, so a notice sent there bounces (2026-11-28: 255 of ~2,000
+# listed rows read unreachable and counted as live holders; same line as cmux#64488).
+DEAD = {"closed", "stopped", "failed", "dead", "disconnected", "retired", "unreachable"}
 WORKSTREAM = re.compile(r"\bPL-[A-Za-z0-9][\w-]*")
 SESSION = re.compile(r"\bsessions? ([A-Za-z0-9][\w./-]*[A-Za-z0-9])")
 LANES = re.compile(r"\blanes ([A-Za-z0-9*?\[\]][\w*?\[\]./,-]*)")
@@ -50,7 +73,17 @@ LANES = re.compile(r"\blanes ([A-Za-z0-9*?\[\]][\w*?\[\]./,-]*)")
 # name carries the PR's area word, so a role glob like `*sidebar*` matched it and every sidebar push went to it
 # (2026-11-23: ~25 notices to finish-cmux-52161-sidebar). Role globs skip it; an `owns=` tag still counts.
 FINISHER = re.compile(r"^finish-[\w.-]*?-\d+(?:-|$)")
+# A role glob's leading wildcards and separators: `*sidebar*` and `*-ghostty*` match from the name's start.
+UNANCHORED = "*?-_."
 LEAD = "PL-lead"
+# Commits read for area_work: the last WORK_DAYS days of every ref, bounded by WORK_TIMEOUT_S.
+WORK_DAYS = 14
+WORK_TIMEOUT_S = 8
+# A session's start may trail its first commit by clock skew between hosts, not more.
+WORK_SKEW_S = 300
+AGENT_LINE = re.compile(r"\s*Agent-Session:", re.I)
+AID = re.compile(r"\baid-[0-9a-f]{20}\b")
+KEY_FILE = "agent-link.key"
 COORDINATOR = "coordinator"
 
 
@@ -62,6 +95,17 @@ def cell_names(cell: str) -> tuple[list[str], list[str]]:
 def cell_lanes(cell: str) -> list[str]:
     """The lane-name globs a role cell names: `tabs-refine` and `tab-strip-*` from "lanes tabs-refine,tab-strip-*"."""
     return [g for m in LANES.findall(cell or "") for g in m.split(",") if g]
+
+
+def role_glob(glob: str) -> str:
+    """GLOB anchored at the session name's start: `*sidebar*` -> `sidebar*`. A name holds the role when it begins with
+    the area word, not when the word turns up inside it (`rex-sidebar-look`, `finish-cmux-52161-sidebar`)."""
+    return glob.lstrip(UNANCHORED) or glob
+
+
+def fills_role(name: str, globs: list[str]) -> bool:
+    """Whether the session short NAME is a lane of the role GLOBS: anchored (role_glob), never a PR finisher."""
+    return not FINISHER.match(name) and any(fnmatch.fnmatchcase(name, role_glob(g)) for g in globs)
 
 
 def _tags(row: dict) -> dict:
@@ -82,8 +126,33 @@ def is_live(row: dict) -> bool:
     return str(row.get("status") or "").casefold() not in DEAD and row.get("stale") is not True and bool(_name(row))
 
 
+def _owns_list(row: dict) -> list[str]:
+    return [w.strip() for w in str(_tags(row).get("owns") or "").split(",") if w.strip()]
+
+
 def owns(row: dict, workstream: str) -> bool:
-    return workstream in [w.strip() for w in str(_tags(row).get("owns") or "").split(",")]
+    return workstream in _owns_list(row)
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(text or "").casefold()).strip("-")
+
+
+def owns_area(row: dict, area: str) -> str | None:
+    """The `owns=` value of ROW that names the OWNERS.md AREA, or None. A coordinator tags a holder with the area it
+    reads, not the row's PL- token: on 2026-11-27 `owns=package-layering` (gcp-agent-lane-13), `owns=Chromium hosting`
+    and `owns=Guardrails, pre-push gate, codebase health` were live tags and those areas still read "no live holder",
+    their pushes going to the coordinator. A value names the area when it is the area's name or its start, compared
+    case- and punctuation-blind and ending at a word ("package-layering" and "Package layering" name "Package
+    layering, signpost catalog (...)"; "pack" names nothing)."""
+    target = _slug(area)
+    if not target:
+        return None
+    for value in _owns_list(row):
+        key = _slug(value)
+        if key and (target == key or target.startswith(key + "-")):
+            return value
+    return None
 
 
 def _named(rows: list[dict], name: str) -> list[dict]:
@@ -133,21 +202,173 @@ def registry_coordinator(path: Path | None = None) -> str | None:
     return current if isinstance(current, str) and current else None
 
 
-def holder(cell: str, rows: list[dict], coordinator: str | None = None) -> tuple[str | None, str]:
-    """(live session, how) for the owner CELL, or (None, why none)."""
+# The pushing lane holds the area itself when the row names it: its own `owns=` tag, or its session name or its
+# branch (`lane/layout-scroll-to-rust` -> `layout-scroll-to-rust`) filling the role's globs. On 2026-11-27 five
+# pushes into Layout motion (`PL-motion-core, else lanes motion-*,layout-*`), some from a lane/layout-* branch, told
+# ask-cbefa8bcf5-3, a web-pages/theme ask lane that had never touched the area, "you hold it now": a stale
+# owns=PL-motion-core tag on it won over the lane doing the work. The pusher is asked first, and holding it
+# itself it is told nothing (owner_route prints the line).
+SELF = "the pushing lane"
+
+
+def branch_lane(branch: str | None) -> str:
+    """The lane name a pushed BRANCH carries: `lane/layout-x` -> `layout-x`, a plain branch as is, else ''."""
+    name = str(branch or "").strip()
+    if name in ("", "HEAD"):
+        return ""
+    return name.split("/", 1)[1] if name.startswith("lane/") else name
+
+
+def _is_row_of(row: dict, pusher: str) -> bool:
+    name = _name(row)
+    return pusher in (name, row.get("sessionId")) or ("/" not in name and name == _short(pusher))
+
+
+def pusher_holds(cell: str, rows: list[dict], pusher: str | None, area: str | None = None,
+                 branch: str | None = None) -> str | None:
+    """How PUSHER (HOST/NAME) holds the owner CELL of AREA itself, or None: its own owns= tag, or its session name
+    or the lane name of BRANCH filling the cell's role globs (fills_role)."""
+    if not pusher:
+        return None
+    workstreams, _ = cell_names(cell)
+    for r in (r for r in rows if _is_row_of(r, pusher)):
+        for w in workstreams:
+            if owns(r, w):
+                return f"{SELF}, holds owns={w}"
+        if area and owns_area(r, area):
+            return f"{SELF}, holds owns={owns_area(r, area)}"
+    globs = cell_lanes(cell)
+    for name in dict.fromkeys(n for n in (_short(pusher), branch_lane(branch)) if n):
+        if globs and fills_role(name, globs):
+            return f"{SELF}, a lane of {','.join(globs)}"
+    return None
+
+
+def is_self(how: str) -> bool:
+    """A holder() answer that is the pushing lane itself: no notice to send."""
+    return how.startswith(SELF)
+
+
+def pathspecs(globs: list[str]) -> list[str]:
+    """git pathspecs for OWNERS.md path GLOBS (guardrails.glob_match): a trailing `/` is a folder, else `:(glob)`."""
+    return [g if g.endswith("/") else f":(glob){g}" for g in globs if g]
+
+
+def area_work(repo: Path, globs: list[str], days: int = WORK_DAYS,
+              timeout: float = WORK_TIMEOUT_S) -> dict[str, tuple[int, int]] | None:
+    """{agent id: (first, last) author time} of the non-merge commits on any ref of REPO in the last DAYS days that
+    touch the area's path GLOBS, by the agent ids in their messages; None when git failed or ran past TIMEOUT. The
+    whole body, not `%(trailers)`: a GitHub squash merge puts Agent-Session in its own paragraph above the
+    Co-authored-by block, so git's trailer parser (last paragraph only) finds it in 0 of 200 feat-cmux-next squash
+    commits of 2026-11-28; the body has it in 185."""
+    specs = pathspecs(globs)
+    if not specs:
+        return None
+    try:
+        out = subprocess.run(["git", "-C", str(repo), "log", "--all", "--no-merges", f"--since={days}.days",
+                              "--format=%x00%at %B", "--", *specs],
+                             capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    work: dict[str, tuple[int, int]] = {}
+    for commit in out.stdout.split("\0")[1:]:
+        stamp, _, trailers = commit.strip().partition(" ")
+        trailers = "\n".join(l for l in trailers.splitlines() if AGENT_LINE.match(l))
+        if not stamp.isdigit():
+            continue
+        at = int(stamp)
+        for aid in AID.findall(trailers):
+            first, last = work.get(aid, (at, at))
+            work[aid] = (min(first, at), max(last, at))
+    return work
+
+
+def link_key() -> bytes | None:
+    """The fleet's agent-link key (acpmux opaque_agent_id.rs: `agent-link.key` in the acpmux home, base64, owner-only),
+    or None."""
+    homes = [os.environ.get("ACPMUX_HOME"), str(Path.home() / ".acpmux")]
+    for home in (h for h in homes if h):
+        path = Path(home) / KEY_FILE
+        try:
+            if path.stat().st_mode & 0o077:
+                continue
+            key = base64.b64decode(path.read_text(encoding="utf-8").strip(), validate=True)
+        except (OSError, ValueError):
+            continue
+        if len(key) >= 16:
+            return key
+    return None
+
+
+def agent_ids(row: dict, key: bytes, local_host: str) -> set[str]:
+    """The Agent-Session ids ROW's commits carry: HMAC-SHA256(key, lower(host) NUL harness NUL harness session id)
+    cut to 20 hex digits (opaque_agent_id.rs `Key::id`), for its harness session and each it retired."""
+    name = _name(row)
+    host = (name.split("/", 1)[0] if "/" in name else local_host).lower()
+    harness = str(row.get("harness") or "")
+    ids = [row.get("agentSessionId"), *(row.get("retiredAgentSessionIds") or [])]
+    return {"aid-" + hmac.new(key, f"{host}\0{harness}\0{s}".encode(), hashlib.sha256).hexdigest()[:20]
+            for s in ids if s and harness}
+
+
+def worked_by(work: dict[str, tuple[int, int]] | None, key: bytes | None = None,
+              local_host: str | None = None):
+    """holder()'s WORKED: ROW -> its (first, last) commit time in the area, or None; itself None (commits not read)
+    when WORK or the key is missing."""
+    if work is None or key is None:
+        return None
+    host = local_host or socket.gethostname()
+
+    def worked(row: dict) -> tuple[int, int] | None:
+        spans = [work[a] for a in agent_ids(row, key, host) if a in work]
+        return (min(s[0] for s in spans), max(s[1] for s in spans)) if spans else None
+    return worked
+
+
+def _wrote(row: dict, span: tuple[int, int]) -> bool:
+    """Whether ROW is not younger than its first area commit (SPAN[0]): a session made after it did not write it."""
+    created = row.get("createdAt")
+    return not isinstance(created, (int, float)) or created / 1000 <= span[0] + WORK_SKEW_S
+
+
+def holder(cell: str, rows: list[dict], coordinator: str | None = None,
+           area: str | None = None, pusher: str | None = None,
+           branch: str | None = None, worked=None) -> tuple[str | None, str]:
+    """(live session, how) for the owner CELL of AREA, or (None, why none). PUSHER (HOST/NAME) and its BRANCH, when
+    given, are asked first (pusher_holds), and the pusher is never the answer of a later step. WORKED (worked_by):
+    a row's (first, last) commit time in the area, or None; the committers hold the role. A name alone never does:
+    with no WORKED (no agent-link key, git unread) the push goes on down the chain to the coordinator, never to a
+    lane picked by its name (the 2026-11-28 sidebar-bench-chiefs-61230-2 misroutes)."""
     workstreams, sessions = cell_names(cell)
-    live = [r for r in rows if is_live(r)]
+    mine = pusher_holds(cell, rows, pusher, area, branch)
+    if mine:
+        return pusher, mine
+    live = [r for r in rows if is_live(r) and not (pusher and _is_row_of(r, pusher))]
+    if pusher:
+        rows = [r for r in rows if not _is_row_of(r, pusher)]
     for w in workstreams:
         tagged = sorted((r for r in live if owns(r, w)), key=lambda r: -(r.get("updatedAt") or 0))
         if tagged:
             return _name(tagged[0]), f"holds owns={w}"
+    if area:
+        tagged = sorted((r for r in live if owns_area(r, area)), key=lambda r: -(r.get("updatedAt") or 0))
+        if tagged:
+            return _name(tagged[0]), f"holds owns={owns_area(tagged[0], area)}"
     globs = cell_lanes(cell)
-    if globs:
-        lanes = sorted((r for r in live if not FINISHER.match(_short(_name(r)))
-                        and any(fnmatch.fnmatchcase(_short(_name(r)), g) for g in globs)),
-                       key=lambda r: -(r.get("updatedAt") or 0))
-        if lanes:
-            return _name(lanes[0]), f"a lane of {','.join(globs)}"
+    if worked is not None:
+        # A PR finisher's commits are its one PR's (FINISHER); among the rest a lane the row's role names ranks
+        # first, then the newest commit.
+        spans = [(r, worked(r)) for r in live if not r.get(ENDED_KEY) and not FINISHER.match(_short(_name(r)))]
+        did = sorted(((r, s) for r, s in spans if s and _wrote(r, s)),
+                     key=lambda rs: (not fills_role(_short(_name(rs[0])), globs), -rs[1][1],
+                                     -(rs[0].get("updatedAt") or 0)))
+        if did:
+            (r, span) = did[0]
+            day = time.strftime("%Y-%m-%d", time.gmtime(span[1]))
+            role = f"a lane of {','.join(globs)}, " if fills_role(_short(_name(r)), globs) else ""
+            return _name(r), f"{role}committed in the area last ({day})"
     for s in sessions:
         named = _named(rows, s)
         if named and is_live(named[0]):
@@ -156,7 +377,9 @@ def holder(cell: str, rows: list[dict], coordinator: str | None = None) -> tuple
         heir = successor(rows, s)
         if heir:
             return heir, f"successor of {s}"
-    gone = ", ".join(sessions) + " gone" if sessions else (f"no live lane of {','.join(globs)}" if globs else "no live holder")
+    gone = ", ".join(sessions) + " gone" if sessions else (
+        f"no live lane of {','.join(globs)} committed in it" if globs and worked is not None
+        else f"no live lane of {','.join(globs)}" if globs else "no live holder")
     if workstreams:
         lead = sorted((r for r in live if owns(r, LEAD)), key=lambda r: -(r.get("updatedAt") or 0))
         if lead:
@@ -179,6 +402,9 @@ def list_sessions(timeout: float = LIST_TIMEOUT_S) -> tuple[list[dict] | None, s
     """(acpmux's session records, None) or (None, why not): every host's, closed ones included (successor chains)."""
     if os.environ.get("CI") or not shutil.which("acpmux"):
         return None, None
+    cached = _cache_read()
+    if cached is not None:
+        return cached, None
     try:
         out = subprocess.run(["acpmux", "ls", "--json"], capture_output=True, text=True, timeout=timeout)
         doc = json.loads(out.stdout or "null")
@@ -188,7 +414,93 @@ def list_sessions(timeout: float = LIST_TIMEOUT_S) -> tuple[list[dict] | None, s
     if not isinstance(rows, list):
         return None, None
     rows = [r for r in rows if isinstance(r, dict)]
-    return merge_tagged(rows, _tagged(TAG_KEYS, timeout)), None
+    merged = mark_ended(merge_tagged(rows, _tagged(TAG_KEYS, timeout)), read_beats())
+    _cache_write(merged)
+    return merged, None
+
+
+# A name is not a holder. 2026-11-28: a fresh lane named sidebar-bench-chiefs-61230-2 (a bench, no sidebar code, no
+# owns= tag) was sent a sidebar push because its name starts with the area word. A role glob now picks among lanes
+# that also have their own commits under the area's paths (holder's WORKED, which the pre-push hook reads from the
+# lanes' pushed branches); with none, the push goes on down the chain (the named session, its successor, the lead,
+# the coordinator), never to a lane picked by name.
+# A lane holds a role by its name only while its work goes on. 2026-11-28: a lane named sidebar-bench-chiefs-61230
+# (a CI-routing PR, no sidebar code) checked in `dropped` at 01:15Z and stayed listed idle, so `lanes *sidebar*` sent
+# it two sidebar pushes it never touched. The check-in outcome (tools/checkin.py: `checkin done|dropped`) reaches every
+# host in the fleet heartbeats (session_heartbeat.fleet's cache); a session whose newest check-in deciding its work is
+# done or dropped, with no in-progress or blocked one after it, gets ENDED_KEY and no role glob counts it. An owns=
+# tag or a named cell still does: those were set by hand. No cache (a host without the heartbeat read): no filter.
+ENDED_KEY = "checkinEnded"
+ENDED_OUTCOMES = {"done", "dropped"}
+WORKING_STATES = {"in_progress", "in-progress", "blocked"}
+BEATS_FILE = Path(os.environ.get("CMUX_OWNER_LIVE_HEARTBEATS")
+                  or Path.home() / ".cache" / "agent-heartbeat" / "fleet.json")
+
+
+def read_beats(path: Path | None = None) -> list[dict]:
+    """The fleet heartbeat records the leo-workspace heartbeat read cached on this host, or [] (none, unreadable)."""
+    try:
+        doc = json.loads((path or BEATS_FILE).read_text())
+    except (OSError, ValueError):
+        return []
+    beats = doc.get("beats") if isinstance(doc, dict) else None
+    return [b for b in beats or [] if isinstance(b, dict)]
+
+
+def ended_sessions(beats: list[dict]) -> set[str]:
+    """The keys (acpmux session id, HOST/NAME) of sessions whose work is over by their own check-in: the newest
+    record that decides (an outcome, or an in-progress or blocked state) says done or dropped."""
+    newest: dict[str, tuple[float, bool]] = {}
+    for b in beats:
+        c = b.get("checkin") if isinstance(b.get("checkin"), dict) else {}
+        outcome, state = c.get("outcome"), str(c.get("state") or "").casefold()
+        if outcome not in ENDED_OUTCOMES and state not in WORKING_STATES:
+            continue
+        ended = outcome in ENDED_OUTCOMES and state not in WORKING_STATES
+        at = float(c.get("outcome_at") or c.get("at") or b.get("at") or 0)
+        keys = [c.get("acpmux_session")]
+        name, host = c.get("name") or b.get("name"), b.get("host")
+        if name and host:
+            keys.append(f"{host}/{name}")
+        for k in (k for k in keys if k):
+            if k not in newest or at >= newest[k][0]:
+                newest[k] = (at, ended)
+    return {k for k, (_, ended) in newest.items() if ended}
+
+
+def mark_ended(rows: list[dict], beats: list[dict]) -> list[dict]:
+    """ROWS, each whose session ended by its check-in (ended_sessions) carrying ENDED_KEY."""
+    ended = ended_sessions(beats)
+    if not ended:
+        return rows
+    return [{**r, ENDED_KEY: True} if (r.get("sessionId") in ended or _name(r) in ended) else r for r in rows]
+
+
+# Each `ls --tag KEY` asks every peer host over ssh (3 keys, about 40 hosts, 4 processes a host: ~500 processes a
+# push; 2026-11-24 cosmic-gray load 65 on 15 cores, 5 pushes a minute). A listing is shared by every push for
+# CACHE_S, so a burst of pushes reads the fleet once.
+CACHE_S = 90
+CACHE_FILE = Path(os.environ.get("CMUX_OWNER_LIVE_CACHE") or Path.home() / ".cache" / "cmux" / "owner-live-sessions.json")
+
+
+def _cache_read() -> list[dict] | None:
+    try:
+        if time.time() - CACHE_FILE.stat().st_mtime > CACHE_S:
+            return None
+        rows = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return rows if isinstance(rows, list) else None
+
+
+def _cache_write(rows: list[dict]) -> None:
+    try:
+        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CACHE_FILE.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(rows, separators=(",", ":")), encoding="utf-8")
+        os.replace(tmp, CACHE_FILE)
+    except OSError:
+        pass
 
 
 TAG_KEYS = ("owns", "succeeds", "failover")
@@ -230,10 +542,58 @@ def _notices_path() -> Path:
     return Path(os.environ.get("CMUX_OWNER_NOTICES") or Path.home() / ".cache/cmux/owner-notices.json")
 
 
+# A notice goes out as the pushing session or not at all. On 2026-11-25 a push run outside any acpmux session sent
+# one from the bare host (thread from:gcp-agent-lane-8, no Sent-by, "no live or closed session named
+# 'gcp-agent-lane-8'"), so its reader could neither answer nor tell who pushed. acpmux names the sender from
+# ACPMUX_SESSION_ID (or a session token); with neither set the push prints the holder and sends nothing.
+SENDER_ENV = ("ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN")
+NO_SENDER = "no acpmux session to send as (ACPMUX_SESSION_ID unset); tell the holder yourself"
+
+
+def sender() -> str | None:
+    """The pushing session's id or token, or None outside an acpmux session."""
+    return next((os.environ[name] for name in SENDER_ENV if os.environ.get(name, "").strip()), None)
+
+
+# A notice names its pusher as HOST/NAME, the address `lane-gh send` and inbox_reply take. On 2026-11-26 three notices
+# reached a coordinator labelled with a bare host ("gcp-agent-lane-5", "fs-agent-lane-7", "gcp-codex-lane-12") and
+# inbox_reply failed with "no live or closed session named 'gcp-agent-lane-5' on any machine": the holder could not
+# answer the pusher. The notice now carries the address it was sent from, and a session acpmux cannot name sends none.
+NO_SENDER_NAME = "the pushing session has no HOST/NAME acpmux can resolve; tell the holder yourself"
+
+
+def sender_name(timeout: float = LIST_TIMEOUT_S) -> str | None:
+    """The pushing session as HOST/NAME (from `acpmux session info`), or None when acpmux cannot name it."""
+    ident = (os.environ.get("ACPMUX_SESSION_ID") or os.environ.get("ACPMUX_SESSION_NAME") or "").strip()
+    if not ident:
+        return None
+    try:
+        out = subprocess.run(["acpmux", "session", "info", ident, "--fields", "machine,name"],
+                             capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    fields = dict(line.split("\t", 1) for line in out.stdout.splitlines() if "\t" in line)
+    host, name = fields.get("machine", "").strip(), _short(fields.get("name", "").strip())
+    return f"{host}/{name}" if host and name else None
+
+
+def signed(text: str, me: str) -> str:
+    """TEXT with a line naming the pusher, so the holder can answer it."""
+    return f"{text}\n\nFrom {me}; answer with `lane-gh send {me} -` or `acpmux send {me} -`."
+
+
 def notify(to: str, area: str, head: str, text: str) -> str | None:
     """Send TEXT to TO once per (TO, AREA, HEAD); None when sent or already sent, else why it was not."""
     if os.environ.get("CMUX_OWNER_NOTIFY") == "0":
         return "CMUX_OWNER_NOTIFY=0"
+    if not sender():
+        return NO_SENDER
+    me = sender_name()
+    if not me:
+        return NO_SENDER_NAME
+    text = signed(text, me)
     key = hashlib.sha1(f"{to}\n{area}\n{head}".encode()).hexdigest()[:16]
     path = _notices_path()
     try:
@@ -260,6 +620,15 @@ def notify(to: str, area: str, head: str, text: str) -> str | None:
     return None
 
 
+def tag_hint(area: str, cell: str) -> str:
+    """The `owns=` value that makes a session the holder of AREA: the row's first PL- workstream, else the area's name
+    up to its first comma or parenthesis, as a slug (owns_area reads either)."""
+    workstreams, _ = cell_names(cell)
+    if workstreams:
+        return workstreams[0]
+    return _slug(re.split(r"[,(;]", area or "", maxsplit=1)[0]) or _slug(area) or "AREA"
+
+
 def is_fallback(how: str) -> bool:
     """A holder() answer that is the Performance Lead or the coordinator standing in, not the area's own holder."""
     return "; the " in how
@@ -268,7 +637,7 @@ def is_fallback(how: str) -> bool:
 def unheld_notice(area: str, cell: str, files: list[str], head: str, branch: str | None, doc: str) -> str:
     return (f"OWNERS.md area {area} has no live holder ({cell}), so its pushes come to you; this one: {branch or 'a branch'} "
             f"at {head[:12]} ({len(files)} file(s), {files[0]}). Give it a live holder: tag one "
-            f"(`acpmux session tag SESSION owns=WORKSTREAM`) or rewrite the OWNERS.md row. You hear of it once a day "
+            f"(`acpmux session tag SESSION owns={tag_hint(area, cell)}`) or rewrite the OWNERS.md row. You hear of it once a day "
             f"while it stays unheld.")
 
 
@@ -276,4 +645,6 @@ def notice(area: str, cell: str, files: list[str], head: str, branch: str | None
     shown = ", ".join(files[:6]) + (f" and {len(files) - 6} more" if len(files) > 6 else "")
     return (f"A push to {branch or 'a branch'} at {head[:12]} changes {area}, which OWNERS.md gives to {cell}; you hold "
             f"it now. Files: {shown}. Read {doc}; `git show {head[:12]}` for the change. If it is not yours, tag the "
-            f"holder (`acpmux session tag SESSION owns=WORKSTREAM`) or fix the OWNERS.md row.")
+            f"holder (`acpmux session tag SESSION owns={tag_hint(area, cell)}`) or fix the OWNERS.md row; if an "
+            f"`owns=` tag of yours made you holder and you do not work in it, drop it "
+            f"(`acpmux session tag YOUR-SESSION --remove owns`).")

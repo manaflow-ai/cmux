@@ -1,29 +1,32 @@
 {
  "about": "Outbound sites in cmux NEXT that do not go through the egress gate. Only shrinks; tests/test_egress_gate.py keeps it exact.",
- "ungated": 6,
- "file_count": 6,
+ "ungated": 7,
+ "file_count": 7,
  "by_language": {
   "rs": 5,
-  "swift": 1
+  "swift": 2
  },
  "files": {
-  "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/CmxCredentialedHTTPSession.swift": {
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/FeedServiceError.swift": {
    "urlsession": 1
   },
-  "cmux-next-ios/rust/crates/cmux-mobile-host/src/auth.rs": {
+  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/ChatShareOpener.swift": {
+   "urlsession-default": 1
+  },
+  "cmux-tui/crates/cmux-browser-sync/src/records.rs": {
    "reqwest-client": 1
   },
-  "cmux-next-ios/rust/crates/cmux-mobile-host/src/services.rs": {
-   "ws-connect": 1
-  },
-  "cmux-next-ios/rust/crates/cmux-mobile-link/src/api.rs": {
+  "cmux-tui/crates/cmux-git-cache/src/server.rs": {
    "reqwest-client": 1
   },
-  "cmux-next-ios/rust/crates/cmux-mobile-link/src/hub.rs": {
-   "ws-connect": 1
+  "cmux-tui/crates/cmux-projection/src/repo_archive.rs": {
+   "reqwest-client": 1
   },
-  "cmux-next-ios/rust/crates/cmux-mobile-link/src/signaling.rs": {
-   "ws-connect": 1
+  "cmux-tui/crates/cmux-tui/src/cli/app/nightly/feed.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-vmd/src/provider.rs": {
+   "reqwest-client": 1
   }
  }
 }

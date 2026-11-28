@@ -135,8 +135,6 @@ GENERATORS = (
      "scripts/cmux-next/gen-chrome-styles.py"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift",
      "scripts/cmux-next/art/generate_backdrop_art.py"),
-    ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift",
-     "scripts/cmux-next/art/generate_backdrop_art.py"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StaticStatusGlyph.generated.swift",
      "scripts/cmux-next/gen-status-glyphs.py"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TypeScale.generated.swift", "scripts/cmux-next/gen-type-scale.py"),
@@ -148,8 +146,6 @@ GENERATORS = (
      "scripts/cmux-next/gen-phone-lane-fields.py"),
     ("Packages/Shared/CmuxAgentBrands/Sources/CmuxAgentBrands/AgentBrandCatalog+Generated.swift",
      "scripts/agent-icons/generate.py"),
-    ("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/CtlWireModels.swift", "quicktype"),
-    ("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/V2WireModels.swift", "quicktype"),
 )
 # The claim opens the comment line: prose that mentions generated values (`// The defaults are generated from`) is
 # none.

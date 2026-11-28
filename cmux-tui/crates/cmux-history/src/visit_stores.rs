@@ -134,7 +134,7 @@ impl VisitStores {
         let limit = query.limit.unwrap_or(DEFAULT_PAGE_LIMIT);
         let mut entries = Vec::new();
         for profile in self.profiles()? {
-            entries.extend(self.store(&profile)?.entries(&profile, &filter, limit)?);
+            entries.extend(self.store(&profile)?.entries(&profile, &filter, limit, query.actor)?);
         }
         Ok(entries)
     }
@@ -313,7 +313,7 @@ pub fn profile_from_file_name(name: &str) -> Option<String> {
         if byte == b'_' {
             let hex = std::str::from_utf8(tail.get(..2)?).ok()?;
             bytes.push(u8::from_str_radix(hex, 16).ok()?);
-            rest = &tail[2..];
+            rest = tail.get(2..)?;
         } else {
             bytes.push(byte);
             rest = tail;

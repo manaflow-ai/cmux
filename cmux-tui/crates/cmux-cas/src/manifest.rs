@@ -57,7 +57,8 @@ impl Manifest {
             check_path(path)?;
             let mut chunks = Vec::new();
             for (at, len) in cdc::chunks(bytes) {
-                let piece = &bytes[at..at + len];
+                let end = at.checked_add(len).ok_or("chunk offset overflow")?;
+                let piece = bytes.get(at..end).ok_or("chunk outside file")?;
                 let id = Id::of(piece);
                 if seen.insert(id) {
                     chunk(id, piece)?;
@@ -78,9 +79,7 @@ impl Manifest {
     /// The manifest of every regular file under `root` (symlinks and empty directories are not
     /// carried; a web bundle and a binary have neither).
     pub fn of_dir(root: &Path, chunk: impl FnMut(Id, &[u8]) -> Result<()>) -> Result<Self> {
-        let mut files = BTreeMap::new();
-        walk(root, root, &mut files)?;
-        Self::build(&files, chunk)
+        Self::build(&read_tree(root)?, chunk)
     }
 
     /// Its JSON bytes, the ones its id hashes.
@@ -127,7 +126,7 @@ impl Manifest {
 }
 
 /// Refuse a path that could leave the tree.
-fn check_path(path: &str) -> Result<()> {
+pub(crate) fn check_path(path: &str) -> Result<()> {
     let bad = path.is_empty()
         || path.starts_with('/')
         || path.contains('\\')
@@ -137,6 +136,13 @@ fn check_path(path: &str) -> Result<()> {
         return Err(format!("path {path:?} is not a relative path inside the tree").into());
     }
     Ok(())
+}
+
+/// Every regular file under `root`: `path -> (bytes, exec)`, as [`Manifest::of_dir`] reads it.
+pub fn read_tree(root: &Path) -> Result<BTreeMap<String, (Vec<u8>, bool)>> {
+    let mut files = BTreeMap::new();
+    walk(root, root, &mut files)?;
+    Ok(files)
 }
 
 fn walk(root: &Path, dir: &Path, out: &mut BTreeMap<String, (Vec<u8>, bool)>) -> Result<()> {

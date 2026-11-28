@@ -141,6 +141,21 @@ describe("sweepVmHealth", () => {
     expect(h.snapshots).toHaveLength(1);
   });
 
+  test("the overall probe watchdog records missing evidence when the driver never returns", async () => {
+    const h = harness({ vms: [vm("vm-unknown")], probe: () => Effect.never });
+    const result = await h.run({ budgetMs: 150, probeTimeoutMs: 20 });
+    expect(h.probed).toEqual(["vm-unknown"]);
+    expect(result.report.hung).toEqual([]);
+    expect(result.report.coverage.probeErrors).toBe(1);
+  });
+
+  test("a probe is skipped when only one of its two request deadlines fits", async () => {
+    const h = harness({ vms: [vm("vm-unknown")], probe: () => Effect.succeed({ outcome: "ok", latencyMs: 1 }) });
+    const result = await h.run({ budgetMs: 150, probeTimeoutMs: 100 });
+    expect(h.probed).toEqual([]);
+    expect(result.report.coverage.skippedBudget).toBe(1);
+  });
+
   test("a provider listing failure is recorded, not thrown, and still stores a snapshot", async () => {
     const stored: VmHealthReport[] = [];
     const repo = {
@@ -198,7 +213,7 @@ describe("sweep storage and listing deadlines", () => {
       : { outcome: "ok", latencyMs: 1 }) });
     const { report } = await h.run({});
     const parsed = cloudVmHealthSchema.parse({ snapshot: { id: "s", createdAt: report.generatedAt, ageSeconds: 1, stale: false }, report, owners: {} });
-    expect(parsed.report?.hung[0]?.vmId).toBe("vm-hung");
+    expect(parsed.report?.hung[0]).toMatchObject({ vmId: "vm-hung", confirmedThisSweep: true });
   });
 });
 

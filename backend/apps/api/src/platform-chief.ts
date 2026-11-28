@@ -23,6 +23,6 @@ export class PlatformChief extends WorkerEntrypoint<RawEnv> {
     const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(chief.id, chief.main_conversation)))
     // The persisted isOwner is what authorizes effects (effect-policy.ts): a channel without `run` keeps even the
     // owner's Slack messages to answers.
-    return brain.slackInbound({ agent: chief.id, conversation: chief.main_conversation, inbound: { ...inbound, isOwner: slackMayAct(inbound) } })
+    return brain.slackInbound({ agent: chief.id, conversation: chief.main_conversation, inbound: { ...inbound, isOwner: slackMayAct(inbound) }, senderIsOwner: inbound.isOwner })
   }
 }

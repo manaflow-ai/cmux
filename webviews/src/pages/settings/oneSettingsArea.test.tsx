@@ -21,8 +21,9 @@ afterEach(() => {
 /** The most category rows the sidebar shows before More is opened: 16, Settings > Customize
  * (Leo, 2026-11-22, ask-931361017e: "it should just be as easy as a click toggle"), right after
  * General so it is found first, and Devices under Accounts and Devices, where the join prompt's
- * "Settings > Devices" points (Leo, 2026-11-22: "i also couldnt find settings devices control"). */
-const SHORT_TOP_LEVEL = 18;
+ * "Settings > Devices" points (Leo, 2026-11-22: "i also couldnt find settings devices control"),
+ * and Automations under AI, where it sat before the six-page layout came and went. */
+const SHORT_TOP_LEVEL = 19;
 
 const shownSection = (container: ParentNode) => container.querySelector("[data-section]")?.getAttribute("data-section");
 

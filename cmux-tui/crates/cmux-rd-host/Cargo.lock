@@ -667,6 +667,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-file-lock",
  "cmux-process",
+ "cmux-rd-proto",
  "hpke",
  "libc",
  "p256",
@@ -683,6 +684,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "wait-timeout",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -702,7 +704,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "async-io",
  "cc",
@@ -742,8 +744,11 @@ dependencies = [
  "hmac",
  "libc",
  "md-5",
+ "rustls",
+ "rustls-native-certs",
  "sha1",
  "snow",
+ "socket2",
  "windows-sys 0.61.2",
 ]
 

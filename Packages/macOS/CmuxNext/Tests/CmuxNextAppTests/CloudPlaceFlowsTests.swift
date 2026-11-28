@@ -14,6 +14,7 @@ import Testing
 
         func core(_ operation: String, _ request: Data) -> Data? {
             guard let object = try? JSONSerialization.jsonObject(with: request) as? [String: Any] else { return nil }
+            if operation == "cloud_computer_status_live" { return nil } // not a move event
             if operation == "cloud_move_place_view" {
                 let state = ["failed": "failed", "live": "live"][events.last ?? ""] ?? "moving"
                 return Data(#"{"state":"\#(state)","n":\#(events.count)}"#.utf8)
@@ -48,6 +49,10 @@ import Testing
         func placeOnTurnEnded(_ handler: @escaping @MainActor (String) -> Void) { turnEnded = handler }
         func placeIdentity() -> CloudPlaceIdentity? { identity }
         func placeIdentityChangedReason() -> String { "account changed" }
+        /// No daemon in this test: Auto reads only its own signals.
+        func placeVerdict() async -> Data? { nil }
+        var shadow: [String] = []
+        func placeShadow(_ line: String) { shadow.append(line) }
     }
 
     private static func local(_ session: String) -> CloudPlaceChat {
@@ -148,6 +153,21 @@ import Testing
 
     /// A mode picked while the chat moves is refused and leaves the mode alone: Local picked while a local chat moves to
     /// Cloud never reads `mode: local, at: cloud` once the move lands (review of #52230 at 37033a59, F1).
+    /// Leo, 2026-11-27: "remember we need to be able to toggle a chat on and off of autocloud" and "we're not
+    /// putting autocloud as THE DEFAULT OPTION FOR EVERY SINGLE CHAT. IT JUST SIMPLY MUST BE AN OPTION."
+    @Test func offeredModesReachTheHeaderAndChangeNoDefault() throws {
+        let place = flows(Recorder())
+        let read = { (modes: [String]?) in
+            try #require(place.placeJSON(session: "s", onCloud: false, cloudName: nil, modes: modes)
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        }
+        let offered = try read(["local", "auto"])
+        #expect(offered["modes"] as? [String] == ["local", "auto"])
+        // A chat nobody picked for stays Local: offering AutoCloud does not turn it on.
+        #expect(offered["mode"] as? String == "local")
+        #expect(try read(nil)["modes"] == nil)
+    }
+
     @Test func aModePickedMidMoveIsRefusedAndKeepsTheMode() {
         let recorder = Recorder(), host = Host()
         let place = flows(recorder)
@@ -208,6 +228,23 @@ import Testing
         #expect(move(place, "t") != nil)
     }
 
+    /// `cloud.place.get` reads the move's view after its card settled (the header's `move` went), and nothing for a chat
+    /// that never moved: the probe reads a landed move's step times.
+    @Test func aSettledMoveKeepsItsViewForTheProbe() async {
+        let recorder = Recorder()
+        let place = flows(recorder, liveLinger: .zero)
+        #expect(place.moveView(of: "s") == nil)
+        place.begin(session: "s", toCloud: true, trigger: .person, from: "Mac", to: "", cargo: .init())
+        place.step("s", "commit")
+        place.live("s")
+        place.finished("s")
+        for _ in 0..<1000 where move(place, "s") != nil { await Task.yield() }
+        #expect(move(place, "s") == nil)
+        let view = place.moveView(of: "s") as? [String: Any]
+        #expect(view?["state"] as? String == "live")
+        #expect(place.moveView(of: "other") == nil)
+    }
+
     @Test func modesPersist() {
         let defaults = UserDefaults(suiteName: "CloudPlaceFlowsTests.\(UUID().uuidString)")!
         let first = CloudPlaceFlows(defaults: defaults)
@@ -219,6 +256,48 @@ import Testing
         let out = Data(" M a.txt\0R  new.txt\0old.txt\0?? b.txt\0".utf8)
         #expect(CloudPlaceFlows.dirtyCount(porcelainZ: out) == 3)
         #expect(CloudPlaceFlows.dirtyCount(porcelainZ: Data()) == 0)
+    }
+
+    /// A home folder kept in git (a dotfiles `~/.git`): the move's count of a folder there is the repository's tracked
+    /// changes; listing its untracked files would read every folder of the home folder (LAUNCH-NO-TCC-PROMPTS). A
+    /// repository of its own below the home folder still counts its untracked files.
+    @Test func dirtyFilesInTheHomeFoldersRepositoryCountTrackedChangesOnly() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("dirty-home-\(UUID().uuidString)", isDirectory: true)
+        let tools = home.appendingPathComponent("tools", isDirectory: true)
+        let app = home.appendingPathComponent("code/app", isDirectory: true)
+        for folder in [tools, app, home.appendingPathComponent("Pictures/Photos Library.photoslibrary")] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: home) }
+        func git(_ folder: URL, _ arguments: String...) throws {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            process.arguments = ["-C", folder.path, "-c", "user.name=t", "-c", "user.email=t@e.test", "-c", "commit.gpgsign=false",
+                                 "-c", "core.hooksPath=/dev/null"] + arguments
+            process.environment = ProcessInfo.processInfo.environment.merging(
+                ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"]) { _, ours in ours }
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            process.waitUntilExit()
+            #expect(process.terminationStatus == 0, "git \(arguments) in \(folder.path)")
+        }
+        try git(home, "init", "--quiet")
+        try Data("export A=1\n".utf8).write(to: home.appendingPathComponent(".zshrc"))
+        try git(home, "add", ".zshrc")
+        try git(home, "commit", "--quiet", "-m", "dotfiles")
+        try Data("export A=2\n".utf8).write(to: home.appendingPathComponent(".zshrc"))
+        for file in ["notes.txt", "tools/run.py", "Pictures/Photos Library.photoslibrary/Photos.sqlite"] {
+            try Data("x".utf8).write(to: home.appendingPathComponent(file))
+        }
+        try git(app, "init", "--quiet")
+        try Data("x".utf8).write(to: app.appendingPathComponent("new.rs"))
+
+        #expect(await CloudPlaceFlows.dirtyFiles(in: tools.path, homePath: home.path) == 1)
+        #expect(await CloudPlaceFlows.dirtyFiles(in: home.path, homePath: home.path) == 1)
+        #expect(await CloudPlaceFlows.dirtyFiles(in: app.path, homePath: home.path) == 1)
+        // Another home folder: this repository's untracked files count (`notes.txt`, `tools/`, `Pictures/`, `code/`).
+        #expect(await CloudPlaceFlows.dirtyFiles(in: tools.path, homePath: app.path) == 5)
     }
 
     @Test func evacuationShowsEachChatsStateAndCancelDropsTheQueue() throws {

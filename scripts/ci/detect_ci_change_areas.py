@@ -183,6 +183,17 @@ _DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt", ".log")
 # that names a helper only in a comment does not run it (a Cargo.toml's note on
 # the release strip routed that strip script to every lane, #42338).
 _HASH_COMMENT_SUFFIXES = (".toml", ".yml", ".yaml", ".sh", ".bash", ".zsh")
+# Files where `//` and `/* */` start comments. One that names a helper only in
+# a comment does not run it (web/tests/vm-image-cmux-vm-auto-roll.test.ts, #48644,
+# cites scripts/ci/one_linux_label.py and made what that helper reaches every area).
+_SLASH_COMMENT_SUFFIXES = (".ts", ".tsx", ".js", ".mjs", ".cjs", ".swift", ".rs", ".go")
+_SLASH_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.S)
+_SLASH_LINE_COMMENT_RE = re.compile(r"(?<![:/\\])//[^\n]*")
+
+
+def _without_slash_comments(text: str) -> str:
+    """`text` without `//` line comments (a URL's `://` stays) and `/* */` blocks."""
+    return _SLASH_LINE_COMMENT_RE.sub("", _SLASH_BLOCK_COMMENT_RE.sub("", text))
 # Data files that name helpers without running them: git attributes, the
 # warm-source table, whose entries describe a source in prose (#28568), the
 # single-host fallback declaration, whose `fallback` lines name the rescue that
@@ -200,19 +211,27 @@ _NON_RUNNING_FILES = frozenset({
     ".github/ISSUE_TEMPLATE/config.yml",
     ".github/ISSUE_TEMPLATE/feature_request.yml",
     ".github/actionlint.yaml",
+    ".github/change-classes.json",
     ".github/checkout-lean.json",
     ".github/cloud-backend-paths.json",
+    ".github/cloud-harness-matrix/request",
     ".github/cloud-machine-count-probe/request",
+    ".github/cloud-staging-test-sweep/request",
     ".github/cloud-surge-proof/request",
+    ".github/cloud-vm-image-graduate/request",
     ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
     ".github/design-surfaces.json",
     ".github/gateway-e2e/request",
     ".github/github-token-budget.json",
+    ".github/golden-inputs.json",
+    ".github/hourly-full-tier.json",
     ".github/ios-review-gate-devices.json",
     ".github/labels.json",
     ".github/language-boundaries.toml",
+    ".github/mobile-worker-prod-deploy/request",
     ".github/nightly-known-bad.json",
     ".github/nightly-step-coverage.json",
+    ".github/piece-swap.json",
     ".github/post-merge-batch.json",
     ".github/post-merge-checks.json",
     ".github/release-thanks.json",
@@ -220,9 +239,12 @@ _NON_RUNNING_FILES = frozenset({
     ".github/runners.json",
     ".github/rust-workspaces.toml",
     ".github/single-host-fallbacks.json",
+    ".github/standalone-files.json",
     ".github/swift-warning-budget.tsv",
     ".github/warm-sources.json",
     ".github/workflow-job-bounds.json",
+    # The always-run job list job_inputs.py reads: job names, not commands.
+    "scripts/ci/job-inputs-always.json",
 })
 
 
@@ -319,6 +341,13 @@ def searchable_files(root: Path, pathspec: str) -> Optional[frozenset[str]]:
     return frozenset(result.stdout.splitlines())
 
 
+def _is_docs_table(path: str) -> bool:
+    """A table under docs/ that local tools read, never CI (#61514's
+    docs/benches/relevance-map.toml lists the tests a path's bench runs, and
+    made every helper those tests reach route to every area)."""
+    return path.startswith("docs/") and path.endswith((".toml", ".json", ".yml", ".yaml"))
+
+
 def referrer_role(path: str) -> Optional[str]:
     """What ci_helper_areas() makes of a tracked file that names a helper, or
     None when it cannot place the file and so answers every area.
@@ -330,9 +359,19 @@ def referrer_role(path: str) -> Optional[str]:
     """
     if path.startswith(".github/workflows/"):
         return "workflow"
-    if path.endswith(_DOCUMENTATION_SUFFIXES):
+    if path == "ci/steps.toml":
+        # The CI v2 step table: pr-pipeline.yml runs its steps, routed by their
+        # own `inputs`, outside ci.yml's call tree, so a dead end like that
+        # workflow. Its path lists named helpers and made them every area.
+        return "workflow"
+    if path.endswith(_DOCUMENTATION_SUFFIXES) or _is_docs_table(path):
         return "documentation"
     if path in _NON_RUNNING_FILES:
+        return "data"
+    if path.startswith("tests/fixtures/") and path.endswith((".yml", ".yaml", ".json")):
+        # A captured workflow or a table a test reads, never run as CI
+        # (#64464's base_red_excuse_step_mapping/cmux-63557-acpmux.yml snapshot
+        # named the warm-target helpers and made them every area).
         return "data"
     if path.startswith(".github/actions/") and path.endswith(("/action.yml", "/action.yaml")):
         return "action"
@@ -644,6 +683,8 @@ _MACOS_DERIVED_OUTPUTS = frozenset({
 _ROUTING_TABLES = frozenset({
     "scripts/ci/detect_ci_change_areas.py",
     "scripts/ci/detect_linux_guard_changes.py",
+    # The cargo fast tier's input list (#49682 put the warm-target helpers in it).
+    "scripts/ci/fast_tier_cargo_route.py",
     "scripts/ci/workflow_guard_groups.py",
 })
 # Files that list test paths without running them: the routing tables,
@@ -741,6 +782,16 @@ def _python_runner_names(root: Path, runner: str, test: str) -> Optional[bool]:
     return _python_names(text, test)
 
 
+def _shell_runner_names(root: Path, runner: str, test: str) -> Optional[bool]:
+    """Whether the shell script `runner` names `test` outside comments, or None
+    when it cannot be read (fail open)."""
+    try:
+        text = (root / runner).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return _names(text, test)
+
+
 def _nothing_imports_test(root: Path, test: str) -> bool:
     """True when no tracked file but the test, its inert registry entry, the
     test path lists and documentation names its module, outside a Python file
@@ -754,7 +805,7 @@ def _nothing_imports_test(root: Path, test: str) -> bool:
     if namers is None:
         return False
     for namer in namers:
-        if namer == test or namer in _TEST_PATH_LISTS or namer.endswith(_DOCUMENTATION_SUFFIXES):
+        if namer == test or namer in _TEST_PATH_LISTS or referrer_role(namer) in ("documentation", "data"):
             continue
         if is_test_registry_path(namer) and _registry_lane_is_inert(root, test):
             continue
@@ -913,6 +964,13 @@ def ci_helper_areas(
                     return every_area(f"could not read {referrer}")
                 if not _names(text, token):
                     continue
+            elif referrer.endswith(_SLASH_COMMENT_SUFFIXES):
+                try:
+                    text = (root / referrer).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    return every_area(f"could not read {referrer}")
+                if not _names(_without_slash_comments(text), token):
+                    continue
             if role == "action":
                 # An action runs in whatever job uses it; its directory is
                 # the token those jobs name.
@@ -920,6 +978,14 @@ def ci_helper_areas(
                 continue
             if role == "test":
                 if is_guard_only_test(referrer, test_references):
+                    continue
+                if (referrer.endswith(".py") and "/" not in referrer[len("tests/"):]
+                        and not Path(referrer).name.startswith("test_")
+                        and is_unrouted_test(referrer, test_references)):
+                    # A helper module tests import (tests/runs_on_labels.py,
+                    # tests/workflow_jobs.py) runs wherever those tests run:
+                    # walk on through its importers, as for a script.
+                    tokens.append(Path(referrer).stem)
                     continue
                 if is_unrouted_test(referrer, test_references):
                     runners = _files_naming(root, referrer)
@@ -933,7 +999,9 @@ def ci_helper_areas(
                         runner for runner in runners
                         if runner != referrer
                         and runner not in _TEST_PATH_LISTS
-                        and not runner.endswith(_DOCUMENTATION_SUFFIXES)
+                        # Nor does a data file or a table under docs/ that lists it
+                        # (.github/runners.json, docs/benches/relevance-map.toml).
+                        and referrer_role(runner) not in ("documentation", "data")
                         and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
                         # So does a script under scripts/ (scripts/cmux-next/tests/
                         # test_build_names.py names tests/test_script_module_loads.py
@@ -941,6 +1009,12 @@ def ci_helper_areas(
                         # that test reaches).
                         and not (runner.startswith(("tests/", "scripts/")) and runner.endswith(".py")
                                  and _python_runner_names(root, runner, referrer) is False)
+                        # A shell script that cites the test only in a comment
+                        # (scripts/ci/github-egress-run.sh, whose header names
+                        # tests/test_cmux_next_checks_workflow.py) does not run it.
+                        and not (runner.startswith(("tests/", "scripts/"))
+                                 and runner.endswith((".sh", ".bash", ".zsh"))
+                                 and _shell_runner_names(root, runner, referrer) is False)
                         # A test that runs this test is judged by the rule for a
                         # test that names the helper: a Linux guard test, or a
                         # manual-lane test nothing runs or imports, reaches no
@@ -956,7 +1030,7 @@ def ci_helper_areas(
                         # people run by hand, which no pull request job reaches.
                         continue
                     if runners and all(
-                        (runner.startswith(".github/workflows/") and runner not in routed)
+                        (referrer_role(runner) == "workflow" and runner not in routed)
                         or runner.startswith("scripts/")
                         for runner in runners
                     ):
@@ -1115,6 +1189,12 @@ SHARED_WEB_WORKFLOW_EXACT = frozenset({
     "scripts/generate-diff-sidecar-types.sh",
     "scripts/install-rust-ci.sh",
     "scripts/run-diff-sidecar-cargo.sh",
+})
+
+RELAY_PARAMS_RULE = frozenset({
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
+    "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
 })
 
 SHARED_WEB_WORKFLOW_PREFIXES = (
@@ -1285,6 +1365,11 @@ def is_web_change(path: str) -> bool:
     # these (web_subareas.UNIT_TESTS_EXACT); #38631 changed the catalog alone,
     # skipped Web tests and turned them red on base.
     if path in ("plans/cmux-next/action-surfaces.json", "schemas/settings/settings-schema.json"):
+        return True
+    # webviews/test/agent-pane-relay-params-contract.test.ts checks every key the page sends
+    # against the relay's params rule and its Rust mirror (web_subareas.REACT_EXACT): a PR that
+    # changes only the rule runs it too (cmux#46563 refused every handshake).
+    if path in RELAY_PARAMS_RULE:
         return True
     if is_web_bundle_input(path):
         return True
@@ -1835,7 +1920,12 @@ def test_registry_linux_only(base_path: Optional[Path]) -> bool:
 def classify_files(paths: Iterable[str], *,
                    ci_workflow_areas: Optional[ChangeAreas] = None,
                    macos_workflow_areas: Optional[ChangeAreas] = None,
-                   test_registry_linux_only: bool = False) -> ChangeAreas:
+                   test_registry_linux_only: bool = False,
+                   fallbacks: Optional[list[tuple[str, str]]] = None) -> ChangeAreas:
+    """`fallbacks`, when given, collects (rule, path) for every path a
+    fail-open rule broadened because the planner could not narrow it."""
+    if fallbacks is None:
+        fallbacks = []
     macos = False
     web = False
     agent_session_web = False
@@ -1858,6 +1948,7 @@ def classify_files(paths: Iterable[str], *,
             # Python lanes consume it indirectly through their lane runner.
             # A Linux reference alone cannot prove native execution unchanged.
             if not test_registry_linux_only:
+                fallbacks.append(("test_registry_not_linux_only", path))
                 macos = True
                 release_build = True
             continue
@@ -1887,6 +1978,7 @@ def classify_files(paths: Iterable[str], *,
                 release_build = release_build or helper_areas.release_build
                 continue
         if forces_all_areas(path):
+            fallbacks.append(("ci_yml_jobs_unreadable" if path == CI_WORKFLOW_PATH else "unowned_ci_helper", path))
             macos = True
             web = True
             agent_session_web = True
@@ -1910,6 +2002,8 @@ def classify_files(paths: Iterable[str], *,
             # only when a Release job or a job feeding it changed; without
             # the comparison, every job body including the Release check.
             macos = True
+            if macos_workflow_areas is None:
+                fallbacks.append(("ci_macos_yml_jobs_unreadable", path))
             if macos_workflow_areas is None or macos_workflow_areas.release_build:
                 release_build = True
             continue
@@ -1942,6 +2036,8 @@ def classify_files(paths: Iterable[str], *,
                 agent_session_web = agent_session_web or script_areas.agent_session_web
                 release_build = release_build or script_areas.release_build
                 continue
+            if is_walkable_script(path):
+                fallbacks.append(("unplaced_script", path))
             macos = True
             if not is_release_build_neutral(path):
                 release_build = True
@@ -1983,6 +2079,36 @@ def load_macos_workflow_areas(base_path: Optional[Path]) -> Optional[ChangeAreas
     release = "unknown" if selected is None else bool_output(selected.release_build)
     print(f"ci-macos.yml changed; a Release job or its input differs: {release}")
     return selected
+
+
+def plan_line(reason: str, fallbacks: list[tuple[str, str]]) -> str:
+    """One line naming the plan this run took, for a weekly roll-up of how
+    often PR CI falls back to a broad plan and which rule forced it
+    (docs/reading/2026-11-26-cloudflare-dns-targeted-zone-builds.md in
+    cmuxterm-hq). `full` is the post-merge run, broad by design; `fail_open`
+    is a PR run a fail-open rule broadened; `targeted` is a PR run the
+    planner placed path by path."""
+    if reason == "post_merge_event":
+        plan = "full"
+    elif reason or fallbacks:
+        plan = "fail_open"
+    else:
+        plan = "targeted"
+    rules: dict[str, int] = {}
+    for rule, _ in fallbacks:
+        rules[rule] = rules.get(rule, 0) + 1
+    if not reason:
+        reason = ",".join(f"{rule}:{count}" for rule, count in sorted(rules.items())) or "none"
+    first = f" first={fallbacks[0][1]}" if fallbacks else ""
+    return f"ci-plan v1 class={plan} fallback={reason}{first}"
+
+
+def emit_plan(line: str) -> None:
+    print(line)
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        # An annotation, so the roll-up reads it from the check run
+        # without downloading the job log.
+        print(f"::notice title=ci-plan::{line}")
 
 
 def run_git(args: list[str]) -> str:
@@ -2045,9 +2171,12 @@ def main(argv: list[str]) -> int:
         print(f"Non-PR event '{args.event_name or 'unknown'}'; running all CI areas.")
         write_outputs(areas, args.github_output)
         print("Resolved areas: " + " ".join(areas.as_output_lines()))
+        emit_plan(plan_line("post_merge_event", []))
         return 0
 
     files: list[str] = []
+    fallbacks: list[tuple[str, str]] = []
+    reason = ""
     try:
         if args.files_from:
             files = args.files_from.read_text(encoding="utf-8").splitlines()
@@ -2061,12 +2190,15 @@ def main(argv: list[str]) -> int:
                 ci_workflow_areas=load_ci_workflow_areas(args.ci_workflow_base),
                 macos_workflow_areas=load_macos_workflow_areas(args.macos_workflow_base),
                 test_registry_linux_only=test_registry_linux_only(args.test_registry_base),
+                fallbacks=fallbacks,
             )
         else:
             areas = ChangeAreas.all()
+            reason = "empty_diff"
             print("PR diff is empty; running all CI areas.")
     except Exception as error:
         areas = ChangeAreas.all()
+        reason = "classify_error"
         print(f"Could not classify diff, running all CI areas: {error}", file=sys.stderr)
 
     if files:
@@ -2078,6 +2210,7 @@ def main(argv: list[str]) -> int:
 
     write_outputs(areas, args.github_output)
     print("Resolved areas: " + " ".join(areas.as_output_lines()))
+    emit_plan(plan_line(reason, fallbacks))
     return 0
 
 

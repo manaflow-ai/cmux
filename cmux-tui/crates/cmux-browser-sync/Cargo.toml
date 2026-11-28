@@ -1,0 +1,29 @@
+[package]
+name = "cmux-browser-sync"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux browser sync (RFD 0125 D8): the profile list and its space and workspace bindings, server-readable and last writer wins per id with tombstones, over cmux-platform's /v1/sync/browser/records; and the end-to-end encrypted envelope for open tabs, with each profile key wrapped to each device and to a recovery key (server escrow is a switch, off)"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+cmux-egress.workspace = true
+base64.workspace = true
+getrandom.workspace = true
+reqwest.workspace = true
+ring.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+x25519-dalek.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+# Seeded-secret tests: gated clients send to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
+rustls.workspace = true
+tokio.workspace = true

@@ -268,6 +268,72 @@ pub fn ranked(
     rows.into_iter().map(|(_, index)| index).collect()
 }
 
+/// The palette ranker with the last keystroke's entries installed, so the next keystroke ranks
+/// without folding every title again and, when it extends the query, scores only the chats the
+/// shorter query could still lead to (`cmux_palette_ranker::Ranker`). A keystroke that finds
+/// other entries (a chat renamed, added, filtered differently) installs them first.
+#[derive(Default)]
+pub struct TitleRanker {
+    held: std::sync::Mutex<Option<Held>>,
+}
+
+struct Held {
+    version: i64,
+    entries: Vec<cmux_palette_ranker::Entry>,
+    ranker: cmux_palette_ranker::Ranker,
+}
+
+fn same_entries(a: &[cmux_palette_ranker::Entry], b: &[cmux_palette_ranker::Entry]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(a, b)| {
+            a.title == b.title
+                && a.keywords == b.keywords
+                && a.subtitle == b.subtitle
+                && a.frecency_key == b.frecency_key
+        })
+}
+
+impl TitleRanker {
+    /// [`ranked`], reusing what the last call installed when `entries` are the same.
+    pub fn rank(
+        &self,
+        query: &str,
+        entries: Vec<cmux_palette_ranker::Entry>,
+        history: Option<(f64, cmux_palette_ranker::Frecency)>,
+    ) -> Vec<usize> {
+        let mut held = self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let version = match held.as_ref() {
+            Some(h) if same_entries(&h.entries, &entries) => h.version,
+            other => {
+                let version = other.map_or(0, |h| h.version + 1);
+                let mut ranker = cmux_palette_ranker::Ranker::new();
+                ranker.install(version, entries.clone());
+                *held = Some(Held { version, entries, ranker });
+                version
+            }
+        };
+        let Some(h) = held.as_ref() else { return Vec::new() };
+        let count = i64::try_from(h.entries.len()).unwrap_or(i64::MAX);
+        let (now, frecency) =
+            history.map_or((None, None), |(now, frecency)| (Some(now), Some(frecency)));
+        let request = cmux_palette_ranker::RankRequest {
+            operation: "rank".to_owned(),
+            version: Some(version),
+            query: Some(query.to_owned()),
+            frecency,
+            now,
+            row_limit: Some(count),
+            highlight_limit: Some(0),
+            ..Default::default()
+        };
+        let mut rows: Vec<(i64, usize)> = Vec::new();
+        for section in h.ranker.rank(&request).unwrap_or_default() {
+            rows.extend(section.rows.into_iter().map(|row| (row.score, row.index)));
+        }
+        rows.into_iter().map(|(_, index)| index).collect()
+    }
+}
+
 /// The rows of `spec` in `index`: one walk of the index in its order (newest first) that stops
 /// once the window is full and one more chat passes; a value is built only for a chat the filter
 /// and the exclusions pass.
@@ -366,7 +432,11 @@ fn ranked_rows(
         ));
         candidates.push((key, chat));
     }
-    let order = ranked(query, entries, spec.history.as_ref().map(|h| (h.now, h.frecency.clone())));
+    let history = spec.history.as_ref().map(|h| (h.now, h.frecency.clone()));
+    let order = match text {
+        Some(text) => text.titles().rank(query, entries, history),
+        None => ranked(query, entries, history),
+    };
     let mut total = order.len();
     let mut rows: Vec<Row> = order
         .iter()
@@ -523,229 +593,5 @@ impl WindowState {
 mod scale_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn spec(params: Value) -> WindowSpec {
-        WindowSpec::from_params(&params).unwrap()
-    }
-
-    fn row(key: &str, title: &str) -> Row {
-        (key.to_owned(), json!({"key": key, "title": title}))
-    }
-
-    fn entry(title: &str, cwd: &str, harness: &str) -> cmux_palette_ranker::Entry {
-        rank_entry(
-            &format!("{harness}:{title}"),
-            Some(title),
-            "New chat",
-            Some(cwd),
-            harness,
-            Some("/Users/me"),
-        )
-    }
-
-    /// The palette's chats page found a chat by its harness and by words anywhere in it (review of
-    /// #28090: a substring search lost both); the window ranks with the same ranker.
-    #[test]
-    fn a_query_finds_chats_by_harness_and_by_words_that_are_not_adjacent() {
-        let entries = || {
-            vec![
-                entry("Fix the flaky build", "/Users/me/cmux", "claude-code"),
-                entry("Port the parser", "/Users/me/tools", "codex"),
-                entry("Write the docs", "/Users/me/site", "codex"),
-            ]
-        };
-        let mut codex = ranked("codex", entries(), None);
-        codex.sort_unstable();
-        assert_eq!(codex, vec![1, 2], "a harness name finds that harness's chats");
-        assert_eq!(
-            ranked("fix build", entries(), None),
-            vec![0],
-            "two words that are not next to each other"
-        );
-        assert_eq!(ranked("tools", entries(), None), vec![1], "the folder");
-        let untitled = rank_entry("codex:u", None, "New chat", None, "codex", None);
-        assert_eq!(
-            ranked("new chat", vec![untitled], None),
-            vec![0],
-            "an untitled chat by the client's word"
-        );
-    }
-
-    /// The palette ranked a chat the person chose before above one with the same match.
-    #[test]
-    fn a_chat_chosen_before_ranks_first_among_equal_matches() {
-        let entries = || {
-            vec![
-                rank_entry("codex:a", Some("Fix the build"), "New chat", None, "codex", None),
-                rank_entry("codex:b", Some("Fix the build"), "New chat", None, "codex", None),
-            ]
-        };
-        assert_eq!(ranked("fix build", entries(), None), vec![0, 1], "no history: the index order");
-        let frecency: cmux_palette_ranker::Frecency = serde_json::from_value(json!({
-            "entries": {"chat:codex:b": {"score": 3.0, "lastUsed": 990.0}}, "halfLife": 259_200.0
-        }))
-        .unwrap();
-        assert_eq!(
-            ranked("fix build", entries(), Some((1_000.0, frecency))),
-            vec![1, 0],
-            "the chosen chat first"
-        );
-    }
-
-    #[test]
-    fn a_query_window_reports_how_many_matched() {
-        let mut state = WindowState::new(spec(json!({"window": "w", "query": "x"})), 0);
-        let full = state
-            .next(WindowRows {
-                rows: vec![row("a:1", "one")],
-                has_more: true,
-                total: Some(250),
-                ..Default::default()
-            })
-            .unwrap();
-        assert_eq!(full["total"], 250);
-        let mut plain = WindowState::new(spec(json!({"window": "w"})), 0);
-        assert!(plain.next(WindowRows::default()).unwrap().get("total").is_none());
-    }
-
-    #[test]
-    fn a_spec_needs_its_window_name_and_reads_its_lists() {
-        assert!(WindowSpec::from_params(&json!({})).is_err());
-        assert!(WindowSpec::from_params(&json!({"window": "w", "exclude": "x"})).is_err());
-        assert!(WindowSpec::from_params(&json!({"window": "w", "topLevel": 1})).is_err());
-        assert!(WindowSpec::from_params(&json!({"window": "w", "gen": -1})).is_err());
-        assert_eq!(spec(json!({"window": "w", "gen": 7})).generation, 7);
-        let s = spec(json!({"window": "w", "limit": 3, "exclude": ["a:1"], "keys": ["b:2"]}));
-        assert_eq!(s.filter.limit, 3);
-        assert!(s.exclude.contains("a:1"));
-        assert_eq!(s.keys, Some(vec!["b:2".to_owned()]));
-    }
-
-    #[test]
-    fn the_first_message_is_full_and_later_ones_carry_only_changed_rows() {
-        let mut state = WindowState::new(spec(json!({"window": "w"})), 0);
-        let first = WindowRows {
-            rows: vec![row("a:1", "one"), row("a:2", "two")],
-            has_more: true,
-            total: None,
-            ..Default::default()
-        };
-        let full = state.next(first.clone()).unwrap();
-        assert_eq!(full["full"], true);
-        assert_eq!(full["revision"], 1);
-        assert_eq!(full["gen"], 0);
-        assert_eq!(full["rows"].as_array().unwrap().len(), 2);
-        assert_eq!(state.next(first), None, "nothing new, nothing sent");
-        let moved = WindowRows {
-            rows: vec![row("a:2", "two"), row("a:1", "one, renamed")],
-            has_more: true,
-            total: None,
-            ..Default::default()
-        };
-        let diff = state.next(moved).unwrap();
-        assert_eq!(diff["full"], false);
-        assert_eq!(diff["revision"], 2);
-        assert_eq!(diff["keys"], json!(["a:2", "a:1"]));
-        assert_eq!(diff["rows"], json!([{"key": "a:1", "title": "one, renamed"}]));
-        let more = WindowRows {
-            rows: vec![row("a:2", "two"), row("a:1", "one, renamed")],
-            has_more: false,
-            total: None,
-            ..Default::default()
-        };
-        let diff = state.next(more).unwrap();
-        assert_eq!(diff["rows"], json!([]), "only hasMore changed");
-        assert_eq!(diff["hasMore"], false);
-    }
-
-    /// A chat's activity change recomputes only the windows that may show it: before, every
-    /// status, turn and permission record of any session recomputed every window, each reading
-    /// the whole index.
-    #[test]
-    fn only_a_window_that_shows_a_chat_recomputes_for_its_activity() {
-        let mut state = WindowState::new(spec(json!({"window": "w", "topLevel": true})), 0);
-        assert!(state.shows_activity_of(Some("a:9"), "status", &mut || false), "nothing sent yet");
-        let parented = ("a:2".to_owned(), json!({"key": "a:2", "parent": "a:7"}));
-        let mut folded = HashSet::new();
-        folded.insert("a:5".to_owned());
-        state.next(WindowRows {
-            rows: vec![row("a:1", "one"), parented],
-            has_more: true,
-            total: None,
-            filling: false,
-            folded,
-        });
-        assert!(state.shows_activity_of(Some("a:1"), "status", &mut || false), "a row it shows");
-        assert!(state.shows_activity_of(Some("a:7"), "turn_end", &mut || false), "a row's parent");
-        assert!(
-            state.shows_activity_of(Some("a:5"), "status", &mut || false),
-            "folded or read past the page"
-        );
-        assert!(
-            !state.shows_activity_of(Some("a:9"), "status", &mut || false),
-            "a chat past the window"
-        );
-        assert!(!state.shows_activity_of(None, "status", &mut || false), "a session with no chat");
-        assert!(
-            state.shows_activity_of(Some("a:9"), "tags", &mut || false),
-            "tags may fold or unfold rows"
-        );
-        assert!(state.shows_activity_of(None, "purged", &mut || false));
-        // A refresh that sends nothing still keeps the chats it folded.
-        let parented = ("a:2".to_owned(), json!({"key": "a:2", "parent": "a:7"}));
-        let same = |folded: HashSet<String>| WindowRows {
-            rows: vec![row("a:1", "one"), parented.clone()],
-            has_more: true,
-            total: None,
-            filling: false,
-            folded,
-        };
-        assert_eq!(state.next(same(HashSet::from(["a:6".to_owned()]))), None);
-        assert!(
-            state.shows_activity_of(Some("a:6"), "status", &mut || false),
-            "a chat folded since"
-        );
-        assert!(
-            !state.shows_activity_of(Some("a:5"), "status", &mut || false),
-            "a chat no longer folded"
-        );
-        let mut ranked =
-            WindowState::new(spec(json!({"window": "q", "topLevel": true, "query": "x"})), 0);
-        ranked.next(WindowRows {
-            rows: vec![row("a:1", "one")],
-            folded: HashSet::from(["a:5".to_owned()]),
-            ..Default::default()
-        });
-        // A ranked window reads every chat's fold: a chat counts when its fold moved.
-        assert!(!ranked.shows_activity_of(Some("a:9"), "status", &mut || false), "fold stays");
-        assert!(!ranked.shows_activity_of(Some("a:5"), "status", &mut || true), "stays folded");
-        assert!(ranked.shows_activity_of(Some("a:9"), "status", &mut || true), "folds");
-        assert!(ranked.shows_activity_of(Some("a:5"), "status", &mut || false), "unfolds");
-        assert!(ranked.shows_activity_of(Some("a:1"), "status", &mut || false), "a row it shows");
-    }
-
-    #[test]
-    fn a_replaced_spec_sends_every_row_again_with_a_later_revision() {
-        let mut state = WindowState::new(spec(json!({"window": "w"})), 0);
-        state.next(WindowRows {
-            rows: vec![row("a:1", "one")],
-            has_more: false,
-            total: None,
-            ..Default::default()
-        });
-        let mut replaced =
-            WindowState::new(spec(json!({"window": "w", "limit": 5})), state.revision());
-        let full = replaced
-            .next(WindowRows {
-                rows: vec![row("a:1", "one")],
-                has_more: false,
-                total: None,
-                ..Default::default()
-            })
-            .unwrap();
-        assert_eq!(full["full"], true);
-        assert_eq!(full["revision"], 2);
-    }
-}
+#[path = "window_tests.rs"]
+mod tests;

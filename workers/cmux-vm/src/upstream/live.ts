@@ -14,9 +14,10 @@ import { makeRetireVm } from "./live-retire.ts";
 import { makeClientSessions } from "./live-client-sessions.ts";
 import { makeStatFile } from "./live-file-stat.ts";
 import { vmInstanceIdentity } from "./live-identity.ts";
-import { makeDurableCreate, makeRecoverCreation, makeInspectCancellation, makeDeleteCancellation } from "./live-create.ts";
+import { admitSend, makeDurableCreate, makeRecoverCreation, makeInspectCancellation, makeDeleteCancellation } from "./live-create.ts";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
+import type { CreateAdmissionClient } from "../limits/create-admission.ts";
 import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import {
   UpstreamClient,
@@ -29,7 +30,8 @@ import {
 } from "./client.ts";
 import { execResultStream } from "./exec-stream.ts";
 import { awaitBackground, BACKGROUND_AFTER_HEADER, BACKGROUND_AFTER_SECS, DEFAULT_BACKGROUND_POLL_MS } from "./live-background.ts";
-import { timedUpstream, timedUpstreamBody } from "./timing.ts";
+import { timedStep, timedUpstream, timedUpstreamBody } from "./timing.ts";
+import { afterResponse } from "../db/sql.ts";
 
 const DirListing = Schema.Struct({
   entries: Schema.Array(Schema.Struct({ name: Schema.String, kind: Schema.String })),
@@ -72,7 +74,21 @@ export interface UpstreamConfig {
   readonly timeoutMs?: number;
   /** How often a background request's stored result is polled (live-background.ts); tests set 1. */
   readonly backgroundPollMs?: number;
+  /** How long background polls may fail before the request is unanswered (tests set it lower). */
+  readonly backgroundOutageMs?: number;
+  /** How often a disk grow re-reads a VM that is still starting (GROW_START_POLLS times); tests set 1. */
+  readonly startPollMs?: number;
+  /** The environment's provider create queue (limits/create-admission.ts); none sends every create at once. */
+  readonly createAdmission?: CreateAdmissionClient;
 }
+
+/**
+ * A disk grow needs a running VM. One asked of a VM the provider still reports "starting" (a
+ * Cloud chat grows its disk right after the machine first answers, while the provider's state can
+ * lag: production 2026-11-26 01:08-01:29Z, 18 such 409s) waits for it, at most this many reads.
+ */
+const GROW_START_POLLS = 30;
+const DEFAULT_START_POLL_MS = 2_000;
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 /** Booting, snapshotting and shutting down can take longer than a read. */
@@ -209,7 +225,12 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
   return {
     ...vmInstanceIdentity,
     resizeVm: (_vm, { owns }, size) => Effect.flatMap(idOf(owns), (id) => Effect.gen(function* () {
-      const current = yield* getVmById("resizeVm", id);
+      let current = yield* getVmById("resizeVm", id);
+      const growsDisk = size.diskMib !== undefined && size.diskMib > current.resources.storage;
+      for (let read = 0; growsDisk && current.state === "starting" && read < GROW_START_POLLS; read += 1) {
+        yield* Effect.sleep(config.startPollMs ?? DEFAULT_START_POLL_MS);
+        current = yield* getVmById("resizeVm", id);
+      }
       if (size.diskMib !== undefined && size.diskMib > current.resources.storage && current.state !== "running") {
         return yield* Effect.fail(new UpstreamError({ operation: "resizeVm", status: 409 }));
       }
@@ -236,7 +257,15 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
     deleteCancellingCreation: makeDeleteCancellation(config),
     createVm: makeDurableCreate(config, baseImageFor),
 
-    startVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => vmAction("startVm", id, "start")),
+    startVm: (_vm, { owns }, priority) => Effect.gen(function* () {
+      const id = yield* idOf(owns);
+      const admit = admitSend(config.createAdmission, `start:${crypto.randomUUID()}`, undefined, priority?.background === true, priority?.tenant);
+      const release = yield* (config.createAdmission === undefined ? admit : timedStep("admit", admit));
+      // The slot goes back after the answer (waitUntil), not before it: the release was a second round trip to the
+      // environment's one queue object on every start's response path (cmuxterm-hq goals/cloud-resume-gap.md). A
+      // slot held a few ms longer only delays the next waiter by as much; its lease still bounds a lost release.
+      return yield* vmAction("startVm", id, "start").pipe(Effect.ensuring(afterResponse(release)));
+    }),
 
     pauseVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => vmAction("pauseVm", id, "pause")),
 
@@ -290,7 +319,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
         }).pipe(
           Effect.flatMap((response) =>
             response.status === 202
-              ? awaitBackground(send, "execVm", response, base.origin, deadlineAt, config.backgroundPollMs ?? DEFAULT_BACKGROUND_POLL_MS)
+              ? awaitBackground(send, "execVm", response, base.origin, deadlineAt, config.backgroundPollMs ?? DEFAULT_BACKGROUND_POLL_MS, config.backgroundOutageMs)
               : Effect.succeed(response),
           ),
           Effect.flatMap((response) =>
@@ -341,8 +370,17 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
 }
 
 /**
- * The live client from Worker configuration. The key is wrapped in Redacted at
- * once. Built eagerly, so a bad base URL throws here (src/index.ts answers 503).
+ * The client's configuration from Worker configuration: every field as given, the key wrapped in Redacted at once.
+ * The whole config is spread, never rebuilt field by field: the layer used to copy three named fields, so the
+ * provider create queue src/index.ts passed (`createAdmission`, cmux#61073) never reached the client and staging sent
+ * every create of a burst at once (2026-11-27 08:46Z, no vm_create line with admitWaitMs). The test harness builds
+ * its client through this too, so a dropped field fails the Worker tests.
  */
-export const upstreamLayer = (config: { readonly baseUrl: string; readonly apiKey: string; readonly environment: Environment }): Layer.Layer<UpstreamClient> =>
-  Layer.succeed(UpstreamClient, makeUpstreamClient({ baseUrl: config.baseUrl, apiKey: Redacted.make(config.apiKey), environment: config.environment }));
+export const upstreamConfigOf = (config: Omit<UpstreamConfig, "apiKey"> & { readonly apiKey: string }): UpstreamConfig => ({
+  ...config,
+  apiKey: Redacted.make(config.apiKey),
+});
+
+/** The live client from Worker configuration. Built eagerly, so a bad base URL throws here (src/index.ts answers 503). */
+export const upstreamLayer = (config: Omit<UpstreamConfig, "apiKey"> & { readonly apiKey: string }): Layer.Layer<UpstreamClient> =>
+  Layer.succeed(UpstreamClient, makeUpstreamClient(upstreamConfigOf(config)));

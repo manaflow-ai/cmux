@@ -204,6 +204,21 @@ fn protocol_keyed_params_are_closed_and_name_the_request_meta() {
     }
 }
 
+#[test]
+fn protocol_claude_login_accepts_an_optional_recovery_session() {
+    let ir: serde_json::Value = serde_json::from_str(&ir_text()).unwrap();
+    for name in ["AgentLoginStartParams", "AgentLoginFinishParams"] {
+        let params = &ir["types"][name];
+        assert_eq!(params["additionalProperties"], false);
+        assert_eq!(params["properties"]["recoverySession"], true);
+        assert!(
+            params["required"]
+                .as_array()
+                .is_none_or(|fields| { !fields.iter().any(|field| field == "recoverySession") })
+        );
+    }
+}
+
 /// Every `_meta.acpmux` key acpmux's own clients put in a request (the CLI, the hand, the TUI, a peer's
 /// `initialize`) is one [`super::params::AcpmuxRequestMeta`] lists, so the closed type accepts acpmux's own
 /// requests: `acpmux send --class/--thread`, `run --effort/--tag`, a peer's `compression` offer.
@@ -252,6 +267,24 @@ fn protocol_request_meta_lists_every_key_acpmux_clients_send() {
 /// removed enum value, a result turning nullable) needs a rule in
 /// `spec/acpmux-abi.compat.json`. Additive changes are free:
 /// `ACPMUX_PROTOCOL_BLESS=1` refreshes `spec/acpmux-abi.surface.json` with the IR.
+#[test]
+fn abi_is_the_compat_files_newest_revision() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("spec/acpmux-abi.compat.json");
+    let schema = cmux_api_compat::Schema::from_json(&std::fs::read(path).expect("compat file"))
+        .expect("compat file parses");
+    assert_eq!(super::ABI, schema.current(), "bump protocol::ABI with the compat file's revision");
+}
+
+#[test]
+fn a_peer_without_abi_reads_as_zero() {
+    use serde_json::json;
+    assert_eq!(super::peer_abi(&json!({})), 0);
+    assert_eq!(super::peer_abi(&json!({"_meta": {"acpmux": {"build": "x"}}})), 0);
+    assert_eq!(super::peer_abi(&json!({"_meta": {"acpmux": {"abi": "1"}}})), 0);
+    assert_eq!(super::peer_abi(&json!({"_meta": {"acpmux": {"abi": 1}}})), 1);
+    assert_eq!(super::peer_abi(&json!({"_meta": {"acpmux": {"abi": u64::MAX}}})), 0);
+}
+
 #[test]
 fn protocol_abi_breaks_have_rules() {
     let spec = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("spec");

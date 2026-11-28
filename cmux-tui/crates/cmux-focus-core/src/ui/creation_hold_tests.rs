@@ -244,7 +244,7 @@ fn a_close_tab_key_in_a_shown_new_workspace_waits_behind_the_new_tab_keys_kept_f
     let kinds = tab_kinds(&[CMD_T, CMD_W]);
     hold.capture(CMD_T, true, Some("old"), true, false, Some("old-pane".into()));
     hold.capture(CMD_T + 100, true, Some("old"), true, false, Some("old-pane".into()));
-    let mut kinds2 = kinds.clone();
+    let mut kinds2 = kinds;
     kinds2.kinds.insert(CMD_T + 100, TabKey::Makes);
     assert!(hold.close_key_acts_now(
         true,

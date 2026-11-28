@@ -69,7 +69,6 @@
 .compare-preview-bar { display: flex; align-items: center; justify-content: space-between; gap: 7px; min-height: 30px; border-bottom: 1px solid var(--compare-line); padding: 7px 10px; color: var(--compare-muted); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .compare-preview-bar strong { color: var(--compare-ink); font-size: var(--text-caption); font-weight: 600; letter-spacing: var(--text-caption--letter-spacing); }
 .compare-preview-bar strong span { color: var(--compare-green); }
-.compare-preview-key { padding: 2px 5px; border: 1px solid var(--compare-line); border-radius: 3px; font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .compare-preview-body { display: flex; min-height: 128px; }
 .compare-preview-body aside { display: flex; flex: 0 0 92px; flex-direction: column; gap: 10px; border-right: 1px solid var(--compare-line); padding: 12px 9px; color: var(--compare-muted); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .compare-preview-body aside b { color: var(--compare-ink); font-size: var(--text-caption); font-weight: 600; letter-spacing: var(--text-caption--letter-spacing); }

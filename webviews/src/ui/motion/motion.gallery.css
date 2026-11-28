@@ -226,6 +226,21 @@
   --cmux-hover-reveal-in-ease: cubic-bezier(0, 0, 0.58, 1);
   --cmux-hover-reveal-out: 300ms;
 }
+/* The queued row's arms (agent-session/acpmux/styles.css --acpmux-queued-reveal-*). */
+.dwell-demo[data-curve^="queued-"] {
+  --cmux-hover-reveal-in-ease: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+  --cmux-hover-reveal-out: var(--cmux-motion-quick, 80ms);
+  --cmux-hover-reveal-out-ease: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+}
+.dwell-demo[data-curve="queued-90"] {
+  --cmux-hover-reveal-in: 90ms; /* motion-allow: a gallery arm under test */
+}
+.dwell-demo[data-curve="queued-120"] {
+  --cmux-hover-reveal-in: var(--cmux-motion-micro, 120ms);
+}
+.dwell-demo[data-curve="queued-150"] {
+  --cmux-hover-reveal-in: 150ms; /* motion-allow: a gallery arm under test */
+}
 /* Before: 100 ms of delay, then 120 ms on a snap curve, out in 80 ms (conversation.css on base). */
 .dwell-demo[data-curve="before"] {
   --cmux-hover-reveal-in: 120ms;
