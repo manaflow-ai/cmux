@@ -56,6 +56,10 @@ const PING: &str = r#"{"v":1,"t":"ping"}"#;
 const PING_EVERY: Duration = Duration::from_secs(20);
 /// Nothing heard for this long (the API answers every ping with a pong): the path is dead, so redial.
 const SILENT_FOR: Duration = Duration::from_secs(70);
+/// A call whose body has not arrived whole (`body_end`) this long after its `request` frame is given up: its body bytes
+/// go back to [`MAX_HELD_BYTES`] and the API hears an error, so a call the API lost mid-body (a guest gone, a frame
+/// dropped) cannot hold the gateway's room until the socket next reconnects (review follow-up on #37434, I37612-1).
+const PENDING_FOR: Duration = Duration::from_secs(120);
 /// Calls this gateway takes at once (equal to the API's cap per team); one more waits for a slot ([`Slots`]).
 const MAX_CALLS: usize = 256;
 /// How long a call past the cap waits for a slot, by priority, before it is answered a 529 (the same bounds as
@@ -812,6 +816,9 @@ async fn session(
         let _ = sink.close().await;
     });
     let mut pending: HashMap<String, Pending> = HashMap::new();
+    // When each pending call's `request` frame came (PENDING_FOR); an entry whose call left `pending` is dropped on
+    // the next watch tick.
+    let mut pending_at: HashMap<String, tokio::time::Instant> = HashMap::new();
     // Each running call's task and the body bytes it holds.
     let mut running: HashMap<String, (tokio::task::AbortHandle, usize)> = HashMap::new();
     let mut held = 0usize;
@@ -856,6 +863,17 @@ async fn session(
             _ = watch.tick() => {
                 if heard.elapsed() > SILENT_FOR {
                     break Ended::Closed(format!("nothing heard for {} s", SILENT_FOR.as_secs()));
+                }
+                pending_at.retain(|id, _| pending.contains_key(id));
+                for id in expired(&pending_at, tokio::time::Instant::now(), PENDING_FOR) {
+                    pending_at.remove(&id);
+                    if let Some(call) = pending.remove(&id) {
+                        held -= call.body.len();
+                        log(&format!("{} {}: the body did not arrive whole in {} s", printable(&call.method),
+                            log_path(&call.path), PENDING_FOR.as_secs()));
+                        send(&tx, &error_frame(&id, "inference.bad_request", "the request body did not arrive whole"))
+                            .await;
+                    }
                 }
                 continue
             }
@@ -918,7 +936,9 @@ async fn session(
                     .unwrap_or_default();
                 // No slot yet: the body's bytes are bounded by MAX_HELD_BYTES, and the call takes its slot (or
                 // waits for one) once its body is whole (`body_end`).
-                pending.insert(
+                pending_at.insert(id.clone(), tokio::time::Instant::now());
+                // A repeated id replaces its earlier call, whose held bytes go back.
+                let replaced = pending.insert(
                     id,
                     Pending {
                         method: frame
@@ -935,6 +955,9 @@ async fn session(
                         body: Vec::new(),
                     },
                 );
+                if let Some(call) = replaced {
+                    held -= call.body.len();
+                }
             }
             Some("body") => {
                 let Some(call) = pending.get_mut(&id) else { continue };
@@ -996,6 +1019,19 @@ async fn session(
     drop(tx);
     let _ = writer.await;
     ended
+}
+
+/// The pending calls (by `request` frame time) older than `limit` at `now`. Pure, for the tests.
+fn expired(
+    since: &HashMap<String, tokio::time::Instant>,
+    now: tokio::time::Instant,
+    limit: Duration,
+) -> Vec<String> {
+    since
+        .iter()
+        .filter(|(_, at)| now.duration_since(**at) >= limit)
+        .map(|(id, _)| id.clone())
+        .collect()
 }
 
 /// Whether a call with `headers` (lowercase names) is taken while `in_flight` calls run: an interactive
@@ -1150,6 +1186,9 @@ fn error_frame(id: &str, code: &str, message: &str) -> Value {
 /// One call: to the provider, and its answer back down the socket as it streams.
 async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<String>) {
     let started = Instant::now();
+    // Wall clock (unix ms) when this gateway took the call: the Cloud probe sets it against the machine's prompt time
+    // to split the machine's prompt-to-first-output into before the call reached here and the provider's wait.
+    let taken_at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis());
     let machine = call
         .headers
         .iter()
@@ -1226,15 +1265,9 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
             }
         }
     }
-    log(&call_line(
-        &machine,
-        &call.method,
-        &path,
-        status,
-        started.elapsed().as_millis(),
-        head_ms,
-        first_ms,
-    ));
+    let timing =
+        CallTiming { total_ms: started.elapsed().as_millis(), head_ms, first_ms, taken_at };
+    log(&call_line(&machine, &call.method, &path, status, &timing));
     send(tx, &json!({"v": 1, "t": "end", "id": id})).await;
 }
 
@@ -1251,21 +1284,25 @@ fn start_warm(
     scope.spawn_until_cancelled("inference gateway warm-up", async move { upstream.warm().await })
 }
 
-/// An answered call's log line: the whole call, then when the provider's head and first body bytes came, so a slow
-/// call shows whether the wait was before the first token (the provider, its route, the connection) or in the stream.
-/// The `-> STATUS (TOTAL ms` start is the shape the Cloud probes read (cmuxterm-hq cloud_chat_app_probe.py).
-fn call_line(
-    machine: &str,
-    method: &str,
-    path: &str,
-    status: u16,
+/// An answered call's times: the whole call, the provider's head and first body bytes (ms from `taken_at`), and
+/// `taken_at` itself, the wall clock (unix ms) when the gateway took the call.
+#[derive(Clone, Copy)]
+struct CallTiming {
     total_ms: u128,
     head_ms: u128,
     first_ms: Option<u128>,
-) -> String {
+    taken_at: u128,
+}
+
+/// An answered call's log line: the whole call, then when the provider's head and first body bytes came, so a slow
+/// call shows whether the wait was before the first token (the provider, its route, the connection) or in the stream.
+/// The `-> STATUS (TOTAL ms` start is the shape the Cloud probes read (cmuxterm-hq cloud_chat_app_probe.py); `at` is
+/// when the gateway took the call (unix ms), which the probe sets against the machine's prompt time (`turn_ms`).
+fn call_line(machine: &str, method: &str, path: &str, status: u16, timing: &CallTiming) -> String {
+    let CallTiming { total_ms, head_ms, first_ms, taken_at } = *timing;
     let first = first_ms.map_or_else(|| "none".to_owned(), |ms| format!("{ms} ms"));
     format!(
-        "{machine} {} {path} -> {status} ({total_ms} ms, head {head_ms} ms, first data {first})",
+        "{machine} {} {path} -> {status} ({total_ms} ms, head {head_ms} ms, first data {first}, at {taken_at})",
         printable(method)
     )
 }

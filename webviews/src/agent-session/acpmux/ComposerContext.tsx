@@ -36,7 +36,6 @@ import {
 } from "./cloudMachines";
 import {
   environmentReady,
-  environmentPickable,
   environmentSections,
   knownMachines,
   orderEnvironments,
@@ -46,13 +45,15 @@ import {
   type EnvironmentKind,
   type OffloadKind,
   type OffloadReasons,
+  environmentPickable,
   type PeerGroup,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
-import { FolderPopover, isGitHubLocation } from "./FolderPopover";
+import { FolderPopover } from "./FolderPopover";
+import { isGitHubLocation } from "./folderRows";
 import { cloudRepositoryPick, cloudSourceFolders, type CloudFolder } from "./sourcePickerModel";
-import { GitHubMark, GitHubGlyph } from "./GitHubIcons";
+import { GitHubGlyph, GitHubMark } from "./GitHubIcons";
 import { githubFolderRepo, useGitHubPicker, type GitHubPicker } from "./githubRepos";
 import { ExtraFolderList } from "./ExtraFolderList";
 import {
@@ -92,8 +93,8 @@ import {
   folderMenu,
   type FolderChipState,
 } from "./folderlessCloud";
-import { chatComputerId, ownMachineName, type ChatPlace, routeOnOwnCloud } from "./chatMachine";
-import { useMachineCard } from "./MachineCard";
+import { chatComputerId, ownMachineName, routeOnOwnCloud, type ChatPlace } from "./chatMachine";
+import { useMachineCard } from "./useMachineCard";
 import { AutoIcon } from "./AutoWhere";
 import { AUTO_LOOK } from "./autoWhereModel";
 import { useSameValue } from "./session-info/sameValue";
