@@ -1,7 +1,7 @@
 # Default-grid Ghostty instruction detector
 
-> Draft: native measurements and baseline are pending. Do not merge until the
-> managed study proves warm reuse, mutation rejection and acceptable CPU/wall cost.
+> Native study passed. Reuse of the target artifact across jobs remains unverified;
+> same-job `Fresh` output does not prove artifact reuse.
 
 Leo: “these feel extremely mockable to be de facto enough”.
 
@@ -63,4 +63,34 @@ and an unchanged-original check. Mutations use a separate example and leave the
 production source intact. Invoke `scripts/bench/phone-default-speed/study.py`
 through `cmux-ci test`, with `/tmp/phone-default-speed-receipt` as the artifact.
 It records a candidate baseline only in study mode, never in the gating path.
-Cold/warm costs and the actual baseline receipt must be added before merging.
+
+## Native study receipt
+
+Fleet job `2978cff4b2873d8e3b2af071` ran source
+[`e2e5d1978520074bd0d568ac1751ffd2a92590a0`](https://github.com/manaflow-ai/cmux/commit/e2e5d1978520074bd0d568ac1751ffd2a92590a0)
+with Ghostty pin `5c01c7171dc2c00d486f231adda7fb5bf6e55c97`, Rust 1.95.0 and the
+baseline Zig CPU setting. [study-receipt.json](study-receipt.json) preserves the
+source identity, per-command costs and mutation results. [baseline.tsv](baseline.tsv)
+and the importer fixture are copied from that job's actual artifacts.
+
+| Command | Wall seconds | User CPU seconds | System CPU seconds | Total CPU seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Cold build, fresh target | 150.387 | 368.923 | 18.433 | 387.356 |
+| Warm build, same job and target | 0.264 | 0.165 | 0.051 | 0.216 |
+| Instruction check | 1.216 | 1.143 | 0.046 | 1.189 |
+
+CPU includes waited child processes; these command costs exclude source transfer,
+tool setup and external cache daemons. The warm build reported `Fresh ghostty-vt-sys`.
+Repeated checks and the restored original passed. Extra render work exceeded all
+four budgets and exited 1; no-op primary and alternate updates failed final-frame
+assertions and exited 101. These results establish the detector's native behavior;
+target-artifact portability across jobs and physical-device calibration remain pending.
+
+Read the job with `cmux-ci status 2978cff4b2873d8e3b2af071`. To smoke-test the real
+receipt importer without writing to the ledger:
+
+```sh
+scripts/bench/cmux-bench phone-default-speed \
+  --import scripts/bench/tests/fixtures/phone-default-speed/check.log \
+  --build e2e5d1978520074bd0d568ac1751ffd2a92590a0 --no-ledger --json
+```

@@ -1,0 +1,9 @@
+primary-100: 48055 render-command bytes
+primary-100	46312806 Ir / 10 operations
+primary-10000: 48055 render-command bytes
+primary-10000	46317283 Ir / 10 operations
+alternate-100: 48010 render-command bytes
+alternate-100	8232992 Ir / 10 operations
+alternate-10000: 48010 render-command bytes
+alternate-10000	8232992 Ir / 10 operations
+PASS: deterministic terminal work budgets; physical-device calibration pending

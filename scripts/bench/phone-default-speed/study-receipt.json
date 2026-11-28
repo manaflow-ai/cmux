@@ -1,0 +1,120 @@
+{
+  "schema": "phone-default-speed-study/v1",
+  "repository": "manaflow-ai/cmux",
+  "source_sha": "e2e5d1978520074bd0d568ac1751ffd2a92590a0",
+  "ghostty_next_sha": "5c01c7171dc2c00d486f231adda7fb5bf6e55c97",
+  "fleet_job": "2978cff4b2873d8e3b2af071",
+  "command": "python3 scripts/bench/phone-default-speed/study.py",
+  "artifact": "artifacts/fast-checks-out.tgz",
+  "platform": "x86_64-unknown-linux-gnu",
+  "profile": "dev",
+  "zig_cpu": "baseline",
+  "rustc_verbose_version": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2",
+  "cost_scope": "Per command; waited child processes, excluding external cache daemons. Setup, tool installation and source transfer excluded.",
+  "measurements": {
+    "check-repeat": {
+      "exit": 0,
+      "wall_seconds": 1.215679315999978,
+      "user_seconds": 1.1407689999999775,
+      "system_seconds": 0.04568599999999989,
+      "cpu_seconds": 1.1864549999999774
+    },
+    "check": {
+      "exit": 0,
+      "wall_seconds": 1.2157578140000282,
+      "user_seconds": 1.1427449999999908,
+      "system_seconds": 0.04595799999999883,
+      "cpu_seconds": 1.1887029999999896
+    },
+    "cold-build": {
+      "exit": 0,
+      "wall_seconds": 150.387020829,
+      "user_seconds": 368.922997,
+      "system_seconds": 18.432948,
+      "cpu_seconds": 387.355945
+    },
+    "expensive-build": {
+      "exit": 0,
+      "wall_seconds": 0.6648358890000168,
+      "user_seconds": 0.8934570000000122,
+      "system_seconds": 0.1540910000000011,
+      "cpu_seconds": 1.0475480000000132
+    },
+    "expensive-mutation": {
+      "exit": 1,
+      "wall_seconds": 1.3660600750000071,
+      "user_seconds": 1.3072389999999814,
+      "system_seconds": 0.04895799999999895,
+      "cpu_seconds": 1.3561969999999803
+    },
+    "noop-alternate-100": {
+      "exit": 101,
+      "wall_seconds": 0.0033399609999946733,
+      "user_seconds": 0.0,
+      "system_seconds": 0.001300000000000523,
+      "cpu_seconds": 0.001300000000000523
+    },
+    "noop-build": {
+      "exit": 0,
+      "wall_seconds": 0.6651253740000129,
+      "user_seconds": 0.893098000000009,
+      "system_seconds": 0.14439899999999994,
+      "cpu_seconds": 1.037497000000009
+    },
+    "noop-primary-100": {
+      "exit": 101,
+      "wall_seconds": 0.0034601820000261796,
+      "user_seconds": 0.0008270000000152322,
+      "system_seconds": 0.0008259999999999934,
+      "cpu_seconds": 0.0016530000000152256
+    },
+    "record-baseline": {
+      "exit": 0,
+      "wall_seconds": 1.215984815000013,
+      "user_seconds": 1.1313330000000406,
+      "system_seconds": 0.04278900000000263,
+      "cpu_seconds": 1.1741220000000432
+    },
+    "restored-build": {
+      "exit": 0,
+      "wall_seconds": 0.21401790999999548,
+      "user_seconds": 0.17154399999998304,
+      "system_seconds": 0.040890999999998456,
+      "cpu_seconds": 0.2124349999999815
+    },
+    "restored-check": {
+      "exit": 0,
+      "wall_seconds": 1.2159493409999982,
+      "user_seconds": 1.1296140000000037,
+      "system_seconds": 0.046950999999999965,
+      "cpu_seconds": 1.1765650000000036
+    },
+    "unit-tests": {
+      "exit": 0,
+      "wall_seconds": 0.46462275300001465,
+      "user_seconds": 0.34719499999999925,
+      "system_seconds": 0.09415699999999916,
+      "cpu_seconds": 0.4413519999999984
+    },
+    "warm-build": {
+      "exit": 0,
+      "wall_seconds": 0.26413540599997987,
+      "user_seconds": 0.16529199999996536,
+      "system_seconds": 0.051089999999998525,
+      "cpu_seconds": 0.21638199999996388
+    }
+  },
+  "validation": {
+    "same_job_native_fresh": true,
+    "repeated_checks_pass": true,
+    "extra_render_work_rejected": "All four instruction counts exceeded baseline + 10%; exit 1.",
+    "noop_rejected": "Both primary-100 and alternate-100 failed final-frame assertions; exit 101.",
+    "restored_original_pass": true,
+    "cross_job_artifact_reuse": "pending",
+    "physical_device_calibration": "pending"
+  },
+  "copied_artifact_sha256": {
+    "baseline.tsv": "a791be5978eeb08ca06f143279278907cb4a1b03a2bd52e9ff2739715f0fb70f",
+    "check.log": "4db2c777d4da936d01789bc90aac333051e8515dc3640f1d23c55b814385163c"
+  }
+}
