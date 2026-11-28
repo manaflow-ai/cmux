@@ -1019,6 +1019,9 @@ impl Hub {
                 p.env.insert(crate::agent_tools::OFF_ENV.to_owned(), off.join(","));
             }
         }
+        // The session's recorded tool listing, read by Claude Code's command build instead of
+        // the settings files (`session_manifest.rs`); no marker while off or for another folder.
+        crate::session_manifest::mark(&mut p.env, meta.manifest.as_ref(), Path::new(&meta.cwd));
         // OpenCode asked to ask (`opencode_ask.rs`, `policy_mode.rs`), never by a profile's own marker.
         p.env.remove(crate::opencode_ask::MARKER);
         let default_policy = self.config.read().await.permission_policy;
