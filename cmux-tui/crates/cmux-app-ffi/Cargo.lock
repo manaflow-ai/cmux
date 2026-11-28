@@ -348,6 +348,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -686,6 +687,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "wait-timeout",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
