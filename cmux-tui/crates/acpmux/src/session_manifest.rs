@@ -5,7 +5,10 @@
 //!
 //! This first step holds the folder and the tools: whether its cmux server lists every tool
 //! (`agent_tools::lists_all_tools`, which reads the folder's and the Claude home's settings
-//! files) and the names of the MCP servers its agent was given. Secrets and ports come next.
+//! files) and the names of the MCP servers its agent was given. Step 3 adds Codex's answer for
+//! the person's own `cmux` entry (`codex mcp get cmux`, up to 2 s a start), kept with a digest of
+//! everything it depends on and reused only while the digest is the same ([`CodexRecord`]).
+//! Secrets and ports come next.
 //!
 //! Off unless [`SWITCH_ENV`] is `1`: then the record is kept and read. Off, nothing is recorded
 //! and every start derives as before; the counter still counts, so the before number is the same
@@ -33,6 +36,57 @@ pub struct SessionManifest {
     /// The names of the MCP servers its agent was given, in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub servers: Vec<String>,
+    /// Codex's answer for the person's own `cmux` entry, with the digest it holds for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex: Option<CodexRecord>,
+}
+
+/// The person's own `cmux` entry as Codex answered it (`codex_cmux_entry::CmuxEntry`), only the
+/// answers that are sure: no answer and doubt are never kept.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum RecordedEntry {
+    None,
+    Stdio { command: String, args: Vec<String> },
+    Http,
+}
+
+/// Codex's answer and the digest of what it depends on (`codex_cmux_entry::fingerprint`: the
+/// program, its config arguments, the folder, the env it finds its config with, every config
+/// file). A start reads it only when its own digest is the same; else it asks Codex.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CodexRecord {
+    pub key: String,
+    pub entry: RecordedEntry,
+}
+
+impl CodexRecord {
+    /// The record of `entry` asked under `key`; none for no answer or doubt (skip on doubt,
+    /// `codex_cmux_entry.rs`): those are asked again.
+    pub fn of(key: String, entry: &crate::codex_cmux_entry::CmuxEntry) -> Option<Self> {
+        use crate::codex_cmux_entry::CmuxEntry;
+        let entry = match entry {
+            CmuxEntry::None => RecordedEntry::None,
+            CmuxEntry::Stdio { command, args } => {
+                RecordedEntry::Stdio { command: command.clone(), args: args.clone() }
+            }
+            CmuxEntry::Http => RecordedEntry::Http,
+            CmuxEntry::Unknown | CmuxEntry::Doubt(_) => return None,
+        };
+        Some(Self { key, entry })
+    }
+
+    /// The answer as Codex gave it.
+    pub fn entry(&self) -> crate::codex_cmux_entry::CmuxEntry {
+        use crate::codex_cmux_entry::CmuxEntry;
+        match &self.entry {
+            RecordedEntry::None => CmuxEntry::None,
+            RecordedEntry::Stdio { command, args } => {
+                CmuxEntry::Stdio { command: command.clone(), args: args.clone() }
+            }
+            RecordedEntry::Http => CmuxEntry::Http,
+        }
+    }
 }
 
 /// The switch, as this daemon's env sets it.
@@ -46,6 +100,48 @@ static DERIVED: AtomicU64 = AtomicU64::new(0);
 /// manifest: the measure of B7 ("moves/forks re-deriving setup → 0").
 pub fn derived() -> u64 {
     DERIVED.load(Ordering::Relaxed)
+}
+
+static CODEX_ASKED: AtomicU64 = AtomicU64::new(0);
+
+/// How many times this process asked Codex for the person's own `cmux` entry
+/// (`agent_tools::persons_cmux_entry`): the same measure for the Codex answer.
+pub fn codex_asked() -> u64 {
+    CODEX_ASKED.load(Ordering::Relaxed)
+}
+
+/// Counts one `codex mcp get cmux` (`agent_tools::persons_cmux_entry`), switch on or off.
+pub fn count_codex_ask() {
+    CODEX_ASKED.fetch_add(1, Ordering::Relaxed);
+}
+
+/// The marker the hub sets in a start's or a fork's profile env ([`mark`]): the manifest's
+/// [`CodexRecord`] as JSON, which `agent_tools::persons_cmux_entry` takes out ([`take_codex`])
+/// and reads in place of asking Codex when its digest is the same. Never in an agent's env
+/// (`agent/command.rs`) or a pool key (`hub/pool`).
+pub const CODEX_ENV: &str = "ACPMUX_MANIFEST_CODEX_ENTRY";
+
+/// Takes [`CODEX_ENV`] out of `env`: the record it carries, none for no marker or one that does
+/// not parse.
+pub fn take_codex(env: &mut BTreeMap<String, String>) -> Option<CodexRecord> {
+    env.remove(CODEX_ENV).and_then(|v| serde_json::from_str(&v).ok())
+}
+
+/// Keeps this start's fresh `codex` record in `manifest` when the switch is on and the manifest
+/// holds for `cwd` (`hub/idle_census.rs` `note_launch`): a later start reads it while its digest
+/// is the same. A start that asked nothing, or got no sure answer, leaves the manifest as it is.
+pub fn keep_codex(
+    on: bool,
+    manifest: &mut Option<SessionManifest>,
+    cwd: &Path,
+    codex: Option<CodexRecord>,
+) {
+    if on
+        && let Some(m) = manifest.as_mut().filter(|m| m.folder == cwd)
+        && let Some(codex) = codex
+    {
+        m.codex = Some(codex);
+    }
 }
 
 /// Whether the session's cmux server lists every tool: the manifest's answer when the switch is
@@ -86,13 +182,18 @@ pub fn mark_with(
     cwd: &Path,
 ) {
     env.remove(RECORDED_ENV);
+    env.remove(CODEX_ENV);
     if on && let Some(m) = manifest.filter(|m| m.folder == cwd) {
         env.insert(RECORDED_ENV.to_owned(), if m.all_tools { "1" } else { "0" }.to_owned());
+        if let Some(json) = m.codex.as_ref().and_then(|c| serde_json::to_string(c).ok()) {
+            env.insert(CODEX_ENV.to_owned(), json);
+        }
     }
 }
 
-/// Sets [`RECORDED_ENV`] in a start's profile env when the switch is on and the manifest holds
-/// for `cwd`; else no marker (a profile's own is removed), and the command build derives.
+/// Sets [`RECORDED_ENV`] (and [`CODEX_ENV`] when it keeps Codex's answer) in a start's or a
+/// fork's profile env when the switch is on and the manifest holds for `cwd`; else no marker (a
+/// profile's own is removed), and the command build derives, and Codex is asked.
 pub fn mark(env: &mut BTreeMap<String, String>, manifest: Option<&SessionManifest>, cwd: &Path) {
     mark_with(on(), env, manifest, cwd)
 }
@@ -131,7 +232,12 @@ pub fn to_record(
     if !on || kept.is_some_and(|m| m.folder == cwd) {
         return None;
     }
-    Some(SessionManifest { folder: cwd.to_path_buf(), all_tools, servers: server_names(servers) })
+    Some(SessionManifest {
+        folder: cwd.to_path_buf(),
+        all_tools,
+        servers: server_names(servers),
+        codex: None,
+    })
 }
 
 /// A fork's manifest: its parent's while it works in the same folder; a fork into another
