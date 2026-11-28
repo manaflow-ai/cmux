@@ -856,6 +856,32 @@ the size bound, so the two devices remain the source of truth.
   clients skip these routes when the capability is absent. An older Worker returns `404`, so clients
   fall back to direct transfer.
 
+## Sealed chunk cache (API 0.19.0, `sealed-chunk-cache-v1`)
+
+The Worker can store opaque attachment chunks for one authenticated device pair. The relay never has a
+pair key and never verifies the BLAKE3 keyed hash. It checks only the lowercase hexadecimal syntax and
+the size bound, so the two devices remain the source of truth.
+
+- **Pair admission:** every request carries `sessionId` and `deviceId` as query parameters or
+  `X-Cmux-Chunk-Session` and `X-Cmux-Chunk-Device` headers, plus that device's own
+  `x-cmux-relay-ticket` (the one the hub stamped on its signals, as for the WebSocket relay). The Worker
+  authenticates the Stack token, asks the caller's `TeamHub` for that session's other device with the
+  ticket, and names a cache by the owner key, build space and sorted device ids. A missing or wrong
+  ticket, or another device's, gets `403 not_in_session`. A device cannot name another pair's namespace.
+- **Put/get:** `PUT /v1/chunks/<64 lowercase hex>` stores an opaque body up to 256 KiB plus 64 bytes.
+  A new chunk returns `201`, and an existing id returns `200` without writing. `GET` returns the bytes
+  or `404`. `LINK_RELAY_MODE=off` returns `503 relay_off` for these routes too.
+- **Presence:** `POST /v1/chunks/have` accepts `{ "ids": [ ... ] }` with at most 1024 ids and returns
+  `{ "have": [true, false, ...] }` in the same order.
+- **Batch transfer:** `POST /v1/chunks/get` accepts the same body and returns one binary response. Each
+  present chunk is `[32-byte id][u32 big-endian length][sealed bytes]`; missing ids are omitted.
+- **Retention:** each pair has a 64 MiB cache, evicts least-recently-read chunks, and expires entries
+  after seven days through a Durable Object alarm. Reads touch LRU state in batches. The cache is scoped
+  per pair, never shared between users.
+- **Compatibility:** `/v1/health` advertises `sealed-chunk-cache-v1` and API version `0.19.0`. New
+  clients skip these routes when the capability is absent. An older Worker returns `404`, so clients
+  fall back to direct transfer.
+
 ### When no path works
 
 A WireGuard dial records what each way did: plain UDP (`blocked`: no STUN
