@@ -2678,9 +2678,10 @@ def main():
         # sleep-ok: the sample is defined as memory --settle s after the step (the report's settle_s); runs compare at the
         # same age, so the duration is the measured condition, not a stand-in for an event. --settled-at passes its own.
         time.sleep(args.settle if settle is None else settle)
+        chief_up_wait = None  # the window's result does not exist yet; it carries this once sample() returns
         if args.chief_up > 0:
-            result["chief_up_wait"] = wait_chief_up(app_pid, bundle, args.chief_up)
-            if not result["chief_up_wait"]["up"]:
+            chief_up_wait = wait_chief_up(app_pid, bundle, args.chief_up)
+            if not chief_up_wait["up"]:
                 CHIEF_UP_MISSES.append(label)
                 print(f"bench-memory: {label}: the Chief did not start within {args.chief_up:g} s; this window is "
                       f"launch state A, not the Chief-up state --chief-up asked for", file=sys.stderr, flush=True)
@@ -2704,6 +2705,8 @@ def main():
         frames_before = PAGES.snapshot() if PAGES else None
         try:
             result = sample(app_pid, bundle, label, len(opened) + 1, measure, child_ns)
+            if chief_up_wait is not None:
+                result["chief_up_wait"] = chief_up_wait
             if frames_before is not None:
                 result["page_frames"] = PageFrames.window(frames_before, PAGES.snapshot(), measure)
                 print(f"   page frames: {json.dumps(result['page_frames'])}", flush=True)
