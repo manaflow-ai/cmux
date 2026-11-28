@@ -8,6 +8,11 @@
       "risk": "read",
       "digest": "a24f88a2f0799132"
     },
+    "cloud.artifacts.read": {
+      "source": "local",
+      "class": "read",
+      "digest": "b9af125af6a2590d"
+    },
     "cloud.auth.status": {
       "source": "app",
       "owner": "app:cmux/cloud",
@@ -414,7 +419,7 @@
       "owner": "cloud:CloudDO",
       "class": "read",
       "risk": "read",
-      "digest": "803c028818fee28d"
+      "digest": "288c304741b24f78"
     },
     "cloud.port.close": {
       "source": "app",
@@ -545,7 +550,12 @@
       "owner": "cloud:CloudDO",
       "class": "read",
       "risk": "read",
-      "digest": "34636fdecb9b6e88"
+      "digest": "06cef7c508952184"
+    },
+    "cloud.vm.agent_key_create": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2e5265af3111daba"
     },
     "cloud.vm.attention.emit": {
       "source": "cloud",

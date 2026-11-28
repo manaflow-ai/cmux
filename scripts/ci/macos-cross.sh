@@ -518,10 +518,12 @@ cmd_parity_ffi() {
   export LLVM_NM
   for t in "${TARGETS[@]}"; do
     # The Mac build is arm64 alone unless a stable release asked for universal: a thin archive is its one slice.
-    if [[ "$("$LLVM_BIN/llvm-lipo" -archs "$mac")" == "$(arch_of "$t")" ]]; then
-      cp "$mac" "$out/mac-$t.a"
-    else
+    # Test the fat magic, not `llvm-lipo -archs`: on a thin static archive LLVM 18/19 llvm-lipo
+    # crashes in Slice::create (empty output), and the -thin that followed failed every push run.
+    if [[ "$(od -An -N4 -tx1 "$mac" | tr -d ' \n')" == cafebab[ef] ]]; then
       "$LLVM_BIN/llvm-lipo" -thin "$(arch_of "$t")" "$mac" -output "$out/mac-$t.a"
+    else
+      cp "$mac" "$out/mac-$t.a"
     fi
     python3 "$repo_root/scripts/ci/macho_parity.py" "app-ffi-$t" "$out/mac-$t.a" "$out/slices/$t.a" \
       > "$reports/app-ffi-$t.json" || status=1

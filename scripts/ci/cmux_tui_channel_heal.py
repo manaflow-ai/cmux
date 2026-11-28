@@ -21,9 +21,19 @@ The point job stays the only writer: it moves forward only, to a daemon-tested t
 dispatch can never move the channel back. One action a tick, and none while a run is in flight,
 so ticks never stack runs.
 
+A rerun or a dispatch cannot fix a red that the merged code causes (a test that fails on every
+run). From 2026-11-25 21:43Z to 2026-11-26 21:26Z every feat-cmux-next run failed the daemon tests
+(full disk, then a compile error, then 36 settings rows missing from published-keys.txt) and this
+job stayed green every tick for about 24 h. So after it acts, once the lag passes HEAL_ALARM_MIN
+(default 180) the job prints an ::error naming the lag and the newest failed run and exits 1: the
+scheduled run goes red, which is the alarm that the channel needs a fix, not another rerun.
+When the newest failed run failed a build leg on a Rust compile error (cmux_tui_tree_handoff.compile_error_failure),
+the tick holds: no rerun and no dispatch, since both build the same source and fail the same way.
+
 Usage: cmux_tui_channel_heal.py [--dry-run]
 Env: GH_TOKEN (actions: write), GITHUB_REPOSITORY, CHANNEL_URL, BRANCH (default feat-cmux-next),
-     HEAL_LAG_MIN (default 45), HEAL_RERUN_MAX_AGE_H (default 6), HEAL_MAX_ATTEMPT (default 3).
+     HEAL_LAG_MIN (default 45), HEAL_RERUN_MAX_AGE_H (default 6), HEAL_MAX_ATTEMPT (default 3),
+     HEAL_ALARM_MIN (default 180; 0 turns the alarm off).
 """
 
 from __future__ import annotations
@@ -36,6 +46,11 @@ import sys
 import time
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_tui_tree_handoff import compile_error_failure  # noqa: E402
 
 WORKFLOW = "cmux-tui-artifacts.yml"
 
@@ -58,8 +73,14 @@ def parse_runs(payload: dict) -> list[Run]:
 
 
 def decide(lag_min: float | None, runs: list[Run], now: float, *, lag_bound: float = 45,
-           rerun_max_age_h: float = 6, max_attempt: int = 3) -> tuple[str, int | None, str]:
-    """Return (action, run_id, why). action is fresh, waiting, rerun or dispatch."""
+           rerun_max_age_h: float = 6, max_attempt: int = 3,
+           compile_red: Callable[[int], bool] = lambda run_id: False) -> tuple[str, int | None, str]:
+    """Return (action, run_id, why). action is fresh, waiting, hold, rerun or dispatch.
+
+    hold: the newest completed run failed a build leg on a Rust compile error (compile_red). A rerun builds the same
+    source and a dispatch builds the same tip, so both fail the same way; the next landing's push builds a new tree.
+    11-27 14Z..11-28 11Z this job's reruns were 2,942 of the 6,934 re-run runner-min of cmux-tui artifacts in the
+    timing feed (40 sampled reruns, 2 green): the alarm below is the signal, not another build."""
     if lag_min is not None and lag_min < lag_bound:
         return "fresh", None, f"oldest missing commit {lag_min:.0f} min old (bound {lag_bound:.0f})"
     lag_txt = "unknown" if lag_min is None else f"{lag_min:.0f} min"
@@ -69,10 +90,24 @@ def decide(lag_min: float | None, runs: list[Run], now: float, *, lag_bound: flo
     for r in runs:  # newest first, as the API lists them
         if r.status != "completed":
             continue
+        if r.conclusion == "failure" and compile_red(r.id):
+            return "hold", r.id, f"lag {lag_txt}; newest failed run {r.id} failed a build leg on a Rust compile error"
         if r.conclusion == "failure" and r.attempt < max_attempt and now - r.created < rerun_max_age_h * 3600:
             return "rerun", r.id, f"lag {lag_txt}; newest failed run {r.id} (attempt {r.attempt})"
         break
     return "dispatch", None, f"lag {lag_txt}; no recent failed run to rerun"
+
+
+def alarm(lag_min: float | None, runs: list[Run], alarm_min: float) -> str | None:
+    """The ::error line when the channel has lagged past ALARM_MIN minutes, else None (also when the lag is unknown
+    or the alarm is off). It names the newest completed failed run, whose log holds the red to fix."""
+    if alarm_min <= 0 or lag_min is None or lag_min < alarm_min:
+        return None
+    failed = next((r for r in runs if r.status == "completed" and r.conclusion == "failure"), None)
+    where = f"; newest failed run {failed.id} (attempt {failed.attempt})" if failed else ""
+    return (f"::error title=feat-cmux-next channel stalled::the channel lacks commits up to {lag_min / 60:.1f} h old "
+            f"(alarm at {alarm_min / 60:.1f} h){where}. A rerun does not fix a red the merged code causes: read that "
+            f"run's failed job and fix base.")
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -120,6 +155,23 @@ def lag_minutes(commit: str, branch: str, now: float) -> float | None:
     return (now - int(out[-1])) / 60
 
 
+def failed_on_compile_error(repo: str, run_id: int) -> bool:
+    """Whether the run's latest attempt failed a build leg on a Rust compile error (one job page, one log per failed
+    build leg). A read error answers False, so the heal acts as before."""
+    try:
+        jobs = gh("GET", f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs") or []
+    except GhError:
+        return False
+
+    def log_of(job: dict) -> str | None:
+        wrapper = os.path.join(HERE, "gh_budget_wait.sh")
+        args = (["bash", wrapper] if os.path.isfile(wrapper) else ["gh"]) + ["api", f"repos/{repo}/actions/jobs/{job['id']}/logs"]
+        proc = subprocess.run(args, capture_output=True, text=True)
+        return proc.stdout if proc.returncode == 0 else None
+
+    return compile_error_failure(jobs, log_of)
+
+
 def main() -> int:
     dry = "--dry-run" in sys.argv[1:]
     repo = os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux")
@@ -132,16 +184,23 @@ def main() -> int:
     action, run_id, why = decide(lag, runs, now,
                                  lag_bound=float(os.environ.get("HEAL_LAG_MIN", "45")),
                                  rerun_max_age_h=float(os.environ.get("HEAL_RERUN_MAX_AGE_H", "6")),
-                                 max_attempt=int(os.environ.get("HEAL_MAX_ATTEMPT", "3")))
+                                 max_attempt=int(os.environ.get("HEAL_MAX_ATTEMPT", "3")),
+                                 compile_red=lambda run_id: failed_on_compile_error(repo, run_id))
     print(f"channel-heal: channel {commit[:12] or '?'} action={action} {why}")
-    if dry or action in ("fresh", "waiting"):
-        return 0
+    line = alarm(lag, runs, float(os.environ.get("HEAL_ALARM_MIN", "180")))
+    if dry or action in ("fresh", "waiting", "hold"):
+        if line:
+            print(line)
+        return 1 if line and not dry else 0
     if action == "rerun":
         gh("POST", f"repos/{repo}/actions/runs/{run_id}/rerun-failed-jobs")
         print(f"channel-heal: reran the failed jobs of https://github.com/{repo}/actions/runs/{run_id}")
     else:
         gh("POST", f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", {"ref": branch})
         print(f"channel-heal: dispatched {WORKFLOW} on {branch}")
+    if line:
+        print(line)
+        return 1
     return 0
 
 

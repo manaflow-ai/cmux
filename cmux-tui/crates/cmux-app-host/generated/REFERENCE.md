@@ -583,6 +583,7 @@ Ops no app may call:
 - `client.metadata.update`
 - `client.sizing.release`
 - `client.sizing.set`
+- `cloud.artifacts.read`
 - `cloud.billing.checkout`
 - `cloud.environment.boot`
 - `cloud.environment.build`
@@ -614,9 +615,9 @@ Ops no app may call:
 - `cloud.owner.handoff_wait`
 - `cloud.owner.handoffs`
 - `cloud.owner.harness_login_copy`
+- `cloud.owner.op`
 - `cloud.owner.slack`
 - `cloud.owner.slack_awake`
-- `cloud.owner.op`
 - `cloud.owner.turn_checkpoint`
 - `cloud.owner.turn_rewind`
 - `cloud.owner.turns`
@@ -633,6 +634,7 @@ Ops no app may call:
 - `cloud.snapshot.delete`
 - `cloud.snapshot.restore`
 - `cloud.surge.create`
+- `cloud.vm.agent_key_create`
 - `cloud.vm.domains`
 - `cloud.vm.firewall_create`
 - `cloud.vm.firewall_delete`

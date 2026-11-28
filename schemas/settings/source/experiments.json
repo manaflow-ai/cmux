@@ -708,6 +708,33 @@
           ]
         },
         {
+          "key": "experiments.setupShelf",
+          "note": "Make cmux Yours offers the four setups in examples/setups (Calm, Dense, Chat-first, Terminal-first) as a shelf with Try, Keep and Revert (hq design dp-9eedbe44e5). Each setup owns one axis's keys; rivals on an axis replace each other, other axes stack; Try snapshots only the keys it writes, Revert puts back the ones still as the setup left them, Keep drops the snapshot, Skip puts everything back. The page reads it from its state (MakeItYoursStepModel.setupShelf; webviews onboarding setupShelf.ts); the host accepts a setup's paths only while it is on (FirstRunChoicesSettingsSource.setupPaths). Off by default; off keeps today's step with no shelf.",
+          "title": {
+            "key": "settings.experiments.setupShelf",
+            "text": "Setups in Make cmux Yours"
+          },
+          "help": {
+            "key": "settings.experiments.setupShelf.help",
+            "text": "Make cmux Yours offers four setups, such as Calm or Dense. Try one, then keep it or put your settings back."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "onboarding",
+            "first run",
+            "setup",
+            "setups",
+            "profile",
+            "calm",
+            "dense",
+            "try"
+          ]
+        },
+        {
           "key": "experiments.appsTier",
           "note": "RFD 0003 (Apps tier, cmuxterm-hq docs/rfd/0003-apps-tier.md): publish a Cloud preview as a kept, versioned app with a stable URL, and list published apps in the sidebar (E-A Publish button on the browser pane, E-C Apps section). The cmux side is `cmux app publish|versions|rollback|ls` (cmux-tui crate cmux-apps); the platform side is cmux-platform /v1/cloud/apps. Off by default; off keeps today's browser pane and sidebar.",
           "title": {
@@ -905,6 +932,30 @@
           ]
         },
         {
+          "key": "experiments.feed",
+          "note": "Taste prototype: the Feed page (webviews/src/pages/feed, the daemon's feed client) as its own page in the sidebar, beside Home, so agent turns, approvals, PR and CI updates and notifications read as one feed (hq docs/design/feed-sidebar.md, ask c-9f58e14079). Off by default; off shows no Feed entry anywhere.",
+          "title": {
+            "key": "settings.experiments.feed",
+            "text": "Feed"
+          },
+          "help": {
+            "key": "settings.experiments.feed.help",
+            "text": "Read every update in one feed: agents that finished or wait on you, approvals, pull requests, CI and notifications, newest first."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "feed",
+            "updates",
+            "inbox",
+            "notifications",
+            "agents"
+          ]
+        },
+        {
           "key": "experiments.foldSummaryCounts",
           "note": "Fold summary: duration only (off, today's line) or with counts (on). A finished turn's closed \"Worked for\" names the work it hides after its time, as the tool runs name theirs: \"Worked for 36s · ran 4 commands, edited 2 files\", failed calls as the runs' \"(1 failed)\" in the failure tone (webviews conversation/turns.ts workedCountsText, useExperimentSwitch(\"foldSummaryCounts\")). Off by default until Leo picks; off keeps today's duration-only line.",
           "title": {
@@ -1002,6 +1053,27 @@
             "features",
             "switches",
             "toggles"
+          ]
+        },
+        {
+          "key": "experiments.compactionThresholdInsight",
+          "note": "Show the observed pre-compaction token count and a tuning hint on automatic compaction notes.",
+          "title": {
+            "key": "settings.experiments.compactionThresholdInsight",
+            "text": "Compaction Threshold Insight"
+          },
+          "help": {
+            "key": "settings.experiments.compactionThresholdInsight.help",
+            "text": "Show when Claude automatically compacted a chat and how to lower the context it carries between turns."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "usage",
+            "efficiency",
+            "compaction",
+            "context",
+            "tokens"
           ]
         }
       ]

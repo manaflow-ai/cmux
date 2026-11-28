@@ -201,10 +201,16 @@ impl std::fmt::Display for FeedError {
         match self {
             FeedError::NotFound(item) => write!(f, "feed item {item} not found"),
             FeedError::Moving(item) => {
-                write!(f, "feed item {item} is moving to its new owner; retry after the move")
+                write!(
+                    f,
+                    "feed item {item} is moving to its new owner, so this was not applied yet"
+                )
             }
             FeedError::OwnerUnreachable { item, home } => {
-                write!(f, "feed item {item} moved to {home}; that owner is not reachable (retry)")
+                write!(
+                    f,
+                    "feed item {item} moved to {home}, and that owner is not reachable now, so this was not applied"
+                )
             }
             FeedError::InvalidState { item, state, op } => {
                 write!(f, "feed item {item} is {}; {op} does not apply", state.as_str())

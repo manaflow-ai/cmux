@@ -3,6 +3,7 @@
  * verifier, with in-memory stores, a local JWKS, a fake team directory and a
  * fake upstream provider behind the real upstream client.
  */
+import type { Defer } from "../../src/after-response.ts";
 import type { ApiVersionTable } from "../../src/api-version.ts";
 import { Effect, Layer, Option, Redacted } from "effect";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
@@ -16,12 +17,13 @@ import { ApiKeyStore, AuditStore, OwnershipStore, type ApiKeyRecord, type OwnedR
 import type { Scope } from "../../src/domain/scopes.ts";
 import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type SnapshotId, type VmId } from "../../src/lib/ids.ts";
 import { memoryLimitsLayer, type TenantLimits } from "../../src/limits/service.ts";
+import type { CreateAdmissionClient } from "../../src/limits/create-admission.ts";
 import { memoryReplicaLayer, type ReplicaStore } from "../../src/replica/store.ts";
 import { StoreError } from "../../src/db/sql.ts";
 import { tenantPolicyLayer } from "../../src/policy.ts";
 import { Entitlements, entitlementsFromPolicyLayer } from "../../src/proofs/tenant-may-create.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
-import { makeUpstreamClient } from "../../src/upstream/live.ts";
+import { makeUpstreamClient, upstreamConfigOf } from "../../src/upstream/live.ts";
 import { parseVmImages, VmImages } from "../../src/upstream/live-images.ts";
 import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
@@ -37,6 +39,12 @@ const UPSTREAM_URL = "https://upstream.test";
 const UPSTREAM_KEY = "upstream-test-key";
 
 export interface HarnessOptions {
+  /** The Worker's per-request middleware (src/db/sql.ts withRequestConnection); none by default. */
+  readonly perRequest?: <A, E, R>(app: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
+  /** What `request` passes as the Worker's waitUntil; none by default, so deferred work runs inline. */
+  readonly defer?: Defer;
+  /** The provider create queue the upstream client asks before each create send (src/limits/create-admission.ts); none by default. */
+  readonly createAdmission?: CreateAdmissionClient;
   /** The dated-version compat table the API serves (`Cmux-Api-Version`); default the Worker's own. */
   readonly apiVersions?: ApiVersionTable;
   readonly limits?: Layer.Layer<TenantLimits>;
@@ -129,7 +137,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   /** Client sessions (migration 0016), as cmux_vm.vm_client_sessions holds them. */
   const clientSessions: ClientSessionRow[] = [];
   // The Worker names its provider resources with the same environment its policy runs in.
-  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, startPollMs: 1 });
+  const upstreamClient = makeUpstreamClient(upstreamConfigOf({ baseUrl: UPSTREAM_URL, apiKey: UPSTREAM_KEY, environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, backgroundOutageMs: 5_000, startPollMs: 1, ...(options.createAdmission === undefined ? {} : { createAdmission: options.createAdmission }) }));
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
   /** Tenants whose plan allows creating VMs. */
@@ -440,6 +448,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     {
       ...(options.stackWebhookSecret === undefined ? {} : { stackWebhookSecret: Redacted.make(options.stackWebhookSecret) }),
       ...(options.apiVersions === undefined ? {} : { apiVersions: options.apiVersions }),
+      ...(options.perRequest === undefined ? {} : { perRequest: options.perRequest }),
     },
   );
 
@@ -452,7 +461,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     recordFault,
     meshRecordFault,
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
-      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, startPollMs: 1 }));
+      Object.assign(upstreamClient, makeUpstreamClient(upstreamConfigOf({ baseUrl, apiKey, environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, backgroundOutageMs: 5_000, startPollMs: 1, ...(options.createAdmission === undefined ? {} : { createAdmission: options.createAdmission }) })));
     },
     /** One agent reaper run, as the Worker's cron does. */
     reap,
@@ -659,6 +668,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
           headers: body === null ? headers : { ...headers, "content-type": "application/json" },
           body,
         }),
+        options.defer,
       );
     },
     /** Sends raw bytes, as a file upload does. */

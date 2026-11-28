@@ -3483,8 +3483,10 @@ fn runtime_identity_lease_blocks_a_second_cursor_and_reuses_it_after_release() {
             })
             .unwrap();
     });
+    // The blocked runtime waits out a lease that is about to be dropped
+    // (NOTICE_IDENTITY_LEASE_PATIENCE) before it refuses.
     let blocked_error = blocked_outcome
-        .recv_timeout(Duration::from_secs(2))
+        .recv_timeout(Duration::from_secs(6))
         .expect("second runtime did not fail before subscribing")
         .expect_err("second runtime unexpectedly acquired the shared notice cursor");
     assert_eq!(blocked_error, localization::catalog().sidebar.provider_connection_already_running);

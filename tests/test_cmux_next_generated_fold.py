@@ -180,6 +180,11 @@ REPO = "manaflow-ai/cmux"
 NEXT = "refs/heads/feat-cmux-next"
 
 
+def live_labels(labels):
+    """path_route's labels output: the pull request's live labels, comma-fenced (cmux#57329)."""
+    return "," + "".join(label + "," for label in labels)
+
+
 def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, labels=(), linux="0"):
     """path_route's own expression context: its route step, the tree probes and the marker upload.
     linux is vars.CI_GENERATED_FILES_LINUX: "0" is the Mac fallback mode the fold cases below cover."""
@@ -199,6 +204,7 @@ class GeneratedFoldTest(unittest.TestCase):
         cls.swift = cls.jobs["swift-test"]
         cls.generated = cls.jobs["generated-files"]
         cls.verdict = cls.jobs["generated-verdict"]
+        cls.fast = cls.jobs["fast-tier"]
         cls.route = cls.jobs["path_route"]
 
     def steps(self, job):
@@ -276,7 +282,8 @@ class GeneratedFoldTest(unittest.TestCase):
             ctx["needs"]["daemon-test"] = {"result": "success" if runs["daemon-test"] else "skipped"}
             verdict = truthy(Expr(self.verdict["if"], ctx).value())
             # The generated-files job's condition before generated_host: its shared prerequisites.
-            gen_routed = (generated == "true" and web == "success" and current == "true"
+            # A pull request skips push-head-preflight and counts as current.
+            gen_routed = (generated == "true" and web == "success" and (current == "true" or event == "pull_request")
                           and not (event == "pull_request" and fork and not labels))
             with self.subTest(event=event, ref=ref, generated=generated, swift=swift, targets=targets, daemon=daemon,
                               tree=tree, marker=marker, web=web, current=current, fork=fork, labels=labels, host=host):
@@ -458,6 +465,8 @@ class GeneratedFoldTest(unittest.TestCase):
         for name in ("Record this pass for the same inputs", "Save the pass"):
             self.assertIn("(env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh')",
                           self.step(self.daemon, name)["if"])
+        key = self.step(self.fast, "Fingerprint this job's inputs")["run"]
+        self.assertIn('--extra "generated_base="', key)
 
     def test_the_exports_cache_accepts_a_folded_push(self):
         cache = self.jobs["swift-exports-cache"]

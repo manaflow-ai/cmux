@@ -16,13 +16,13 @@
 import {
   type RefObject,
   useContext,
-  useEffect,
   useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
+  useEffect,
+  useReducer,
 } from "react";
 import { motionMode } from "../../../ui/motion/motionMode";
 import { experimentArm } from "../../../experiments/experiment";
@@ -59,6 +59,7 @@ import type { LiveLinePulse } from "./liveLinePulse";
 import { useAgentSignature } from "./agentSignatureModel";
 import { AgentSignature } from "./AgentSignature";
 import { type LiveWait, subagentsLabel, waitingLabel } from "./liveWait";
+import { LiveCount } from "../summary/LiveCount";
 import "../../../ui/motion/motion.css";
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 /// `since`, when known, is when the key's text was written: a key that was already that old when the
@@ -273,34 +274,33 @@ export function Thinking(props: ThinkingProps = {}) {
 /// (`drawn`, the last commit's) rolls out with its words, and the new tail rolls in with the new
 /// words (`.cv-worked--live[data-roll]`), so no count pops off or on while the words roll.
 function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tail: string): Roll {
-  const [roll, setRoll] = useState<Roll>({ key, label, lead, turns: 0 });
-  // The tail as last committed. Refs are read only in layout effects, never in render: a new roll's
-  // old tail is filled in below, before paint, so only a key change costs a second render and a tick
-  // costs none.
-  const drawn = useRef(tail);
-  // A new roll (its `turns` changed) takes the tail the last commit drew. Declared before the effect
-  // that records this commit's tail, so it still reads the one before.
-  const rolledOut = roll.out !== undefined;
-  useLayoutEffect(() => {
-    if (!rolledOut) return;
-    const before = drawn.current;
-    setRoll((now) => (now.out && now.turns === roll.turns ? { ...now, out: { ...now.out, tail: before } } : now));
-  }, [rolledOut, roll.turns]);
-  useLayoutEffect(() => {
-    drawn.current = tail;
-  });
+  // `drawn`: the tail these words were last drawn with, kept with them in the render that draws it,
+  // so a new roll takes the old words' tail in the render that rolls them. Filled in by a layout
+  // effect, each tool call's start or end cost the transcript a second commit (and the line its
+  // layout reads again) before the frame painted.
+  const [roll, setRoll] = useState<Roll & { drawn: string }>({ key, label, lead, turns: 0, drawn: tail });
   if (key !== roll.key) {
     const rolls = key !== undefined && roll.key !== undefined;
-    setRoll({
+    const next = {
       key,
       label,
       lead,
       // Away clears the count too: the words that come back draw no roll in.
       turns: key === undefined ? 0 : roll.turns + (rolls ? 1 : 0),
-      // Its tail is the one last drawn, filled in by the first layout effect above.
-      out: rolls ? { ...roll, out: undefined, tail: undefined } : undefined,
-    });
-  } else if (label !== roll.label) setRoll({ ...roll, label, lead });
+      // The old words roll out with the tail they were last drawn with.
+      out: rolls
+        ? { key: roll.key, label: roll.label, lead: roll.lead, turns: roll.turns, tail: roll.drawn }
+        : undefined,
+      drawn: tail,
+    };
+    setRoll(next);
+    return next;
+  }
+  if (label !== roll.label || tail !== roll.drawn) {
+    const next = { ...roll, label, lead, drawn: tail };
+    setRoll(next);
+    return next;
+  }
   return roll;
 }
 
@@ -325,6 +325,10 @@ class LineBoxes {
   /// were last drawn at, kept when a new words box replaces it until that one's first report, read
   /// with no forced layout (`useRollOutWidth`). Undefined until a first report.
   wordsWidth: number | undefined;
+  /// The counts' left offsets as last laid out, read in the observer's callback (layout is clean
+  /// there, so the read forces none) whenever a watched box reports (`useCountGlide`). Undefined
+  /// until a first report.
+  countLefts: number[] | undefined;
 
   /// Whether a ResizeObserver reports the boxes: then `wordsWidth` is theirs and nothing reads layout.
   get observing(): boolean {
@@ -347,6 +351,7 @@ class LineBoxes {
         // A box's first report is its size when observed, already read in that commit.
         if (before !== undefined && before !== size) this.resized = true;
       }
+      if (this.node) this.countLefts = readLefts(this.node);
     });
     this.observer = observer;
     return () => {
@@ -354,6 +359,7 @@ class LineBoxes {
       if (this.observer === observer) this.observer = undefined;
       this.boxes = new Map();
       this.wordsWidth = undefined;
+      this.countLefts = undefined;
       // A remount (Strict Mode's second pass) reads and observes again.
       this.drawn = undefined;
     };
@@ -461,11 +467,15 @@ function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number, mo
     if (!node) return;
     // Nothing drawn moved: the counts sit where they were read last, so none glides.
     if (turns === drawn.current.turns && !moved.moved) return;
-    const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
-    const lefts = counts.map((count) => count.offsetLeft);
-    const before = drawn.current;
+    // Observed, where the counts were drawn is the observer's last report, and only a glide reads
+    // where they land now: a roll or motion off reads no layout in its commit.
+    const reported = moved.observing ? moved.countLefts : undefined;
+    const before = reported ? { turns: drawn.current.turns, lefts: reported } : drawn.current;
+    const glides = before.turns === turns && motionAllowed(node) && countsMove(node);
+    const lefts = glides || !reported ? readLefts(node) : [];
     drawn.current = { turns, lefts };
-    if (before.turns !== turns || !motionAllowed(node) || !countsMove(node)) return;
+    if (!glides) return;
+    const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
     counts.forEach((count, index) => {
       const from = before.lefts[index];
       const dx = from === undefined ? 0 : from - lefts[index]!;
@@ -476,6 +486,11 @@ function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number, mo
       });
     });
   });
+}
+
+/// The live line's counts' left offsets, read from layout.
+function readLefts(node: HTMLDivElement): number[] {
+  return [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")].map((count) => count.offsetLeft);
 }
 
 /// The same gates as the roll (conversation.css `cv-roll-*`).
@@ -770,6 +785,10 @@ function ThinkingLine({
           ? waitingLabel(t, liveWait)
           : (turnVerb ??
             (statusVerbConfig.mode === "custom" ? statusVerbAt(elapsedMs, { mode: "custom", verbs }) : t("thinking")));
+  // A wait on subagents is the turn running, which needs no words (Leo, 2026-11-23: ""running"
+  // doesn't need text. it can usually just be. you can put symbols for state."): the line draws the
+  // subagents' mark and count (summary/LiveCount.tsx), its words kept for hover and VoiceOver.
+  const agentsMark = doing === undefined && !compacting && waitsOnAgents;
   const label =
     doing === undefined
       ? idleLabel
@@ -877,7 +896,14 @@ function ThinkingLine({
   ]
     .filter(Boolean)
     .join(" · ");
-  const roll = useRoll(away ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label, label, lead, tail);
+  // The mark comes and goes at once, never a roll: words rolled out over a mark, or a mark under
+  // half-clipped words, is the swap-in Leo wants gone (2026-11-23, on "running a command").
+  const roll = useRoll(
+    away || agentsMark ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label,
+    label,
+    lead,
+    tail,
+  );
   const lineRef = useRef<HTMLDivElement>(null);
   // Every status in this spot shimmers as "Thinking" does, a wait and each compaction look too: one
   // look for the live spot, no plain or white special case (Leo, 2026-11-22: "the "waiting" also
@@ -1024,14 +1050,18 @@ function ThinkingLine({
             aria-label={decorative ? t("thinking") : undefined}
             aria-live={decorative ? "off" : undefined}
           >
-            <LiveWords
-              decorative={decorative}
-              label={label}
-              lead={lead}
-              verbs={verbs}
-              elapsed={elapsed}
-              elapsedMs={elapsedMs}
-            />
+            {agentsMark ? (
+              <LiveCount n={liveAgents} label={label} />
+            ) : (
+              <LiveWords
+                decorative={decorative}
+                label={label}
+                lead={lead}
+                verbs={verbs}
+                elapsed={elapsed}
+                elapsedMs={elapsedMs}
+              />
+            )}
           </output>
           {elapsed && (
             // tooltip-allow: a time; the tooltip is the one place the whole turn's time shows.

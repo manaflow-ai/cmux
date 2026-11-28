@@ -105,7 +105,7 @@ impl Remote for ServiceEnv<'_> {
 
 /// Waits up to 20 s for a daemon to answer, then prints its
 /// `--json daemon status` (or the last reply, from none).
-const AWAIT_DAEMON: &str = r#"i=0; while :; do s=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); case "$s" in *'"pid":'*) break;; esac; [ "$i" -ge 20 ] && break; i=$((i+1)); sleep 1; done; printf '%s\n' "$s""#;
+const AWAIT_DAEMON: &str = r#"i=0; while :; do s=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); case "$s" in *'"pid":'*) break;; esac; [ "$i" -ge 30 ] && break; i=$((i+1)); sleep 1; done; printf '%s\n' "$s""#;
 
 /// Separates the parts of [`probe_script`]'s output, on a line of its own
 /// (after an empty one: a part need not end its last line).
@@ -362,6 +362,24 @@ impl Probe {
 /// The build of the daemon that answered a `--json daemon status` (a live
 /// one's reply carries its `pid`; a stopped one's only `"running": false`);
 /// None when none answered or the reply is not JSON.
+/// Why a restarted daemon's status (`abiRange`, `protocol/range.rs`) shares no wire ABI with
+/// the build running this update, or None: the health check's N-1 rule. The new daemon must
+/// still serve the build it replaced (whose clients, the app's and the peers', are that old),
+/// so a build that does not is rolled back like one that does not answer. A daemon from before
+/// the field is not judged by it.
+pub(crate) fn abi_gap(status: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(status.trim()).ok()?;
+    let range = v.get("abiRange")?;
+    let field = |k: &str| range.get(k).and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok());
+    let (min, max) = (field("min")?, field("max")?);
+    let theirs = crate::protocol::range::AbiRange { min: min.min(max), max };
+    let ours = crate::protocol::range::AbiRange::ours();
+    if ours.common(theirs).is_some() {
+        return None;
+    }
+    Some(crate::protocol::range::incompatible(ours, theirs, "the restarted daemon").0)
+}
+
 fn answering_build(status: &str) -> Option<String> {
     let v: Value = serde_json::from_str(status.trim()).ok()?;
     v.get("pid").filter(|p| !p.is_null())?;
@@ -672,6 +690,10 @@ impl PeerUpdate {
 }
 
 /// `host update`'s choices for every peer.
+/// `current`'s reason when [`UpdateOptions::same_build_installed`] left a
+/// silent daemon to its unit.
+pub(crate) const SAME_BUILD_SILENT: &str = "sameBuildSilent";
+
 pub(crate) struct UpdateOptions {
     /// Push `<dir>/acpmux-<target>` instead of this binary.
     pub binary_dir: Option<PathBuf>,
@@ -689,6 +711,13 @@ pub(crate) struct UpdateOptions {
     /// Restart a running daemon even inside the host's restart window
     /// (`--now`); without it the host refuses ([`restart_window_check`]).
     pub now: bool,
+    /// The host's installed binary already is the build to push (the
+    /// self-update's `Step::Current`). Unless `now`, a daemon that does not
+    /// answer `daemon status` is then left to its unit (`Restart=always` and
+    /// `WatchdogSec`, [`super::hosts`]): restarting it on the same binary
+    /// fixes nothing, and each restart cuts every carrier circuit on the host
+    /// (cmuxterm-hq#36581: lanes restarted on one sha every ~16 min).
+    pub same_build_installed: bool,
 }
 
 /// The session `host update` runs in: its `ACPMUX_SESSION_ID`, and the
@@ -867,6 +896,16 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
         && let Some(why) = older_than_installed(remote, &binary)
     {
         return up.end(Outcome::Current, NEWER_INSTALLED, why);
+    }
+    // The self-update found this binary already installed and the daemon
+    // silent: the unit restarts a dead or silent daemon on its own, so a
+    // restart here only cuts the host's carrier circuits on the same build.
+    if opts.same_build_installed && !opts.now && probe.build.is_none() {
+        let why = format!(
+            "{}'s installed acpmux already is this build and its daemon did not answer: left to its unit, not restarted",
+            remote.host()
+        );
+        return up.end(Outcome::Current, SAME_BUILD_SILENT, why);
     }
     // From here on the peer changes.
     let running = probe.build.as_deref().and_then(build_commit);
@@ -1188,7 +1227,7 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
         Err(e) => return failed(migrating, false, lock_lost_or(&e, "noAnswer"), e.to_string()),
     };
     let Some(build) = answering_build(&status) else {
-        let why = "the daemon did not answer within 20 s of its restart".to_owned();
+        let why = "the daemon did not answer within 30 s of its restart".to_owned();
         return failed(migrating, false, "noAnswer", why);
     };
     if let Some(want) = want
@@ -1196,6 +1235,9 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
     {
         let why = format!("the restarted daemon runs build {build}, not the pushed {want}");
         return failed(migrating, false, "buildMismatch", why);
+    }
+    if let Some(why) = abi_gap(&status) {
+        return failed(migrating, false, "abiIncompatible", why);
     }
     let auto_update_off = take_auto_update_off(&out.stdout).1;
     let in_place = out.stdout.lines().find_map(|l| l.strip_prefix(IN_PLACE)).map(str::to_owned);

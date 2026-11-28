@@ -50,7 +50,7 @@ final class ComposerLinkUITests: XCTestCase {
         app.launch()
         open(InputLatencyUITests.chatWorkspace, in: app)
         let field = app.textViews["chat.composer.field"]
-        let reply = app.buttons["Reply to Claude"].firstMatch
+        let reply = app.buttons["agentChat.composer.collapsed"].firstMatch
         openChatField(field, reply: reply, app: app)
         // A prompt starts the long streamed answer (CMUX_MOBILE_LIST_STREAM=1); down, it never arrives.
         field.typeText("go")

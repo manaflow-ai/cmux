@@ -73,4 +73,10 @@ have="$("$dir/bun" --version)"
 [[ "$have" == "$want" ]] || { echo "error: the private bun is $have, not $want" >&2; exit 1; }
 ln -sf bun "$dir/bunx"
 echo "$dir" >> "$GITHUB_PATH"
+# A writable temp dir for every later bun in this job: bun otherwise exits "EACCES accessing temporary directory"
+# on a slot whose system temp dir it cannot write (Hetzner, runs 46053948772 and 46063462029).
+if [[ -z "${BUN_TMPDIR:-}" && -n "${GITHUB_ENV:-}" ]]; then
+  mkdir -p "$RUNNER_TEMP/bun-tmp"
+  echo "BUN_TMPDIR=$RUNNER_TEMP/bun-tmp" >> "$GITHUB_ENV"
+fi
 echo "bun $want for this job: $dir/bun (from $source)"

@@ -30,6 +30,7 @@ import Testing
         #expect(record.firstWindowFrameMs == 512)
         #expect(record.mainMs == 470.8, "main to the first frame")
         #expect(record.homeFirstPageMs == 830.7)
+        #expect(record.homeRevealMs == 830.7)
         #expect(record.homeRevealedBy == "mark")
         #expect(record.prewarmed)
         #expect(record.version == "1.0.0" && record.build == "200" && record.commit == "31583607")
@@ -40,6 +41,7 @@ import Testing
         let byDeadline = Self.record(marks: deadline)
         #expect(byDeadline.homeRevealedBy == "deadline")
         #expect(byDeadline.homeFirstPageMs == nil)
+        #expect(byDeadline.homeRevealMs == 1700)
         #expect(record.windowUsableMs == nil && record.firstShellLiveMs == nil && record.noSnapshot == false)
     }
 
@@ -91,7 +93,7 @@ import Testing
         #expect(text == line + "\n", "one line per launch")
         let json = try #require(try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
         #expect(Set(json.keys) == ["started_at", "version", "build", "commit", "pre_main_ms", "main_ms", "first_window_frame_ms",
-                                   "home_first_page_ms", "home_revealed_by", "no_snapshot", "prewarmed", "prewarm_reason", "first_launch_of_build", "phases", "stages", "launch_kind"])
+                                   "home_first_page_ms", "reveal_home_ms", "home_revealed_by", "no_snapshot", "prewarmed", "prewarm_reason", "first_launch_of_build", "phases", "stages", "launch_kind"])
         #expect(json["prewarm_reason"] as? String == "main")
         var expected = Self.record(prewarmed: true, prewarmReason: "main")
         expected.firstLaunchOfBuild = true
@@ -244,7 +246,7 @@ import Testing
             "main.warmup_started": 42, "main.environment": 43, "main.state_folder": 44, "main.reads_started": 45,
             "main.crash_handlers": 46, "main.nsapp_made": 47.5, "main.launch_shell_made": 47.6, "main.delegate.fields": 47.7, "main.control.fields": 47.8,
             "main.delegate.first_frame_gate": 47.9, "main.delegate.main_work": 48, "main.delegate.control": 48.1, "main.delegate_made": 48.25, "main.nsapp": 50, "main.run": 55, "app.did_finish_launching_entry": 56,
-            "app.launch_snapshot_awaited": 57, "cloud_env.start": 58, "cloud_env.cli_exited": 59, "cloud_env.awaited": 59.5,
+            "app.launch_snapshot_awaited": 57, "cloud_env.start": 58, "cloud_env.cli_exited": 59, "cloud_env.awaited": 59.5, "app.cloud_env_awaited": 59.6, "app.cloud_env_failed": 59.7, "app.settings_awaited": 59.8, "app.daemon_prestarted": 59.9,
             "dfl.theme": 75, "dfl.settings": 125, "daemon.binary_resolved": 150, "dfl.daemon_cloud_updater": 325,
             "dfl.first_window_hooks": 335, "dfl.home_history": 345, "daemon_snapshot_loaded": 365,
             "connecting_view_shown": 366, "connecting_view_left": 367, "workspace_content_shown": 368,
@@ -254,8 +256,8 @@ import Testing
             "home.page_host_made": 430, "pages.created": 460, "agent_pane.view_created": 600, "agent_pane.transport_open": 650,
             "browser_pane.first_paint": 700.04, "browser_pane.input_ready": 720,
             "terminal_input_accepted": 640, "terminal_echo": 645,
-            "window.make_start": 341, "window.sidebar_made": 341.25, "window.root_made": 341.5, "window.shell_made": 341.75,
-            "window.content_installed": 342, "window.backdrop_applied": 342.5, "window.init_done": 343, "window.configured": 344, "window.workspace_shown": 345, "window.ordered_front": 346, "window.restore_wait_start": 361,
+            "window.make_start": 341, "window.sidebar_bridge_made": 341.1, "window.profile_control_made": 341.2, "window.sidebar_made": 341.25, "window.root_made": 341.5, "window.shell_made": 341.75,
+            "window.content_installed": 342, "window.backdrop_applied": 342.5, "window.init_done": 343, "window.animation_set": 343.25, "window.sidebar_restored": 343.5, "window.handoff_installed": 343.75, "window.configured": 344, "window.workspace_shown": 345, "window.ordered_front": 346, "window.restore_wait_start": 361,
             "window.restore_wait_end": 362.25, "frame.commit_start": 363, "window.display_done": 400, "window.flush_done": 401, "frame.loop_1": 402, "frame.loop_2": 403, "frame.loop_3": 404, "frame.loop_4": 405, "after_open.menu_start": 406, "after_open.menu_done": 410.25, "first_key_down": 630,
             "premain.first_initializer": 31, "main.setup_done": 41.5, "daemon.spawned": 290, "daemon.reused": 299,
             "first_page.navigation_start": 905, "first_page.dom_content_loaded": 940, "first_page.first_contentful_paint": 962,

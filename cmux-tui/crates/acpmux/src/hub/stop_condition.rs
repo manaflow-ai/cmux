@@ -15,6 +15,10 @@
 //! acpmux Stop hook beside the check ends the turn at any later stop of a turn the check already
 //! sent back (Claude Code's `stop_hook_active`), work or no work between.
 //!
+//! Harness magic `continue` (RFD 0158 §15, opt-in) lifts that one-a-turn rule while the work
+//! moves: later stops go to the check again, up to [`SOFT_BUDGET`] continuations, until a stop
+//! finds no file or commit changed since the previous one ([`Continuation`]).
+//!
 //! Only text: acpmux writes the hook itself, so a caller can add no command hook through it (a
 //! preset's `args` refuse `--settings` for that reason).
 //!
@@ -54,6 +58,21 @@ pub(crate) fn requested(meta: Option<&Value>) -> Result<Option<String>, RpcError
         return Err(refused(&format!("at most {MAX_CHARS} characters")));
     }
     Ok(Some(text.to_owned()))
+}
+
+/// Whether chat `m` runs Codex.
+pub(crate) fn is_codex(m: &SessionMeta) -> bool {
+    m.family.as_deref().map(crate::goal::GoalProvider::from_name)
+        == Some(crate::goal::GoalProvider::Codex)
+}
+
+/// Whether Codex chat `m`'s stop condition, its goal, still waits to be met: it has one, and the
+/// goal Codex reports (none yet: open) is not done, paused or stalled (`blocked`). Codex only: a
+/// Claude Code chat's Stop hook keeps its turn going, and it reports no goal.
+pub(crate) fn goal_open(m: &SessionMeta) -> bool {
+    is_codex(m)
+        && m.stop_condition.is_some()
+        && m.goal.as_ref().is_none_or(|g| g.lifecycle() == "running")
 }
 
 /// codex-acp's goal control request (1.10.0; `_codex/session/goal_control` before).
@@ -136,6 +155,169 @@ pub(crate) fn repeat_stop(input: &Value) -> Value {
     }
 }
 
+/// Harness magic `continue` (RFD 0158 §15): with it on, a stop condition's chat is sent on
+/// while its work moves, instead of at most once a turn ([`repeat_stop`]). Every later stop of a
+/// turn the check already sent back goes to the check again (`{}`) until one of three things ends
+/// it with `continue: false`:
+/// - the soft budget: [`SOFT_BUDGET`] continuations in the turn (Claude Code's own default cap on
+///   consecutive blocks is 8, and `/goal` lives under it);
+/// - the spin guard: no file and no commit changed since the previous stop
+///   ([`worktree_fingerprint`]: HEAD, `git status`, and the size and mtime of each path it lists),
+///   so a chat that only reports back to the check ends there, as the §2 spin rule says;
+/// - no fingerprint (not a git folder, or git past [`FINGERPRINT_LIMIT`]): it fails open to the
+///   rule without the feature, one continuation a turn.
+///
+/// A reply with no tool call still ends at Claude Code's block cap of one ([`BLOCK_CAP`]).
+/// Off by default (Leo, 2026-11-26: "identify all the weird opinionated fleet things we shipped
+/// into the app and remove them"): on with `agents.harnessMagic.continue.enabled: true`;
+/// `ACPMUX_HM_CONTINUE=0` turns it off whatever the file says (`1` on). Counted per turn on
+/// `turn_result.harnessMagic.continue` (`continued`, `spinStopped`, `budgetStopped`,
+/// `unreadStopped`).
+pub(crate) const CONTINUE_FEATURE: &str = "continue";
+/// The setting that turns it on (off unless `true`).
+pub(crate) const CONTINUE_SETTING: &str = "agents.harnessMagic.continue.enabled";
+/// The most continuations one turn gets with the feature on.
+pub(crate) const SOFT_BUDGET: u32 = 8;
+/// The longest a stop waits on the fingerprint; Claude Code waits 5 s on the callback.
+pub(crate) const FINGERPRINT_LIMIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+#[cfg(test)]
+thread_local! {
+    /// Turns `continue` on for this test thread, whatever the settings file says.
+    pub(crate) static CONTINUE_FOR_TEST: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
+/// Whether `continue` is on, given the kill switch's value and the settings document.
+pub(crate) fn continue_enabled_in(env: Option<&str>, doc: Option<&Value>) -> bool {
+    match env.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+        Some("0" | "false" | "off" | "no") => return false,
+        Some("1" | "true" | "on" | "yes") => return true,
+        _ => {}
+    }
+    doc.and_then(|d| crate::user_settings::value(d, CONTINUE_SETTING)).and_then(|v| v.as_bool())
+        == Some(true)
+}
+
+/// Whether `continue` is on now.
+pub(crate) fn continue_enabled() -> bool {
+    #[cfg(test)]
+    if CONTINUE_FOR_TEST.with(std::cell::Cell::get) {
+        return true;
+    }
+    let env = std::env::var(crate::hub::harness_magic::env_key(CONTINUE_FEATURE)).ok();
+    let doc = match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => Some(doc),
+        _ => None,
+    };
+    continue_enabled_in(env.as_deref(), doc.as_ref())
+}
+
+/// What the folder's work looks like now, as one number: HEAD, the `git status` lines, and the
+/// size and mtime of each path they name (a file edited twice keeps its ` M` line). `None` outside
+/// a repository or when git fails.
+pub(crate) fn worktree_fingerprint(cwd: &std::path::Path) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    let head = crate::git_state::GitState::read(cwd).head?;
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(["status", "--porcelain=v1", "-z", "--untracked-files=normal"])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    head.hash(&mut h);
+    out.stdout.hash(&mut h);
+    for record in out.stdout.split(|b| *b == 0).filter(|r| r.len() > 3) {
+        let path = cwd.join(String::from_utf8_lossy(&record[3..]).as_ref());
+        match std::fs::symlink_metadata(&path) {
+            Ok(m) => {
+                m.len().hash(&mut h);
+                m.modified().ok().hash(&mut h);
+            }
+            Err(_) => 0u8.hash(&mut h),
+        }
+    }
+    Some(h.finish())
+}
+
+/// A turn's `continue` counts.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ContinueCounters {
+    /// Later stops handed to the check again, the work having moved.
+    pub continued: u64,
+    /// Turns ended because nothing changed since the previous stop.
+    pub spin_stopped: u64,
+    /// Turns ended at [`SOFT_BUDGET`].
+    pub budget_stopped: u64,
+    /// Turns ended with no fingerprint to compare (the rule without the feature).
+    pub unread_stopped: u64,
+}
+
+impl ContinueCounters {
+    pub(crate) fn to_json(self) -> Value {
+        json!({
+            "continued": self.continued,
+            "spinStopped": self.spin_stopped,
+            "budgetStopped": self.budget_stopped,
+            "unreadStopped": self.unread_stopped,
+        })
+    }
+}
+
+/// One chat's `continue` state for its current turn.
+#[derive(Debug, Default)]
+pub(crate) struct Continuation {
+    /// Continuations so far this turn (stops the check sent back).
+    sent: u32,
+    /// The fingerprint at the previous stop.
+    last: Option<u64>,
+    counters: ContinueCounters,
+}
+
+impl Continuation {
+    /// The answer to a Stop callback whose input is `input`, with the folder's `fingerprint` now.
+    pub(crate) fn on_stop(&mut self, input: &Value, fingerprint: Option<u64>) -> Value {
+        let active = input.get("stop_hook_active").and_then(Value::as_bool) == Some(true);
+        let last = std::mem::replace(&mut self.last, fingerprint);
+        if !active {
+            // The turn's first stop: the check decides it.
+            self.sent = 0;
+            return json!({});
+        }
+        self.sent = self.sent.saturating_add(1);
+        let c = &mut self.counters;
+        let reason = if self.sent >= SOFT_BUDGET {
+            c.budget_stopped += 1;
+            "The stop condition sent this turn on at its continuation budget"
+        } else {
+            match (last, fingerprint) {
+                (Some(a), Some(b)) if a != b => {
+                    c.continued += 1;
+                    return json!({});
+                }
+                (Some(_), Some(_)) => {
+                    c.spin_stopped += 1;
+                    "No file or commit changed since the stop condition last sent this turn on"
+                }
+                _ => {
+                    c.unread_stopped += 1;
+                    "The stop condition was checked once this turn"
+                }
+            }
+        };
+        json!({"continue": false, "suppressOutput": true, "stopReason": reason})
+    }
+
+    /// The turn's counts, and a fresh state for the next turn.
+    pub(crate) fn turn_ended(&mut self) -> ContinueCounters {
+        std::mem::take(self).counters
+    }
+}
+
 /// The settings document that holds the condition as a prompt Stop hook and the block cap
 /// ([`BLOCK_CAP`]) in its `env`. The repeat check is registered as Claude's native callback,
 /// avoiding a command hook, shell, interpreter, and process spawn on every stop.
@@ -157,82 +339,5 @@ pub(crate) fn claude_args(meta: &SessionMeta) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn requested_condition_is_text_trimmed_and_capped() {
-        let ask = |v: Value| requested(Some(&json!({FIELD: v})));
-        assert_eq!(ask(json!("  done and landed ")).unwrap().as_deref(), Some("done and landed"));
-        assert_eq!(requested(None).unwrap(), None);
-        assert_eq!(requested(Some(&json!({}))).unwrap(), None);
-        assert_eq!(ask(Value::Null).unwrap(), None);
-        for bad in
-            [json!(""), json!("   "), json!(3), json!(["x"]), json!("x".repeat(MAX_CHARS + 1))]
-        {
-            assert!(ask(bad.clone()).is_err(), "{bad}");
-        }
-        assert!(ask(json!("x".repeat(MAX_CHARS))).is_ok());
-    }
-
-    #[test]
-    fn settings_hold_one_prompt_stop_hook_and_the_block_cap() {
-        let got = settings("The task is landed.");
-        assert_eq!(got["env"][BLOCK_CAP_ENV], BLOCK_CAP);
-        let hook = &got["hooks"]["Stop"][0]["hooks"][0];
-        assert_eq!(hook, &json!({"type": "prompt", "prompt": "The task is landed."}));
-        // A condition that looks like JSON or a command stays one prompt string.
-        let tricky = r#""}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"rm -rf /"}]}]"#;
-        let parsed: Value = serde_json::from_str(&settings(tricky).to_string()).unwrap();
-        assert_eq!(parsed["hooks"].as_object().unwrap().len(), 1);
-        assert_eq!(parsed["hooks"]["Stop"][0]["hooks"][0]["prompt"], tricky);
-    }
-
-    /// A subagent waiting on the person's OK answered each block of its goal check with one more
-    /// "still holding" message, 8 times a turn (Claude Code's default cap). Its Claude Code now
-    /// starts with a cap of one block with no tool call between, so the check re-prompts it once.
-    #[test]
-    fn a_stop_condition_chat_starts_with_one_block_before_the_turn_ends() {
-        let mut meta: SessionMeta = serde_json::from_value(json!({
-            "schema": crate::store::META_SCHEMA, "id": "s", "name": "sub", "harness": "claude",
-            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
-        }))
-        .unwrap();
-        assert!(claude_args(&meta).is_empty(), "no condition, no settings");
-        meta.stop_condition = Some("The task is landed.".into());
-        let args = claude_args(&meta);
-        assert_eq!(args[0], "--settings");
-        let doc: Value = serde_json::from_str(&args[1]).unwrap();
-        assert_eq!(doc["env"][BLOCK_CAP_ENV], "1");
-        assert_eq!(doc["hooks"]["Stop"][0]["hooks"][0]["type"], "prompt");
-    }
-
-    /// Lucas's Chief subagents were sent back by the goal check 51 times in two sessions, up to
-    /// Claude Code's cap of 9 in a row ("A hook blocked the turn from ending 9 consecutive
-    /// times"). A stop with `stop_hook_active: true` now ends the turn; the first stop of a turn
-    /// is the check's to decide, so an unfinished task is still sent back once.
-    #[test]
-    fn a_stop_the_check_already_sent_back_ends_the_turn() {
-        let stop = |active: bool| {
-            json!({"session_id": "s", "transcript_path": "/tmp/t.jsonl", "cwd": "/tmp",
-                "hook_event_name": "Stop", "stop_hook_active": active,
-                "last_assistant_message": "still holding for the person's OK"})
-        };
-        let out = repeat_stop(&stop(true));
-        assert_eq!(out["continue"], false, "stop_hook_active true: the stop goes through: {out}");
-        assert_eq!(out["suppressOutput"], true);
-
-        // The first stop prints nothing: Claude Code goes by the prompt check, which blocks an
-        // unfinished task (its hook is still in the settings, after this one).
-        assert_eq!(repeat_stop(&stop(false)), json!({}), "the first stop is the check's");
-        let doc = settings("The task is landed.");
-        assert_eq!(doc["hooks"]["Stop"][0]["hooks"][0]["prompt"], "The task is landed.");
-
-        // Spaced JSON counts too; a message that only quotes the words does not.
-        let spaced = r#"{"hook_event_name": "Stop", "stop_hook_active": true}"#;
-        assert!(repeat_stop(&serde_json::from_str(spaced).unwrap()).get("continue").is_some());
-        let mut quoted = stop(false);
-        quoted["last_assistant_message"] = json!("stop_hook_active: true");
-        assert_eq!(repeat_stop(&quoted), json!({}));
-    }
-}
+#[path = "stop_condition_tests.rs"]
+mod tests;

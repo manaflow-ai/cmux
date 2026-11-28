@@ -16,7 +16,7 @@
 // card (the command, what it printed, "[exited with code 0]", the "stream ended" line and Open in
 // terminal), never the stub; the note's height and the reply under it move in one motion; and the
 // card's height never changes once that motion ends. (What the open costs mid-chat, the rows under
-// it riding the fold, lands with the fold-lag fix, #39917, whose foldRide.ts it measures.)
+// it, the rows under it moving once, is the transcript's placement.)
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -287,18 +287,23 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
     await click(page);
     await whole(page);
     const { frames, clickAt } = await collect(page);
+    // From the last frame painted before the press: a fold takes its height in one frame (#60630), so
+    // an open whose read already answered paints whole in the click's first frame, and counting only
+    // from that frame saw no move at all (0 moves, read as a failure, since #60630 on 11-27).
+    const before = frames.filter((frame) => frame.t < clickAt).at(-1);
     const after = frames.filter((frame) => frame.t >= clickAt);
     const final = after.find((frame) => frame.full);
+    const moving = before ? [before, ...after] : after;
     let lastChange = 0;
-    for (let index = 1; index < after.length; index += 1)
-      if (Math.abs(after[index]!.height - after[index - 1]!.height) > 0.5) lastChange = after[index]!.t;
+    for (let index = 1; index < moving.length; index += 1)
+      if (Math.abs(moving[index]!.height - moving[index - 1]!.height) > 0.5) lastChange = moving[index]!.t;
     return {
       clickToFinal: final ? Math.round(final.t - clickAt) : Infinity,
       stubFrames: after.filter((frame) => frame.stub).length,
       // A body drawn without the whole card: the stub, or a card still missing a line.
       partialFrames: after.filter((frame) => frame.body && !frame.full).length,
-      heightMotions: motions(after, (frame) => frame.height),
-      belowMotions: motions(after, (frame) => frame.below),
+      heightMotions: motions(moving, (frame) => frame.height),
+      belowMotions: motions(moving, (frame) => frame.below),
       lastChangeAfterFinal: final ? Math.round(lastChange - final.t) : Infinity,
     };
   };

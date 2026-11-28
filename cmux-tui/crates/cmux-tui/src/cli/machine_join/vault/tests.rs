@@ -184,7 +184,10 @@ fn ls_prints_names_revisions_and_times_only() {
     let (origin, _requests) = fake(Arc::new(|_: &str| (404, "{}".to_owned())));
     let failure =
         run_vault(&["machine", "vault", "ls"], &origin, OutputMode::Human, VALUE).code.unwrap_err();
-    assert_eq!(failure.message, "the vault isn't available on this server yet (it answered 404)");
+    assert_eq!(
+        failure.message,
+        format!("the vault isn't available on {origin} yet (it answered 404)")
+    );
 }
 
 #[test]
@@ -410,6 +413,10 @@ fn machine_adds_switches_leave_json_to_the_global_output_mode() {
         vec!["machine", "add", "--vault", "--yes", "--json"],
         vec!["machine", "add", "--wait", "--json"],
         vec!["machine", "vault", "ls", "--cloud-token-stdin", "--json"],
+        // The screen-share probe's revoke: `--cloud-token-stdin` swallowed `--json` here.
+        vec!["machine", "revoke", "probe-vm", "--yes", "--cloud-token-stdin", "--json"],
+        vec!["machine", "revoke", "probe-vm", "--cloud-token-stdin", "--json", "--yes"],
+        vec!["machine", "rotate", "probe-vm", "--cloud-token-stdin", "--json"],
         // The desktop-agent probe's revoke exited 2 with the usage text: `--json` was read as
         // `--cloud-token-stdin`'s value.
         vec!["machine", "revoke", "probe-1", "--yes", "--cloud-token-stdin", "--json"],

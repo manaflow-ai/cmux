@@ -465,6 +465,37 @@ pub fn decide(batch: &Batch, answer: Option<&str>, owners: &Owners) -> Vec<Optio
         .collect()
 }
 
+/// RFD 0158 §16 (harness magic `consensus`): the decisions several independent calls agree
+/// on, one per message in batch order. A message is decided only when more than half of
+/// `votes` (each one call's [`decide`]) give it the same decision (its category and owner);
+/// otherwise, or when no call decided it, it stays undecided and held, as for a failed call.
+/// A rule's decision is the same in every vote, so it always passes. The kept decision is the
+/// first agreeing vote's, so no text of a disagreeing vote is ever kept.
+pub fn majority(votes: &[Vec<Option<Decision>>]) -> Vec<Option<Decision>> {
+    let n = votes.iter().map(Vec::len).max().unwrap_or(0);
+    let quorum = votes.len() / 2 + 1;
+    (0..n)
+        .map(|i| {
+            let picks: Vec<&Decision> = votes.iter().filter_map(|v| v.get(i)?.as_ref()).collect();
+            picks.iter().find_map(|d| {
+                let same = |o: &&Decision| o.category == d.category && o.owner == d.owner;
+                (picks.iter().filter(|o| same(o)).count() >= quorum).then(|| (*d).clone())
+            })
+        })
+        .collect()
+}
+
+/// How many messages of a [`majority`] the votes split on: decided by at least one vote but
+/// left undecided by the majority.
+pub fn split_count(votes: &[Vec<Option<Decision>>], kept: &[Option<Decision>]) -> usize {
+    kept.iter()
+        .enumerate()
+        .filter(|(i, k)| {
+            k.is_none() && votes.iter().any(|v| v.get(*i).is_some_and(Option::is_some))
+        })
+        .count()
+}
+
 /// `held` split into the messages decided with no model (blockers, questions and the
 /// [`Held::fyi_by_rule`] ones) and the rest, each in arrival order.
 pub fn split_urgent(held: &[Held]) -> (Vec<Held>, Vec<Held>) {

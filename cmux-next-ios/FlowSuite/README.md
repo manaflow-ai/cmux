@@ -27,6 +27,28 @@ cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA
 `cmux-next-ios/FlowSuite/tagged-sim.sh create TAG` gives a local run its own simulator (Aziz's
 rule: one simulator per tag, addressed by UDID, deleted at the end).
 
+## Verify before a PR: `cmux ios verify`
+
+```bash
+cmux ios verify                  # the checked-out branch's PR (or: --pr N)
+cmux ios verify --plan           # the selection and steps, nothing run
+```
+
+`scripts/ci/ios_verify.py` does the following:
+
+1. Merges the moved base into the head and pushes, so a merge combination (rows 4, 5 and 7) breaks here.
+2. Selects the flows with `select_flows.py`.
+3. Runs two shards in parallel with automatic placement on the simulator fleet. `--workers` or
+   `CMUX_IOS_VERIFY_WORKERS` opts into named worker hints and one shard per worker; `--pin-strict` requires
+   explicit workers. Each shard is `test only= ui= video` with a slim simulator, cached DerivedData and the FFI
+   cache. A flow marked `"pair_e2e": true` adds `pair-e2e`: a tagged DEBUG Mac pairs, drops and reconnects. The
+   flows' `scripts` run too.
+4. Diffs the screenshots against the newest passing proof merged into the base.
+5. Posts the proof record (`ci/proof-record/`) and reruns the `cmux/ios-fast` gate, which needs a passing record
+   at the PR's current head. `vars.CI_IOS_VERIFY_PROOF=0` turns that requirement off.
+
+A flow's macOS `swift` tests are named as delegated to pr pipeline's mac job.
+
 ## flows.json
 
 ```json
@@ -57,22 +79,22 @@ rule: one simulator per tag, addressed by UDID, deleted at the end).
 
 Full rows (why each was not caught, evidence): [REGRESSIONS-2026-11.md](REGRESSIONS-2026-11.md).
 
-| Row | What broke | Root PR | Fix | Flow | Catching test |
-| --- | --- | --- | --- | --- | --- |
-| 1 | Terminal stuck on its skeleton at first attach | cmux#53596 | cmux#56970 | terminal-first-attach | AttachWaitsForTheLinkTests, TerminalAttachFirstFrameUITests |
-| 2 | Key row floats over terminal text when the keyboard shows or hides | cmux#53325 | cmux#56673, cmux#56712 (Aziz) | terminal-key-row-layout | TerminalKeyRowOnDemandUITests (now asserts the row sits on the keyboard), TerminalComposerDockUITests |
-| 3 | Workspace row stays highlighted after going back | cmux#53590 | cmux#56970; Aziz's cmux#57347 is a different design, Aziz decides | workspace-row-selection-clears | WorkspaceRowSelectionClearsUITests |
-| 4 | App and kit tests stop compiling (7 cross-PR breaks) | several | cmux#55399 | compile-app-and-tests | build-for-testing on the merged tree |
-| 5 | UITests target, CmuxMobileLive and mobile-link Rust stop building | cmux#53596, #53746, #50638 x #54075 | cmux#55664, #55655 | compile-app-and-tests | build-for-testing, `cargo check -p cmux-mobile-link` |
-| 6 | Crash when a portrait request is refused | cmux#52610 | cmux#53529 | screen-share-portrait-refused | ScreenSharingOrientationTests |
-| 7 | CmuxMobileShellTests stop compiling | cmux#51849 x #48532 | cmux#53217 | compile-app-and-tests | build-for-testing |
-| 8 | Composer Paste key invisible, glass lost | cmux#48749 | cmux#53471, #56712 | terminal-composer-bar | TerminalComposerBarUITests |
-| 9 | Pairing fails with "Mac's identity changed" | cmux#13742 | cmux#57771 | pairing-mac-identity | MobileHostMacIdentityKeychainTests (macOS package) |
-| 10 | Empty state says "Macs asleep" when cmux is not connected | pre-rename copy; cmux#53806 fixed one branch | cmux#57792 (open) | workspaces-empty-state | WorkspaceInboxTests, OfflineWorkspaceAlertUITests; the copy test lands with cmux#57792 |
-| 11 | A Mac with no workspaces shows Loading forever; the route flaps | | cmux#57410 (open) | workspaces-empty-mac-loads | WorkspaceInboxTests, NetworkPathFilterTests |
-| 12 | ChatMacLookUITests red after cmux#57773 | cmux#57773 | | chat-mac-look | ChatMacLookUITests |
-| 13 | Full-screen app's header goes off screen with the keyboard up (PR audit) | cmux#41895 | cmux#42760, #43454 | terminal-keyboard-fullscreen-app | TerminalKeyboardNoResizeUITests |
-| 14 | Mac's terminal keeps the phone's size after background or lock (PR audit) | cmux#41902 | cmux#42192 | terminal-size-claim-release | TerminalSizeClaimDebounceTests |
-| 15 | App stops compiling: LocalLinkBrowser captured var (PR audit) | cmux#53717 | cmux#55156 | compile-app-and-tests | build-for-testing |
-| 16 | Slow chat history never shows "Loading chat…" (PR audit) | cmux#51591 | cmux#54975 | chat-slow-history-loading | StartingAgentSourceTests |
-| 17 | macOS half of the kit stops compiling and hides test reds (PR audit) | cmux#56000 | cmux#55509, #56732 | kit-macos-swift-test | `swift test` NoRawTimeoutCopyTests, WorkedFoldTests |
+| Row | What broke | Root PR | Fix | Flow | Catching test | Would `cmux ios verify` have caught it |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | Terminal stuck on its skeleton at first attach | cmux#53596 | cmux#56970 | terminal-first-attach | AttachWaitsForTheLinkTests, TerminalAttachFirstFrameUITests | yes |
+| 2 | Key row floats over terminal text when the keyboard shows or hides | cmux#53325 | cmux#56673, cmux#56712 (Aziz) | terminal-key-row-layout | TerminalKeyRowOnDemandUITests (now asserts the row sits on the keyboard), TerminalComposerDockUITests | yes |
+| 3 | Workspace row stays highlighted after going back | cmux#53590 | cmux#56970; Aziz's cmux#57347 is a different design, Aziz decides | workspace-row-selection-clears | WorkspaceRowSelectionClearsUITests | yes |
+| 4 | App and kit tests stop compiling (7 cross-PR breaks) | several | cmux#55399 | compile-app-and-tests | build-for-testing on the merged tree | yes, base merged first |
+| 5 | UITests target, CmuxMobileLive and mobile-link Rust stop building | cmux#53596, #53746, #50638 x #54075 | cmux#55664, #55655 | compile-app-and-tests | build-for-testing, `cargo check -p cmux-mobile-link` | yes, base merged first |
+| 6 | Crash when a portrait request is refused | cmux#52610 | cmux#53529 | screen-share-portrait-refused | ScreenSharingOrientationTests | yes |
+| 7 | CmuxMobileShellTests stop compiling | cmux#51849 x #48532 | cmux#53217 | compile-app-and-tests | build-for-testing | yes, base merged first |
+| 8 | Composer Paste key invisible, glass lost | cmux#48749 | cmux#53471, #56712 | terminal-composer-bar | TerminalComposerBarUITests | yes |
+| 9 | Pairing fails with "Mac's identity changed" | cmux#13742 | cmux#57771 | pairing-mac-identity | MobileHostMacIdentityKeychainTests (macOS package) | yes by path; swift test in pr pipeline / mac, plus pair-e2e |
+| 10 | Empty state says "Macs asleep" when cmux is not connected | pre-rename copy; cmux#53806 fixed one branch | cmux#60142 (carries #57792) | workspaces-empty-state | WorkspaceInboxTests, OfflineWorkspaceAlertUITests; plus the copy test from cmux#60142 | yes |
+| 11 | A Mac with no workspaces shows Loading forever; the route flaps | | cmux#59945 (carries #57410) | workspaces-empty-mac-loads | WorkspaceInboxTests, NetworkPathFilterTests | yes by path (no replayable root) |
+| 12 | ChatMacLookUITests red after cmux#57773 | cmux#57773 | | chat-mac-look | ChatMacLookUITests | yes |
+| 13 | Full-screen app's header goes off screen with the keyboard up (PR audit) | cmux#41895 | cmux#42760, #43454 | terminal-keyboard-fullscreen-app | TerminalKeyboardNoResizeUITests | yes |
+| 14 | Mac's terminal keeps the phone's size after background or lock (PR audit) | cmux#41902 | cmux#42192 | terminal-size-claim-release | TerminalSizeClaimDebounceTests | yes |
+| 15 | App stops compiling: LocalLinkBrowser captured var (PR audit) | cmux#53717 | cmux#55156 | compile-app-and-tests | build-for-testing | yes |
+| 16 | Slow chat history never shows "Loading chat…" (PR audit) | cmux#51591 | cmux#54975 | chat-slow-history-loading | StartingAgentSourceTests | yes |
+| 17 | macOS half of the kit stops compiling and hides test reds (PR audit) | cmux#56000 | cmux#55509, #56732 | kit-macos-swift-test | `swift test` NoRawTimeoutCopyTests, WorkedFoldTests | yes |

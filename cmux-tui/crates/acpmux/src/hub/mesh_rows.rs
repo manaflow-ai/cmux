@@ -35,6 +35,7 @@ impl Hub {
             .filter_map(|s| {
                 let m = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 (m.status != SessionStatus::Closed).then(|| {
+                    let stuck_reason = mesh_failure_reason(&m);
                     let title = m.title.as_deref().and_then(heartbeat_meta);
                     let title_source =
                         title.as_ref().and(m.title_source.as_deref()).and_then(heartbeat_meta);
@@ -44,9 +45,13 @@ impl Hub {
                         name: m.name.clone(),
                         session_id: s.id.clone(),
                         harness: m.harness.clone(),
-                        // A watched chat whose app exited (`app_exit.rs`).
-                        state: super::app_exit::row_status(s, m.status),
-                        stuck_reason: None,
+                        // A watched chat whose app exited (`app_exit.rs`); a harness sandbox
+                        // refusal or a BLOCKED reply is `failed` (`mesh_failure_reason`).
+                        state: stuck_reason.as_ref().map_or_else(
+                            || super::app_exit::row_status(s, m.status),
+                            |_| "failed".into(),
+                        ),
+                        stuck_reason,
                         cwd: crate::mesh::heartbeat_cwd(&m.cwd.to_string_lossy()),
                         title,
                         title_source,
@@ -74,6 +79,7 @@ impl Hub {
                             &m.succeeds,
                         ),
                         roles: crate::mesh::heartbeat_roles(&m.roles),
+                        tags: crate::mesh::heartbeat_tags(&super::session::live_tags(&m)),
                         updated_at: (m.updated_at > 0).then_some(m.updated_at),
                     };
                     (rank(m.status), m.updated_at, row)
@@ -196,6 +202,24 @@ impl Hub {
     }
 }
 
+/// Keep the mesh heartbeat's failure projection in step with the local row projection without
+/// constructing a full summary for every session. Only the harness's persisted sandbox refusal
+/// and an explicit BLOCKED reply are failures; arbitrary prose and ordinary turn errors remain
+/// their normal state.
+fn mesh_failure_reason(meta: &crate::store::SessionMeta) -> Option<String> {
+    let raw = if meta.harness_sandbox.failing {
+        meta.harness_sandbox.error.as_deref()
+    } else if !matches!(meta.status, SessionStatus::Idle | SessionStatus::Ready) {
+        // A previous BLOCKED reply is ordinary preview text while a new turn is running (or
+        // waiting for input); do not project that stale reply as a fresh heartbeat failure.
+        None
+    } else {
+        meta.preview.as_deref().and_then(crate::session_liveness::blocked_reply)
+    }?;
+    let masked = crate::secret_scan::mask(raw);
+    Some(masked.chars().take(512).collect())
+}
+
 /// Whether `host` is this machine's name on the mesh or its host name (never the "host"
 /// stand-in for an unusable one).
 pub(super) fn is_own_host(host: &str) -> bool {
@@ -203,40 +227,5 @@ pub(super) fn is_own_host(host: &str) -> bool {
 }
 
 #[cfg(test)]
-mod mesh_route_tests {
-    use super::*;
-    use crate::config::{Config, StoreMode};
-    use crate::session_identity::SessionReceipt;
-    use serde_json::json;
-
-    fn row(peer: &str, id: &str, name: &str) -> RemoteSession {
-        RemoteSession {
-            peer: peer.into(),
-            summary: json!({"sessionId": id, "name": name}).into(),
-            receipt: SessionReceipt {
-                host_id: peer.into(),
-                mux_session_id: id.into(),
-                agent_session_id: None,
-                generation: 1,
-            },
-        }
-    }
-
-    /// A name two peers list is ambiguous: it is never sent to the hub to pick one.
-    #[tokio::test]
-    async fn a_name_one_or_several_peers_list_never_goes_to_the_mesh_hub() {
-        let mut config: Config = serde_json::from_value(json!({})).expect("config");
-        config.store.mode = StoreMode::Memory;
-        let store =
-            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).expect("store");
-        let hub = Hub::new(config, store);
-        assert!(hub.mesh_may_route("dep-land"));
-        hub.remote_sessions.write().insert("p1/s1".into(), row("p1", "s1", "dep-land"));
-        assert!(!hub.mesh_may_route("dep-land"), "one peer lists it");
-        hub.remote_sessions.write().insert("p2/s2".into(), row("p2", "s2", "dep-land"));
-        assert_eq!(hub.remote_matches("dep-land"), 2);
-        assert!(hub.resolve_remote("dep-land").is_none(), "ambiguous");
-        assert!(!hub.mesh_may_route("dep-land"), "two peers list it");
-        assert!(hub.mesh_may_route("other"));
-    }
-}
+#[path = "mesh_rows_mesh_route_tests.rs"]
+mod mesh_route_tests;

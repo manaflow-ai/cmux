@@ -136,9 +136,24 @@ extension LiveCoordinator {
         session.workspaces.onTerminalOutput = { [weak self] tab in self?.onTerminalOutput?(tab, outputMac) }
         session.acpmux.onWatchEvent = { [weak session] event in
             guard let session else { return }
-            session.feed.handle(event, sessions: session.acpmux.sessions)
-            session.workspaces.setPending(session.acpmux.sessions.mapValues { $0.pendingPermissions > 0 }, waitingFor: session.feed.waitingFor,
-                                          chatTitles: session.acpmux.sessions.compactMapValues(\.title))
+            let hub = session.acpmux
+            session.feed.handle(event, sessions: hub.sessions)
+            // One chat's event updates that chat's entries; only a whole list rebuilds them. Each
+            // event used to rebuild both maps over every chat on the main actor (about 30,000
+            // dictionary operations per event at 10,000 chats, 4 events a second).
+            switch event {
+            case .sessionsLoaded:
+                session.workspaces.setPending(hub.sessions.mapValues { $0.pendingPermissions > 0 }, waitingFor: session.feed.waitingFor,
+                                              chatTitles: hub.sessions.compactMapValues(\.title))
+            case .sessionChanged(let changed, _, _):
+                session.workspaces.setPending(rows: [changed.id: hub.sessions[changed.id]], waitingFor: session.feed.waitingFor)
+            case .sessionsChanged(let followed):
+                var rows: [String: AcpmuxSession?] = followed.changed.mapValues { hub.sessions[$0.id] }
+                for id in followed.gone { rows[id] = .some(nil) }
+                session.workspaces.setPending(rows: rows, waitingFor: session.feed.waitingFor)
+            case .permissionPending(let id, _, _), .permissionResolved(let id):
+                session.workspaces.setPending(rows: [id: hub.sessions[id]], waitingFor: session.feed.waitingFor)
+            }
         }
         session.creation.capabilities = { [weak self] mac in self?.store.macCapabilities[mac] }
         observe(session)
@@ -329,6 +344,9 @@ extension LiveCoordinator {
         // The Mac's theme and wallpaper, for as long as this link lives (ask-87d30da8e5).
         let appearance = self.appearance
         Task { await appearance.read(on: link, macID: macID) }
+        // An agent on the Mac drives the tabs this iPhone shows itself (RFD 0089).
+        let phoneName = deviceName
+        Task { await PhonePageChannel.serve(on: link, macID: macID, deviceName: phoneName) }
         #if canImport(CmuxMobileLinkFFI)
         // Other devices waiting for this Mac's Allow, answered from here (ask-45c37458ea).
         pairRequests.linkServed(macID: macID, source: MacPairRequests.Source(
@@ -340,6 +358,10 @@ extension LiveCoordinator {
         // The Mac's tabs (titles, favicons, pictures, terminal screens), for as long as this link lives.
         let tabs = self.tabs
         Task { await tabs.read(on: link, macID: macID) }
+        #if DEBUG
+        // Swift live code patches from the Mac, in cmux Dev launched by scripts/live-code/ios-device.sh.
+        Task.detached(priority: .utility) { await LiveCodeLinkFeed.read(on: link) }
+        #endif
         await chats.value
         guard session.currentLink === link else { return }
         // A failed chat channel is shown, not only logged.
@@ -748,9 +770,14 @@ extension LiveCoordinator {
 
     /// Sends painted redraws to the Mac (`phone-frames` `paint`): a few clock probes first, so
     /// hostd puts the phone's times on its clock (the probe with the shortest round trip).
-    func sendPaint(_ samples: [TerminalPaintTally.Sample], program: String?, macID: String) async {
+    /// With the DEBUG paint-latency overlay on it reads hostd's join back (at most 2 s: a hostd
+    /// from before the answer sends none) and returns it.
+    @discardableResult
+    func sendPaint(_ samples: [TerminalPaintTally.Sample], program: String?, macID: String) async
+        -> TerminalPaintSummary? {
         guard store.macCapabilities[macID]?.contains("phone-frames-v1") == true,
-              let owner = session(macID: macID), let link = owner.servedLink else { return }
+              let owner = session(macID: macID), let link = owner.servedLink else { return nil }
+        let wantsSummary = TerminalPaintOverlay.enabled
         let rtt: Int? = if case .connected(_, _, let measured) = owner.link.phase {
             measured.map(Int.init)
         } else {
@@ -760,10 +787,10 @@ extension LiveCoordinator {
             timeout: .seconds(10),
             operation: { try await link.openChannel(service: "phone-frames", args: [:]) },
             onDiscard: { await $0.close(code: "eof", reason: "phone-frames expired") }
-        ) else { return }
-        _ = try? await LinkDeadline.run(
+        ) else { return nil }
+        let sent = try? await LinkDeadline.run(
             timeout: .seconds(10),
-            operation: {
+            operation: { () -> Bool in
                 var clock: [[Double]] = []
                 for _ in 0..<4 {
                     try await channel.send(TerminalPaintReport.clockProbe(t0: TerminalPaintReport.nowMs))
@@ -777,11 +804,22 @@ extension LiveCoordinator {
                     program: program, samples: samples, clock: clock, rttMs: rtt,
                     agentCLIHybrid: DaemonTerminalSession.agentCLIHybridEnabled()
                 )
-                if let line = report.line() { try await channel.send(line) }
+                guard let line = report.line() else { return false }
+                try await channel.send(line)
+                return true
             },
             onCancel: { await channel.close(code: "eof", reason: "phone-frames expired") }
         )
+        var summary: TerminalPaintSummary?
+        if wantsSummary, sent == true {
+            summary = try? await LinkDeadline.run(
+                timeout: .seconds(2),
+                operation: { try await channel.receive().flatMap(TerminalPaintSummary.init(answer:)) },
+                onCancel: { await channel.close(code: "eof", reason: "paint summary expired") }
+            )
+        }
         await channel.close(code: "eof", reason: "")
+        return summary
     }
 
     /// Whether the phone holds (or is opening) a link to the Mac.
@@ -905,6 +943,14 @@ extension LiveCoordinator {
                 return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link)
             }
         }
+    }
+
+    /// Where a terminal tab's attachments go in the upload queue: its Mac
+    /// and folder (the engine falls back to the Mac's uploads folder when the
+    /// folder is refused). Nil while the tab has no session on a Mac.
+    public func terminalAttachmentDestination(tabID: String, macID: String? = nil) -> AttachmentDestination? {
+        guard let owner = session(tabID: tabID, macID: macID) else { return nil }
+        return AttachmentDestination(macID: owner.macID, cwd: owner.tree?.directories[tabID])
     }
 
     /// The normalized working directory captured by a terminal upload closure.
@@ -1326,6 +1372,7 @@ extension LiveCoordinator {
         updateDiagnostics(session)
         updateMacState(session)
         updateTerminalsOffline(session)
+        updateNetworkReturnWatch()
         scheduleQuietStatus(session)
         let status = statusLines()
         if status != store.macLinkStatus { store.macLinkStatus = status }

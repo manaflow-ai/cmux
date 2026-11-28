@@ -23,6 +23,11 @@ export const CHIEF_FILES = [
   { name: "cmux-chief.service", mode: 0o644 },
   { name: "cmux-chief-update.service", mode: 0o644 },
   { name: "cmux-chief-update.timer", mode: 0o644 },
+  // Executor for the Chief (RFD 0111): its unit, the setup step that hands its key to the Chief, the GitHub app.
+  { name: "cmux-executor.service", mode: 0o644 },
+  { name: "cmux-executor-setup", mode: 0o755 },
+  { name: "executor-github-index.ts", mode: 0o644 },
+  { name: "executor-github-package.json", mode: 0o644 },
 ] as const;
 
 export function chiefHostFiles(): Array<{ path: string; text: string; mode: number }> {
@@ -38,8 +43,10 @@ export function chiefBinary(lock: InputsLock): string | null {
 export function chiefHostInstallCommand(binary: string | null): string {
   return [
     `sh ${CHIEF_STAGED}/install.sh ${CHIEF_STAGED}${binary ? ` ${binary}` : ""}`,
-    "systemd-analyze verify /etc/systemd/system/cmux-chief.service /etc/systemd/system/cmux-chief-update.service /etc/systemd/system/cmux-chief-update.timer",
+    "systemd-analyze verify /etc/systemd/system/cmux-chief.service /etc/systemd/system/cmux-chief-update.service /etc/systemd/system/cmux-chief-update.timer /etc/systemd/system/cmux-executor.service",
     'test "$(systemctl is-enabled cmux-chief.service 2>/dev/null || true)" = disabled',
+    "test -L /etc/systemd/system/cmux-chief.service.wants/cmux-executor.service",
+    "python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' /usr/local/lib/cmux-chief/cmux-executor-setup",
     `rm -rf ${CHIEF_STAGED}`,
     `echo "chief-host-ok $(/var/lib/cmux-chief/current --version 2>/dev/null || echo 'no build yet')"`,
   ].join(" && ");

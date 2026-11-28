@@ -158,6 +158,9 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     /// (`home.saved_page_shown`), else the Chief's first page (`home.first_page`, classic Home); nil when
     /// Home showed by its deadline first.
     public var homeFirstPageMs: Double?
+    /// Process start to Home's reveal (`reveal.home`), including a reveal caused by the deadline.
+    /// This is the app-owned launch-to-Home reading; `homeFirstPageMs` remains nil for a deadline reveal.
+    public var homeRevealMs: Double?
     /// What showed Home: `mark` (its first page came) or `deadline` (``LaunchReveal``'s deadline passed first).
     public var homeRevealedBy: String?
     /// Process start to the window taking keys (`window_usable`): Home's message field has the keyboard in the key
@@ -206,7 +209,7 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case startedAt = "started_at", version, build, commit
         case preMainMs = "pre_main_ms", mainMs = "main_ms", firstWindowFrameMs = "first_window_frame_ms"
-        case homeFirstPageMs = "home_first_page_ms", homeRevealedBy = "home_revealed_by"
+        case homeFirstPageMs = "home_first_page_ms", homeRevealMs = "reveal_home_ms", homeRevealedBy = "home_revealed_by"
         case windowUsableMs = "window_usable_ms", firstShellLiveMs = "first_shell_live_ms", noSnapshot = "no_snapshot"
         case priorChatPaintedMs = "prior_chat_painted_ms", priorChatLiveMs = "prior_chat_live_ms"
         case prewarmed, prewarmReason = "prewarm_reason", firstLaunchOfBuild = "first_launch_of_build", phases
@@ -226,6 +229,7 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         firstWindowFrameMs = round(marks["first_window_frame_committed"])
         if let main = marks["main_start"], let frame = marks["first_window_frame_committed"] { mainMs = round(frame - main) }
         homeFirstPageMs = round(marks["home.saved_page_shown"] ?? marks["home.first_page"])
+        homeRevealMs = round(marks["reveal.home"])
         if marks["reveal.home"] != nil { homeRevealedBy = marks["reveal.home.by_deadline"] != nil ? "deadline" : "mark" }
         windowUsableMs = round(marks["window_usable"])
         firstShellLiveMs = round(marks["first_shell_live"])
@@ -262,13 +266,13 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     /// outside a harness's marks pipe too (startup-tti, 2026-11-21).
     public static let phaseMarks = [
         "premain.first_initializer", "main.setup_done", "main.warmup_started",
-        "main.environment", "main.state_folder", "main.reads_started", "main.crash_handlers", "main.nsapp_made", "main.launch_shell_made", "main.delegate.fields", "main.control.fields", "main.delegate.first_frame_gate", "main.delegate.main_work", "main.delegate.control", "main.delegate_made", "main.nsapp", "main.run", "app.did_finish_launching_entry", "app.launch_snapshot_awaited",
+        "main.environment", "main.state_folder", "main.reads_started", "main.crash_handlers", "main.nsapp_made", "main.launch_shell_made", "main.delegate.fields", "main.control.fields", "main.delegate.first_frame_gate", "main.delegate.main_work", "main.delegate.control", "main.delegate_made", "main.nsapp", "main.run", "app.did_finish_launching_entry", "app.launch_snapshot_awaited", "app.cloud_env_awaited", "app.cloud_env_failed", "app.settings_awaited", "app.daemon_prestarted",
         "cloud_env.start", "cloud_env.cli_exited", "cloud_env.awaited",
         "did_finish_launching_start", "dfl.settings_read", "dfl.theme", "dfl.services", "dfl.app_actions", "dfl.bind", "dfl.settings", "dfl.menu",
         "daemon.prepare_start", "daemon.binary_resolved", "daemon.spawned", "daemon.reused", "daemon.prepare_end", "daemon.socket_connected", "daemon_connected",
         "dfl.daemon_cloud_updater", "dfl.first_window_hooks", "dfl.home_history",
-        "launch_snapshot_applied", "launch_snapshot_shown", "window.make_start", "window.sidebar_made", "window.root_made", "window.shell_made", "window.content_installed", "window.backdrop_applied",
-        "window.init_done", "window.configured", "window.workspace_shown", "window.ordered_front",
+        "launch_snapshot_applied", "launch_snapshot_shown", "window.make_start", "window.sidebar_bridge_made", "window.profile_control_made", "window.sidebar_made", "window.root_made", "window.shell_made", "window.content_installed", "window.backdrop_applied",
+        "window.init_done", "window.animation_set", "window.sidebar_restored", "window.handoff_installed", "window.configured", "window.workspace_shown", "window.ordered_front",
         "dfl.windows", "did_finish_launching_end", "window.restore_wait_start", "window.restore_wait_end",
         "frame.commit_start", "window.display_done", "window.flush_done", "frame.loop_1", "frame.loop_2", "frame.loop_3", "frame.loop_4", "after_open.menu_start", "after_open.menu_done", "daemon_snapshot_loaded", "connecting_view_shown", "connecting_view_left", "workspace_content_shown",
         "sidebar_rows_shown", "first_window_flushed", "pages.deferred_until_frame", "agent_pane.launch_image_shown",
@@ -410,6 +414,12 @@ public nonisolated final class LaunchBinderLaps: Sendable {
             state.times[name, default: 0] += Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1e15
             state.last = now
         }
+    }
+
+    /// Starts the next lap now: the binders the App runs after its first frame lap from their own start.
+    public func restart() {
+        let now = ContinuousClock.now
+        state.withLock { $0.last = now }
     }
 
     /// Each binder's milliseconds so far.

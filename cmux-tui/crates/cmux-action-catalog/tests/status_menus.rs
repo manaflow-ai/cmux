@@ -485,3 +485,54 @@ fn c_abi_round_trip() {
     // SAFETY: exactly what the call wrote, freed once.
     unsafe { cmux_action_catalog_reply_free(reply, len) };
 }
+
+/// Signed out on a dev build: the line under Sign In names the backend it signs in to (cmux#46930;
+/// Leo: "why is the stuff so weird to log in to dev builds?"); signed in, no such line. The Swift
+/// `MenuBarMenuSpecTests.signInNamesItsBackend` case, row for row.
+#[test]
+fn sign_in_names_its_backend() {
+    let line = "Signs in to Development backend · dev-abc.cmux.dev";
+    let signed_out = ids(&items(json!({ "signInBackend": line })));
+    assert_eq!(
+        signed_out[..3],
+        ["palette.auth.signIn".to_owned(), format!("info:{line}"), "-".to_owned()]
+    );
+    let signed_in = ids(&items(json!({ "account": { "lines": ["Ada"] }, "signInBackend": line })));
+    assert!(!signed_in.contains(&format!("info:{line}")));
+}
+
+/// `computerUse.floatingPreview` (prototype; `floatingPreviewRowShowsOrHidesThePanel`): on, the
+/// Computer Use submenu shows or hides the floating panel, before Agent Activity, with or without a
+/// session; off (no `floatingPreview`), no row.
+#[test]
+fn floating_preview_row_shows_or_hides_the_panel() {
+    let sub = |computer_use: Value| submenu(&items(json!({ "computerUse": computer_use }))[0]);
+    let idle = sub(json!({ "sessions": [], "floatingPreview": false }));
+    assert_eq!(
+        ids(&idle),
+        [
+            "command:computerUseFloatingPreview(\"true\")",
+            "agentActivity.open",
+            "palette.computerUse.setup",
+        ]
+    );
+    assert_eq!(
+        idle[0],
+        json!({ "command": { "command": "computerUseFloatingPreview", "target": "true",
+                             "title": "Show Floating Preview", "symbol": "pip" } })
+    );
+    let running =
+        sub(json!({ "sessions": [{ "id": "s1", "appName": "Notes" }], "floatingPreview": true }));
+    let tail = ids(&running);
+    assert_eq!(
+        tail[tail.len() - 2..],
+        ["command:computerUseFloatingPreview(\"false\")", "agentActivity.open"]
+    );
+    assert_eq!(
+        running[running.len() - 2],
+        json!({ "command": { "command": "computerUseFloatingPreview", "target": "false",
+                             "title": "Hide Floating Preview", "symbol": "pip.remove" } })
+    );
+    let off = sub(json!({ "sessions": [{ "id": "s1" }] }));
+    assert!(!ids(&off).iter().any(|id| id.contains("FloatingPreview")));
+}

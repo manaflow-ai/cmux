@@ -95,6 +95,9 @@ public protocol TabsDataSource: AnyObject, Observable {
     /// the same pixels as the card).
     func resumeLiveContent(_ id: TabsKitTab.ID)
 
+    /// Additional items in the tab overview's More menu. Default: none.
+    func overviewMenuContent() -> AnyView
+
     /// A row above the toolbar for the active tab. Default: none.
     @ViewBuilder func accessory(for tab: TabsKitTab, context: TabsKitContentContext) -> Accessory
     /// What fills the band behind a top bar over `tab`'s page (from the screen's top to the
@@ -169,6 +172,7 @@ extension TabsDataSource where EditingBackground == TabsKitAddressSuggestions {
 }
 
 extension TabsDataSource {
+    public func overviewMenuContent() -> AnyView { AnyView(EmptyView()) }
     public func topBarGround(for tab: TabsKitTab) -> AnyView? { nil }
     public func thumbnail(for id: TabsKitTab.ID) -> UIImage? { nil }
     public func icon(for id: TabsKitTab.ID) -> UIImage? { nil }
@@ -210,6 +214,9 @@ extension EnvironmentValues {
     /// Columns of the tab overview grid: two on a phone, more on an unfolded foldable's wider
     /// page (the host asks its shared layout rule, cmux-mobile-link-ffi `overview_columns`).
     @Entry public var tabsKitOverviewColumns: Int = 2
+    /// The host moves the whole screen in a navigation transition (a swipe back): the accessory
+    /// keeps the keyboard height it last rode until this goes false, so it slides with the page.
+    @Entry public var tabsKitHoldsKeyboard: Bool = false
 }
 
 /// Where and how a tab's live page is shown.

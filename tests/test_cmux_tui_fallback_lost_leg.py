@@ -86,7 +86,7 @@ DARWIN_STEPS = ("Set up job", "Checkout caller or requested ref",
                 "Install the macOS cross toolchain", DARWIN_BUILD_STEP, "Stage binary")
 
 
-def leg(target: str, conclusion: str, failed_step: str | None = None, job_id: int = 1) -> dict:
+def leg(target: str, conclusion: str | None, failed_step: str | None = None, job_id: int = 1) -> dict:
     steps = [{"name": "Set up job", "conclusion": "success", "number": 1}]
     if target.endswith("-apple-darwin"):
         steps = []
@@ -196,6 +196,17 @@ class FallbackIgnoresALostLinuxLeg(unittest.TestCase):
             values, out, _ = self.run_plan(["aarch64-unknown-linux-musl"], jobs)
             self.assertEqual(values.get("target_set"), "", f"{why}: {out}")
             self.assertIn("the x86_64-unknown-linux-musl build failed too", out, why)
+
+    def test_a_linux_leg_still_building_does_not_hold_the_fallback(self) -> None:
+        # FALLBACK_STARTS_WHEN_BUILD_FAILS: the plan no longer waits on build-linux (run 46095639867:
+        # the macOS leg failed at 02:18Z, the plan started at 02:26Z). A leg with no conclusion yet
+        # is still building, not failed.
+        values, out, _ = self.run_plan(["aarch64-unknown-linux-musl"], [
+            leg("x86_64-unknown-linux-musl", None),
+            leg("aarch64-unknown-linux-musl", "success"),
+        ])
+        self.assertEqual(values.get("target_set"), "macos-arm64", out)
+        self.assertIn("the x86_64-unknown-linux-musl leg is still building", out)
 
     def test_a_same_named_leg_of_another_caller_is_not_read(self) -> None:
         # Only build-linux's leg of a Linux target counts (#51895), not a leg of that name in build.

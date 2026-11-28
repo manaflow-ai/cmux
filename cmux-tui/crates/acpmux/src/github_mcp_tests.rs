@@ -144,6 +144,31 @@ fn not_connected_says_how_to_connect_and_is_retryable() {
     assert!(r["structuredContent"]["error"].get("connect").is_none());
 }
 
+/// An org the team's grant leaves out (no installation): one line naming it, and the reason the
+/// chat's card keys its Install GitHub App button on.
+#[test]
+fn an_owner_with_no_installation_says_the_grant_does_not_cover_it() {
+    let refused = github_cli::Refused {
+        reason: Some("owner_not_connected".to_owned()),
+        ..github_cli::refused("policy.denied", "x")
+    };
+    let r = refusal_result(Some("manaflow-ai/cmux"), &refused);
+    let text = r["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.starts_with(
+            "cmux could not get a token for GitHub for manaflow-ai/cmux (policy.denied \
+             owner_not_connected): the team's GitHub grant does not cover manaflow-ai; the cmux \
+             GitHub App is not installed on manaflow-ai for this cmux team. Next: "
+        ),
+        "{text}"
+    );
+    assert!(text.contains("`cmux accounts github-connect`"), "{text}");
+    assert_eq!(text.lines().count(), 1, "{text}");
+    assert_eq!(r["structuredContent"]["error"]["reason"], "owner_not_connected");
+    let plain = refusal_result(Some("o/r"), &github_cli::refused("policy.denied", "x"));
+    assert!(plain["structuredContent"]["error"].get("reason").is_none());
+}
+
 #[tokio::test]
 async fn calls_reach_github_with_a_one_repo_token_and_none_comes_back() {
     let (origin, seen) = github_server().await;
@@ -178,6 +203,30 @@ async fn calls_reach_github_with_a_one_repo_token_and_none_comes_back() {
     );
     let seen = seen.lock().unwrap();
     assert!(seen.iter().all(|(auth, _)| auth.ends_with(&TOKEN.to_ascii_lowercase())));
+}
+
+/// A mint the platform answers busy is asked again by the bridge: the call goes through and
+/// the agent never sees the refusal (Leo, 2026-11-22: vacuous "try again"s are just done).
+#[tokio::test]
+async fn a_busy_mint_is_asked_again_and_the_call_goes_through() {
+    let (origin, seen) = github_server().await;
+    let tries = Arc::new(Mutex::new(0u32));
+    let counted = Arc::clone(&tries);
+    let mint: Mint = Arc::new(move |_: &TokenAsk| {
+        let mut n = counted.lock().unwrap();
+        *n += 1;
+        if *n == 1 {
+            Err(github_cli::refused("busy", "the mint is busy"))
+        } else {
+            Ok(TOKEN.to_owned())
+        }
+    });
+    let mut bridge =
+        Bridge::new(loopback_url(&origin).unwrap(), mint, Some("acme/app".into())).unwrap();
+    let read = bridge.handle(&call(2, "list_pull_requests", json!({}))).await.unwrap();
+    assert!(read["result"]["isError"] != true, "{read}");
+    assert_eq!(*tries.lock().unwrap(), 2, "asked once more after busy");
+    assert!(!seen.lock().unwrap().is_empty(), "the call reached GitHub");
 }
 
 #[tokio::test]

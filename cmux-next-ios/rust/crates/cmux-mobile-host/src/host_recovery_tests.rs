@@ -59,7 +59,7 @@ fn rig_config(base_url: String, dir: &std::path::Path) -> HostConfig {
     }
 }
 
-async fn recovery_sample(wake: bool) -> Duration {
+async fn recovery_sample(wake: bool, abandon_headers: bool) -> Duration {
     let backend = FakeSignaling::start(FakeOptions::default()).await;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base_url = format!("http://{}", listener.local_addr().unwrap());
@@ -69,11 +69,20 @@ async fn recovery_sample(wake: bool) -> Duration {
     tasks.0.push(tokio::spawn(async move {
         let mut children = tokio::task::JoinSet::new();
         let mut first_socket = true;
-        while let Ok((mut stream, _)) = listener.accept().await {
+        'accept: while let Ok((mut stream, _)) = listener.accept().await {
             // Read just the HTTP headers. All requests in this rig are bounded.
+            // A client that closes before its headers end (the host dropping a
+            // dial it no longer needs) is skipped, not a panic that takes the
+            // whole proxy down with it.
             let mut head = Vec::new();
             while !head.ends_with(b"\r\n\r\n") {
-                head.push(stream.read_u8().await.unwrap());
+                match stream.read_u8().await {
+                    Ok(byte) => head.push(byte),
+                    // Wake cancels in-flight requests. An abandoned connection must not
+                    // kill the proxy or consume its first complete WebSocket handshake.
+                    Err(error) if matches!(error.kind(), std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::ConnectionReset) => continue 'accept,
+                    Err(error) => panic!("read recovery proxy headers: {error}"),
+                }
                 assert!(head.len() < 16384);
             }
             let head_text = String::from_utf8(head.clone()).unwrap();
@@ -120,6 +129,15 @@ async fn recovery_sample(wake: bool) -> Duration {
             });
         }
     }));
+    if abandon_headers {
+        // Queue both empty and partial requests before hostd's first WebSocket.
+        // No scheduling delay: TCP accepts them before the later valid connection.
+        for header in [b"".as_slice(), b"GET /signal HTTP/1.1\r\nUpgrade: websocket\r\n".as_slice()] {
+            let mut abandoned = TcpStream::connect(base_url.trim_start_matches("http://")).await.unwrap();
+            abandoned.write_all(header).await.unwrap();
+            abandoned.shutdown().await.unwrap();
+        }
+    }
     let dir = tempfile::tempdir().unwrap();
     let config = rig_config(base_url, dir.path());
     let (changes, receiver) = watch::channel(0);
@@ -154,16 +172,21 @@ async fn recovery_sample(wake: bool) -> Duration {
 
 #[tokio::test]
 async fn wake_recovers_signaling_and_phone_dial() {
-    let elapsed = tokio::time::timeout(Duration::from_secs(15), recovery_sample(true)).await.unwrap();
+    let elapsed = tokio::time::timeout(Duration::from_secs(15), recovery_sample(true, false)).await.unwrap();
     println!("wake_to_phone_echo_after_ms={:.3}", elapsed.as_secs_f64() * 1000.0);
+}
+
+#[tokio::test]
+async fn wake_recovers_after_abandoned_http_headers() {
+    tokio::time::timeout(Duration::from_secs(15), recovery_sample(true, true)).await.unwrap();
 }
 
 /// Fleet benchmark: one baseline and one fixed sample through the exact same rig.
 #[tokio::test]
 #[ignore = "45 second baseline; run explicitly for the PR Performance table"]
 async fn wake_recovery_performance() {
-    let before = tokio::time::timeout(Duration::from_secs(65), recovery_sample(false)).await.unwrap();
-    let after = tokio::time::timeout(Duration::from_secs(15), recovery_sample(true)).await.unwrap();
+    let before = tokio::time::timeout(Duration::from_secs(65), recovery_sample(false, false)).await.unwrap();
+    let after = tokio::time::timeout(Duration::from_secs(15), recovery_sample(true, false)).await.unwrap();
     assert!(before >= cmux_mobile_link::signaling::KEEPALIVE_TIMEOUT);
     assert!(after < before / 2);
     println!(

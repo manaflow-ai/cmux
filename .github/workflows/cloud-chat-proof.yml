@@ -164,7 +164,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout cmux
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/cmux-next
@@ -217,7 +217,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout cmux
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/cmux-next
@@ -319,7 +319,7 @@ jobs:
     steps:
       - name: Checkout cmux
         if: inputs.flow != 'share-two-accounts'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -329,7 +329,7 @@ jobs:
 
       - name: Checkout the Linux owner client and its build dependencies
         if: inputs.flow == 'share-two-accounts'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: recursive
@@ -409,6 +409,9 @@ jobs:
           GHOSTTY_ZIG_SOURCE: ghostty-next
           CMUX_GHOSTTY_SRC: ""
         run: |
+          # One job per 3 GiB of a memory-capped pool slot: -j at every host thread SIGKILLed rustc (job 140983092431).
+          CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh" 2>/dev/null || true)}"
+          if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
           cargo build -p cmux-tui --bin cmux-tui --locked
           test -x target/debug/cmux-tui
           echo "path=$PWD/target/debug/cmux-tui" >> "$GITHUB_OUTPUT"
@@ -500,7 +503,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout cmux
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/cmux-next
@@ -541,7 +544,7 @@ jobs:
     steps:
       - name: Checkout pool helper
         if: github.run_attempt == 1
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             scripts/ci/e2e_runner_pool.py
@@ -581,16 +584,18 @@ jobs:
     # Staging half. cmux-next-vm-image-dev is limited to feat-cmux-next by GitHub's branch policy and holds the
     # staging agent account. Always runs after resolve (skipped for build=tagged), so its result is a gate: `!cancelled()`.
     # flow: github-pr-app runs in cmux-next-cloud-journey instead (also feat-cmux-next only): the GitHub test user's secrets
-    # are sealed there, beside the same staging account as CMUX_STAGING_STACK_*.
+    # are sealed there, beside the same staging account as CMUX_STAGING_STACK_*. agent: codex does too: CODEX_AUTH_JSON
+    # lives only in cmux-next-cloud-journey, so in cmux-next-vm-image-dev the staging codex chat had no login to import
+    # and every codex proof went red on staging (runs 46133860048, 46040021553).
     environment:
-      name: ${{ inputs.flow == 'github-pr-app' && 'cmux-next-cloud-journey' || 'cmux-next-vm-image-dev' }}
+      name: ${{ (inputs.flow == 'github-pr-app' || inputs.agent == 'codex') && 'cmux-next-cloud-journey' || 'cmux-next-vm-image-dev' }}
       deployment: false
     needs: [resolve, pick-proof-runner, github-config]
     # Attempt 1 takes the owned M4 Pro GUI pool (glaeda-gui-std, a console session, as stable-next.yml's smoke)
     # while vars.CI_PR_POOL_OWNED is 1, else pick-proof-runner's Blacksmith macOS 26 label; a re-run, or a
     # failed pick, takes the declared macos_26 pool. The Stack pair is no reason to keep it off our Macs: this
     # runs only from feat-cmux-next (the environment's branch policy), never from a fork (Leo, 2026-11-19).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'mac-gui' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
     env:
       CMUX_PROOF_TAG: ccp-${{ github.run_id }}
@@ -632,7 +637,7 @@ jobs:
           fi
 
       - name: Checkout cmux
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: recursive
@@ -669,6 +674,33 @@ jobs:
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+
+      # checkout's `git clean -ffdx` empties cmux-tui/target, so every run compiled acpmux
+      # (15-23 min) and the unpublished tree's cmux-tui client set (21-30 min) cold: run
+      # 46112145542 stopped at the client step's 30 min bound. On an owned Mac (a persistent
+      # /Users/*/actions-runner-* slot) both Cargo targets live outside the workspace, one per
+      # runner slot (one job at a time, one checkout path: no stale cross-checkout
+      # fingerprints), and Cargo rebuilds only what changed since that slot's last proof.
+      # Not keyed on Cargo.lock: it changes 30-50 times a day, so such a key misses daily.
+      # A slot's targets past 40 GiB start over. Ephemeral runners keep the in-tree default.
+      - name: Keep the Rust targets across proofs on this runner slot
+        timeout-minutes: 5
+        if: env.CMUX_PROOF_BUILD != 'published' && startsWith(github.workspace, '/Users/') && contains(github.workspace, '/actions-runner-')
+        run: |
+          set -euo pipefail
+          root="/Users/Shared/cmux-build-fleet/ci/cloud-chat-proof-rust/$RUNNER_NAME"
+          mkdir -p "$root"
+          kib="$(du -sk "$root" | awk '{print $1}')"
+          echo "rust targets for $RUNNER_NAME: $((kib / 1048576)) GiB at $root"
+          if (( kib > 40 * 1048576 )); then
+            echo "::notice::$root is past 40 GiB: starting this slot's Rust targets over"
+            find "$root" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          fi
+          {
+            echo "CMUX_TUI_CLIENT_TARGET_DIR=$root/cmux-tui-client"
+            echo "CMUX_NEXT_ACPMUX_TARGET_DIR=$root/acpmux"
+            echo "CMUX_NEXT_ACPMUX_CACHE=$root/acpmux-hosted"
+          } >> "$GITHUB_ENV"
 
       # Before the acpmux build: its libghostty-vt (ghostty-vt-sys) runs `zig build`
       # in ghostty-next. As nightly.yml's "Install compilation dependencies": the
@@ -752,9 +784,10 @@ jobs:
 
       - name: Materialize the staging agent profile
         env:
-          # flow github-pr-app: cmux-next-cloud-journey's staging pair (its CMUX_DOGFOOD_STACK_* is production's).
-          STACK_EMAIL: ${{ inputs.flow == 'github-pr-app' && secrets.CMUX_STAGING_STACK_EMAIL || secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          STACK_PASSWORD: ${{ inputs.flow == 'github-pr-app' && secrets.CMUX_STAGING_STACK_PASSWORD || secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          # flow github-pr-app and agent codex (both run in cmux-next-cloud-journey): that environment's staging pair
+          # (its CMUX_DOGFOOD_STACK_* is production's).
+          STACK_EMAIL: ${{ (inputs.flow == 'github-pr-app' || inputs.agent == 'codex') && secrets.CMUX_STAGING_STACK_EMAIL || secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          STACK_PASSWORD: ${{ (inputs.flow == 'github-pr-app' || inputs.agent == 'codex') && secrets.CMUX_STAGING_STACK_PASSWORD || secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
         run: |
           set -euo pipefail
           if [ -z "${STACK_EMAIL:-}" ] || [ -z "${STACK_PASSWORD:-}" ]; then
@@ -783,8 +816,9 @@ jobs:
         if: env.CMUX_PROOF_BUILD == 'published'
         env:
           ASSET_SHA256: ${{ needs.resolve.outputs.asset_sha256 }}
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          # agent codex runs in cmux-next-cloud-journey, whose staging account is CMUX_STAGING_STACK_*.
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ inputs.agent == 'codex' && secrets.CMUX_STAGING_STACK_EMAIL || secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ inputs.agent == 'codex' && secrets.CMUX_STAGING_STACK_PASSWORD || secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/published"
@@ -855,6 +889,8 @@ jobs:
           PROOF_AGENT: ${{ inputs.agent }}
           # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # A Codex chat's login, imported as the chatgpt-plan connection Cloud serves codex from (codex_chatgpt_import.py).
+          CODEX_AUTH_JSON: ${{ inputs.agent == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
           PROOF_FROM_FOLDER: ${{ inputs.empty_folder && '--empty-folder' || inputs.from_folder && '--from-folder' || '' }}
         run: |
           set -euo pipefail
@@ -1045,7 +1081,7 @@ jobs:
     # while vars.CI_PR_POOL_OWNED is 1, else pick-proof-runner's Blacksmith macOS 26 label; a re-run, or a
     # failed pick, takes the declared macos_26 pool. The Stack pair is no reason to keep it off our Macs: this
     # runs only from feat-cmux-next (the environment's branch policy), never from a fork (Leo, 2026-11-19).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'mac-gui' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
     env:
       CMUX_PROOF_TAG: ccp-${{ github.run_id }}
@@ -1068,7 +1104,7 @@ jobs:
           fi
 
       - name: Checkout cmux
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts
@@ -1166,6 +1202,8 @@ jobs:
           PROOF_AGENT: ${{ inputs.agent }}
           # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # A Codex chat's login, imported as the chatgpt-plan connection Cloud serves codex from (codex_chatgpt_import.py).
+          CODEX_AUTH_JSON: ${{ inputs.agent == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
           PROOF_FROM_FOLDER: ${{ inputs.empty_folder && '--empty-folder' || inputs.from_folder && '--from-folder' || '' }}
         run: |
           set -euo pipefail

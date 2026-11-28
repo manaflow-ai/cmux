@@ -17,24 +17,34 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod attach;
 mod command;
+#[cfg(unix)]
+pub(crate) mod copilot_auth;
 mod exit_wait;
 pub(crate) mod foreign_login;
 mod host_recovery;
 mod host_state;
 pub(crate) mod leader_exit;
+mod process_end;
 mod requests;
 #[cfg(unix)]
 pub(crate) mod session_tmp;
 mod writes;
+#[cfg(unix)]
+pub(crate) use command::CopilotKeychainLocked;
 /// Tests read a built command without starting it; every spawn builds through
 /// `harness_command_ready`.
 #[cfg(test)]
 pub(crate) use command::harness_command;
 pub(crate) use command::{
-    REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, explicit_env,
-    harness_command_ready, host_environment, pinned_preview_format, preview_format,
-    resolved_profile_env,
+    CopilotReconnect, REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env,
+    command_env_cleared, explicit_env, harness_command_ready, host_environment,
+    pinned_preview_format, preview_format, resolved_profile_env,
 };
+pub(crate) use process_end::spawn_error;
+#[cfg(unix)]
+use process_end::{KillGroupOnDrop, end_still_running, under_unreaped};
+#[cfg(debug_assertions)]
+use process_end::{ack_fails_once, reader_stop_hold};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -223,6 +233,10 @@ struct Hosted {
     /// not known (from a reattach or an adoption until it is learned, or for good when the host did
     /// not say).
     replay_to: std::sync::atomic::AtomicU64,
+    /// Whether adoption rebuilt the daemon's work state after the entire replay was logged.
+    recovery_replay_complete: std::sync::atomic::AtomicBool,
+    /// The adopted journal prefix was intact and no work needed rebuilding from partial replay.
+    recovery_replay_retryable: std::sync::atomic::AtomicBool,
     /// The reader of the current link stopped otherwise (the link closed, or an acknowledgement
     /// failed while its socket still looked open): the agent is not heard through this link
     /// (`is_stopped`, review 68 of #23322); a reattach clears it. Under MDM's off only: with it
@@ -948,6 +962,7 @@ struct CodexLink {
 /// A started agent's process (or, in the simulation, its in-process stand-in) and its pipes:
 /// what `ChildAgent::spawn_with` runs its reader and writer on.
 struct Spawned {
+    scratch: Option<tempfile::TempDir>,
     child: Option<Child>,
     pid: Option<u32>,
     /// The exit event of `child`, opened while it is unreaped.
@@ -961,6 +976,7 @@ struct Spawned {
     /// Its command line carries the repository hook (`codex_repo_gate::in_args`).
     repo_gated: bool,
     plugin_hook_home: Option<std::path::PathBuf>,
+    local_launch_key: Option<Arc<str>>,
     #[cfg(windows)]
     job: Option<crate::job::Job>,
     #[cfg(unix)]
@@ -978,7 +994,8 @@ impl Spawned {
         command_line: Option<(String, Vec<String>)>,
         session: Option<(&str, &str)>,
     ) -> Result<Self> {
-        let mut cmd = harness_command_ready(name, profile, cwd, command_line, session).await?;
+        let (mut cmd, scratch) =
+            harness_command_ready(name, profile, cwd, command_line, session).await?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
         let launch = crate::sidecar_census::LaunchServers::read(
             &Launch::of(&cmd, cwd),
@@ -999,6 +1016,12 @@ impl Spawned {
         // Never at background class while it starts; its class, from the harness's own env (its
         // profile's value as resolved), is set once its session's start is over (`cpu_class.rs`).
         let env = command_env(&cmd);
+        let local_launch_key = env
+            .iter()
+            .find(|(key, _)| key == crate::agent_credentials::LOCAL_REDACTION)
+            .and_then(|(_, name)| env.iter().find(|(key, value)| key == name && !value.is_empty()))
+            .map(|(_, value)| Arc::from(value.as_str()));
+        cmd.env_remove(crate::agent_credentials::LOCAL_REDACTION);
         let run_class = crate::cpu_class::CpuClass::for_session(
             profile.kind,
             &profile.argv,
@@ -1059,6 +1082,7 @@ impl Spawned {
         let stdout = child.stdout.take().context("agent stdout")?;
         let stderr = child.stderr.take().context("agent stderr")?;
         Ok(Self {
+            scratch,
             child: Some(child),
             pid,
             exit,
@@ -1070,6 +1094,7 @@ impl Spawned {
             run_class: std::sync::OnceLock::from(run_class),
             repo_gated,
             plugin_hook_home,
+            local_launch_key,
             #[cfg(windows)]
             job,
             #[cfg(unix)]
@@ -1083,6 +1108,7 @@ impl Spawned {
     #[cfg(feature = "sim")]
     fn in_process(pipes: crate::sim_agent::Pipes) -> Self {
         Self {
+            scratch: None,
             child: None,
             pid: None,
             exit: None,
@@ -1094,6 +1120,7 @@ impl Spawned {
             run_class: std::sync::OnceLock::new(),
             repo_gated: false,
             plugin_hook_home: None,
+            local_launch_key: None,
             #[cfg(windows)]
             job: None,
             #[cfg(unix)]
@@ -1177,6 +1204,7 @@ impl ChildAgent {
         #[cfg(not(feature = "sim"))]
         let spawned = Spawned::child(name, profile, cwd, command_line, session).await?;
         let Spawned {
+            scratch,
             child,
             pid,
             exit,
@@ -1188,6 +1216,7 @@ impl ChildAgent {
             run_class,
             repo_gated,
             plugin_hook_home,
+            local_launch_key,
             #[cfg(windows)]
             job,
             #[cfg(unix)]
@@ -1292,19 +1321,62 @@ impl ChildAgent {
         });
         let _ = agent.writer_stop.set(WriterStop { abort: writer.abort_handle(), ended, writing });
 
+        // Stdin replies the Claude translator works out off the stdout reader (a repo-sync
+        // hook's answer, `claude_stdio/hook_callback.rs`) go out when they are ready, not
+        // with the next stdout line.
+        if let Some(tr) = agent.translator.as_ref() {
+            let tx = agent.stdin_tx.clone();
+            let tap = tap.clone();
+            let ready = tr.replies_ready();
+            let weak = Arc::downgrade(tr);
+            // Ends when the stdin writer ends (its channel closes) or the translator does.
+            tr.scope().spawn_until_cancelled("claude-replies-write", async move {
+                loop {
+                    tokio::select! {
+                        () = ready.notified() => {}
+                        () = tx.closed() => return,
+                    }
+                    let Some(tr) = weak.upgrade() else { return };
+                    for l in tr.take_stdin_replies().await {
+                        tap(
+                            Direction::Out,
+                            &Message::notification("claude.stdin", l.clone()),
+                            None,
+                        );
+                        let mut s = l.to_string();
+                        s.push('\n');
+                        if tx.send((s, None)).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+            });
+        }
+
         // The app-server's initialize goes out at spawn, before the hub's.
         if let Some(cx) = &agent.codex {
             let first = crate::codex_app_server::split(cx.tr.start());
             agent.codex_lines(first.server, None).await;
         }
 
+        let launch_key = local_launch_key.or_else(|| {
+            profile
+                .env
+                .get(crate::agent_credentials::MARKER)
+                .filter(|name| crate::agent_credentials::NAMES.contains(&name.as_str()))
+                .and_then(|name| profile.env.get(name))
+                .or_else(|| profile.env.get(crate::agent_credentials::COPILOT_TOKEN))
+                .map(|key| Arc::from(key.as_str()))
+        });
         let stderr_done = {
             let inbound = inbound.clone();
             let generation = agent.generation;
+            let launch_key = launch_key.clone();
             tokio::spawn(async move {
                 // Lossy: a line that is not UTF-8 never ends the pipe (`lossy_lines`).
                 let mut lines = crate::lossy_lines::LossyLines::new(BufReader::new(stderr));
                 while let Ok(Some(line)) = lines.next_line().await {
+                    let line = crate::agent_credentials::redact_line(line, launch_key.as_deref());
                     let _ = inbound
                         .send(Inbound::Stderr(line, None, Some((generation, StderrPipe::Stderr))))
                         .await;
@@ -1369,7 +1441,9 @@ impl ChildAgent {
                         }
                     };
                     let line = match next {
-                        Ok(Some(l)) => l,
+                        Ok(Some(line)) => {
+                            crate::agent_credentials::redact_line(line, launch_key.as_deref())
+                        }
                         _ => break,
                     };
                     if line.trim().is_empty() {
@@ -1546,6 +1620,7 @@ impl ChildAgent {
                 }
                 drop(p);
                 let code = agent_for_exit.wait_exit().await;
+                drop(scratch);
                 if let Some(stop) = agent_for_exit.writer_stop.get() {
                     stop.agent_ended().await;
                 }
@@ -1782,7 +1857,39 @@ impl ChildAgent {
         if let Some(h) = &self.hosted {
             let _current = h.link.write_or_recover();
             h.replay_to.store(u64::MAX, Ordering::SeqCst);
+            h.recovery_replay_complete.store(false, Ordering::SeqCst);
         }
+    }
+
+    pub(crate) fn mark_recovery_replay_complete(&self) {
+        if let Some(h) = &self.hosted {
+            h.recovery_replay_complete.store(true, Ordering::SeqCst);
+        }
+    }
+
+    pub(crate) fn mark_recovery_replay_retryable(&self) {
+        if let Some(h) = &self.hosted {
+            h.recovery_replay_retryable.store(true, Ordering::SeqCst);
+        }
+    }
+
+    pub(crate) fn recovery_replay_retryable(&self) -> bool {
+        self.hosted.as_ref().is_some_and(|h| h.recovery_replay_retryable.load(Ordering::SeqCst))
+    }
+
+    pub(crate) fn recovery_replay_complete(&self) -> bool {
+        !self.replay_pending()
+            && self
+                .hosted
+                .as_ref()
+                .is_none_or(|h| h.recovery_replay_complete.load(Ordering::SeqCst))
+    }
+
+    /// Keep recovery's work check and termination on the same host link.
+    pub(crate) fn try_hold_host_link(
+        &self,
+    ) -> Result<Option<tokio::sync::MutexGuard<'_, ()>>, tokio::sync::TryLockError> {
+        self.hosted.as_ref().map(|h| h.reattach_turn.try_lock()).transpose()
     }
 
     /// Learns how far the host replays on its current link (`Link::replay_end_within`), and keeps
@@ -2023,97 +2130,6 @@ impl ChildAgent {
             }
         });
     }
-}
-
-/// SIGKILL to an agent's process group once dropped: at the end of `ChildAgent::terminate`'s
-/// grace, or earlier when its caller drops the terminate future after the SIGTERM went out.
-#[cfg(unix)]
-struct KillGroupOnDrop(Option<i32>);
-
-#[cfg(unix)]
-impl Drop for KillGroupOnDrop {
-    fn drop(&mut self) {
-        if let Some(pg) = self.0 {
-            unsafe {
-                libc::killpg(pg, libc::SIGKILL);
-            }
-        }
-    }
-}
-
-/// The processes under a direct agent, by pid and start time, taken before
-/// its group is signalled: a helper the harness moved out of its group
-/// (setsid, Node's `detached: true`) is out of reach of the group signal
-/// and runs on with parent pid 1 once the harness is gone (cx-n3uid). The
-/// pid is read only while the agent is not reaped (`Child::id` is Some), so
-/// it cannot name a reused pid. Not reached, as in `terminate_unadoptable`:
-/// a helper that already has ppid 1 (a double fork) or starts after this.
-#[cfg(unix)]
-async fn under_unreaped(child: Option<&Child>) -> Vec<crate::agent_host::tree::Started> {
-    let Some(pid) = child.and_then(Child::id) else { return Vec::new() };
-    tokio::task::spawn_blocking(move || crate::agent_host::tree::descendants(&[pid]))
-        .await
-        .unwrap_or_default()
-}
-
-/// SIGKILL each of `procs` that still runs as the same process: what the
-/// group signal of a direct agent did not reach.
-#[cfg(unix)]
-async fn end_still_running(procs: Vec<crate::agent_host::tree::Started>) {
-    if procs.is_empty() {
-        return;
-    }
-    let _ =
-        tokio::task::spawn_blocking(move || crate::agent_host::tree::kill_still_running(&procs))
-            .await;
-}
-
-/// Debug builds only: `ACPMUX_TEST_READER_STOP_HOLD_MS` holds a host link's reader once it stopped,
-/// before it marks the link stopped, as a busy runtime does, so the daemon's integration tests
-/// can reattach the link meanwhile. Bounded; release builds have no seam.
-#[cfg(debug_assertions)]
-async fn reader_stop_hold() {
-    if let Some(ms) =
-        std::env::var("ACPMUX_TEST_READER_STOP_HOLD_MS").ok().and_then(|v| v.parse::<u64>().ok())
-    {
-        tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
-    }
-}
-
-/// Debug builds only: `ACPMUX_TEST_ACK_FAILS_ONCE=TEXT` fails the acknowledgement of the first
-/// host entry whose text holds TEXT, once per process, as a link whose writer stopped first does:
-/// the reader stops while the socket still looks open. Release builds have no seam.
-#[cfg(debug_assertions)]
-fn ack_fails_once(entry: &crate::agent_host::Entry) -> bool {
-    use crate::agent_host::Entry;
-    static FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    let Ok(text) = std::env::var("ACPMUX_TEST_ACK_FAILS_ONCE") else { return false };
-    let msg = match entry {
-        Entry::Tap { msg, .. } | Entry::In { msg } => msg.to_string(),
-        _ => return false,
-    };
-    msg.contains(&text) && !FIRED.swap(true, Ordering::SeqCst)
-}
-
-/// The error of an agent (or its agent host) that did not start; `what` says which, e.g.
-/// "spawn agent claude". Out of descriptors, the bare "Too many open files (os error 24)"
-/// read like the agent's fault (cmux16, 2026-10-22): say it is the daemon's, with its limit
-/// and what to do.
-pub(crate) fn spawn_error(what: &str, e: std::io::Error) -> anyhow::Error {
-    #[cfg(unix)]
-    if matches!(e.raw_os_error(), Some(libc::EMFILE | libc::ENFILE)) {
-        let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
-        let limit = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) } == 0 {
-            format!(" (its limit is {})", lim.rlim_cur)
-        } else {
-            String::new()
-        };
-        return anyhow!(
-            "{what}: the acpmux daemon is out of open files{limit}; \
-             `acpmux daemon shutdown` stops it and the next acpmux command starts it again: {e}"
-        );
-    }
-    anyhow::Error::new(e).context(what.to_owned())
 }
 
 #[cfg(all(test, unix))]

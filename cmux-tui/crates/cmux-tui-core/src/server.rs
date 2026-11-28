@@ -43,7 +43,7 @@ use ghostty_vt::KittyReplayState;
 use ghostty_vt::{KeyAction, Mods, sys};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
+use sha2::Digest;
 #[cfg(test)]
 use tungstenite::WebSocket;
 use zeroize::Zeroize;
@@ -71,7 +71,7 @@ use crate::browser::BrowserPointerOwner;
 use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
 #[cfg(test)]
 use crate::journal_kernel::JournalDocument;
-use crate::model::{Screen, State};
+use crate::model::State;
 use crate::mux::ClientSizingIdentity;
 use crate::platform::{self, transport};
 #[cfg(test)]
@@ -90,10 +90,13 @@ use crate::stream_interrupt::StreamInterrupt;
 use crate::surface::AttachLifecycle;
 use crate::surface::{ClearHistoryDelivery, ClearHistoryFailure};
 use crate::{
-    Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec, MachineUsage, Mux, MuxEvent, Node,
-    PairingDecision, PaneId, ScreenId, SplitDir, SplitId, SurfaceId, SurfaceKind, TreeDecorations,
+    Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec, MachineUsage, Mux, MuxEvent,
+    PairingDecision, PaneId, ScreenId, SplitDir, SplitId, SurfaceId, SurfaceKind,
     ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
 };
+// `Node`: only the tests below `server` build layout nodes; `node_json` is in `tree_wire`.
+#[cfg(test)]
+use crate::Node;
 #[cfg(test)]
 use crate::{Rgb, TerminalColors};
 #[cfg(test)]
@@ -150,6 +153,7 @@ pub use agent_session_attach::{
     AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_PREWARM_CAPABILITY,
     AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
     AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
+    AGENT_SESSION_START_ENDPOINT_CREDENTIALS_CAPABILITY,
     AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
     AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
     AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY,
@@ -233,7 +237,6 @@ mod feed_places;
 pub(crate) mod forum_routed;
 mod frontend_browser_history;
 mod history_search;
-mod home;
 mod icon_assets;
 mod launch_snapshot;
 #[cfg(unix)]
@@ -249,7 +252,6 @@ mod new_screen;
 mod personal;
 #[cfg(unix)]
 mod phone_carrier;
-mod raw_tab;
 #[cfg(unix)]
 mod remote_entry;
 mod remote_relay;
@@ -265,6 +267,8 @@ mod cmd_panes;
 mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
+pub mod identify_reply;
+pub use identify_reply::install_identify;
 mod cmd_sizing;
 mod size_lease;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
@@ -288,7 +292,6 @@ pub use page_files::page_bundle_dir;
 pub use page_listener::{PageListenerOpener, WS_LISTEN_CAPABILITY, WS_LISTEN_ORIGINS_CAPABILITY};
 mod responses;
 mod rows;
-mod screen_json;
 mod server_stats;
 mod session_stream;
 mod split_kind;
@@ -298,6 +301,7 @@ mod tab_create_wire;
 mod tab_park;
 mod tab_restart;
 mod websocket_listener;
+use crate::tree_wire::{node_json, screen_json, tree_json};
 pub(crate) use cmd_subscribe::AGENT_PRESENCE_REPLAY_CAPABILITY;
 pub(crate) use cmd_subscribe::SCREEN_DEVICE_IDENTITY_CAPABILITY;
 pub(crate) use cmd_subscribe::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY;
@@ -320,8 +324,6 @@ use responses::{
     response_error_code, send_bad_request, send_request_error, send_request_error_with_delivery,
     send_response,
 };
-use screen_json::screen_json;
-pub(crate) use screen_json::screen_layout_json;
 mod group_outcome_json;
 use group_outcome_json::{
     pane_tab_group_json, screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,
@@ -347,17 +349,16 @@ use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_a
 mod capabilities;
 pub use capabilities::{build_capabilities, static_capabilities};
 mod daemon_build;
-pub use daemon_build::{
-    BuildStamp, DAEMON_BUILD_CAPABILITY, DaemonBuild, install_build_stamp, install_daemon_build,
-};
-mod socket_path;
 #[cfg(test)]
-use socket_path::default_socket_path_in_runtime_dir;
+use crate::socket_path::default_socket_path_in_runtime_dir;
 #[cfg(unix)]
-pub(crate) use socket_path::unix_socket_path_fits;
-pub use socket_path::{
+pub(crate) use crate::socket_path::unix_socket_path_fits;
+pub use crate::socket_path::{
     default_socket_path, try_default_socket_path, try_default_socket_path_in_base,
     try_default_socket_path_in_base_scoped, validate_session_name,
+};
+pub use daemon_build::{
+    BuildStamp, DAEMON_BUILD_CAPABILITY, DaemonBuild, install_build_stamp, install_daemon_build,
 };
 pub(crate) mod activity;
 mod browser_input;
@@ -370,6 +371,7 @@ mod chief_registry_resource;
 mod chief_work;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
+mod phone_link;
 mod shell_wire;
 mod url_open;
 #[cfg(test)]
@@ -441,13 +443,7 @@ pub const SHARED_SIZING_CAPABILITY: &str = "shared-sizing-v1";
 /// the connection and its relay sub-views; `reattach-view` restores it. The
 /// daemon advertises it in `identify`.
 pub const SIZING_VIEW_DETACH_CAPABILITY: &str = "sizing-view-detach-v1";
-/// A phone or tablet view that lists this in `set-client-info` shows a
-/// terminal grid larger than its own correctly (letterbox or pan). Without it
-/// the daemon never applies a PTY grid larger than that view's reported size
-/// while the view is attached with one (`mux/terminal_sizing/handheld_ceiling.rs`):
-/// such a phone renders the PTY's output into its own grid, so a wider PTY
-/// overprints and cuts its rows. The daemon advertises it in `identify`.
-pub const HOST_GRID_VIEW_CAPABILITY: &str = "host-grid-view-v1";
+pub use crate::server_protocol::HOST_GRID_VIEW_CAPABILITY;
 /// A client that lists this in `set-client-info` decodes every
 /// `device_kind` of a size state and reads a kind it does not know as
 /// `unknown`. It receives `linux` and `windows` (and later kinds) as they
@@ -489,7 +485,7 @@ pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
 pub const TERMINAL_PUBLIC_IDS_CAPABILITY: &str = "terminal-public-ids-v1";
 pub const CREATION_ATTEMPT_KEYS_CAPABILITY: &str = "creation-attempt-keys-v1";
 pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
-pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
+pub use crate::server_protocol::MAX_CREATION_SELECTOR_FALLBACKS;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
@@ -650,10 +646,7 @@ pub const TERMINAL_EXIT_STATUS_CAPABILITY: &str = "terminal-exit-status-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
-/// Frontend-rendered browser tabs (WebKit or CEF): `new-frontend-browser-tab`,
-/// `update-frontend-browser-tab`, and the `browser_renderer`,
-/// `browser_engine`, `favicon_url`, and `browser_profile_id` tab fields.
-pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
+pub use crate::server_protocol::FRONTEND_BROWSER_TABS_CAPABILITY;
 pub use frontend_browser_history::{
     FRONTEND_BROWSER_HISTORY_CAPABILITY, FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY,
 };
@@ -767,11 +760,10 @@ pub fn api_revision_range() -> (u32, u32) {
 pub fn api_revision_compat() -> &'static cmux_api_compat::Compat {
     api_revision_wire::compat()
 }
-mod protocol_key;
 #[cfg(test)]
-use protocol_key::PROTOCOL_KEY_TEXT_MAX_BYTES;
-pub use protocol_key::ProtocolKeyInput;
-pub(crate) use protocol_key::{
+use crate::protocol_key::PROTOCOL_KEY_TEXT_MAX_BYTES;
+pub use crate::protocol_key::ProtocolKeyInput;
+pub(crate) use crate::protocol_key::{
     decode_terminal_host_clear_history, encode_terminal_host_clear_history,
 };
 
@@ -926,6 +918,13 @@ enum Command {
         /// `install` and `update_command` (server/api_revision_wire.rs).
         #[serde(default)]
         revisions: bool,
+        /// Answered while the owner restores its session too, with
+        /// `lifecycle_ready: false` and `restore` (server/restoring.rs);
+        /// without it, held until the restore ends. A ready owner ignores it.
+        #[serde(default)]
+        // Read from the raw line by server/restoring.rs.
+        #[allow(dead_code)]
+        restore_progress: bool,
     },
     BrowserHostProvider,
     /// cmux Remote (`remote-host-v1`, server/remote_host_command.rs).
@@ -994,6 +993,12 @@ enum Command {
         request_id: String,
         opened: bool,
     },
+    /// The Mac app asks before it opens a link a terminal program asked a browser for: the phone
+    /// that drives the terminal gets it (`phone_link.rs`). Unix, this Mac's own app only.
+    OfferLinkToPhone {
+        terminal_id: String,
+        url: String,
+    },
     TerminalClipboardSubscribe {
         terminal_ids: Vec<String>,
     },
@@ -1019,6 +1024,12 @@ enum Command {
     /// optional sections (`resource_projection`); unknown names are ignored.
     ServerStats {
         include: Option<Vec<String>>,
+        /// While the owner restores: refused with `server.restoring` and the
+        /// restore's progress at once, instead of held until it ends.
+        #[serde(default)]
+        // Read from the raw line by server/restoring.rs.
+        #[allow(dead_code)]
+        restore_progress: bool,
     },
     /// The terminal hosts this daemon holds and every record root it can
     /// read, each host classified from records, leases and session guards,
@@ -3171,42 +3182,6 @@ use connection_frame::{
     handle_request_with_cancellation, pairing_request, zeroize_string,
 };
 
-/// One layout node. `split_ids`: the public ids of the splits
-/// (`State::resource_indexes`); a split with one carries it as `split_id`
-/// (`split-client-split-id-v1`).
-fn node_json(
-    node: &Node,
-    active_pane: PaneId,
-    split_ids: &HashMap<SplitId, crate::resource::SplitPublicId>,
-) -> Value {
-    match node {
-        Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
-        Node::Split { id, dir, ratio, a, b, .. } => {
-            let mut value = json!({
-                "type": "split",
-                "split": id,
-                "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
-                "ratio": ratio,
-                "a": node_json(a, active_pane, split_ids),
-                "b": node_json(b, active_pane, split_ids),
-            });
-            if let Some(public_id) = split_ids.get(id) {
-                value.set("split_id", json!(public_id));
-            }
-            value
-        }
-        Node::Stack { panes, expanded } => json!({
-            "type": "stack",
-            "panes": panes.as_slice(),
-            "expanded": if panes.contains(&active_pane) {
-                active_pane
-            } else {
-                *expanded
-            },
-        }),
-    }
-}
-
 fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
     match layout {
         LayoutRequest::Leaf { cwd, command } => {
@@ -3230,16 +3205,10 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
     }
 }
 
-mod tree_json;
-pub(crate) use tree_json::selection_changed_json;
-#[cfg(all(test, unix))]
-pub(crate) use tree_json::skip_entity_check_on_this_thread_for_bench as skip_tree_entity_check;
-pub(crate) use tree_json::tree_entity_json;
-pub(crate) use tree_json::workspace_presentation_changed_json;
-pub(crate) use tree_json::workspaces_json;
 use tree_json::{ShortIds, pane_json, tree_delta_json};
+// Tests below `server` build trees through these; the daemon reaches them via `tree_wire`.
 #[cfg(test)]
-pub(crate) use tree_json::{panes_built_for_test, set_entity_check_hook_for_test};
+use tree_json::{tree_entity_json, workspaces_json};
 
 /// The live runtime of tab `id`. A parked terminal tab (`relaunch.on_show`:
 /// lazy start, `park-tabs`) starts here on its first need, and the request
@@ -3422,6 +3391,10 @@ mod creation_burst_tests;
 #[cfg(test)]
 #[path = "server/run_public_ids_tests.rs"]
 mod run_public_ids_tests;
+
+#[cfg(test)]
+#[path = "server/tree_schema_tests.rs"]
+mod tree_schema_tests;
 
 #[cfg(test)]
 #[path = "server/open_persistent_bench_tests.rs"]

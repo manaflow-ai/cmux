@@ -211,8 +211,8 @@ impl FocusDamage {
     fn insert(&mut self, rect: Rect) {
         let mut merged = rect;
         let mut index = 0;
-        while index < self.regions.len() {
-            let grown = self.regions[index].inset(-Self::GAP, -Self::GAP);
+        while let Some(current) = self.regions.get(index) {
+            let grown = current.inset(-Self::GAP, -Self::GAP);
             if grown.is_some_and(|g| g.intersects(&merged)) {
                 merged = merged.union(&self.regions.remove(index));
                 index = 0;

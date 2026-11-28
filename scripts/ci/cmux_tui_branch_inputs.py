@@ -82,7 +82,12 @@ def git(*args: str, lazy: bool = False, deadline: float) -> str:
 
 
 def verdict(ref: str, sha: str, base: str, since: str) -> tuple[bool, str]:
-    if not superseded.needs_open_pull_request(ref) or ref in superseded.PROTECTED:
+    # A feat-cmux-next-* head is most often a pull request branch, and the superseded check keeps it as an
+    # integration ref (TRUNK_PREFIXES). It gets the unchanged-key rule only, never BASE-MOVED: a key that
+    # differs from its merge base's still builds. Until 2026-11-27 such heads built every push, the slowest
+    # check on 9 of 15 iOS pull requests that touched no tree-key input (darwin build 37 min on #61389).
+    integration_head = ref.startswith(superseded.TRUNK_PREFIXES) and ref not in superseded.TRUNK_REFS
+    if not integration_head and (not superseded.needs_open_pull_request(ref) or ref in superseded.PROTECTED):
         return False, f"{ref} is a trunk or integration ref; it builds every changed tree"
     deadline = time.monotonic() + DEADLINE_SECONDS
     # daemon-policy's opt-in, read in this checkout (superseded.asks_for_daemon_tests reads the cwd's repository).
@@ -120,7 +125,7 @@ def verdict(ref: str, sha: str, base: str, since: str) -> tuple[bool, str]:
     if head_key == base_key:
         return True, (f"{sha[:12]} has the tree key {head_key[:12]} of its merge base {merge_base[:12]} with {base}: "
                       "it changes no tree-key input")
-    if base_moved_gate and base_tip != merge_base:
+    if base_moved_gate and not integration_head and base_tip != merge_base:
         try:
             tip_key = tree_key.tree_key(base_tip, "v2")
         except (OSError, RuntimeError, subprocess.SubprocessError) as error:
