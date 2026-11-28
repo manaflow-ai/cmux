@@ -139,11 +139,12 @@ jobs:
               await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205', description: 'Feature flag review dates are approaching' });
             }
             if (open.data.length > 0) {
-              await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, body });
+              // Ping first: a failed ping is retried on the next run.
               if (newlyExpired.length > 0) {
                 const lines = newlyExpired.map(flag => `- \`${flag.key}\` (reviewBy ${flag.reviewBy}): ${mention(flag)}`).join('\n');
                 await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body: `These feature flags passed their review date:\n\n${lines}\n\nRemove each flag or consciously extend its reviewBy date.` });
               }
+              await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, body });
             } else {
               await github.rest.issues.create({ owner, repo, title: 'Feature flag review dates are approaching', labels: [label], body });
             }

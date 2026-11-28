@@ -17,13 +17,14 @@ WORKFLOW = ROOT / ".github/workflows/feature-flag-review-drift.yml"
 
 
 class FeatureFlagReviewDriftIssueTests(unittest.TestCase):
-    def run_monitor(self, reports):
+    def run_monitor(self, reports, fail_comments=0, initial_issue=None):
         workflow = WORKFLOW.read_text()
         script = textwrap.dedent(workflow.split("          script: |\n", 1)[1])
         harness = """
 const writes = [];
-let issue = null;
+let issue = INITIAL_ISSUE;
 let labelExists = false;
+let failComments = FAIL_COMMENTS;
 const reportFiles = REPORTS;
 let currentReport;
 const fs = {readFileSync: () => {
@@ -38,7 +39,10 @@ const github = {rest: {issues: {
   getLabel: async () => { if (labelExists) return {}; throw Object.assign(new Error('missing'), {status: 404}); },
   createLabel: async args => { labelExists = true; writes.push(['label', args]); },
   create: async args => { writes.push(['create', args]); issue = {...args, number: 9, state: 'open'}; },
-  createComment: async args => writes.push(['comment', args]),
+  createComment: async args => {
+    if (failComments > 0) { failComments--; writes.push(['failed-comment', args]); throw Object.assign(new Error('boom'), {status: 500}); }
+    writes.push(['comment', args]);
+  },
   update: async args => { writes.push(['update', args]); Object.assign(issue, args); },
 }}};
 const run = async () => {
@@ -55,9 +59,16 @@ const run = async () => {
   }
   process.stdout.write(JSON.stringify({writes, issue}));
 };
-run().catch(error => { console.error(error); process.exitCode = 1; });
-""".replace("REPORTS", json.dumps(reports)).replace("SCRIPT", script)
-        result = subprocess.run(["node", "-e", harness], capture_output=True, text=True, check=True)
+run().catch(error => {
+  console.error(error);
+  // Keep the writes and issue state a failed run left behind, for the retry check.
+  process.stdout.write(JSON.stringify({writes, issue, failed: String(error.message)}));
+  process.exitCode = 1;
+});
+""".replace("REPORTS", json.dumps(reports)).replace("SCRIPT", script) \
+            .replace("INITIAL_ISSUE", json.dumps(initial_issue)).replace("FAIL_COMMENTS", str(fail_comments))
+        # Only a run told to fail a comment may fail; any other error still fails the test.
+        result = subprocess.run(["node", "-e", harness], capture_output=True, text=True, check=not fail_comments)
         return json.loads(result.stdout)
 
     def test_nonempty_report_creates_then_updates_one_issue(self):
@@ -105,6 +116,25 @@ run().catch(error => { console.error(error); process.exitCode = 1; });
         self.assertEqual(len(comments), 1, comments)
         self.assertIn("@flag-owner", comments[0])
         self.assertIn("lapsing-release", comments[0])
+
+    def test_a_failed_owner_ping_is_retried_on_the_next_run(self):
+        # #40423: the body must not record a flag as notified before its mention is delivered.
+        def day(days):
+            return json.dumps([{"key": "lapsing-release", "source": "Example.swift",
+                                "owner": "flag-owner", "reviewBy": "2026-10-18",
+                                "daysRemaining": days}])
+        approaching = ("| Key | Source file | Owner | reviewBy | Days remaining | Status |\n"
+                       "| --- | --- | --- | --- | ---: | --- |\n"
+                       "| `lapsing-release` | `Example.swift` | @flag-owner | 2026-10-18 | 1 | Approaching |")
+        open_issue = {"number": 9, "state": "open", "body": approaching}
+        # The real client rejects on a 500: the run fails, leaving the issue body it wrote.
+        failed = self.run_monitor([day(-1)], fail_comments=1, initial_issue=open_issue)
+        self.assertEqual(failed.get("failed"), "boom")
+        self.assertNotIn("Already expired", failed["issue"]["body"])
+        result = self.run_monitor([day(-1)], initial_issue={**open_issue, "body": failed["issue"]["body"]})
+        comments = [args["body"] for kind, args in result["writes"] if kind == "comment"]
+        self.assertEqual(len(comments), 1, comments)
+        self.assertIn("@flag-owner", comments[0])
 
     def test_failed_payloads_never_close_an_open_issue(self):
         report = [{"key": "soon-release", "source": "Example.swift",
