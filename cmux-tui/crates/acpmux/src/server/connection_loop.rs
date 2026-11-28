@@ -171,6 +171,9 @@ pub(super) async fn serve_connection_from(
             line = inbound.recv() => line,
         };
         let Some(line) = line else { break };
+        if crate::prompt_probe::on() && line.contains("\"session/prompt\"") {
+            crate::prompt_probe::mark("rd", "-", "-");
+        }
         if line.trim().is_empty() {
             continue;
         }
@@ -310,7 +313,14 @@ pub(super) async fn serve_connection_from(
                 let owner = conn.clone();
                 let hub = hub.clone();
                 let conn = conn.clone();
+                let probe = m == method::SESSION_PROMPT;
+                if probe {
+                    crate::prompt_probe::mark("spawn", "-", "-");
+                }
                 owner.scope.spawn_named("conn-request", async move {
+                    if probe {
+                        crate::prompt_probe::mark("task", "-", "-");
+                    }
                     let perf_started = crate::perf_watch::request_started();
                     let mut first = match dual_requests::before_run(dual).await {
                         Ok(first) => first,
@@ -349,6 +359,9 @@ pub(super) async fn serve_connection_from(
                     let serve = async {
                         let stage = crate::hub::RequestStage::Dispatch;
                         hub.request_hold(stage, &m, &id).await;
+                        if probe {
+                            crate::prompt_probe::mark("held", "-", "-");
+                        }
                         list_reply::scope(id.clone(), &m, claim, route).await
                     };
                     let serve = tracing::Instrument::instrument(serve, rpc_span);

@@ -43,6 +43,11 @@ fn now_us() -> u128 {
         .unwrap_or(0)
 }
 
+/// Whether marks are written.
+pub fn on() -> bool {
+    writer().is_some()
+}
+
 /// One stage of one prompt: `key` names the chat, `prompt` its prompt id when known.
 pub fn mark(stage: &str, key: &str, prompt: &str) {
     if let Some(tx) = writer() {

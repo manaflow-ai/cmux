@@ -320,6 +320,9 @@ async fn read_lines_movable<R: AsyncRead + Unpin>(
             // Not UTF-8, or the socket failed.
             Err(LinesCodecError::Io(_)) => break,
         };
+        if crate::prompt_probe::on() && line.contains("\"session/prompt\"") {
+            crate::prompt_probe::mark("sock", "-", "-");
+        }
         // Only the first request of a fresh local socket can upgrade. Trigger
         // admission is itself a v1 request, so an admitted trigger cannot reach
         // this branch; later upgrades use the normal v1 method-not-found path.

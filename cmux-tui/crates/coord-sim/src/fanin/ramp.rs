@@ -785,6 +785,7 @@ fn ramp_in<'s>(
             let round = next_round;
             next_round += 1;
             let mut rxs = Vec::new();
+            let send_from = Instant::now();
             for idx in 1..=n as u64 {
                 let (hi, nm) = name(h, idx);
                 let sent = now_us();
@@ -799,6 +800,11 @@ fn ramp_in<'s>(
                 }
                 fanout_sent.push((idx, round, sent));
             }
+            // TEMPORARY (sessions-2000-attached probe): how long the sim's own send loop takes.
+            eprintln!(
+                "FANIN_PROBE round {round} n {n} send_loop_ms {:.1}",
+                send_from.elapsed().as_secs_f64() * 1000.0
+            );
             let (ops2, done) = (ops.clone(), fanout_done.clone());
             collectors.push(s.spawn(move || {
                 let deadline = Instant::now() + Duration::from_secs(180);
