@@ -109,6 +109,9 @@ fn to_hint(hint: CloudWakeHint) -> Hint {
         allowed: hint.allowed,
         loaded: hint.loaded,
         status: hint.status,
+        // Facts the phone does not send yet keep the rules' absent value (an older shell),
+        // so a new `Hint` field in cmux-cloud-handlers cannot break this crate's build.
+        ..Hint::default()
     }
 }
 
