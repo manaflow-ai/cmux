@@ -38,7 +38,7 @@
 //! `core/src/exec_policy.rs`), so the profile follows the mode. Read Only gets [`Bound::read_only`]:
 //! no folder of the chat is writable, only Codex's own home (`CODEX_HOME`), the temporary folders
 //! and the caches. Entering or leaving Read Only restarts the app-server in the other profile and
-//! resumes its thread (`hub/codex_sandbox.rs`). Codex's own `auth.json` stays readable to it.
+//! resumes its thread (`hub/lifecycle_codex_sandbox.rs`). Codex's own `auth.json` stays readable to it.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use serde_json::Value;
@@ -770,7 +770,7 @@ pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>)
 }
 
 /// What a session's next local `codex app-server` launch runs under. The hub sets it before each
-/// start (`hub/codex_sandbox.rs`): Codex takes the chat's added folders in `session/new`, not on
+/// start (`hub/lifecycle_codex_sandbox.rs`): Codex takes the chat's added folders in `session/new`, not on
 /// its command line, and its mode lives in the session, not in the launch.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct CodexWant {

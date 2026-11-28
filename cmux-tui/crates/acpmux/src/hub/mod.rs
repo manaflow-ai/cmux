@@ -80,8 +80,6 @@ mod closed_rows;
 mod closed_tmp;
 pub(crate) mod cloud_offload;
 pub mod cmux_tools_answer;
-// A local Codex app-server's Seatbelt profile follows the chat's mode and folders.
-mod codex_sandbox;
 mod cold_archive;
 mod cold_segments;
 mod live_rows;

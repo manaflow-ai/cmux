@@ -15,7 +15,7 @@ const READ_ONLY_MODE: &str = "read-only";
 
 impl Hub {
     /// Before every start: what the next local Codex launch for this chat runs under.
-    pub(super) fn note_codex_sandbox(&self, session: &Session, profile: &HarnessProfile) {
+    pub(in crate::hub) fn note_codex_sandbox(&self, session: &Session, profile: &HarnessProfile) {
         if !crate::codex_app_server::is_profile_launch(&profile.argv) {
             return;
         }
@@ -24,7 +24,7 @@ impl Hub {
     }
 
     /// After a mode change: a crossing into or out of Read Only restarts a wrapped app-server.
-    pub(super) async fn follow_codex_sandbox(
+    pub(in crate::hub) async fn follow_codex_sandbox(
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Result<(), RpcError> {

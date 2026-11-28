@@ -12,6 +12,9 @@ use super::resolve::{Draft, Resolved, draft_meta};
 use super::start_watch::{StartWatch, start_deadline_exceeded, start_hung};
 #[path = "lifecycle_cold_start.rs"]
 mod cold_start;
+// A local Codex app-server's Seatbelt profile follows the chat's mode and folders.
+#[path = "lifecycle_codex_sandbox.rs"]
+mod codex_sandbox;
 
 /// How often the person's agent start that is still under way says so (`person_start`).
 const START_PROGRESS: std::time::Duration = std::time::Duration::from_secs(10);
