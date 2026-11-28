@@ -1,0 +1,23 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-bottom-deck",
+  "description": "Move the window's controls down to where your eyes already are when you type: the tab bar sits at the bottom of each pane under its address bar, browser and Markdown address bars sit at the bottom, the sidebar's spaces sit at its foot, the Chief docks along the bottom edge as a compose bar, and columns you dock go to the bottom, running the full width of the window.",
+  "created_ms": 0,
+  "settings": {
+    "tabs.barPosition": "bottom",
+    "tabs.barOrder": "belowToolbar",
+    "browser.toolbarPosition": "bottom",
+    "sidebar.spacesPosition": "bottom",
+    "sidebar.spacesVisibility": "always",
+    "home.chiefDock.edge": "bottom",
+    "home.chiefPanel.style": "composeBar",
+    "layout.dockColumnEdge": "bottom",
+    "layout.frameOrientation": "rowMajor"
+  },
+  "files": {},
+  "x-setup": {
+    "id": "manaflow-ai/bottom-deck",
+    "name": "bottom-deck",
+    "source": "looks/bottom-deck"
+  }
+}

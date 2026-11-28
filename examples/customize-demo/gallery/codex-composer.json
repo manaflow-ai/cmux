@@ -1,0 +1,17 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-codex-composer",
+  "description": "Opt-in, for the ChatGPT replica only. A round composer is taller than one line at baseline: the prompt gets its own line and the model, effort, access, attach and Send sit in a row under it. Its + (the attach paperclip) highlights as a circle on hover, like the round mic and Send beside it. cmux's own composers are not changed: remove it and the one-line composer you had comes back.",
+  "created_ms": 0,
+  "settings": {
+    "agentPane.composerLook": "studio"
+  },
+  "files": {
+    "agent-pane/theme.css": "/* The reference composer's round controls: the + (the attach paperclip) and its hover highlight are a\n   circle, as the mic and Send already are in the round look (Leo 2026-11-23: \"the highlight also\n   necessarily has to be a circle instead of a rounded square. that's just design.\").\n   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: a corner is\n   paint, so nothing moves when this applies or reloads. */\n:root {\n  --cv-composer-icon-radius: 50%;\n}\n"
+  },
+  "x-setup": {
+    "id": "manaflow-ai/codex-composer",
+    "name": "Reference composer",
+    "source": "looks/codex/composer"
+  }
+}
