@@ -163,8 +163,9 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
         # #60339 spells the name "CMUX_CI_"CLIENT so a guard reading the literal misses it; key on the write itself.
         self.assertLess(run.index('if [[ "$ok" != 1'), run.index('>> "$GITHUB_ENV"'))
         self.assertNotIn("exit 0", run)
-        # No controller, fetch failed, and (#60339) the installed client is not executable or fails --help.
-        self.assertEqual(run.count("exit 1"), 4)
+        # No controller, no route to it (every connect failed: tests/test_fleet_client_no_route.py), fetch failed,
+        # and (#60339) the installed client is not executable or fails --help.
+        self.assertEqual(run.count("exit 1"), 5)
         self.assertNotIn("::warning", run)
         self.assertIn('"CMUX_CI_"CONTROLLER "$CONTROLLER" >> "$GITHUB_ENV"', run)
 
