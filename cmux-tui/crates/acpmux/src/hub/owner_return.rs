@@ -8,11 +8,14 @@
 //!
 //! Every [`TICK`] the timer reads the owner's HID idle time and asks
 //! `cmux_host_budget::owner_return::owner_return_plan` what to do to the sessions AutoCloud
-//! placed here (`placedBy: "autoCloud"` in their meta). A placed session with no running turn
-//! moves off through `session move --host auto`'s own steps (the same [`SessionMove`] automatic
-//! evacuation uses, so no second authority over moves), with a note in its history first. One
-//! mid-turn is paused: its harness's process group gets SIGSTOP, and SIGCONT once the owner is
-//! away again or its turn ended so it can move. Nothing is killed or dropped.
+//! placed here (`placedBy: "autoCloud"` in their meta). Every move goes through
+//! [`Hub::move_off_by_authority`] (`move_authority.rs`), with a note in its history first: an Auto
+//! chat this machine holds for the Cloud store moves as a holder change in that store (RFD 0172,
+//! "one authority for moves"), at once and also mid-turn, since its give stops the turn and the
+//! new holder continues it. Any other placed chat with no running turn moves through
+//! `session move --host auto`'s own steps ([`SessionMove`]); one mid-turn is paused: its
+//! harness's process group gets SIGSTOP, and SIGCONT once the owner is away again or its turn
+//! ended so it can move. Nothing is killed or dropped.
 //!
 //! The measurement: one log line when the owner's return is detected (`owner_back_at_ms`) and
 //! one when the machine is free of placed work (`freed_at_ms`, `elapsed_ms`), for p50/p95.
@@ -162,12 +165,20 @@ impl Hub {
                 if !placed || gone {
                     return None;
                 }
+                // An Auto chat the store has another holder running is not here to move; one
+                // held here is never paused: its give stops the turn (`move_authority.rs`).
+                let by_store = match self.move_authority(s) {
+                    move_authority::Authority::Store { here: false } => return None,
+                    move_authority::Authority::Store { here: true } => true,
+                    move_authority::Authority::ThisDaemon => false,
+                };
+                let running = s.turn().is_some() || s.turn_claimed() || s.queued() > 0;
                 Some(Placed {
                     id: s.id.clone(),
                     name,
-                    running: s.turn().is_some() || s.turn_claimed() || s.queued() > 0,
+                    running: running && !by_store,
                     paused: paused.contains(&s.id),
-                    moving: s.moving().is_some(),
+                    moving: s.moving().is_some() || self.store_moving(s),
                     tried_at_ms: tried.get(&s.id).copied(),
                 })
             })
@@ -200,7 +211,7 @@ impl Hub {
             plan.why
         );
         self.append(&session, "mux", NOTE_KIND, json!({"text": text, "why": plan.why}));
-        match mover.move_off(id).await {
+        match self.move_off_by_authority(id, mover).await {
             Ok(host) => tracing::info!(
                 session = %id, name = %name, to = %host,
                 "autoCloud: moved a placed chat off for the returning owner"

@@ -25,7 +25,7 @@ public struct SidebarSeed {
     /// status callback still says `connecting`, it must not re-arm the bars.
     private var suppressedSections: Set<SectionID> = []
     public let grace: SidebarPlaceholderGrace
-    /// Holds one list's "Connecting…" labels for the startup deadline (`holdingConnectingLabels`).
+    /// Keeps automatic connection labels quiet while retaining the saved rows (`holdingConnectingLabels`).
     public let connecting: SidebarPlaceholderGrace
 
     public init(sections: [SidebarSection] = [], grace: SidebarPlaceholderGrace = SidebarPlaceholderGrace(),

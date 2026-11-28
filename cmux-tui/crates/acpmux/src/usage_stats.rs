@@ -23,8 +23,16 @@
 //! before they are parsed. Spend is kept in minute buckets for the last day, so the 24-hour and
 //! one-hour sums need no rescan. Cost is the model catalog's list price for the
 //! tokens (USD per million), null when no model of the window has a price.
+//!
+//! A tracker outlives its daemon ([`Tracker::save_if_due`], [`Tracker::load`]): its offsets,
+//! coverage and minute buckets are saved to the daemon's state folder and read back by the next
+//! daemon, which reads on from where the last one stopped. Before this, each restart started
+//! every chat over from its newest [`FIRST_READ_BYTES`], so a chat whose newest 256 MiB cover less
+//! than a day read as unmetered (`no_counters`) for up to a day after each of the several restarts
+//! an hour a build rollout makes (2026-11-28).
 
 use crate::protocol::session::{Autocompact, UsageStats};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{Read, Seek, SeekFrom};
@@ -116,6 +124,10 @@ pub struct Source {
     pub argv: Option<Vec<String>>,
     /// The env its harness starts with (profile, preset, chat store, the chat's own).
     pub env: BTreeMap<String, String>,
+    /// No turn ran on this chat here and it carries no conversation from elsewhere (not
+    /// adopted, watched, resumed or forked): its harness has written no transcript yet, so
+    /// none found means it spent nothing, not that it went unmeasured.
+    pub unprompted: bool,
 }
 
 impl Source {
@@ -134,7 +146,7 @@ impl Source {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct Bucket {
     tokens: u64,
     by_model: BTreeMap<String, u64>,
@@ -161,7 +173,7 @@ fn cache_read_share(day: &Bucket) -> Option<f64> {
 }
 
 /// One file read so far.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 struct Tail {
     path: PathBuf,
     offset: u64,
@@ -207,7 +219,7 @@ impl Tail {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 struct Subagent {
     tail: Tail,
     /// Its first record was read and counted as a spawn.
@@ -218,7 +230,7 @@ struct Subagent {
 }
 
 /// The running state for one chat: offsets, the day's minute buckets, the last call's context.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Tracker {
     main: Option<Tail>,
     look_again_at: u64,
@@ -230,6 +242,7 @@ pub struct Tracker {
     context_at: u64,
     context_window: Option<u64>,
     /// The newest call older than the window a read passed over, parsed at the read's end.
+    #[serde(skip)]
     old_context: Option<Vec<u8>>,
     /// Since when (unix ms) the last refresh's reads cover every file, each read to its end:
     /// None when one was not. A count whose window starts before it is lower than the truth,
@@ -242,13 +255,98 @@ pub struct Tracker {
     /// a closed chat had no stats at all and its machine's spend read as unmetered (2026-11-27).
     archived_since: Option<u64>,
     /// The most a first read takes and the most one refresh reads, per file (tests set them).
+    #[serde(skip)]
     limits: Option<(u64, u64)>,
+    /// When it was last saved or loaded, and what it had read then ([`Tracker::mark`]).
+    #[serde(skip)]
+    saved: Option<(u64, Mark)>,
+}
+
+/// The version of a saved tracker: one saved by a build with another reads as none, and the chat
+/// is read over from its newest [`FIRST_READ_BYTES`], as before trackers were saved.
+const SAVED_VERSION: u32 = 1;
+/// The least time between two saves of one tracker. A save is whole (offsets and the buckets they
+/// filled, together), so one older than the last read only makes the next daemon read again the
+/// lines read since.
+const SAVE_EVERY_MS: u64 = MINUTE_MS;
+
+/// What a tracker has read: unchanged, a save would write what is saved.
+type Mark = (Option<u64>, usize, u64, usize, Option<u64>);
+
+#[derive(Serialize)]
+struct SavedRef<'a> {
+    version: u32,
+    tracker: &'a Tracker,
+}
+
+#[derive(Deserialize)]
+struct Saved {
+    version: u32,
+    tracker: Tracker,
 }
 
 impl Tracker {
+    /// The tracker saved at `path` ([`Self::save_if_due`]); None when there is none, or it is
+    /// not one this build reads. Its files are read on from its offsets: one that shrank since
+    /// is read over from its start ([`read_new`]).
+    pub fn load(path: &Path) -> Option<Tracker> {
+        let bytes = std::fs::read(path).ok()?;
+        let saved: Saved = serde_json::from_slice(&bytes).ok()?;
+        let mut tracker = (saved.version == SAVED_VERSION).then_some(saved.tracker)?;
+        tracker.saved = Some((0, tracker.mark()));
+        Some(tracker)
+    }
+
+    /// Saves the tracker to `path` when it read anything since its last save and that save is
+    /// [`SAVE_EVERY_MS`] old: written to a temporary file beside it, then renamed over it, so a
+    /// reader finds the last whole save or this one. Returns whether it wrote.
+    pub fn save_if_due(&mut self, path: &Path, now: u64) -> bool {
+        let mark = self.mark();
+        if let Some((at, saved)) = &self.saved
+            && (*saved == mark || now < at.saturating_add(SAVE_EVERY_MS))
+        {
+            return false;
+        }
+        let Ok(bytes) = serde_json::to_vec(&SavedRef { version: SAVED_VERSION, tracker: self })
+        else {
+            return false;
+        };
+        let tmp = path.with_extension("json.tmp");
+        let written = path.parent().is_some_and(|dir| std::fs::create_dir_all(dir).is_ok())
+            && std::fs::write(&tmp, &bytes).is_ok()
+            && std::fs::rename(&tmp, path).is_ok();
+        if !written {
+            let _ = std::fs::remove_file(&tmp);
+            return false;
+        }
+        self.saved = Some((now, mark));
+        true
+    }
+
+    /// What it has read: the main file's offset, the subagents found, their offsets summed, the
+    /// finished ones, and when the compressed copy was written.
+    fn mark(&self) -> Mark {
+        let agents = self.subagents.values();
+        (
+            self.main.as_ref().map(|t| t.offset),
+            self.subagents.len(),
+            agents.clone().fold(0_u64, |sum, a| sum.wrapping_add(a.tail.offset)),
+            agents.filter(|a| a.done).count(),
+            self.archived_since,
+        )
+    }
+
     /// Reads what the chat's harness appended since the last refresh and returns the stats as
     /// of `now`; None while its transcript is not found, plain or compressed.
     pub fn refresh(&mut self, source: &Source, now: u64, models: &Models) -> Option<UsageStats> {
+        // The file this tracker read is gone (compressed in place to FILE.jsonl.zst, or moved):
+        // start over as a new tracker would, locating it again. Holding the dead path left every
+        // count null for as long as the daemon ran, so the chat read as unmetered
+        // (2026-11-28: a closed chat's transcript compressed under its tracker).
+        // The minutes it counted go too: a moved file is read again from its start, never twice.
+        if self.main.as_ref().is_some_and(|t| !t.path.exists()) {
+            *self = Tracker { limits: self.limits, ..Tracker::default() };
+        }
         if self.main.is_none() && now >= self.look_again_at {
             match locate(source, ".jsonl") {
                 Some(path) => {
@@ -823,8 +921,10 @@ fn read_new(
             tail.lose(now);
         } else if skip_to_line {
             tail.in_long_line = true;
+        } else {
+            // Else a line still being written: read again, whole, next time.
+            return settled_end(tail, &buf, now);
         }
-        // Else a line still being written: read again, whole, next time.
         return false;
     };
     let mut lines = buf.get(..end).unwrap_or_default().split(|b| *b == b'\n');
@@ -840,7 +940,31 @@ fn read_new(
     }
     tail.offset = tail.offset.saturating_add(end as u64).saturating_add(1);
     // Bytes past the last newline: a line still being written, read next time.
-    to_end && buf.len().checked_sub(1) == Some(end)
+    match buf.get(end.saturating_add(1)..) {
+        _ if !to_end => false,
+        Some([]) | None => true,
+        Some(rest) => settled_end(tail, rest, now),
+    }
+}
+
+/// Whether `rest`, the bytes after a file's last newline, are its end for good: a line still
+/// being written is read again, whole, next time, but one whose file has not been written for
+/// [`LIVE_QUIET_MS`] is the cut-off end of a writer that died mid-line (a killed chat or
+/// subagent), which never ends it. Before this, such a file read as never read to its end, so a
+/// chat with one cut-off subagent transcript read as unmetered (`no_counters`) for as long as
+/// its daemon ran, with its transcript found (2026-11-28: one way a found 35 MB goal chat on
+/// fs-agent-lane-36 can read so; its tracker was not readable from here). A cut-off line that held a count makes its time's day unknown, as any
+/// record that cannot be read does; it is read again should its line ever end.
+fn settled_end(tail: &mut Tail, rest: &[u8], now: u64) -> bool {
+    let Some(written) = modified_ms(&tail.path) else { return false };
+    if written.saturating_add(LIVE_QUIET_MS) > now {
+        return false;
+    }
+    const COUNTED: [&[u8]; 4] = [b"assistant", b"compact", b"token_count", b"spawn_agent"];
+    if COUNTED.iter().any(|kind| contains(rest, kind)) {
+        tail.lose(quick_timestamp(rest).unwrap_or(written));
+    }
+    true
 }
 
 /// The chat's transcript: Claude's under its project folder (else any project

@@ -284,12 +284,16 @@ main() {
     cp scripts/cmux-next/resolve-acpmux.sh "$out/resolve-acpmux.sh" && export NFL_RESOLVE_ACPMUX="$out/resolve-acpmux.sh"
     cp scripts/cmux-next/bundle-screen-sharing-helper.sh "$out/bundle-screen-sharing-helper.sh" \
       && export NFL_SCREEN_HELPER_PHASE="$out/bundle-screen-sharing-helper.sh"
+    # The fetch is bounded (LR_FETCH_TIMEOUT_S, 300 s, 0 for none): an unbounded fetch here ran until the controller
+    # stopped the step as hung at 45 min (606ea6ca3079c5f39217978f, 8eaeaaa22bdbf3867f1da4ee, 2026-11-27).
+    cp scripts/ci/timeout.sh "$out/timeout.sh" || exit 3
     local here; here="$(git rev-parse HEAD)"
     local head="${headsha:-$here}" want
     for want in $base $head; do
       git cat-file -e "$want^{commit}" 2>/dev/null \
-        || measure_quiet "LR fetch $want" "$out/fetch.log" git fetch --quiet --recurse-submodules=no https://github.com/manaflow-ai/cmux.git "$want" \
-        || { echo "LR cannot fetch $want: $(tail -n 3 "$out/fetch.log" 2>/dev/null)"; exit 3; }
+        || GIT_TERMINAL_PROMPT=0 measure_quiet "LR fetch $want" "$out/fetch.log" "$out/timeout.sh" --kill-after=15 "${LR_FETCH_TIMEOUT_S:-300}" \
+          git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=20 fetch --quiet --recurse-submodules=no https://github.com/manaflow-ai/cmux.git "$want" \
+        || { echo "LR cannot fetch $want in ${LR_FETCH_TIMEOUT_S:-300} s: $(tail -n 3 "$out/fetch.log" 2>/dev/null)"; exit 3; }
     done
     if [[ -n "$base" && "$LR_CASE" != update && "$(git rev-parse "$base^{commit}")" == "$(git rev-parse "$head^{commit}")" ]]; then
       echo "LR one build: base is head ($head), so the head runs alone"

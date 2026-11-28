@@ -37,6 +37,27 @@ fn harness_ids_read_as_their_engine_and_route() {
 }
 
 #[test]
+fn the_picker_never_offers_the_coderouter_route() {
+    // Leo: "For cmux next, just rip it out for now then": a configured CodeRouter route no
+    // longer adds `claude-cr`; a harness file the user listed still shows.
+    let values = |request: Value| -> Vec<String> {
+        op("harnessItems", request)
+            .as_array()
+            .expect("items")
+            .iter()
+            .map(|item| item["value"].as_str().expect("a value").to_owned())
+            .collect()
+    };
+    let plain = values(json!({}));
+    assert_eq!(values(json!({ "routeConfigured": true })), plain);
+    assert!(!plain.iter().any(|id| id == "claude-cr"));
+    assert!(
+        values(json!({ "routeConfigured": true, "listed": ["claude-cr"] }))
+            .contains(&"claude-cr".to_owned())
+    );
+}
+
+#[test]
 fn model_ids_read_as_names() {
     for (id, name) in [
         ("claude-opus-5-5", "Claude Opus 5.5"),

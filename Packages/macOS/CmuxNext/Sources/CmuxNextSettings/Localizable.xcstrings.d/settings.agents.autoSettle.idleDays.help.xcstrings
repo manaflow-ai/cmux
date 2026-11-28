@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.autoSettle.idleDays.help" : {
+      "comment" : "Settings > Agents > Settle Chats: help for the idle-days setting",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moves a chat to Settled after this many days with no activity. 0 never does. Running work, a pending question or a draft keeps it."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ينقل المحادثة إلى «المسوّاة» بعد هذا العدد من الأيام بلا نشاط. القيمة 0 لا تفعل ذلك أبدًا. العمل الجاري أو سؤال معلّق أو مسودة يُبقيها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Premješta razgovor u Smireno nakon ovoliko dana bez aktivnosti. 0 to nikad ne radi. Posao u toku, pitanje na čekanju ili nacrt ga zadržavaju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flytter en chat til Afsluttet efter så mange dage uden aktivitet. 0 gør det aldrig. Igangværende arbejde, et ubesvaret spørgsmål eller en kladde holder den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verschiebt einen Chat nach so vielen Tagen ohne Aktivität nach „Abgelegt“. 0 tut das nie. Laufende Arbeit, eine offene Frage oder ein Entwurf hält ihn."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mueve un chat a Archivados tras este número de días sin actividad. 0 nunca lo hace. El trabajo en curso, una pregunta pendiente o un borrador lo mantienen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplace un chat vers Classés après ce nombre de jours sans activité. 0 ne le fait jamais. Un travail en cours, une question en attente ou un brouillon le garde."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sposta una chat in Archiviate dopo questo numero di giorni senza attività. 0 non lo fa mai. Lavoro in corso, una domanda in sospeso o una bozza la mantengono."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この日数アクティビティがないチャットを「整理済み」に移動します。0 では移動しません。実行中の作業、保留中の質問、下書きがあるチャットは残ります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការជជែកត្រូវផ្លាស់ទៅ «បានបញ្ចប់» បន្ទាប់ពីគ្មានសកម្មភាពច្រើនថ្ងៃនេះ។ 0 មិនដែលធ្វើទេ។ ការងារកំពុងដំណើរការ សំណួររង់ចាំ ឬសេចក្តីព្រាងរក្សាវាទុក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "활동 없이 이 일수가 지나면 채팅을 정리됨으로 옮깁니다. 0이면 옮기지 않습니다. 실행 중인 작업, 대기 중인 질문 또는 초안이 있으면 남겨 둡니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flytter en chat til Avsluttet etter så mange dager uten aktivitet. 0 gjør det aldri. Pågående arbeid, et ubesvart spørsmål eller et utkast beholder den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przenosi czat do Odłożonych po tylu dniach bez aktywności. 0 nigdy tego nie robi. Trwająca praca, oczekujące pytanie lub szkic go zatrzymują."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move um chat para Arquivados após esse número de dias sem atividade. 0 nunca faz isso. Trabalho em andamento, uma pergunta pendente ou um rascunho o mantêm."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перемещает чат в «Убранные» после стольких дней без активности. 0 — никогда. Идущая работа, ожидающий вопрос или черновик его удерживают."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ย้ายแชตไปที่ จัดเก็บแล้ว หลังจากไม่มีความเคลื่อนไหวตามจำนวนวันนี้ 0 จะไม่ย้ายเลย งานที่กำลังทำ คำถามที่รออยู่ หรือแบบร่างจะคงแชตไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu kadar gün etkinlik olmayan bir sohbeti Kaldırılanlar’a taşır. 0 hiçbir zaman taşımaz. Süren iş, bekleyen bir soru ya da taslak onu tutar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переміщує чат до «Прибраних» після стількох днів без активності. 0 — ніколи. Поточна робота, запитання в очікуванні чи чернетка його утримують."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chuyển cuộc trò chuyện sang Đã xếp gọn sau ngần ấy ngày không hoạt động. 0 thì không bao giờ. Công việc đang chạy, câu hỏi đang chờ hoặc bản nháp sẽ giữ nó lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "聊天在这么多天没有活动后移到“已归档”。0 表示从不。正在运行的工作、待回答的问题或草稿会保留它。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "聊天在這麼多天沒有活動後移到「已歸檔」。0 表示永不。正在執行的工作、待回答的問題或草稿會保留它。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

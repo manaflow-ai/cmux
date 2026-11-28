@@ -230,6 +230,9 @@ fn initialize() -> Value {
         "agentCapabilities": {
             "loadSession": true,
             "promptCapabilities": {"image": false, "audio": false, "embeddedContext": true},
+            // It runs no tool, so it asks before every one (acpmux `policy_mode::
+            // asks_before_tools`): a Chief inbox made under policy `ask` takes prompts.
+            "_meta": {"acpmux": {"asksBeforeTools": true}},
         },
         "authMethods": [],
         "agentInfo": {"name": "cmux-chief", "title": messages().chief,

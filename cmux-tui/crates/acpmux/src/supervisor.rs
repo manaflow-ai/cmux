@@ -19,7 +19,11 @@
 //! The policy: at most 3 restarts in a 6 h window; a session that owns open work is restarted
 //! first; past the limit its owner is handed it. Pure: no hub, no clock.
 //! `hub/exit_notify.rs` logs the decision next to the exit record when `ACPMUX_SUPERVISOR=1`
-//! (default off); nothing acts on it yet.
+//! (default off). With `ACPMUX_SUPERVISOR_ACT=1` (default off; it logs the decision too, since
+//! the restart count is read from those logs) acpmux acts on it, for a crash only
+//! ([`acts_on`]): `restart` sends the closed chat one hub-set prompt, which reopens it and
+//! resumes its agent from the transcript as any prompt does; `escalate` adds why to the exit
+//! record its parent gets ([`Decision::parent_note`]).
 
 use crate::exit_record::{ExitClass, ExitRecord};
 use serde::Serialize;
@@ -30,6 +34,32 @@ pub const KIND: &str = "supervisor_decision";
 /// Whether decisions are logged (`ACPMUX_SUPERVISOR=1` turns it on; off by default).
 pub fn enabled() -> bool {
     std::env::var("ACPMUX_SUPERVISOR").is_ok_and(|v| v.trim() == "1")
+}
+
+/// Whether acpmux acts on decisions (`ACPMUX_SUPERVISOR_ACT=1` turns it on; off by default).
+pub fn acts() -> bool {
+    std::env::var("ACPMUX_SUPERVISOR_ACT").is_ok_and(|v| v.trim() == "1")
+}
+
+/// The event kind a restart is logged as, and its prompt's provenance kind.
+pub const RESTART_KIND: &str = "supervisor_restart";
+
+/// Whether acpmux may act on the decision for `rec`: only when its harness ended on its own. A
+/// close someone chose (a person, an agent, an idle pass, a move) is never undone by a restart;
+/// its parent still hears the record.
+pub fn acts_on(rec: &ExitRecord) -> bool {
+    rec.close.actor.kind == "harness_exit"
+}
+
+/// The prompt a restart sends the closed chat.
+pub fn restart_text(rec: &ExitRecord) -> String {
+    format!(
+        "[restart] This session ended {} ({}), and acpmux restarted it from its transcript. \
+         Check what finished (files, commands, messages) before you go on; do not redo work \
+         that completed.",
+        rec.class.as_str(),
+        rec.close.reason,
+    )
 }
 
 /// OTP's child restart types.
@@ -91,6 +121,19 @@ pub enum Decision {
     Leave { why: &'static str },
     /// Past the intensity limit: hand the failure to the parent (none named: to nobody, said).
     Escalate { to: Option<String>, why: String },
+}
+
+impl Decision {
+    /// What the parent's exit record adds when acpmux acted on this decision.
+    pub fn parent_note(&self) -> Option<String> {
+        match self {
+            Self::Restart { .. } => Some("acpmux restarted it from its transcript.".into()),
+            Self::Escalate { why, .. } => {
+                Some(format!("acpmux stopped restarting it: {why}; it is yours now."))
+            }
+            Self::Leave { .. } => None,
+        }
+    }
 }
 
 /// The decision for `rec`, ended at `now_ms` with its last run having used `tokens`, given its
@@ -211,6 +254,33 @@ mod tests {
         let d = decide(&r, 10 * H, 500, &one, lim, None);
         let Decision::Escalate { to: None, why } = d else { panic!("expected escalate: {d:?}") };
         assert!(why.starts_with("1100 tokens"), "{why}");
+    }
+
+    #[test]
+    fn only_a_harness_exit_is_acted_on() {
+        let mut r = rec(ExitClass::Crashed, &[]);
+        r.close.actor.kind = "harness_exit".into();
+        assert!(acts_on(&r));
+        for kind in ["cli", "mcp", "ttl", "daemon", "peer", "agent_self", "app"] {
+            r.close.actor.kind = kind.into();
+            assert!(!acts_on(&r), "{kind}");
+        }
+    }
+
+    #[test]
+    fn the_parent_note_says_what_acpmux_did() {
+        let restart = Decision::Restart { transcript: None };
+        assert_eq!(
+            restart.parent_note().as_deref(),
+            Some("acpmux restarted it from its transcript.")
+        );
+        let up = Decision::Escalate { to: None, why: "3 restarts in 360 min (max 3)".into() };
+        assert!(up.parent_note().unwrap().starts_with("acpmux stopped restarting it: 3 restarts"));
+        assert_eq!(Decision::Leave { why: "done" }.parent_note(), None);
+        assert!(
+            restart_text(&rec(ExitClass::Crashed, &[]))
+                .starts_with("[restart] This session ended crashed (idle)")
+        );
     }
 
     #[test]

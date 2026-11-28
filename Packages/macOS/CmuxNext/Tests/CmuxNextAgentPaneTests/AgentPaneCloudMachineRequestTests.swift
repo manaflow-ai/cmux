@@ -52,14 +52,15 @@ struct AgentPaneCloudMachineRequestTests {
         machines.list = {
             .init(signedIn: true, loaded: true, machines: [
                 .init(id: "vm-1", name: "build box", stage: "paused"),
-                .init(id: "vm-2", name: "gpu", stage: "ready"),
+                .init(id: "vm-2", name: "gpu", stage: "ready", cloudRegistryID: "registry-gpu"),
             ])
         }
         let reply = await AgentPaneCloudMachineRequest.list.reply(machines, gestures: gestures)
         let value = try #require(reply["value"] as? [String: Any])
         #expect(value["signedIn"] as? Bool == true && value["loaded"] as? Bool == true)
         let rows = try #require(value["machines"] as? [[String: String]])
-        #expect(rows == [["id": "vm-1", "name": "build box", "stage": "paused"], ["id": "vm-2", "name": "gpu", "stage": "ready"]])
+        #expect(rows == [["id": "vm-1", "name": "build box", "stage": "paused"],
+                         ["id": "vm-2", "name": "gpu", "stage": "ready", "cloudRegistryId": "registry-gpu"]])
         #expect(JSONSerialization.isValidJSONObject(reply))
         // Reading the list is not the person touching the page.
         let model = AgentPaneModel(host: NoHost())

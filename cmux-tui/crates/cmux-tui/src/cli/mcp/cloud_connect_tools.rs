@@ -20,7 +20,7 @@ pub(super) const CHATGPT_CANCEL: &str = "cloud_connect_chatgpt_cancel";
 /// The longest one wait tool call blocks; call it again while it answers pending.
 const MAX_WAIT_SECONDS: u64 = 110;
 
-const SECRETS_NOTE: &str = "A Claude subscription or an API key is never a tool argument: ask the person to run `cmux cloud connect claude` (it runs claude setup-token; they open its link and paste the code back) or `cmux cloud connect api-key --provider anthropic|openai` in a terminal; the secret goes straight into this Mac's Keychain.";
+const SECRETS_NOTE: &str = "For Claude Code, open cmux://settings/cloud/claude and ask the person to sign in on their Cloud machine. For an API key, ask them to run `cmux cloud connect api-key --provider anthropic|openai` in a terminal so the key goes straight into this Mac's Keychain.";
 
 pub(super) fn descriptors() -> Vec<Value> {
     let attempt =

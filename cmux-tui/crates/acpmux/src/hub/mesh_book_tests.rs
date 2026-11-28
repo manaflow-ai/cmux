@@ -192,6 +192,7 @@ fn a_failed_heartbeat_without_a_reason_still_projects_failure() {
             agent_session_id: None,
             host_build: None,
             handle: None,
+            tags: None,
             updated_at: None,
         },
     );
@@ -220,6 +221,7 @@ fn heartbeat_roundtrip_preserves_an_optional_stuck_reason() {
             handle: None,
             former_names: Vec::new(),
             roles: Vec::new(),
+            tags: None,
             updated_at: None,
         }],
         leaving: false,
@@ -262,6 +264,7 @@ async fn a_hub_row_lists_every_key_a_local_row_does() {
     b.model = Some("opus".into());
     b.agent_session_id = Some("agent-b".into());
     b.host_build = Some("build-b".into());
+    b.tags = Some([("succeeds".to_owned(), "gcp-agent-lane-5/old".to_owned())].into());
     hub.apply_mesh_book(full, "person-1", Some("d-a"));
 
     let all = hub.all_session_summaries();
@@ -283,6 +286,50 @@ async fn a_hub_row_lists_every_key_a_local_row_does() {
     assert_eq!(rich["agentSessionId"], "agent-b");
     assert_eq!(rich["sessionReceipt"]["agentSessionId"], "agent-b");
     assert_eq!(rich["hostBuild"], "build-b");
+    assert_eq!(rich["tags"], json!({"succeeds": "gcp-agent-lane-5/old"}));
+    assert_eq!(bare["tags"], Value::Null);
+}
+
+/// A hub row's tags changing builds it again and tells clients: a `succeeds=` tag set on another
+/// machine reaches this one's list (Leo, 2026-11-21: "We cannot ever afford to let these things
+/// get away from us.").
+#[tokio::test]
+async fn a_hub_rows_tags_change_is_announced() {
+    let hub = hub();
+    let mut events = hub.events.subscribe();
+    hub.apply_mesh_book(book(), "person-1", Some("d-a"));
+    let _ = notices(&mut events);
+    let mut tagged = book();
+    tagged.sessions[1].tags = Some([("goal".to_owned(), "ci-linux".to_owned())].into());
+    hub.apply_mesh_book(tagged.clone(), "person-1", Some("d-a"));
+    assert_eq!(notices(&mut events).len(), 1);
+    let row =
+        hub.all_session_summaries().into_iter().find(|s| s["sessionId"] == B_ID).expect("row");
+    assert_eq!(row["tags"], json!({"goal": "ci-linux"}));
+    hub.apply_mesh_book(tagged, "person-1", Some("d-a"));
+    assert!(notices(&mut events).is_empty(), "the same tags again announce nothing");
+}
+
+/// The tags a heartbeat lists: strings only, keys and values bounded, at most `MAX_TAGS`, and the
+/// whole set under the hub's byte cap; none when nothing is left.
+#[test]
+fn heartbeat_tags_are_bounded() {
+    use crate::mesh::{MAX_TAG_VALUE, MAX_TAGS, MAX_TAGS_BYTES, heartbeat_tags};
+    assert_eq!(heartbeat_tags(&json!({})), None);
+    assert_eq!(heartbeat_tags(&Value::Null), None);
+    let kept = heartbeat_tags(&json!({
+        "succeeds": "a/b", "n": 1, "": "x", "long": "v".repeat(MAX_TAG_VALUE + 1),
+    }))
+    .expect("one kept");
+    assert_eq!(kept, [("succeeds".to_owned(), "a/b".to_owned())].into());
+    let many: serde_json::Map<String, Value> =
+        (0..MAX_TAGS + 8).map(|i| (format!("k{i:03}"), json!("v"))).collect();
+    assert_eq!(heartbeat_tags(&Value::Object(many)).expect("many").len(), MAX_TAGS);
+    let big: serde_json::Map<String, Value> =
+        (0..MAX_TAGS).map(|i| (format!("k{i:03}"), json!("v".repeat(MAX_TAG_VALUE)))).collect();
+    let cut = heartbeat_tags(&Value::Object(big)).expect("cut");
+    assert!(serde_json::to_vec(&cut).unwrap().len() <= MAX_TAGS_BYTES);
+    assert!(cut.len() < MAX_TAGS && cut.contains_key("k000"));
 }
 
 /// A hub row's folder or title changing builds it again and tells clients; the same book again

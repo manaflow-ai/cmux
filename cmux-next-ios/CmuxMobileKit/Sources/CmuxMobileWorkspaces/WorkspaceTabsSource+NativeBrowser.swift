@@ -36,10 +36,17 @@ extension WorkspaceTabsSource {
             CmuxMobileTheme.standard.haptics.error()
             return
         }
-        native.open(tab: tab.id, macID: workspace?.macID, at: url)
+        let macName = macName
+        native.open(tab: tab.id, macID: workspace?.macID, at: url) { [weak self] handedOver in
+            if handedOver { self?.show("Opened on this iPhone, signed in as on \(macName).") }
+        }
         // The person's tap shows in this turn: the tab's toolbar reads the phone's page now.
         refreshTab(tab.id)
-        show("Opened on this iPhone. Sign-ins on \(macName) don't carry over.")
+        if native.macHandsSiteData(workspace?.macID) {
+            show("Opened on this iPhone.")
+        } else {
+            show("Opened on this iPhone. Sign-ins on \(macName) don't carry over.")
+        }
     }
 
     /// Mirror from the Mac again. When the person browsed on the iPhone, the Mac's

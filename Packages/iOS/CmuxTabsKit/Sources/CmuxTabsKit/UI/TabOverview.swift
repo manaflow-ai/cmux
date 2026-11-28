@@ -587,6 +587,7 @@ struct TabOverview<Source: TabsDataSource>: View {
         let y = layout.safeTop + 4 + d / 2
         return ZStack(alignment: .topLeading) {
             Menu {
+                source.overviewMenuContent()
                 Button("Close All Tabs", systemImage: "xmark", role: .destructive, action: onCloseAll)
             } label: {
                 Image(systemName: "ellipsis")
@@ -598,6 +599,7 @@ struct TabOverview<Source: TabsDataSource>: View {
             .glassEffect(.regular.interactive(), in: .circle)
             .position(x: layout.size.width - 20 - d / 2, y: y)
             .accessibilityLabel("More")
+            .accessibilityIdentifier("tabs.overview.more")
         }
         .frame(width: layout.size.width, height: layout.size.height, alignment: .topLeading)
     }

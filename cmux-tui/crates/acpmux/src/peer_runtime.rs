@@ -972,6 +972,9 @@ impl Peer {
             "health": health,
             "healthAt": health_at,
             "paths": paths, "linkStats": link_stats,
+            // It re-arms a moved session's waits (`server/bg_rearm.rs`): rebalance moves a
+            // session with running waits only to a peer that does.
+            "bgRearm": self.lists(crate::server::bg_rearm::FEATURE),
             // The ping bar: null while the link is down or before its first pong.
             "quality": if link.is_ready() { self.with_quality(|q| q.view()) } else { Value::Null },
             "received": self.received.split(),
