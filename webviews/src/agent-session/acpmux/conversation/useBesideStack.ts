@@ -6,6 +6,11 @@
 // The stack can also move with no size changing: Session Info pushing the chat over shifts it inside
 // a scroller of the same size. So an attribute change on any of the stack's ancestors, and the end of
 // an ancestor's own motion, read it again on the next frame (one read per frame at most).
+// Only a resize reads at once: a ResizeObserver's callback comes right after the frame's layout, so its
+// reads cost none. A MutationObserver's comes in the microtask after the commit that changed the dock
+// and a motion's end in its own task, both after writes: a read there forced the page's style and
+// layout ("style forced by script: observer" in the replay trace, visible-frame-p95-under-load), so
+// they read on the next frame, before its paint, once for every change in it.
 import { useLayoutEffect, type RefObject } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { experimentSwitchOn, subscribeExperimentSwitches } from "../../../experiments/switches";
@@ -107,8 +112,6 @@ export function useBesideStack(
             })
         : [];
       const seeThrough = experimentSwitchOn(SEE_THROUGH_DOCK);
-      // bottomStack.css passes the pointer through the asks stack's room only while its rows show.
-      dock.toggleAttribute("data-see-through", seeThrough);
       const asks = over && seeThrough ? dock.querySelector<HTMLElement>(ASKS) : null;
       let band: ReturnType<typeof bandMask>;
       if (asks) {
@@ -166,6 +169,9 @@ export function useBesideStack(
         joinMasks(besideMask(placed, box.width, frosts ? { arm, height: box.height } : undefined), band),
         noticeMask,
       );
+      // Writes after every read: a write between them would force the next read's style.
+      // bottomStack.css passes the pointer through the asks stack's room only while its rows show.
+      if (dock.hasAttribute("data-see-through") !== seeThrough) dock.toggleAttribute("data-see-through", seeThrough);
       const values = [mask?.images, mask?.sizes, mask?.positions];
       VARIABLES.forEach((name, at) => {
         const value = values[at];
@@ -185,9 +191,11 @@ export function useBesideStack(
     const sizes = new ResizeObserver(paint);
     // A new surface (a tray that opens) is sized from its first frame; a ghost tray removed frees
     // the room it held.
+    // Its new parts are observed at once (no read: a new one's first size comes with the frame's
+    // ResizeObserver callback); a ghost removed is read on the next frame.
     const children = new MutationObserver(() => {
       observeParts();
-      paint();
+      nextFrame();
     });
     // The asks stack's parts come and go inside it (an ask answered or dismissed), so its subtree's
     // children are watched as well, and each of its parts is sized.
@@ -200,7 +208,7 @@ export function useBesideStack(
       children.observe(asks, { childList: true });
     };
     // The tray's corners round as it turns into a card (`data-card`): rare, so the whole dock's.
-    const cards = new MutationObserver(paint);
+    const cards = new MutationObserver(nextFrame);
     sizes.observe(dock);
     sizes.observe(view);
     observeParts();
@@ -208,7 +216,7 @@ export function useBesideStack(
     cards.observe(dock, { attributes: true, attributeFilter: ["data-card"], subtree: true });
     // Only a surface's own motion moves it; the composer's hovers and the tray's count rolls do not.
     const settled = (event: Event) => {
-      if (event.target instanceof Element && event.target.matches(SURFACE)) paint();
+      if (event.target instanceof Element && event.target.matches(SURFACE)) nextFrame();
     };
     dock.addEventListener("animationend", settled);
     dock.addEventListener("transitionend", settled);
