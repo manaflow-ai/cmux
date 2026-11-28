@@ -1725,10 +1725,7 @@ export function drawPaneBody({
             </ChatViewParked.Provider>
           )}
           {/* The spare's warm-up: the hidden chat view above has no rows to run the row code on (spareRehearsal.tsx). */}
-          {/* A chat page still waiting for its rows rehearses the same way; the rows arriving unmounts it, so it never delays the real draw. */}
-          {((premountsChatView && !showsChatView) || (showsChatView && snapshot.rows.length === 0)) && (
-            <SpareRehearsal />
-          )}
+          {premountsChatView && !showsChatView && <SpareRehearsal />}
         </div>
         {!harnessesOpen &&
           !showNewTab &&
