@@ -83,6 +83,17 @@ export function composerCloudStartFolder(
   return cloudStartFolder(shownChatFolder(summary, "local", false));
 }
 
+/// The folder chip a New Tab page's Cloud send puts back on the chat composer when it ends without
+/// opening its chat (a refusal, a failure): the folder that send named, so the chip says what the
+/// start card said and a send from the composer names it again; `""` (No folder) for a start in the
+/// machine's home; undefined (the chip unchanged) for a start that named neither. Before, the
+/// composer took the prompt back but kept its own chip: the card read "cmuxterm-hq" over a chip
+/// reading "No folder" (cmux#63348).
+export function cloudPageFolderBack(start: { cwd?: string; home?: boolean }): string | undefined {
+  if (start.cwd) return start.cwd;
+  return start.home ? "" : undefined;
+}
+
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
 /// The New Tab page's project pick goes to the host on its click (workspace.useFolder), so a Cloud
@@ -567,12 +578,17 @@ export function cloudRunsHere(answer: CloudStartAnswer): boolean {
 /// The picker's effort and account for a Cloud start (cmux-tui/docs/model-connections.md, "The picker's
 /// model and account in Cloud"): the effort the composer shows, and the chat's route when the Account
 /// menu bound one. A route that is not a connection id (acpmux `cloud_model_plane::is_connection_id`) is left out.
-export function cloudPickExtras(summary: { effort?: string; route?: string } | undefined): {
+/// `machine`: the agent picked for the machine (cloudAgentPick.ts). Its level goes first; this Mac's chat's
+/// level goes only for that same agent, never another agent's (cmux#59716).
+export function cloudPickExtras(
+  summary: { effort?: string; route?: string; harness?: string } | undefined,
+  machine?: { harness: string; effort?: string },
+): {
   effort?: string;
   account?: string;
 } {
-  const effort =
-    summary?.effort && summary.effort !== "default" && summary.effort.length <= 128 ? summary.effort : undefined;
+  const picked = machine?.effort ?? (machine && machine.harness !== summary?.harness ? undefined : summary?.effort);
+  const effort = picked && picked !== "default" && picked.length <= 128 ? picked : undefined;
   const account = summary?.route && /^[A-Za-z0-9._:@-]{1,128}$/.test(summary.route) ? summary.route : undefined;
   return { ...(effort ? { effort } : {}), ...(account ? { account } : {}) };
 }

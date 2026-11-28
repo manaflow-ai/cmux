@@ -24,7 +24,7 @@ export function turnSource(env: Env): TurnSource {
  * mint only as the fallback until that is removed:
  * - `local`: the hub mints itself (mintLocalTurn).
  * - `platform-first`: ask the platform; on a non-200, a timeout, a bad body or an
- *   empty list, warn and mint locally (which is [] without TURN_KEY_*).
+ *   empty list, warn and mint locally (which is [] without TURN_KEY_*, also logged).
  * - `platform`: the platform only, [] on any failure.
  * Without the DEVICE_HUB_TURN_TOKEN secret or PLATFORM_TURN_ORIGIN, every mode
  * behaves as `local`. Returns [] when nothing answers; the app then uses direct
@@ -36,11 +36,10 @@ export async function mintTurn(env: Env, opts: { timeoutMs?: number } = {}): Pro
   if (source === "local" || !env.DEVICE_HUB_TURN_TOKEN || !origin) return mintLocalTurn(env);
   const result = await platformTurn(origin, env.DEVICE_HUB_TURN_TOKEN, opts.timeoutMs ?? PLATFORM_TURN_TIMEOUT_MS);
   if (Array.isArray(result)) return result;
-  if (source === "platform") {
-    console.warn("platform turn failed", result.reason);
-    return [];
-  }
-  console.warn("platform turn failed, minting locally", result.reason);
+  // One string per line (`relay mint: <what> (<reason>)`) so device-hub-logs.py can print it beside
+  // the `relay entitlement` lines: a paid session with no relay then names its cause in the logs.
+  console.warn(`relay mint: platform failed (${result.reason})`);
+  if (source === "platform") return [];
   return mintLocalTurn(env);
 }
 
@@ -115,7 +114,10 @@ export function parsePlatformIce(body: unknown): IceServer[] | null {
  * TURN_KEY_API_TOKEN are not configured or the API fails.
  */
 export async function mintLocalTurn(env: Env): Promise<IceServer[]> {
-  if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return [];
+  if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) {
+    console.warn("relay mint: none (no local key)");
+    return [];
+  }
   try {
     const res = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(env.TURN_KEY_ID)}/credentials/generate-ice-servers`, {
       method: "POST",
@@ -138,7 +140,7 @@ export async function mintLocalTurn(env: Env): Promise<IceServer[]> {
     }
     return out;
   } catch (err) {
-    console.error("turn credentials failed", err instanceof Error ? err.message : String(err));
+    console.error(`relay mint: local failed (${err instanceof Error ? err.message : String(err)})`);
     return [];
   }
 }

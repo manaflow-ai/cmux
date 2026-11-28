@@ -160,6 +160,18 @@ class Payload(unittest.TestCase):
         # Only the Cloud machine channel's files.
         self.assertFalse(pointer.completes({**full, "purpose": "cmux-linux-release"}, {**early, **purpose}))
 
+    def test_the_rollout_pct_is_signed_only_when_asked_and_only_for_cloud_machine(self):
+        # RFD 0224 phase 3: without the flag the payload has no rollout field (every machine takes it).
+        self.assertNotIn("rollout", self.run_payload(["--binaries-dir", str(self.built)]))
+        staged = self.run_payload(["--binaries-dir", str(self.built), "--rollout-pct", "1"])
+        self.assertEqual(staged["rollout"], {"pct": 1})
+        for extra in (["--rollout-pct", "101"], ["--rollout-pct", "-1"],
+                      ["--purpose", "linux-release", "--channel", "feat-cmux-next", "--rollout-pct", "10"]):
+            with self.subTest(extra=extra), self.assertRaises(SystemExit), \
+                    contextlib.redirect_stderr(io.StringIO()) as err:
+                self.run_payload(["--binaries-dir", str(self.built), *extra])
+            self.assertIn("--rollout-pct is a share from 0 to 100", err.getvalue())
+
     def test_the_target_flag_is_cloud_machine_only(self):
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
             self.run_payload(["--binaries-dir", str(self.built), "--purpose", "linux-release", "--channel",
@@ -1152,6 +1164,128 @@ class CloudMachineRollback(unittest.TestCase):
                     contextlib.redirect_stderr(io.StringIO()) as err:
                 self.rollback(proven, over)
             self.assertIn(message, err.getvalue())
+
+
+class CloudMachineRolloutStep(unittest.TestCase):
+    """`step` (RFD 0224 phase 3, the ring gate): the channel's build moves 1 -> 10 -> 50 -> 100% only when the
+    version inventory of that commit shows machines on it and no update-failed, and each share has stood its
+    time; the point script publishes the wider file of the same build (web-ota-pointer.py widens) and never a
+    narrower one, and the next push's build still replaces it."""
+
+    setUp, point, served, verified, assert_ok = (LinuxReleasePoint.setUp, LinuxReleasePoint.point,
+                                                 LinuxReleasePoint.served, LinuxReleasePoint.verified,
+                                                 LinuxReleasePoint.assert_ok)
+    CHANNEL = "cmux-tui/channels/cloud-machine.json"
+    BUILD = "a" * 40
+
+    def build(self, commit=BUILD, committed_at=COMMITTED_AT, key="1" * 64, pct=1):
+        path = LinuxReleasePoint.payload(self, commit=commit, committed_at=committed_at,
+                                         purpose="cmux-cloud-machine-update")
+        value = json.loads(path.read_bytes()) | {"key": key}
+        if pct is not None:
+            value["rollout"] = {"pct": pct}
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        return path
+
+    def current(self):
+        path = self.tmp / f"current-{len(list(self.tmp.iterdir()))}.json"
+        path.write_bytes(self.served(self.CHANNEL))
+        return path
+
+    def step(self, inventory, now=None, **flags):
+        inv = self.tmp / f"inventory-{len(list(self.tmp.iterdir()))}.json"
+        inv.write_text(json.dumps(inventory) if not isinstance(inventory, str) else inventory)
+        out = self.tmp / f"step-{len(list(self.tmp.iterdir()))}.json"
+        published = json.loads(base64.b64decode(json.loads(self.served(self.CHANNEL))["payload"]))["published_at"]
+        argv = ["cmux-machine-channel.py", "step", "--current", str(self.current()), "--keys",
+                str(self.repo / KEYS_PATH), "--inventory", str(inv), "--out", str(out),
+                "--now", str(now if now is not None else published + channel.ROLLOUT_STEP_MIN_SECONDS)]
+        for name, value in flags.items():
+            argv += [f"--{name.replace('_', '-')}", str(value)]
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            code = channel.main(argv)
+        return code, out, err.getvalue()
+
+    def pct(self):
+        return pointer.rollout_pct(self.verified(self.CHANNEL, "cloud-machine", "cmux-cloud-machine-update"))
+
+    def ok(self, n=3):
+        return {"commit": self.BUILD, "updated": n, "update_failed": 0}
+
+    def test_the_build_steps_through_every_share_to_every_machine(self):
+        self.assert_ok(self.point(self.build()))
+        self.assertEqual(self.pct(), 1)
+        for want in (10, 50, 100):
+            code, out, err = self.step(self.ok())
+            self.assertEqual(code, 0, err)
+            self.assert_ok(self.point(out, run_id=str(want)))
+            self.assertEqual(self.pct(), want)
+            value = self.verified(self.CHANNEL, "cloud-machine", "cmux-cloud-machine-update")
+            self.assertEqual((value["commit"], value["key"]), (self.BUILD, "1" * 64))
+        code, _, err = self.step(self.ok())
+        self.assertEqual(code, channel.HOLD)
+        self.assertIn("every machine", err)
+
+    def test_a_file_with_no_rollout_is_every_machine_already(self):
+        self.assert_ok(self.point(self.build(pct=None)))
+        code, _, err = self.step(self.ok())
+        self.assertEqual(code, channel.HOLD)
+        self.assertIn("at 100%", err)
+
+    def test_the_gate_holds(self):
+        self.assert_ok(self.point(self.build()))
+        for inventory, flags, message in (
+                ({"commit": "b" * 40, "updated": 3, "update_failed": 0}, {}, "not the channel's"),
+                ({"commit": self.BUILD, "updated": 3, "update_failed": 1}, {}, "1 update-failed"),
+                ({"commit": self.BUILD, "updated": 0, "update_failed": 0}, {}, "0 of the 1 machines"),
+                ({"commit": self.BUILD, "updated": 2, "update_failed": 0}, {"min_updated": 5}, "2 of the 5"),
+                ({"commit": self.BUILD, "updated": "3", "update_failed": 0}, {}, "not counts"),
+                ("not json", {}, "no inventory"),
+        ):
+            with self.subTest(message=message):
+                code, out, err = self.step(inventory, **flags)
+                self.assertEqual(code, channel.HOLD, err)
+                self.assertIn(message, err)
+                self.assertFalse(out.exists())
+        published = json.loads(base64.b64decode(json.loads(self.served(self.CHANNEL))["payload"]))["published_at"]
+        code, _, err = self.step(self.ok(), now=published + 60)
+        self.assertEqual(code, channel.HOLD)
+        self.assertIn("60 s old", err)
+        self.assertEqual(self.pct(), 1)
+
+    def test_a_narrower_file_of_the_build_never_replaces_the_wider_one(self):
+        self.assert_ok(self.point(self.build()))
+        code, out, _ = self.step(self.ok())
+        self.assert_ok(self.point(out, run_id="2"))
+        self.assertEqual(self.pct(), 10)
+        # A late re-sign of the same build at the first share (a retried point) keeps 10%.
+        result = self.point(self.build(), run_id="3")
+        self.assert_ok(result)
+        self.assertEqual(self.pct(), 10)
+        # The next push's build starts at its own first share.
+        self.assert_ok(self.point(self.build(commit="d" * 40, committed_at=COMMITTED_AT + 60, key="2" * 64), run_id="4"))
+        value = self.verified(self.CHANNEL, "cloud-machine", "cmux-cloud-machine-update")
+        self.assertEqual((value["commit"], pointer.rollout_pct(value)), ("d" * 40, 1))
+
+    def test_widens_is_the_same_build_only(self):
+        base = json.loads(self.build().read_bytes())
+        wider = base | {"rollout": {"pct": 10}}
+        self.assertTrue(pointer.widens(wider, base))
+        self.assertFalse(pointer.widens(base, wider))
+        self.assertFalse(pointer.widens(base, base))
+        for change in ({"commit": "b" * 40}, {"key": "9" * 64}, {"committed_at": COMMITTED_AT + 1},
+                       {"targets": {}}, {"purpose": "cmux-linux-release"}):
+            with self.subTest(change=change):
+                self.assertFalse(pointer.widens(wider | change, base))
+        # A missing rollout is every machine: nothing is wider.
+        self.assertFalse(pointer.widens(wider, {k: v for k, v in base.items() if k != "rollout"}))
+
+    def test_step_refuses_an_unsigned_current_file(self):
+        unsigned = self.build()
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
+            channel.main(["cmux-machine-channel.py", "step", "--current", str(unsigned), "--keys",
+                          str(self.repo / KEYS_PATH), "--inventory", str(unsigned), "--out", str(self.tmp / "o")])
+        self.assertIn("does not verify", err.getvalue())
 
 
 class LinuxReleaseAliases(unittest.TestCase):

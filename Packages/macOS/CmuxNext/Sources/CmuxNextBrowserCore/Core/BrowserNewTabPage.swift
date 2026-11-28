@@ -24,10 +24,8 @@ public nonisolated enum BrowserNewTabPage {
         return isNewTabPage(url.absoluteString)
     }
 
+    /// The rule is Rust's (cmux-browser-rules `link_routes.rs`, over BrowserLinkRulesFFI).
     public static func isNewTabPage(_ text: String) -> Bool {
-        switch text.lowercased() {
-        case blankURL, chromiumURL, "chrome://newtab": true
-        default: false
-        }
+        BrowserLinkRulesFFI.call("is_new_tab_page", ["text": text]) as? Bool ?? false
     }
 }
