@@ -1,14 +1,14 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
-import CmuxNextHostPressure
-import CmuxNextHostPressureTunables
+public import CmuxNextHostPressure
+public import CmuxNextHostPressureTunables
 
 /// The host's pressure gauges (RFD 0182 B10), one component for every pressure the verdict carries:
 /// CPU, memory, and tokens, cache and Mac slots where acpmux has a reading. Rust computes each gauge
 /// (cmux-host-budget `gauges.rs`: percent, level and its numbers); this only draws them, in one of
 /// three design versions (`hostPressure.gauges`, off by default).
-final class HostPressureGaugesView: NSStackView {
-    init(gauges: [HostPressureGauge], style: HostPressureGaugeStyle, width: CGFloat) {
+public final class HostPressureGaugesView: NSStackView {
+    public init(gauges: [HostPressureGauge], style: HostPressureGaugeStyle, width: CGFloat) {
         super.init(frame: .zero)
         orientation = .vertical
         alignment = .leading
@@ -29,11 +29,11 @@ final class HostPressureGaugesView: NSStackView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     /// The name, the bar and its percent on one line; the numbers behind it under the bar.
     private static func row(_ gauge: HostPressureGauge, segmented: Bool, width: CGFloat) -> NSView {
-        let name = label(HostPressureStrings.gaugeName(gauge.kind), font: Typography.caption, ink: .secondary)
+        let name = label(HostPressureGaugeStrings.name(gauge.kind), font: Typography.caption, ink: .secondary)
         let percent = label(percentText(gauge.percent), font: Typography.captionDigits, ink: .primary)
         percent.alignment = .right
         let bar = HostPressureGaugeBar(gauge: gauge, segments: segmented ? 10 : 0)
@@ -50,21 +50,21 @@ final class HostPressureGaugesView: NSStackView {
         grid.column(at: 1).width = width - nameWidth - percentWidth - 2 * grid.columnSpacing
         grid.cell(atColumnIndex: 1, rowIndex: 1).xPlacement = .leading
         grid.setAccessibilityElement(true)
-        grid.setAccessibilityLabel("\(HostPressureStrings.gaugeName(gauge.kind)) \(percentText(gauge.percent)), \(gauge.detail)")
+        grid.setAccessibilityLabel("\(HostPressureGaugeStrings.name(gauge.kind)) \(percentText(gauge.percent)), \(gauge.detail)")
         grid.setAccessibilityIdentifier("cmux.hostPressure.gauge.\(gauge.kind)")
         return grid
     }
 
     /// "CPU 80%": the name in secondary ink and the percent in its level's color.
     private static func chip(_ gauge: HostPressureGauge) -> NSView {
-        let name = label(HostPressureStrings.gaugeName(gauge.kind), font: Typography.caption, ink: .secondary)
+        let name = label(HostPressureGaugeStrings.name(gauge.kind), font: Typography.caption, ink: .secondary)
         let value = label(percentText(gauge.percent), font: Typography.captionDigits, ink: .primary)
         let level = gauge.level
         value.themeColor = { HostPressureGaugeBar.color(level) }
         let chip = HostPressureGaugeChip(views: [name, value])
         chip.themedToolTip = gauge.detail
         chip.setAccessibilityElement(true)
-        chip.setAccessibilityLabel("\(HostPressureStrings.gaugeName(gauge.kind)) \(percentText(gauge.percent)), \(gauge.detail)")
+        chip.setAccessibilityLabel("\(HostPressureGaugeStrings.name(gauge.kind)) \(percentText(gauge.percent)), \(gauge.detail)")
         chip.setAccessibilityIdentifier("cmux.hostPressure.gauge.\(gauge.kind)")
         return chip
     }

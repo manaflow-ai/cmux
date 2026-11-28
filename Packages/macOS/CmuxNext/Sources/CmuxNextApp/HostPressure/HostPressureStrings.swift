@@ -51,16 +51,4 @@ enum HostPressureStrings {
     static var openActivity: String {
         String(localized: "hostPressure.openActivity", defaultValue: "Open Agent Activity", table: "HostPressure", bundle: .module.inAppLanguage)
     }
-
-    /// A pressure gauge's name (cmux-host-budget `gauges.rs` kinds); an unknown kind shows as it came.
-    static func gaugeName(_ kind: String) -> String {
-        switch kind {
-        case "cpu": String(localized: "hostPressure.gauge.cpu", defaultValue: "CPU", table: "HostPressure", bundle: .module.inAppLanguage)
-        case "memory": String(localized: "hostPressure.gauge.memory", defaultValue: "Memory", table: "HostPressure", bundle: .module.inAppLanguage)
-        case "tokens": String(localized: "hostPressure.gauge.tokens", defaultValue: "Tokens", table: "HostPressure", bundle: .module.inAppLanguage)
-        case "cache": String(localized: "hostPressure.gauge.cache", defaultValue: "Cache", table: "HostPressure", bundle: .module.inAppLanguage)
-        case "mac_slots": String(localized: "hostPressure.gauge.macSlots", defaultValue: "Mac slots", table: "HostPressure", bundle: .module.inAppLanguage)
-        default: kind
-        }
-    }
 }
