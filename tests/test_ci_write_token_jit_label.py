@@ -11,6 +11,11 @@ lead with the one-job GCP JIT label (tests/test_ci_write_token_jit_label.py on m
 Every job marked `# ephemeral-required` (a write token or App key) leads, right after the fork branches, with a
 one-job GCP JIT label (cmuxterm-hq runner_pool.py JIT_ONLY_LABELS: no persistent runner carries them) behind that
 label's own switch variable; `=1` puts the job back on the Blacksmith selector after it, which is the overflow.
+
+Where the switch is written out (goal linux-pickers-gone: no Linux `runs-on` reads a variable), the job names one
+one-job JIT label as a literal right after the fork branches, as on main (cmux#58325): cmux-gcp-secret-jit-x64 for a
+token or key, cmux-gcp-pr-control-jit-x64 for untrusted input, cmux-gcp-queue-jit-x64 for the queue-management jobs
+only. A literal is never a persistent-pool label.
 """
 from __future__ import annotations
 
@@ -29,6 +34,11 @@ SWITCHES = {
     "CI_PR_CONTROL_SKIP_FLEET": "cmux-gcp-pr-control-jit-x64",
     "CI_GATE_SKIP_FLEET": "cmux-gcp-gate-jit-x64",
 }
+LITERAL_LEAD = re.compile(r"'(cmux-gcp-(?:secret|pr-control|queue)-jit-x64)' }}")
+QUEUE_LABEL = "cmux-gcp-queue-jit-x64"
+QUEUE_WORKFLOWS = frozenset({"ci-owned-pool-rescue.yml", "ci-stale-run-janitor.yml"})
+FORK_HOSTED = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+               "github.repository && 'ubuntu-24.04' || ")
 LEAD = re.compile(r"(?:\([^()]*\) && )?vars\.(CI_[A-Z_]+_SKIP_FLEET) != '1' && '(cmux-gcp-[a-z-]+-jit-x64)' \|\| ")
 # workflow -> (marked lines that do not lead with a JIT label yet, why). A count, so a new unmoved job still fails.
 EXCEPTIONS = {
@@ -45,7 +55,7 @@ EXCEPTIONS = {
 def after_fork_branches(runs_on: str) -> str | None:
     if not runs_on.startswith(FORK_BRANCH):
         return None
-    rest = runs_on[len(FORK_BRANCH):]
+    rest = runs_on[len(FORK_BRANCH):].removeprefix(FORK_HOSTED)
     fork = FORK_PR.match(rest)
     return rest[fork.end():] if fork else rest
 
@@ -70,6 +80,11 @@ class WriteTokenJitLabelTests(unittest.TestCase):
         unmoved: dict[str, int] = {}
         for name, number, runs_on in marked_jobs():
             rest = after_fork_branches(runs_on)
+            literal = LITERAL_LEAD.fullmatch(rest) if rest is not None else None
+            if literal is not None:
+                if literal.group(1) == QUEUE_LABEL and name not in QUEUE_WORKFLOWS:
+                    failures.append(f"{name}:{number} names the queue label outside the queue-management jobs")
+                continue
             matched = LEAD.match(rest) if rest is not None else None
             if matched is None:
                 unmoved[name] = unmoved.get(name, 0) + 1
@@ -86,7 +101,7 @@ class WriteTokenJitLabelTests(unittest.TestCase):
         unmoved: dict[str, int] = {}
         for name, _, runs_on in marked_jobs():
             rest = after_fork_branches(runs_on)
-            if rest is None or LEAD.match(rest) is None:
+            if rest is None or (LEAD.match(rest) is None and LITERAL_LEAD.fullmatch(rest) is None):
                 unmoved[name] = unmoved.get(name, 0) + 1
         for name, (count, _) in EXCEPTIONS.items():
             self.assertEqual(unmoved.get(name, 0), count, f"{name}: update its exception count")
@@ -95,6 +110,11 @@ class WriteTokenJitLabelTests(unittest.TestCase):
         rest = after_fork_branches(FORK_BRANCH + "contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\"]'), "
                                    "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
         self.assertIsNone(LEAD.match(rest or ""))
+        self.assertIsNone(LITERAL_LEAD.fullmatch(rest or ""))
+
+    def test_a_literal_lead_is_never_a_persistent_pool_label(self) -> None:
+        self.assertIsNone(LITERAL_LEAD.fullmatch("'cmux-linux' }}"))
+        self.assertIsNotNone(LITERAL_LEAD.fullmatch(after_fork_branches(FORK_BRANCH + FORK_HOSTED + "'cmux-gcp-secret-jit-x64' }}") or ""))
 
 
 if __name__ == "__main__":
