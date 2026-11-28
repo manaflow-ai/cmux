@@ -1,0 +1,78 @@
+// Astrolabe Dawn: the same frames at first light: ivory parchment, navy ink, a bronze accent deep
+// enough to read as text on the page, and a sidebar a step warmer.
+{
+  "name": "Astrolabe Dawn",
+  "description": "Light: ivory parchment, navy text, thin bronze frames.",
+
+  "appearance.theme": "Builtin Light",
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#f8f4ea", "foreground": "#14203a", "selection": "#e6dcc2", "accent": "#8a6418" },
+  "appearance.accent": "theme",
+  "ghostty": [
+    "background = #f8f4ea",
+    "foreground = #14203a",
+    "cursor-color = #8a6418",
+    "cursor-text = #f8f4ea",
+    "selection-background = #e6dcc2",
+    "selection-foreground = #14203a",
+    "palette = 0=#14203a",
+    "palette = 1=#a8352a",
+    "palette = 2=#2f6b3c",
+    "palette = 3=#8a6418",
+    "palette = 4=#24509a",
+    "palette = 5=#7a3d8f",
+    "palette = 6=#1f6b70",
+    "palette = 7=#575f70",
+    "palette = 8=#6a7080",
+    "palette = 9=#9e3026",
+    "palette = 10=#2a6236",
+    "palette = 11=#7e5b14",
+    "palette = 12=#204a8e",
+    "palette = 13=#713885",
+    "palette = 14=#1b6267",
+    "palette = 15=#a09a8a"
+  ],
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.focusIndicator": "tabs",
+  "appearance.density": "comfortable",
+
+  "appearance.metrics.titlebarHeight": 40,
+  "appearance.metrics.sidebarWidth": 260,
+  "appearance.metrics.sidebarRowHeight": 32,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.tabStripHeight": 34,
+  "appearance.metrics.tabFontSize": 12,
+  "appearance.metrics.dividerThickness": 1,
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#f0e9d8",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#f8f4ea",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.terminal.color": "#f8f4ea",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.markdown.color": "#f8f4ea",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#d6c69c",
+  "appearance.surfaces.splitDivider.opacity": 1,
+  "sidebar.border": true,
+  "sidebar.borderWidth": 1,
+  "sidebar.sectionLook": "lines",
+
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.color": "#8a6418",
+  "appearance.statusIndicator.thickness": 1.25,
+
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "easeInOut",
+  "appearance.colorTransition.duration": 240,
+  "appearance.colorTransition.colorSpace": "oklab",
+  "appearance.colorTransition.reduceMotion": "instant"
+}

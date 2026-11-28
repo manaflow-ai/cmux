@@ -6,7 +6,7 @@
 //   /markdown?file=   the markdown editor (markdown-page.html, src/pages/markdown) on a repo file
 //   /markdown/viewer?file=  the classic markdown viewer shell (Resources/markdown-viewer/shell.html)
 //   /editor?file=     the code editor (editor-page.html, src/pages/editor) on any file in the home folder
-//   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html; prototype.html beside it);
+//   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html);
 //                     POST /__dev-host/read answers its git and file-search reads (agentGitHost.ts)
 //   /history/ /apps/ /settings/ ...  React pages (every src/pages/<page>/main.tsx); `?mock` uses the page's in-memory provider
 //   /gallery/         every component and page in named fixture states (src/gallery, galleryHost.ts)
@@ -40,6 +40,7 @@ import {
 } from "./diffHost";
 import { AgentReadError, agentRead, slotFolder } from "./agentGitHost";
 import { diffLanguagesDirectory, readDiffLanguagePack } from "./diffLanguages";
+import { fastSaveWatch } from "./fastSaveWatch";
 import {
   ListingRefused,
   allowedPath,
@@ -78,6 +79,10 @@ import {
 } from "./markdownHost";
 import { galleryHost, galleryModules } from "./galleryHost";
 import { perfLintOnSave } from "./perfLint";
+import { refreshNow } from "./refreshNow";
+import { deferDirRescan } from "./deferDirRescan";
+import { tailwindOnNewClasses } from "./tailwindOnNewClasses";
+import { hotSwapTiming } from "./hotSwapTiming";
 import { devEntrySrc } from "./devEntrySrc";
 import { liveRecoveryScript } from "./liveRecovery";
 import { viteCacheDir } from "./viteCacheDir.mjs";
@@ -90,6 +95,7 @@ export const DEV_SERVER_PORT = Number(process.env.CMUX_WEBVIEWS_DEV_PORT) || 420
 /// All dev-server plugins, for vite.config.ts.
 export function cmuxDevServer(): Plugin[] {
   return [
+    fastSaveWatch(),
     devServerToken(),
     appHostServer(),
     devServerShell(),
@@ -105,7 +111,11 @@ export function cmuxDevServer(): Plugin[] {
     editorHost(),
     galleryHost(),
     { ...galleryModules(), apply: "serve" },
+    tailwindOnNewClasses(),
+    refreshNow(),
+    deferDirRescan(),
     perfLintOnSave(),
+    hotSwapTiming(),
   ];
 }
 
@@ -346,7 +356,7 @@ const indexPage = `<!doctype html>
 <li><a href="/keybindings/?mock">/keybindings/?mock</a>: Keyboard Shortcuts page against the in-page mock provider</li>
 <li><a href="/debug-settings/?mock">/debug-settings/?mock</a>: Debug Settings page against the in-page mock tunables</li>
 <li><a href="/gallery/">/gallery/</a>: every component and page in named fixture states, with locale, theme, font, scale and width controls</li>
-<li><a href="/agent-pane/?mock">/agent-pane/?mock</a>: agent pane against the in-page mock daemon (<code>dev-slot.sh</code> prints a real-daemon URL); <a href="/agent-pane/prototype.html?mock">prototype.html</a></li>
+<li><a href="/agent-pane/?mock">/agent-pane/?mock</a>: agent pane against the in-page mock daemon (<code>dev-slot.sh</code> prints a real-daemon URL)</li>
 </ul>
 </body></html>`;
 
@@ -364,7 +374,6 @@ const devEntries = [
   "src/diff/dev.ts",
   "src/diff-worker.ts",
   "src/agent-session/acpmux/dev.tsx",
-  "src/agent-session/acpmux/prototype/dev.tsx",
   "src/markdown-viewer/devHost.ts",
   "src/pages/markdown/devBridge.ts",
   "src/pages/markdown/main.tsx",

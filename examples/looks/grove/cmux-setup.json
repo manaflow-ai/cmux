@@ -1,0 +1,25 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/grove-look",
+  "name": "Grove",
+  "tagline": "Forest colors: paper by day, deep green by night.",
+  "description": "Forest colors: unbleached paper by day, deep green at night, moss-colored text and frosted glass over a painted forest. Remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux-grove-look",
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "grove",
+    "agentPane.display.font.preset": "serif",
+    "agentPane.display.font.ui": "source-sans",
+    "agentPane.display.font.size": 15,
+    "agentPane.display.font.lineHeight": 1.65,
+    "agentPane.display.width": 740,
+    "layout.paneCornerRadius": 12,
+    "sidebar.density": "comfortable",
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.branch": true,
+    "sidebar.workspaceRow.lastActivity": false
+  }
+}

@@ -1,0 +1,56 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ x86_64-macos, arm64-macos ]
+install-name:    '/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics'
+current-version: 1965.5.1
+compatibility-version: 64.0.0
+exports:
+  - targets:         [ x86_64-macos, arm64-macos ]
+    symbols:         [
+                       '_CGBitmapContextCreate',
+                       '_CGBitmapContextCreateImage',
+                       '_CGColorSpaceCreateDeviceRGB',
+                       '_CGContextAddLineToPoint',
+                       '_CGContextBeginPath',
+                       '_CGContextClosePath',
+                       '_CGContextDrawImage',
+                       '_CGContextDrawPath',
+                       '_CGContextMoveToPoint',
+                       '_CGContextScaleCTM',
+                       '_CGContextSetLineJoin',
+                       '_CGContextSetLineWidth',
+                       '_CGContextSetRGBFillColor',
+                       '_CGContextSetRGBStrokeColor',
+                       '_CGDisplayBounds',
+                       '_CGDisplayCopyDisplayMode',
+                       '_CGDisplayIsBuiltin',
+                       '_CGDisplayModeGetPixelWidth',
+                       '_CGDisplayModeGetWidth',
+                       '_CGDisplayModeRelease',
+                       '_CGEventCreate',
+                       '_CGEventCreateKeyboardEvent',
+                       '_CGEventCreateMouseEvent',
+                       '_CGEventCreateScrollWheelEvent2',
+                       '_CGEventGetIntegerValueField',
+                       '_CGEventGetLocation',
+                       '_CGEventKeyboardSetUnicodeString',
+                       '_CGEventPost',
+                       '_CGEventPostToPid',
+                       '_CGEventSetFlags',
+                       '_CGEventSetIntegerValueField',
+                       '_CGEventSetLocation',
+                       '_CGEventSourceCreate',
+                       '_CGEventSourceSecondsSinceLastEventType',
+                       '_CGEventTapCreateForPid',
+                       '_CGEventTapEnable',
+                       '_CGGetActiveDisplayList',
+                       '_CGImageGetHeight',
+                       '_CGImageGetWidth',
+                       '_CGMainDisplayID',
+                       '_CGPreflightPostEventAccess',
+                       '_CGPreflightScreenCaptureAccess',
+                       '_CGRequestPostEventAccess',
+                       '_CGRequestScreenCaptureAccess',
+                       '_CGSessionCopyCurrentDictionary',
+                       '_CGWindowListCopyWindowInfo' ]
+...

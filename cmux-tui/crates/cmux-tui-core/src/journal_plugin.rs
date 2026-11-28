@@ -20,22 +20,7 @@ use std::time::{Duration, Instant};
 use crate::panic_free::RecoverPoison;
 
 #[cfg(windows)]
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
-#[cfg(windows)]
-use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
-};
-#[cfg(windows)]
-use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-    SetInformationJobObject, TerminateJobObject,
-};
-#[cfg(windows)]
-use windows_sys::Win32::System::Threading::{
-    CREATE_SUSPENDED, OpenProcess, OpenThread, PROCESS_SET_QUOTA, PROCESS_TERMINATE, ResumeThread,
-    THREAD_SUSPEND_RESUME,
-};
+use cmux_process::job::CREATE_SUSPENDED;
 
 /// Child-exit re-check period where no exit waiter exists (Windows, or a
 /// unix child whose waiter thread could not start).
@@ -110,115 +95,49 @@ impl JournalPluginChild {
     }
 }
 
+/// A plugin's process tree: a kill-on-close job (`cmux_process::job`), so
+/// the plugin and its helpers end with the supervisor, or with the daemon.
 #[cfg(windows)]
-struct WindowsJournalPluginJob {
-    // Keep the kernel handle as an integer in the shared supervisor state.
-    // `windows_sys::HANDLE` is a raw pointer and therefore is not `Send`,
-    // even though Windows kernel handles are process-wide, thread-safe
-    // values. Converting at the FFI boundary preserves the ownership model
-    // without making an unsafe `Send` promise for the containing state.
-    handle: usize,
-}
+struct WindowsJournalPluginJob(cmux_process::job::Job);
 
 #[cfg(windows)]
 impl WindowsJournalPluginJob {
-    fn raw_handle(&self) -> HANDLE {
-        self.handle as HANDLE
-    }
-
     fn assign(child: &Child) -> std::io::Result<Self> {
-        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
-        if handle.is_null() {
-            return Err(std::io::Error::last_os_error());
-        }
-        let job = Self { handle: handle as usize };
-        let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        let information_size = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
-            .expect("Windows job information fits in u32");
-        if unsafe {
-            SetInformationJobObject(
-                job.raw_handle(),
-                JobObjectExtendedLimitInformation,
-                std::ptr::from_ref(&information).cast(),
-                information_size,
-            )
-        } == 0
-        {
-            return Err(std::io::Error::last_os_error());
-        }
-
-        let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
-        if process.is_null() {
-            return Err(std::io::Error::last_os_error());
-        }
-        let assigned = unsafe { AssignProcessToJobObject(job.raw_handle(), process) };
-        let assign_error = (assigned == 0).then(std::io::Error::last_os_error);
-        unsafe {
-            CloseHandle(process);
-        }
-        if let Some(error) = assign_error {
-            return Err(error);
-        }
-        Ok(job)
+        cmux_process::job::Job::owned(child).map(Self)
     }
 
     fn terminate_descendants(&self) {
-        unsafe {
-            TerminateJobObject(self.raw_handle(), 1);
-        }
-    }
-}
-
-#[cfg(windows)]
-impl Drop for WindowsJournalPluginJob {
-    fn drop(&mut self) {
-        unsafe {
-            CloseHandle(self.raw_handle());
-        }
+        let _ = self.0.terminate();
     }
 }
 
 #[cfg(windows)]
 fn resume_suspended_journal_plugin(child: &Child) -> std::io::Result<()> {
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
-    if snapshot == INVALID_HANDLE_VALUE {
-        return Err(std::io::Error::last_os_error());
-    }
-    let result = (|| {
-        let mut entry = THREADENTRY32 {
-            dwSize: u32::try_from(size_of::<THREADENTRY32>())
-                .expect("Windows thread entry size fits in u32"),
-            ..THREADENTRY32::default()
-        };
-        if unsafe { Thread32First(snapshot, &mut entry) } == 0 {
-            return Err(std::io::Error::last_os_error());
-        }
+    cmux_process::job::resume(child.id())
+}
+
+/// See [`JournalPluginRuntime::hold_waiter`].
+pub(crate) struct JournalPluginHoldWaiter {
+    state: Arc<(Mutex<SupervisorState>, Condvar)>,
+}
+
+impl JournalPluginHoldWaiter {
+    /// Block until an `on_demand` plugin is configured and held (true), or
+    /// until it can never be: it was demanded or the runtime shut down
+    /// (false). Configuration changes wake it; nothing else does.
+    pub(crate) fn wait_until_held(&self) -> bool {
+        let (lock, changed) = &*self.state;
+        let mut state = lock.lock().unwrap_or_else(|error| error.into_inner());
         loop {
-            if entry.th32OwnerProcessID == child.id() {
-                let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) };
-                if thread.is_null() {
-                    return Err(std::io::Error::last_os_error());
-                }
-                let resumed = unsafe { ResumeThread(thread) };
-                let error = (resumed == u32::MAX).then(std::io::Error::last_os_error);
-                unsafe {
-                    CloseHandle(thread);
-                }
-                return error.map_or(Ok(()), Err);
+            if state.demanded || state.stopping {
+                return false;
             }
-            if unsafe { Thread32Next(snapshot, &mut entry) } == 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "suspended journal plugin has no thread to resume",
-                ));
+            if state.options.as_ref().is_some_and(|options| options.on_demand) {
+                return true;
             }
+            state = changed.wait(state).unwrap_or_else(|error| error.into_inner());
         }
-    })();
-    unsafe {
-        CloseHandle(snapshot);
     }
-    result
 }
 
 /// A configured userland journal plugin.
@@ -234,6 +153,11 @@ pub struct JournalPluginOptions {
     /// Artifact revision. A changed revision restarts a running child even
     /// when its command and working directory stay the same.
     pub revision: Option<String>,
+    /// Start the process only once the daemon calls
+    /// [`JournalPluginRuntime::demand`]: the bundled screen detector, which
+    /// reads only the screens of running programs, waits for the first one
+    /// (`mux/journal_plugin_demand.rs`). `false` starts it with the socket.
+    pub on_demand: bool,
 }
 
 impl JournalPluginOptions {
@@ -306,6 +230,9 @@ struct SupervisorState {
     restarts: u64,
     child_started_at: Option<Instant>,
     started: bool,
+    /// [`JournalPluginRuntime::demand`] was called: an `on_demand` plugin
+    /// may start. It stays set for the daemon's life.
+    demanded: bool,
     stopping: bool,
     generation: u64,
     child_generation: Option<u64>,
@@ -399,6 +326,43 @@ impl JournalPluginRuntime {
         let (lock, _) = &*self.state;
         let state = lock.lock().unwrap_or_else(|error| error.into_inner());
         state.child.as_ref().map(|child| child.process_group_id).filter(|group| *group > 0)
+    }
+
+    /// Let an `on_demand` plugin start (no-op for any other, and after the
+    /// first call). Returns whether this call released a held plugin.
+    pub fn demand(&self) -> bool {
+        let (lock, changed) = &*self.state;
+        let mut state = lock.lock().unwrap_or_else(|error| error.into_inner());
+        if state.demanded {
+            return false;
+        }
+        state.demanded = true;
+        let released = state.options.as_ref().is_some_and(|options| options.on_demand);
+        changed.notify_all();
+        released
+    }
+
+    /// Whether an `on_demand` plugin is configured and still held (not
+    /// yet demanded, the runtime not shut down).
+    pub fn held(&self) -> bool {
+        let (lock, _) = &*self.state;
+        let state = lock.lock().unwrap_or_else(|error| error.into_inner());
+        !state.demanded
+            && !state.stopping
+            && state.options.as_ref().is_some_and(|options| options.on_demand)
+    }
+
+    /// Whether [`JournalPluginRuntime::demand`] was called.
+    pub fn demanded(&self) -> bool {
+        let (lock, _) = &*self.state;
+        lock.lock().unwrap_or_else(|error| error.into_inner()).demanded
+    }
+
+    /// A handle that blocks until an `on_demand` plugin is held, for the
+    /// daemon's demand watch (`mux/journal_plugin_demand.rs`). It holds the
+    /// supervisor's state, not the runtime.
+    pub(crate) fn hold_waiter(&self) -> JournalPluginHoldWaiter {
+        JournalPluginHoldWaiter { state: Arc::clone(&self.state) }
     }
 
     /// Starts supervision after the local socket has been bound. This ordering
@@ -597,6 +561,12 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
             drop(changed.wait(state));
             continue;
         };
+        if options.on_demand && !state.demanded {
+            // Held until the daemon sees a program to read
+            // (`JournalPluginRuntime::demand` notifies `changed`).
+            drop(changed.wait(state));
+            continue;
+        }
         if let Some(wait) =
             state.restart_at.and_then(|at| at.checked_duration_since(Instant::now()))
             && !wait.is_zero()
@@ -773,182 +743,5 @@ fn next_generation(current: u64) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn options_reject_empty_or_unsafe_commands() {
-        let invalid = JournalPluginOptions {
-            id: "valid_id".into(),
-            command: vec![],
-            cwd: None,
-            revision: None,
-        };
-        assert!(invalid.validate().is_err());
-        let too_many = JournalPluginOptions {
-            id: "valid_id".into(),
-            command: (0..=MAX_PLUGIN_COMMAND_ARGS)
-                .map(|index| format!("/tmp/plugin-{index}"))
-                .collect(),
-            cwd: None,
-            revision: None,
-        };
-        assert!(too_many.validate().is_err());
-        let invalid_cwd = JournalPluginOptions {
-            id: "valid_id".into(),
-            command: vec!["/tmp/detector".into()],
-            cwd: Some("/tmp/with\0nul".into()),
-            revision: None,
-        };
-        assert!(invalid_cwd.validate().is_err());
-        let reserved = JournalPluginOptions {
-            id: crate::AGENT_HOOK_PRODUCER_ID.into(),
-            command: vec!["/tmp/detector".into()],
-            cwd: None,
-            revision: None,
-        };
-        assert!(reserved.validate().is_err());
-        let valid = JournalPluginOptions {
-            id: "screen_detector".into(),
-            command: vec!["/tmp/detector".into()],
-            cwd: None,
-            revision: Some("abc".into()),
-        };
-        assert!(valid.validate().is_ok());
-    }
-
-    #[test]
-    fn restart_delay_is_bounded() {
-        assert_eq!(restart_delay(1), Duration::from_secs(1));
-        assert_eq!(restart_delay(6), Duration::from_secs(32).min(MAX_RESTART_DELAY));
-    }
-
-    #[test]
-    fn unexpected_restart_advances_the_generation_fence() {
-        assert_eq!(next_generation(0), 1);
-        assert_eq!(next_generation(41), 42);
-        assert_eq!(next_generation(u64::MAX), 1);
-
-        let mut state = SupervisorState {
-            generation: 1,
-            child_generation: Some(1),
-            ..SupervisorState::default()
-        };
-        assert_eq!(mark_child_exit(&mut state, false), (Some(1), None));
-        assert_eq!(state.generation, 2);
-        assert!(state.child_generation.is_none());
-    }
-
-    #[test]
-    fn crash_backoff_accumulates_for_short_lived_children() {
-        let started = Instant::now();
-        let mut state = SupervisorState {
-            failures: 2,
-            child_started_at: Some(started),
-            ..SupervisorState::default()
-        };
-
-        let child_started_at = state.child_started_at.take();
-        note_child_failure(&mut state, started + Duration::from_secs(5), child_started_at);
-
-        assert_eq!(state.failures, 3);
-        assert_eq!(state.restart_at, Some(started + Duration::from_secs(9)));
-    }
-
-    #[test]
-    fn stable_children_reset_the_crash_backoff_budget() {
-        let started = Instant::now();
-        let mut state = SupervisorState {
-            failures: 5,
-            child_started_at: Some(started),
-            ..SupervisorState::default()
-        };
-
-        let child_started_at = state.child_started_at.take();
-        note_child_failure(&mut state, started + STABLE_RUNTIME, child_started_at);
-
-        assert_eq!(state.failures, 1);
-        assert_eq!(state.restart_at, Some(started + STABLE_RUNTIME + Duration::from_secs(1)));
-    }
-
-    #[test]
-    fn the_restart_total_for_the_request_log_goes_on_after_a_stable_child() {
-        let started = Instant::now();
-        let mut state = SupervisorState::default();
-
-        let first = note_child_failure(&mut state, started, None);
-        assert_eq!(
-            first,
-            JournalPluginRestart { restarts: 1, failures: 1, delay: Duration::from_secs(1) }
-        );
-        let second = note_child_failure(&mut state, started, Some(started));
-        assert_eq!(
-            second,
-            JournalPluginRestart { restarts: 2, failures: 2, delay: Duration::from_secs(2) }
-        );
-        // A child that lived for the stable time: the failures in a row start again, the total
-        // of restarts goes on.
-        let third = note_child_failure(&mut state, started + STABLE_RUNTIME, Some(started));
-        assert_eq!(
-            third,
-            JournalPluginRestart { restarts: 3, failures: 1, delay: Duration::from_secs(1) }
-        );
-    }
-
-    #[test]
-    fn a_launch_that_fails_gives_the_request_log_handler_its_first_restart() {
-        let runtime = JournalPluginRuntime::default();
-        runtime.configure(Some(JournalPluginOptions {
-            id: "screen_detector".into(),
-            command: vec!["/tmp/cmux-tui-test-no-such-journal-plugin".into()],
-            cwd: None,
-            revision: None,
-        }));
-        let (restarts, seen) = std::sync::mpsc::channel();
-        runtime.set_restart_handler(Some(Arc::new(move |restart| {
-            let _ = restarts.send(restart);
-        })));
-
-        runtime.start_with_generation_seed(
-            PathBuf::from("/tmp/cmux-tui-test.sock"),
-            "main".into(),
-            17,
-        );
-        // The supervisor's thread calls the handler when the launch fails: the test waits for
-        // that call, with a bound for a supervisor that never makes it.
-        let first = seen.recv_timeout(Duration::from_secs(20));
-        runtime.shutdown();
-        assert_eq!(
-            first,
-            Ok(JournalPluginRestart { restarts: 1, failures: 1, delay: Duration::from_secs(1) })
-        );
-    }
-
-    #[test]
-    fn persisted_start_generation_is_not_reduced_after_configuration() {
-        let runtime = JournalPluginRuntime::default();
-        runtime.configure(Some(JournalPluginOptions {
-            id: "screen_detector".into(),
-            command: vec!["/tmp/screen-detector".into()],
-            cwd: None,
-            revision: None,
-        }));
-
-        runtime.start_with_generation_seed(
-            PathBuf::from("/tmp/cmux-tui-test.sock"),
-            "main".into(),
-            17,
-        );
-        let generation = runtime.state.0.lock().recover_poison().generation;
-        assert_eq!(generation, 17);
-        runtime.shutdown();
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_runtime_can_cross_thread_boundaries() {
-        fn assert_send_sync<T: Send + Sync>() {}
-
-        assert_send_sync::<JournalPluginRuntime>();
-    }
-}
+#[path = "journal_plugin_tests.rs"]
+mod tests;

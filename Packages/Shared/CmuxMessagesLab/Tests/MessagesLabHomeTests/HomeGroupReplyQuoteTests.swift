@@ -31,23 +31,29 @@ import Testing
             CmuxHomeCore.Participant(id: lucas, kind: .human, displayName: "Lucas Ribeiro"),
             CmuxHomeCore.Participant(id: austin, kind: .human, displayName: "Austin Wang"),
         ],
-        lastSeq: 4, createdAt: date(-100), updatedAt: date(0))
+        lastSeq: 6, createdAt: date(-100), updatedAt: date(0))
 
     static let short = "Oh great!"
     static let long = "Also: Update to freestyle@0.2.21 there's a new customer field. The more fields you can give us, the more we can "
         + "fingerprint and protect accounts from each other. The api doesn't have this field yet, so don't ship it quite yet."
 
-    /// Lucas's root, two unrelated messages, then `replier`'s reply to the root (or, `adjacent`, the reply right under it).
+    /// Lucas's root, four unrelated messages, then `replier`'s reply to the root (or, `adjacent`, the reply right under it).
+    /// Four, so the root is out of view of the reply: since 2026-11-05 a root among the messages right above a reply
+    /// (``ThreadQuoteNearby``) gets no quote (user, msg 23140), and with two the quote under test was never drawn.
     static func rows(root text: String = short, replier: ParticipantID = austin, adjacent: Bool = false) -> [RowSpec] {
         var items = [TranscriptItem(key: IdempotencyKey("k1"), seq: 1, author: lucas, parts: [.text(text)], createdAt: date(2),
                                     delivery: .committed, messageID: root)]
         if !adjacent {
-            items.append(TranscriptItem(key: IdempotencyKey("k2"), seq: 2, author: lucas, parts: [.text("I also came across this the other day")],
-                                        createdAt: date(70), delivery: .committed, messageID: MessageID("msg_2")))
-            items.append(TranscriptItem(key: IdempotencyKey("k3"), seq: 3, author: austin, parts: [.text("we do want to tag these vms")],
-                                        createdAt: date(140), delivery: .committed, messageID: MessageID("msg_3")))
+            let between: [(ParticipantID, String, Double)] = [
+                (lucas, "Sending the dashboard link in a sec", 30), (lucas, "here it is", 50),
+                (lucas, "I also came across this the other day", 70), (austin, "we do want to tag these vms", 140),
+            ]
+            for (i, (author, words, at)) in between.enumerated() {
+                items.append(TranscriptItem(key: IdempotencyKey("k\(i + 2)"), seq: Seq(i + 2), author: author, parts: [.text(words)],
+                                            createdAt: date(at), delivery: .committed, messageID: MessageID("msg_\(i + 2)")))
+            }
         }
-        items.append(TranscriptItem(key: IdempotencyKey("k4"), seq: 4, author: replier, parts: [.text("Is this for me to do or just a sidenote")],
+        items.append(TranscriptItem(key: IdempotencyKey("k6"), seq: 6, author: replier, parts: [.text("Is this for me to do or just a sidenote")],
                                     createdAt: date(210), delivery: .committed, replyTo: PartRef(message: root), threadRoot: root,
                                     messageID: reply))
         var core = ProjectionCore(me: me)

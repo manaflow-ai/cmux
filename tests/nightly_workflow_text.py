@@ -5,11 +5,13 @@ To stay under GitHub's workflow file size limit, some nightly.yml steps run
 default `bash -e {0}` without its own `set -e`; or the same path under
 .publish-tooling/, or build-sign-notarize-nightly's
 `s=<path>; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"` for an
-unsigned resume of an older tree) instead of an inline `run: |` block. Tests that read the
+unsigned resume of an older tree, with a further `.publish-tooling/` fallback where nightly-next-one
+reuses the step) instead of an inline `run: |` block. Tests that read the
 workflow's text or YAML read this expansion, so they keep checking those
 steps' commands in place.
 """
 from __future__ import annotations
+# guard-inputs: scripts/ci/nightly-steps/ .github/workflows/nightly.yml
 
 from pathlib import Path
 import re
@@ -19,7 +21,8 @@ NIGHTLY_YML = ROOT / ".github/workflows/nightly.yml"
 STEP_CALL = re.compile(
     r"^(?P<indent> *)run: (?:bash (?:-e )?(?:\.publish-tooling/)?(?P<path>scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh)"
     r"|s=(?P<signing_path>scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh); "
-    r'\[ -f "\$s" \] \|\| s="\.nightly-signing-control/\$s"; bash (?:-e )?"\$s")[ \t]*$',
+    r'\[ -f "\$s" \] \|\| s="\.nightly-signing-control/\$s"; '
+    r'(?:\[ -f "\$s" \] \|\| s="\.publish-tooling/\$\{s#\*/\}"; )?bash (?:-e )?"\$s")[ \t]*$',
     re.MULTILINE,
 )
 
@@ -45,11 +48,17 @@ def nightly_text() -> str:
     return expand(NIGHTLY_YML.read_text(encoding="utf-8"))
 
 
+def workflow_text(name: str) -> str:
+    """Another workflow (one nightly.yml calls, such as nightly-compilation-cache.yml) with its moved steps inline."""
+    return expand((ROOT / ".github/workflows" / name).read_text(encoding="utf-8"))
+
+
 STEP_ANCHOR = re.compile(r"^( *)- &([A-Za-z0-9_-]+)\n((?:\1  .*\n|\n(?=\1  ))+)", re.MULTILINE)
-# A `key: &name` anchor inside an anchored step (the publish lease's `env: &next-publish-lease`, #42267): a
-# written-out copy of that step drops it, so the text keeps one anchor per name and stays valid YAML, and the
-# copy's later `*name` reuses still read the first one.
-NESTED_ANCHOR = re.compile(r"^( *[^ #\n][^\n]*?:) &[A-Za-z0-9_-]+$", re.MULTILINE)
+# A `key: &name` anchor inside an anchored step (the publish lease's `env: &next-publish-lease`, #42267), or a
+# scalar one, `key: &name value` (the Chromium engine fetch's `&r2a ${{ secrets... }}`, #45938): a written-out
+# copy of that step drops it, so the text keeps one anchor per name and stays valid YAML, and the copy's later
+# `*name` reuses still read the first one.
+NESTED_ANCHOR = re.compile(r"^( *[^ #\n][^\n]*?:) &[A-Za-z0-9_-]+(?=$| )", re.MULTILINE)
 
 
 def write_out_step_aliases(text: str) -> str:
@@ -72,4 +81,6 @@ def write_out_step_aliases(text: str) -> str:
 
 if __name__ == "__main__":
     # tests/test_nightly_universal_build.sh reads this: moved scripts inline, every step written out.
-    print(write_out_step_aliases(nightly_text()), end="")
+    # An argument names a workflow nightly.yml calls (nightly-compilation-cache.yml) to print instead.
+    import sys
+    print(write_out_step_aliases(workflow_text(sys.argv[1]) if len(sys.argv) > 1 else nightly_text()), end="")

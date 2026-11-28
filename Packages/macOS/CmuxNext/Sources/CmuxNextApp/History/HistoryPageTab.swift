@@ -80,5 +80,5 @@ final class HistoryPageTab: BrowserTab {
 }
 
 enum HistoryPageStrings {
-    static var title: String { String(localized: "history.page.tabTitle", defaultValue: "History", table: "History", bundle: .module) }
+    static var title: String { String(localized: "history.page.tabTitle", defaultValue: "History", table: "History", bundle: .module.inAppLanguage) }
 }

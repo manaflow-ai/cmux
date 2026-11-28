@@ -3,7 +3,7 @@
 // host answers `git.diff {scope, include_patch}` and `git.status` in the shapes of cmux-tui's
 // resource catalog (GitDiffResult, GitStatusResult); the mock daemon answers both from its
 // fixture. The wire is snake_case; the view's types are not.
-import type { DiffHunk, DiffLine, TurnFile } from "../diff";
+import type { DiffHunk, DiffLine, TurnFile } from "../diffTypes";
 import type { StringKey } from "../i18n";
 
 export type ChangeScope = "lastTurn" | "uncommitted" | "unstaged" | "staged" | "committed" | "branch";
@@ -88,18 +88,6 @@ export function readBranch(value: unknown): { branch: string; base: string } | u
   const base = text(raw.base);
   return raw.detached !== true && branch && base ? { branch, base } : undefined;
 }
-
-/// The scope menu, top to bottom; `null` is a separator.
-export const SCOPE_ORDER: (ChangeScope | null)[] = [
-  "lastTurn",
-  null,
-  "uncommitted",
-  "unstaged",
-  "staged",
-  null,
-  "committed",
-  "branch",
-];
 
 /// Each scope's label key in the pane's string table (render with `t(SCOPE_LABEL[scope])`).
 export const SCOPE_LABEL = {

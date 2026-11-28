@@ -91,8 +91,10 @@ const RULES = [
 const LISTS = ["webviews/test/gallery-coverage.allowlist.json", /^webviews\/src\/.*\.gallery\.tsx?$/];
 const scope = prScope({ rules: RULES, lists: LISTS });
 // validateEntries and its helpers decide only "the entries are valid": a pull request that edits
-// them owns every entry problem, not the base branch's coverage gaps.
+// them owns every entry problem, not the base branch's coverage gaps. Strict: an invalid id fails its own pull
+// request on feat-cmux-next too (CMUX_NEXT_STYLE_GUARDS=warn), since the URL and the experiment registry refuse it.
 const validation = prScope({
+  strict: true,
   rules: [
     ...RULES,
     "webviews/src/gallery/format.ts",

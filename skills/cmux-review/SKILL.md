@@ -10,23 +10,24 @@ suppress style, nits and speculative improvements unless requested.
 
 ## Default pre-merge review
 
-1. Give a review subagent the task intent, base/head SHAs and exact diff.
+1. Fork a review subagent and give it the task intent, base/head SHAs and exact diff.
    Ask for correctness first, then repository rules; keep discovery independent
    of the author's reasoning. Review policy edits against the base-branch rules.
 2. Verify concrete findings, fix them when authorized, and push. Re-run the
    original discriminator after repair. A green test counts only if it exercises
    the asserted failure; prefer red-before/green-after evidence.
-3. If fixes were non-trivial, obtain a fresh subagent review of the repair delta.
-4. Merge when the review subagent passes the change and it causes no red of its own
-   (base reds, flakes and pending checks don't hold it). Into `main`, merge with
-   `gh-merge-green`; into `feat-cmux-next`, merge it yourself with a squash pinned to
-   the reviewed head (`gh pr merge N --squash --match-head-commit <full head sha>`).
+3. If fixes were non-trivial, fork a new reviewer for the repair delta.
+4. Merge when its checks pass and it causes no red of its own (base reds and flakes
+   don't hold it; for a stuck or irrelevant check see
+   [landing](../../docs/ci/landing.md#review-and-merge)). Into `feat-cmux-next` the review
+   runs beside CI and does not gate the merge; a BLOCK at the head holds it. Merge it
+   yourself with a squash pinned to the head
+   (`gh pr merge N --squash --match-head-commit <full head sha>`). Into `main`, it needs
+   a SHIP at the head and merges with `gh-merge-green`.
    Report findings with evidence, verification performed and coverage gaps.
 
-A small change (a removal, a copy, CSS or token tweak, a fix confined to one
-component) needs only a subagent review in the current runtime. A behavior change
-into `feat-cmux-next` that is not small is reviewed by a different model or a
-person. Keep review read-only until an authorized repair.
+A SHIP counts from any reviewer and any model family, the PR's own agent included
+(Leo, 2026-11-14). Keep review read-only until an authorized repair.
 Do not commit review receipts, scratch reproductions or generated logs.
 
 ## Dogfood and merge
@@ -34,8 +35,8 @@ Do not commit review receipts, scratch reproductions or generated logs.
 For implementation handoff or merge, read [dogfood and merge](references/dogfood-and-merge.md)
 for per-change verification, first-pass completion, re-dogfood and merge receipts.
 The main agent owns dogfood, mergeability, the merge and every pushed fix.
-On either branch, a PR merges when an independent review subagent passes it and
-it causes no red of its own; base reds, flakes and pending checks don't hold it.
+On either branch, a PR merges when its checks pass and it causes no red of its own;
+base reds and flakes don't hold it, and review findings fix forward.
 Don't wait for a person. Ship risky user-visible behavior behind a setting or
 Debug toggle and fix a bad default in the next nightly. `main` is nightly: stack
 fixes, do not revert.

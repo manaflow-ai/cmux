@@ -18,8 +18,36 @@ use zeroize::Zeroizing;
 
 use crate::UltraChoice;
 
-/// The WireGuard default interface MTU, used when the config sets none.
-pub const DEFAULT_MTU: u16 = 1420;
+/// Bytes WireGuard adds around an inner packet on an IPv4 underlay: the outer
+/// IPv4 (20) and UDP (8) headers and the data message's own 32 (16-byte
+/// header, 16-byte tag).
+pub const OVERHEAD_V4: u16 = 20 + 8 + 32;
+
+/// As [`OVERHEAD_V4`], on an IPv6 underlay (a 40-byte outer header).
+pub const OVERHEAD_V6: u16 = 40 + 8 + 32;
+
+/// The underlay path MTU [`DEFAULT_MTU`] must fit: a GCP VPC network's
+/// default 1460, the smallest common cloud underlay.
+pub const SMALLEST_CLOUD_PATH_MTU: u16 = 1460;
+
+/// The inner MTU whose full packets fit an underlay path of `path_mtu`
+/// bytes once WireGuard wrapped them (`ipv6`: the underlay's family), never
+/// below the stack's floor.
+pub const fn inner_mtu_for_path(path_mtu: u16, ipv6: bool) -> u16 {
+    let overhead = if ipv6 { OVERHEAD_V6 } else { OVERHEAD_V4 };
+    let mtu = path_mtu.saturating_sub(overhead);
+    if mtu < MIN_MTU { MIN_MTU } else { mtu }
+}
+
+/// The interface MTU used when the config sets none: 1380, what fits a
+/// [`SMALLEST_CLOUD_PATH_MTU`] path over IPv6 (and so over IPv4).
+///
+/// Not WireGuard's own 1420, which assumes a 1500-byte path: on a GCP VM
+/// (1460) a full 1420 packet leaves as a 1480-byte datagram. The kernel
+/// fragments it when sent alone, and refuses it with EMSGSIZE when it rides
+/// in a UDP GSO message (`underlay_batch.rs`), so bulk traffic to a peer in
+/// the same VPC failed some 95 times a minute.
+pub const DEFAULT_MTU: u16 = inner_mtu_for_path(SMALLEST_CLOUD_PATH_MTU, true);
 
 /// Smallest MTU the stack accepts. Below this TCP cannot carry a useful segment.
 const MIN_MTU: u16 = 576;
@@ -408,67 +436,5 @@ fn parse_endpoint(value: &str) -> Result<Endpoint, ConfigError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const KEY_A: &str = "GDYq0RJ4LWL6jJhLMAlM1oHcCTdSiXPMZ4X5D8WzGdw=";
-    const KEY_B: &str = "Bo2I0OcpKnXtElGwH6EXV3MwDQctaIrFJ4tDX44DoWs=";
-
-    #[test]
-    fn rejects_missing_and_malformed_fields() {
-        let missing_key = format!(
-            "[Interface]\nAddress=10.1.0.2/32\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.0/24\n"
-        );
-        assert_eq!(
-            WgConfig::parse_wg_quick(&missing_key).unwrap_err(),
-            ConfigError::MissingPrivateKey
-        );
-
-        let bad_key = format!(
-            "[Interface]\nPrivateKey=short\nAddress=10.1.0.2/32\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.0/24\n"
-        );
-        let error = WgConfig::parse_wg_quick(&bad_key).unwrap_err();
-        assert!(matches!(error, ConfigError::InvalidValue { key: "PrivateKey", .. }));
-        assert!(!error.to_string().contains("short"));
-
-        let two_peers = format!(
-            "[Interface]\nPrivateKey={KEY_A}\nAddress=10.1.0.2/32\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.0/24\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.2.0.0/24\n"
-        );
-        assert_eq!(WgConfig::parse_wg_quick(&two_peers).unwrap_err(), ConfigError::MultiplePeers);
-
-        let small_mtu = format!(
-            "[Interface]\nPrivateKey={KEY_A}\nAddress=10.1.0.2/32\nMTU=100\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.0/24\n"
-        );
-        assert!(matches!(
-            WgConfig::parse_wg_quick(&small_mtu),
-            Err(ConfigError::InvalidValue { key: "MTU", .. })
-        ));
-
-        let bad_endpoint = format!(
-            "[Interface]\nPrivateKey={KEY_A}\nAddress=10.1.0.2/32\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.0/24\nEndpoint=fd00::1:51820\n"
-        );
-        assert!(matches!(
-            WgConfig::parse_wg_quick(&bad_endpoint),
-            Err(ConfigError::InvalidValue { key: "Endpoint", .. })
-        ));
-
-        let bad_prefix = format!(
-            "[Interface]\nPrivateKey={KEY_A}\nAddress=10.1.0.2/40\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.0/24\n"
-        );
-        assert!(matches!(
-            WgConfig::parse_wg_quick(&bad_prefix),
-            Err(ConfigError::InvalidValue { key: "Address", .. })
-        ));
-
-        let stray = format!("PrivateKey={KEY_A}\n");
-        assert_eq!(WgConfig::parse_wg_quick(&stray).unwrap_err(), ConfigError::MalformedLine(1));
-
-        let three_addresses = format!(
-            "[Interface]\nPrivateKey={KEY_A}\nAddress=10.1.0.2/32, 10.1.0.3/32, 10.1.0.4/32\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.0/24\n"
-        );
-        assert_eq!(
-            WgConfig::parse_wg_quick(&three_addresses).unwrap_err(),
-            ConfigError::TooManyAddresses { maximum: 2 }
-        );
-    }
-}
+#[path = "config_tests.rs"]
+mod tests;

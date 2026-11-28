@@ -5,13 +5,12 @@
 // sits right under it, moved in (`nestAgents`). A click on an agent opens
 // it: its pane, or its view in this pane (App.tsx `showSubagent`). The pill is a part of the
 // bottom stack (bottomStack.css), not laid over the transcript, so it never hides the latest row.
-import { memo, useCallback, useId } from "react";
-import { formatDuration } from "../conversation/turns";
+import { memo, useCallback, useId, useContext } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { usePopover } from "../summary/usePopover";
 import { subagentStatus, subagentStatusLabel } from "../summary/subagentStatusListModel";
-import { elapsed, running, ticking, useNow } from "./subagentGroupModel";
+import { running, ticking, useNow, subagentTime, SubagentHarnessContext } from "./subagentGroupModel";
 import { sameAgentRowProps } from "./subagentLook";
 import type { Subagent } from "./subagentFold";
 import { AgentIdentity } from "./AgentIdentity";
@@ -34,6 +33,8 @@ export const AgentsPill = memo(function AgentsPill({
   onOpen: (id: string) => void;
 }) {
   const t = useT();
+  // A harness's own subagent names no harness: it runs on the chat's, and wears its mark.
+  const chatHarness = useContext(SubagentHarnessContext);
   const { open, setOpen, button, popover, toggle } = usePopover();
   const listId = useId();
   const live = agents.filter(running);
@@ -75,7 +76,16 @@ export const AgentsPill = memo(function AgentsPill({
         <span>{t("subagents.pill", { n: live.length })}</span>
       </button>
       {open && (
-        <dialog ref={popover} id={listId} open className="ui-popup ui-glass acpmux-agents-list" aria-label={title}>
+        // "results": the list is a live status (agents start and end, elapsed times tick) with no
+        // input from the person, so its box follows its rows, never a settled one (ui/popupSettle.ts).
+        <dialog
+          ref={popover}
+          id={listId}
+          open
+          className="ui-popup ui-glass acpmux-agents-list"
+          data-popup-settle="results"
+          aria-label={title}
+        >
           {sections.map((section) => (
             <section key={section.key} className="acpmux-agents-list__section">
               <h3 className="acpmux-agents-list__heading">{section.title}</h3>
@@ -87,6 +97,7 @@ export const AgentsPill = memo(function AgentsPill({
                     depth={depth}
                     waits={waiting.has(agent.id)}
                     tone={tones.get(agent.id)}
+                    harness={agent.harness ?? chatHarness}
                     onPick={pick}
                   />
                 ))}
@@ -109,6 +120,7 @@ const AgentsPillRow = memo(function AgentsPillRow({
   depth,
   waits,
   tone,
+  harness,
   onPick,
 }: {
   agent: Subagent;
@@ -116,13 +128,17 @@ const AgentsPillRow = memo(function AgentsPillRow({
   /// It waits on the user (the pill's `waiting` holds it).
   waits: boolean;
   tone?: number;
+  /// The mark it wears: its own harness, else the chat's (a harness's own subagent names none).
+  harness?: string;
   onPick: (id: string) => void;
 }) {
   const t = useT();
   const waiting = waits ? new Set([agent.id]) : NO_WAITING;
   const status = subagentStatus(agent, waiting);
   const state =
-    (status === "running" && namedAction(t, agent.action, agent.actionShell)) || t(subagentStatusLabel(agent, waiting));
+    status === "running"
+      ? (namedAction(t, agent.action, agent.actionShell) ?? "")
+      : t(subagentStatusLabel(agent, waiting));
   return (
     <li>
       <button
@@ -137,7 +153,7 @@ const AgentsPillRow = memo(function AgentsPillRow({
         {/* The harness's mark when it has one, else the agent's dot in its own tone. */}
         <AgentIdentity
           className="acpmux-agents-list__mark"
-          harness={agent.harness}
+          harness={harness}
           tone={tone ?? agentTone(agent.id)}
           size={9}
           fallbackNode={<span className="acpmux-agents-list__dot" />}
@@ -157,5 +173,5 @@ const AgentsPillRow = memo(function AgentsPillRow({
 /// with background work of its own still going), and nothing else draws for it.
 function PillElapsed({ agent }: { agent: Subagent }) {
   const now = useNow(ticking(agent));
-  return <span className="acpmux-agents-list__time">{formatDuration(elapsed(agent, now))}</span>;
+  return <span className="acpmux-agents-list__time">{subagentTime(agent, now)}</span>;
 }

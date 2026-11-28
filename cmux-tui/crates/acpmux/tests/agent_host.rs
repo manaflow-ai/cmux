@@ -4,6 +4,8 @@
 //! it logged without losing or repeating one.
 #![cfg(unix)]
 
+#[path = "agent_host/adopt_unlogged_tail.rs"]
+mod adopt_unlogged_tail;
 #[path = "agent_host/answer_after_reattach.rs"]
 mod answer_after_reattach;
 #[path = "agent_host/carried_hold.rs"]
@@ -68,6 +70,9 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         orphan_exit: None,
         prompt_suggestions_managed: None,
         holder: None,
+        copilot_scratch: None,
+        local_chatgpt_expiry: None,
+        local_kimi_expiry: None,
     }
 }
 
@@ -340,6 +345,130 @@ async fn a_wrong_token_gets_no_hello() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A host with no agent holder answers a custody ask with no (`spec: None`), so the daemon
+/// reads an answer: before, it closed the connection unanswered, and every claude and codex
+/// start logged `agent holder: no custody of the harness: failed to fill whole buffer`
+/// (cmuxterm-hq docs/findings/2026-11-22-acpmux-holder-custody-noise.md). A forged token is
+/// told no as well, and the host serves on after both.
+#[tokio::test]
+async fn a_host_with_no_holder_answers_a_custody_ask_with_no() {
+    let dir = scratch("nohold");
+    let record = link::spawn(&launcher(), &spec(&dir, "s-nohold")).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    assert_eq!(record.holder, Some(false), "a host asked for no holder says it keeps none");
+    assert!(!record.may_hold());
+    let ask = record.clone();
+    let answer =
+        tokio::task::spawn_blocking(move || agent_host::custody::take(&ask)).await.unwrap();
+    assert!(matches!(answer, Ok(None)), "an answer of no custody, not an end of file: {answer:?}");
+    let mut forged = record.clone();
+    forged.owner_token = "00".repeat(32);
+    let answer =
+        tokio::task::spawn_blocking(move || agent_host::custody::take(&forged)).await.unwrap();
+    assert!(matches!(answer, Ok(None)), "a forged token is told no: {answer:?}");
+    let (owner, _) = connected(&record, 0).await;
+    let mut logged = 0;
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_replacement_host_keeps_a_partial_line_ending_in_a_key_prefix() {
+    let dir = scratch("split-grant");
+    let mut launch = spec(&dir, "s-split-grant");
+    launch.holder = Some(agent_host::HolderSpec::default());
+    launch.env.extend([
+        ("ACPMUX_LOCAL_CREDENTIAL_REDACTION".into(), "FIXTURE_LAUNCH_KEY".into()),
+        ("FIXTURE_LAUNCH_KEY".into(), "fixture-prefix-secret".into()),
+    ]);
+    launch.args = vec![
+        "-c".into(),
+        r#"
+import os, pathlib, sys, time
+os.write(1, b'{"jsonrpc":"2.0","method":"fixture/first"}\n'
+            b'{"jsonrpc":"2.0","method":"fixture/second","params":{"text":"fixture-prefix-')
+deadline = time.monotonic() + 20
+while not pathlib.Path("continue").exists() and time.monotonic() < deadline:
+    time.sleep(0.01)
+os.write(1, b'ordinary","echo":"' + os.environ['FIXTURE_LAUNCH_KEY'].encode() + b'"}}\n')
+sys.stdin.read()
+"#
+        .into(),
+    ];
+
+    let launcher = launcher();
+    let record = link::spawn(&launcher, &launch).await.unwrap();
+    let (owner, _) = connected(&record, 0).await;
+    let is_first =
+        |entry: &Entry| matches!(entry, Entry::In { msg } if msg["method"] == "fixture/first");
+    let mut after = 0;
+    // The first notification and the partial line arrive in the same pipe write.
+    read_until(&owner, &mut after, is_first).await;
+    let offset = owner.take_offset_through(after).unwrap();
+    let custody = {
+        let record = record.clone();
+        tokio::task::spawn_blocking(move || agent_host::custody::take(&record))
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+    };
+    let lock = live_lock(&dir, &record);
+    // SAFETY: the original host belongs to this fixture.
+    assert_eq!(unsafe { libc::kill(record.host_pid as i32, libc::SIGKILL) }, 0);
+    wait_dead(lock).await;
+
+    let replacement =
+        agent_host::custody::respawn(&launcher, &custody, after, 0, offset).await.unwrap();
+    let (owner, _) = connected(&replacement, after).await;
+    std::fs::write(dir.join("continue"), "").unwrap();
+    let seen = read_until(
+        &owner,
+        &mut after,
+        |entry| matches!(entry, Entry::In { msg } if msg["method"] == "fixture/second"),
+    )
+    .await;
+    let Entry::In { msg } = &seen.last().unwrap().1 else { unreachable!() };
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    assert_eq!(msg["params"]["text"], "fixture-prefix-ordinary");
+    assert_eq!(msg["params"]["echo"], "[redacted]");
+    drop(custody);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Only a harness that speaks ACP itself keeps a holder: a bridged (Codex) or translated
+/// (Claude) spec gets none, its record says so, and its daemon does not ask for custody
+/// (`HostRecord::may_hold`, which `take_custody` reads). A host of an older build, which says
+/// nothing, is asked as before.
+#[test]
+fn custody_is_not_asked_of_a_bridged_or_translated_host() {
+    let dir = scratch("bridged");
+    let mut native = spec(&dir, "s-native");
+    native.holder = Some(agent_host::HolderSpec::default());
+    assert!(native.keeps_holder());
+    let mut bridged = native.clone();
+    bridged.codex_bridge = true;
+    assert!(!bridged.keeps_holder(), "a bridged harness gets no holder");
+
+    let base: HostRecord = serde_json::from_value(json!({
+        "record_version": 1, "session_id": "s", "incarnation": "i", "host_pid": 1,
+        "start_nonce": "00", "harness_pid": null, "owner_token": "t", "protocol_min": 1,
+        "protocol_max": 1, "host_build": "b", "socket": "/nonexistent.sock",
+    }))
+    .unwrap();
+    assert_eq!(base.holder, None);
+    assert!(base.may_hold(), "an older build's host is asked as before");
+    let bridged_record = HostRecord { holder: Some(bridged.keeps_holder()), ..base.clone() };
+    assert!(!bridged_record.may_hold(), "a bridged host is not asked");
+    let translated = HostRecord { claude_translator: true, ..base.clone() };
+    assert!(!translated.may_hold(), "a translated host is not asked, whatever its build");
+    let holding = HostRecord { holder: Some(true), ..base };
+    assert!(holding.may_hold());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A harness whose child calls setsid keeps the output pipe open after the
 /// harness exits. The host still reports the exit after a bounded drain
 /// instead of waiting for that pipe forever (and living forever).
@@ -601,6 +730,10 @@ fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace(
         host_build: "test".into(),
         socket,
         claude_translator: false,
+        host_level: 0,
+        holder: None,
+        local_chatgpt_expiry: None,
+        local_kimi_expiry: None,
     };
     let wrong = record("wrong-socket", outside_socket.clone());
     let wrong_path = hosts.join("wrong-socket.json");

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import fnmatch
+import gzip
 import hashlib
 import json
 import struct
@@ -100,6 +101,26 @@ class CheckBundleNoticesTest(unittest.TestCase):
         self.assertIn("Contents/MacOS/app: missing notice first-party", errors)
         self.assertIn("Contents/MacOS/app: missing notice section:manual-x", errors)
         self.assertIn("Contents/Frameworks/Lib.framework/Versions/A/Lib: missing notice file:Contents/Frameworks/Lib.framework/Resources/CREDITS.html", errors)
+
+    def test_a_gz_notice_file_must_decompress_to_text(self) -> None:
+        # CEF's CREDITS.html ships as CREDITS.html.gz: a corrupt, truncated or
+        # empty-text .gz is a missing notice, not a present one.
+        gz_map = {"entries": [{"path": "Contents/MacOS/app", "notices": ["file:Contents/Resources/CREDITS.html.gz"]}]}
+        credits = self.app / "Contents/Resources/CREDITS.html.gz"
+        missing = "Contents/MacOS/app: missing notice file:Contents/Resources/CREDITS.html.gz"
+        whole = gzip.compress(b"<html>credits</html>\n" * 1000)
+        for bad in (b"not gzip at all", whole[: len(whole) // 2], gzip.compress(b"")):
+            credits.write_bytes(bad)
+            self.assertEqual(checker.check(self.app, gz_map), [missing], bad[:20])
+        credits.write_bytes(whole)
+        self.assertEqual(checker.check(self.app, gz_map), [])
+
+    def test_committed_map_names_the_compressed_cef_credits(self) -> None:
+        # install-cef-credits.sh writes CREDITS.html.gz; no entry may still ask
+        # for the plain file, which the bundle no longer has.
+        text = (HERE / "bundle-map.json").read_text()
+        self.assertNotIn('Resources/CREDITS.html"', text)
+        self.assertIn('Resources/CREDITS.html.gz"', text)
 
     def test_symlinked_framework_paths_are_checked_once(self) -> None:
         fw = self.app / "Contents/Frameworks/Lib.framework"
@@ -196,9 +217,9 @@ class CheckBundleNoticesTest(unittest.TestCase):
         webrtc = self.app / "Contents/Frameworks/WebRTC.framework/Versions/A/WebRTC"
         webrtc.parent.mkdir(parents=True)
         webrtc.write_bytes(FAT)
-        credits = self.app / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html"
+        credits = self.app / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html.gz"
         credits.parent.mkdir(parents=True)
-        credits.write_text("<html></html>\n")
+        credits.write_bytes(gzip.compress(b"<html></html>\n"))
         notices = ROOT / "THIRD_PARTY_LICENSES.md"
         errors = [e for e in checker.check(self.app, bundle_map, notices) if "WebRTC" in e]
         self.assertEqual(errors, [])
@@ -315,7 +336,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
         text = (HERE / "hand-written.md").read_text()
         section = text.split("## Rust and Zig Standard Libraries\n", 1)[1].split("\n## ", 1)[0]
         for entry in manifest.texts():
-            self.assertIn(f"`{manifest.bundle_dir}/{entry.file}`", section)
+            self.assertIn(f"`{manifest.bundle_dir}/{entry.bundled_file}`", section)
         for zig in manifest.zig:
             self.assertIn((toolchain_notices.TEXTS / zig.file).read_text(), section.replace("\n\n---\n", "\n"))
 
@@ -404,9 +425,9 @@ class CheckBundleNoticesTest(unittest.TestCase):
         import toolchain_notices
         toolchain_notices.install(toolchain_notices.load(), self.app / "Contents/Resources")
         (self.app / "Contents/MacOS/app").unlink()
-        for name in ("CREDITS.html", "LICENSE.txt"):
-            (self.app / self.CEF_RESOURCES).mkdir(parents=True, exist_ok=True)
-            (self.app / self.CEF_RESOURCES / name).write_text("CEF\n")
+        (self.app / self.CEF_RESOURCES).mkdir(parents=True, exist_ok=True)
+        (self.app / self.CEF_RESOURCES / "CREDITS.html.gz").write_bytes(gzip.compress(b"CEF\n"))
+        (self.app / self.CEF_RESOURCES / "LICENSE.txt").write_text("CEF\n")
         host = self.app / self.RB_HOST
         host.parent.mkdir(parents=True)
         host.write_bytes(thin_with_uuid(b"H" * 16, f"/rustc/{RUSTC_1_95}/library/std/src/lib.rs".encode()))
@@ -486,16 +507,19 @@ class CheckBundleNoticesTest(unittest.TestCase):
     REMOTE = "Contents/Library/cmux Remote (dev).app"
     # The cmux Computer Use engine, built from cmux-tui with the workspace's own toolchain.
     REMOTE_ENGINE = f"{REMOTE}/Contents/Frameworks/libcmux_computer_use.dylib"
+    # The screen stream's rules (cmux-rd-screen-ffi), the Screen Sharing worker's.
+    REMOTE_SCREEN_RULES = f"{REMOTE}/Contents/Frameworks/libcmux_rd_screen.dylib"
 
     def test_the_map_covers_every_binary_of_the_embedded_cmux_remote(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
         for rel in (f"{self.REMOTE}/Contents/MacOS/cmux-remote", f"{self.REMOTE}/Contents/Frameworks/libWebRTC.dylib",
-                    self.REMOTE_ENGINE):
+                    self.REMOTE_ENGINE, self.REMOTE_SCREEN_RULES):
             entries = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(rel, e["path"])]
             self.assertTrue(entries, f"{rel}: no bundle-map entry")
-        sdk = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(self.REMOTE_ENGINE, e["path"])][0]
-        self.assertIn("rust-std", sdk["notices"])
-        self.assertIn(self.STD_SECTION, sdk["notices"])
+        for rust in (self.REMOTE_ENGINE, self.REMOTE_SCREEN_RULES):
+            sdk = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(rust, e["path"])][0]
+            self.assertIn("rust-std", sdk["notices"])
+            self.assertIn(self.STD_SECTION, sdk["notices"])
 
 
 if __name__ == "__main__":

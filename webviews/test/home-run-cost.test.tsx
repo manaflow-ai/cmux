@@ -6,13 +6,16 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import * as agentRows from "../src/agent-session/acpmux/conversation/agentMessageRowModel";
-import { RunCard } from "../src/pages/home-channels/RunCard";
-import { RunSheet } from "../src/pages/home-channels/RunSheet";
 import table from "../src/pages/home-channels/generated/strings.json";
 import paneTable from "../src/pages/home-channels/generated/pane-strings.json";
-import { createStrings } from "../src/pages/shared/i18n";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+import { factsCardText } from "./support/factsCard";
+
+const agentRows = await importWithDom(() => import("../src/agent-session/acpmux/conversation/agentMessageRowModel"));
+const { RunCard } = await importWithDom(() => import("../src/pages/home-channels/RunCard"));
+const { RunSheet } = await importWithDom(() => import("../src/pages/home-channels/RunSheet"));
+const { createStrings } = await importWithDom(() => import("../src/pages/shared/i18n"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -93,7 +96,9 @@ test("the run sheet labels its dollar figure as API prices and says what it is",
   const cost = [...container.querySelectorAll(".lg-sheet-meta span")].find((span) => span.textContent?.includes("$"));
   expect(cost?.textContent).toBe(strings.format("run.cost", "$0.04"));
   expect(cost?.textContent).not.toBe("$0.04");
-  expect(cost?.getAttribute("title")).toBe(strings.t("run.cost.hint"));
+  // The figure shows its words, so it has no tooltip; what it is shows on its hover card.
+  expect(cost?.getAttribute("title")).toBeNull();
+  expect(await factsCardText(cost!)).toBe(strings.t("run.cost.hint"));
 });
 
 // Messages remain reachable when the run is folded and after unrelated tool steps.

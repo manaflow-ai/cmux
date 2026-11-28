@@ -31,6 +31,8 @@ pub(super) const MAX_CACHE_BYTES: usize = 8 * 1024 * 1024;
 /// The largest body kept (a bigger one is answered but not kept).
 pub(super) const MAX_ENTRY_BYTES: usize = 1024 * 1024;
 /// `gh` processes the gateway runs at once, across every app.
+/// Measured: not timed; one `gh` child process (and its GitHub API request) per call, so 8 at
+/// once across every app, the rest answered retryable.
 pub(super) const MAX_INFLIGHT: usize = 8;
 /// The longest path (with its query) an app may ask for.
 const MAX_PATH_BYTES: usize = 2048;

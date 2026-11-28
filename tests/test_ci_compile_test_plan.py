@@ -12,13 +12,14 @@ scripts/ci/compile_test_plan.py picks what the check compiles from the
 changed files: the CmuxNext test targets that depend on a changed target (the
 SwiftPM target graph cmux_next_route.py already reads), and the macOS-tested
 local packages whose sources or path dependencies changed. package-test-lane.sh
-`compile-tests MERGE_BASE` builds that plan on a fleet Mac, as the advisory
-fleet-test-compile.yml check; fleet/compile-check stays the app compile.
+`compile-tests MERGE_BASE` builds that plan on a fleet Mac; the post-merge
+cmux-next-tip-test-compile.yml workflow retains coverage.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -102,15 +103,17 @@ class CompileTestPlanTests(unittest.TestCase):
 
     def test_local_package_change_compiles_it_and_its_dependents(self) -> None:
         plan = self.plan(["Packages/Shared/CMUXAuthCore/Sources/CMUXAuthCore/AuthTokens.swift"])
-        # CMUXAuthCore and CmuxAuthRuntime are in the macOS package lane; CmuxNext uses both.
-        self.assertIsNone(plan.get("Packages/Shared/CMUXAuthCore", "missing"))
-        self.assertIsNone(plan.get("Packages/Shared/CmuxAuthRuntime", "missing"))
+        # CmuxHomeRender, in the macOS package lane, uses CMUXAuthCore; so does CmuxNext. CMUXAuthCore and
+        # CmuxAuthRuntime run on Linux (scripts/ci/swift-linux-packages.txt), so no macOS build compiles them here.
+        self.assertIsNone(plan.get("Packages/Shared/CmuxHomeRender", "missing"))
+        self.assertNotIn("Packages/Shared/CMUXAuthCore", plan)
+        self.assertNotIn("Packages/Shared/CmuxAuthRuntime", plan)
         self.assertIn(CMUXNEXT, plan)
         self.assertTrue(plan[CMUXNEXT], "the CmuxNext test targets that use CMUXAuthCore")
 
     def test_packages_outside_the_macos_lanes_are_not_compiled(self) -> None:
         # A package outside the lane's PACKAGES builds in its own jobs, not with a macOS `swift build`.
-        # (CmuxMobileSSH: scripts/ci/swift-test-targets.json says why the lane does not run it.)
+        # (CmuxMobileSSH runs on Linux: scripts/ci/swift-linux-packages.txt.)
         plan = self.plan(["Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/SSHStores.swift"])
         self.assertNotIn("Packages/iOS/CmuxMobileSSH", plan)
 
@@ -127,7 +130,7 @@ class CompileTestPlanTests(unittest.TestCase):
         self.assertEqual(dict(self.module.plan(ROOT, PR_23360, skip)), {})
         plan = dict(self.module.plan(ROOT, ["Packages/Shared/CMUXAuthCore/Sources/CMUXAuthCore/AuthTokens.swift"], skip))
         self.assertNotIn(CMUXNEXT, plan)
-        self.assertIn("Packages/Shared/CMUXAuthCore", plan)
+        self.assertIn("Packages/Shared/CmuxHomeRender", plan)
         # Without the skip (the tip compile, a hand-run compile-tests) CmuxNext stays.
         self.assertIn(CMUXNEXT, self.plan(PR_23360))
 
@@ -331,42 +334,20 @@ class CompileTestsPhaseTests(unittest.TestCase):
         self.assertEqual(len([b for b in self.builds() if "--target" in b]), 1, self.builds())
 
 
-WORKFLOW = ROOT / ".github" / "workflows" / "fleet-test-compile.yml"
-STEP = "Compile the planned test targets on the Linux pool"
+class RetainedCompileCoverageTests(unittest.TestCase):
+    """The post-merge batch owns test-target compilation after wrapper retirement."""
 
-
-def step_script() -> str:
-    lines = WORKFLOW.read_text().splitlines()
-    start = next(i for i, line in enumerate(lines) if line.strip() == f"- name: {STEP}")
-    run = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
-    indent = len(lines[run]) - len(lines[run].lstrip()) + 2
-    body = []
-    for line in lines[run + 1:]:
-        if line.strip() and len(line) - len(line.lstrip()) < indent:
-            break
-        body.append(line[indent:])
-    return "\n".join(body) + "\n"
-
-
-class PullRequestCompilesCmuxNextTests(unittest.TestCase):
-    """The pull-request check compiles CmuxNext's test targets again: cmux-next.yml's swift test job
-    runs on a pull request only with full-ci (2026-11-05), so nothing else builds them on a PR."""
-
-    def test_the_workflow_skips_no_package_in_either_plan(self) -> None:
-        text = WORKFLOW.read_text()
-        self.assertNotIn("SKIP:", text)
-        self.assertIn('compile_test_plan.py --changed-files "$RUNNER_TEMP/changed.txt" > ', text)
-        # The step compiles the plan's packages as they are: it skips none either.
-        self.assertNotIn("--skip-package", step_script())
-
-    def test_swift_test_runs_on_a_pull_request_only_with_full_ci(self) -> None:
-        # If swift test ran on every same-repository PR again, this check would compile CmuxNext twice.
+    def test_swift_test_never_runs_on_a_cmux_next_pull_request(self) -> None:
+        # Retain the current post-merge-only policy for feat-cmux-next Swift tests.
         text = (ROOT / ".github" / "workflows" / "cmux-next.yml").read_text()
         job = re.split(r"\n  [A-Za-z0-9_-]+:[^\n]*\n", text.split("\n  swift-test:\n", 1)[1], maxsplit=1)[0]
         condition = re.search(r"^    if: (.*)$", job, re.M).group(1)
         self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
-        self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
+        # #49046: a pull request into another base is not a cmux-next PR. #57353: one into feat-cmux-next
+        # runs swift test after merge only, with or without full-ci (0 real catches in 30 days).
+        self.assertIn("&& (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next'))",
                       condition)
+        self.assertNotIn("'full-ci')", condition.replace("fromJSON('[\"full-ci\",\"ready-to-land\"]')", ""))
 
     def test_the_tip_compile_keeps_cmuxnext(self) -> None:
         tip = (ROOT / ".github" / "workflows" / "cmux-next-tip-test-compile.yml").read_text()
@@ -374,90 +355,14 @@ class PullRequestCompilesCmuxNextTests(unittest.TestCase):
         self.assertNotIn("--skip-package", (ROOT / "scripts" / "ci" / "tip-test-compile.sh").read_text())
 
 
-class AdvisoryVerdictTests(unittest.TestCase):
-    """fleet-test-compile.yml: red only for a test target that does not compile (the pool's exit 1); anything
-    else is no verdict. It compiles on the Linux pool, never as a Mac step (2026-11-15: 5 to 9 Mac
-    compile-tests steps at once held the owned minis' side-std listeners offline on CPU load)."""
-
-    def verdict(self, status: int, output: str = "", needed: str = "true", client: bool = True,
-                packages: str = "CmuxNext CmuxUpdater") -> tuple[subprocess.CompletedProcess, list[str]]:
-        with tempfile.TemporaryDirectory() as scratch:
-            fake = Path(scratch) / "cmux-ci"
-            argv = Path(scratch) / "argv"
-            if client:
-                fake.write_text(f"#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > {argv}\n"
-                                f"cat <<'OUT'\n{output}\nOUT\nexit {status}\n")
-                fake.chmod(0o755)
-            env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
-            env.update(NEEDED=needed, REF="a" * 40, PACKAGES=packages, RUNNER_TEMP=scratch, RUNNER_NAME="gateway",
-                       CMUX_CI_CLIENT=str(fake))
-            done = subprocess.run(["bash", "-c", step_script()], env=env, capture_output=True, text=True, timeout=60)
-            return done, (argv.read_text().splitlines() if argv.exists() else [])
-
-    def assert_green(self, done, warned: bool) -> None:
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertNotIn("::error", done.stdout)
-        self.assertEqual("::warning" in done.stdout, warned, done.stdout)
-
-    def test_it_compiles_each_planned_package_on_the_pool(self) -> None:
-        done, argv = self.verdict(0, "compile check CmuxNext: passed (490 s)")
-        self.assert_green(done, warned=False)
-        self.assertEqual(argv[:3], ["compile-check", "--ref", "a" * 40])
-        self.assertEqual([argv[i + 1] for i, word in enumerate(argv) if word == "--package"], ["CmuxNext", "CmuxUpdater"])
-        self.assertNotIn("run", argv)
-        self.assertNotIn("package-test-lane.sh", WORKFLOW.read_text().split("\n  compile:\n", 1)[1])
-
-    def test_exit_codes_map_to_red_warning_or_green(self) -> None:
-        red, _ = self.verdict(1, "compile check CmuxNext: failed (120 s)")
-        self.assertEqual(red.returncode, 1, red.stdout)
-        self.assertIn("::error", red.stdout)
-        # No pool VM (69), a queue or setup failure (75), a timeout (124) or the client itself: a warning, never red.
-        for status in (2, 69, 75, 124, 137):
-            with self.subTest(status=status):
-                self.assert_green(self.verdict(status, "compile check CmuxNext: no verdict")[0], warned=True)
-
-    def test_no_plan_or_no_client_is_green(self) -> None:
-        self.assert_green(self.verdict(1, needed="false")[0], warned=False)
-        self.assert_green(self.verdict(0, client=False)[0], warned=True)
-
-    def test_a_package_name_that_is_not_a_directory_name_is_no_verdict(self) -> None:
-        for packages in ("", "../x", "Alpha;rm"):
-            with self.subTest(packages=packages):
-                done, argv = self.verdict(1, packages=packages)
-                self.assert_green(done, warned=True)
-                self.assertEqual(argv, [])
-
-    def test_the_plan_output_names_package_directories(self) -> None:
-        plan = WORKFLOW.read_text().split("\n  plan:\n", 1)[1].split("\n  compile:\n", 1)[0]
-        self.assertIn("packages: ${{ steps.plan.outputs.packages }}", plan)
-        line = next(l.strip() for l in plan.splitlines() if l.strip().startswith('echo "packages='))
-        with tempfile.TemporaryDirectory() as scratch:
-            (Path(scratch) / "plan.txt").write_text(
-                "Packages/macOS/CmuxNext CmuxNextActionsTests\nPackages/Shared/CmuxUpdater\n\n")
-            out = Path(scratch) / "out"
-            subprocess.run(["bash", "-c", line], env={**os.environ, "RUNNER_TEMP": scratch, "GITHUB_OUTPUT": str(out)},
-                           check=True, timeout=30)
-            self.assertEqual(out.read_text(), "packages=CmuxNext CmuxUpdater\n")
-
-    def test_it_never_takes_the_required_compiles_gateway(self) -> None:
-        # Each gateway job holds a fleet runner while its client waits on the controller, so the advisory
-        # check has its own label; on the required compile's it starved cmux-next app compile (2026-10-22).
-        job = WORKFLOW.read_text().split("\n  compile:\n", 1)[1]
-        self.assertNotIn("CI_COMPILE_CHECK_GATEWAY", job)
-        runs_on = re.search(r"^    runs-on: (.*)$", job, re.M).group(1)
-        condition = re.search(r"^    if: (.*)$", job, re.M).group(1)
-        self.assertIn("vars.CI_TEST_COMPILE_GATEWAY", runs_on)
-        self.assertIn("vars.CI_TEST_COMPILE_GATEWAY != ''", condition)
-
-    def test_the_job_outlasts_the_client_so_a_slow_fleet_never_reads_red(self) -> None:
-        # A GitHub job timeout concludes as a failure: the client's queue and run
-        # timeouts must end first, with room for the client to report.
-        text = WORKFLOW.read_text()
-        job = text.split("\n  compile:\n", 1)[1]
-        minutes = int(re.search(r"^    timeout-minutes: (\d+)$", job, re.M).group(1))
-        queue = int(re.search(r"--queue-timeout (\d+)", job).group(1))
-        run = int(re.search(r"--timeout (\d+)", job).group(1))
-        self.assertGreaterEqual(minutes * 60, queue + run + 300, (minutes, queue, run))
+    def test_the_tip_compile_still_runs_after_every_merge(self) -> None:
+        # 2026-11-21: in the post-merge batch (suite tip-test-compile), not on each push.
+        tip = (ROOT / ".github" / "workflows" / "cmux-next-tip-test-compile.yml").read_text()
+        self.assertIn("workflow_call:", tip)
+        self.assertNotIn("full-ci", tip)
+        suite = json.loads((ROOT / ".github" / "post-merge-batch.json").read_text())["suites"]["tip-test-compile"]
+        self.assertEqual(suite["workflow"], "cmux-next-tip-test-compile.yml")
+        self.assertIn("Packages/**", suite["paths"])
 
 
 if __name__ == "__main__":

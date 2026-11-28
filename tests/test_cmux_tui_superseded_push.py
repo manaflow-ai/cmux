@@ -111,7 +111,7 @@ def run_check(api, repo, script, event, ref, sha, extra=None):
     open(output, "w").close()
     env = git_fixture_env.fixture_env({"PATH": os.environ["PATH"], "HOME": repo, "GITHUB_OUTPUT": output,
            "GITHUB_API_URL": api.url, "GITHUB_REPOSITORY": REPO, "GH_TOKEN": "x",
-           "EVENT_NAME": event, "REF": ref, "SHA": sha, "KEY": "", "RUN_ID": "100"})
+           "EVENT_NAME": event, "REF": ref, "SHA": sha, "KEY": "", "RUN_ID": "100", "RUN_ATTEMPT": "1"})
     env.update(extra or {})
     result = subprocess.run(["bash", "-e", "-c", script], cwd=repo, env=env, capture_output=True, text=True, timeout=60)
     values = dict(line.split("=", 1) for line in open(output).read().splitlines() if "=" in line)
@@ -194,8 +194,14 @@ def check_verdicts():
             ("a pin runs when the API fails", "push", pin, merge, dict(merge_commit, **{pulls_path: (502, {})}), "false"),
             ("a pin runs when its commit lookup fails", "push", pin, merge,
              {merge_path: (502, {}), pulls_path: (200, [pull(7, newer)])}, "false"),
-            ("a feat-cmux-next push is never superseded here", "push", "refs/heads/feat-cmux-next", head,
-             {"git/ref/heads/feat-cmux-next": (200, {"object": {"sha": newer}})}, "false"),
+            # 2026-11-20 (ask-f0b851df7a): tree-preflight builds only the feat-cmux-next tip; the newer push's
+            # run publishes it, and a re-run (cmux-tui-tree-request.yml) builds any one commit on demand.
+            ("a feat-cmux-next push that is no longer the tip skips its builds", "push", "refs/heads/feat-cmux-next",
+             head, {"git/ref/heads/feat-cmux-next": (200, {"object": {"sha": newer}})}, "true"),
+            ("a feat-cmux-next push at the tip builds", "push", "refs/heads/feat-cmux-next", head,
+             {"git/ref/heads/feat-cmux-next": (200, {"object": {"sha": head}})}, "false"),
+            ("a feat-cmux-next push builds when its head cannot be read", "push", "refs/heads/feat-cmux-next", head,
+             {"git/ref/heads/feat-cmux-next": (502, {})}, "false"),
             ("a main push is never superseded here", "push", "refs/heads/main", head,
              {"git/ref/heads/main": (200, {"object": {"sha": newer}})}, "false"),
             ("a next-batch push is never superseded here", "push", "refs/heads/next-batch/abc", head,
@@ -254,8 +260,30 @@ def check_verdicts():
             api.reset(routes)
             got = run_check(api, repo, script, event, ref, sha)
             _check(got == want, f"tree-preflight: {why} ({got!r}, want {want!r})")
-            if ref in ("refs/heads/feat-cmux-next", "refs/heads/main") or event != "push":
+            if ref == "refs/heads/main" or event != "push":
                 _check(api.requests == [], f"tree-preflight: {why} without asking the API ({api.requests})")
+
+        # A re-run of a feat-cmux-next push is a request for that commit's tree (cmux-tui-tree-request.yml
+        # re-runs the commit's own run): it builds even though the branch moved.
+        api.reset({"git/ref/heads/feat-cmux-next": (200, {"object": {"sha": newer}})})
+        got = run_check(api, repo, script, "push", "refs/heads/feat-cmux-next", head, {"RUN_ATTEMPT": "2"})
+        _check(got == "false", f"tree-preflight: a re-run of a moved feat-cmux-next push builds ({got!r}, want 'false')")
+        _check(api.requests == [], f"tree-preflight: a feat-cmux-next re-run asks the API nothing ({api.requests})")
+        # A coalescing window's one build (base-coalesce.yml's base output is set) builds even once the tip
+        # moved: the window's later pushes are coalesced and build nothing (2026-11-23 05:48-07:50Z).
+        for base_out in (newer, "unknown"):
+            api.reset({"git/ref/heads/feat-cmux-next": (200, {"object": {"sha": newer}})})
+            got = run_check(api, repo, script, "push", "refs/heads/feat-cmux-next", head, {"COALESCE_BASE": base_out})
+            _check(got == "false", f"tree-preflight: a coalesce window's build of a moved feat-cmux-next push builds "
+                   f"(base {base_out!r}: {got!r}, want 'false')")
+        api.reset({"git/ref/heads/feat-cmux-next": (200, {"object": {"sha": newer}})})
+        got = run_check(api, repo, script, "push", "refs/heads/feat-cmux-next", head, {"COALESCE_BASE": ""})
+        _check(got == "true", f"tree-preflight: with coalescing off, a moved feat-cmux-next push skips ({got!r})")
+        # The daemon-test re-check keeps its rule: a feat-cmux-next push is never superseded there.
+        api.reset({"git/ref/heads/feat-cmux-next": (200, {"object": {"sha": newer}})})
+        got = run_check(api, repo, daemon_step["run"], "push", "refs/heads/feat-cmux-next", head,
+                        {"KEY": KEY, "RUN_ID": "100"})
+        _check(got == "false", f"daemon tests: a feat-cmux-next push is never superseded there ({got!r})")
 
         # actions/checkout fetches depth 1 in both jobs, so the pin commit is a
         # shallow boundary and git shows it without parents (run 38608893139
@@ -329,8 +357,12 @@ def check_verdicts():
             # Pull request heads are read over git too (refs/pull/N/head), never commits/{sha}/pulls.
             git_cases = [
                 ("a moved lane/ branch is superseded with no API call", "refs/heads/lane/moved", {}, "true", [], None),
-                ("a current lane/ head with a pull request runs with no API call",
-                 "refs/heads/lane/current", {}, "false", [], head),
+                # Build on request (#53129): a pull request's head alone builds nothing; a dispatch asked for it runs.
+                ("a current lane/ head with a pull request nobody asked about is superseded",
+                 "refs/heads/lane/current", {dispatch_path: no_dispatch}, "true", [dispatch_path], head),
+                ("a current lane/ head with a pull request a dispatch asked for runs",
+                 "refs/heads/lane/current", {dispatch_path: (200, {"total_count": 1, "workflow_runs": [{"id": 1}]})},
+                 "false", [dispatch_path], head),
                 ("a current lane/ head no pull request has is still superseded", "refs/heads/lane/current",
                  {dispatch_path: no_dispatch}, "true", [dispatch_path], None),
                 ("a current lane/ head another pull request's head does not match is superseded",
@@ -353,6 +385,24 @@ def check_verdicts():
                 _check(got == want, f"over git: {why} ({got!r}, want {want!r})")
                 paths = [r.split("?")[0].removeprefix(f"/repos/{REPO}/") for r in api.requests]
                 _check(paths == asked, f"over git: {why} asks exactly {asked} ({paths})")
+            # A rate-limited dispatch lookup is not a request: the head builds nothing (11-26: every sampled
+            # branch build was this fail-open). CMUX_TUI_ON_REQUEST_LOOKUP_FAIL_OPEN=1 keeps the run as before.
+            git(remote, "update-ref", "refs/pull/7/head", head)
+            for code in (403, 429):
+                api.reset({dispatch_path: (code, {"message": "API rate limit exceeded"})})
+                got = run_check(api, repo, script, "push", "refs/heads/lane/current", head, over_git)
+                _check(got == "true", f"over git: a {code} dispatch lookup skips an on-request head ({got!r})")
+                api.reset({dispatch_path: (code, {"message": "API rate limit exceeded"})})
+                got = run_check(api, repo, script, "push", "refs/heads/lane/current", head,
+                                dict(over_git, CMUX_TUI_ON_REQUEST_LOOKUP_FAIL_OPEN="1"))
+                _check(got == "false", f"over git: the undo keeps the run on a {code} lookup ({got!r})")
+            # CMUX_TUI_BRANCH_ON_REQUEST=0 keeps the old open-PR-head rule: that head runs, read over git only.
+            git(remote, "update-ref", "refs/pull/7/head", head)
+            api.reset({})
+            got = run_check(api, repo, script, "push", "refs/heads/lane/current", head,
+                            dict(over_git, CMUX_TUI_BRANCH_ON_REQUEST="0"))
+            _check(got == "false", f"over git: the old rule runs a current lane/ head with a pull request ({got!r})")
+            _check(api.requests == [], f"over git: the old rule asks no API for a pull request's head ({api.requests})")
             api.reset({})
             got = run_check(api, repo, script, "push", "refs/heads/feat-cmux-next-x-current", head,
                             {"CMUX_TUI_REF_REMOTE": f"file://{tmp}/missing.git"})
@@ -453,15 +503,22 @@ def check_wiring():
            "owner hand-off recheck stays off the shared workflow-token budget")
     _check((owner_wait.get("environment") or {}).get("name") == "ci-routing-agent",
            "owner-wait's protected routing token stays in its environment")
+    # cmux-next-daemon-tests enters next-cache-writer on feat-cmux-next for its R2 cargo cache (#55067); neither job
+    # enters the routing environment.
     for name in ("darwin-fallback-plan", "cmux-next-daemon-tests"):
-        _check("environment" not in all_jobs[name], f"{name} has no unused routing environment")
+        environment = all_jobs[name].get("environment")
+        environment = environment.get("name") if isinstance(environment, dict) else environment
+        _check("ci-routing-agent" not in str(environment or ""), f"{name} has no unused routing environment")
 
     daemon = all_jobs["cmux-next-daemon-tests"]
     steps = daemon["steps"]
     index = next(i for i, s in enumerate(steps) if s.get("id") == "current")
     # The re-check uses the workflow token directly; the routing App is reserved
     # for runner placement and must not spend its Actions quota here.
-    before = [s.get("id") or str(s.get("uses", "")).split("@")[0] for s in steps[:index]]
+    # The owned-lane checkout repair (tests/test_ci_owned_route_checkout_repair.py) may sit between them: it is
+    # local git only and spends no Actions quota.
+    before = [s.get("id") or str(s.get("uses", "")).split("@")[0] for s in steps[:index]
+              if s.get("name") != "Repair a reused self-hosted checkout"]
     _check(before == ["actions/checkout"], "the daemon tests re-check immediately after checkout")
     current = steps[index]
     _check(str(current.get("if")) == "github.event_name == 'push'", "only push runs re-check")

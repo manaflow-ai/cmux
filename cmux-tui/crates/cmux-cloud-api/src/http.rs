@@ -138,6 +138,10 @@ pub(crate) struct Reply {
     pub(crate) header_code: Option<String>,
     /// `Retry-After`: a rate limit's window, in seconds.
     pub(crate) retry_after: Option<String>,
+    /// `Content-Type`, as sent.
+    pub(crate) content_type: Option<String>,
+    /// `X-Artifacts-Commit`: the commit an artifacts read resolved to.
+    pub(crate) commit: Option<String>,
     pub(crate) body: Vec<u8>,
 }
 
@@ -167,10 +171,16 @@ impl Http {
     pub fn new(request: &Request) -> Result<Self, Failure> {
         let base = base_url(&request.api).map_err(Failure::Transport)?;
         let _ = rustls::crypto::ring::default_provider().install_default();
+        // A dev build's space on every request (`x-cmux-build-space`); a dev build
+        // without a usable one calls nothing rather than nightly's backend.
+        let space = cmux_build_space::headers().map_err(|e| Failure::Transport(e.to_string()))?;
         // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`); the last
-        // try connects with no connect timeout.
+        // try connects with no connect timeout. Both clients carry the space.
+        // The API base is the person's (or the build's) setting, so the gate lets its host through.
+        cmux_egress::allow_named(base.as_str());
         let clients = cmux_cloud_client::connect_retry::Clients::build(|| {
-            reqwest::Client::builder()
+            cmux_egress::client_builder("cmux_cloud_api::http")
+                .default_headers(space.clone())
                 .redirect(reqwest::redirect::Policy::none())
                 .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         })
@@ -212,8 +222,65 @@ impl Http {
         timeout: Duration,
         path: &str,
     ) -> Result<Reply, Failure> {
+        self.send_named(method, url, body, (idempotency_key, &[]), timeout, path).await
+    }
+
+    /// [`Http::send`] with `named` headers beside the auth's own: the idempotency key, and
+    /// headers that name the writer and hold no key (an Auto chat's chunk upload names its
+    /// holder and epoch, `auto_sessions.rs`). The rule below still holds: never a secret.
+    pub(crate) async fn send_named(
+        &self,
+        method: reqwest::Method,
+        url: reqwest::Url,
+        body: Option<Body>,
+        named: (Option<&str>, &[(&'static str, String)]),
+        timeout: Duration,
+        path: &str,
+    ) -> Result<Reply, Failure> {
+        let (reply, _) =
+            self.send_with(method, url, body, named, timeout, path, BodyMode::Refuse).await?;
+        Ok(reply)
+    }
+
+    /// A GET whose body past `limit` bytes is counted, not kept: the reply's body is empty then,
+    /// and the second value is the body's whole length either way (a declared length over `limit`
+    /// is read no further).
+    pub(crate) async fn send_counted(
+        &self,
+        url: reqwest::Url,
+        timeout: Duration,
+        path: &str,
+        limit: usize,
+    ) -> Result<(Reply, usize), Failure> {
+        self.send_with(
+            reqwest::Method::GET,
+            url,
+            None,
+            (None, &[]),
+            timeout,
+            path,
+            BodyMode::Count(limit),
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn send_with(
+        &self,
+        method: reqwest::Method,
+        url: reqwest::Url,
+        body: Option<Body>,
+        named: (Option<&str>, &[(&'static str, String)]),
+        timeout: Duration,
+        path: &str,
+        mode: BodyMode,
+    ) -> Result<(Reply, usize), Failure> {
+        let (idempotency_key, headers) = named;
         let mut builder =
             self.clients.fast.request(method, url).bearer_auth(&self.credential).timeout(timeout);
+        for (name, value) in headers {
+            builder = builder.header(*name, value);
+        }
         match self.auth {
             Auth::Stack => {
                 builder = builder
@@ -225,8 +292,11 @@ impl Http {
                 }
             }
             // RULE (cx-kvmz, hq-84): Authorization, Content-Type, Content-Length and x-cmux-team
-            // only. The Worker's invocation log records every other header and the URL, so no
-            // other header, no query and no path part that could hold a key is ever added.
+            // only, plus the client's x-cmux-build-space (a dev build's tag, no secret) and
+            // `owner.op`'s x-cmux-client-version (the app's version, no secret) and
+            // `vm.agent_key_create`'s x-cmux-team-id (a team id, no secret). The
+            // Worker's invocation log records every other header and the URL, so no other
+            // header, no query and no path part that could hold a key is ever added.
             Auth::Owner | Auth::Worker => {
                 if let Some(team) = &self.team {
                     builder = builder.header(crate::session::TEAM_HEADER, team);
@@ -253,58 +323,73 @@ impl Http {
             Ok(Ok(response)) => response,
         };
         let status = response.status().as_u16();
-        let header_code = response
-            .headers()
-            .get("x-cmux-vm-error")
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_owned);
-        let retry_after = response
-            .headers()
-            .get(reqwest::header::RETRY_AFTER)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_owned);
-        let body =
-            match tokio::time::timeout(timeout, bounded_body(response, crate::MAX_ANSWER_BYTES))
-                .await
-            {
-                Err(_) => return Err(Failure::TimedOut(path.to_owned())),
-                Ok(Err(BodyError::Read(e))) if e.is_timeout() => {
-                    return Err(Failure::TimedOut(path.to_owned()));
+        let header = |name: &str| {
+            response.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned)
+        };
+        let header_code = header("x-cmux-vm-error");
+        let retry_after = header(reqwest::header::RETRY_AFTER.as_str());
+        let content_type = header(reqwest::header::CONTENT_TYPE.as_str());
+        let commit = header("x-artifacts-commit");
+        let read = async {
+            match mode {
+                BodyMode::Refuse => {
+                    bounded_body(response, crate::MAX_ANSWER_BYTES).await.map(|b| {
+                        let size = b.len();
+                        (b, size)
+                    })
                 }
-                Ok(Err(BodyError::Read(e))) => return Err(Failure::Transport(transport_text(e))),
-                Ok(Err(BodyError::TooLarge(limit))) => {
-                    return Err(Failure::Transport(format!(
-                        "{path}: the answer is larger than {limit} bytes"
-                    )));
+                BodyMode::Count(limit) => {
+                    counted_body(response, limit).await.map_err(BodyError::Read)
                 }
-                Ok(Ok(bytes)) => bytes,
-            };
-        Ok(Reply { status, header_code, retry_after, body })
+            }
+        };
+        let (body, size) = match tokio::time::timeout(timeout, read).await {
+            Err(_) => return Err(Failure::TimedOut(path.to_owned())),
+            Ok(Err(BodyError::Read(e))) if e.is_timeout() => {
+                return Err(Failure::TimedOut(path.to_owned()));
+            }
+            Ok(Err(BodyError::Read(e))) => return Err(Failure::Transport(transport_text(e))),
+            Ok(Err(BodyError::TooLarge(limit))) => {
+                return Err(Failure::Transport(format!(
+                    "{path}: the answer is larger than {limit} bytes"
+                )));
+            }
+            Ok(Ok(read)) => read,
+        };
+        Ok((Reply { status, header_code, retry_after, content_type, commit, body }, size))
     }
+}
 
-    /// A classic call (`/api/runs`, [`crate::classic_runs`]: an incognito send's Run, and one made
-    /// before the daemon ran Runs) with its JSON `body` and `idempotency_key`, if any: a 2xx body
-    /// as JSON (`null` when it has none), a refusal read by [`vm_error`].
-    pub(crate) async fn classic(
-        &self,
-        method: reqwest::Method,
-        segments: &[&str],
-        query: &[(&str, String)],
-        sent: (Option<Value>, Option<&str>),
-        timeout: Duration,
-    ) -> Result<Value, Failure> {
-        let path = path_text(segments);
-        let url = self.url(segments, query);
-        let (body, key) = sent;
-        let reply = self.send(method, url, body.map(Body::Json), key, timeout, &path).await?;
-        if !reply.ok() {
-            return Err(vm_error(reply.status, &reply.body, reply.header_code.as_deref()));
-        }
-        if reply.body.iter().all(u8::is_ascii_whitespace) {
-            return Ok(Value::Null);
-        }
-        reply.json().ok_or_else(|| Failure::Decoding(format!("{path}: the answer is not JSON")))
+/// How [`Http`] reads a body: refused past [`crate::MAX_ANSWER_BYTES`], or kept to a limit and
+/// counted past it ([`counted_body`]).
+#[derive(Clone, Copy)]
+enum BodyMode {
+    Refuse,
+    Count(usize),
+}
+
+/// `response`'s body and its length: kept while it is at most `limit` bytes; past that, the bytes
+/// are dropped and only counted (memory stays at `limit`). A declared length over `limit` is
+/// answered at once, with no read.
+pub(crate) async fn counted_body(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<(Vec<u8>, usize), reqwest::Error> {
+    let declared = response.content_length().and_then(|n| usize::try_from(n).ok());
+    if let Some(declared) = declared.filter(|&n| n > limit) {
+        return Ok((Vec::new(), declared));
     }
+    let mut body = Vec::new();
+    let mut size = 0_usize;
+    while let Some(chunk) = response.chunk().await? {
+        size = size.saturating_add(chunk.len());
+        if size > limit {
+            body = Vec::new();
+        } else {
+            body.extend_from_slice(&chunk);
+        }
+    }
+    Ok((body, size))
 }
 
 /// Why [`bounded_body`] read no body.
@@ -403,3 +488,7 @@ pub(crate) fn worker_error(status: u16, body: Option<&Value>) -> Failure {
         |name: &str| error.and_then(|e| e.get(name)).and_then(Value::as_str).map(str::to_owned);
     Failure::http(status, text("code"), text("message"))
 }
+
+#[cfg(test)]
+#[path = "http_seeded_tests.rs"]
+mod seeded_tests;

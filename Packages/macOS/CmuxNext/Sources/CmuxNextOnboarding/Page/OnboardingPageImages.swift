@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowserImport
 import CmuxNextCompat
+import CmuxNextDesign
 import CmuxNextIcons
 import Observation
 
@@ -56,7 +57,7 @@ final class OnboardingPageImages {
         return encode(key, side: 16) { (try? Data(blockingContentsOf: url)).flatMap(NSImage.init(data:)) }
     }
 
-    /// The helper app's icon at 96 pt, or cmux's own until the helper is found on disk.
+    /// The helper app's icon at 96 pt (Computer Use's when its bundle names none), or cmux's own until the helper is found on disk.
     func helper(_ url: URL?) -> Image? {
         let key = "helper:\(url?.path ?? "")"
         if let image = drawn[key] { return image }
@@ -64,7 +65,7 @@ final class OnboardingPageImages {
         let fallback = Self.bitmap(NSApp.applicationIconImage, side: 96)
         return encode(key, side: 96) {
             guard let url, FileManager.checked.fileExists(atPath: url.path) else { return fallback.map { NSImage(cgImage: $0, size: .zero) } }
-            return NSWorkspace.shared.icon(forFile: url.path)
+            return ComputerUseAppIcon.image(forApp: url)
         }
     }
 
@@ -87,7 +88,10 @@ final class OnboardingPageImages {
             case .symbol(let name):
                 let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
                     .withSymbolConfiguration(.init(pointSize: 40, weight: .regular))
-                guard let bitmap = symbol.flatMap({ Self.bitmap($0, side: side) }) else { return }
+                // At its own proportions, as large as the System Settings icon's tile beside it: drawn into the
+                // square, `camera.viewfinder` (wider than tall) came out stretched and filled the whole side.
+                guard let bitmap = symbol.flatMap({ Self.centered($0, side: side, fit: ComputerUseGrantIcon.symbolFit) })
+                else { return }
                 _ = encode(key, side: side, template: true) { NSImage(cgImage: bitmap, size: .zero) }
             }
         }
@@ -109,6 +113,21 @@ final class OnboardingPageImages {
             drawn[key] = image
         }
         return nil
+    }
+
+    /// `image` at its own aspect ratio, scaled to fit a `fit`-point square and centered in a `side`-point one, as a
+    /// bitmap at 2x, to draw off the main thread.
+    private static func centered(_ image: NSImage, side: CGFloat, fit: CGFloat) -> CGImage? {
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return nil }
+        let scale = min(fit / size.width, fit / size.height)
+        let drawn = NSSize(width: size.width * scale, height: size.height * scale)
+        let canvas = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
+            image.draw(in: NSRect(x: (side - drawn.width) / 2, y: (side - drawn.height) / 2, width: drawn.width, height: drawn.height))
+            return true
+        }
+        canvas.isTemplate = image.isTemplate
+        return bitmap(canvas, side: side)
     }
 
     /// A main-actor image (a symbol, an agent mark) as a bitmap at `side` points (2x), to draw off the main thread.

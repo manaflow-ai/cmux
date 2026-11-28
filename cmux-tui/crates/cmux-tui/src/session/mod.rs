@@ -13,6 +13,9 @@ mod creation;
 mod cursor_provenance;
 mod frontend_projection;
 mod remote;
+// The scroll probe rebuilds its mirror with the app's own anchor, never a copy of it.
+#[cfg(unix)]
+pub(crate) use remote::{ScrolledBackAnchor, restore_scrolled_back_anchor, scrolled_back_anchor};
 pub(crate) mod sidebar_doc;
 mod surface_handle;
 pub(crate) mod tree;
@@ -405,6 +408,14 @@ impl Session {
         match self {
             Session::Local(_) => None,
             Session::Remote(remote) => remote.transport_disconnect_reason(),
+        }
+    }
+
+    /// Whether the daemon detached this client on someone's request (a kick).
+    pub(crate) fn disconnected_by_peer(&self) -> bool {
+        match self {
+            Session::Local(_) => false,
+            Session::Remote(remote) => remote.disconnected_by_peer(),
         }
     }
 

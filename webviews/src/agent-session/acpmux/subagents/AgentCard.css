@@ -27,9 +27,11 @@
   flex: 0 1 auto;
   max-width: none;
 }
-/* An agent session's own avatar (agentAvatar.ts), in place of its harness mark: also the sender chip's. */
+/* An agent session's own avatar (agentAvatar.ts), in place of its harness mark: also the sender chip's.
+   It never shrinks beside a long name in a flex row, so it stays a circle, not an oval. */
 .cv-agent-avatar {
   display: block;
+  flex: none;
   border-radius: 50%;
   object-fit: cover;
 }
@@ -84,16 +86,18 @@
   padding-inline-start: var(--grid-transcript-text-gap);
   max-height: 160px;
   overflow: auto;
-  font-family: var(--cv-font-mono, ui-monospace, monospace);
+  font-family: var(--cv-mono, ui-monospace, monospace);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   color: var(--cv-text-muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* A Chief's text avatar (chiefFace.ts): its letters or emoji where its picture would be. */
+/* A Chief's text avatar (chiefFace.ts): its letters or emoji where its picture would be.
+   Like a picture avatar, it never shrinks beside long text. */
 .cv-chief-text-avatar {
   display: inline-flex;
+  flex: none;
   width: 16px;
   aspect-ratio: 1;
   align-items: center;

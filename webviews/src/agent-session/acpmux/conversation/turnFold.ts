@@ -15,6 +15,7 @@
 import { foldMotion, foldMs } from "./fold";
 import { FOLD_SETTLE_MS } from "./foldAnchor";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
+import { EXIT_EASING, exitLeadMs } from "./exitLead";
 import type { LayoutGeometry } from "../conversationGeometry";
 
 /// The fold's state on the thread while it plays: "open" or "close" (the CSS and tests read it).
@@ -62,6 +63,9 @@ export type TurnFold = {
   opening: boolean;
   sessionId?: string;
   ms: number;
+  /// A close's exit lead (exitLead.ts): the copies of the rows it hides fade out over it, and nothing
+  /// moves until it ends. 0 for an open.
+  lead: number;
   /// When the motion started and when it stops (performance.now()). Every animation runs on this
   /// one clock, so an element that mounts mid-fold starts part way, in step with the rest.
   start: number;
@@ -112,6 +116,42 @@ function startTop(fold: TurnFold, id: string): number | undefined {
   return index === undefined ? undefined : topAt(fold.startRows, index) - topAt(fold.startRows, fold.startAt);
 }
 
+/// The fold copies each thread holds, recorded where a fold puts one in (`placeCopy`), so the
+/// transcript's sweep reads only them and never walks the thread's rows.
+const placedCopies = new WeakMap<HTMLElement, Set<HTMLElement>>();
+
+/// Puts a fold's `copy` in `thread` before `before`, and records it for `sweepFoldCopies`. Every fold
+/// puts its copies in through here.
+export function placeCopy(thread: HTMLElement, copy: HTMLElement, before: Node | null): void {
+  thread.insertBefore(copy, before);
+  let copies = placedCopies.get(thread);
+  if (!copies) placedCopies.set(thread, (copies = new Set()));
+  copies.add(copy);
+}
+
+/// Takes out of `thread` every fold copy (`placeCopy`) that no playing fold owns, and answers how many
+/// it took. A copy lives only while its fold plays: the fold that made it takes it out when it ends
+/// (`settleTurnEnd`, `settleTurnFold`). One left behind drew a turn's folded messages at full ink over
+/// the rows the reader scrolled to, until the page reloaded (CMUX-896). `owned`: whether a playing
+/// fold holds the copy. O(1) when the thread holds no copy, else O(copies put in since the last sweep).
+export function sweepFoldCopies(thread: HTMLElement | null, owned: (copy: HTMLElement) => boolean): number {
+  const copies = thread ? placedCopies.get(thread) : undefined;
+  if (!thread || !copies || copies.size === 0) return 0;
+  let taken = 0;
+  for (const copy of copies) {
+    // Taken out already (its fold ended): forgotten. Put in again, it is recorded again.
+    if (copy.parentElement !== thread) {
+      copies.delete(copy);
+      continue;
+    }
+    if (owned(copy)) continue;
+    copy.remove();
+    copies.delete(copy);
+    taken += 1;
+  }
+  return taken;
+}
+
 /// A copy of `row` that can sit in the thread for a moment: no ids, nothing focusable or found.
 /// How many px of `node`'s bottom its clip-path hides now (tailGlide.ts clips the row above a row
 /// gliding down under it), or 0. One style read, only while something plays on the row.
@@ -129,6 +169,11 @@ export function clippedBottom(node: HTMLElement): number {
 /// copy is taken (tailGlide.ts, over the row gliding under it) keeps that clip on the copy: a clone
 /// takes none of the row's animations, so the copy drew its whole box at once, its last lines over
 /// the row under it (the turn-end fold's ghost of the reply over the live line).
+/// A drawn row that is a running turn's clock: the live line, or the turn's header in its running
+/// phase (turns.ts `turnHeaderId`), which holds the ended line's chevron slot unseen (WorkingFor.tsx).
+export const isLiveClockNode = (node: Element) =>
+  node.classList.contains("acpmux-working") || node.querySelector(".cv-worked__chevron.is-reserved") !== null;
+
 export function ghostOf(row: HTMLElement): HTMLElement {
   const clip = clippedBottom(row);
   const copy = row.cloneNode(true) as HTMLElement;
@@ -240,14 +285,16 @@ export function startTurnFold(
     moving.set(row.node, { id: row.id, top, delta: 0, reveal: false, animations: [] });
   }
   thread.setAttribute(TURN_FOLD_ATTR, opening ? "open" : "close");
+  const lead = opening ? 0 : exitLeadMs(ms, 1, thread);
   const fold: TurnFold = {
     id,
     at,
     opening,
     sessionId,
     ms,
+    lead,
     start: now,
-    until: now + ms + FOLD_SETTLE_MS,
+    until: now + lead + ms + FOLD_SETTLE_MS,
     startRows: "geometry" in placed ? placed : { ...placed, tops: Float64Array.from(placed.tops as ArrayLike<number>) },
     startAt: at,
     moving,
@@ -256,7 +303,7 @@ export function startTurnFold(
   };
   playing.set(thread, fold);
   // The state goes when the fold is over even if nothing renders the transcript again by then.
-  setTimeout(() => endTurnFold(thread, fold), ms + FOLD_SETTLE_MS);
+  setTimeout(() => endTurnFold(thread, fold), lead + ms + FOLD_SETTLE_MS);
   return fold;
 }
 
@@ -308,9 +355,23 @@ export function playTurnFold(
   if (at < 0) return false;
   fold.at = at;
   const easing = foldMotion.easing(thread);
-  const clock = { duration: fold.ms, delay: Math.min(0, fold.start - now), easing };
+  // The move starts when the close's exit lead ends; until then each row holds where it starts
+  // (`backwards`), and the copies fade out (`exit`).
+  const clock = { duration: fold.ms, delay: Math.min(0, fold.start - now) + fold.lead, easing };
   const play = (node: HTMLElement, keyframes: Keyframe[], fill?: FillMode) => {
-    const animation = node.animate(keyframes, fill ? { ...clock, fill } : clock);
+    const held: FillMode | undefined = fold.lead > 0 ? (fill === "forwards" ? "both" : (fill ?? "backwards")) : fill;
+    const animation = node.animate(keyframes, held ? { ...clock, fill: held } : clock);
+    fold.animations.add(animation);
+    return animation;
+  };
+  /// A copy's ink going to 0 on the exit's clock: the lead, from the fold's start.
+  const exit = (node: HTMLElement) => {
+    const animation = node.animate([{ opacity: 1 }, { opacity: 0 }], {
+      duration: fold.lead,
+      delay: Math.min(0, fold.start - now),
+      easing: EXIT_EASING,
+      fill: "both",
+    });
     fold.animations.add(animation);
     return animation;
   };
@@ -363,7 +424,7 @@ export function playTurnFold(
     const place = index.get(row.id);
     // A live clock is replaced by Worked for or the activity line, rather than folded work.
     // Keeping its old words as a fading copy draws two clocks while the replacement is present.
-    if (place === undefined && node.classList.contains("acpmux-working")) continue;
+    if (place === undefined && isLiveClockNode(node)) continue;
     // Still a row, past the mounted ones: the copy slides on to its place. Gone (the close hid it):
     // it fades out where it was, under the rows sliding over it, over the whole fold (a shorter fade
     // left a blank band behind).
@@ -374,16 +435,18 @@ export function playTurnFold(
       first.translate = `0 ${row.delta}px`;
       end.translate = `0 ${to}px`;
     }
-    if (place === undefined) {
+    // Gone (the close hid it): its text leaves on the exit lead, before anything moves over its place.
+    const exits = place === undefined && fold.lead > 0;
+    if (place === undefined && !exits) {
       first.opacity = 1;
       end.opacity = 0;
-    } else if (row.reveal) {
+    } else if (place !== undefined && row.reveal) {
       first.opacity = 0;
       end.opacity = 1;
     }
-    if (Object.keys(first).length === 0) continue;
+    if (Object.keys(first).length === 0 && !exits) continue;
     const ghost = ghostOf(node);
-    thread.insertBefore(ghost, below);
+    placeCopy(thread, ghost, below);
     ghosts.add(ghost);
     fold.copies.set(row.id, ghost);
     const drop = () => {
@@ -391,9 +454,12 @@ export function playTurnFold(
       if (fold.copies.get(row.id) === ghost) fold.copies.delete(row.id);
       ghost.remove();
     };
-    const motion = play(ghost, [first, end], "forwards");
-    motion.onfinish = drop;
-    motion.oncancel = drop;
+    // The copy lasts its move, or its exit when it only fades; either ending drops it.
+    const motion = Object.keys(first).length > 0 ? play(ghost, [first, end], "forwards") : undefined;
+    const faded = exits ? exit(ghost) : undefined;
+    const last = motion ?? faded!;
+    last.onfinish = drop;
+    last.oncancel = drop;
     // The copy draws only outside the rows sliding over its place, on the same clock, so its fading
     // text never shows under theirs (`coverClip`, as the turn end's fold does: turnEndFold.ts).
     // Read only in a pass where a copy is made: each mounted row's path and box, then the copy's.

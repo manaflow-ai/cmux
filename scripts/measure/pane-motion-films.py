@@ -416,7 +416,9 @@ def send_keys(rpc, form, chord, key_window="shell", presses=1, gap_ms=250, repea
         if "error" not in said and "base_s" not in said:
             said["error"] = f"debug.key gave no start time: {reply}"
         if "error" not in said:
-            time.sleep((said.get("duration_ms") or 0) / 1000 + 0.05)  # the sequence plays in the app for this long
+            # sleep-ok: the app plays the sequence on its own clock for the duration_ms it answered; debug.key has no
+            # read of a sequence's end, so this waits that stated length.
+            time.sleep((said.get("duration_ms") or 0) / 1000 + 0.05)
         return said
     said = {"key_source": ONE_KEY, "key_window": key_window, "handled_by": [], "trace": [], "key_down_ms": []}
     if repeats:
@@ -842,7 +844,7 @@ def preflight(app, st, out, mbps, form, display):
           f"key_window={focus.get('key_window') or 'none'} display={display}", flush=True)
     name = "frames"
     rpc("debug.frames", {"action": "start"})
-    time.sleep(1.0)  # 1 s of the app's display link: the rate that the display has for this app
+    time.sleep(1.0)  # sleep-ok: the 1 s window of the app's display link that measures its frame rate
     link = rpc("debug.frames", {"action": "stop"})
     link = link if isinstance(link, dict) else {}
     if not link.get("frames"):
@@ -890,7 +892,7 @@ def preflight(app, st, out, mbps, form, display):
         one = shape()
         if not all(tabs and not any(str(t).startswith(STRESS.PROVISIONAL_TAB) for t in tabs) for _, tabs in one):
             return None
-        time.sleep(0.3)  # between the 2 reads
+        time.sleep(0.3)  # sleep-ok: the spacing of the 2 reads of this stability check (it runs under `wait`)
         return one if shape() == one else None
     settled = wait(still, 15, 0.1, cut=False)
     print(f"PREFLIGHT settle {'ok' if settled else 'not reached in 15 s (the zoom key is sent now)'}: {len(shape())} panes, "
@@ -1011,8 +1013,37 @@ class Films:
         workspace, pane, had, row["chief_tab"] = hit
         self.home = (workspace, had)
         st.focus_pane(pane)
-        time.sleep(self.opts.settle)  # the Home workspace is on the screen before the take
+        self.settle(workspace)  # the Home workspace is on the screen, its layout still, before the take
         return workspace, [pane], []
+
+    def settle(self, workspace):
+        """Waits until the window shows `workspace` and its panes, their tabs (none of them the app's stand-in for a
+        tab that the daemon does not have yet) and the focused pane read the same for --settle s (the programs,
+        the pages and the streams' first rows come up meanwhile), for --settle + 20 s at most; logs when they did not."""
+        st, quiet = self.st, max(self.opts.settle, 0.5)
+
+        def shape():
+            topology = st.topology()
+            window = st.window_showing(workspace, topology)
+            panes = st.panes(next((w for w in topology.get("workspaces") or [] if w.get("id") == workspace), None))
+            tabs = [(p.get("id"), [t.get("id") for t in p.get("tabs") or []]) for p in panes]
+            if not window or not tabs or any(str(t).startswith(STRESS.PROVISIONAL_TAB) for _, ids in tabs for t in ids):
+                return None
+            return json.dumps([window.get("focused_pane") or window.get("pane"), tabs], sort_keys=True)
+
+        deadline, last, since = time.monotonic() + quiet + 20, None, time.monotonic()
+        while time.monotonic() < deadline:
+            try:
+                now = shape()
+            except Exception:  # noqa: BLE001 (the app may not answer yet)
+                now = None
+            if now is None or now != last:
+                last, since = now, time.monotonic()
+            elif time.monotonic() - since >= quiet:
+                return True
+            time.sleep(0.1)
+        print(f"SETTLE {workspace}: the layout did not hold still for {quiet:g} s in {quiet + 20:g} s; the take starts now", flush=True)
+        return False
 
     def build(self, spec, row):
         """A new workspace, shown, with the panes of the film's set-up; returns (workspace, pane ids, stream boxes)."""
@@ -1092,7 +1123,7 @@ class Films:
         for _ in range(spec.get("tabs", 0)):
             st.add_tab(workspace, focus, "terminal")
         streams = [self.chat(pane) for pane in chats]
-        time.sleep(self.opts.settle)  # the programs, the pages and the streams' first rows are on the screen before the take
+        self.settle(workspace)  # the workspace is shown, its panes and tabs made and still, before the take
         failed = [box["reply"] for box in streams if isinstance(box["reply"], dict) and box["reply"].get("error")]
         if failed:
             raise RuntimeError(f"the chat page did not stream: {failed[0]}")
@@ -1411,12 +1442,13 @@ class Films:
                     traced = True  # before the call: a call that fails or is interrupted still gets its `stop`
                     rpc("debug.motion", {"action": "start"})
                 clock = time.monotonic()
-                time.sleep(LEAD_S)  # the film starts with the still window
+                time.sleep(LEAD_S)  # sleep-ok: the film's still lead (LEAD_S of the window before the first act)
                 row["acts"] = self.play(spec["acts"], workspace, panes, focus, key_window, clock, checks=True)
                 self.refused(row["acts"])
                 if spec.get("windows"):
                     row.update(self.new_windows(spec["windows"], had, clock))  # the film's tail starts when the app has the window
-                time.sleep(max(spec.get("tail", 1.5), MIN_FILM_S - (time.monotonic() - clock)))  # the motion's end is in the film
+                # sleep-ok: the film's tail and minimum length (the recording window after the last act)
+                time.sleep(max(spec.get("tail", 1.5), MIN_FILM_S - (time.monotonic() - clock)))
                 row["take_s"] = round(time.monotonic() - clock, 3)
             finally:
                 if traced:
@@ -1544,7 +1576,7 @@ def main():
     parser.add_argument("--repeat-ms", type=float, default=90, help="a held key's repeat interval (the default is macOS's own default setting)")
     parser.add_argument("--thread-rows", type=int, default=2000, help="rows of a chat pane's thread before it streams")
     parser.add_argument("--stream-seconds", type=float, default=25, help="how long a chat pane streams")
-    parser.add_argument("--settle", type=float, default=3.0, help="seconds between a film's set-up and its take")
+    parser.add_argument("--settle", type=float, default=3.0, help="seconds a film's set-up must hold still (window, panes, tabs) before its take")
     parser.add_argument("--launch-form", default="auto", choices=tuple(LAUNCH_FORMS),
                         help="activate: launch without CMUX_NEXT_NO_ACTIVATE (the app takes the keyboard, as a person's does), the keys as "
                              "sequences in the key window; one-key: the launcher's launch, each key-down one call; auto: activate, then one-key")

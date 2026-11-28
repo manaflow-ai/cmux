@@ -14,8 +14,9 @@
 //!   drag moves things within a window, not between apps.
 //!
 //! Foreground (asked for explicitly, allowed by policy): the window is
-//! raised and SendInput synthesizes system-wide input; the pointer goes
-//! back where the person left it. Each injection is recorded so the
+//! raised and SendInput synthesizes system-wide input for clicks and drags;
+//! the pointer goes back where the person left it. A hover is a posted
+//! WM_MOUSEMOVE either way, so it never moves the real pointer. Each injection is recorded so the
 //! person's activity tracker does not take it for theirs.
 
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
@@ -489,6 +490,22 @@ pub fn scroll(top: Hwnd, at: Point, dx: f64, dy: f64) -> DResult<ActionOutcome> 
     }
     Ok(ActionOutcome {
         note: "posted wheel messages to the window under the point".into(),
+        ..ActionOutcome::delivered("window_message").at(at)
+    })
+}
+
+/// Moves the pointer to `at` and presses nothing (a hover): a WM_MOUSEMOVE
+/// posted to the window under the point, so the person's real pointer stays
+/// put. Foreground raises the window first. (SendInput would have to leave
+/// the real pointer there, since a hover that is put back is no hover.)
+pub fn move_pointer(top: Hwnd, at: Point, delivery: Delivery) -> DResult<ActionOutcome> {
+    let (target, p) = child_at(top, at)?;
+    if delivery == Delivery::Foreground {
+        raise(top)?;
+    }
+    post(target, WM_MOUSEMOVE, 0, pure::point_lparam(p.x, p.y))?;
+    Ok(ActionOutcome {
+        note: "posted a mouse move to the window under the point".into(),
         ..ActionOutcome::delivered("window_message").at(at)
     })
 }

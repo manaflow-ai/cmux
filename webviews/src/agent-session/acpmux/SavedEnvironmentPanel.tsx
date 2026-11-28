@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
+import { Switch } from "../../ui/Switch";
 import { browseFailureMessage } from "./browseFailureModel";
 import { ChevronIcon } from "./ComposerPickers";
-import { type BrowseRequest } from "./AddProjectPanel";
-import { BROWSE_BUSY, type BrowseResult } from "./addProjectPanelModel";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "./browseProject";
 import {
   SAVED_ENVIRONMENT_NAME_LIMIT,
   savedEnvironmentReady,
@@ -243,6 +243,7 @@ export function SavedEnvironmentPanel({
                 </span>
               }
               folders={folderChoices}
+              remote={ssh}
               {...(draft.folder ? { current: draft.folder } : {})}
               onPick={(folder) => update({ folder })}
               {...(!ssh && onBrowse
@@ -255,11 +256,11 @@ export function SavedEnvironmentPanel({
         )}
         {!ssh && draft.folder && (
           <label className="acpmux-env-check">
-            <input
-              type="checkbox"
+            <Switch
+              size="sm"
               aria-label={t("environment.useWorktree")}
               checked={draft.worktree === true}
-              onChange={(event) => update({ worktree: event.target.checked })}
+              onCheckedChange={(on) => update({ worktree: on })}
             />
             <span>{t("environment.useWorktree")}</span>
           </label>
@@ -270,6 +271,7 @@ export function SavedEnvironmentPanel({
           </output>
           {browseFailed && !ssh && (
             <button type="button" className="acpmux-env-button" onClick={() => void browse()} disabled={browsing}>
+              {/* retry-prompt-ok: opens the native folder chooser again, a sheet the person must want. */}
               {t("project.retry")}
             </button>
           )}

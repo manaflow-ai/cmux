@@ -52,7 +52,9 @@ final class RowBadgeView: NSView {
     /// The room around a glyph in its cell: 2 pt for a corner badge (its 1.5 pt ring and half a
     /// point of air) and a plain glyph (the same cell, so the glyph keeps its place), 4 pt for a
     /// stack chip (2.5 pt of chip, then the ring).
-    var cellPad: CGFloat { look == .stack ? 4 : 2 }
+    var cellPad: CGFloat { look == .stack ? Self.stackCellPad : 2 }
+    /// A stack chip's room around its glyph (`cellPad`), for the callers that size a line to hold the stack.
+    static let stackCellPad: CGFloat = 4
     /// Whether any disc (a cutout ring or a stack chip) draws behind a glyph.
     var drawsBackdrop: Bool {
         zip(rings, chips).prefix(states.count).contains { !$0.isHidden || !$1.isHidden }
@@ -67,6 +69,34 @@ final class RowBadgeView: NSView {
     /// The stack chips' tone.
     var chipColor: CGColor = NSColor.clear.cgColor {
         didSet { chips.forEach { $0.backgroundColor = chipColor } }
+    }
+
+    /// What the badges say to VoiceOver (`WorkspaceRowView.badgeSummary`), as of the last configure: the words are
+    /// built when an assistive app reads them. A working row's progress tick (4 a second) configures its badge, and
+    /// each configure built the summary's localized, number-formatted parts whether anything read them or not.
+    struct SpokenBadges {
+        var badges: WorkspaceRowBadges
+        /// The stack, which says what it left out; a corner badge shows one glyph and lists every state.
+        var stacked: Bool
+    }
+    /// Set on each configure; nil says nothing (the trailing style, a placeholder row). Each set drops the built words
+    /// (a configure may follow a language change the inputs do not show); the next read builds them once.
+    var spokenBadges: SpokenBadges? {
+        didSet { spokenHelp = nil }
+    }
+    /// The words built for the current inputs: an assistive app that reads the rows over and over builds them once
+    /// per configure, never once per read.
+    private var spokenHelp: String??
+    /// How many times the words were built since launch; tests count them.
+    private(set) var spokenHelpBuilds = 0
+
+    override func accessibilityHelp() -> String? {
+        guard let spokenBadges else { return nil }
+        if let spokenHelp { return spokenHelp }
+        spokenHelpBuilds &+= 1
+        let built = WorkspaceRowView.badgeSummary(spokenBadges.badges, stacked: spokenBadges.stacked)
+        spokenHelp = .some(built)
+        return built
     }
 
     nonisolated override var isFlipped: Bool { true }

@@ -12,7 +12,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoPageView.swif
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserDownloadsPopup.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefMemoryPageService.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepySceneView.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextFloating/SleepyMode/SleepySceneView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultHostView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultListView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultRowView.swift
@@ -23,18 +23,24 @@ Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryChangeRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryInspectorView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryLineRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationChip.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationFormView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationListRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsHostingView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsPageHost.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsPageView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsPalette.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ConnectionChip.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogActionButton.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonFace.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonFaceView.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonStyle.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassButtonStyle.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HairlineDivider.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppKit.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionInFlight.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/CmuxOverlayModifier.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/PopupCardColors.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SignInButton+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/ThemedSpinner+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemeTokens+Unresolved.swift
@@ -73,11 +79,14 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugSettin
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugSettingsWindowController.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugTunableControls.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugTunableRowView.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundView.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundWindow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/SettingsPane.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/TuningPanel/TuningPanelView.swift  # Debug panel built from SwiftUI helpers in 6 allowlisted files (2 Debug settings controls, SettingsStyle, 3 shared ones); no Swift code opens it yet
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/TuningPanel/TuningPanelWindow.swift  # hosts TuningPanelView in an NSHostingView; no Swift code opens it yet
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Views/ScrollEdgeFadeModifier.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Views/SettingsStyle.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextTerminalComments/TerminalCommentsPopup.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextUiLayerPreview/UiLayerPreviewView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateSheetController.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateSheetView.swift
@@ -86,4 +95,7 @@ Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedNoticeControlsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedSwiftUIControlsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextCloudUITests/AutomationsPageTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextCloudUITests/AutomationsSignInTests.swift
+Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/ConnectionChipLayoutShiftTests.swift
+Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/NativeControlContrastAuditTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/ThinSwiftUIScrollersTests.swift
+Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/LayoutShiftProbe.swift

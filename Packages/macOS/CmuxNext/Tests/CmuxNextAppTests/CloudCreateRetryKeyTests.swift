@@ -24,12 +24,16 @@ import Testing
         var running: () -> Bool = { false }
         /// The approval request a pending answer names.
         var request = "req_1"
+        /// The backend's refusal of its approved run, sent back as the pending answer's `last_run_error`.
+        var lastRunError: JSONValue?
 
         func call(_ key: String?) throws -> JSONValue {
             keys.append(key)
             if pending > 0 || running() {
                 pending = max(pending - 1, 0)
-                throw CloudAppOpFailure(code: CloudAppOpFailure.approvalPending, message: "", details: .object(["request": .string(request)]))
+                var details: [String: JSONValue] = ["request": .string(request)]
+                if let lastRunError { details["last_run_error"] = lastRunError }
+                throw CloudAppOpFailure(code: CloudAppOpFailure.approvalPending, message: "", details: .object(details))
             }
             let slot = "\(team)|\(key ?? "")"
             let id = machines[slot] ?? "vm_\(machines.count + 1)"
@@ -45,7 +49,7 @@ import Testing
     func flow(_ backend: Backend) -> CloudMachineCreateFlow {
         CloudMachineCreateFlow(run: { _, _, key, _ in try await MainActor.run { try backend.call(key) } },
                                confirm: { _ in true },
-                               approve: { _, _, _ in },
+                               approve: { _, _, _ in nil },
                                pause: { _ in })
     }
 
@@ -79,8 +83,29 @@ import Testing
         #expect(backend.machines.count == 1)
         #expect(Set(backend.keys) == ["k1"], "a call went out with another key: \(backend.keys)")
         #expect(time.now - start >= .seconds(60))
-        #expect(time.waits.prefix(5) == [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(8)], "the backoff stays bounded: \(time.waits)")
-        #expect(time.waits.allSatisfy { $0 <= .seconds(8) })
+        #expect(time.waits.prefix(5) == [.milliseconds(250), .milliseconds(500), .seconds(1), .seconds(1), .seconds(1)], "the backoff stays short: \(time.waits)")
+        #expect(time.waits.allSatisfy { $0 <= .seconds(1) })
+    }
+
+    /// A start whose server finishes the approved create 8 s after the answer gets its machine within about a second
+    /// of that, not at the next 8 s backoff (measured: the old 1, 2, 4, 8 s waited about 3.5 s past the machine).
+    @Test func anApprovedCreateTheServerFinishesSoonIsSeenWithinASecond() async throws {
+        let backend = Backend(), time = Time()
+        let start = time.now
+        backend.pending = 1
+        backend.running = { time.now - start < .seconds(8) }
+        _ = try await timed(flow(backend), time).create(name: nil, startedByPerson: true, key: "k1")
+        let waited = time.now - start
+        #expect(waited >= .seconds(8) && waited <= .seconds(9), "the machine was ready at 8 s and seen at \(waited)")
+    }
+
+    /// A measured start's `machine` step names the approval's own parts, so a start's `stages_ms` splits the time
+    /// between the held first call and the same-key retry (the wait for `user.ensure`, then the answer).
+    @Test func aMeasuredStartMarksTheApprovalsParts() async throws {
+        let backend = Backend()
+        backend.pending = 1
+        let (_, record) = try await CloudStartStepRecord.recording { try await flow(backend).create(name: nil, startedByPerson: true, key: "k1") }
+        #expect(record.steps.map(\.name) == ["machine.ensure", "machine.approve"], "\(record.steps)")
     }
 
     @Test func anApprovedCreateStillPendingAfterTwoMinutesEndsStillPendingAndItsRetryGetsTheSameMachine() async throws {
@@ -102,12 +127,27 @@ import Testing
         #expect(Set(backend.keys) == ["k1"] && backend.machines.count == 1)
     }
 
+    /// Proof run 45821163961: staging's approved create kept failing, its pending answers carried why
+    /// (`last_run_error`), and the Mac said only "still waits for approval". The failure now names it.
+    @Test func anApprovedCreateWhoseRunKeepsFailingNamesTheRunsError() async throws {
+        let backend = Backend(), time = Time()
+        backend.running = { true }
+        backend.lastRunError = .object(["code": .string("provider.unavailable"), "message": .string("no capacity in us-east"), "at": .string("2026-11-26T14:15:00Z")])
+        let failure = CloudMachineCreateFlow.Failure.stillPending(request: "req_1", lastRunError: "provider.unavailable: no capacity in us-east")
+        await #expect(throws: failure) {
+            _ = try await timed(flow(backend), time).create(name: nil, startedByPerson: true, key: "k1")
+        }
+        #expect(CloudStrings.errorText(failure) == "\(CloudStrings.createStillPending) (provider.unavailable: no capacity in us-east)")
+        #expect(CloudAppOpFailure(code: "c", message: "", details: .object(["last_run_error": .object(["code": .string("x")])])).lastRunError == "x")
+        #expect(CloudAppOpFailure(code: "c", message: "", details: .object(["request": .string("req_1")])).lastRunError == nil)
+    }
+
     @Test func aPendingAnswerForAnotherRequestAfterTheApprovalFailsAtOnce() async throws {
         let backend = Backend(), time = Time()
         backend.running = { true }
         var create = timed(flow(backend), time)
         // The hold answered was req_1; the backend now holds the key for another request.
-        create.approve = { _, _, _ in backend.request = "req_2" }
+        create.approve = { _, _, _ in backend.request = "req_2"; return nil }
         let held = create
         await #expect(throws: CloudMachineCreateFlow.Failure.stillPending(request: "req_2")) {
             _ = try await held.create(name: nil, startedByPerson: true, key: "k1")
@@ -190,7 +230,7 @@ import Testing
         CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { await MainActor.run { backend.team } },
                                                            sent: { sends.count += 1 },
                                                            ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
-                               confirm: { _ in true }, approve: { _, _, _ in }, pause: { _ in })
+                               confirm: { _ in true }, approve: { _, _, _ in nil }, pause: { _ in })
     }
 
     @MainActor final class Sends { var count = 0 }
@@ -199,7 +239,7 @@ import Testing
         let backend = Backend()
         let flow = CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { "team_a" },
             sent: { throw CancellationError() }, ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
-            confirm: { _ in true }, approve: { _, _, _ in }, pause: { _ in })
+            confirm: { _ in true }, approve: { _, _, _ in nil }, pause: { _ in })
         await #expect(throws: CancellationError.self) {
             _ = try await flow.create(name: "cloud-chats", startedByPerson: true, key: "lost-answer")
         }
@@ -211,7 +251,7 @@ import Testing
         let backend = Backend()
         let flow = CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { await MainActor.run { backend.team } },
             sent: { backend.team = "team_b" }, ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
-            confirm: { _ in true }, approve: { _, _, _ in }, pause: { _ in })
+            confirm: { _ in true }, approve: { _, _, _ in nil }, pause: { _ in })
         await #expect(throws: ActionFailure.self) {
             _ = try await flow.create(name: "cloud-chats", startedByPerson: true, key: "lost-answer")
         }
@@ -234,7 +274,7 @@ import Testing
         let flow = CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { await MainActor.run { backend.team } },
                                                                       sent: { sends.count += 1 },
                                                                       ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
-                                          confirm: { _ in true }, approve: { _, _, _ in },
+                                          confirm: { _ in true }, approve: { _, _, _ in nil },
                                           // The install switches teams during the first retry's backoff.
                                           pause: { _ in await MainActor.run { backend.team = "team_b" } })
         await #expect(throws: ActionFailure(message: CloudStrings.createRetryOtherTeam)) {
@@ -270,6 +310,7 @@ import Testing
                                            throw CloudAppOpFailure(code: "cmux.cloud.approval_mismatch", message: "")
                                        }
                                        approvals.answered.append(request)
+                                       return nil
                                    },
                                    pause: { _ in })
         }

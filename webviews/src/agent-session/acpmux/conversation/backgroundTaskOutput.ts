@@ -38,6 +38,9 @@ export function tailLines(output: string | undefined, maxLines = 10): string | u
 export type BackgroundTaskOutputSource = {
   listProcesses(sessionId: string): Promise<unknown>;
   tailProcess(processId: string, maxBytes: number): Promise<unknown>;
+  /// The end of an acpmux background task's output and its record (`_acpmux/bg/output`), by its
+  /// `bg-…` id: what a "Background task finished: bg-…" line opens to (backgroundTurnTask.ts).
+  tailTask?(taskId: string, maxBytes: number): Promise<unknown>;
 };
 
 /// The source and the chat it reads for; none outside the app's pane (tests, the gallery's preview).
@@ -63,7 +66,9 @@ function processFor(
     return {
       id: raw.id,
       ...(Number.isInteger(raw.exitCode) ? { exitCode: raw.exitCode as number } : {}),
-      codex: raw.harness === "codex",
+      // A task acpmux's daemon runs keeps its output in acpmux's own spool, whatever the chat's
+      // harness (acpmux hub/bg_registry.rs): only a Codex harness's own process has none.
+      codex: raw.harness === "codex" && raw.daemonTask !== true,
       running: raw.state === "running",
     };
   }

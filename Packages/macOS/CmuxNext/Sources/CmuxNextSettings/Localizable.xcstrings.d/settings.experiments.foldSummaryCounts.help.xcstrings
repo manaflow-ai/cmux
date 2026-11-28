@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.foldSummaryCounts.help" : {
+      "comment" : "Settings > Advanced > Experiments: the help line under the Fold Summary Counts switch",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يذكر سطر «عمل لمدة» في الدور المكتمل أيضًا ما يخفيه، مثل: شغّل 4 أوامر، وعدّل ملفين."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Red „Radio je“ završenog poteza kaže i šta skriva, npr. pokrenuo 4 komande, uredio 2 fajla."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linjen Arbejdede i for en afsluttet tur fortæller også, hvad den skjuler, fx kørte 4 kommandoer, redigerede 2 filer."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Zeile „Gearbeitet für“ eines beendeten Zugs nennt auch, was sie verbirgt, etwa 4 Befehle ausgeführt, 2 Dateien bearbeitet."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La línea Trabajó durante de un turno terminado también dice lo que oculta, como ejecutó 4 comandos, editó 2 archivos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La ligne A travaillé pendant d’un tour terminé indique aussi ce qu’elle masque, comme 4 commandes exécutées, 2 fichiers modifiés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La riga Ha lavorato per di un turno concluso dice anche cosa nasconde, ad esempio ha eseguito 4 comandi, ha modificato 2 file."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完了したターンの「作業時間」行に、折りたたまれた内容も表示します（例: 4 件のコマンドを実行、2 件のファイルを編集）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បន្ទាត់ «បានធ្វើការរយៈពេល» នៃវេនដែលបានបញ្ចប់ ក៏ប្រាប់ពីអ្វីដែលវាលាក់ផងដែរ ដូចជា បានដំណើរការពាក្យបញ្ជា 4 បានកែឯកសារ 2។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "완료된 턴의 작업 시간 줄에 접힌 내용도 표시합니다(예: 명령 4개 실행, 파일 2개 편집)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linjen Jobbet i for en fullført tur sier også hva den skjuler, for eksempel kjørte 4 kommandoer, redigerte 2 filer."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wiersz Pracował przez zakończonej tury mówi też, co ukrywa, np. uruchomiono 4 polecenia, edytowano 2 pliki."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A linha Trabalhou por de um turno concluído também diz o que oculta, como executou 4 comandos, editou 2 arquivos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Строка «Работал» завершённого хода также говорит, что в ней скрыто, например: выполнено 4 команды, изменено 2 файла."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "บรรทัด ทำงานไป ของเทิร์นที่เสร็จแล้วจะบอกด้วยว่าซ่อนอะไรไว้ เช่น รัน 4 คำสั่ง แก้ไข 2 ไฟล์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biten bir turun Çalıştı satırı, gizlediği işi de söyler; örneğin 4 komut çalıştırdı, 2 dosya düzenledi."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рядок «Працював» завершеного ходу також каже, що в ньому сховано, наприклад: виконано 4 команди, змінено 2 файли."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dòng Đã làm việc trong của một lượt đã xong cũng cho biết nội dung bị ẩn, như đã chạy 4 lệnh, đã sửa 2 tệp."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已完成轮次的“工作了”行也会说明折叠的内容，例如：运行了 4 条命令，编辑了 2 个文件。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已完成輪次的「工作了」行也會說明摺疊的內容，例如：執行了 4 個指令，編輯了 2 個檔案。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

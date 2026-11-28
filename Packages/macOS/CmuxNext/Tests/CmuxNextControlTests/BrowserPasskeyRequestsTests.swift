@@ -19,6 +19,10 @@ import Testing
             events.withLock { $0.append("reveal \(tabID)") }
             front.withLock { _ = $0.insert(tabID) }
         }
+        @MainActor func handOver(tabID: String, during trigger: @Sendable () async throws -> Void) async throws {
+            events.withLock { $0.append("hand over \(tabID)") }
+            try await trigger()
+        }
         @MainActor func post(_ request: BrowserPasskeyRequest) async {
             events.withLock { $0.append("post \(request.tabID) \(request.agent) \(request.site)") }
         }
@@ -54,10 +58,11 @@ import Testing
         let requests = make(host)
         let raised = try await requests.raise(tabID: "tab_a", agent: "Chief", site: "npmjs.com", trigger: trigger(host, "tab_a"))
         #expect(try await requests.answer(raised.id) == .triggered)
-        #expect(host.log == ["post tab_a Chief npmjs.com", "reveal tab_a", "trigger tab_a"])
+        // The tab an agent drove refuses WebAuthn until the person takes it: handed over before the trigger.
+        #expect(host.log == ["post tab_a Chief npmjs.com", "reveal tab_a", "hand over tab_a", "trigger tab_a"])
         // A second click (banner and Home card both) runs nothing again.
         #expect(try await requests.answer(raised.id) == .unknown)
-        #expect(host.log.count == 3)
+        #expect(host.log.count == 4)
     }
 
     @Test func aTabAlreadyInFrontTriggersAtOnceWithoutABanner() async throws {
@@ -66,7 +71,7 @@ import Testing
         let requests = make(host)
         let raised = try await requests.raise(tabID: "tab_a", agent: "Chief", site: "npmjs.com", trigger: trigger(host, "tab_a"))
         #expect(raised.status == .triggered)
-        #expect(host.log == ["trigger tab_a"])
+        #expect(host.log == ["hand over tab_a", "trigger tab_a"])
     }
 
     @Test func aNewRequestForTheSameTabReplacesTheOld() async throws {

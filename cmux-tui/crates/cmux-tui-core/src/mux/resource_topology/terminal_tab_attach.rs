@@ -42,7 +42,7 @@ impl Mux {
             surface.set_name(Some(name));
         }
         let active_at = self.next_active_at();
-        let notifications = self.tree_decorations_placing(&surface);
+        let notifications = self.tab_decorations_placing(&surface);
         let mut refused = None;
         let mut joins = None;
         let attached = {
@@ -94,7 +94,7 @@ impl Mux {
                             Some((workspace.id, workspace.screens.get(screen_index)?.id))
                         })
                         .expect("live pane belongs to a screen");
-                    let entity = crate::server::tree_entity_json(
+                    let entity = crate::tree_wire::tree_entity_json(
                         &state,
                         &notifications,
                         TreeDeltaKind::TabAdded,

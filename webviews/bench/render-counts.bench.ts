@@ -4,15 +4,18 @@
 // for some reason." An event should render what it changed and nothing else:
 //   key      one composer keystroke (real key events, 80 ms apart): the composer only;
 //   token    one streamed reply delta (`loadRun`, no tool calls, no scrolling): the streaming row only;
+//   tool     one tool call added to a running turn, its call then its result (`loadTools`, no text): its row only;
 //   switch   selecting the other open chat (`selectSession`), until the page has been still for 1 s;
 //   show     the page hidden, then shown again (`visibilitychange`): nothing changed, so ideally 0;
 //   resize   one 20 px width step of the pane, 12 steps: the rows whose wrap changed;
+//   scroll   one 40 px wheel step up the transcript, 30 steps: the rows coming into view, never the composer;
+//   hover    one pointer move down the transcript, 40 moves: the hovered row's actions, never the composer;
 //   list.select / list.new   with LIST listed sessions (default 10,789, Leo's count, 2026-11-18): selecting a
 //            listed chat and starting a new chat, the pane's side of the sidebar's selection and new workspace.
 // The real pane (`?mock`: the real direct client against the in-page mock daemon), an unminified production build
 // (React Compiler on, as it ships), so component names are real. Two light chats of TURNS turns each.
 // Each row prints `RENDERS <scenario> ...` with the top components, then one summary table.
-//   bun bench/render-counts.bench.ts [turns=300] [--list 10789] [--keys 20] [--only key,token,...]
+//   bun bench/render-counts.bench.ts [turns=300] [--list 10789] [--keys 20] [--tools 20] [--only key,token,...]
 /// <reference types="bun" />
 import path from "node:path";
 import type { Page } from "playwright";
@@ -37,6 +40,7 @@ const flag = (name: string) => {
 const TURNS = Number(benchPositionals(argv.filter((arg, i) => !argv[i - 1]?.startsWith("--")))[0] ?? 300);
 const LIST = Number(flag("--list") ?? 10_789);
 const KEYS = Number(flag("--keys") ?? 20);
+const TOOLS = Number(flag("--tools") ?? 20);
 const ONLY = flag("--only")?.split(",");
 const want = (name: string) => !ONLY || ONLY.includes(name);
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
@@ -47,11 +51,23 @@ const rows: Row[] = [];
 const record = (scenario: string, per: string, counts: RenderCounts, ms: number) => {
   rows.push({ scenario, per, counts, ms });
   console.log(formatRenderCounts(`${scenario} (per ${per})`, counts));
-  const why = Object.entries(counts.why)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 16)
-    .map(([cause, count]) => `${cause}=${count}`);
-  console.log(`WHY ${scenario}: ${why.join(" | ")}`);
+  // Every cause, packed into short lines: a CI log cuts a long line short and keeps only its last lines, and
+  // the long tail is where a missing memo hides.
+  const pack = (label: string, entries: [string, number][]) => {
+    let line = "";
+    for (const [name, count] of entries.sort((a, b) => b[1] - a[1])) {
+      const item = `${name}=${Math.round(count * 100) / 100}`;
+      if (line && line.length + item.length > 300) {
+        console.log(`${label} ${scenario}: ${line}`);
+        line = "";
+      }
+      line += (line ? " | " : "") + item;
+    }
+    if (line) console.log(`${label} ${scenario}: ${line}`);
+  };
+  pack("WHY", Object.entries(counts.why));
+  pack("MOUNT", Object.entries(counts.mountsByComponent));
+  pack("STARTS", Object.entries(counts.starts ?? {}));
 };
 
 /// Two frames and a task after them: whatever the event scheduled has committed.
@@ -77,7 +93,10 @@ const now = (page: Page) => page.evaluate(() => performance.now());
 
 async function openPane(page: Page, port: number, list: number) {
   await page.addInitScript((count) => {
-    (globalThis as { cmuxAcpmuxMockListSize?: number }).cmuxAcpmuxMockListSize = count;
+    const mock = globalThis as { cmuxAcpmuxMockListSize?: number; cmuxAcpmuxMockPaged?: boolean };
+    mock.cmuxAcpmuxMockListSize = count;
+    // The list in pages of the client's `limit`, as acpmux sends it (mock.ts `listPage`).
+    mock.cmuxAcpmuxMockPaged = true;
   }, list);
   await addRenderCountProbe(page);
   await installReactWatch(page);
@@ -142,6 +161,28 @@ try {
       await settle(page, 1000);
     }
 
+    if (want("tool")) {
+      // The turn starts and its first calls land outside the window, so it counts only calls added to a running
+      // turn: each a new row (its call, then 60 ms later its result), as a coordinator's chat gets them.
+      const loadTools = (count: number, keepOpen: boolean) =>
+        page.evaluate(
+          ([n, open]) => (window as any).cmuxAcpmuxDebug.loadTools({ count: n, gap_ms: 60, keep_open: open }),
+          [count, keepOpen] as const,
+        ) as Promise<Record<string, any>>;
+      const warm = await loadTools(2, true);
+      if (warm.error) throw new Error(`loadTools: ${warm.error}`);
+      await settle(page, 500);
+      await renderCountsReset(page);
+      const t0 = await now(page);
+      const added = await loadTools(TOOLS, true);
+      await settle(page, 300);
+      const ms = ((await now(page)) - t0 - 300) / TOOLS;
+      record("tool", "tool call", perEvent(await renderCountsTake(page), TOOLS), ms);
+      await loadTools(0, false);
+      if (added.tools !== TOOLS) throw new Error(`loadTools added ${added.tools} of ${TOOLS}`);
+      await settle(page, 1000);
+    }
+
     if (want("switch")) {
       for (const [label, target] of [
         ["switch", a],
@@ -184,6 +225,40 @@ try {
       }
       const ms = ((await now(page)) - t0) / steps;
       record("resize", "20px step", perEvent(await renderCountsTake(page), steps), ms);
+      await page.setViewportSize({ width: 1200, height: 800 });
+      await settle(page, 500);
+    }
+
+    // Leo, 2026-11-08: the composer "re-renders on hover plus scroll". Neither should render the composer at all.
+    if (want("scroll")) {
+      const steps = 30;
+      await page.locator(".acpmux-scroll").hover();
+      await settle(page, 300);
+      await renderCountsReset(page);
+      const t0 = await now(page);
+      for (let i = 0; i < steps; i += 1) {
+        await page.mouse.wheel(0, -40);
+        await settle(page);
+      }
+      const ms = ((await now(page)) - t0) / steps;
+      record("scroll", "40px wheel", perEvent(await renderCountsTake(page), steps), ms);
+      await settle(page, 500);
+    }
+
+    if (want("hover")) {
+      const box = await page.locator(".acpmux-scroll").boundingBox();
+      if (!box) throw new Error("hover: no transcript");
+      const steps = 40;
+      await page.mouse.move(box.x + box.width / 2, box.y + 10);
+      await settle(page, 300);
+      await renderCountsReset(page);
+      const t0 = await now(page);
+      for (let i = 1; i <= steps; i += 1) {
+        await page.mouse.move(box.x + box.width / 2, box.y + 10 + ((box.height - 20) * i) / steps);
+        await settle(page);
+      }
+      const ms = ((await now(page)) - t0) / steps;
+      record("hover", "pointer move", perEvent(await renderCountsTake(page), steps), ms);
     }
     await context.close();
   }

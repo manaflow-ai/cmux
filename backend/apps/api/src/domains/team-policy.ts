@@ -27,6 +27,19 @@ export const policyBytes = (values: unknown): number => new TextEncoder().encode
 
 export const initialPolicy = (): Policy => ({ version: 0, values: {}, updated_at: null, updated_by: null })
 
+/**
+ * The policy a team starts with when it is made (team.ensure_personal, team.stack_mirror's first mirror): idle pause on
+ * (Leo, 2026-11-23: "well, if this is the whole point of the product, then obviously, yes."). Mode `default`, so the
+ * per-team switch stays (team.policy.update). A team made before this stored no key and keeps reading off
+ * (cloudPolicyOf), which is why this is a seed for new teams and not policyProductDefaults.
+ */
+export const NEW_TEAM_POLICY_VALUES = { "cloud.idlePause": { value: true, mode: "default" } } as const satisfies PolicyValues
+export const newTeamPolicy = (): Policy => ({ ...initialPolicy(), values: { ...NEW_TEAM_POLICY_VALUES } })
+
+/** `state` with the new-team policy when this op makes the team (no team and no policy yet); any other state unchanged. */
+export const withNewTeamPolicy = <S extends PolicyState & { readonly team: unknown }>(state: S): S =>
+  state.team === null && state.policy === undefined ? { ...state, policy: newTeamPolicy() } : state
+
 export interface PolicyState {
   readonly policy?: Policy
   readonly policy_history?: ReadonlyArray<PolicyVersion>
@@ -35,11 +48,43 @@ export interface PolicyState {
 /** Objects written before team policy existed have no policy field. */
 export const currentPolicy = (state: PolicyState): Policy => state.policy ?? initialPolicy()
 
-/** The link services this team lets members reach on its Cloud machines (cloud.connectServices; a team nobody created has the product default). */
-/** The team's Cloud policy for CloudDO: connect services and whether idle pause is on (default off). */
-export const cloudPolicyOf = (state: PolicyState | undefined): { connect_services: ReadonlyArray<string>; idle_pause: boolean } => {
-  const v = (state ? currentPolicy(state).values : {}) as Record<string, { value?: unknown } | undefined>
-  return { connect_services: connectServicesOf(state), idle_pause: v["cloud.idlePause"]?.value === true }
+/**
+ * The team's Cloud policy for CloudDO (cmux-platform), read over RPC at connect, at idle and at create: connect
+ * services, whether idle pause is on (default off), and RFD 0211's create-time limits. A list is null when the team
+ * sets no limit; `egress` is null for `full`. Team-scoped keys bind in either mode (`default` and `enforced` alike):
+ * a member's own ask can only tighten them.
+ */
+export interface CloudPolicy {
+  readonly connect_services: ReadonlyArray<string>
+  readonly idle_pause: boolean
+  readonly providers: ReadonlyArray<string> | null
+  readonly regions: ReadonlyArray<string> | null
+  readonly harnesses: ReadonlyArray<string> | null
+  readonly models: ReadonlyArray<string> | null
+  readonly egress: { readonly mode: "allowlist" | "none"; readonly presets: ReadonlyArray<string>; readonly domains: ReadonlyArray<string> } | null
+  readonly sandboxes: boolean
+  readonly projection: { readonly folders: ReadonlyArray<string> | null; readonly read_only: boolean; readonly sync_back: boolean }
+}
+
+export const cloudPolicyOf = (state: PolicyState | undefined): CloudPolicy => {
+  const values = state ? currentPolicy(state).values : {}
+  const list = (xs: ReadonlyArray<string> | undefined) => (xs === undefined ? null : [...xs])
+  const egress = values["cloud.egress"]?.value
+  return {
+    connect_services: connectServicesOf(state),
+    idle_pause: values["cloud.idlePause"]?.value === true,
+    providers: list(values["cloud.providers"]?.value),
+    regions: list(values["cloud.regions"]?.value),
+    harnesses: list(values["agents.harnesses"]?.value),
+    models: list(values["agents.models"]?.value),
+    egress: egress === undefined || egress.mode === "full" ? null : { mode: egress.mode, presets: [...(egress.presets ?? [])], domains: [...(egress.domains ?? [])] },
+    sandboxes: values["cloud.sandboxes"]?.value !== false,
+    projection: {
+      folders: list(values["projection.folders"]?.value),
+      read_only: values["projection.readOnly"]?.value === true,
+      sync_back: values["projection.syncBack"]?.value !== false
+    }
+  }
 }
 
 export const connectServicesOf = (state: PolicyState | undefined): ReadonlyArray<string> => {

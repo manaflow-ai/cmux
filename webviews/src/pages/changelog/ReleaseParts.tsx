@@ -52,7 +52,7 @@ export function Media({ media, className, strings }: { media: MediaRef; classNam
   // A before/after pair is its own control (dragged or switched), so Enlarge is a corner button.
   if (media.before && strings)
     return (
-      <figure className={`cl-media cl-media-pair ui-glass${className ? ` ${className}` : ""}`}>
+      <figure className={`cl-media cl-media-pair ui-glass ui-glass-content${className ? ` ${className}` : ""}`}>
         <MediaCompare after={src} alt={media.alt} before={media.before} strings={strings} />
         <button
           type="button"
@@ -73,7 +73,7 @@ export function Media({ media, className, strings }: { media: MediaRef; classNam
     <img key={src} src={src} alt={media.alt} loading="lazy" decoding="async" />
   );
   return (
-    <figure className={`cl-media ui-glass${className ? ` ${className}` : ""}`}>
+    <figure className={`cl-media ui-glass ui-glass-content${className ? ` ${className}` : ""}`}>
       {strings ? (
         <button type="button" className="cl-media-open" aria-label={enlarge} onClick={() => setOpen(true)}>
           {picture}
@@ -394,6 +394,20 @@ const CHANGES_PAGE = 20;
 /** A run of builds with no change a person would notice: one quiet line, never a blank row. */
 export function Maintenance({ strings }: { strings: Strings }) {
   return <p className="cl-maintenance">{strings.t("changelog.page.maintenance")}</p>;
+}
+
+/** Notes that did not load ("not available offline yet"), with the person's Try again (store.ts `retry`): a
+    terminal state carries its action, so the line never sits there with nothing to do until the page is
+    reopened (connection-state-with-no-action-or-bound.md). */
+export function NotesUnavailable({ strings, onRetry }: { strings: Strings; onRetry: () => void }) {
+  return (
+    <div className="cl-unavailable">
+      <p className="cl-muted">{strings.t("changelog.page.unavailable")}</p>
+      <Button size="sm" variant="subtle" onClick={onRetry}>
+        {strings.t("changelog.page.tryAgain")}
+      </Button>
+    </div>
+  );
 }
 
 /** The build numbers of a section, small and selectable (copy one with a double click). */

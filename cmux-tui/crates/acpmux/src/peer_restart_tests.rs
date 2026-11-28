@@ -111,7 +111,7 @@ async fn a_stable_link_that_restarts_starts_its_backoff_over() {
 /// daemon that updates does.
 async fn answer(stream: tokio::net::TcpStream, mut restart: tokio::sync::watch::Receiver<u32>) {
     use tokio_tungstenite::tungstenite::protocol::{CloseFrame, frame::coding::CloseCode};
-    let Ok(mut ws) = tokio_tungstenite::accept_async(stream).await else { return };
+    let Ok(mut ws) = crate::server::accept_ws(stream).await else { return };
     restart.borrow_and_update();
     loop {
         let frame = tokio::select! {
@@ -225,6 +225,8 @@ async fn a_peer_that_restarts_again_and_again_is_back_within_a_second_each_time(
     let running = tokio::spawn(peer.clone().run());
     daemon.accepted().await;
     while !matches!(next_notice(&mut notices).await, PeerNotice::Connected) {}
+    let redials = &crate::gauges::links().link_redials;
+    let before = redials.load(Ordering::Relaxed);
     let mut waits = Vec::new();
     for _ in 0..3 {
         daemon.restart(1);
@@ -232,6 +234,7 @@ async fn a_peer_that_restarts_again_and_again_is_back_within_a_second_each_time(
         waits.push(daemon.accepted().await.duration_since(refused));
         while !matches!(next_notice(&mut notices).await, PeerNotice::Connected) {}
     }
+    assert!(redials.load(Ordering::Relaxed) >= before + 3);
     eprintln!("wait after the refused attempt, restarts 1-3: {waits:?}");
     assert!(waits[0] < FIRST_NEXT_ATTEMPT_WITHIN, "{waits:?}");
     assert!(waits.iter().all(|w| *w < NEXT_ATTEMPT_WITHIN), "{waits:?}");
@@ -249,6 +252,7 @@ async fn a_handshake_that_fails_once_reconnects_within_a_second() {
     let (tx, mut notices) = mpsc::channel(64);
     let url = format!("ws://127.0.0.1:{}", daemon.port);
     let peer = Peer::new("huge-blue", &url, None, None, tx);
+    peer.refuse_early(); // the fake daemon is a plain tungstenite accept, as before the early request
     let running = tokio::spawn(peer.clone().run());
     let refused = daemon.accepted().await;
     let wait = daemon.accepted().await.duration_since(refused);
@@ -305,7 +309,7 @@ async fn answer_pages(
     mut restart: tokio::sync::watch::Receiver<u32>,
     pages: mpsc::UnboundedSender<(usize, usize)>,
 ) {
-    let Ok(mut ws) = tokio_tungstenite::accept_async(stream).await else { return };
+    let Ok(mut ws) = crate::server::accept_ws(stream).await else { return };
     restart.borrow_and_update();
     let gap = if conn == 0 { Duration::ZERO } else { PAGE_GAP };
     loop {
@@ -456,6 +460,7 @@ async fn a_far_restart_makes_the_link_ready_before_its_list_is_read() {
     let (tx, mut notices) = mpsc::channel(256);
     let url = format!("ws://127.0.0.1:{}", daemon.port);
     let peer = Peer::new("far", &url, None, None, tx);
+    peer.refuse_early(); // the fake daemon is a plain tungstenite accept, as before the early request
     let running = tokio::spawn(peer.clone().run());
     let first = relink(&mut daemon, &mut notices, 0, Instant::now()).await;
     assert_eq!(first.lists.len(), 1, "one list on the first link");
@@ -496,4 +501,49 @@ async fn a_far_restart_makes_the_link_ready_before_its_list_is_read() {
     peer.stop();
     let _ = tokio::time::timeout(Duration::from_secs(10), running).await;
     daemon.task.abort();
+}
+
+/// A link's end sorts by typed facts the attempt left, never its error text: a refused ssh login
+/// is `auth`, a restart's Close 1012 a clean close, a deadline passed (the connect's, counted only
+/// inside the link's own dial, or the handshake's) `deadline_exceeded`, any other failure
+/// transient.
+#[tokio::test]
+async fn login_refused_link_end_is_auth() {
+    use acpmux_list_types::resume::ResumeErrorClass;
+    use std::sync::atomic::AtomicBool;
+    let (tx, _notices) = mpsc::channel(64);
+    let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+    let mut out_rx = peer.out_rx.lock().await.take().expect("the outbound queue");
+
+    test_dial::refuse_login_all();
+    let outcome = peer.connect_once(&mut out_rx).await;
+    test_dial::clear();
+    assert!(outcome.is_err(), "{outcome:?}");
+    assert_eq!(peer.link_end_class(&outcome), ResumeErrorClass::Auth);
+
+    test_dial::refuse_all();
+    let outcome = peer.connect_once(&mut out_rx).await;
+    test_dial::clear();
+    assert!(outcome.is_err(), "{outcome:?}");
+    assert_eq!(peer.link_end_class(&outcome), ResumeErrorClass::Transient);
+
+    assert_eq!(peer.link_end_class(&Ok(LinkEnd::Restarting)), ResumeErrorClass::CleanClose);
+    peer.link_timed_out.store(true, Ordering::SeqCst);
+    let timed_out = Err("handshake timed out after 90s".to_owned());
+    assert_eq!(peer.link_end_class(&timed_out), ResumeErrorClass::DeadlineExceeded);
+
+    // A connect deadline counts only inside the link's dial; a probe's is never counted.
+    let flag = Arc::new(AtomicBool::new(false));
+    let _ = connect_timed_out(Duration::from_secs(30));
+    DIAL_TIMED_OUT
+        .scope(flag.clone(), async {
+            let _ = connect_timed_out(Duration::from_secs(30));
+        })
+        .await;
+    assert!(flag.load(Ordering::SeqCst));
+    assert_eq!(
+        crate::peer_link::link_end_class(false, false, true),
+        ResumeErrorClass::DeadlineExceeded
+    );
+    assert_eq!(crate::peer_link::link_end_class(false, true, true), ResumeErrorClass::Auth);
 }

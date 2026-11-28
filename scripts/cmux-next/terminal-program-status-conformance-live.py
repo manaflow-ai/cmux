@@ -28,6 +28,7 @@ import argparse, base64, glob, json, os, signal, socket, subprocess, sys, tempfi
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -183,7 +184,8 @@ def new_workspace(name):
     if not new:
         raise SystemExit(f"no terminal after workspace new ({name})")
     cli("workspace", "current", "rename", name)  # best effort: names the source in banners
-    time.sleep(2)  # the shell draws its first prompt (harness wait)
+    if not wait(lambda: read_screen(new[0]).strip(), 20):  # the shell draws its first prompt
+        print(f"no prompt yet in {new[0]} ({name})", flush=True)
     return new[0]
 
 
@@ -288,7 +290,9 @@ try:
               "&& status done 'Photos synced' || status error 'rsync failed'")
     step("rsync-working", term, lambda r: r.get("", {}).get("state") == "working" and r[""].get("msg") == "Syncing photos")
     step("rsync-done", term, lambda r: r.get("", {}).get("state") == "done" and r[""].get("msg") == "Photos synced")
-    time.sleep(2)  # past the next prompt (harness wait)
+    # Past the next prompt: the shell finished the line and its screen stopped changing.
+    wait_stable(lambda: read_screen(term), "the prompt after rsync", timeout=15, interval=0.25, reads=4,
+                raise_on_timeout=False)
     step("rsync-done-after-prompt", term, lambda r: r.get("", {}).get("state") == "done")
     run(term, "rsync -a /tmp/osc7501-rsync/missing/ /tmp/osc7501-rsync/dst/ 2>/dev/null "
               "&& status done 'Photos synced' || status error 'rsync failed'")
@@ -325,13 +329,16 @@ try:
     # 4. BEL terminator, 5. discarded reports, 6. bidi.
     run(term, osc("state=working:app=bel", end="\\007") + "; sleep 4")
     step("bel", term, lambda r: r.get("", {}).get("app") == "bel")
-    time.sleep(5)
+    # The `sleep 4` ends: its prompt ends the working record.
+    wait(lambda: "" not in by_id(status(term)), 15)
     run(term, osc("state=done:app=baseline"))
     step("discard-baseline", term, lambda r: r.get("", {}).get("app") == "baseline")
     bad = ["state=sleeping:app=bad1", "state=done:app=bad2:msg=a", f"state=done:app=bad3:msg={b64('a' + chr(10) + 'b')}",
            "state=done:app=bad4:msg=" + "QUFB" * 920, "state=done:app=bad5:id=a//b"]
     run(term, "; ".join(osc(body) for body in bad))
-    time.sleep(2)  # harness wait: the reports are processed in order
+    # The reports are processed in order: the records and the screen (the shell's next prompt) stop changing.
+    wait_stable(lambda: (json.dumps(status(term)), read_screen(term)), "the discarded reports", timeout=15,
+                interval=0.25, reads=4, raise_on_timeout=False)
     step("discarded", term, lambda r: r.get("", {}).get("app") == "baseline" and "a//b" not in r)
     run(term, osc(f"state=done:app=bidi:msg={b64('ok' + chr(0x202E) + 'gnp.exe' + chr(0x200B))}"))
     step("bidi", term, lambda r: r.get("", {}).get("msg") == "okgnp.exe")
@@ -384,14 +391,21 @@ try:
     # 9. The cmux TUI attached to the same daemon, in a third workspace.
     tui = new_workspace("osc7501-tui")
     sock = daemon_socket()
+    shell_screen = read_screen(tui)
     run(tui, f"'{CLI}' attach --socket '{sock}'")
-    time.sleep(4)  # harness wait: the TUI draws its first frame
+    # The TUI draws its first frame: the screen changes from the shell's and stops changing.
+    wait_until(lambda: read_screen(tui) != shell_screen, "the TUI's first frame", timeout=20, raise_on_timeout=False)
+    wait_stable(lambda: read_screen(tui), "the TUI's first frame", timeout=15, interval=0.25, reads=4,
+                raise_on_timeout=False)
     # The TUI follows the shared focus; focusing the deploy workspace keeps it
     # from drawing itself, and its sidebar lists every workspace with its marks.
     deploy_ws = workspace_named("osc7501-deploy")
+    before_focus = read_screen(tui)
     if deploy_ws:
         cli("workspace", deploy_ws, "focus")
-    time.sleep(3)  # harness wait: the TUI redraws
+        # The TUI redraws for the new focus: its screen changes, then stops changing.
+        wait_until(lambda: read_screen(tui) != before_focus, "the TUI's redraw", timeout=10, raise_on_timeout=False)
+    wait_stable(lambda: read_screen(tui), "the TUI's redraw", timeout=15, interval=0.25, reads=4, raise_on_timeout=False)
     screen = read_screen(tui)
     with open(os.path.join(OUT, "tui-screen.txt"), "w") as f:
         f.write(screen)

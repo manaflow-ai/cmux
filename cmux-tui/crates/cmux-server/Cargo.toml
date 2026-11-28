@@ -15,12 +15,16 @@ name = "cmux-server"
 path = "src/main.rs"
 
 [dependencies]
+cmux-egress = { workspace = true, features = ["blocking"] }
 cmux-json.workspace = true
 base64.workspace = true
+cmux-build-space.workspace = true
 cmux-cloud-environment.workspace = true
 cmux-server-core = { path = "../cmux-server-core" }
 # Shared elapsed authority budgets; cmux-link has no server dependency.
 cmux-link.workspace = true
+# Patience: bounded waits for a transient refusal (another apply's lock).
+cmux-tui-util.workspace = true
 futures-util.workspace = true
 flate2.workspace = true
 getrandom.workspace = true
@@ -40,5 +44,8 @@ x25519-dalek.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+# Seeded-secret tests: gated clients send to a local capture server.
+cmux-egress = { workspace = true, features = ["blocking", "capture"] }
+cmux-build-space = { workspace = true, features = ["testing"] }
 tempfile = "3"
 ring.workspace = true

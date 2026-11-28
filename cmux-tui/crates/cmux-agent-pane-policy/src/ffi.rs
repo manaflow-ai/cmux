@@ -31,7 +31,7 @@
 //! ([`CmuxAgentPaneBytes`]) belongs to the caller, who frees it with
 //! [`cmux_agent_pane_policy_bytes_free`].
 
-use crate::canonical::canonical_digest;
+use crate::canonical::{canonical_digest, canonical_json};
 use crate::check::{Checked, FrameState, GesturePick, PaneScope, check_frame, own_prompt_id};
 use crate::data::policy;
 use crate::error::Refusal;
@@ -45,7 +45,7 @@ use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type, a function or an op in the header.
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 6;
 pub const OK: i32 = 0;
 /// `filter_reply`: the method has no reply shape; the host relays the reply as it is.
 pub const NO_SHAPE: i32 = 1;
@@ -183,13 +183,21 @@ impl Pane {
 ///   turn's label ([`own_prompt_id`]).
 /// - `canonical_digest` `{value}`: `{"digest": hex|null}`, the sha256 of the
 ///   value's canonical JSON ([`canonical_digest`]); null when it has none.
+/// - `canonical_json` `{value}`: `{"json": text|null}`, the value's canonical
+///   JSON text ([`canonical_json`]), the bytes `canonical_digest` hashes; null
+///   when it has none.
 /// - `service_wait` `{process_alive, socket_accepts}`: `{"state":
 ///   "busy"|"starting"|"down", "restart": bool}`, what the pane's line says
 ///   while it waits and whether it offers Restart agent service (only when
 ///   down) ([`crate::service_wait`]).
+/// - `frame_rules` `{frame, steps, mode_fields?, question_keys?}`: `{"frame":
+///   stripped|null, "initialize_keys": [..], "dropped": [..], "params":
+///   cause|null, "answers": cause|null}` ([`frame_rules`]), the params and
+///   answers rules for a host that keeps its own pane state.
 pub fn call(op: &str, request: &Value) -> Result<Value, i32> {
     let text = |key: &str| request.get(key).and_then(Value::as_str);
     match op {
+        "new_tab_projects" => Ok(crate::new_tab_projects::snapshot(request)),
         "policy" => Ok(policy_json()),
         "refusal_frame" => {
             let refusal = text("code").and_then(Refusal::from_code).ok_or(ERR_INVALID)?;
@@ -218,7 +226,13 @@ pub fn call(op: &str, request: &Value) -> Result<Value, i32> {
             let value = request.get("value").ok_or(ERR_INVALID)?;
             Ok(json!({"digest": canonical_digest(value)}))
         }
+        "canonical_json" => {
+            let value = request.get("value").ok_or(ERR_INVALID)?;
+            Ok(json!({"json": canonical_json(value)}))
+        }
         "service_wait" => crate::service_wait::call(request).ok_or(ERR_INVALID),
+        "session_routing" => crate::session_routing::call(request).ok_or(ERR_INVALID),
+        "frame_rules" => frame_rules(request).ok_or(ERR_INVALID),
         // A pane's own op without a pane.
         op if PANE_OPS.contains(&op) => Err(ERR_NULL),
         _ => Err(ERR_UNKNOWN_OP),
@@ -361,6 +375,31 @@ pub extern "C" fn cmux_agent_pane_policy_abi_version() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_agent_pane_policy_new() -> *mut CmuxAgentPanePolicy {
     Box::into_raw(Box::new(CmuxAgentPanePolicy { pane: Pane::new() }))
+}
+
+/// The strict duplicate-key verdict on one page frame ([`crate::json_keys`]):
+/// 0 clean, 1 malformed (also: not UTF-8, empty), 2 an object with two equal
+/// keys, [`ERR_NULL`] for a null `text` with a nonzero length, [`ERR_PANIC`].
+/// No handle and no allocation: the host runs it on every frame.
+///
+/// # Safety
+///
+/// `text` is null with `text_len` 0, or points at `text_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_agent_pane_policy_json_keys_verdict(
+    text: *const u8,
+    text_len: usize,
+) -> i32 {
+    guarded(|| {
+        // SAFETY: forwarded from the caller.
+        let Some(bytes) = (unsafe { input(text, text_len) }) else { return ERR_NULL };
+        let Ok(text) = std::str::from_utf8(bytes) else { return 1 };
+        match crate::json_keys::verdict(text) {
+            crate::json_keys::Verdict::Clean => 0,
+            crate::json_keys::Verdict::Malformed => 1,
+            crate::json_keys::Verdict::Duplicate => 2,
+        }
+    })
 }
 
 /// Frees a handle from [`cmux_agent_pane_policy_new`]. Null is ignored.
@@ -644,4 +683,122 @@ pub unsafe extern "C" fn cmux_agent_pane_policy_call(
             Err(code) => code,
         }
     })
+}
+
+/// The params rule's strips and causes and the answers rule's cause for one
+/// page frame, for a host with its own pane state (the Swift relay). `steps`
+/// run in order: `initialize_opt_ins` and `unknown_params` strip the frame
+/// ([`crate::params::stripping_initialize_opt_ins`],
+/// [`crate::params::stripping_unknown_params`]); `params` and `answers` read
+/// the frame the strips left ([`crate::params::params_rule_violation`],
+/// [`crate::answers::answers_rule_violation`]). `mode_fields` null: the daemon
+/// named none. `question_keys`: the pending question's item keys for the
+/// frame's `permissionId`, null when none is pending. `frame` is null when
+/// nothing was stripped. None: a bad shape or an unknown step.
+pub fn frame_rules(request: &Value) -> Option<Value> {
+    let mut frame = request.get("frame")?.as_object()?.clone();
+    let names = |key: &str| -> Option<Option<BTreeSet<String>>> {
+        match request.get(key) {
+            None | Some(Value::Null) => Some(None),
+            Some(Value::Array(items)) => items
+                .iter()
+                .map(|item| item.as_str().map(str::to_owned))
+                .collect::<Option<BTreeSet<String>>>()
+                .map(Some),
+            Some(_) => None,
+        }
+    };
+    let mode_fields = names("mode_fields")?;
+    let question_keys = names("question_keys")?;
+    let mut changed = false;
+    let mut initialize_keys = Vec::new();
+    let mut dropped = Vec::new();
+    let mut params = Value::Null;
+    let mut answers = Value::Null;
+    for step in request.get("steps")?.as_array()? {
+        match step.as_str()? {
+            "initialize_opt_ins" => {
+                if let Some((stripped, keys)) =
+                    crate::params::stripping_initialize_opt_ins(&frame, mode_fields.as_ref())
+                {
+                    frame = stripped;
+                    initialize_keys = keys;
+                    changed = true;
+                }
+            }
+            "unknown_params" => {
+                if let Some((stripped, keys)) =
+                    crate::params::stripping_unknown_params(&frame, mode_fields.as_ref())
+                {
+                    frame = stripped;
+                    dropped = keys;
+                    changed = true;
+                }
+            }
+            "params" => {
+                params = crate::params::params_rule_violation(&frame, mode_fields.as_ref())
+                    .map_or(Value::Null, Value::String);
+            }
+            "answers" => {
+                answers = crate::answers::answers_rule_violation(&frame, |_| question_keys.clone())
+                    .map_or(Value::Null, Value::String);
+            }
+            _ => return None,
+        }
+    }
+    Some(json!({
+        "frame": if changed { Value::Object(frame) } else { Value::Null },
+        "initialize_keys": initialize_keys,
+        "dropped": dropped,
+        "params": params,
+        "answers": answers,
+    }))
+}
+
+#[cfg(test)]
+mod frame_rules_tests {
+    use super::*;
+
+    #[test]
+    fn strips_then_names_the_rule_broken() {
+        let reply = call(
+            "frame_rules",
+            &json!({
+                "frame": {"jsonrpc": "2.0", "id": 1, "method": "session/prompt",
+                          "params": {"sessionId": "s", "prompt": [], "futureTopLevel": 1}},
+                "steps": ["initialize_opt_ins", "unknown_params", "params", "answers"],
+            }),
+        )
+        .unwrap();
+        assert_eq!(reply["dropped"], json!(["futureTopLevel"]));
+        assert!(reply["frame"]["params"].get("futureTopLevel").is_none());
+        assert_eq!(reply["params"], Value::Null);
+        assert_eq!(reply["answers"], Value::Null);
+    }
+
+    #[test]
+    fn answers_without_a_question_are_refused() {
+        let reply = call(
+            "frame_rules",
+            &json!({
+                "frame": {"jsonrpc": "2.0", "id": 1, "method": "_acpmux/permission_respond",
+                          "params": {"sessionId": "s", "permissionId": "p", "optionId": "o",
+                                     "answers": {"q": "a"}}},
+                "steps": ["answers"],
+            }),
+        )
+        .unwrap();
+        assert_eq!(reply["answers"], json!("answers for no pending question"));
+        assert_eq!(reply["frame"], Value::Null);
+    }
+
+    #[test]
+    fn a_bad_shape_or_step_is_invalid() {
+        assert_eq!(call("frame_rules", &json!({"frame": 1, "steps": []})), Err(ERR_INVALID));
+        assert_eq!(call("frame_rules", &json!({"frame": {}, "steps": ["nope"]})), Err(ERR_INVALID));
+        assert_eq!(
+            call("frame_rules", &json!({"frame": {}, "steps": [], "mode_fields": 3})),
+            Err(ERR_INVALID)
+        );
+    }
 }

@@ -21,4 +21,7 @@ nonisolated struct PaletteRankerBridgeRequest: Encodable {
     let pinnedSectionIndex: Int?
     let rowLimit: Int
     let highlightLimit: Int
+    /// Section names (title, id per section index) for the query's filter tokens (`in:tabs`);
+    /// nil, left out of the JSON, on pages without filters.
+    var sectionNames: [[String]]?
 }

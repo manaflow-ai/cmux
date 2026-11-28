@@ -39,6 +39,12 @@ KEYWISE_DRIVERS = {
     "cmux-baseline-v1": "scripts/merge-baseline.py",
     "cmux-capabilities-v1": "scripts/merge-daemon-capabilities.py",
     "cmux-insertions-v1": "scripts/merge-insertions.py",
+    # Cargo.lock: package-wise, written in cargo's own order (scripts/merge-cargo-lock.py).
+    "cmux-cargo-lock-v1": "scripts/merge-cargo-lock.py",
+    # The Mac-only exports (settings schema, docs/mdm): a three-way merge, never one side.
+    "cmux-export-v1": "scripts/merge-insertions.py",
+    # Generated files: three-way when clean, else this branch's copy for the rebuild (never `true`).
+    "cmux-generated-v1": "scripts/merge-insertions.py",
 }
 WORKFLOW = ROOT / ".github/workflows/cmux-next-generated-catch-up.yml"
 
@@ -72,9 +78,8 @@ class GeneratedPaths(unittest.TestCase):
             "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
-            # Every other generated family (scripts/cmux-next/generated_merge.py), the protocol codegen included.
-            "webviews/src/protocol/generated/types.ts",
-            "webviews/src/agent-session/acpmux/protocol/generated/types.ts",
+            # Every other generated family (scripts/cmux-next/generated_merge.py), the page router included.
+            "webviews/src/pages/shared/generated/pageRouter.ts",
         ):
             self.assertTrue(self.catch_up.is_generated(path, self.patterns), path)
 
@@ -214,9 +219,10 @@ class Workflow(unittest.TestCase):
 
     def test_the_write_token_is_contents_only_on_an_ephemeral_runner(self):
         job = self.doc["jobs"]["catch-up"]
-        # A Blacksmith VM runs one job and is destroyed; no variable can move
-        # the write token to a reused mini.
-        self.assertEqual(workflow_jobs.runs_on_cells(job), ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}"])
+        # The repair JIT label (#48727: a one-job GCP VM, deleted after the job) or, with its switch
+        # off, a Blacksmith VM that runs one job and is destroyed; no variable can move the write
+        # token to a reused mini.
+        self.assertEqual(workflow_jobs.runs_on_cells(job), ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}"])
         mint = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/create-github-app-token"))
         self.assertEqual(mint["with"].get("permission-contents"), "write")
         self.assertNotIn("permission-pull-requests", mint["with"])
@@ -317,7 +323,7 @@ class KeyWiseDrivers(unittest.TestCase):
 
     def test_every_keywise_driver_in_gitattributes_is_registered_from_the_base(self):
         named = set(re.findall(r"merge=([\w.-]+)", (ROOT / ".gitattributes").read_text(encoding="utf-8")))
-        self.assertEqual(named - {"cmux-generated-v1"}, set(KEYWISE_DRIVERS))
+        self.assertEqual(named, set(KEYWISE_DRIVERS))
         trusted = self.step("Check out the base's catch-up script")["with"]["sparse-checkout"].split()
         script = self.step("Merge feat-cmux-next")["run"]
         for driver, path in KEYWISE_DRIVERS.items():

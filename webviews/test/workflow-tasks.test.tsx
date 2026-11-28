@@ -7,22 +7,32 @@
 // finished one as "Finished · 7 agents", its phases N/N, its agents under "7 finished". The data is
 // a workflow's events fed through the real fold.
 import { afterEach, expect, test } from "bun:test";
-import { pageClocks } from "../src/ui/pageClock";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { WorkflowAgentRow, WorkflowTasks } from "../src/agent-session/acpmux/session-info/WorkflowTasks";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { finishedTrayItems, trayItems, withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
-import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
-import { SUBAGENT_DONE, SUBAGENT_STARTED, WORKFLOW_CARD } from "../src/agent-session/acpmux/subagents/subagentRows";
-import { WorkflowCard } from "../src/agent-session/acpmux/summary/WorkflowCard";
-import { WorkflowSideTab } from "../src/agent-session/acpmux/summary/WorkflowSideTab";
-import { turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
-import { createWorkflowAdapter, modelName, phaseState, tally } from "../src/agent-session/acpmux/summary/foldWorkflows";
-import { workflowFixture } from "../src/agent-session/acpmux/summary/workflowFixture";
+import { importWithDom } from "./support/importWithDom";
+
+const { pageClocks } = await importWithDom(() => import("../src/ui/pageClock"));
+const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
+const { WorkflowAgentRow, WorkflowTasks } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/WorkflowTasks"),
+);
+const { finishedTrayItems, trayItems, withSubagentLines } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/runningTray"),
+);
+const { SUBAGENTS } = await importWithDom(() => import("../src/agent-session/acpmux/subagents/subagentFold"));
+const { SUBAGENT_DONE, SUBAGENT_STARTED, WORKFLOW_CARD } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/subagentRows"),
+);
+const { WorkflowCard } = await importWithDom(() => import("../src/agent-session/acpmux/summary/WorkflowCard"));
+const { WorkflowSideTab } = await importWithDom(() => import("../src/agent-session/acpmux/summary/WorkflowSideTab"));
+const { turnViewFrom } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/turns"));
+const { createWorkflowAdapter, modelName, phaseState, tally } = await importWithDom(
+  () => import("../src/agent-session/acpmux/summary/foldWorkflows"),
+);
+const { workflowFixture } = await importWithDom(() => import("../src/agent-session/acpmux/summary/workflowFixture"));
 
 const NOW = 1_800_000_000_000;
 const summaries = (stage: "running" | "finished") => createWorkflowAdapter()(workflowFixture(stage, NOW), "s1");
@@ -63,7 +73,7 @@ test("a running workflow shows its counts, tokens, model, description, closed ph
   // One group: the section's head counts it, so no group head.
   expect(html).not.toContain("acpmux-workflow-tasks__group");
   expect(shown).toContain("demo-name-tournament");
-  expect(shown).toContain("1 running · 2 queued · 3 done · 185k tokens · Opus 5.5");
+  expect(shown).toContain("1 · 2 queued · 3 done · 185k tokens · Opus 5.5");
   expect(shown).toContain("Demo: 3 agents brainstorm names");
   // Each phase is one row with its count, closed; Brainstorm has nothing left running to open.
   expect(shown).toContain("Brainstorm 3/3");
@@ -335,12 +345,15 @@ test("a running workflow keeps its elapsed clock live before agent records arriv
   expect(pageClocks(dom.window.document).running).toBe(0);
 });
 
-test("with running and finished workflows, each group says how many it holds", () => {
+// The running ones lead with no heading (Leo, 2026-11-23: ""running" doesn't need text"); the
+// finished ones keep theirs.
+test("with running and finished workflows, only the finished group says how many it holds", () => {
   const [finished] = summaries("finished");
   const html = renderToStaticMarkup(
     <WorkflowTasks workflows={[...summaries("running"), { ...finished!, id: "earlier" }]} />,
   );
-  expect(text(html)).toContain("1 running demo-name-tournament");
+  expect(text(html)).not.toContain("running");
+  expect(text(html).startsWith("demo-name-tournament")).toBe(true);
   expect(text(html)).toContain("1 finished demo-name-tournament");
 });
 
@@ -420,7 +433,7 @@ test("the transcript card shows workflow progress, latest agent text, model, tim
   const [node] = workflowFixture("running", NOW).filter((each) => each.kind === "workflow");
   const html = renderToStaticMarkup(<WorkflowCard node={{ ...node!, endedAt: node!.startedAt + 13_000 }} />);
   // Agents still queued and Judge not reached: what is done and running, not a total.
-  expect(text(html)).toContain("demo-name-tournament Running 3 done · 1 running 13s 185.1K tokens");
+  expect(text(html)).toContain("demo-name-tournament 3 done · 1 13s 185.1K tokens");
   expect(text(html)).toContain("Critique Opus 5.5");
   expect(text(html)).toContain("The latest shortlist favors names that read clearly at a glance.");
   expect(text(html)).toContain("Opus 5.5");
@@ -565,7 +578,7 @@ test("failed workflow agents show their error instead of stale output in every r
       );
       const message = document.window.document.querySelector(".acpmux-workflow-agent__doing");
       expect(message?.textContent).toBe(agent.error);
-      expect(message?.getAttribute("title")).toBe(agent.error);
+      expect(message?.getAttribute("title")).toBeNull();
       expect(accessibleName(document.window.document.querySelector("button"))).toContain(agent.error);
       expect(document.window.document.body.textContent).not.toContain("Earlier reply");
       document.window.close();

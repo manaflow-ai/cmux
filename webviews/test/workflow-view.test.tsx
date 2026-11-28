@@ -11,12 +11,21 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { backgroundCommands } from "../src/agent-session/acpmux/session-info/processes";
-import { WorkflowTasks } from "../src/agent-session/acpmux/session-info/WorkflowTasks";
-import { createWorkflowAdapter } from "../src/agent-session/acpmux/summary/foldWorkflows";
-import { WorkflowCard } from "../src/agent-session/acpmux/summary/WorkflowCard";
-import { parallelWorkflowProcesses, workflowFixture } from "../src/agent-session/acpmux/summary/workflowFixture";
-import {
+import type { WorkflowAgent } from "../src/agent-session/acpmux/summary/workflow";
+import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { importWithDom } from "./support/importWithDom";
+
+const { backgroundCommands } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/processes"));
+const { WorkflowTasks } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/WorkflowTasks"));
+const { createWorkflowAdapter } = await importWithDom(
+  () => import("../src/agent-session/acpmux/summary/foldWorkflows"),
+);
+const { WorkflowCard } = await importWithDom(() => import("../src/agent-session/acpmux/summary/WorkflowCard"));
+const { parallelWorkflowProcesses, workflowFixture } = await importWithDom(
+  () => import("../src/agent-session/acpmux/summary/workflowFixture"),
+);
+const {
   agentLine,
   agentModel,
   attributeCommands,
@@ -29,12 +38,14 @@ import {
   runningPhases,
   splitAgents,
   workflowModel,
-} from "../src/agent-session/acpmux/summary/workflowView";
-import type { WorkflowAgent } from "../src/agent-session/acpmux/summary/workflow";
-import { backgroundGroups } from "../src/agent-session/acpmux/backgroundTasks/backgroundTasks";
-import { BackgroundTasksPanel } from "../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel";
-import { SUBAGENTS, type Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
-import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+} = await importWithDom(() => import("../src/agent-session/acpmux/summary/workflowView"));
+const { backgroundGroups } = await importWithDom(
+  () => import("../src/agent-session/acpmux/backgroundTasks/backgroundTasks"),
+);
+const { BackgroundTasksPanel } = await importWithDom(
+  () => import("../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel"),
+);
+const { SUBAGENTS } = await importWithDom(() => import("../src/agent-session/acpmux/subagents/subagentFold"));
 
 const NOW = 1_800_000_000_000;
 const parallel = () => createWorkflowAdapter()(workflowFixture("parallel", NOW), "s1")[0]!;
@@ -163,7 +174,7 @@ test("Session Info lists phases closed with their counts, pending phases as plai
     <WorkflowTasks workflows={[workflow]} commands={commands.workflows} onStop={async () => undefined} />,
   );
   const shown = text(html);
-  expect(shown).toContain("5 running · 2 done · 757k tokens · Opus 5.5");
+  expect(shown).toContain("5 · 2 done · 757k tokens · Opus 5.5");
   expect(shown).toContain("Latency 0/3");
   expect(shown).toContain("Swarm research 2/4");
   // The phases no agent reached are plain pending rows, with no label saying they come next.
@@ -218,7 +229,8 @@ test("the card names every running phase, counts done and running, shows one clo
     <WorkflowCard node={{ ...node!, endedAt: node!.startedAt + 25 * 60_000 + 14_000 }} />,
   );
   const shown = text(html);
-  expect(shown).toContain("Running 2 done · 5 running 25m 14s 757.3K tokens");
+  // Running is its spinner, no word (Leo, 2026-11-23: ""running" doesn't need text").
+  expect(shown).toContain("2 done · 5 25m 14s 757.3K tokens");
   // Its last row names both running phases, then the workflow's model.
   expect(shown).toContain("Latency, Swarm research Opus 5.5");
   // Its latest line names the agent it is from: the one most recently active.

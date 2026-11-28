@@ -18,21 +18,24 @@ extension LiveCoordinator {
     @MainActor
     static func forAccount(auth: CmuxMobileAuthModel, user: CmuxMobileAuthModel.User, base: URL, store: AppStore,
                            transport: CmuxMobileModel.TransportKind, watchesConnectivity: Bool = true) -> LiveCoordinator {
-        let api = LiveAPI(baseURL: base) { [auth] in try await auth.serviceAccessToken(forceRefresh: $0) }
-        return LiveCoordinator(
+        let api = LiveAPI(baseURL: base, buildSpace: auth.buildSpace) { [auth] in try await auth.serviceAccessToken(forceRefresh: $0, forAccount: user.id) }
+        let coordinator = LiveCoordinator(
             store: store,
             api: api,
             identity: DeviceIdentity.load(userID: user.id),
             userID: user.id,
-            deviceName: UIDevice.current.name,
+            deviceName: DeviceInstanceName(device: UIDevice.current.name, bundle: .main).value,
             transport: transport.link,
             relayOnly: DeveloperOptions.relayOnly,
             blockUDP: DeveloperOptions.blockUDP,
-            dialer: FFIMacLinkDialer(),
+            dialer: FFIMacLinkDialer(buildSpace: Result { try auth.buildSpace.headerValue() }),
             keys: PhoneKeys(userID: user.id),
             push: PushKeys.current(),
             watchesConnectivity: watchesConnectivity
         )
+        coordinator.terminalSizingPeers = TerminalSizingPeers(cache: auth.lastKnownList(screen: "terminal-sizing-peers"))
+        MacTabsCardSink.shared.attach(coordinator.tabs)
+        return coordinator
     }
 }
 

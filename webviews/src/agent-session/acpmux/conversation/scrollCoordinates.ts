@@ -1,3 +1,5 @@
+import { writeScrollTop } from "./scrollController";
+
 /** The transcript's logical row coordinates may fall between the browser's physical scroll ticks. */
 export type ScrollCoordinateNode = {
   scrollTop: number;
@@ -55,7 +57,7 @@ export function clearScrollOrigin(node: ScrollCoordinateNode): void {
  * a clamp or stale write rebases instead of translating the thread by a large distance.
  */
 export function writeAnchorScrollTop(node: ScrollCoordinateNode, desiredLogicalTop: number): number {
-  node.scrollTop = desiredLogicalTop;
+  writeScrollTop(node, desiredLogicalTop, "anchor");
   return retainScrollOrigin(node, desiredLogicalTop);
 }
 

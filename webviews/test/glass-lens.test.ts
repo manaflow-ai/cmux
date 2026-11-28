@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { PNG } from "pngjs";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("glass-lens.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -99,7 +99,10 @@ await requireBrowserLane("glass-lens.test.ts", async () => {
 
   for (const [name, engine] of [
     ["chromium", chromium],
-    ["webkit", webkit],
+    // WebKit runs where it launches; where it cannot and the lane is not required, it skips (probeEngineOrSkip).
+    ...((await probeEngineOrSkip("glass-lens webkit", "webkit", webkit))
+      ? [["webkit", webkit] as [string, BrowserType]]
+      : []),
   ] as [string, BrowserType][]) {
     describe(`glass lens in ${name}`, () => {
       let browser: Browser;
@@ -124,10 +127,16 @@ await requireBrowserLane("glass-lens.test.ts", async () => {
         await page.setContent(`<!doctype html><script>${script}</script>`);
         const results = await page.evaluate(() => {
           type Sources = { vertex: string; fragment: string };
-          const sources = (window as unknown as { glassShaderSources: (dialect: string) => Sources })
+          const sources = (window as unknown as { glassShaderSources: (dialect: string, kind: string) => Sources })
             .glassShaderSources;
           const build = (gl: WebGLRenderingContext, dialect: string) => {
-            const { vertex, fragment } = sources(dialect);
+            for (const kind of ["engine", "prefilter"]) {
+              const failed = buildOne(gl, dialect, sources(dialect, kind));
+              if (failed !== "ok") return `${kind} ${failed}`;
+            }
+            return buildOne(gl, dialect, sources(dialect, "lens"));
+          };
+          const buildOne = (gl: WebGLRenderingContext, dialect: string, { vertex, fragment }: Sources) => {
             const program = gl.createProgram()!;
             for (const [type, text] of [
               [gl.VERTEX_SHADER, vertex],
@@ -304,6 +313,101 @@ await requireBrowserLane("glass-lens.test.ts", async () => {
         await frames(40);
         expect(await draws()).toBe(settled + 1);
         await page.close();
+      });
+
+      // The glass engine (ui/glass/engine): the host's ask (data-glass-engine, the Debug choice Glass
+      // Engine) draws the lens's glass with the engine's program.
+      test("the engine bends the stripes at the rim, lights the rim and leaves the center", async () => {
+        if (!webgl) return;
+        const page = await open(browser, "lens", "data-glass-engine");
+        const engineState = await page.evaluate(() =>
+          (window as unknown as { glassLensState(): { engine: boolean; drawing: boolean } }).glassLensState(),
+        );
+        expect(engineState.engine).toBe(true);
+        expect(engineState.drawing).toBe(true);
+        expect(await page.evaluate(() => document.documentElement.hasAttribute("data-glass-engine-draws"))).toBe(true);
+        if (name === "webkit" && process.platform === "linux") {
+          await page.close();
+          return;
+        }
+        const bent = await row(page);
+        const top = await row(page, BOX.y + 2);
+        await page.evaluate(() => document.documentElement.setAttribute("data-glass", "plain"));
+        await page.evaluate(() => new Promise(requestAnimationFrame));
+        expect(await canvases(page)).toBe(0);
+        expect(await page.evaluate(() => document.documentElement.hasAttribute("data-glass-engine-draws"))).toBe(false);
+        const plain = await row(page);
+        const plainTop = await row(page, BOX.y + 2);
+        await page.close();
+        expect(meanDifference(bent, plain, BOX.x + 1, BOX.x + 24)).toBeGreaterThan(40);
+        expect(meanDifference(bent, plain, BOX.x + BOX.width - 24, BOX.x + BOX.width - 1)).toBeGreaterThan(40);
+        const center = BOX.x + BOX.width / 2;
+        // The middle is flat glass: only the engine's slight zoom (2.5%) moves it.
+        expect(meanDifference(bent, plain, center - 6, center + 6)).toBeLessThan(40);
+        expect(meanDifference(bent, plain, 4, BOX.x - 4)).toBeLessThan(25);
+        // The top rim faces the key light: brighter than the page there.
+        const lit = top.slice(center - 40, center + 40).reduce((a, b) => a + b, 0);
+        const unlit = plainTop.slice(center - 40, center + 40).reduce((a, b) => a + b, 0);
+        expect(lit).toBeGreaterThan(unlit);
+      });
+
+      test("the engine blurs the still once per art blur, not per frame", async () => {
+        if (!webgl) return;
+        const page = await open(browser, "lens", "data-glass-engine");
+        const runs = () =>
+          page.evaluate(
+            () => (window as unknown as { glassLensState(): { prefilterRuns: number } }).glassLensState().prefilterRuns,
+          );
+        // The stripes were sent unblurred: nothing to prefilter.
+        expect(await runs()).toBe(0);
+        const push = (blur: number) =>
+          page.evaluate(async (value) => {
+            (window as unknown as { cmuxTheme: { backdrop(partial: unknown): void } }).cmuxTheme.backdrop({
+              blur: value,
+            });
+            for (let i = 0; i < 4; i++) await new Promise(requestAnimationFrame);
+          }, blur);
+        await push(8);
+        expect(await runs()).toBe(1);
+        // A move draws again, from the same filtered still.
+        await page.evaluate(async () => {
+          (document.querySelector(".ui-glass") as HTMLElement).style.left = "96px";
+          for (let i = 0; i < 6; i++) await new Promise(requestAnimationFrame);
+        });
+        await push(8);
+        expect(await runs()).toBe(1);
+        await push(12);
+        expect(await runs()).toBe(2);
+        await page.close();
+      });
+
+      test("the engine's motion settles: a move draws a few frames, then none; held motion draws one", async () => {
+        if (!webgl) return;
+        for (const held of [false, true]) {
+          const page = await open(
+            browser,
+            "lens",
+            held ? 'data-glass-engine data-cmux-motion="reduced"' : "data-glass-engine",
+          );
+          const draws = () =>
+            page.evaluate(() => (window as unknown as { glassLensState(): { draws: number } }).glassLensState().draws);
+          const frames = (count: number) =>
+            page.evaluate(async (n) => {
+              for (let i = 0; i < n; i++) await new Promise(requestAnimationFrame);
+            }, count);
+          await frames(40);
+          const settled = await draws();
+          await page.evaluate(() => {
+            (document.querySelector(".ui-glass") as HTMLElement).style.left = "140px";
+          });
+          await frames(80);
+          const moved = await draws();
+          await frames(40);
+          expect(await draws()).toBe(moved);
+          if (held) expect(moved).toBe(settled + 1);
+          else expect(moved).toBeGreaterThan(settled + 3);
+          await page.close();
+        }
       });
 
       test("the lens stops and removes its canvas when the glass leaves", async () => {

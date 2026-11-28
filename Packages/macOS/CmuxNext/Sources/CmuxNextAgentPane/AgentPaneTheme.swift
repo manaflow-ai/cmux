@@ -21,7 +21,7 @@ enum AgentPaneTheme {
         let page = pageColor(tokens, surface: surface)
         var opaquePage = tokens.contentBackground
         opaquePage.alpha = 1
-        return [
+        var values: [String: any Sendable] = [
             "isDark": tokens.isDark,
             "pageBackground": css(page),
             "surfaceBackground": css(page),
@@ -38,11 +38,11 @@ enum AgentPaneTheme {
             "borders": Borders.current.mode.rawValue,
             // Transcript response focus outlines follow the same optional focus-ring setting.
             "focusRingEnabled": DesignSettings.shared.focusRing.enabled,
+            // appearance.agentSignature: the running line draws the agent's dot glyph (off by default).
+            "agentSignature": DesignSettings.shared.agentSignature,
             // Debug Settings agentPane.debug.turnActionsPlacement, pushed with the theme so open
             // transcript footers follow the setting without reloading the page.
             "turnActionsPlacement": AgentPaneTunables.turnActionsPlacement.value.rawValue,
-            // Debug Settings agentPane.debug.subagentTray (AgentPaneTunables+SubagentTray.swift).
-            "subagentTray": AgentPaneTunables.subagentTray.value,
             "text": css(tokens.textPrimary),
             "mutedText": css(tokens.textSecondary),
             "softText": css(tokens.textTertiary),
@@ -75,7 +75,14 @@ enum AgentPaneTheme {
             "statusIndicators": motion.reduceMotion || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated",
             // How agent work shows on the transcript's running rows (`data-working-look`).
             "workingLook": StatusWorkingLook.tunable.value.rawValue,
+            // appearance.homeCardStyle: how Home's and the New Tab page's cards draw (`data-home-cards`).
+            "homeCardStyle": DesignSettings.shared.homeCardStyle.rawValue,
         ]
+        // The theme file's slot variants as the daemon resolved them (theme.ts configureThemeSlots);
+        // none sends no `slots` key, so every slot keeps its default.
+        let slots = DesignSettings.shared.themeSlots
+        if !slots.isEmpty { values["slots"] = slots }
+        return values
     }
 
     /// The page's background: the content background where panes paint it

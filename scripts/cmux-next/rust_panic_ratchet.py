@@ -38,6 +38,17 @@ count over the baseline then fails only when it is also over the base run's
 count: a base already over its row is the base's red, and the change is red
 only for hits it adds. A base run that did not finish excuses nothing.
 
+--untouched-is-base --diff-base SHA (cmux-tui-clippy-changed.py --compare-base, before it lints the base):
+a deny count over the baseline with no hit on a line `git diff -U0 SHA HEAD` adds or edits is the
+base's red, the same rule a base run that did not finish already uses. The base's standing drift (crates
+that merged over their row, or with no row, including old hits in files the change edits) then costs no
+second lint of the base; only a count with a hit on a changed line still needs the base run to judge.
+
+--record-base writes each checked crate's row as this run's counts, every lint, up or down: the run must
+be the same command on the tip of feat-cmux-next (cmux-tui.yml's whole-workspace step), so the baseline
+says what the base has. Rows for crates the run did not check stay. A PR judged against a baseline the
+base is over lints the base a second time; recording the base is what keeps that from happening.
+
 --cargo-log is the same run's cargo stderr. When a run did not finish because
 cargo refused to update a stale Cargo.lock under --locked, the ratchet names the
 lockfile and `scripts/cmux-next/cargo-locks.py fix` instead of a partial build:
@@ -188,6 +199,8 @@ def read_clippy(path):
                 continue
             if "custom-build" in (item.get("target") or {}).get("kind", []):
                 continue  # build scripts run at build time, never in a daemon
+            if "example" in (item.get("target") or {}).get("kind", []):
+                continue  # examples ship nowhere; the run selects them only to unify features as --all-targets does
             message = item.get("message") or {}
             code = (message.get("code") or {}).get("code") or ""
             if not code.startswith("clippy::"):
@@ -267,16 +280,83 @@ def _changed_first(root, locations, base_locations=None):
     if base_locations is not None:
         on_base = per_file(base_locations)
         grown = {name for name, count in per_file(locations).items() if count > on_base[name]}
+    changed = changed_files(root)
+    return sorted(locations, key=lambda loc: (loc.split(":", 1)[0] not in grown,
+                                              loc.split(":", 1)[0] not in changed, loc))
+
+
+# --diff-base: the commit the change is diffed against (the PR's base), instead of origin/feat-cmux-next.
+DIFF_BASE = None
+
+
+@functools.cache
+def changed_files(root):
+    """The files this change touched against origin/feat-cmux-next (or DIFF_BASE), as cmux-tui-relative paths
+    (the form a hit location takes); empty when git cannot say."""
     try:
         import subprocess
-        refresh_base(root, "origin/feat-cmux-next")
-        out = subprocess.run(["git", "-C", root, "diff", "--name-only", "origin/feat-cmux-next...HEAD"],
+        if DIFF_BASE:
+            done = subprocess.run(["git", "-C", root, "diff", "--name-only", DIFF_BASE, "HEAD"],
+                                  capture_output=True, text=True, timeout=30)
+            out = done.stdout if done.returncode == 0 else ""
+            return frozenset(line.split("cmux-tui/", 1)[-1] for line in out.splitlines())
+        # The full name: a local branch `origin/feat-cmux-next` would win over the short one (push_range.UPSTREAM).
+        refresh_base(root, "refs/remotes/origin/feat-cmux-next")
+        out = subprocess.run(["git", "-C", root, "diff", "--name-only", "refs/remotes/origin/feat-cmux-next...HEAD"],
                              capture_output=True, text=True, timeout=30).stdout
     except (OSError, subprocess.SubprocessError):
         out = ""
-    changed = {line.split("cmux-tui/", 1)[-1] for line in out.splitlines()}
-    return sorted(locations, key=lambda loc: (loc.split(":", 1)[0] not in grown,
-                                              loc.split(":", 1)[0] not in changed, loc))
+    return frozenset(line.split("cmux-tui/", 1)[-1] for line in out.splitlines())
+
+
+@functools.cache
+def changed_lines(root):
+    """{cmux-tui-relative file: frozenset of the lines this change added or edited, numbered as in HEAD}, from
+    `git diff -U0` against the same base changed_files uses; None when git cannot say."""
+    import re
+    import subprocess
+    against = [DIFF_BASE, "HEAD"] if DIFF_BASE else ["refs/remotes/origin/feat-cmux-next...HEAD"]
+    try:
+        done = subprocess.run(["git", "-C", root, "diff", "-U0", "--no-color", "--no-ext-diff", *against],
+                              capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    lines = collections.defaultdict(set)
+    current = None
+    for line in done.stdout.splitlines():
+        if line.startswith("+++ "):
+            path = line[4:]
+            current = None if path == "/dev/null" else path.split("/", 1)[-1].split("cmux-tui/", 1)[-1]
+        elif current is not None and line.startswith("@@ "):
+            match = re.match(r"@@ -\S+ \+(\d+)(?:,(\d+))? @@", line)
+            if match:
+                start, count = int(match.group(1)), int(match.group(2) or 1)
+                lines[current].update(range(start, start + count))
+    return {name: frozenset(numbers) for name, numbers in lines.items()}
+
+
+def _on_changed_line(loc, lines):
+    name, _, rest = loc.partition(":")
+    line = rest.split(":", 1)[0]
+    return line.isdigit() and int(line) in lines.get(name.split("cmux-tui/", 1)[-1], ())
+
+
+def untouched_by_change(root, locations):
+    """True when the change touched files and none of these hits is on a line it added or edited: with no base
+    run to compare, a count over the baseline the change added nothing to is the base's, not the change's (a
+    base that does not compile charged every PR, its own fix too, with the whole workspace's drift). Judged per
+    changed line, not per file: a PR that edits a file pays only for its own lines, not for the hits the file
+    already had (#63818 touched acpmux protocol/mod.rs and was charged its existing :840 unwrap). Without
+    git's line ranges it falls back to the file rule."""
+    changed = changed_files(root)
+    if not changed:
+        return False
+    lines = changed_lines(root)
+    if lines is None:
+        return not any(loc.split(":", 1)[0].split("cmux-tui/", 1)[-1] in changed for loc in locations)
+    return not any(_on_changed_line(loc, lines) for loc in locations)
 
 
 def load_baseline():
@@ -323,6 +403,28 @@ def report(checked, counts, files, fmt):
         print(f"| {crate} | " + " | ".join(str(c.get(l, 0)) for l in LINTS) + f" | {'yes' if deny else 'no'} | {top} |")
 
 
+def over_crates(baseline, checked, counts, lints=None):
+    """The checked crates with a count over their baseline row (no row: over at any hit), in LINTS (or `lints`)."""
+    lints = lints or LINTS
+    return sorted(crate for crate in checked
+                  if any(counts.get(crate, {}).get(lint, 0) > (baseline.get(crate) or {}).get(lint, 0) for lint in lints))
+
+
+def record_base(repo, baseline, checked, counts):
+    """--record-base: this run is the base, so its counts become the rows of every crate it checked."""
+    deny_before = over_crates(baseline, checked, counts, DENY_LINTS)
+    any_before = over_crates(baseline, checked, counts)
+    merged = dict(baseline)
+    for crate in checked:
+        merged[crate] = dict(counts.get(crate, collections.Counter()))
+    write_baseline(merged)
+    after = {crate: {lint: merged[crate].get(lint, 0) for lint in LINTS} for crate in merged}
+    print(f"rust-panic-ratchet: recorded {len(checked)} crates from this run in {os.path.relpath(BASELINE, repo)}; "
+          f"over the baseline before: {len(deny_before)} crates in a deny lint ({', '.join(deny_before) or 'none'}), "
+          f"{len(any_before)} in any lint; after: {len(over_crates(after, checked, counts))}", file=sys.stderr)
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--flags", action="store_true", help="print the clippy lint flags and exit")
@@ -332,9 +434,16 @@ def main():
     parser.add_argument("--init-baseline", action="store_true", help="write the baseline from scratch (first run only)")
     parser.add_argument("--report", choices=["md", "json"])
     parser.add_argument("--base-clippy-json", help="the same run on the base: a count it already reaches is the base's red")
+    parser.add_argument("--untouched-is-base", action="store_true",
+                        help="a deny count over the baseline with no hit in a file the change touched is the base's red")
+    parser.add_argument("--diff-base", help="the commit the change's touched files are diffed against")
+    parser.add_argument("--record-base", action="store_true",
+                        help="this run is the base: write each checked crate's row as its counts")
     parser.add_argument("--cargo-log",
                         help="the same run's cargo stderr: a stale Cargo.lock there is named as the cause")
     args = parser.parse_args()
+    global DIFF_BASE
+    DIFF_BASE = args.diff_base
     if args.flags:
         print(lint_flags())
         return 0
@@ -357,6 +466,7 @@ def main():
     baseline = load_baseline()
     base_counts = None
     base_hits = None
+    base_broken = False
     if args.base_clippy_json:
         base_checked, base_counts, _, base_finished, base_hits = read_clippy(args.base_clippy_json)
         if not base_checked or base_finished is not True:
@@ -364,10 +474,13 @@ def main():
                   "every count over the baseline is charged to this change", file=sys.stderr)
             base_counts = None
             base_hits = None
+            base_broken = True
     if args.init_baseline:
         write_baseline({crate: counts.get(crate, collections.Counter()) for crate in checked})
         print(f"rust-panic-ratchet: wrote {os.path.relpath(BASELINE, args.repo)} for {len(checked)} crates")
         return 0
+    if args.record_base:
+        return record_base(args.repo, baseline, checked, counts)
 
     failures = []
     warnings = []
@@ -386,6 +499,12 @@ def main():
                     base_reds.append(f"{crate}: clippy::{lint} {got} > {where}, and the base has {on_base}: "
                                      "the base's red, not this change's")
                     continue
+                if (lint in DENY_LINTS and (base_broken or args.untouched_is_base)
+                        and untouched_by_change(args.repo, hits.get((crate, lint), []))):
+                    why = "the base clippy run did not finish" if base_broken else "the base was not linted"
+                    base_reds.append(f"{crate}: clippy::{lint} {got} > {where}, {why}, "
+                                     "and no hit is on a line this change added or edited: the base's red, not this change's")
+                    continue
                 # Tracked lints warn only: an added `x + 1` must not block a landing.
                 (failures if lint in DENY_LINTS else warnings).append(f"{crate}: clippy::{lint} {got} > {where}")
                 if lint in DENY_LINTS:
@@ -399,8 +518,16 @@ def main():
     if missing and not args.init_baseline:
         print("::warning title=rust panic ratchet::baseline crates not checked by this run (a -p run, a removed "
               "member, or a bin with required-features): " + ", ".join(missing), file=sys.stderr)
+    # A reasonless allow in a file this change never touched is the base's, not the change's: the scan walks the
+    # whole tree, so one base commit's slip (cmux-layout-reducer-ffi in #55909) turned every PR's check red.
+    # With no changed-file list (git cannot say) every hit still fails, as before.
+    changed = changed_files(args.repo)
     for line in allow_without_reason(args.repo):
-        failures.append(line)
+        where = line.split(":", 1)[0].split("cmux-tui/", 1)[-1]
+        if changed and where not in changed:
+            base_reds.append(f"{line} (a file this change did not touch: the base's red, not this change's)")
+        else:
+            failures.append(line)
 
     if args.update_baseline:
         if failures:

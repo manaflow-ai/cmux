@@ -99,8 +99,8 @@ fn every_refusal_leads_with_a_dotted_code() {
     .iter()
     .map(reply_for)
     .collect();
-    replies.push(refusal("busy", "too many asks are waiting; retry"));
-    replies.push(refusal("vm.agent_stopping", "the Cloud agent is stopping; retry"));
+    replies.push(refusal("busy", "too many asks are waiting on this machine's Cloud agent"));
+    replies.push(refusal("vm.agent_stopping", "the Cloud agent is stopping"));
     replies.push(json!({"ok": false}));
     replies.push(refusal("Not A Code!", "odd"));
     let mut printed = Vec::new();
@@ -132,4 +132,28 @@ fn every_refusal_leads_with_a_dotted_code() {
             "carrier.bad_answer",
         ]
     );
+}
+
+/// The bind answer's ticket is kept only when it is a well-formed ticket for
+/// the bind file's own slot; anything else (an older platform's answer with
+/// none, another slot, a malformed one) is no ticket, and the bind asks as
+/// before.
+#[test]
+fn a_bind_answers_ticket_is_kept_only_for_its_own_slot() {
+    let ticket = json!({"relay": "relay+do://relay.example", "slot": SLOT, "ticket": "t-1", "expires_at": 1_790_000_300});
+    let kept = bind_ticket(&json!({"host": "h", "carrier_ticket": ticket}), SLOT).unwrap();
+    assert_eq!(
+        kept,
+        json!({"ok": true, "relay": "relay+do://relay.example", "slot": SLOT, "ticket": "t-1", "expires_at": 1_790_000_300})
+    );
+    assert_eq!(bind_ticket(&json!({"host": "h"}), SLOT), None);
+    assert_eq!(bind_ticket(&json!({"carrier_ticket": ticket}), "BBBBBBBBBBBBBBBBBBBBBB"), None);
+    for broken in [
+        json!({"relay": "wss://relay.example", "slot": SLOT, "ticket": "t-1", "expires_at": 1}),
+        json!({"relay": "relay+do://relay.example", "slot": SLOT, "ticket": "", "expires_at": 1}),
+        json!({"relay": "relay+do://relay.example", "slot": SLOT, "ticket": "t-1"}),
+        json!("t-1"),
+    ] {
+        assert_eq!(bind_ticket(&json!({"carrier_ticket": broken}), SLOT), None, "{broken}");
+    }
 }

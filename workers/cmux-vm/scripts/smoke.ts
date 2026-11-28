@@ -23,6 +23,7 @@
  * without X-Cmux-Team-Id, 403 for a VM without role=chief, 404 on the smoke
  * tenant's VM, then create role=chief, exec, pause and delete by exact id.
  */
+import { retryWhileQueueFull } from "./create-retry.ts";
 const base = process.env["CMUX_VM_SMOKE_URL"];
 const key = process.env["CMUX_VM_SMOKE_API_KEY"];
 // Production has no tenant smoke key: there the smoke runs the service leg alone (on a dev/test team).
@@ -45,7 +46,7 @@ if (origin.protocol !== "https:" || origin.pathname !== "/") {
 const runId = process.env["GITHUB_RUN_ID"] ?? `local-${Date.now()}`;
 const STEP_TIMEOUT_MS = 120_000;
 
-const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}, bearer: string = tenantKey) => {
+const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}, bearer: string = tenantKey, timeoutMs = STEP_TIMEOUT_MS) => {
   const response = await fetch(new URL(path, origin), {
     method,
     headers: {
@@ -54,7 +55,7 @@ const call = async (method: string, path: string, body?: unknown, headers: Recor
       ...headers,
     },
     body: body === undefined ? null : JSON.stringify(body),
-    signal: AbortSignal.timeout(STEP_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const text = await response.text();
   let parsed: unknown = null;
@@ -95,12 +96,12 @@ try {
   expectStatus("health", health.status, 200, health.body);
 
   if (tenantKey !== "") {
-    const created = await call(
+    const created = await retryWhileQueueFull(() => call(
       "POST",
       "/v1/vms",
       { displayName: `smoke ${runId}`, idleTimeoutSeconds: 60, autoDeleteSeconds: 3600, labels: { purpose: "smoke", run: runId.slice(0, 63) } },
       { "idempotency-key": `smoke-${runId}` },
-    );
+    ));
     expectStatus("create", created.status, 201, created.body);
     const id = field(created.body, "id");
     if (typeof id !== "string" || !/^vm_[0-9a-z]{26}$/.test(id)) throw new Error(`create returned no VM id: ${JSON.stringify(created.body)}`);
@@ -136,6 +137,15 @@ try {
     if (field(exec.body, "exitCode") !== 0 || field(exec.body, "stdout") !== "cmux-vm-smoke\n") {
       throw new Error(`exec returned ${JSON.stringify(exec.body)}`);
     }
+    // Past the provider edge's cut of a request held open (about 120 s; production 2026-11-21 answered 524 after
+    // 125 s): the exec goes to a background request and its stored result comes back (upstream/live-background.ts).
+    const longStarted = Date.now();
+    const long = await call("POST", `/v1/vms/${vmId}/exec`, { command: "sleep 130; echo cmux-vm-long", timeoutMs: 200_000 }, {}, tenantKey, 240_000);
+    expectStatus("long exec", long.status, 200, long.body);
+    if (field(long.body, "exitCode") !== 0 || field(long.body, "stdout") !== "cmux-vm-long\n") {
+      throw new Error(`long exec returned ${JSON.stringify(long.body)}`);
+    }
+    console.log(`ok  a 130 s exec answers (${Math.round((Date.now() - longStarted) / 1000)} s)`);
 
     const paused = await call("POST", `/v1/vms/${vmId}/pause`);
     expectStatus("pause", paused.status, 200, paused.body);
@@ -161,13 +171,13 @@ try {
       expectStatus("service GET the smoke tenant's VM", foreign.status, 404, foreign.body);
     }
 
-    const chief = await call(
+    const chief = await retryWhileQueueFull(() => call(
       "POST",
       "/v1/vms",
       { displayName: `smoke chief ${runId}`, idleTimeoutSeconds: 60, autoDeleteSeconds: 3600, labels: { role: "chief", purpose: "smoke" } },
       { ...asService.headers, "idempotency-key": `smoke-chief-${runId}` },
       serviceKey,
-    );
+    ));
     expectStatus("service create role=chief", chief.status, 201, chief.body);
     const chiefId = field(chief.body, "id");
     if (typeof chiefId !== "string" || !/^vm_[0-9a-z]{26}$/.test(chiefId)) throw new Error(`service create returned no VM id: ${JSON.stringify(chief.body)}`);

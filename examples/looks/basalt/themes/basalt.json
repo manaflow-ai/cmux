@@ -1,11 +1,11 @@
 // Basalt: a quiet, near-black agent-editor look, dark (the default). A #1a1a1a page, a cooler
-// #232425 sidebar behind a 1 pt line, #f0f0f0 text with gray steps under it, one soft steel blue
+// #1a1b1c sidebar behind a 1 pt line, #f0f0f0 text with gray steps under it, one soft steel blue
 // (#699be1) for Run, Send and focus with dark ink on it, links in a muted blue, the chat's prompt in
 // a bordered box, tabs as small pills in the title bar, and quick, spatial motion.
 // Every value was sampled from the pixels of the references in the README, at their 2x scale.
 {
   "name": "Basalt",
-  "description": "A near-black agent editor: #1a1a1a page, #232425 sidebar, steel-blue Run, bordered prompt.",
+  "description": "Dark: near-black, a framed prompt, a steel-blue accent.",
 
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take this file's colors, over an App Theme of your own.
@@ -16,7 +16,7 @@
   "colors": {
     "background": "#1a1a1a",
     "foreground": "#f0f0f0",
-    "selection": "#2f4766",
+    "selection": "#5e7695",
     "accent": "#699be1",
     "1": "#ea7485",
     "2": "#80b38d",
@@ -80,7 +80,7 @@
   // The sidebar: a cooler, lighter gray than the page, a 1 pt #333435 line, quiet gray headings
   // ("Repositories").
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#232425",
+  "appearance.surfaces.sidebar.color": "#1a1b1c",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": true,

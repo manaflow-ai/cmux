@@ -27,9 +27,12 @@ test("a route the host opens moves the section list's mark with the page", async
   expect(current(page)).toEqual(["appearance"]);
   await run(() => page!.history.push("/settings/appearance?focus=appearance.borders"));
   expect(current(page)).toEqual(["appearance"]);
-  // Density is drawn on Personalization: a link to it marks Personalization.
+  // A link to Density stays on Appearance, which draws the density card.
   await run(() => page!.history.push("/settings/appearance?focus=appearance.density"));
-  expect(current(page)).toEqual(["personalization"]);
+  expect(current(page)).toEqual(["appearance"]);
+  // An old Personalization link opens the page that draws its part now.
+  await run(() => page!.history.push("/settings/personalization?part=sounds"));
+  expect(current(page)).toEqual(["notifications"]);
 });
 
 // Regression (gallery `*-group-N` variants never scrolled): the page's own query string is not

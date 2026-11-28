@@ -28,6 +28,7 @@ mod viewport;
 
 mod daemon_reconnect;
 mod frame_geometry;
+mod host_frame_writer;
 mod machine_worker;
 mod run;
 mod status_command;
@@ -368,6 +369,8 @@ pub struct App {
     machine_deleted_rail_index: Option<usize>,
     machine_provider_reconnect_attempts: u8,
     machine_provider_reconnect_retry_at: Option<Instant>,
+    /// Automatic recovery retains its frame and delays actionable failures.
+    machine_recovery: Option<machine_controller::MachineRecovery>,
     /// Reconnecting a plain session client after its daemon was replaced.
     daemon_reconnect: DaemonReconnect,
     pending_machine_replacement: Option<PendingMachineReplacement>,
@@ -727,9 +730,9 @@ impl App {
         if let AppEvent::NormalizedInput(input) = &event
             && self.drops_input_while_reconnecting(input)
         {
-            // Nothing can receive it until the replacement daemon is attached;
-            // a key cleared the status line, so say "reconnecting" again.
-            return Ok(self.show_reconnecting());
+            // Nothing can receive it until the replacement daemon is attached.
+            // Keep the cached frame without narrating an automatic retry.
+            return Ok(RenderAction::None);
         }
         if let AppEvent::NormalizedInput(input) = &event
             && input.is_keyboard_or_paste()

@@ -125,6 +125,28 @@ struct TurnStateFeedListFollowTests {
         #expect(page.states["z"] == .working)
     }
 
+    /// `acpmux daemon restart`: the new run's positions start over at 1. A peer row the old run
+    /// pushed at 60 refused the new run's pushes of it (5 < 60) and the cursor took 60, so a
+    /// peer's chat that came back by push after the restart never got its lane (`open-tab --host
+    /// walk-remote` refused for 30 s, reconnect probe 2026-11-25 and 2026-11-27).
+    @Test func aRestartedDaemonsPushesOfARowTheOldRunPushedAreApplied() throws {
+        var follow = AgentListFollow()
+        follow.follows = true
+        follow.listed(seq: 50, epoch: "run-a")
+        let peerRow = AgentListRow(session: "p", peer: "walk-remote")
+        let pushedBefore = follow.admits(peerRow, listSeq: 60)
+        #expect(pushedBefore)
+        follow.reconnected()
+        let early = follow.admits(AgentListRow(session: "q", peer: "walk-remote"), listSeq: 2)
+        #expect(early, "a push of the new run before its list is not refused by the old run's reply")
+        follow.listed(seq: 3, epoch: "run-b")
+        #expect(follow.cursor?.epoch == "run-b")
+        #expect(follow.cursor?.seq == 3, "the old run's row positions are not the new run's cursor")
+        let pushedAfter = follow.admits(peerRow, listSeq: 5)
+        #expect(pushedAfter, "the new run's push of the row is applied")
+        #expect(follow.cursor?.seq == 5)
+    }
+
     @Test func aPushOlderThanTheRowHeldChangesNothing() throws {
         var follow = AgentListFollow()
         follow.follows = true
@@ -146,7 +168,7 @@ struct TurnStateFeedListFollowTests {
         follow.rewind(to: ("run-a", 10))
         #expect((follow.watchParams["afterSeq"] as? UInt64) == 10)
 
-        guard case .change(_, _, _, _, _, _, _, _, _, _, _, _, _, let listSeq) = try message([
+        guard case .change(_, _, _, _, _, _, _, _, _, _, _, _, _, let listSeq, _) = try message([
             "jsonrpc": "2.0", "method": "_acpmux/session_changed",
             "params": ["sessionId": "a", "kind": "status", "listSeq": 13, "session": summary("a", indicator: "working", title: "A")],
         ]) else { Issue.record("a push is not read"); return }

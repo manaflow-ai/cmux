@@ -9,14 +9,27 @@
 //! An answer sent from inside its request (a list reply, `list_reply.rs`) takes the entry as it
 //! is queued, under the connection's outbound lock ([`InFlight::claim`]): a cancel read after
 //! that finds nothing, and one read before it leaves the answer unsent.
+//!
+//! At the daemon's stop the table is drained ([`InFlight::drain_at_shutdown`], `shutdown_drain.rs`):
+//! every entry is taken as a cancel takes it, and the caller answers each with the typed restart
+//! error. From then on a new request is refused at its start ([`Ticket::refused`]).
+//!
+//! A client asks which of its requests are still running ([`InFlight::states`],
+//! `_acpmux/request_state`): its proof, per request, that a slow answer is still being worked on.
+//! The ids answered lately are kept too ([`ANSWERED_KEPT`]): a request whose answer was taken but
+//! is not yet queued (a turn's answer waits for its updates, `fanout::Flush`) is answered, not
+//! lost. An id in neither list was never read here: the client gives its connection up
+//! (webviews `direct.ts` `checkRequests`).
 
 use crate::rpc::Id;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{OwnedSemaphorePermit, oneshot};
 
 struct Entry {
+    /// The request's own id, for an answer sent from outside it (the shutdown's drain).
+    id: Id,
     generation: u64,
     method: String,
     /// Its key among requests sent on two paths (`dual_requests.rs`): a cancel stops whichever
@@ -30,9 +43,18 @@ struct Entry {
 pub(crate) struct InFlight {
     next: AtomicU64,
     by_id: Mutex<HashMap<String, Entry>>,
+    /// The daemon's stop drained this table: no request starts on it any more. Set and read under
+    /// `by_id`'s lock, so a request begun before the drain is drained, and one after is refused.
+    drained: AtomicBool,
     /// Entries of every connection of the hub together (`Hub::requests_in_flight`).
     gauge: Arc<AtomicUsize>,
+    /// The ids answered lately, oldest first, at most [`ANSWERED_KEPT`] ([`InFlight::states`]).
+    answered: Mutex<VecDeque<Id>>,
 }
+
+/// How many answered ids a connection keeps for `_acpmux/request_state`: far more than a client
+/// asks about between two of its checks (a page sends at most 64 work requests at once).
+pub(crate) const ANSWERED_KEPT: usize = 256;
 
 /// One request's part in [`InFlight`]: what its task finishes with.
 pub(crate) struct Ticket {
@@ -41,6 +63,8 @@ pub(crate) struct Ticket {
     claim: Option<Claim>,
     pub cancel: oneshot::Receiver<()>,
     _slot: Option<OwnedSemaphorePermit>,
+    /// Begun after the stop drained its table: the request answers the restart error at once.
+    refused: bool,
 }
 
 /// What takes a request's entry for its own answer ([`InFlight::claim`]): its key and
@@ -57,12 +81,29 @@ impl Ticket {
     pub(crate) fn claim(&self) -> Option<Claim> {
         self.claim.clone()
     }
+
+    /// Begun after the daemon's stop drained its connection's table ([`InFlight::drain_at_shutdown`]):
+    /// it is not served, and answers `shutdown_drain::restarting_error`.
+    pub(crate) fn refused(&self) -> bool {
+        self.refused
+    }
 }
 
 impl InFlight {
     /// A connection's table, counted in the hub's `gauge`.
     pub(crate) fn counted(gauge: Arc<AtomicUsize>) -> Self {
-        Self { next: AtomicU64::new(0), by_id: Mutex::default(), gauge }
+        Self {
+            next: AtomicU64::new(0),
+            by_id: Mutex::default(),
+            drained: AtomicBool::new(false),
+            gauge,
+            answered: Mutex::default(),
+        }
+    }
+
+    /// Whether this table counts into `gauge` (`Hub::requests_in_flight`): it is that hub's.
+    pub(crate) fn counts_into(&self, gauge: &Arc<AtomicUsize>) -> bool {
+        Arc::ptr_eq(&self.gauge, gauge)
     }
 
     fn map(&self) -> std::sync::MutexGuard<'_, HashMap<String, Entry>> {
@@ -72,7 +113,23 @@ impl InFlight {
     fn remove(&self, map: &mut HashMap<String, Entry>, key: &str) -> Option<Entry> {
         let entry = map.remove(key)?;
         self.gauge.fetch_sub(1, Ordering::Relaxed);
+        let mut answered = self.answered.lock().unwrap_or_else(|e| e.into_inner());
+        if answered.len() == ANSWERED_KEPT {
+            answered.pop_front();
+        }
+        answered.push_back(entry.id.clone());
         Some(entry)
+    }
+
+    /// The ids of this connection's requests still running, and of those answered lately
+    /// (`_acpmux/request_state`). Read in order with the connection's requests, so every request
+    /// read before the question is in one of the two, unless it was answered long ago.
+    pub(crate) fn states(&self) -> (Vec<Id>, Vec<Id>) {
+        let map = self.map();
+        let running = map.values().map(|entry| entry.id.clone()).collect();
+        let answered =
+            self.answered.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect();
+        (running, answered)
     }
 
     /// Request `id` of `method` starts, holding `slot`; `dual` is its key when it is one copy of
@@ -87,17 +144,51 @@ impl InFlight {
         let (tx, rx) = oneshot::channel();
         let key = id.to_string();
         let mut map = self.map();
+        if self.drained.load(Ordering::SeqCst) {
+            return Ticket { claim: None, cancel: rx, _slot: slot, refused: true };
+        }
         if id.is_null() || map.contains_key(&key) {
-            return Ticket { claim: None, cancel: rx, _slot: slot };
+            return Ticket { claim: None, cancel: rx, _slot: slot, refused: false };
         }
         let generation = self.next.fetch_add(1, Ordering::Relaxed);
         map.insert(
             key.clone(),
-            Entry { generation, method: method.to_owned(), dual, cancel: tx, _slot: slot },
+            Entry {
+                id: id.clone(),
+                generation,
+                method: method.to_owned(),
+                dual,
+                cancel: tx,
+                _slot: slot,
+            },
         );
         self.gauge.fetch_add(1, Ordering::Relaxed);
         let won = Arc::default();
-        Ticket { claim: Some(Claim { key, generation, won }), cancel: rx, _slot: None }
+        Ticket {
+            claim: Some(Claim { key, generation, won }),
+            cancel: rx,
+            _slot: None,
+            refused: false,
+        }
+    }
+
+    /// The daemon stops: take every request in flight as a cancel takes it (its slot freed, its
+    /// task told to stop, a late answer of its own dropped), and refuse every later one. Returns
+    /// each taken request's id, method and dual key; the caller answers each, so every request is
+    /// answered exactly once.
+    pub(crate) fn drain_at_shutdown(&self) -> Vec<(Id, String, Option<super::dual_requests::Key>)> {
+        let mut map = self.map();
+        self.drained.store(true, Ordering::SeqCst);
+        let taken: Vec<Entry> = map.drain().map(|(_, entry)| entry).collect();
+        self.gauge.fetch_sub(taken.len(), Ordering::Relaxed);
+        drop(map);
+        taken
+            .into_iter()
+            .map(|entry| {
+                let _ = entry.cancel.send(());
+                (entry.id, entry.method, entry.dual)
+            })
+            .collect()
     }
 
     /// The client cancelled request `id`: its method and dual key when it was in flight. Its
@@ -150,56 +241,5 @@ impl Drop for InFlight {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use tokio::sync::Semaphore;
-
-    #[test]
-    fn a_cancel_frees_the_slot_at_once_and_the_late_answer_is_not_sent() {
-        let slots = Arc::new(Semaphore::new(2));
-        let gauge = Arc::new(AtomicUsize::new(0));
-        let flights = InFlight::counted(gauge.clone());
-        let first =
-            flights.begin(&json!(1), "m", Some(slots.clone().try_acquire_owned().unwrap()), None);
-        let second =
-            flights.begin(&json!(2), "m", Some(slots.clone().try_acquire_owned().unwrap()), None);
-        assert_eq!((slots.available_permits(), gauge.load(Ordering::Relaxed)), (0, 2));
-        assert_eq!(flights.cancel(&json!(1)).map(|(m, _)| m).as_deref(), Some("m"));
-        assert_eq!(slots.available_permits(), 1, "freed by the cancel");
-        assert!(!flights.finish(&first), "its answer is not sent");
-        assert!(flights.finish(&second));
-        assert_eq!((flights.len(), slots.available_permits()), (0, 2));
-        assert_eq!(flights.cancel(&json!(2)), None, "nothing left to cancel");
-        let _left = flights.begin(&json!(3), "m", None, None);
-        assert_eq!(gauge.load(Ordering::Relaxed), 1);
-        drop(flights);
-        assert_eq!(gauge.load(Ordering::Relaxed), 0, "a closed connection leaves the count");
-    }
-
-    #[test]
-    fn a_reused_id_keeps_its_own_slot_and_is_not_cancelled_for_the_first() {
-        let flights = InFlight::default();
-        let first = flights.begin(&json!("a"), "m", None, None);
-        let again = flights.begin(&json!("a"), "m", None, None);
-        assert!(flights.finish(&again));
-        assert_eq!(flights.len(), 1);
-        assert!(flights.finish(&first));
-    }
-
-    /// A list reply takes its entry as it is queued: a cancel after that finds nothing, and the
-    /// request's own finish still owns the answer it sent.
-    #[test]
-    fn a_claimed_answer_is_not_cancelled_and_still_finishes() {
-        let flights = InFlight::default();
-        let sent = flights.begin(&json!(1), "_acpmux/sessions", None, None);
-        let lost = flights.begin(&json!(2), "_acpmux/sessions", None, None);
-        assert!(flights.claim(&sent.claim().unwrap()));
-        assert_eq!(flights.cancel(&json!(1)), None, "nothing left to cancel");
-        assert!(flights.finish(&sent), "it sent its answer");
-        assert!(flights.cancel(&json!(2)).is_some());
-        assert!(!flights.claim(&lost.claim().unwrap()), "the cancel answered it");
-        assert!(!flights.finish(&lost));
-        assert_eq!(flights.len(), 0);
-    }
-}
+#[path = "in_flight_tests.rs"]
+mod tests;

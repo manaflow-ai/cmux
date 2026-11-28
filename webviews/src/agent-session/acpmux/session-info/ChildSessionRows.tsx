@@ -7,6 +7,7 @@
 // (`orderedSessions`). A row opens that chat.
 import { memo } from "react";
 import { useT } from "../i18n";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { Spinner } from "../conversation/icons";
 import { SenderIcon } from "../subagents/SenderIcon";
 import { agentTone } from "../subagents/agentTones";
@@ -28,7 +29,9 @@ export function ChildSessionRows({
   return (
     <WindowedRows
       items={orderedSessions(sessions)}
-      render={(child) => <ChildSessionRow key={child.sessionId} child={child} onOpen={onOpen} />}
+      render={(child) => (
+<ChildSessionRow key={child.sessionId} child={child} onOpen={onOpen} />
+      )}
     />
   );
 }
@@ -43,8 +46,11 @@ const ChildSessionRow = memo(function ChildSessionRow({
   onOpen?: (sessionId: string) => void;
 }) {
   const t = useT();
+  // A retry waits out the shared bound before its row says so (retryState.ts ``retryWords``), on the
+  // row's own clock: the hook hands back a new function each render, so no prop of the memo carries it.
+  const connectionQuiet = useConnectionQuietKeys();
   const status = sessionStatus(child);
-  const label = sessionStateText(t, child);
+  const label = sessionStateText(t, child, connectionQuiet);
   return (
     <li>
       <button
@@ -62,7 +68,7 @@ const ChildSessionRow = memo(function ChildSessionRow({
         <span className="acpmux-summary-text">
           <span className="acpmux-summary-agent__name">{child.title}</span>
         </span>
-        <span className="acpmux-summary-meta acpmux-summary-agent__state">
+        <span className="acpmux-summary-meta acpmux-summary-agent__state" title={label.word}>
           {label.working && <Spinner size={ROW_ICON} loading />}
           {label.text}
         </span>

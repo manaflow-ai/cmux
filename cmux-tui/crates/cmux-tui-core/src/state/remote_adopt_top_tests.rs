@@ -77,3 +77,36 @@ fn a_new_remote_workspace_goes_last_under_bottom() {
     assert_eq!(remote_rows(&mux), ["ws_a", "ws_b", "ws_c"]);
     mux.shutdown();
 }
+
+/// One `sidebar.adopt` of `refs` as `(session, workspace)` pairs: the app adopts
+/// every unplaced workspace at once, of every machine.
+fn adopt_mixed(mux: &Arc<Mux>, refs: &[(&str, &str)], key: &str) {
+    let refs: Vec<Value> = refs
+        .iter()
+        .map(|(session, workspace)| json!({"session_id": session, "workspace_id": workspace}))
+        .collect();
+    send(mux, "sidebar.adopt", json!({"refs": refs}), Some(key))
+        .unwrap_or_else(|error| panic!("sidebar.adopt failed: {error:?}"));
+}
+
+/// cmux#47677: a new Cloud workspace adopted in the same batch as another
+/// machine's workspace, or beside one placed already, listed last.
+#[test]
+fn a_new_remote_workspace_goes_first_in_a_batch_of_several_machines() {
+    let session = Session::new("remote-adopt-mixed");
+    let mux = session.open();
+    adopt(&mux, &["ws_a", "ws_b"], "connect");
+    adopt_mixed(&mux, &[(REMOTE, "ws_c"), ("reg_other_machine", "ws_x")], "mixed");
+    assert_eq!(
+        remote_rows(&mux),
+        ["ws_c", "ws_a", "ws_b"],
+        "a new workspace adopted beside another machine's listed last"
+    );
+    adopt_mixed(&mux, &[(REMOTE, "ws_a"), (REMOTE, "ws_d")], "placed-and-new");
+    assert_eq!(
+        remote_rows(&mux),
+        ["ws_d", "ws_c", "ws_a", "ws_b"],
+        "a new workspace adopted beside a placed one listed last"
+    );
+    mux.shutdown();
+}

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -23,8 +24,6 @@ spec = importlib.util.spec_from_file_location("publisher_testing", SCRIPT)
 publisher = importlib.util.module_from_spec(spec)
 sys.modules["publisher_testing"] = publisher
 spec.loader.exec_module(publisher)
-sys.path.insert(0, str(ROOT / "tests"))
-from runs_on_labels import disallowed_labels  # noqa: E402
 
 NOW = dt.datetime(2026, 10, 21, 6, 30, tzinfo=dt.timezone.utc)
 POOL = "glaeda-side-light-xcode-26.6"
@@ -71,6 +70,15 @@ class VerdictTests(unittest.TestCase):
     def test_no_pool_checks_only_the_wait(self):
         self.assertTrue(testing([job("queued", minutes_ago=5, labels=("anything",))], pool=""))
 
+    def test_a_pool_list_counts_each_label(self):
+        pools = "cmux-gcp-lane-build-x64,blacksmith-8vcpu-ubuntu-2404"
+        for label in ("cmux-gcp-lane-build-x64", "blacksmith-8vcpu-ubuntu-2404"):
+            with self.subTest(label=label):
+                self.assertTrue(testing([job("queued", minutes_ago=5, labels=(label,))], pool=pools))
+                # The 20-minute cutoff still holds on either label.
+                self.assertFalse(testing([job("queued", minutes_ago=25, labels=(label,))], pool=pools))
+        self.assertFalse(testing([job("queued", minutes_ago=5, labels=("cmux-fleet-linux-x64",))], pool=pools))
+
     def test_an_api_failure_tests_here(self):
         publisher_jobs = publisher.jobs
         publisher.jobs = lambda run_id: (_ for _ in ()).throw(OSError("down"))
@@ -86,12 +94,6 @@ class WiringTests(unittest.TestCase):
     def test_both_deferrals_ask_the_script(self):
         self.assertIn('cmux_tui_publisher_testing.py --run-id "$source_run" --pool "${DAEMON_POOL:-}"', self.WORKFLOW)
         self.assertIn('cmux_tui_publisher_testing.py --run-id "$OWNER_RUN_ID" --pool "${DAEMON_POOL:-}"', self.WORKFLOW)
-        # DAEMON_POOL is the gate's Blacksmith route. A publisher job placed on the live fleet Linux label
-        # reads as off-pool, so a deferring run tests the tree itself instead of waiting on it.
-        fleet = "contains(needs.tree-preflight.outputs.linux_jobs, ' cmux-next-daemon-tests ') && needs.tree-preflight.outputs.linux_runner || "
-        gate = gate_runs_on(self.WORKFLOW)
-        self.assertIn(fleet, gate)
-        self.assertEqual(self.WORKFLOW.count(f"DAEMON_POOL: {gate.replace(fleet, '')}"), 2)
 
     def test_the_owner_wait_sparse_checkout_has_the_script(self):
         owner_wait = self.WORKFLOW[self.WORKFLOW.index("sparse-checkout: |\n            scripts/ci/cmux-tui-tree-claim.sh"):]
@@ -114,10 +116,20 @@ class WiringTests(unittest.TestCase):
         self.assertFalse(publisher.is_daemon_job(None))
 
     def test_the_pool_matches_the_daemon_test_job(self):
-        # DAEMON_POOL names the gate job's own runs-on label.
-        # Which Blacksmith Linux size it picks is the workflow's call; it is never anything else.
+        # Every label the gate's runs-on can pick is a pool the deferral counts:
+        # #64136 moved attempt-2+ nightly reruns to cmux-gcp-nightly-x64, and a
+        # DAEMON_POOL naming only cmux-linux stopped deferring to them.
         runs_on = gate_runs_on(self.WORKFLOW)
-        self.assertEqual(disallowed_labels(runs_on), {}, runs_on)
+        labels = set(re.findall(r"'([a-z0-9][a-z0-9.-]*)'", runs_on)) - {"manaflow-ai", "refs/heads/nightly-next"}
+        labels = {label for label in labels if "/" not in label and label != "workflow_dispatch"}
+        self.assertIn("cmux-linux", labels)
+        pools = [line.strip() for line in self.WORKFLOW.splitlines() if line.lstrip().startswith("DAEMON_POOL: ")]
+        self.assertEqual(len(pools), 2)
+        for line in pools:
+            hosted, _, owned = line.removeprefix("DAEMON_POOL: ").partition("|| ")
+            self.assertIn("'ubuntu-24.04'", hosted)
+            named = set(owned.strip(" '}").split(","))
+            self.assertEqual(named, labels - {"ubuntu-24.04"}, line)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

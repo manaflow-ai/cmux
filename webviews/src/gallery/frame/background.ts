@@ -4,28 +4,43 @@
 // (WindowBackdrop: the art, then the tint at ThemeTokens.wallpaperTintOpacity; panes paint nothing).
 // Here the document root paints the same two layers, the page background stays clear
 // (webThemePayload's `seeThrough`), and the same still goes to the page's glass lens through
-// `cmuxTheme.backdrop`, as GlassBackdropFeed sends it. The pictures are synthetic and bundled: no
-// photo, no capture.
+// `cmuxTheme.backdrop`, as GlassBackdropFeed sends it. The pictures are bundled: the synthetic SVGs,
+// and `painting`, a public-domain painting (Monet, Impression, Sunrise), the gallery shell's default so a
+// preview is seen as over a picture people set (Leo, 2026-10-20), and three photographs (`photo-light`,
+// `photo-dark`, `photo-busy`; fixtures/photos/README.md), so glass is seen over the photos people
+// actually set, light, dark and busy, not only over flat art.
+import painting from "../fixtures/art/monet-impression-sunrise.jpg?inline";
 import busy from "../fixtures/backgrounds/busy.svg?inline";
 import dark from "../fixtures/backgrounds/dark.svg?inline";
 import light from "../fixtures/backgrounds/light.svg?inline";
+import photoBusy from "../fixtures/photos/tulip-market.jpg?inline";
+import photoDark from "../fixtures/photos/frontenac-night.jpg?inline";
+import photoLight from "../fixtures/photos/snowy-dunes.jpg?inline";
 import type { GalleryBackground, GalleryEnv } from "../env";
 import { css, wallpaperTintOpacity, withAlpha, type ThemeTokens } from "../theme/tokens";
 import { entryPane, windowGeometry, windowSize, type ChromeMetrics, type Rect } from "../window";
 
-export const BACKGROUND_PICTURES: Record<Exclude<GalleryBackground, "none">, string> = { light, dark, busy };
-/** Every picture's own size (its SVG width and height). */
-const PICTURE = { width: 1600, height: 1000 };
+type Picture = { image: string; width: number; height: number };
+/** Every picture and its own size: an SVG's width and height, a JPEG's pixels. */
+export const BACKGROUND_PICTURES: Record<Exclude<GalleryBackground, "none">, Picture> = {
+  painting: { image: painting, width: 480, height: 300 },
+  light: { image: light, width: 1600, height: 1000 },
+  dark: { image: dark, width: 1600, height: 1000 },
+  busy: { image: busy, width: 1600, height: 1000 },
+  "photo-light": { image: photoLight, width: 1280, height: 857 },
+  "photo-dark": { image: photoDark, width: 1280, height: 819 },
+  "photo-busy": { image: photoBusy, width: 1280, height: 853 },
+};
 
 /** The window's tint over a picture: the theme's window color at its wallpaper tint opacity. */
 export const pictureTint = (tokens: ThemeTokens): string =>
   css(withAlpha(tokens.windowBackground, wallpaperTintOpacity(tokens)));
 
-/** The picture aspect-filled into a `width` x `height` box, centred, as the window's art view fills. */
-export function aspectFill(width: number, height: number): Rect {
-  const scale = Math.max(width / PICTURE.width, height / PICTURE.height);
-  const w = PICTURE.width * scale;
-  const h = PICTURE.height * scale;
+/** `picture` aspect-filled into a `width` x `height` box, centred, as the window's art view fills. */
+export function aspectFill(picture: { width: number; height: number }, width: number, height: number): Rect {
+  const scale = Math.max(width / picture.width, height / picture.height);
+  const w = picture.width * scale;
+  const h = picture.height * scale;
   return { x: (width - w) / 2, y: (height - h) / 2, width: w, height: h };
 }
 
@@ -35,15 +50,16 @@ export function aspectFill(width: number, height: number): Rect {
  * otherwise the picture fills the stage.
  */
 export function pictureRect(
+  picture: { width: number; height: number },
   env: GalleryEnv,
   windowed: boolean,
   metrics: ChromeMetrics,
   viewport: { width: number; height: number },
 ): Rect {
-  if (!windowed) return aspectFill(viewport.width, viewport.height);
+  if (!windowed) return aspectFill(picture, viewport.width, viewport.height);
   const geometry = windowGeometry(windowSize(env.window), env.layout, env.density, metrics);
   const { content } = entryPane(geometry);
-  const art = aspectFill(geometry.width, geometry.height);
+  const art = aspectFill(picture, geometry.width, geometry.height);
   return { ...art, x: art.x - content.x, y: art.y - content.y };
 }
 
@@ -58,13 +74,14 @@ export function applyGalleryBackground(
 ): void {
   const name = env.background;
   if (!name || name === "none") return;
-  const image = BACKGROUND_PICTURES[name];
+  const picture = BACKGROUND_PICTURES[name];
+  const { image } = picture;
   const root = document.documentElement;
   const tint = pictureTint(tokens);
   const base = css(withAlpha(tokens.windowBackground, 1));
   root.dataset.galleryBackground = name;
   const paint = () => {
-    const rect = pictureRect(env, options.windowed, options.metrics, {
+    const rect = pictureRect(picture, env, options.windowed, options.metrics, {
       width: root.clientWidth,
       height: root.clientHeight,
     });

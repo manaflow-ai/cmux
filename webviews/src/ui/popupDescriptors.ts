@@ -84,6 +84,8 @@ export interface PopupActionInput {
   disabled?: boolean;
   disabledReason?: string;
   keepOpen?: boolean;
+  /** The row's work is running (`NativePopupRow.loading`, drawn with `experiments.menuRowStates`). */
+  loading?: boolean;
 }
 export function actionRow(input: PopupActionInput): PopupRow {
   return { kind: "action", ...input };
@@ -94,9 +96,6 @@ export function toggleRow(input: PopupActionInput & { checked: boolean }): Popup
 /** A checked menu option emits `pick`; native `choice` rows are segmented controls. */
 export function choiceRow(input: PopupActionInput & { checked?: boolean; value?: string }): PopupRow {
   return { kind: "action", ...input };
-}
-export function sectionRow(id: string, label: string): PopupRow {
-  return { id, kind: "section", label };
 }
 export function separatorRow(id: string): PopupRow {
   return { id, kind: "separator", label: "" };

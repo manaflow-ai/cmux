@@ -11,20 +11,33 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { translate } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxPermission, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { AgentQuestion } from "../src/agent-session/acpmux/question/model";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
-import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
-import { needsYouLink, needsYouTarget, onOpenNeedsYou, openNeedsYou } from "../src/agent-session/acpmux/needsYou/links";
-import { NeedsYouPill, type TranscriptNeedsYou } from "../src/agent-session/acpmux/needsYou/JumpPill";
-import { nextAsk, pillAsks } from "../src/agent-session/acpmux/needsYou/jumpPillModel";
-import { answerParams, useNeedsYou } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
-import { NeedsYouPanel, type NeedsYouActions } from "../src/agent-session/acpmux/needsYou/NeedsYou";
-import { needsYouMode, sideQuestionPrompt } from "../src/agent-session/acpmux/needsYou/needsYouModel";
-import { askContext, CONTEXT_TURNS, turnsBefore } from "../src/agent-session/acpmux/needsYou/context";
-import { NativeError } from "../src/agent-session/acpmux/nativeError";
+import type { NeedsYouItem, WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
+import type { TranscriptNeedsYou } from "../src/agent-session/acpmux/needsYou/JumpPill";
+import type { NeedsYouActions } from "../src/agent-session/acpmux/needsYou/NeedsYou";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { needsYouItems } = await importWithDom(() => import("../src/agent-session/acpmux/needsYou/model"));
+const { needsYouLink, needsYouTarget, onOpenNeedsYou, openNeedsYou } = await importWithDom(
+  () => import("../src/agent-session/acpmux/needsYou/links"),
+);
+const { NeedsYouPill } = await importWithDom(() => import("../src/agent-session/acpmux/needsYou/JumpPill"));
+const { nextAsk, pillAsks } = await importWithDom(() => import("../src/agent-session/acpmux/needsYou/jumpPillModel"));
+const { answerParams, useNeedsYou } = await importWithDom(
+  () => import("../src/agent-session/acpmux/needsYou/useNeedsYou"),
+);
+const { NeedsYouPanel } = await importWithDom(() => import("../src/agent-session/acpmux/needsYou/NeedsYou"));
+const { needsYouMode, sideQuestionPrompt } = await importWithDom(
+  () => import("../src/agent-session/acpmux/needsYou/needsYouModel"),
+);
+const { askContext, CONTEXT_TURNS, turnsBefore } = await importWithDom(
+  () => import("../src/agent-session/acpmux/needsYou/context"),
+);
+const { NativeError } = await importWithDom(() => import("../src/agent-session/acpmux/nativeError"));
 
 const options: AcpmuxPermission["options"] = [
   { id: "allow", name: "Allow", kind: "allow_once", allow: true },
@@ -726,6 +739,58 @@ test("another chat's ask opens that chat on the right; the chat on screen is nev
   expect(calls).toEqual(["chat.asks.open:other"]);
   expect(calls.some((call) => call.startsWith("chat.select"))).toBe(false);
   expect(sourceReveals).toBe(0);
+});
+
+test("another chat's Go to source lands on its asking turn, and Ask about this starts the side chat there", async () => {
+  // Leo 2026-10-20: "being able to link to the actual context potentially of like where the
+  // original ask was would be useful ... or like have an option to maybe even make a side chat to
+  // just ask like, okay, but what is going on here?" The relay scopes `_acpmux/btw` to the chat a
+  // pane shows, so this pane never asks about another chat itself: `chat.asks.open` names the
+  // asking turn and the question, and the pane that shows that chat reveals the turn and asks.
+  const host = installDom();
+  const calls: Array<{ method: string; params?: Record<string, unknown> }> = [];
+  let hostAsks = true;
+  const callNative = (async (method: string, params?: Record<string, unknown>) => {
+    calls.push({ method, ...(params ? { params } : {}) });
+    return method === "chat.asks.open" && hostAsks ? { asked: true } : undefined;
+  }) as <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
+  let actions: NeedsYouActions | undefined;
+  let items: NeedsYouItem[] = [];
+  function Probe() {
+    const needsYou = useNeedsYou({
+      snapshot: {
+        sessionId: "here",
+        rows: [],
+        sessions: [session("here"), session("other")],
+        asks: [ask("other", permission({ permissionId: "p-other", turnId: "target-turn" }), 1)],
+      },
+      callNative,
+      sideSession: async () => void calls.push({ method: "btw-here" }),
+    });
+    actions = needsYou.actions;
+    items = needsYou.items;
+    return null;
+  }
+  root = createRoot(host);
+  await act(async () => root!.render(<Probe />));
+  const other = items.find((item) => item.sessionId === "other")!;
+  actions!.goTo(other);
+  await Promise.resolve();
+  expect(calls).toEqual([{ method: "chat.asks.open", params: { sessionId: "other", turnId: "target-turn" } }]);
+  calls.length = 0;
+  // The host handed the question to the pane that shows that chat: the row's ask is done.
+  await actions!.ask(other, "What is going on here?");
+  expect(calls).toEqual([
+    {
+      method: "chat.asks.open",
+      params: { sessionId: "other", turnId: "target-turn", ask: "What is going on here?" },
+    },
+  ]);
+  // An older host opens the chat and asks nothing: the row says so, as before.
+  calls.length = 0;
+  hostAsks = false;
+  await expect(actions!.ask(other, "Why?")).rejects.toThrow();
+  expect(calls.map((call) => call.method)).toEqual(["chat.asks.open"]);
 });
 
 test("the opt-in pill excludes peer and unknown target sessions", async () => {

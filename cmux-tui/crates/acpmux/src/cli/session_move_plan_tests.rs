@@ -7,6 +7,7 @@ fn checkout(top: &str, branch: Option<&str>, dirty: bool) -> Checkout {
         branch: branch.map(Into::into),
         origin: Some("git@github.com:manaflow-ai/cmux.git".into()),
         dirty,
+        default_branch: Some("main".into()),
     }
 }
 
@@ -23,6 +24,7 @@ fn a_worktree_becomes_a_worktree_of_the_same_branch_with_its_subfolder() {
             branch: "me/fix".into(),
             subdir: "cmux-tui".into(),
             dirty: false,
+            snapshot: false,
         }
     );
     let top = Path::new("/Users/me/Projects/checkouts/cmux/fix");
@@ -58,7 +60,7 @@ fn a_folder_outside_home_or_a_relative_target_home_is_refused() {
 }
 
 #[test]
-fn a_detached_dirty_or_originless_checkout_is_refused() {
+fn a_detached_or_dirty_checkout_is_refused() {
     let home = Path::new("/Users/me");
     let cwd = Path::new("/Users/me/w");
     let e = plan_folder(cwd, home, Some(&checkout("/Users/me/w", None, false)), "/h", false, None);
@@ -68,11 +70,6 @@ fn a_detached_dirty_or_originless_checkout_is_refused() {
     assert!(e.contains("uncommitted changes") && e.contains("--leave-dirty"), "{e}");
     let f = plan_folder(cwd, home, Some(&dirty), "/h", true, None).unwrap();
     assert!(matches!(f, Folder::Worktree { dirty: true, .. }), "--leave-dirty moves it: {f:?}");
-    let mut none = checkout("/Users/me/w", Some("b"), false);
-    none.origin = None;
-    assert!(
-        plan_folder(cwd, home, Some(&none), "/h", false, None).unwrap_err().contains("no origin")
-    );
     let bad = checkout("/Users/me/w", Some("-oProxyCommand=x"), false);
     assert!(
         plan_folder(cwd, home, Some(&bad), "/h", false, None).unwrap_err().contains("plain branch")
@@ -95,12 +92,14 @@ fn repo_slugs_come_from_github_style_urls_only() {
 }
 
 #[test]
-fn a_running_turn_needs_interrupt_and_a_moving_or_moved_chat_never_moves() {
+fn a_running_turn_moves_and_a_moving_or_moved_chat_never_moves() {
     let idle = json!({"status": "closed", "turn": null, "moving": false});
     assert_eq!(refusal(&idle, false), None, "a stopped chat moves");
     let running = json!({"status": "running", "turn": {"turnId": "t"}, "moving": false});
-    assert!(refusal(&running, false).unwrap().contains("--interrupt"));
-    assert_eq!(refusal(&running, true), None);
+    assert_eq!(refusal(&running, true), None, "a running turn moves with the chat");
+    // The preflight names it, with every way to move it.
+    let why = refusal(&running, false).unwrap();
+    assert!(why.contains("--after-turn") && why.contains("--interrupt"), "{why}");
     let moving = json!({"status": "ready", "moving": true});
     assert!(refusal(&moving, true).unwrap().contains("being moved"));
     let moved = json!({"status": "closed", "movedTo": {"host": "gcp-1", "sessionId": "s"}});
@@ -121,5 +120,80 @@ fn cwd_names_the_targets_folder_outright_for_any_chat() {
     for bad in ["srv/x", "/srv/../x", "/srv/x\n"] {
         let e = plan_folder(Path::new("/tmp/r"), home, None, "/h", false, Some(bad)).unwrap_err();
         assert!(e.contains("--cwd"), "{bad:?}: {e}");
+    }
+}
+
+/// Item B: a session in a shared checkout on `main` (or origin's HEAD branch) moves as a
+/// snapshot of its HEAD, never by pushing that branch; its own branch still moves as before.
+#[test]
+fn a_shared_default_branch_moves_as_a_snapshot_never_pushed() {
+    let home = Path::new("/Users/me");
+    let cwd = Path::new("/Users/me/src/cmux");
+    for (branch, default, snapshot) in [
+        ("main", None, true),
+        ("master", None, true),
+        ("feat-cmux-next", Some("feat-cmux-next"), true),
+        ("main", Some("main"), true),
+        ("lane/x", Some("main"), false),
+    ] {
+        let mut c = checkout("/Users/me/src/cmux", Some(branch), true);
+        c.default_branch = default.map(Into::into);
+        let f = plan_folder(cwd, home, Some(&c), "/home/cmux", true, None).unwrap();
+        assert!(
+            matches!(f, Folder::Worktree { snapshot: s, dirty: true, .. } if s == snapshot),
+            "{branch} (origin HEAD {default:?}): {f:?}"
+        );
+    }
+}
+
+/// A checkout with no `origin` (a demo found 3 of 3 such chats never moved): it moves as a bundle
+/// of its own into the same path under the target's home, dirty or clean, its subfolder kept.
+#[test]
+fn a_checkout_with_no_origin_moves_as_a_bundle_at_the_same_path() {
+    let home = Path::new("/Users/me");
+    let cwd = Path::new("/Users/me/scratch/demo/src");
+    let mut none = checkout("/Users/me/scratch/demo", Some("main"), false);
+    none.origin = None;
+    let f = plan_folder(cwd, home, Some(&none), "/home/cmux", false, None).unwrap();
+    assert_eq!(
+        f,
+        Folder::Bundle {
+            top: "/home/cmux/scratch/demo".into(),
+            branch: "main".into(),
+            subdir: "src".into(),
+            dirty: false,
+        }
+    );
+    none.dirty = true;
+    let e = plan_folder(cwd, home, Some(&none), "/home/cmux", false, None).unwrap_err();
+    assert!(e.contains("--carry-changes"), "dirty still asks first: {e}");
+    let f = plan_folder(cwd, home, Some(&none), "/home/cmux", true, None).unwrap();
+    assert!(matches!(f, Folder::Bundle { dirty: true, .. }), "{f:?}");
+    let outside = Checkout { top: "/srv/demo".into(), ..none.clone() };
+    let e = plan_folder(Path::new("/srv/demo"), home, Some(&outside), "/h", true, None);
+    assert!(e.unwrap_err().contains("outside this machine's home"));
+}
+
+/// A checkout whose `origin` is not an owner/name remote (a local path, a `file://` URL, a nested
+/// group) moves as one with no origin does, as a bundle, instead of failing once a fresh Cloud
+/// machine runs ("origin of PATH is not an owner/name remote").
+#[test]
+fn a_checkout_whose_origin_is_not_owner_name_moves_as_a_bundle() {
+    let home = Path::new("/Users/me");
+    let cwd = Path::new("/Users/me/scratch/demo");
+    for origin in ["/Users/me/bare/demo.git", "file:///Users/me/bare/demo.git", "../demo.git"] {
+        let mut c = checkout("/Users/me/scratch/demo", Some("main"), true);
+        c.origin = Some(origin.into());
+        let f = plan_folder(cwd, home, Some(&c), "/home/cmux", true, None).unwrap();
+        assert_eq!(
+            f,
+            Folder::Bundle {
+                top: "/home/cmux/scratch/demo".into(),
+                branch: "main".into(),
+                subdir: String::new(),
+                dirty: true,
+            },
+            "{origin}"
+        );
     }
 }

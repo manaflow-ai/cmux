@@ -1,0 +1,18 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-claude-code-modes",
+  "description": "Choose access or toggle Plan in a chat. The palette can also start the CLI in Plan mode.",
+  "created_ms": 0,
+  "settings": {},
+  "files": {
+    "keybindings.json": "[\n  {\"key\": \"cmd+shift+m\", \"command\": \"agentPane.composer.switchMode\", \"when\": \"agentPaneFocused\"},\n  {\"key\": \"cmd+j p\", \"command\": \"agentPane.composer.togglePlan\", \"when\": \"agentPaneFocused\"}\n]\n"
+  },
+  "x-setup": {
+    "id": "manaflow-ai/claude-code-modes",
+    "name": "Claude Code modes",
+    "source": "looks/claude-code/modes",
+    "actions": [
+      "claude-code-plan"
+    ]
+  }
+}

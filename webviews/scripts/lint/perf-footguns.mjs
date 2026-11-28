@@ -2,6 +2,9 @@
 // check:perf-footguns piece (perf-footguns.json). Each rule names the fix it keeps from coming back.
 // docs/cmux-next/modding-kit.md lists them for anyone editing webviews, cmux live included.
 
+import { readFileSync } from "node:fs";
+import { relative } from "node:path";
+
 const functions = new Set(["ArrowFunctionExpression", "FunctionExpression", "FunctionDeclaration"]);
 const loops = new Set(["ForStatement", "ForInStatement", "ForOfStatement", "WhileStatement", "DoWhileStatement"]);
 // Array methods whose callback runs once per item.
@@ -167,7 +170,192 @@ export const layoutReadAfterWrite = layoutRule(
   },
 );
 
+// Building an Intl formatter resolves the locale, loads ICU data and compiles a pattern: far more than the
+// format() it is built for, and a row or render that built one paid it per row per render (Allegro Tech,
+// https://blog.allegro.tech/2020/08/using-eslint.html). src/ui/intl.ts hands out one shared formatter per
+// locale and options, and starts over each minute so a zone or language change still shows.
+const intlKinds = new Set([
+  "NumberFormat",
+  "DateTimeFormat",
+  "RelativeTimeFormat",
+  "ListFormat",
+  "PluralRules",
+  "Collator",
+  "Segmenter",
+  "DisplayNames",
+]);
+export const noIntlConstruct = {
+  meta: {
+    type: "problem",
+    schema: [],
+    messages: {
+      found:
+        "Building an Intl.{{kind}} costs far more than formatting with one. Use intl.{{kind}}(...) from src/ui/intl.ts, which shares one per locale and options.",
+    },
+  },
+  create(context) {
+    const file = (context.filename ?? context.getFilename?.() ?? "").replaceAll("\\", "/");
+    if (file.endsWith("/src/ui/intl.ts")) return {};
+    return {
+      NewExpression(node) {
+        const callee = node.callee;
+        if (callee.type !== "MemberExpression" || callee.computed || name(callee.object) !== "Intl") return;
+        const kind = name(callee.property);
+        if (!intlKinds.has(kind)) return;
+        context.report({ node, messageId: "found", data: { kind } });
+      },
+    };
+  },
+};
+
+// The chat transcript has one scroll writer (cmuxterm-hq docs/design/agent-transcript-clean-slate.md,
+// invariant 1): conversation/scrollController.ts. Twenty-odd writers that each set the offset while
+// the others were mid-flight were the jostle Leo saw (2026-11-11: "the jostling is just insane").
+// config/vite-plus/check.ts turns this on for the transcript's files only. A write to another element
+// in those files (the prompt rail's own list) says so: `// scroll-writer-ok: <why>` on its line or the
+// line above.
+const scrollWriteCalls = new Set(["scrollTo", "scrollBy", "scrollIntoView"]);
+const SCROLL_WRITER_OK = /scroll-writer-ok:\s*\S/;
+export const transcriptScrollWriter = {
+  meta: {
+    type: "problem",
+    schema: [],
+    messages: {
+      found:
+        "Only the ScrollController writes the transcript's offset: call writeScrollTop or writeScrollBy from conversation/scrollController.ts, or mark another element's write `// scroll-writer-ok: <why>`.",
+    },
+  },
+  create(context) {
+    const source = context.sourceCode ?? context.getSourceCode();
+    const lines = source.text.split("\n");
+    const marked = (node) => {
+      const line = node.loc.start.line;
+      return SCROLL_WRITER_OK.test(lines[line - 1] ?? "") || SCROLL_WRITER_OK.test(lines[line - 2] ?? "");
+    };
+    const report = (node) => {
+      if (!marked(node)) context.report({ node, messageId: "found" });
+    };
+    return {
+      AssignmentExpression(node) {
+        if (memberName(node.left) === "scrollTop") report(node);
+      },
+      UpdateExpression(node) {
+        if (memberName(node.argument) === "scrollTop") report(node);
+      },
+      CallExpression(node) {
+        if (scrollWriteCalls.has(memberName(node.callee))) report(node);
+      },
+    };
+  },
+};
+
+// A transcript row may not move itself (cmuxterm-hq docs/design/transcript-motion-model.md, "What a row may
+// not do"): the list owns every row's motion, so a row that starts its own moves another row the reader
+// did not touch (Leo, 2026-11-11: "the jostling is just insane"). Ban 1, the offset, is
+// transcript-scroll-writer above; this is the rest a static rule can see in a row component: a
+// ResizeObserver, flushSync, an inline translate or transform, and an animated height (`.animate`
+// keyframes or a `transition` that names height or translate). config/vite-plus/check.ts turns it on for
+// the row components (conversation/*.tsx, transcript/*.tsx). Today's uses are counted per file in
+// scripts/lint/row-motion-baseline.json; a file over its count reports every use of that ban, so a new
+// one fails and an old one may move. A use that is not a row moving itself says so:
+// `// row-motion-ok: <why>` on its line or the line above.
+const ROW_MOTION_OK = /row-motion-ok:\s*\S/;
+const ROW_MOTION_BASELINE = new URL("./row-motion-baseline.json", import.meta.url);
+const WEBVIEWS_ROOT = new URL("../../", import.meta.url).pathname;
+let rowMotionBaseline;
+const rowMotionAllowed = (file, ban) => {
+  rowMotionBaseline ??= JSON.parse(readFileSync(ROW_MOTION_BASELINE, "utf8")).files;
+  return rowMotionBaseline[relative(WEBVIEWS_ROOT, file)]?.[ban] ?? 0;
+};
+const motionProperties = new Set(["translate", "transform"]);
+const keyName = (property) =>
+  property.type === "Property" && !property.computed
+    ? property.key.type === "Identifier"
+      ? property.key.name
+      : typeof property.key.value === "string"
+        ? property.key.value
+        : undefined
+    : undefined;
+const stringOf = (node) =>
+  node?.type === "Literal" && typeof node.value === "string"
+    ? node.value
+    : node?.type === "TemplateLiteral"
+      ? node.quasis.map((quasi) => quasi.value.cooked ?? "").join(" ")
+      : undefined;
+const keyframeObjects = (node) =>
+  node?.type === "ArrayExpression"
+    ? node.elements.filter((element) => element?.type === "ObjectExpression")
+    : node?.type === "ObjectExpression"
+      ? [node]
+      : [];
+export const transcriptRowMotion = {
+  meta: {
+    type: "problem",
+    schema: [],
+    messages: {
+      found:
+        'A transcript row may not {{ban}} (transcript-motion-model.md, "What a row may not do"): ask the list with transition() from conversation/motionOwner.ts, or mark a use that is not the row moving itself `// row-motion-ok: <why>`. This file\'s baseline allows {{allowed}} and it has {{count}} (scripts/lint/row-motion-baseline.json).',
+    },
+  },
+  create(context) {
+    const source = context.sourceCode ?? context.getSourceCode();
+    const lines = source.text.split("\n");
+    const file = context.physicalFilename ?? context.filename ?? context.getFilename();
+    const found = new Map();
+    const marked = (node) => {
+      const line = node.loc.start.line;
+      return ROW_MOTION_OK.test(lines[line - 1] ?? "") || ROW_MOTION_OK.test(lines[line - 2] ?? "");
+    };
+    const note = (ban, node) => {
+      if (marked(node)) return;
+      if (!found.has(ban)) found.set(ban, []);
+      found.get(ban).push(node);
+    };
+    return {
+      NewExpression(node) {
+        if (name(node.callee) === "ResizeObserver") note("create a ResizeObserver", node);
+      },
+      CallExpression(node) {
+        const callee = memberName(node.callee) ?? name(node.callee);
+        if (callee === "flushSync") note("call flushSync", node);
+        if (callee === "setProperty" && motionProperties.has(stringOf(node.arguments[0]))) note("set translate", node);
+        if (callee === "animate" && node.callee.type === "MemberExpression") {
+          const keys = keyframeObjects(node.arguments[0]).flatMap((frame) => frame.properties.map(keyName));
+          if (keys.some((key) => key === "height" || key === "maxHeight" || key === "max-height"))
+            note("animate height", node);
+          else if (keys.some((key) => motionProperties.has(key))) note("set translate", node);
+        }
+      },
+      AssignmentExpression(node) {
+        const property = memberName(node.left);
+        if (memberName(node.left.object) !== "style") return;
+        if (motionProperties.has(property)) note("set translate", node);
+        if (property === "transition" && /height|translate|transform/.test(stringOf(node.right) ?? ""))
+          note("animate height", node);
+      },
+      "Program:exit"() {
+        for (const [ban, nodes] of found) {
+          const allowed = rowMotionAllowed(file, ban);
+          if (nodes.length <= allowed) continue;
+          for (const node of nodes)
+            context.report({
+              node,
+              messageId: "found",
+              data: { ban, allowed: String(allowed), count: String(nodes.length) },
+            });
+        }
+      },
+    };
+  },
+};
+
 export default {
   meta: { name: "cmux-perf" },
-  rules: { "layout-thrash-in-loop": layoutThrashInLoop, "layout-read-after-write": layoutReadAfterWrite },
+  rules: {
+    "layout-thrash-in-loop": layoutThrashInLoop,
+    "layout-read-after-write": layoutReadAfterWrite,
+    "no-intl-construct": noIntlConstruct,
+    "transcript-scroll-writer": transcriptScrollWriter,
+    "transcript-row-motion": transcriptRowMotion,
+  },
 };

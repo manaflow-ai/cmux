@@ -8,7 +8,10 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # nightly.yml with its scripts/ci/nightly-steps/ step scripts inline (tests/nightly_workflow_text.py).
 WORKFLOW_FILE="$(mktemp "${TMPDIR:-/tmp}/nightly-expanded.XXXXXX")"
 python3 "$ROOT_DIR/tests/nightly_workflow_text.py" > "$WORKFLOW_FILE"
-git_fixture_trap_exit 'rm -f "$WORKFLOW_FILE"'
+# The compilation-cache refreshers nightly.yml calls (its refresh-compilation-caches job), read the same way.
+CACHE_FILE="$(mktemp "${TMPDIR:-/tmp}/nightly-cache-expanded.XXXXXX")"
+python3 "$ROOT_DIR/tests/nightly_workflow_text.py" nightly-compilation-cache.yml > "$CACHE_FILE"
+git_fixture_trap_exit 'rm -f "$WORKFLOW_FILE" "$CACHE_FILE"'
 
 if ! awk '
   /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
@@ -28,7 +31,8 @@ if ! awk '
   in_universal && (/ARCHS="arm64 x86_64"/ || /archs="arm64 x86_64"/) { saw_universal_archs=1 }
   in_universal && (/ONLY_ACTIVE_ARCH=NO/ || /only_active="NO"/) { saw_universal_only_active_arch=1 }
   in_universal && /-quiet/ { saw_quiet=1 }
-  in_universal && /COMPILATION_CACHE_ENABLE_CACHING=YES/ { saw_compilation_cache=1 }
+  # #62107: the build runs in a retry function whose caching is YES unless a crash retry turns it off.
+  in_universal && (/COMPILATION_CACHE_ENABLE_CACHING=YES/ || /local caching=YES/) { saw_compilation_cache=1 }
   in_universal && /COMPILER_INDEX_STORE_ENABLE=NO/ { saw_index_disabled=1 }
   in_universal && /-showBuildTimingSummary/ { saw_timing_summary=1 }
   END {
@@ -70,15 +74,15 @@ if ! awk '
   in_cache && /path: build-universal\/CompilationCache\.noindex/ { saw_path[job]=1 }
   in_cache && /key: xcode-compilation-release-/ { saw_key[job]=1 }
   in_cache && /steps\.compilation-cache-key\.outputs\.toolchain/ { saw_toolchain[job]=1 }
-  # The warmer keys by the tip it builds; the app build by the resolved build_sha it builds.
-  job == "refresh" && in_cache && /needs\.decide\.outputs\.head_sha/ { saw_head_sha[job]=1 }
+  # The warmer keys by the tip it builds (the head_sha input decide resolves); the app build by the resolved build_sha.
+  job == "refresh" && in_cache && /inputs\.head_sha/ { saw_head_sha[job]=1 }
   job == "build" && in_cache && /needs\.resolve-nightly-cmux-tui-client\.outputs\.build_sha/ { saw_head_sha[job]=1 }
   in_cache && /restore-keys:/ { saw_restore[job]=1 }
   END {
     exit !(saw_path["refresh"] && saw_key["refresh"] && saw_toolchain["refresh"] && saw_head_sha["refresh"] && saw_restore["refresh"] &&
            saw_path["build"] && saw_key["build"] && saw_toolchain["build"] && saw_head_sha["build"] && saw_restore["build"])
   }
-' "$WORKFLOW_FILE"; then
+' "$WORKFLOW_FILE" "$CACHE_FILE"; then
   echo "FAIL: cache warming and nightly app builds must both roll the shared Release compilation cache forward by source revision"
   exit 1
 fi
@@ -154,15 +158,15 @@ if ! awk '
   in_prepare && /runs-on: \$\{\{ github\.repository_owner/ { saw_matrix_runner=1 }
   in_prepare && /strategy:/ { saw_serial_fallback=1 }
   in_prepare && /PREPARE_FALLBACK/ { saw_runner_matrix=1; saw_primary_tolerated=1 }
-  # #33340, then nightlies only on our own Mac minis (tests/test_nightly_owned_minis_only.py): the job
-  # ends in the owned nightly-only pool, not a Linux runner pool or a Blacksmith label.
-  in_prepare && /runs-on: .*vars\.CI_NIGHTLY_ONLY_RUNNER \|\| .glaeda-nightly-only-m4pro./ && !/(blacksmith|LINUX_RUNNER|RUNNER_POOLS)/ { saw_linux_pool=1 }
+  # #33340, then #49544: the preparation is Linux work on the owned cmux-linux label, never a
+  # Blacksmith label or a runner-pool variable.
+  in_prepare && /runs-on: .*.cmux-linux./ && !/(blacksmith|LINUX_RUNNER|RUNNER_POOLS)/ { saw_linux_pool=1 }
   in_prepare && /env\.PREPARE_FALLBACK == '\''true'\''/ { saw_fallback=1 }
   in_prepare && /actions\/runs\/\$GITHUB_RUN_ID\/artifacts\?name=/ { saw_artifact_probe=1 }
   in_prepare && /steps\.reuse\.outputs\.exists != '\''true'\''/ { saw_reuse_gate=1 }
   END { exit !(saw_matrix_runner && saw_runner_matrix && saw_serial_fallback && saw_linux_pool && saw_fallback && saw_primary_tolerated && saw_artifact_probe && saw_reuse_gate) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly preparation must run on the owned nightly-only Mac pool, keep its fallback, and reuse a successful artifact"
+  echo "FAIL: nightly preparation must run on the owned cmux-linux label, keep its fallback, and reuse a successful artifact"
   exit 1
 fi
 if ! awk '
@@ -188,7 +192,8 @@ fi
 # Nightlies only on our own Mac minis (tests/test_nightly_owned_minis_only.py): the owned nightly-only pool,
 # or the one nightly mini while vars.CI_NIGHTLY_MINI is set (tests/test_nightly_one_mini.py).
 if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}" '
-  /^  refresh-compilation-cache:/ { in_refresh=1; next }
+  # The schedule gate and runner are on the nightly.yml caller job, the rest on the called refresh-compilation-cache.
+  /^  refresh-compilation-caches?:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   # 90 with one-mini mode off; the mode adds room for the glaeda capacity wait (tests/test_nightly_mini_gate_timeouts.py).
   in_refresh && (/timeout-minutes: 90$/ || /timeout-minutes: \$\{\{ vars\.CI_NIGHTLY_MINI != .* && [0-9]+ \|\| 90 \}\}$/) { saw_cold_build_timeout=1 }
@@ -207,7 +212,7 @@ if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-a
   in_refresh && /-showBuildTimingSummary/ { saw_timing_summary=1 }
   in_refresh && /-quiet/ { saw_quiet=1 }
   END { exit !(saw_cold_build_timeout && saw_schedule_gate && saw_release_runner && saw_release_xcode && saw_xcode_selection && saw_lookup && saw_restore_action && saw_restore_id && saw_cache && saw_refresh && saw_change_gate && saw_timing_summary && !saw_quiet) }
-' "$WORKFLOW_FILE"; then
+' "$WORKFLOW_FILE" "$CACHE_FILE"; then
   echo "FAIL: the six-hour schedule must allow 90 minutes for a cold cache build and use the matching runner, Xcode, and visible timing output"
   exit 1
 fi
@@ -257,7 +262,7 @@ if ! awk '
   in_bound && /max_cache_kib=\$\(\(5 \* 1024 \* 1024\)\)/ { saw_limit[job]=1 }
   in_bound && /rm -rf "\$cache_path"/ { saw_skip_save[job]=1 }
   END { exit !(saw_limit["refresh"] && saw_skip_save["refresh"] && saw_limit["build"] && saw_skip_save["build"]) }
-' "$WORKFLOW_FILE"; then
+' "$WORKFLOW_FILE" "$CACHE_FILE"; then
   echo "FAIL: cache warming and nightly app builds must retain caches through 5 GiB and skip larger saves"
   exit 1
 fi
@@ -282,7 +287,7 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper) || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}" \
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper) || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'mac-nightly' }}" \
        '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
@@ -418,10 +423,12 @@ if ! awk '
   job == "republish" && /gh api .*git\/ref\/tags\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
   job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_branch_read=1 }
   # The publication moves the tag to the resolved build commit, not the tip.
-  job == "republish" && index($0, "\"$current_sha\" != \"${{ needs.published-build.outputs.resolve_build_sha }}\"") { saw_build_sha=1 }
+  # The step script compares against RESOLVE_BUILD_SHA, which the step env: sets from published-build.
+  job == "republish" && index($0, "\"$current_sha\" != \"$RESOLVE_BUILD_SHA\"") { saw_build_cmp=1 }
+  job == "republish" && index($0, "RESOLVE_BUILD_SHA: ${{ needs.published-build.outputs.resolve_build_sha }}") { saw_build_env=1 }
   job == "republish" && /publish-release-assets\.py/ { saw_republish=1 }
   job == "republish" && /Upload revised appcasts to R2/ { saw_r2=1 }
-  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && !saw_branch_read && saw_build_sha && saw_republish && saw_r2) }
+  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && !saw_branch_read && saw_build_cmp && saw_build_env && saw_republish && saw_r2) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: post-publication delta generation must be matrixed, stale-guarded, and republished to GitHub and R2"
   exit 1
@@ -480,9 +487,9 @@ if ! awk '
   exit 1
 fi
 
-# nightly-next ships arm64 only (tests/test_nightly_next_arm64_only.py); main's nightly keeps all three.
-if ! grep -Fq "const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
-  echo "FAIL: main's nightly must always build the universal download alongside the thin update tracks"
+# NIGHTLY and nightly-next ship arm64 only (tests/test_nightly_next_arm64_only.py); only RC keeps all three.
+if ! grep -Fq "const variants = fastBuild || track !== 'rc' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
+  echo "FAIL: only the RC channel builds the Intel and universal variants; NIGHTLY and nightly-next are arm64 only (Leo, 2026-11-25)"
   exit 1
 fi
 
@@ -733,7 +740,7 @@ if ! awk '
     }
     exit 0
   }
-' "$WORKFLOW_FILE"; then
+' "$WORKFLOW_FILE" "$CACHE_FILE"; then
   echo "FAIL: nightly cache saves must prune dead CAS generations (non-fatally) before measuring the bound, then save explicitly on a miss from the bound step verdict"
   exit 1
 fi
@@ -759,13 +766,19 @@ if ! awk '
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "report" && /contains\(needs\.\*\.result, .failure.\)/ { saw_report_gate=1 }
   job == "report" && /issues: write/ { saw_report_perm=1 }
-  job == "report" && /\$\{process\.env\.CHANNEL_RELEASE_TAG\}-failure/ { saw_report_label=1 }
+  # The label is built in the reporter script the job requires (scripts/ci/nightly-steps/report-nightly-failure.cjs), checked below.
+  job == "report" && /report-nightly-failure\.cjs/ { saw_report_label=1 }
   # The result of publish-nightly, carried by published-build (another run on nightly-next).
   job == "close" && /needs\.published-build\.outputs\.publish_result == .success./ { saw_close_gate=1 }
   job == "close" && /state: .closed./ { saw_close=1 }
   END { exit !(saw_report_gate && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: a failing main nightly must open a nightly-failure issue and a successful publish must close it"
+  exit 1
+fi
+
+if ! grep -Fq 'const label = `${process.env.CHANNEL_RELEASE_TAG}-failure`;' "$ROOT_DIR/scripts/ci/nightly-steps/report-nightly-failure.cjs"; then
+  echo "FAIL: the nightly failure reporter must label its issue with the channel release tag"
   exit 1
 fi
 
@@ -800,6 +813,21 @@ if ! awk '
   END { exit !(saw_move_if && saw_move_id && saw_move_best_effort && saw_app_token && saw_github_token_cleared && saw_api_update) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: moving the channel release tag must use the scoped app token, remain observable when stale, and use the verified API helper"
+  exit 1
+fi
+
+if ! awk '
+  /^      - name: Move channel release tag to built commit/ || /^      - name: Move the nightly-next tag to the published build/ {
+    in_move=1
+    moves++
+    next
+  }
+  in_move && /^      - name:/ { in_move=0 }
+  in_move && /GH_TOKEN: \$\{\{ steps\.release-tag-token\.outputs\.token \}\}/ { saw_app_token++ }
+  in_move && index($0, "GITHUB_TOKEN: ''") { saw_github_token_cleared++ }
+  END { exit !(moves == 2 && saw_app_token == 2 && saw_github_token_cleared == 2) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: both nightly tag moves must keep the scoped app token and intentionally clear GITHUB_TOKEN"
   exit 1
 fi
 
@@ -939,8 +967,6 @@ BUILD_GATE="needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && 
 # A run whose build a newer published build is above spends no notarization (#33109): the macOS
 # signer adds it as one more top-level conjunct, after the build gate.
 NOT_OVERTAKEN="needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
-# The build can prepare the variant itself; only an unprepared app needs this job (#42179).
-NOT_PREPARED="needs.build-nightly-app.outputs.prepared != 'true'"
 # The macOS signer is the fallback when the signer jobs did not produce the DMG (#26335); its
 # prefix only adds conjuncts, so the build_only exclusion still holds.
 SIGN_FALLBACK="!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.pick-nightly-sign-runner.result == 'success'"
@@ -952,7 +978,7 @@ HELPER_NEEDS_OK="$APP_NEEDS_OK && needs.resolve-nightly-ghostty-cli-helper.resul
 PREPARE_NEEDS_OK="\"!cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.build-nightly-remote-daemon.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success'"
 if [ "$(job_if build-nightly-app)" != "    if: $APP_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: $HELPER_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" ] \
-  || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $PREPARE_NEEDS_OK && $BUILD_GATE && $NOT_PREPARED\"" ] \
+  || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $PREPARE_NEEDS_OK && $BUILD_GATE\"" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE && $NOT_OVERTAKEN\"" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
   || [ "    if: $APP_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" != "$(job_if build-nightly-app)" ] \
@@ -1055,7 +1081,7 @@ done
 # already has. A cmux NIGHTLY-identity submission still in Apple's queue is
 # continued (never resubmitted) until it is resolved or 6 hours old.
 legacy_dir="$(mktemp -d)"
-git_fixture_trap_exit 'rm -rf "$legacy_dir" "$WORKFLOW_FILE"'
+git_fixture_trap_exit 'rm -rf "$legacy_dir" "$WORKFLOW_FILE" "$CACHE_FILE"'
 legacy_feed() {  # <file> <build>...
   local file="$1"; shift
   {

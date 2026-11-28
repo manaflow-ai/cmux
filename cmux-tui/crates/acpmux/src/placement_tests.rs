@@ -29,7 +29,14 @@ fn health(ram_gb: f64, cores: u64, load: f64, disk_gb: f64, live: u64) -> Value 
 }
 
 fn c(name: &str, health: Value) -> Candidate {
-    Candidate { name: name.into(), local: false, health, health_at: None, via_hub: false }
+    Candidate {
+        name: name.into(),
+        local: false,
+        health,
+        health_at: None,
+        via_hub: false,
+        unreachable: None,
+    }
 }
 
 fn host<'a>(v: &'a Value, name: &str) -> &'a Value {
@@ -120,6 +127,41 @@ fn a_host_at_its_lane_cap_or_out_of_ram_has_no_room_yet_the_work_still_goes_some
     let v = place(&[full[1].clone()], Some(&registry()), Work::Build);
     assert_eq!(v["pick"], Value::Null, "{v:#}");
     assert!(v["why"].as_str().unwrap().starts_with("no host has room"), "{v:#}");
+}
+
+/// 2026-11-20: a lane host ran 38 sessions against a cap of 6 and ran out of memory. With no
+/// host left with room, the fallback took the best-ranked one, however far past its cap: room
+/// is clamped at 0, so a host 32 over tied with one at its cap. The one least far past its
+/// limits takes the work now, and it is still taken, never refused.
+#[test]
+fn with_no_room_anywhere_the_host_least_far_past_its_limits_takes_the_work() {
+    let lanes = |rank| {
+        json!({"rank": rank, "build": false, "free_gb_floor": 20, "reserved_gb": 7,
+            "per_lane_gb": 8, "disk_per_lane_gb": 20, "max_lanes": 6})
+    };
+    let reg = json!({"machines": {"crowded": {"lanes": lanes(1)}, "at-cap": {"lanes": lanes(2)}}});
+    // crowded: 38/6 lanes and 2 GB free, under its 7 GB floor; at-cap: 6/6 and 20 GB free.
+    let hosts = [
+        c("crowded", health(2.0, 16, 30.0, 200.0, 38)),
+        c("at-cap", health(20.0, 16, 4.0, 200.0, 6)),
+    ];
+    let v = place(&hosts, Some(&reg), Work::Agent);
+    assert_eq!(host(&v, "crowded")["refused"], "no room: lanes is the limit", "{v:#}");
+    assert_eq!(host(&v, "at-cap")["refused"], "no room: lanes is the limit", "{v:#}");
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("at-cap"), &json!(true)), "{v:#}");
+    // In either order, and alone the crowded host still takes it: caps only warn.
+    let v = place(&[hosts[1].clone(), hosts[0].clone()], Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "at-cap", "{v:#}");
+    let v = place(&hosts[..1], Some(&reg), Work::Agent);
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("crowded"), &json!(true)), "{v:#}");
+    // RAM under its floor counts too: at the same lane count, more RAM short loses.
+    let short_ram = [
+        c("crowded", health(1.0, 16, 4.0, 200.0, 6)),
+        c("at-cap", health(20.0, 16, 4.0, 200.0, 6)),
+    ];
+    let v = place(&short_ram, Some(&reg), Work::Agent);
+    assert_eq!(host(&v, "crowded")["refused"], "no room: RAM is the limit", "{v:#}");
+    assert_eq!(v["pick"], "at-cap", "{v:#}");
 }
 
 #[test]
@@ -299,6 +341,25 @@ fn a_drained_lane_host_is_never_a_placement_candidate() {
         reg["machines"]["big"]["lanes"]["accept_new"] = open.clone();
         assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big", "{open}");
     }
+}
+
+/// A machine that is never a lane host (`lanes.lane_host` false: Leo's own box; Leo,
+/// 2026-11-27: "then please don't rely on" it) is refused even while it accepts new lanes.
+#[test]
+fn a_machine_that_is_never_a_lane_host_is_refused() {
+    let both =
+        [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(5.0, 8, 7.9, 30.0, 0))];
+    let mut reg = registry();
+    reg["machines"]["big"]["lanes"]["accept_new"] = json!(true);
+    reg["machines"]["big"]["lanes"]["lane_host"] = json!(false);
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "small", "{v}");
+    assert_eq!(host(&v, "big")["refused"], "never a lane host (lanes.lane_host false)");
+    reg["machines"]["big"]["lanes"]["lane_host_why"] = json!("Leo's personal box");
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(host(&v, "big")["refused"], "never a lane host: Leo's personal box");
+    reg["machines"]["big"]["lanes"]["lane_host"] = json!(true);
+    assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big");
 }
 
 /// A machine a person works at: `interactive: true`, or the registry's role for one (`leo-mac`,
@@ -569,12 +630,25 @@ fn a_peer_whose_link_is_not_up_is_passed_over_with_why() {
         assert_eq!(peer_down(&row(false, state)), Some(format!("not connected ({state})")));
     }
     assert_eq!(peer_down(&json!({"name": "vm"})), Some("not connected (down)".into()));
+    // A machine only the hub lists is a candidate (its start goes through the hub), but no
+    // direct link reaches it.
+    let hub = json!({"name": "swarm-01", "connected": true, "state": "connected", "via": "hub"});
+    assert_eq!(peer_down(&hub), None);
+    let why = link_down(&hub).expect("a hub-only machine has no link");
+    assert!(why.starts_with("only the mesh hub reaches it"), "{why}");
+    assert!(why.contains("`acpmux machine add swarm-01`"), "{why}");
 
     let v = place(&[c("small", health(40.0, 16, 1.0, 300.0, 0))], Some(&registry()), Work::Agent);
     let v = with_down(v, &[("vm".into(), "not connected (reconnecting)".into())]);
     assert_eq!(v["pick"], "small", "{v:#}");
     assert_eq!(host(&v, "vm")["ok"], false, "{v:#}");
     assert_eq!(host(&v, "vm")["refused"], "not connected (reconnecting)", "{v:#}");
+}
+
+#[test]
+fn an_outdated_peer_is_passed_over_as_a_stale_disk_copy() {
+    let row = json!({"name": "vm", "connected": true, "state": "connected", "outdated": true});
+    assert_eq!(peer_down(&row), Some("outdated peer build (stale disk copy)".into()));
 }
 
 #[test]
@@ -626,6 +700,7 @@ fn an_unknown_hosts_line_says_why_and_what_to_do() {
     assert!(old.contains("`acpmux machine update big`"), "{old}");
     let hub = why(Candidate { via_hub: true, ..c("big", Value::Null) });
     assert!(hub.contains("only the mesh hub reaches it"), "{hub}");
+    assert!(hub.contains("health read through the hub"), "{hub}");
     assert!(!hub.contains("build"), "a hub machine's build is not the reason: {hub}");
     let fresh = why(c("big", Value::Null));
     assert!(fresh.contains("no health reading yet"), "{fresh}");
@@ -722,4 +797,87 @@ fn the_pick_order_is_under_then_headroom_then_unread_then_full() {
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("laptop"), &json!(false)), "{v:#}");
     let v = place(&[full], Some(&reg), Work::Agent);
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("big"), &json!(true)), "{v:#}");
+}
+
+/// 2026-11-25: `machine pick` chose a host whose copy then failed with "Connection closed", and
+/// the launch went elsewhere by hand. A host the transport cannot reach takes nothing, even the
+/// overloaded fallback: the one it can reach takes the work, over its cap if it must.
+#[test]
+fn a_host_the_transport_cannot_reach_is_never_picked() {
+    let gone = Candidate {
+        unreachable: Some("unreachable: scp: Connection closed 30s ago".into()),
+        ..c("big", health(60.0, 32, 0.0, 400.0, 0))
+    };
+    let v = place(
+        &[gone.clone(), c("small", health(16.0, 8, 0.2, 200.0, 0))],
+        Some(&registry()),
+        Work::Agent,
+    );
+    assert_eq!(v["pick"], "small", "{v:#}");
+    let big = host(&v, "big");
+    assert_eq!(big["ok"], false, "{v:#}");
+    assert_eq!(big["load"], false, "not a load refusal, so never the overloaded fallback: {v:#}");
+    assert!(big["refused"].as_str().unwrap().contains("Connection closed"), "{v:#}");
+
+    // The only other host is past its cap: it takes the work overloaded, not the unreachable one.
+    let v = place(
+        &[gone.clone(), c("small", health(16.0, 8, 0.2, 200.0, 12))],
+        Some(&registry()),
+        Work::Agent,
+    );
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("small"), &json!(true)), "{v:#}");
+
+    // Alone, it is no pick at all: the caller falls back as it does when no host takes the work.
+    let v = place(&[gone], Some(&registry()), Work::Agent);
+    assert_eq!(v["pick"], Value::Null, "{v:#}");
+}
+
+/// A peer row's stale reading, failed read, or recorded transfer failure marks the candidate.
+#[test]
+fn a_peer_row_says_when_it_cannot_be_reached() {
+    let now = 100 * reach::STALE_MS;
+    let row =
+        |at: u64| json!({"name": "lane", "connected": true, "health": {"cpus": 4}, "healthAt": at});
+    let none = reach::Failures::default();
+    assert_eq!(Candidate::peer_at(&row(now - 1_000), now, &none).unwrap().unreachable, None);
+    let stale = Candidate::peer_at(&row(now - 2 * reach::STALE_MS), now, &none).unwrap();
+    assert!(stale.unreachable.unwrap().contains("min old"));
+    let mut failed = reach::Failures::default();
+    failed.record("lane", "scp: Connection closed", now - 1_000);
+    let c = Candidate::peer_at(&row(now - 1_000), now, &failed).unwrap();
+    assert!(c.unreachable.unwrap().contains("scp: Connection closed"));
+}
+
+#[test]
+fn a_hub_only_host_with_a_pushed_reading_is_weighed_not_unknown() {
+    // The row `mesh_book_hosts` builds from the address book: via the hub, health pushed.
+    let now = reach::STALE_MS;
+    let row = json!({"name": "big", "connected": true, "state": "connected", "via": "hub",
+        "health": health(40.0, 12, 1.0, 300.0, 1), "healthAt": now});
+    let cand = Candidate::peer_at(&row, now, &reach::Failures::default()).unwrap();
+    assert!(cand.via_hub);
+    let v = place(&[cand], Some(&registry()), Work::Agent);
+    let why = host(&v, "big")["why"].as_str().unwrap_or_default().to_owned();
+    assert!(!why.contains("resources unknown"), "{why}");
+    assert_eq!(v["pick"], "big", "{v:#}");
+}
+
+#[test]
+fn role_holders_fold_into_machine_roles() {
+    let mut reg = json!({
+        "machines": {"mac": {"roles": ["ci-runner"]}, "air": {}, "other": {"roles": ["x"]}},
+        "role_holders": {"leo-mac": ["mac", "ghost"], "attended": ["air", "mac"], "ci-runner": ["mac"]}
+    });
+    fold_role_holders(&mut reg);
+    // Held by role_holders, appended in sorted role order, no duplicate of the legacy ci-runner.
+    assert_eq!(reg["machines"]["mac"]["roles"], json!(["ci-runner", "attended", "leo-mac"]));
+    assert_eq!(reg["machines"]["air"]["roles"], json!(["attended"]));
+    assert_eq!(reg["machines"]["other"]["roles"], json!(["x"]));
+    // A holder that is no machine is ignored, not added.
+    assert!(reg["machines"].get("ghost").is_none());
+    assert!(interactive(Some(&reg), "air") && interactive(Some(&reg), "mac"));
+    // Idempotent.
+    let once = reg.clone();
+    fold_role_holders(&mut reg);
+    assert_eq!(reg, once);
 }

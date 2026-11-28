@@ -46,12 +46,66 @@ pub fn failed(code: &str) -> Value {
 
 const JOIN_DEADLINE: Duration = Duration::from_secs(90);
 
-fn run(args: &[&str], stdin: Option<&str>) -> Result<Value, &'static str> {
+/// The start of the line `acpmux host join` prints on stderr when it leaves the box without its
+/// update timer (`acpmux/src/cli/run/extra.rs`); the rest of the line says why.
+const TIMER_NOTE: &str = "acpmux update timer: ";
+
+/// The most stderr read from one acpmux call.
+const STDERR_MAX: u64 = 16 * 1024;
+
+/// What one acpmux call answered: its JSON on stdout and its stderr.
+struct Answer {
+    value: Value,
+    stderr: String,
+}
+
+/// A file the child writes its stderr to, so a full pipe never holds it and no reader thread
+/// runs beside it; read (bounded) once the child exits, then removed.
+struct StderrFile {
+    path: PathBuf,
+    file: std::fs::File,
+}
+
+impl StderrFile {
+    fn new() -> Option<Self> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let path = std::env::temp_dir()
+            .join(format!("cmux-machine-join-{}-{nanos}.stderr", std::process::id()));
+        let file =
+            std::fs::OpenOptions::new().read(true).write(true).create_new(true).open(&path).ok()?;
+        Some(Self { path, file })
+    }
+
+    fn stdio(&self) -> Stdio {
+        self.file.try_clone().map_or_else(|_| Stdio::null(), Stdio::from)
+    }
+
+    fn read(mut self) -> String {
+        use std::io::Seek as _;
+        let mut text = Vec::new();
+        if self.file.rewind().is_ok() {
+            let _ = (&self.file).take(STDERR_MAX).read_to_end(&mut text);
+        }
+        String::from_utf8_lossy(&text).into_owned()
+    }
+}
+
+impl Drop for StderrFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn run(args: &[&str], stdin: Option<&str>) -> Result<Answer, &'static str> {
+    let stderr = StderrFile::new();
     let mut child = Command::new(acpmux())
         .args(args)
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(stderr.as_ref().map_or_else(Stdio::null, StderrFile::stdio))
         .spawn()
         .map_err(|_| "server.pair.machine_join_no_acpmux")?;
     if let Some(text) = stdin {
@@ -84,7 +138,24 @@ fn run(args: &[&str], stdin: Option<&str>) -> Result<Value, &'static str> {
         let _ = stdout.by_ref().take(64 * 1024).read_to_end(&mut out);
     }
     let value: Value = serde_json::from_slice(&out).unwrap_or(Value::Null);
-    if status.success() { Ok(value) } else { Err("server.pair.machine_join_refused") }
+    let stderr = stderr.map(StderrFile::read).unwrap_or_default();
+    if status.success() {
+        Ok(Answer { value, stderr })
+    } else {
+        Err("server.pair.machine_join_refused")
+    }
+}
+
+/// Why the join left the box without its update timer, from acpmux's stderr: the last
+/// [`TIMER_NOTE`] line, one line of at most 300 bytes with no secret-shaped text.
+fn timer_note(stderr: &str) -> Option<String> {
+    let note = stderr.lines().rev().find_map(|line| line.trim().strip_prefix(TIMER_NOTE))?.trim();
+    let clean = !note.is_empty()
+        && note.len() <= 300
+        && !note.contains("cmj_")
+        && !note.contains("cmm_")
+        && !note.chars().any(char::is_control);
+    clean.then(|| format!("acpmux-update.timer: {note}"))
 }
 
 /// Redeems `join` with acpmux for the platform of `api`, as `name`. A machine
@@ -96,6 +167,7 @@ pub fn redeem(join: &MachineJoin, api: &str, name: &str) -> Value {
     };
     let revoked = run(&["host", "join", "--status", "--hub", hub, "--json"], None)
         .ok()
+        .map(|answer| answer.value)
         .is_some_and(|status| {
             ["revoked", "cloned"]
                 .iter()
@@ -110,9 +182,13 @@ pub fn redeem(join: &MachineJoin, api: &str, name: &str) -> Value {
         args.push("--replace");
     }
     match run(&args, Some(join.token())) {
-        Ok(value) => {
+        Ok(Answer { value, stderr }) => {
             let mut out = serde_json::Map::new();
             out.insert("state".into(), "joined".into());
+            // Joined, but not keeping itself on the newest build: the person sees why.
+            if let Some(note) = timer_note(&stderr) {
+                out.insert("note".into(), note.into());
+            }
             for (from, to) in [
                 ("machineId", "machine_id"),
                 ("teamId", "team"),
@@ -129,33 +205,5 @@ pub fn redeem(join: &MachineJoin, api: &str, name: &str) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn each_api_joins_its_own_platform_and_an_unknown_api_none() {
-        use cmux_cloud_environment as e;
-        assert_eq!(platform_for(e::PRODUCTION_API), Some(e::PRODUCTION_PLATFORM));
-        assert_eq!(platform_for(&format!("{}/", e::STAGING_API)), Some(e::STAGING_PLATFORM));
-        assert_eq!(platform_for(e::DEVELOPMENT_API), Some(e::DEVELOPMENT_PLATFORM));
-        assert_eq!(platform_for("https://example.com"), None);
-        assert_eq!(
-            redeem(
-                &MachineJoin::for_tests(&format!("cmj_{}", "a".repeat(43)), 1),
-                "https://example.com",
-                "box"
-            ),
-            failed("server.pair.machine_join_unknown_api")
-        );
-    }
-
-    #[test]
-    fn the_token_never_shows_in_debug() {
-        let token = format!("cmj_{}", "s".repeat(43));
-        let join = MachineJoin::for_tests(&token, 7);
-        assert!(join.well_formed());
-        assert!(!format!("{join:?}").contains(&token));
-        assert!(!MachineJoin::for_tests("cmj_short", 7).well_formed());
-        assert!(!MachineJoin::for_tests(&format!("cmm_{}", "a".repeat(43)), 7).well_formed());
-    }
-}
+#[path = "machine_join_tests.rs"]
+mod tests;
