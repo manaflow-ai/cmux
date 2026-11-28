@@ -926,6 +926,8 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-icon-box-comfortable: calc(20px * var(--cmux-interface-scale, 1)); /* Comfortable sidebar and Home list icon box only. */
   --grid-glyph: calc(12px * var(--cmux-interface-scale, 1)); /* Small glyph centered inside its icon box. */
   --grid-gap: calc(8px * var(--cmux-interface-scale, 1)); /* Space after an icon or control box. */
+  --grid-chevron-gap: calc(4px * var(--cmux-interface-scale, 1)); /* Least ink-to-ink space between a label and its chevron, either side (docs/cmux-next/ui-guidelines.md). */
+  --grid-hit-min: calc(24px * var(--cmux-interface-scale, 1)); /* Least width and height of a clickable icon, chevron or icon-only button (docs/cmux-next/ui-guidelines.md). */
   --grid-row: calc(28px * var(--cmux-interface-scale, 1)); /* Compact row height. */
   --grid-row-comfortable: calc(32px * var(--cmux-interface-scale, 1)); /* Comfortable row height. */
   --grid-pill-inset: calc(2px * var(--cmux-interface-scale, 1)); /* Vertical inset above and below a row highlight. */

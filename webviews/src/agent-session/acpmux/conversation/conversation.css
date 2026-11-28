@@ -6603,26 +6603,6 @@ a.cv-sha:focus-visible {
   letter-spacing: var(--text-caption--letter-spacing);
   white-space: nowrap;
 }
-/* A failed turn's mark (TurnRows.tsx `endMark`, G04) in the failure ink (failedTurnMark.experiment.ts):
-   its own 24 square in the 32 footer line, the buttons' size, after them, so it never moves them. */
-.cv-turn-actions .cv-turn-end-mark {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--cv-footer-button);
-  height: var(--cv-footer-row);
-  color: var(--cv-footer-ink);
-  font-size: var(--text-caption);
-  letter-spacing: var(--text-caption--letter-spacing);
-  white-space: nowrap;
-}
-.cv-turn-actions .cv-turn-end-mark--failed {
-  color: var(--agent-status-failure);
-}
-.cv-turn-actions .cv-turn-end-mark--word {
-  padding-inline: calc(var(--ds-space-1) * 0.5);
-}
 .cv-iconbtn.cv-turn-continue:disabled,
 .cv-user__queued-hover .cv-message-retry .cv-iconbtn:disabled {
   opacity: 0.5;
@@ -9145,6 +9125,24 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
 article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
   top: calc(100% + (var(--grid-gap-block) - var(--cv-meta-row)) / 2);
 }
+/* A person's own message right over another of theirs: the two stick together, the footer gap apart
+   (transcriptGrid.ts), so the upper one's action row has no gap to sit in. It sits beside its bubble
+   instead, bottom-aligned at the bubble's inner edge (flipped when the look puts bubbles on the left), with
+   no layout room, so hovering still moves nothing. */
+@supports (anchor-name: --cv-user-bubble) {
+  .cv-user__bubble {
+    anchor-name: --cv-user-bubble;
+  }
+  article.acpmux-row--before-own-message .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
+  article.acpmux-row--before-own-message .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
+    position-anchor: --cv-user-bubble;
+    top: auto;
+    bottom: anchor(bottom);
+    right: anchor(left);
+    margin: 0 var(--grid-gap-footer) calc((var(--cv-line-height) + 2 * var(--grid-gap-footer) - var(--cv-meta-row)) / 2) 0;
+    position-try-fallbacks: flip-inline;
+  }
+}
 
 
 .cv-repo-recovery {
@@ -9338,7 +9336,8 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   overflow: hidden;
   white-space: nowrap;
 }
-.cv-worked__toggle:is(:hover, :focus-visible) * {
+/* With nothing under the fold yet (`disabled`, WorkingFor.tsx) the label opens nothing, so it does not light. */
+.cv-worked__toggle:not(:disabled):is(:hover, :focus-visible) * {
   color: var(--cv-text);
 }
 .cv-worked__toggle:focus-visible {

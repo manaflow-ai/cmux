@@ -7,9 +7,8 @@ import Foundation
 import os
 import CmuxNextCompat
 
-/// Owns the Accounts screen's model and its `AccountsServices`: detection
-/// over the login-shell environment, the cmux Keychain item for pasted
-/// keys, and the CodeRouter control plane as the signed-in cmux user.
+/// Owns account detection, the Keychain item for pasted keys, and the
+/// CodeRouter control plane as the signed-in cmux user.
 /// Settings > Accounts, the onboarding step, the palette and the CLI all
 /// act through this one model (plans/cmux-next/coderouter.md).
 @MainActor
@@ -21,6 +20,7 @@ final class AccountsService: AccountsServices {
     private(set) lazy var chiefConnections = ChiefConnections.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
     private(set) lazy var agentKeys = TeamAgentKeys.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
     private(set) lazy var modelsPolicy = TeamModelsPolicy.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
+    let cloudClaudeApproval = SettingsModels.CloudClaudeApproval()
     /// `models.spreadUsage` mirrored into acpmux for the app's life (SettingsModels.mirrorSpread).
     private var spreadMirror: Task<Void, Never>?
     let keys: any ProviderKeyStoring
