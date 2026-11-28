@@ -17,7 +17,12 @@ public final class HostPressureGaugesView: NSStackView {
         switch style {
         case .off: break
         case .bars, .meters:
-            for gauge in gauges { addArrangedSubview(Self.row(gauge, segmented: style == .meters, width: width)) }
+            // Every row's percent column is as wide as the widest percent, so "1,217%" shows whole and the bars
+            // still line up (a fixed 44 pt cut a CPU at 1,217% to "1,21…").
+            let percentWidth = max(gauges.map { Self.percentWidth($0.percent) }.max() ?? 0, 44)
+            for gauge in gauges {
+                addArrangedSubview(Self.row(gauge, segmented: style == .meters, width: width, percentWidth: percentWidth))
+            }
         case .compact:
             // Three chips a line: five gauges fit in two lines of the popover's width.
             for start in stride(from: 0, to: gauges.count, by: 3) {
@@ -32,7 +37,7 @@ public final class HostPressureGaugesView: NSStackView {
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     /// The name, the bar and its percent on one line; the numbers behind it under the bar.
-    private static func row(_ gauge: HostPressureGauge, segmented: Bool, width: CGFloat) -> NSView {
+    private static func row(_ gauge: HostPressureGauge, segmented: Bool, width: CGFloat, percentWidth: CGFloat) -> NSView {
         let name = label(HostPressureGaugeStrings.name(gauge.kind), font: Typography.caption, ink: .secondary)
         let percent = label(percentText(gauge.percent), font: Typography.captionDigits, ink: .primary)
         percent.alignment = .right
@@ -43,7 +48,7 @@ public final class HostPressureGaugesView: NSStackView {
         grid.rowSpacing = 0
         grid.rowAlignment = .none
         grid.row(at: 0).yPlacement = .center
-        let nameWidth: CGFloat = 72, percentWidth: CGFloat = 44
+        let nameWidth: CGFloat = 72
         grid.column(at: 0).width = nameWidth
         grid.column(at: 2).width = percentWidth
         grid.column(at: 2).xPlacement = .trailing
@@ -67,6 +72,11 @@ public final class HostPressureGaugesView: NSStackView {
         chip.setAccessibilityLabel("\(HostPressureGaugeStrings.name(gauge.kind)) \(percentText(gauge.percent)), \(gauge.detail)")
         chip.setAccessibilityIdentifier("cmux.hostPressure.gauge.\(gauge.kind)")
         return chip
+    }
+
+    /// The width the row's percent label needs for this percent, its text field insets included.
+    static func percentWidth(_ percent: Double) -> CGFloat {
+        ceil(label(percentText(percent), font: Typography.captionDigits, ink: .primary).fittingSize.width)
     }
 
     static func percentText(_ percent: Double) -> String {
