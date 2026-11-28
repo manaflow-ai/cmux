@@ -47,7 +47,7 @@ target_dir="$(cd "$target_dir" && pwd)"
 logs="$(mktemp -d)"
 trap 'rm -rf "$logs"' EXIT
 
-bins=() commands=() dirs=() pids=() starts=() failed=() missing=() pending_reruns=()
+bins=() commands=() dirs=() pids=() starts=() failed=() missing=() pending_reruns=() heavy_serial=""
 while (($#)); do
   bins+=("$1") commands+=("$2")
   shift 2
@@ -140,6 +140,18 @@ if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
     fi
     echo "cargo groups: $source ${budget} GiB holds ${total} tokens across ${max_par} of ${groups} groups at once, ${per_token} GiB a token, ${per_group} GiB a group"
   fi
+  # HEAVY_GROUPS_ONE_AT_A_TIME: CARGO_GROUPS_HEAVY names the groups (numbers, space separated) that compile a
+  # release fat-LTO giant: the shipped musl legs' group 1 (cmux-tui, with acpmux and cmux-tui-core) and group 5
+  # (acpmux-standalone, acpmux again with its own features). One such rustc holds far more than a token: group 5's
+  # rerun, the acpmux lib its only unit, still lost it to the kernel under memory.max 14 GiB (cmux-tui-artifacts
+  # runs 46161165035 and 46161772976, both musl legs, 2026-11-28, after #64863), and on an uncapped 30 GiB VM
+  # groups 1 and 5 at once ended in a runner shutdown (run 46157448774 attempt 2). Unless the budget holds
+  # CARGO_GROUPS_HEAVY_GIB (16) per heavy group, they run one after another; light groups start meanwhile.
+  heavy_gib=${CARGO_GROUPS_HEAVY_GIB:-16} heavy_n=$(wc -w <<<"${CARGO_GROUPS_HEAVY:-}")
+  if ((heavy_n > 1)) && [[ -n "$budget" ]] && ((budget < heavy_n * heavy_gib)); then
+    heavy_serial=1
+    echo "cargo groups: $source ${budget} GiB holds fewer than ${heavy_n} heavy groups (${CARGO_GROUPS_HEAVY}) at ${heavy_gib} GiB each: one at a time"
+  fi
   export CARGO_BUILD_JOBS=$jobs
   echo "cargo groups: ${#commands[@]}, CARGO_BUILD_JOBS=$lead_jobs for group 1, $CARGO_BUILD_JOBS each for the others"
 else
@@ -196,12 +208,28 @@ oom_killed() {
   [[ -n "$oom_before" && -n "$now" ]] && ((now > oom_before))
 }
 
-oom_before=$(oom_kills)
+# is_heavy N: group N is in CARGO_GROUPS_HEAVY.
+is_heavy() { [[ " ${CARGO_GROUPS_HEAVY:-} " == *" $1 "* ]]; }
+
+# Start order: every group in turn, except that with HEAVY_GROUPS_ONE_AT_A_TIME each heavy group after the first
+# goes last, so the light groups never wait behind it.
+order=() deferred=() first_heavy=""
 for i in "${!commands[@]}"; do
+  n=$((i + 1))
+  if [[ -n "$heavy_serial" ]] && is_heavy "$n"; then
+    if [[ -n "$first_heavy" ]]; then deferred+=("$i"); continue; fi
+    first_heavy=$n
+  fi
+  order+=("$i")
+done
+order+=(${deferred[@]+"${deferred[@]}"})
+
+oom_before=$(oom_kills)
+for i in "${order[@]}"; do
   n=$((i + 1))
   dir="$target_dir"
   ((n == 1)) || dir="$target_dir/groups/$n"
-  dirs+=("$dir")
+  dirs[i]=$dir
   # An optional binary must not survive from an earlier build: the copy would
   # stand in for one this run failed to make.
   for b in ${bins[i]}; do
@@ -214,9 +242,18 @@ for i in "${!commands[@]}"; do
     ((running < max_par)) && break
     wait -n || true
   done
-  starts+=("$(date +%s)")
+  # HEAVY_GROUPS_ONE_AT_A_TIME (above): a heavy group starts once no other heavy group is running.
+  while [[ -n "$heavy_serial" ]] && is_heavy "$n"; do
+    running=0
+    for j in "${!pids[@]}"; do
+      is_heavy $((j + 1)) && kill -0 "${pids[j]}" 2>/dev/null && running=1
+    done
+    ((running == 0)) && break
+    wait -n || true
+  done
+  starts[i]=$(date +%s)
   run_group "$i" "$dir" &
-  pids+=("$!")
+  pids[i]=$!
 done
 
 for i in "${!pids[@]}"; do
@@ -259,12 +296,17 @@ for i in "${!pids[@]}"; do
   fi
 done
 
-# OOM_RERUN_ALONE (above): each OOM-killed group again, one at a time, with nothing else building.
+# OOM_RERUN_ALONE (above): each OOM-killed group again, one at a time, with nothing else building, and with one
+# job: alone at its own CARGO_BUILD_JOBS (3 for group 1) the cmux-tui group's rerun still compiled the cmux_tui
+# and acpmux rustc at once and lost both to the kernel under memory.max 14 GiB (cmux-tui-artifacts run
+# 46161772976, job 141030618742, 2026-11-28). Its finished units are kept, so what is left is mostly the giants,
+# and one rustc at a time is the most a rerun can do to fit.
 for i in ${pending_reruns[@]+"${pending_reruns[@]}"}; do
   n=$((i + 1))
   label="cargo group $n (${bins[i]//\?/}) rerun"
+  echo "$label: CARGO_BUILD_JOBS=1"
   starts[i]=$(date +%s)
-  (run_group "$i" "${dirs[i]}") || true
+  (CARGO_BUILD_JOBS=1 lead_jobs=1 run_group "$i" "${dirs[i]}") || true
   status=255 end=$(date +%s)
   [[ -f "$logs/$n.done" ]] && read -r status end < "$logs/$n.done"
   grouped group "$label"
