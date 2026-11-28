@@ -312,7 +312,7 @@ fn terminal_check(global: &GlobalArgs, identify: &Value) -> Verdict {
     let call = |operation: ResourceOperation, params: Value| {
         super::super::mcp::agent_resource(&daemon_global, plan(operation, params))
     };
-    if let Err(error) = call(
+    let created = match call(
         ResourceOperation::TabCreateTerminal,
         json!({
             "name": "cmux health",
@@ -320,8 +320,13 @@ fn terminal_check(global: &GlobalArgs, identify: &Value) -> Verdict {
             "terminal_id": terminal,
         }),
     ) {
-        return Verdict::fail("terminal.create", error_text(&error));
-    }
+        Ok(created) => created,
+        Err(error) => return Verdict::fail("terminal.create", error_text(&error)),
+    };
+    // The tab's public `term_` id, which every selector takes. The bare host id is a name to the
+    // resolver: `terminal.close` refused it with "terminal current/name selector requires a tab
+    // selector", so every run failed and left its "cmux health" tab open in the app.
+    let terminal = created_terminal(&created).unwrap_or(terminal);
     let verdict = (|| {
         // `%s-%s` keeps the typed line from matching: only the output joins the two halves.
         let text = format!("printf '%s-%s\\n' cmuxhealth {nonce}\n");
@@ -534,6 +539,21 @@ fn daemon_socket(identify: &Value) -> Option<PathBuf> {
 #[cfg(not(target_os = "macos"))]
 fn daemon_socket(_identify: &Value) -> Option<PathBuf> {
     None
+}
+
+/// The created terminal's public id (`term_...`) in a `tab.create_terminal` answer: the first
+/// `terminal` field, at any depth, whose value is such an id.
+pub(super) fn created_terminal(answer: &Value) -> Option<String> {
+    match answer {
+        Value::Object(map) => map
+            .get("terminal")
+            .and_then(Value::as_str)
+            .filter(|id| id.starts_with("term_"))
+            .map(str::to_owned)
+            .or_else(|| map.values().find_map(created_terminal)),
+        Value::Array(items) => items.iter().find_map(created_terminal),
+        _ => None,
+    }
 }
 
 /// 16 lowercase hex characters, fresh per run.

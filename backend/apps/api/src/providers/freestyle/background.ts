@@ -21,17 +21,29 @@ export const BACKGROUND_AFTER_SECS = 60
 export const BACKGROUND_AFTER: Readonly<Record<string, string>> = { [BACKGROUND_AFTER_HEADER]: String(BACKGROUND_AFTER_SECS) }
 const ID_HEADER = "x-freestyle-background-request-id"
 const REQUEST_ID = /^[A-Za-z0-9_.:-]{1,128}$/
-/** Failed polls in a row (no answer, 429 or 5xx) before the answer is given up as lost. */
-const POLL_FAILURES = 5
 const POLL_TIMEOUT_MS = 30_000
+/** The longest wait between polls while the provider fails them (the wait doubles from the poll interval). */
+const MAX_BACKOFF_MS = 15_000
+/**
+ * How often a stored answer is polled (the SDK's 2 s), and how long polls may fail (no answer, 429 or 5xx) since
+ * the last answered one before the answer is given up as lost. The outage window is apart from the caller's
+ * deadline, the way a CDN keeps its origin timeout apart from its retry window: the provider stores the answer,
+ * so an overload (Freestyle answered 503 to every poll for 9 min, rebake 45960390204, 2026-11-27) is waited out
+ * instead of losing a command that ran. Tests set both lower.
+ */
+export const backgroundPoll = { ms: 2_000, outageMs: 300_000 }
 const ACCEPTED_MAX_BYTES = 4096
-/** How often a stored answer is polled (the SDK's 2 s); tests set it lower. */
-export const backgroundPoll = { ms: 2_000 }
-
-/** A 202 whose stored answer did not come by the deadline: the command may have run. */
+/**
+ * A 202 whose stored answer did not come: by the deadline, or (`outage`) while the provider failed every poll for
+ * the outage window. The command may have run.
+ */
 export class BackgroundLost extends Error {
-  constructor() {
-    super("background request: no answer by the deadline (the command may have run)")
+  constructor(readonly outage = false) {
+    super(
+      outage
+        ? `background request: provider outage, no poll answered for ${Math.round(backgroundPoll.outageMs / 1000)} s (the command may have run)`
+        : "background request: no answer by the deadline (the command may have run)"
+    )
     this.name = "BackgroundLost"
   }
 }
@@ -53,9 +65,10 @@ const requestId = async (accepted: Response): Promise<string | null> => {
 
 /**
  * The final answer of `res`: itself unless it is a 202, else the stored answer of its background request, polled
- * at `base` with `headers` (the same credential, no body) until `deadlineAt` (epoch ms). A stored refusal comes back
- * as that answer, whatever its status; BackgroundLost when no answer came. `polled` says the answer is a stored one:
- * the command ran, so a caller never sends it again on that answer.
+ * at `base` with `headers` (the same credential, no body) until `deadlineAt` (epoch ms). Failed polls back off and
+ * keep going, past the deadline too, until none has answered for `backgroundPoll.outageMs`. A stored refusal comes
+ * back as that answer, whatever its status; BackgroundLost when no answer came. `polled` says the answer is a
+ * stored one: the command ran, so a caller never sends it again on that answer.
  */
 export const settleBackground = async (
   res: Response,
@@ -68,20 +81,26 @@ export const settleBackground = async (
   const id = await requestId(res)
   if (id === null) throw new BackgroundLost()
   const url = `${base.replace(/\/+$/, "")}/v5/background-requests/${id}`
-  let failures = 0
-  while (Date.now() + backgroundPoll.ms < deadlineAt) {
-    await new Promise((r) => setTimeout(r, backgroundPoll.ms))
-    const ms = Math.max(1, Math.min(POLL_TIMEOUT_MS, deadlineAt - Date.now()))
+  let lastAnswerAt = Date.now()
+  let wait = backgroundPoll.ms
+  let failing = false
+  for (;;) {
+    const outageEndsAt = lastAnswerAt + backgroundPoll.outageMs
+    if (failing ? Date.now() + wait >= Math.max(deadlineAt, outageEndsAt) : Date.now() + wait >= deadlineAt) break
+    await new Promise((r) => setTimeout(r, wait))
+    const ms = Math.max(1, Math.min(POLL_TIMEOUT_MS, (failing ? Math.max(deadlineAt, outageEndsAt) : deadlineAt) - Date.now()))
     const poll = await fetchFn(url, { method: "GET", headers, redirect: "manual", signal: AbortSignal.timeout(ms) }).catch(() => null)
-    if (poll?.status === 202) {
-      await poll.body?.cancel().catch(() => undefined)
-      failures = 0
-      continue
-    }
     // A stored answer carries the request id, whatever its status; a 429 or 5xx without it is the poll's own failure.
-    if (poll && (poll.headers.has(ID_HEADER) || (poll.status !== 429 && poll.status < 500))) return { res: poll, polled: true }
+    if (poll && poll.status !== 202 && (poll.headers.has(ID_HEADER) || (poll.status !== 429 && poll.status < 500))) return { res: poll, polled: true }
     await poll?.body?.cancel().catch(() => undefined)
-    if (++failures >= POLL_FAILURES) break
+    if (poll?.status === 202) {
+      lastAnswerAt = Date.now()
+      wait = backgroundPoll.ms
+      failing = false
+    } else {
+      failing = true
+      wait = Math.min(MAX_BACKOFF_MS, wait * 2)
+    }
   }
-  throw new BackgroundLost()
+  throw new BackgroundLost(failing)
 }

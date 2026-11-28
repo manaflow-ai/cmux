@@ -2329,6 +2329,32 @@
           ]
         },
         {
+          "key": "agentPane.display.ownHarnessUpdatesOnly",
+          "note": "Whether the model menus' update footer (webviews harnessUpdateList.ts, HarnessUpdates.tsx) offers only the chat's own agent CLI. Off, the default: every outdated agent CLI on this Mac (Leo 2026-11-12, ask-3fdf0982ec). On: the chat's own update alone, as a one-agent app's model menu (customize-app-profiles: the Claude Code app lists no Codex update in a Claude chat). A look turns it on.",
+          "title": {
+            "key": "settings.agentPane.display.ownHarnessUpdatesOnly",
+            "text": "Only This Chat's Agent Updates"
+          },
+          "help": {
+            "key": "settings.agentPane.display.ownHarnessUpdatesOnly.help",
+            "text": "The model menu offers an update for this chat's agent only, not for every agent on this Mac."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "model",
+            "picker",
+            "menu",
+            "update",
+            "updates",
+            "harness",
+            "codex",
+            "claude"
+          ]
+        },
+        {
           "key": "agentPane.display.queueing",
           "note": "Whether a prompt sent while a turn runs waits in the queue (webviews queueing.ts; Leo, 2026-10-21, after ChatGPT's and Codex's \"Turn off queueing\"). A queued row's menu and the composer's button row write it; the agent pages' storage ends with the launch, so the pick lives here.",
           "title": {

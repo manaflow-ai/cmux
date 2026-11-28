@@ -17,7 +17,7 @@ import { PoolPanel } from "./PoolPanel";
 import { AccountOps, CloudOps, type CloudRetention, type RetentionOverrides } from "./ops";
 import { RETENTION_FIELDS, retentionLimit, type RetentionField } from "./retention";
 import { clockTime, usd } from "./spendCap";
-import { cardBrand, hasGaps, meterAmount, monthTotal, quantity, ratePrice, testMode, type UsageMeter } from "./usage";
+import { cardBrand, hasGaps, meterAmount, monthTotal, quantity, testMode, type UsageMeter, ratePrice } from "./usage";
 import type { CloudState, CloudStore } from "./store";
 import { format, L } from "./strings";
 import { intl } from "../../ui/intl";
@@ -46,6 +46,7 @@ function finite(value: number | string | null | undefined): number | undefined {
 /** The failed-payment line with Manage Billing (the app's `billing.openPortal`). */
 function PaymentPastDue({ store, t }: { store: CloudStore; t: (key: string) => string }) {
   return (
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a live notice with a button, not a computed output.
     <div className="cloud-past-due" role="status">
       <span className="cloud-past-due-text">{t(L.planPastDue)}</span>
       <button type="button" className="cloud-button cloud-manage-billing" onClick={() => void store.manageBilling()}>

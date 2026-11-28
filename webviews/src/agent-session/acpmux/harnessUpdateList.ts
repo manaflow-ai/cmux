@@ -85,6 +85,9 @@ export function answerFor(batch: Promise<unknown>, id: string): Promise<unknown>
 /// a binary only one they do not offer runs is not listed. Two profiles of one binary (acpmux's
 /// hidden `cmux` router fallback runs Claude Code's own `claude`) are one row, named for the binary
 /// (harnessInstalls.ts). Two rows of one brand ("opencode", "opencode-v2") never share a name.
+/// `ownOnly` (Settings > Agent Chat > Only This Chat's Agent Updates, chatDisplay.ts
+/// OWN_HARNESS_UPDATES_KEY, off by default): the chat's own offer alone, as a one-agent app's model
+/// menu is (the Claude Code app's lists no Codex update in a Claude chat; customize-app-profiles).
 export function useHarnessUpdateList({
   rows,
   offer,
@@ -93,12 +96,14 @@ export function useHarnessUpdateList({
   native,
   onUpdated,
   offered = () => true,
+  ownOnly = false,
 }: {
   rows: readonly unknown[];
   offer: UpdateOffer | undefined;
   own: string | undefined;
   nameFor(id: string): string;
   offered?: (id: string) => boolean;
+  ownOnly?: boolean;
   native(method: string, params: Record<string, unknown>): Promise<unknown>;
   onUpdated(): void;
 }): HarnessUpdates | undefined {
@@ -138,7 +143,7 @@ export function useHarnessUpdateList({
         ...(offer.updateWith ? { updateWith: offer.updateWith } : {}),
         skip: offer.skip,
       });
-    for (const health of outdatedHarnesses(rows, skipped(), own ?? offer?.harness, offered)) {
+    for (const health of ownOnly ? [] : outdatedHarnesses(rows, skipped(), own ?? offer?.harness, offered)) {
       const id = health.id;
       const latest = health.latest ?? "";
       // A row's progress holds only for the version it was started for.
@@ -156,7 +161,7 @@ export function useHarnessUpdateList({
       });
     }
     return distinctNames(out);
-  }, [rows, offer, own, progress, nameFor, start, offered]);
+  }, [rows, offer, own, progress, nameFor, start, offered, ownOnly]);
   return useMemo(() => {
     if (list.length === 0) return undefined;
     const updateAll = () => {

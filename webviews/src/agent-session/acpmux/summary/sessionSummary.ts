@@ -520,6 +520,3 @@ export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string |
   }
   return result;
 }
-
-export const isEmptySummary = (summary: SessionSummary) =>
-  Object.values(summary).every((value) => !Array.isArray(value) || value.length === 0);
