@@ -38,8 +38,9 @@ cmux ios verify --plan           # the selection and steps, nothing run
 
 1. Merges the moved base into the head and pushes, so a merge combination (rows 4, 5 and 7) breaks here.
 2. Selects the flows with `select_flows.py`.
-3. Runs the shards in parallel on the warm pool: `CMUX_IOS_VERIFY_WORKERS`, cmux22,cmux23 until cmux25 and
-   cmux26 are tagged. Each shard is `test only= ui= video` with a slim simulator, cached DerivedData and the FFI
+3. Runs two shards in parallel with automatic placement on the simulator fleet. `--workers` or
+   `CMUX_IOS_VERIFY_WORKERS` opts into named worker hints and one shard per worker; `--pin-strict` requires
+   explicit workers. Each shard is `test only= ui= video` with a slim simulator, cached DerivedData and the FFI
    cache. A flow marked `"pair_e2e": true` adds `pair-e2e`: a tagged DEBUG Mac pairs, drops and reconnects. The
    flows' `scripts` run too.
 4. Diffs the screenshots against the newest passing proof merged into the base.
