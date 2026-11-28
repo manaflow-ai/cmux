@@ -129,8 +129,11 @@ SHELL_SCENES = ("tabs", "sidebar-states", "all-themes", "keycaps")
 # it stays needs_build until a playground of its own moves out to a domain package.
 HEAVY_SCENES = {
     "chief-teleport": "cmux-ui-home",  # CmuxNextHomeEngine: ChiefTeleportPlayground
+    "density-overlay": "cmux-ui-settings",  # CmuxNextSettingsWindow: DensityOverlayPlaygroundWindow
+    "env-secrets": "cmux-ui-cloud",  # CmuxNextCloudUI: EnvSecretsPlayground
 }
-HEAVY_HOST_SOURCES = {"UiHomeHost": ("chief-teleport",)}
+HEAVY_HOST_SOURCES = {"UiHomeHost": ("chief-teleport",), "UiSettingsHost": ("density-overlay",),
+                      "UiCloudHost": ("env-secrets",)}
 ALL_SWIFT_SCENES = SHELL_SCENES + tuple(HEAVY_SCENES)
 SWIFT_SCENES = {
     "CmuxNextTabs": ("tabs",),
@@ -139,6 +142,8 @@ SWIFT_SCENES = {
     "CmuxNextDesignTokens": SHELL_SCENES,
     "CmuxNextIcons": SHELL_SCENES,
     "CmuxNextHomeEngine": ("chief-teleport",),
+    "CmuxNextSettingsWindow": ("density-overlay",),
+    "CmuxNextCloudUI": ("env-secrets",),
 }
 # A host that links CmuxNext's CmuxGhosttyKit binary target needs the prebuilt GhosttyKit.xcframework at the tree's
 # root (HomeEngine's closure does not).
@@ -469,6 +474,37 @@ def plan(files: list[str]) -> dict:
             nothing.append(path)
     return {"swift": [s for s in ALL_SWIFT_SCENES if s in swift], "web": web, "needs_build": needs_build,
             "nothing": nothing}
+
+
+def screen_map(files: list[str]) -> dict:
+    """Each UI file in FILES by what shows it: {path: [scenes] | "web" | "needs_build" | "nothing"}, the plan of that
+    one file. The count of needs_build files is the coverage gap: each names a module no scene host draws yet."""
+    out: dict = {}
+    for path in files:
+        if not path.startswith(UI_PREFIXES):
+            continue
+        p = plan([path])
+        out[path] = p["swift"] or ("web" if p["web"] else "needs_build" if p["needs_build"] else "nothing")
+    return out
+
+
+def command_map(args) -> int:
+    """`map [--tree DIR] [--json]`: every UI file in the tree's index by its screen, and the unmapped ones by name."""
+    files = subprocess.run(["git", "-C", args.tree, "ls-files", "--", *UI_PREFIXES], check=True, text=True,
+                           capture_output=True).stdout.split()
+    got = screen_map(files)
+    unmapped = sorted(f for f, v in got.items() if v == "needs_build")
+    if args.json:
+        print(json.dumps({"files": len(got), "unmapped": unmapped, "map": got}, indent=1, sort_keys=True))
+        return 0
+    by_module: dict = {}
+    for f in unmapped:
+        module = f[len(SWIFT_ROOT):].split("/", 1)[0] if f.startswith(SWIFT_ROOT) else f
+        by_module[module] = by_module.get(module, 0) + 1
+    print(f"{len(got)} UI files, {len(unmapped)} with no scene host (needs an app build)")
+    for module, n in sorted(by_module.items(), key=lambda kv: -kv[1]):
+        print(f"{n:6d}  {module}")
+    return 0
 
 
 # ---- the warm trees --------------------------------------------------------------------------------------------
@@ -2532,12 +2568,16 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("submit")
     p.add_argument("--to", required=True)
     p.add_argument("request", nargs="?", default="-")
+    p = sub.add_parser("map", help="every UI file by the scene that shows it; the unmapped ones by name")
+    p.add_argument("--tree", default=".")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("publish")
     p.add_argument("file")
     p.add_argument("host")
     args = ap.parse_args(argv)
     return {"serve": command_serve, "once": command_once, "warm": command_warm, "submit": command_submit,
-            "publish": command_publish, "pull": command_pull}[args.command](args)
+            "publish": command_publish, "pull": command_pull,
+            "map": command_map}[args.command](args)
 
 
 if __name__ == "__main__":

@@ -344,7 +344,16 @@ impl Timing {
             "carriedRunningTurn": self.carried,
         });
         if let (Some(out), Some(target)) = (value.as_object_mut(), self.target.as_object()) {
-            for key in ["dialMs", "pages", "pageBytes", "pagesMs", "finishMs", "listedMs", "via"] {
+            for key in [
+                "dialMs",
+                "pages",
+                "pageBytes",
+                "pagesMs",
+                "finishMs",
+                "finishSteps",
+                "listedMs",
+                "via",
+            ] {
                 if let Some(value) = target.get(key) {
                     out.insert(key.to_owned(), value.clone());
                 }
@@ -418,6 +427,11 @@ impl Moving<'_> {
                                   "host": host});
             if let Some(stage_id) = &begun.stage_id {
                 sent.set("stageId", json!(stage_id));
+            }
+            // No files and no uncommitted changes go over the hub: only a clean checkout is the
+            // chat's own folder there, which its namespace manifest rebinds to.
+            if plan::same_folder(&folder, args.cwd.is_some(), false, false) {
+                sent.set("sameFolder", json!(true));
             }
             if let (Folder::Worktree { branch, dirty, .. }, Some(c)) = (&folder, &checkout) {
                 let commit = tokio::task::spawn_blocking({

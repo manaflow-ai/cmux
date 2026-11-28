@@ -56,6 +56,23 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(w.plan(["Prototypes/UiLayerHost/Sources/UiShellShootKit/UiShellShootKit.swift"])["swift"],
                          list(w.SHELL_SCENES))
 
+    def test_the_settings_window_and_cloud_ui_shoot_their_own_hosts(self):
+        settings = "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/CustomizationsMenu.swift"
+        cloud = "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudMoveStrings.swift"
+        self.assertEqual(w.plan([settings])["swift"], ["density-overlay"])
+        self.assertEqual(w.plan([cloud])["swift"], ["env-secrets"])
+        self.assertEqual(w.HEAVY_SCENES["density-overlay"], "cmux-ui-settings")
+        self.assertEqual(w.HEAVY_SCENES["env-secrets"], "cmux-ui-cloud")
+        self.assertEqual(w.plan(["Prototypes/UiLayerHost/Sources/UiCloudHost/UiCloudHostMain.swift"])["swift"],
+                         ["env-secrets"])
+
+    def test_the_screen_map_names_each_unmapped_file(self):
+        app = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"
+        got = w.screen_map([app, "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/X.swift", "webviews/src/a.ts",
+                            "README.md"])
+        self.assertEqual(got, {app: "needs_build", "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/X.swift": ["tabs"],
+                               "webviews/src/a.ts": "web"})
+
     def test_every_heavy_scene_has_a_host_and_a_module(self):
         drawn = {s for scenes in w.SWIFT_SCENES.values() for s in scenes}
         self.assertEqual(set(w.HEAVY_SCENES) - drawn, set())

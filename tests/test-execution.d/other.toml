@@ -1020,6 +1020,10 @@ path = "tests/test_sans_io_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_scale_fixture_bench.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_screen_sharing_helper_release.py"
 lane = "linux-guard"
 
@@ -1151,6 +1155,11 @@ reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Pins that ea
 [[test]]
 path = "tests/test_static_analysis_ratchet.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_stress_bench_starve.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_stress_bench_starve.py"
 
 [[test]]
 path = "tests/test_stress_cli_socket_api.py"
