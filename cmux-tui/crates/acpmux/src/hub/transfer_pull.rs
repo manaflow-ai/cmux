@@ -473,6 +473,7 @@ impl Hub {
         let listing = std::time::Instant::now();
         let listed = self.list_on_mesh_now(MOVED_LISTED_WAIT).await;
         let listed_ms = listing.elapsed().as_millis() as u64;
+        let finish_steps = moved.get("finishSteps").cloned();
         let mut moved =
             json!({"sessionId": moved.get("sessionId").cloned().unwrap_or(json!(session_id))});
         moved.set("cwd", json!(cwd));
@@ -480,7 +481,8 @@ impl Hub {
             "timings",
             json!({"dialMs": dial_ms, "pages": page_count, "pageBytes": page_bytes,
                    "pagesMs": pages_ms, "finishMs": finish_ms, "via": via,
-                   "listedMs": listed.then_some(listed_ms)}),
+                   "listedMs": listed.then_some(listed_ms),
+                   "finishSteps": finish_steps}),
         );
         Ok(answer(moved))
     }
@@ -494,6 +496,17 @@ impl Hub {
         let Some(beat) = beat else { return false };
         beat.now(within).await;
         true
+    }
+
+    /// A mesh heartbeat soon, not waited for: a chat this daemon no longer runs (moved out)
+    /// leaves the hub's address book within the heartbeat floor, not at the next timed beat.
+    pub(crate) fn unlist_on_mesh_soon(&self) {
+        let beat = self.mesh_beat.lock().unwrap_or_else(|e| e.into_inner()).upgrade();
+        if let Some(beat) = beat
+            && let Ok(runtime) = tokio::runtime::Handle::try_current()
+        {
+            runtime.spawn(async move { beat.now(MOVED_LISTED_WAIT).await });
+        }
     }
 
     /// Every file `manifest` lists, read page by page from the source's `transfer_id` and
