@@ -4375,14 +4375,18 @@ class IrohReleaseGateWiring(unittest.TestCase):
 
 class IOSWiring(unittest.TestCase):
     """The unsigned iOS jobs read ios_runner_pool.py; everything that signs or leaks stays on Blacksmith."""
-    SCREENSHOTS_RUNS_ON = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 "
-                           "&& needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}")
+    PLAIN_RUNS_ON = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 "
+                     "&& needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}")
+    BOT = "contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)"
+    # Only the rescue bot's re-run takes the picker's Blacksmith retry; a person's re-run keeps the
+    # run's pick (RFD 0165).
+    SCREENSHOTS_RUNS_ON = PLAIN_RUNS_ON.replace("fromJSON(github.run_attempt > 1 ",
+                                                f"fromJSON(github.run_attempt > 1 && {BOT} ")
     # test-ios: a bot's re-run takes the picker's Blacksmith route, a person's the lane's
     # (tests/test_ci_ios_bot_rerun_route.py).
-    TEST_IOS_RUNS_ON = SCREENSHOTS_RUNS_ON.replace(
+    TEST_IOS_RUNS_ON = PLAIN_RUNS_ON.replace(
         "fromJSON(github.run_attempt > 1 ",
-        "fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), "
-        "github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 ")
+        f"fromJSON(github.run_attempt > 1 && {BOT} && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 ")
 
     def workflow(self, name):
         return yaml.safe_load((WORKFLOWS / name).read_text())
@@ -4968,9 +4972,9 @@ class SharedRunnerStateTests(unittest.TestCase):
                         continue
                     # The compile report's `gap` subcommand only reads git;
                     # the default invocation is the runner picker.
-                    hits = [script for script in scripts if f"scripts/ci/{script}" in run and not (
+                    hits = [script for script in scripts if f"scripts/ci/{script}" in with_moved_step_scripts(run) and not (
                         script == "dev_landing_place.py"
-                        and re.search(r"dev_landing_place\.py\s+gap\b", run))]
+                        and re.search(r"dev_landing_place\.py\s+gap\b", with_moved_step_scripts(run)))]
                     if hits:
                         self.assertEqual(step.get("env", {}).get("CI_RUNNER_STATE"),
                                          "${{ vars.CI_RUNNER_STATE }}", (name, hits))
@@ -5009,11 +5013,75 @@ def with_moved_step_scripts(run: str) -> str:
     nightly.yml moves long run blocks into those scripts to stay under its size cap
     (tests/test_workflow_file_size.py); a step that runs the picker through one still
     counts as a picker step, and one whose script runs no picker still fails."""
-    for path in re.findall(r"scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh", run):
+    for path in re.findall(r"scripts/ci/(?:nightly|cmux-next)-steps/[A-Za-z0-9_.-]+\.sh", run):
         script = ROOT / path
         if script.is_file():
             run += "\n" + script.read_text()
     return run
+
+
+class RunnerListingPages(unittest.TestCase):
+    """A live runner listing reads to its total_count: GitHub lists oldest first, and ~3,700 cmux-fleet-linux
+    registrations cut at 5 pages held no online runner (cmux#62792, run 46049698131)."""
+
+    PATH = "/orgs/manaflow-ai/actions/runner-groups/24/runners"
+
+    def listing(self, total: int, *, with_total: bool = True):
+        rows = [{"id": index + 1, "name": f"fleet-{index + 1}", "status": "online" if index >= total - 3 else "offline",
+                 "busy": False, "labels": [{"name": "cmux-fleet-linux-x64"}]} for index in range(total)]
+        calls = []
+
+        def get_api(path):
+            calls.append(path)
+            page = int(path.rsplit("page=", 1)[1])
+            batch = rows[(page - 1) * pool.PAGE_SIZE:page * pool.PAGE_SIZE]
+            return {"total_count": total, "runners": batch} if with_total else {"runners": batch}
+        client = pool.GitHub("app-token", "manaflow-ai/cmux")
+        client.get_api = get_api
+        return client, calls
+
+    def test_reads_past_five_pages_to_the_newest_online_runners(self):
+        client, calls = self.listing(3_700)
+        with unittest.mock.patch.dict(pool.os.environ, {}, clear=True):
+            found = client._runner_pages(self.PATH)
+        self.assertEqual(len(found), 3_700)
+        self.assertEqual(len(calls), 37)
+        self.assertEqual(sum(1 for runner in found if runner["status"] == "online"), 3)
+
+    def test_stops_at_total_count_without_an_empty_page(self):
+        client, calls = self.listing(300)
+        with unittest.mock.patch.dict(pool.os.environ, {}, clear=True):
+            self.assertEqual(len(client._runner_pages(self.PATH)), 300)
+        self.assertEqual(len(calls), 3)
+
+    def test_a_listing_without_total_count_stops_on_a_short_page(self):
+        client, calls = self.listing(250, with_total=False)
+        with unittest.mock.patch.dict(pool.os.environ, {}, clear=True):
+            self.assertEqual(len(client._runner_pages(self.PATH)), 250)
+        self.assertEqual(len(calls), 3)
+
+    def test_the_variable_restores_the_old_five_page_stop_and_names_the_cut(self):
+        client, calls = self.listing(3_700)
+        stderr = io.StringIO()
+        with unittest.mock.patch.dict(pool.os.environ, {pool.RUNNER_LIST_PAGES_VARIABLE: "5"}, clear=True), \
+                unittest.mock.patch.object(pool.sys, "stderr", stderr):
+            found = client._runner_pages(self.PATH)
+        self.assertEqual(len(found), 500)
+        self.assertEqual(len(calls), 5)
+        self.assertFalse(any(runner["status"] == "online" for runner in found))
+        self.assertIn("read 500 of 3700 registrations", stderr.getvalue())
+
+    def test_a_bad_variable_keeps_the_default_bound(self):
+        for raw in ("", "0", "-3", "five"):
+            self.assertEqual(pool.runner_list_max_pages({pool.RUNNER_LIST_PAGES_VARIABLE: raw}),
+                             pool.RUNNER_LIST_MAX_PAGES)
+
+    def test_the_quota_reserve_stops_a_long_listing(self):
+        client, calls = self.listing(3_700)
+        client.remaining = pool.ROUTE_QUOTA_RESERVE - 1
+        with unittest.mock.patch.dict(pool.os.environ, {}, clear=True), self.assertRaises(pool.RateLimited):
+            client._runner_pages(self.PATH)
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":

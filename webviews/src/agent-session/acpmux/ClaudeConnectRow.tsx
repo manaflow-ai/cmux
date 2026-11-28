@@ -36,7 +36,7 @@ export function ClaudeConnectRow({
 }) {
   const t = useT();
   return (
-    <div className="acpmux-connect-claude-row" data-connected={connected || undefined}>
+    <span className="acpmux-connect-claude-row" data-connected={connected || undefined}>
       <AgentMark agent={mark ?? CLAUDE_CONNECT_BRAND} size={14} reserve />
       <span className="acpmux-connect-claude-row-text">
         <span className="acpmux-connect-claude-row-name">{name}</span>
@@ -52,7 +52,7 @@ export function ClaudeConnectRow({
       </span>
       {!connected &&
         (onConnect ? (
-          <Button className="acpmux-connect-claude-row-button" variant="subtle" size="sm" onClick={onConnect}>
+          <Button className="acpmux-connect-claude-row-button" variant="subtle" size="sm" onClick={() => onConnect()}>
             {t("picker.connectClaude.connect")}
           </Button>
         ) : (
@@ -60,7 +60,7 @@ export function ClaudeConnectRow({
             {t("picker.connectClaude.connect")}
           </span>
         ))}
-    </div>
+    </span>
   );
 }
 
@@ -70,47 +70,49 @@ export function ClaudeConnectRow({
 /// its progress line without a second press; a host with only its own way in (`open`) runs that.
 export function useClaudeConnectFlow(): { row?: ClaudeConnectRowProps; card: ReactNode } {
   const host = useClaudeConnect();
-  const [open, setOpen] = useState(false);
+  const [openBrand, setOpenBrand] = useState<string>();
   const [saved, setSaved] = useState(false);
   const [ran, setRan] = useState(false);
   const progress = host?.progress ?? CONNECT_IDLE;
   // A sign-in that ran and ended with no error saved the connection: Connected until the host's
   // `needed` turns false (the row and card go); a later need (it was removed) starts over.
-  if (open && progress.phase !== null && !ran) setRan(true);
+  if (openBrand && progress.phase !== null && !ran) setRan(true);
   if (ran && progress.phase === null && progress.error === null && !saved) setSaved(true);
-  if ((saved || open || ran) && !host?.needed) {
+  const brands = host?.brands ?? [CLAUDE_CONNECT_BRAND];
+  if ((saved || openBrand || ran) && (!host?.needed || (openBrand && !brands.includes(openBrand)))) {
     setSaved(false);
-    setOpen(false);
+    setOpenBrand(undefined);
     setRan(false);
   }
   const begin = host?.begin;
   const row: ClaudeConnectRowProps | undefined = host?.needed
     ? {
-        brand: host.brand ?? CLAUDE_CONNECT_BRAND,
+        brands,
         connected: saved,
-        onConnect: () => {
+        onConnect: (brand = brands[0]) => {
+          if (!brand || !brands.includes(brand)) return;
           if (begin || host.add) {
-            setOpen(true);
-            if (begin) void begin().catch(() => undefined);
-          } else host.open?.();
+            setOpenBrand(brand);
+            if (begin && progress.phase === null) void begin(brand).catch(() => undefined);
+          } else host.open?.(brand);
         },
       }
     : undefined;
-  const family = (host?.brand ?? CLAUDE_CONNECT_BRAND) === CODEX_CONNECT_BRAND ? "codex" : "claude";
+  const family = openBrand === CODEX_CONNECT_BRAND ? "codex" : "claude";
   const card =
-    open && host?.needed ? (
+    openBrand && host?.needed && brands.includes(openBrand) ? (
       <div className="acpmux-connect-float ui-glass ui-glass-floats">
         <ConnectCard
           family={family}
           progress={progress}
           done={saved}
-          {...(begin ? { onBegin: begin } : {})}
+          {...(begin ? { onBegin: () => begin(openBrand) } : {})}
           {...(host.cancel
             ? {
                 onCancel: () => {
                   // A Cancel ends the run with no error: not a save, so no Connected; the card
                   // folds back to the row's Connect.
-                  setOpen(false);
+                  setOpenBrand(undefined);
                   setRan(false);
                   host.cancel?.();
                 },
@@ -125,7 +127,7 @@ export function useClaudeConnectFlow(): { row?: ClaudeConnectRowProps; card: Rea
               }
             : {})}
           {...(host.addKey ? { onApiKey: host.addKey } : {})}
-          onDismiss={() => setOpen(false)}
+          onDismiss={() => setOpenBrand(undefined)}
         />
       </div>
     ) : null;

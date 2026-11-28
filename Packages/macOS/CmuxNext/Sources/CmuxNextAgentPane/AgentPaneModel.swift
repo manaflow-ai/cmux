@@ -15,6 +15,9 @@ public final class AgentPaneModel {
     /// Page projection of its single session-host Git capability read, never an authorization grant.
     public private(set) var checkpointAvailable = false
     @ObservationIgnored public var onCheckpointAvailability: ((Bool) -> Void)?
+    /// The composer holds text or chips (`pane.composerFilled`): a swap to the terminal asks the
+    /// page for its draft only then.
+    @ObservationIgnored public internal(set) var composerFilled = false
     /// The page commands the native palette may run in this chat now (`pane.commandAvailability`).
     public internal(set) var pageCommands: Set<String> = []
     /// The page drew its first frame after the handshake (`pane.painted`), the
@@ -45,9 +48,11 @@ public final class AgentPaneModel {
     /// while it connects or after it lost its connection. A prewarmed New Tab page serves a tab
     /// opening an existing chat only while this holds (`NewTabSparePool.takeConnectedSpare`).
     @ObservationIgnored public internal(set) var clientReady = false
-    /// A push that waits for the page's client (``AgentPaneView/attachExternal(_:claimed:)``): the old
-    /// host runs a script at once, so a page still loading would miss it. Runs once, on `pane.clientReady`.
-    @ObservationIgnored var whenClientReady: (@MainActor () -> Void)?
+    /// Tells the page to take the files another app sent (``AgentPaneView/attachExternal(_:claimed:)``).
+    /// Runs on every `pane.clientReady` while files are still held (``AgentPaneDroppedPaths/holdsExternal``),
+    /// not once: a command sent to a page whose connection then restarts (a handshake sets
+    /// `clientReady` false) is lost, and the files waited for the next file sent.
+    @ObservationIgnored var sendHeldExternal: (@MainActor () -> Void)?
     /// The page's finish sound (`pane.finishSound`), with its own gap between sounds.
     @ObservationIgnored let finishSound = AgentPaneFinishSound()
 
@@ -207,17 +212,30 @@ public final class AgentPaneModel {
     /// Signs into the app's Cloud account for inline first-send recovery; nil when Cloud is unavailable.
     @ObservationIgnored public var onCloudSignIn: (@MainActor () async -> Bool)?
     /// The Set up Cloud card's way in, then the wait for a connection serving the family (``CloudSetup/setUp(_:family:)``);
-    /// false when the wait ended without one. nil when Cloud is unavailable.
-    @ObservationIgnored public var onCloudSetUp: (@MainActor (CloudSetup.Action, String) async -> Bool)?
-    /// Which families a Cloud chat can run now (``CloudSetup/serving()``); nil when Cloud is unavailable or nothing was read.
+    /// The result binds the retry to its Cloud placement. Nil means the wait ended or Cloud is unavailable.
+    @ObservationIgnored public var onCloudSetUp: (@MainActor (CloudSetup.Action, String, String?, String?) async -> CloudSetup.SetupCompletion?)?
+    /// Per family a Cloud chat runs, readiness and the reason when disconnected (``CloudSetup/served()``); nil when Cloud is unavailable.
+    @ObservationIgnored public var onCloudServed: (@MainActor (String?, String?) async -> CloudSetup.Readiness)?
+    /// Opens Settings > Cloud > Cloud models for the picker's Connect (``CloudSetup/connect(family:)``); nil when Cloud is unavailable.
+    @ObservationIgnored public var onCloudConnect: (@MainActor (String, String?, String?, String?) -> Void)?
+    /// Proves the current tab's connection to its own Cloud machine before opening Models for recovery.
+    @ObservationIgnored var ownsCloudConnectionMachine: (@MainActor (String) -> Bool)?
+    @ObservationIgnored public var mayRecoverCloudConnection: (@MainActor (String) async -> String?)?
+    /// Which families an unscoped Cloud start can run now, or nil when there was no read.
     @ObservationIgnored public var onCloudSetupState: (@MainActor () async -> [String: Bool]?)?
 
-    /// Wires the app's Cloud first use (``CloudSetup``): the Set up Cloud card's way in (``onCloudSetUp``) and the model
-    /// picker's read of which families Cloud runs (``onCloudSetupState``); nil (Cloud unavailable) wires neither.
+    /// Wires Cloud setup, scoped readiness, the unscoped picker read and the Settings action.
     public func useCloudSetup(_ setup: CloudSetup?) {
-        guard let setup else { (onCloudSetUp, onCloudSetupState) = (nil, nil); return }
-        onCloudSetUp = { [weak setup] action, family in await setup?.setUp(action, family: family) ?? false }
-        onCloudSetupState = { [weak setup] in await setup?.serving() }
+        guard let setup else {
+            (onCloudSetUp, onCloudServed, onCloudConnect, onCloudSetupState) = (nil, nil, nil, nil)
+            ownsCloudConnectionMachine = nil
+            return
+        }
+        ownsCloudConnectionMachine = { setup.ownsMachine?($0) == true }
+        onCloudSetUp = { await setup.setUp($0, family: $1, machine: $2, environment: $3) }
+        onCloudServed = { await setup.served(machine: $0, environment: $1) }
+        onCloudSetupState = { await setup.serving() }
+        onCloudConnect = { setup.connect(family: $0, machine: $1, environment: $2, recoverySession: $3) }
     }
     /// Whether the app's Cloud account is signed in now (in another pane, window or Settings, say):
     /// a `cloud.signIn` then resumes without opening the browser. nil reads as not signed in.
@@ -230,12 +248,12 @@ public final class AgentPaneModel {
     /// This pane's browser sign-in while a `cloud.signIn` waits on it; an expired `cloud.signInCancel` cancels it.
     @ObservationIgnored var cloudSignInBrowser: Task<Bool, Never>?
     /// This pane's Set up Cloud wait while a `cloud.setUp` waits on it; `cloud.signInCancel` cancels it.
-    @ObservationIgnored var cloudSetUpWait: Task<Bool, Never>?
+    @ObservationIgnored var cloudSetUpWait: Task<CloudSetup.SetupCompletion?, Never>?
     /// The model picker's set up wait (`cloud.setUp` with no key), apart from the card's ``cloudSetUpWait``.
-    @ObservationIgnored var pickerSetUpWait: Task<Bool, Never>?
+    @ObservationIgnored var pickerSetUpWait: Task<CloudSetup.SetupCompletion?, Never>?
     /// The click a `cloud.signIn` kept once it signed in, for the page's one send again of that start
     /// (``AgentPaneModel/takeCloudSignInGrant(_:)``); `cloud.signInCancel` drops it.
-    @ObservationIgnored var cloudSignInGrant: (key: String, generation: Int, until: ContinuousClock.Instant)?
+    @ObservationIgnored var cloudSignInGrant: (key: String, generation: Int, until: ContinuousClock.Instant, completion: CloudSetup.SetupCompletion)?
     /// Reads this Mac's local repository catalog through its cmux daemon frame connection.
     @ObservationIgnored public var onCloudRepositoryLocal: (@MainActor () async throws -> Data)?
     /// For a Cloud chat, forwards machine actions through its tab host even while the page's
@@ -484,6 +502,11 @@ public final class AgentPaneModel {
     /// Runs a Cloud chat's turn checkpoint or rewind for the session this pane showed when the call
     /// arrived; nil unless the app offers it (signed in, a Cloud chat, `cloud.turnCheckpoints` on).
     @ObservationIgnored public var onCloudTurnRewind: (@MainActor (_ request: AgentPaneCloudTurnRewind, _ session: String) async throws -> [String: Any])?
+    /// Sources > Add Folder: the person picks a Mac folder, its read-only copy goes to the chat's Cloud
+    /// machine and joins the chat's folders; answers `{applied, path, from}` (`applied` "cancelled"
+    /// when no folder was picked). Nil unless the app offers it (a Cloud chat, `cloud.addFolderLive` on).
+    @ObservationIgnored public var onCloudFolderAdd: (@MainActor (_ session: String) async throws -> [String: Any])?
+    public static let cloudFolderAddMethod = "cloud.folder.add"
     /// The application-owned marked-tab list shared by this page and the palette.
     @ObservationIgnored public let attentionTabs: AgentPaneAttentionTabs?
 
@@ -618,7 +641,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest, userGesture: Bool = false) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .launchSettle, .inputEchoed, .clientReady, .newTabInputReady, .newTabContext, .newTabCloudPick, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .composerFilled, .painted, .launchSettle, .inputEchoed, .clientReady, .newTabInputReady, .newTabContext, .newTabCloudPick, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportAck, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .projectIcon, .completeFolder, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.freshList), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
              .sandboxState, .subagentShown, .dictationSources: break
@@ -664,16 +687,14 @@ public final class AgentPaneModel {
         case .checkpointAvailability(let available):
             setCheckpointAvailable(available)
             return AgentPaneReply.success()
+        case .composerFilled(let filled): composerFilled = filled; return AgentPaneReply.success()
         case .commandAvailability(let commands):
             pageCommands = Set(commands)
             return AgentPaneReply.success()
         case .clientReady(let ready):
             clientReady = ready
             if ready { openWaits.ran(.connected) }
-            if ready, let waiting = whenClientReady {
-                whenClientReady = nil
-                waiting()
-            }
+            if ready, droppedPaths.holdsExternal { sendHeldExternal?() }
             return AgentPaneReply.success()
         case .framePacing(let intervals):
             return AgentPaneReply.success(onFramePacing?(intervals) ?? [:])
@@ -841,9 +862,11 @@ public final class AgentPaneModel {
         // A new chat's send elsewhere spends Cloud time: the Send's own gesture (``AgentPaneHandOff``).
         case .sandboxRun(let task, let agent, let key): return await AgentPaneHandOff(model: self).sandbox(task: task, agent: agent, key: key)
         case .cloudSignIn(let key): return await signInToCloud(key: key)
-        case .cloudSetUp(let key, let action, let family): return await setUpCloud(key: key, action: action, family: family)
-        // A read for the picker: no gesture, starts nothing.
-        case .cloudSetupState: return await cloudSetupState()
+        case .cloudSetUp(let key, let action, let family, let machine, let environment): return await setUpCloud(key: key, action: action, family: family, machine: machine, environment: environment)
+        // A read for the model picker: needs no gesture and changes nothing.
+        case .cloudSetupState(let machine, let environment): return await cloudSetupState(machine: machine, environment: environment)
+        case .cloudConnect(let family, let machine, let environment): return await connectCloud(family: family, machine: machine, environment: environment)
+        case .cloudPickerSetupState: return await cloudPickerSetupState()
         // Starts nothing and needs no gesture: it only withdraws a pending sign-in's kept click.
         case .cloudSignInCancel(let expired): return cancelCloudSignIn(expired: expired)
         // Opens the plan's checkout in the browser on the person's click (one gesture).
@@ -965,6 +988,18 @@ public final class AgentPaneModel {
                 return AgentPaneReply.success(try await onCloudTurnRewind(request, session))
             } catch {
                 return AgentPaneReply.failure(code: "cloud_turn_rewind_failed", message: error.localizedDescription,
+                                              details: nil, retryable: true, origin: "native")
+            }
+        case .cloudFolderAdd:
+            guard remoteChat, newTab == nil, let session = sessionId, let onCloudFolderAdd else {
+                return Self.unsupported(Self.cloudFolderAddMethod)
+            }
+            // It opens a panel and copies a folder off this Mac: only the person's click starts it.
+            guard userGesture || transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            do {
+                return AgentPaneReply.success(try await onCloudFolderAdd(session))
+            } catch {
+                return AgentPaneReply.failure(code: "cloud_folder_add_failed", message: error.localizedDescription,
                                               details: nil, retryable: true, origin: "native")
             }
         case .btwInline(let question, let sessionId):

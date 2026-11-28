@@ -133,6 +133,7 @@ def trial_summary(calls: list[dict], turn_usage: list[dict]) -> dict:
         "no_effect": sum(1 for c in calls if c.get("no_effect")),
         "repeats": sum(1 for c in calls if c.get("repeat")),
         "tool_errors": sum(1 for c in calls if c.get("is_error")),
+        "not_offered": sum(1 for c in calls if c.get("not_offered")),
         "relooks_after_action": relooks,
         "fresh_input_tokens": fresh,
         "cache_read_tokens": sum(u.get("cache_read_input_tokens") or 0 for u in turn_usage),

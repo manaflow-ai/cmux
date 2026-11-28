@@ -110,7 +110,7 @@ select {
 .cloud-migration-text {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--grid-half-step);
   min-width: 0;
   font-size: 12px;
   color: var(--cloud-text-2);
@@ -745,7 +745,7 @@ select {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px 10px;
+  gap: var(--grid-half-step) 10px;
   padding: var(--ds-space-fixed-1) 0;
   border-bottom: 1px solid var(--cloud-separator);
 }
@@ -759,7 +759,7 @@ select {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 2px;
+  gap: var(--grid-half-step);
   min-width: 0;
   max-width: 100%;
   margin-left: auto;
@@ -937,7 +937,7 @@ select {
 
 .cloud-browser-route {
   display: grid;
-  gap: 2px;
+  gap: var(--grid-half-step);
   padding-top: 6px;
 }
 
@@ -1203,7 +1203,7 @@ select {
 .cloud-store-tier {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--grid-half-step);
   padding: 14px 14px 12px;
   border-radius: 10px;
   border: 1px solid var(--cloud-separator);
@@ -1460,19 +1460,19 @@ select {
 
 .cloud-pool-used {
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
 }
 
 .cloud-pool-alert {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--grid-half-step);
   margin-top: var(--ds-space-fixed-2);
   padding: 6px 8px;
   border-radius: 6px;
   border: 1px solid var(--cloud-warn);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 
 .cloud-pool-alert strong {

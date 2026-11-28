@@ -1,6 +1,7 @@
 import { usePaneLanguage, useT } from "../i18n";
 import { autoSizeRowView, type AutoSizeRow as Row } from "./autosizeModel";
 import "./autosize.css";
+import { Button } from "../../../ui/Button";
 
 /** How a row is drawn in the transcript; the gallery shows each so one can be picked. */
 export type AutoSizeLook = "line" | "chip" | "card";
@@ -23,13 +24,13 @@ export function AutoSizeRow({
   const plan = row.offer?.plan;
   const button =
     view.upgrade && plan && onUpgrade ? (
-      <button type="button" className="autosize-row-upgrade" onClick={() => onUpgrade(plan)}>
+      <Button bare type="button" className="autosize-row-upgrade" onClick={() => onUpgrade(plan)}>
         {view.upgrade}
-      </button>
+      </Button>
     ) : view.upgrade && plan ? (
-      <button type="button" className="autosize-row-upgrade" disabled>
+      <Button bare type="button" className="autosize-row-upgrade" disabled>
         {view.upgrade}
-      </button>
+      </Button>
     ) : null;
   return (
     <div
