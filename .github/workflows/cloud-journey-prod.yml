@@ -219,8 +219,18 @@ jobs:
         run: |
           set -euo pipefail
           sha="$(git rev-parse HEAD)"
-          status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$sha...feat-cmux-next" --jq .status)"
-          case "$status" in ahead|identical) echo "journey commit $sha is on feat-cmux-next ($status)" ;; *) echo "::error::journey_ref $sha is not on feat-cmux-next (compare: $status)"; exit 1 ;; esac
+          # Asked of git, not the REST compare endpoint: a spent installation REST budget failed this gate before any
+          # journey step ran (run 46107610051). Commits only (tree:0), unshallowed so merge-base can walk history.
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          deepen=()
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then deepen=(--unshallow); fi
+          git -c "http.https://github.com/.extraheader=$auth" fetch --quiet --no-tags --filter=tree:0 "${deepen[@]}" \
+            origin +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next
+          if git merge-base --is-ancestor "$sha" refs/remotes/origin/feat-cmux-next; then
+            echo "journey commit $sha is on feat-cmux-next"
+          else
+            echo "::error::journey_ref $sha is not on feat-cmux-next"; exit 1
+          fi
       # The shipped Linux cmux-tui, for the app's part on a warm spare (--preclaim-login: warm-spare, ready, installed
       # and the login receipt), built as the staging preclaim job below builds it.
       - name: Install Linux cmux-tui build dependencies

@@ -17,6 +17,8 @@ function fakeAlertDb(): ReturnType<typeof cloudDb> {
   return {
     select: () => ({
       from: () => ({
+        // recentHungEvidence: no health snapshot, so no VM is hung.
+        orderBy: () => ({ limit: async () => [] }),
         where: () => {
           queryNumber += 1;
           const rows = queryNumber === 1
