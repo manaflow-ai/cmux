@@ -106,8 +106,22 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 ios_patch=(--config "patch.crates-io.nix.path=\"$patched\"")
 
+# Each build gets the SDK of its own target from the selected Xcode. An SDKROOT
+# from the runner's environment wins over rustc's own xcrun lookup, so a Mac whose
+# runner exports the Command Line Tools macOS SDK linked iOS cdylibs (boringtun)
+# against MacOSX27.2.sdk/usr/lib/libiconv.2.tbd and failed: "building for 'iOS',
+# but linking in dylib ... built for 'macOS'" (run 46144645271).
+sdk_for() {
+  case "$1" in
+    *-apple-ios-sim) env -u SDKROOT xcrun --sdk iphonesimulator --show-sdk-path ;;
+    *-apple-ios) env -u SDKROOT xcrun --sdk iphoneos --show-sdk-path ;;
+    *) env -u SDKROOT xcrun --sdk macosx --show-sdk-path ;;
+  esac
+}
 for target in "${targets[@]}"; do
-  cargo build --release -j "$jobs" -p cmux-mobile-link-ffi --lib --target "$target" "${ios_patch[@]}"
+  sdk="$(sdk_for "$target")"
+  [[ -d "$sdk" ]] || { echo "error: xcrun named no SDK for $target under DEVELOPER_DIR=$DEVELOPER_DIR (got '$sdk')" >&2; exit 1; }
+  SDKROOT="$sdk" cargo build --release -j "$jobs" -p cmux-mobile-link-ffi --lib --target "$target" "${ios_patch[@]}"
   exported="$(nm -g "$target_dir/$target/release/$lib" 2>/dev/null | grep -c ' T _uniffi_cmux_mobile_link_ffi_' || true)"
   echo "$target: $exported exported uniffi symbols"
   [[ "$exported" -gt 0 ]] || { echo "error: $lib for $target exports no uniffi symbols" >&2; exit 1; }
@@ -117,10 +131,10 @@ restore_lock
 trap - EXIT HUP INT TERM
 
 # Bindings come from the host library (uniffi library mode).
-cargo build --release -j "$jobs" -p cmux-mobile-link-ffi --lib
+SDKROOT="$(sdk_for host)" cargo build --release -j "$jobs" -p cmux-mobile-link-ffi --lib
 gen="$(mktemp -d)"
 trap 'rm -rf "$gen"' EXIT
-cargo run --release -j "$jobs" -p cmux-mobile-link-ffi --features bindgen --bin uniffi-bindgen -- \
+SDKROOT="$(sdk_for host)" cargo run --release -j "$jobs" -p cmux-mobile-link-ffi --features bindgen --bin uniffi-bindgen -- \
   generate --library "$target_dir/release/libcmux_mobile_link_ffi.dylib" --language swift --out-dir "$gen"
 
 sources="$cmux_mobile_dir/CmuxMobileKit/Sources/CmuxMobileLinkFFI"
