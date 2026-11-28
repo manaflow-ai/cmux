@@ -10,14 +10,16 @@ import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineSt
 import { rpcFailureReason } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { saveSendTrace, SEND_TRACE_SETTLE_MS } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString, agentReady, milestoneLines, spareTaken } from "./cloud-journey";
-import { oidcSignIn, ownerKindGated, startAfterOwnerKind, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_GATE_EXIT, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
+import { startMarks, claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt,
+  journeyTextPrompt,
+  journeyTextReply, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString, agentReady, milestoneLines, spareTaken } from "./cloud-journey";
+import { oidcSignIn, ownerKindGated, startAfterOwnerKind, START_RESENT_ENV, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_GATE_EXIT, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { carrierScrollProbe, parseScrollReport, scrollDetail } from "./cloud-journey";
+import { carrierScrollProbe, parseScrollReport, scrollDetail, scrollNotes } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, SHORT_JOURNEY_MS, LONG_JOURNEY_MS, KEPT_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
@@ -590,6 +592,13 @@ server.shutdown()
       rmSync(dir, { recursive: true, force: true });
     }
   });
+  test("Codex's reserved home chat turn is text only: Codex offers no Read, and its shell waits under policy ask", () => {
+    // Prod run 46090508199: the Read came back "unsupported call: Read" and the reply said "The tool printed .".
+    const turn = JOURNEY_STUB_SCRIPT.turns.find((t) => new RegExp(t.match).test(journeyTextPrompt("Name the planet.")));
+    expect(turn?.steps).toEqual([{ text: journeyTextReply("{{nonce}}") }]);
+    expect(new RegExp(turn!.match).test(journeyReadPrompt("Name the planet.", "/tmp/x"))).toBe(false);
+    expect(journeyTextReply("3bde18dfd6b9")).toStartWith("Stub reply 3bde18dfd6b9. ");
+  });
   test("a team machine gets the DEV creator allowance, as a nightly build copies", () => {
     const team = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), true);
     expect(team.preflight).toContain("owner|team");
@@ -721,6 +730,7 @@ describe("cloud journey: login preflight", () => {
     expect(waited).toBe(1);
     expect(seen2).toHaveLength(2);
     expect(seen2[1]).not.toContain(OWNER_KIND_PROGRAM);
+    expect(seen2[1]).toContain(`export ${START_RESENT_ENV}=1; START`);
     // A wait that fails fails the start as before, with no start run.
     const seen3: string[] = [];
     const none = async (command: string) => { seen3.push(command); return { code: OWNER_KIND_GATE_EXIT, stdout: "vm-kind=team\n", stderr: "" }; };
@@ -774,8 +784,8 @@ describe("cloud journey: leaked machine sweep", () => {
   });
 
   test("takes only an auto-named journey machine (and gateway) older than any journey run, in any state", () => {
-    const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
-    const young = tagAt(now - STALE_JOURNEY_MS + 60_000);
+    const old = tagAt(now - SHORT_JOURNEY_MS - 60_000);
+    const young = tagAt(now - SHORT_JOURNEY_MS + 60_000);
     expect(ids([
       { id: "vm_running", name: `cloud journey auto ${old}`, status: "running" },
       { id: "vm_paused_gw", name: `cloud journey auto ${old} gateway`, status: "paused" },
@@ -786,9 +796,41 @@ describe("cloud journey: leaked machine sweep", () => {
       { id: "vm_deleting", name: `cloud journey auto ${old}`, status: "deleting" },
     ])).toEqual(["vm_running", "vm_paused_gw", "vm_move_b", "vm_cold"]);
     // Just inside the bound is a concurrent run's machine; just past it is leaked.
-    const edge = { id: "vm_edge", name: `cloud journey auto ${tagAt(now - STALE_JOURNEY_MS)}`, status: "paused" };
+    const edge = { id: "vm_edge", name: `cloud journey auto ${tagAt(now - SHORT_JOURNEY_MS)}`, status: "paused" };
     expect(ids([edge])).toEqual([]);
     expect(ids([edge], now + 1)).toEqual(["vm_edge"]);
+  });
+
+  test("a short run's paused or failed leftover goes past SHORT_JOURNEY_MS, the ttl's bound (run 46115218791's 86-machine pile)", () => {
+    expect(SHORT_JOURNEY_MS).toBe(STALE_JOURNEY_MS / 2);
+    expect(journey.journeyMachineTtl(false, { GITHUB_ACTIONS: "true" })).toEqual({ ttl_seconds: SHORT_JOURNEY_MS / 1000 });
+    // 2026-11-28 07:20Z: the 3 h bound swept 4 of 64 paused; every one under 3 h old stayed.
+    const twoHours = tagAt(now - 2 * 3_600_000);
+    const hour = tagAt(now - 3_600_000);
+    expect(ids([
+      { id: "paused_2h", name: `cloud journey auto ${twoHours}`, status: "paused", last_active_at: now - 2 * 3_600_000 },
+      { id: "cold_2h", name: `cloud journey auto ${twoHours} cold`, status: "paused" },
+      { id: "failed_1h", name: `cloud journey auto ${hour}`, status: "failed", last_active_at: now },
+      { id: "running_2h_idle", name: `cloud journey auto ${twoHours}`, status: "running", last_active_at: now - IDLE_JOURNEY_MS - 1 },
+      { id: "running_2h_active", name: `cloud journey auto ${twoHours}`, status: "running", last_active_at: now - 60_000 },
+      { id: "paused_1h", name: `cloud journey auto ${hour}`, status: "paused" },
+      { id: "long_2h", name: `cloud journey auto ${twoHours} long`, status: "paused" },
+      { id: "long_gw_2h", name: `cloud journey auto ${twoHours} long gateway`, status: "paused" },
+      { id: "bench_2h", name: `cloud start bench ${twoHours} source`, status: "paused" },
+      { id: "aj_2h", name: `auto journey aj-${(now - 2 * 3_600_000).toString(36)}`, status: "paused" },
+    ])).toEqual(["paused_2h", "cold_2h", "failed_1h", "running_2h_idle"]);
+  });
+
+  test("takes a leaked repro capsule (`repro capsule <id> jr-<tag>`, sweep.rs's name) by the 3 h bound", () => {
+    const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
+    const young = tagAt(now - STALE_JOURNEY_MS + 60_000);
+    expect(ids([
+      { id: "cap_old", name: `repro capsule rc_abc ${old}`, status: "paused" },
+      { id: "cap_failed", name: `repro capsule rc_abc ${tagAt(now - FAILED_JOURNEY_MS - 60_000)}`, status: "failed" },
+      { id: "cap_young", name: `repro capsule rc_abc ${young}`, status: "paused" },
+      { id: "cap_noid", name: `repro capsule ${old}`, status: "paused" },
+      { id: "cap_suffix", name: `repro capsule rc_abc ${old} kept`, status: "paused" },
+    ])).toEqual(["cap_old", "cap_failed"]);
   });
 
   test("never a machine with recent activity, however old", () => {
@@ -828,6 +870,16 @@ describe("cloud journey: leaked machine sweep", () => {
     expect(long).toContain("cloud-resume-matrix.yml");
   });
 
+  test("a CI run's machines carry a ttl past any run that named them; a hand run's none unless asked", () => {
+    const ci = { GITHUB_ACTIONS: "true" };
+    expect(journey.journeyMachineTtl(false, ci)).toEqual({ ttl_seconds: STALE_JOURNEY_MS / 2 / 1000 });
+    expect(journey.journeyMachineTtl(true, ci)).toEqual({ ttl_seconds: LONG_JOURNEY_MS / 1000 });
+    expect(journey.journeyMachineTtl(false, {})).toEqual({});
+    expect(journey.journeyMachineTtl(false, { CLOUD_JOURNEY_MACHINE_TTL_S: "3600" })).toEqual({ ttl_seconds: 3600 });
+    expect(journey.journeyMachineTtl(false, { ...ci, CLOUD_JOURNEY_MACHINE_TTL_S: "0" })).toEqual({});
+    expect(() => journey.journeyMachineTtl(false, { CLOUD_JOURNEY_MACHINE_TTL_S: "60" })).toThrow(/300 to 604800/);
+  });
+
   test("a long run's machines (` long`) get the long bound; a short run's leak is swept after 3 h", () => {
     const fiveHours = tagAt(now - 5 * 3_600_000);
     const pastLong = tagAt(now - LONG_JOURNEY_MS - 60_000);
@@ -844,11 +896,35 @@ describe("cloud journey: leaked machine sweep", () => {
     ])).toEqual(["vm_short", "vm_short_cold", "vm_long_old", "vm_glued"]);
   });
 
-  test("never a --keep run's plain name, another name or a tag that is not a time", () => {
+  test("a --keep run's machine is the sweep's once failed past LONG_JOURNEY_MS, or idle past KEPT_JOURNEY_MS (589544f1's rollback)", () => {
+    expect(KEPT_JOURNEY_MS).toBe(7 * 24 * 3_600_000);
+    // 2026-11-28 00:17Z: the production agent test account held these two, 4/5 of its team's cap with the other members'.
+    const at = Date.UTC(2026, 10, 28, 0, 17, 0);
+    const leaked = { id: "vm_5c394603ba9c2b33e108", name: "cloud journey jr-mw8lvrpa", status: "failed", last_active_at: at };
+    const lease = { id: "vm_784c3bce74a49b4cb062", name: "lease-lease_z0_5c66c087", status: "paused", last_active_at: at - 298 * 3_600_000 };
+    expect(ids([leaked, lease], at)).toEqual(["vm_5c394603ba9c2b33e108"]);
+    const day = tagAt(now - 24 * 3_600_000), pastLong = tagAt(now - LONG_JOURNEY_MS - 60_000), young = tagAt(now - LONG_JOURNEY_MS + 60_000);
+    const week = tagAt(now - KEPT_JOURNEY_MS - 60_000), inWeek = tagAt(now - KEPT_JOURNEY_MS + 60_000);
+    expect(ids([
+      { id: "failed_old", name: `cloud journey ${pastLong}`, status: "failed" },
+      { id: "failed_gw", name: `cloud journey ${pastLong} gateway`, status: "failed", last_active_at: now },
+      { id: "failed_young", name: `cloud journey ${young}`, status: "failed" },
+      { id: "paused_day", name: `cloud journey ${day}`, status: "paused" },
+      { id: "paused_in_week", name: `cloud journey ${inWeek}`, status: "paused" },
+      { id: "paused_week", name: `cloud journey ${week}`, status: "paused" },
+      { id: "running_week_active", name: `cloud journey ${week}`, status: "running", last_active_at: now - 60_000 },
+      { id: "running_week_idle", name: `cloud journey ${week} gateway`, status: "running", last_active_at: now - IDLE_JOURNEY_MS - 1 },
+      { id: "deleting", name: `cloud journey ${week}`, status: "deleting" },
+      { id: "glued", name: `cloud journey ${week}x`, status: "failed" },
+      { id: "person", name: `my cloud journey ${week}`, status: "failed" },
+    ])).toEqual(["failed_old", "failed_gw", "paused_week", "running_week_idle"]);
+  });
+
+  test("never a young --keep run's name, another name or a tag that is not a time", () => {
     const old = tagAt(now - 48 * 3600_000);
     expect(ids([
       { id: "vm_kept", name: `cloud journey ${old}`, status: "paused" },
-      { id: "vm_kept_gw", name: `cloud journey ${old} gateway`, status: "failed" },
+      { id: "vm_kept_gw", name: `cloud journey ${tagAt(now - 5 * 3600_000)} gateway`, status: "failed" },
       { id: "vm_dev", name: "dev machine", status: "paused" },
       { id: "vm_named", name: `my cloud journey auto ${old}`, status: "paused" },
       { id: "vm_bad", name: "cloud journey auto jr-!!", status: "paused" },
@@ -2995,8 +3071,15 @@ except probe.OutOfTime as cut:
       polls++;
       return { status: 503, body: {} };
     };
-    await expect(settleBackground(accepted, "http://fs", {}, Date.now() + 60_000, 1, down)).rejects.toThrow("no answer");
-    expect(polls).toBe(5);
+    await expect(settleBackground(accepted, "http://fs", {}, Date.now() + 5, 1, down, 200)).rejects.toThrow("provider outage");
+    expect(polls).toBeGreaterThan(5);
+    // Rebake 45960390204 (2026-11-27): 503 to every poll for 9 min while the command ran on; it is waited out.
+    let n = 0;
+    const overloaded = async () => (++n <= 9 ? { status: 503, body: {} } : { status: 200, body: { statusCode: 0 } });
+    expect((await settleBackground(accepted, "http://fs", {}, Date.now() + 5, 1, overloaded, 5_000)).status).toBe(200);
+    expect(n).toBe(10);
+    const pending = async () => ({ status: 202, body: {} });
+    await expect(settleBackground(accepted, "http://fs", {}, Date.now() + 20, 1, pending, 200)).rejects.toThrow("by the deadline");
     const refused = await settleBackground(accepted, "http://fs", {}, Date.now() + 60_000, 1, async () => ({ status: 409, body: { error: "busy" } }));
     expect(refused.status).toBe(409);
     await expect(settleBackground({ status: 202, body: { requestId: "../x" } }, "http://fs", {}, Date.now() + 60_000, 1, down)).rejects.toThrow("names no request");
@@ -3665,6 +3748,16 @@ open(out, 'w').write(json.dumps(seen))
     // The send's W3C trace id rides the prompt (cmux#55505 perf_trace.rs reads params._meta.traceId).
     expect(seen[2].params._meta.traceId).toBe("0af7651916cd43dd8448eb211c80319c");
   });
+  test("the start prints its own marks, in order, which startMarks reads as start_ parts", { timeout: 30_000 }, () => {
+    const { r } = runPrompted(true);
+    const marks = startMarks(r.stdout);
+    expect(Object.keys(marks)).toEqual(["start_connected", "start_initialized", "start_session_new", "start_prompt_accepted"]);
+    const v = Object.values(marks);
+    for (let i = 1; i < v.length; i++) expect(v[i]).toBeGreaterThanOrEqual(v[i - 1]);
+  });
+  test("startMarks keeps the first of a retried mark and ignores other lines", () => {
+    expect(startMarks("@@mark connected 5\n@@retry x\n@@mark connected 2100\n@@mark session_new 9000\nnoise @@mark x 1\n")).toEqual({ start_connected: 5, start_session_new: 9000 });
+  });
   test("a trace id that is not 32 lowercase hex never reaches the program", () => {
     const program = launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x", "hi", "x'; rm -rf /; '");
     expect(program).toContain("trace = None");
@@ -3721,8 +3814,10 @@ while True:
                 else:
                     send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32602, 'message': 'session name "s" is taken'}})
                 continue
-            if mode == 'taken':
+            if mode in ('taken', 'taken-resent'):
                 send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32602, 'message': 'session name "s" is taken'}})
+                if mode == 'taken-resent':
+                    continue
                 done = True
                 break
             if news == 1 and mode not in ('late', 'prompt-cut'):
@@ -3741,7 +3836,7 @@ while True:
         break
 open(out, 'w').write(json.dumps(seen))
 `;
-  const runRestarting = (mode: "retryable" | "refused" | "late" | "prompt-cut" | "made-then-cut" | "taken") => {
+  const runRestarting = (mode: "retryable" | "refused" | "late" | "prompt-cut" | "made-then-cut" | "taken" | "taken-resent") => {
     const home = mkdtempSync("/tmp/jr-");
     try {
       mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
@@ -3749,7 +3844,7 @@ open(out, 'w').write(json.dumps(seen))
       const sock = join(home, ".cmux/acpmux/acpmux.sock");
       const program = launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x", mode === "prompt-cut" ? "hi" : undefined);
       const script = `python3 -I fake.py ${sock} seen.json ${mode} & for i in $(seq 50); do [ -S ${sock} ] && break; sleep 0.1; done\n${program}\nrc=$?\nwait\nexit $rc`;
-      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8", timeout: 20_000 });
+      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home, ...(mode === "taken-resent" ? { [START_RESENT_ENV]: "1" } : {}) }, encoding: "utf8", timeout: 20_000 });
       return { r, seen: JSON.parse(readFileSync(join(home, "seen.json"), "utf8")) as string[] };
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -3805,6 +3900,20 @@ open(out, 'w').write(json.dumps(seen))
     expect(r.stdout).not.toContain("@@adopted");
     expect(r.status).toBe(1);
     expect(seen).not.toContain("_acpmux/resolve");
+  });
+  // Run 46100347935 (staging test-team, 2026-11-28): the start's first exec made the session but its answer was not
+  // read back, so the journey ran the start again and its session/new read "is taken". Run again, it takes that session.
+  test("a start run again by the journey takes the session its first run made", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("taken-resent");
+    expect(r.stdout).toContain("@@adopted s-1");
+    expect(r.stdout).toContain("@@session s-1");
+    expect(r.status).toBe(0);
+    expect(seen.filter((m) => m === "_acpmux/resolve")).toHaveLength(1);
+  });
+  test("the first prompt's promptId is the session name's, so a second run of the start never runs it twice", () => {
+    const a = launchCredentialStartProgram("journey-jr-1", "claude", null, null, "hi");
+    expect(a).toContain("uuid.uuid5(uuid.NAMESPACE_URL, 'cmux-journey-first-prompt:'");
+    expect(a).not.toContain("uuid.uuid4()");
   });
   test("no acpmux socket is a failed start that names the paths it tried, after the retry window", { timeout: 30_000 }, () => {
     const home = mkdtempSync(join(tmpdir(), "journey-launch-"));
@@ -3941,6 +4050,19 @@ describe("terminal scroll leg (carrier serve + __scroll-probe)", () => {
       views: { mirror: { blank_rows: 0, missing_rows: 0, jumps: 1 }, daemon: { blank_rows: 0, missing_rows: 0, jumps: 0 } },
     });
     expect(scrollDetail(parseScrollReport(report()))).toBe("bad 1 (mirror: 0 blank, 0 missing, 1 jumps; daemon: 0 blank, 0 missing, 0 jumps), 41.3 s");
+  });
+
+  test("the notes of a view that counted a defect go into the detail, never the counts", () => {
+    const out = report({ bad: 1, views: {
+      mirror: { blank_rows: 0, missing_rows: 0, jumps: 0, notes: ["mirror top moved by the probe"] },
+      daemon: { blank_rows: 0, missing_rows: 0, jumps: 1, notes: ["daemon jump: top Some(812) -> Some(840) (offset 37)"] },
+    } });
+    const notes = scrollNotes(out);
+    expect(notes).toEqual(["daemon: daemon jump: top Some(812) -> Some(840) (offset 37)"]);
+    expect(parseScrollReport(out)).not.toHaveProperty("notes");
+    expect(scrollDetail(parseScrollReport(out), notes)).toBe("bad 1 (mirror: 0 blank, 0 missing, 0 jumps; daemon: 0 blank, 0 missing, 1 jumps), 41.3 s; notes: daemon: daemon jump: top Some(812) -> Some(840) (offset 37)");
+    expect(scrollNotes("not json")).toEqual([]);
+    expect(scrollNotes(report())).toEqual([]);
   });
 
   test("a report that is not whole is refused, never read as 0", () => {
