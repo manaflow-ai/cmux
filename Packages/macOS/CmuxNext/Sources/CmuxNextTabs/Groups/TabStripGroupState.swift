@@ -41,6 +41,8 @@ struct TabStripGroupState {
     var dropPayload: TabDragPayload?
     /// Width of the gap an external group drag opens.
     var phantomWidth: CGFloat?
+    /// Width of the gap a single dragged tab opens: its own width, so the strip makes room instead of squeezing it.
+    var phantomTabWidth: CGFloat?
     /// Click-and-hold timer for the editor bubble.
     var holdTask: Task<Void, Never>?
     /// Injected so tests and demos can drive the hold delay.

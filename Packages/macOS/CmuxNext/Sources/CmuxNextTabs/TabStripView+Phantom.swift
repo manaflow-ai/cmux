@@ -21,8 +21,8 @@ extension TabStripView {
     /// `screenPoint` and returns the target. Closes the gap and returns nil
     /// when the point is not over this strip. Call on every pointer move.
     @discardableResult
-    public func updatePhantom(atScreenPoint screenPoint: CGPoint) -> TabStripDropTarget? {
-        showPhantom(atScreenPoint: screenPoint, groupWidth: nil)
+    public func updatePhantom(atScreenPoint screenPoint: CGPoint, width: CGFloat? = nil) -> TabStripDropTarget? {
+        showPhantom(atScreenPoint: screenPoint, groupWidth: nil, tabWidth: width)
     }
 
     /// Call when the session commits a tab drop on this strip, before or
@@ -66,6 +66,7 @@ extension TabStripView {
         dropPlaceholderIndex = nil
         dropPlaceholderGroup = nil
         groups.phantomWidth = nil
+        groups.phantomTabWidth = nil
         sync(fromModel: false)
     }
 
@@ -76,13 +77,14 @@ extension TabStripView {
         dropPlaceholderIndex = nil
         dropPlaceholderGroup = nil
         groups.phantomWidth = nil
+        groups.phantomTabWidth = nil
         relayout(animated: !reduceMotion)
     }
 
     // MARK: - Shared
 
-    func showPhantom(atScreenPoint screenPoint: CGPoint, groupWidth: CGFloat?) -> TabStripDropTarget? {
-        guard let target = target(atScreenPoint: screenPoint, verticalSlop: nil, groupWidth: groupWidth) else {
+    func showPhantom(atScreenPoint screenPoint: CGPoint, groupWidth: CGFloat?, tabWidth: CGFloat? = nil) -> TabStripDropTarget? {
+        guard let target = target(atScreenPoint: screenPoint, verticalSlop: nil, groupWidth: groupWidth, tabWidth: tabWidth) else {
             hidePhantom()
             return nil
         }
@@ -90,10 +92,12 @@ extension TabStripView {
         setHovered(nil)
         setHoveredChip(nil)
         hoverCards.dismiss(.action)
-        if target.index != dropPlaceholderIndex || target.groupID != dropPlaceholderGroup || groupWidth != groups.phantomWidth {
+        if target.index != dropPlaceholderIndex || target.groupID != dropPlaceholderGroup || groupWidth != groups.phantomWidth
+            || tabWidth != groups.phantomTabWidth {
             dropPlaceholderIndex = target.index
             dropPlaceholderGroup = target.groupID
             groups.phantomWidth = groupWidth
+            groups.phantomTabWidth = tabWidth
             relayout(animated: !reduceMotion)
         }
         return target
@@ -109,7 +113,7 @@ extension TabStripView {
         }
     }
 
-    func target(atScreenPoint screenPoint: CGPoint, verticalSlop: CGFloat?, groupWidth: CGFloat?) -> TabStripDropTarget? {
+    func target(atScreenPoint screenPoint: CGPoint, verticalSlop: CGFloat?, groupWidth: CGFloat?, tabWidth: CGFloat? = nil) -> TabStripDropTarget? {
         let verticalSlop = verticalSlop ?? Metrics.space4
         guard let window, !isHiddenOrHasHiddenAncestor else { return nil }
         let point = convert(window.convertPoint(fromScreen: screenPoint), from: nil)
@@ -118,7 +122,7 @@ extension TabStripView {
         }
         let resolved = resolvePhantom(at: point, groupWidth: groupWidth)
         var items = baseLayoutItems()
-        let placeholder = TabLayoutItem(id: Self.placeholderID, groupID: resolved.groupID, fixedWidth: groupWidth)
+        let placeholder = TabLayoutItem(id: Self.placeholderID, groupID: resolved.groupID, fixedWidth: groupWidth ?? tabWidth)
         items.insertPlaceholder(placeholder, atTabIndex: resolved.index)
         let layout = TabLayoutEngine.layout(items: items, availableWidth: viewportWidth, style: model.style, metrics: metrics)
         guard let slot = layout.slot(Self.placeholderID) else { return nil }

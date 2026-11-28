@@ -194,7 +194,7 @@ extension TabDragPayload {
     /// Tab or group id, for surfaces that key a drag by one string.
     var dragID: String {
         switch self {
-        case .tab(let id, _): id
+        case .tab(let id, _, _): id
         case .tabGroup(let id, _, _, _): id
         }
     }
