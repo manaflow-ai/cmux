@@ -207,10 +207,10 @@ save() {
   local size_gib
   size_gib="$(du -sxk "$target" | awk '{ printf "%d", $1 / 1048576 }')"
   if ((size_gib > max_gib)); then
-<<<<<<< HEAD
     say "the target is $size_gib GiB, over $max_gib: saving third-party output plus ghostty-vt-sys and its build dependency"
     # Keep library names separate from test/bin names: a test named http must
     # not delete the third-party http library. Clean up only our metadata file.
+    # Passing metadata directly also works with macOS Bash 3.2 (no mapfile).
     (
       metadata="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-cache-metadata.XXXXXX")"
       trap 'rm -f -- "$metadata"' EXIT
@@ -218,16 +218,6 @@ save() {
       python3 -I "$repo/scripts/ci/cargo_target_strip.py" "$target" --cargo-metadata "$metadata" \
         --keep ghostty-vt-sys cmux-transport-rewrite
     )
-=======
-    say "the target is $size_gib GiB, over $max_gib: saving third-party output only"
-    # No mapfile: macOS runners may run this under /bin/bash 3.2, which has no mapfile (kit_sim_fleet.sh, #63758).
-    local crates=() crate
-    while IFS= read -r crate; do crates+=("$crate"); done < <(cargo metadata --no-deps --format-version 1 --manifest-path "$repo/cmux-tui/Cargo.toml" \
-      | python3 -I -c 'import json,sys; m=json.load(sys.stdin); print("\n".join(sorted({p["name"] for p in m["packages"]} | {t["name"] for p in m["packages"] for t in p["targets"]})))')
-    python3 -I "$repo/scripts/ci/cargo_target_strip.py" "$target" --workspace-crates "${crates[@]}"
-  else
-    python3 -I "$repo/scripts/blacksmith-testbox-source-mtimes.py" record "$repo" "$manifest"
->>>>>>> 32f2e96aef7f3e0f43132ce8670229402f592a2d
   fi
   # The retained native build needs unchanged source mtimes even after pruning.
   # Recording also carries the CPU identity used by restore's native-output check.
