@@ -1276,6 +1276,15 @@ try {
               })
               .filter(([key, size]) => key.split("/").length <= 3 && size >= 0.5 && !key.includes("0x"))
               .sort((a, b) => a[0].localeCompare(b[0]));
+            if (process.env.NATIVE_DUMP) {
+              // NATIVE_DUMP=DIR: every allocator of the dump at every depth (Blink's object counts, the GC heap's
+              // arenas, PartitionAlloc's buckets), for a diff of two launches.
+              fs.mkdirSync(process.env.NATIVE_DUMP, { recursive: true });
+              fs.writeFileSync(
+                path.join(process.env.NATIVE_DUMP, `${name}-${event.pid}.json`),
+                JSON.stringify(allocators),
+              );
+            }
             console.log(`heap-retainers ${name}: renderer ${event.pid} allocators (MB):`);
             for (const [key, size] of sizes) console.log(`  ${size.toFixed(1).padStart(8)}  ${key}`);
           }
