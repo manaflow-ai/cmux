@@ -56,6 +56,7 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configu
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { layoutAhead } = await import("../src/agent-session/acpmux/VirtualTranscript");
 const { defaultRegistry } = await import("../src/agent-session/acpmux/rows/registry");
 
 afterAll(async () => {
@@ -118,6 +119,58 @@ test("a chat shown again measures only its rows that changed while it was away",
     measured.clear();
     await render("chat-b", chat("b", 50));
     expect(measured.size).toBe(0);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("a chat measured ahead while the page was idle measures none of its rows at its first show", async () => {
+  // Before: a chat never shown in this page had nothing kept, so its first show measured every row's text
+  // inside the switch (settled-page bench, chat_switch), though its rows were folded and shaped ahead.
+  const measured = new Map<string, number>();
+  const counting = (kind: string): MeasurableRenderer => {
+    const Renderer = defaultRegistry[kind]!;
+    const Counted: MeasurableRenderer = (props: RowProps) => <Renderer {...props} />;
+    Counted.measure = (row: AcpmuxRow) => {
+      measured.set(row.id, (measured.get(row.id) ?? 0) + 1);
+      return 40;
+    };
+    return Counted;
+  };
+  const registry: NativeRegistry = { ...defaultRegistry, user: counting("user"), assistant: counting("assistant") };
+  const host = dom.window.document.createElement("div");
+  dom.window.document.body.append(host);
+  const root = createRoot(host);
+  const expanded = new Set<string>();
+  const render = (sessionId: string, rows: AcpmuxRow[]) =>
+    act(async () => {
+      root.render(
+        <VirtualTranscript
+          rows={rows}
+          registry={registry}
+          sessionId={sessionId}
+          onToggleActivity={() => {}}
+          expanded={expanded}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  const measuredOf = (name: string) => [...measured].filter(([id]) => id.startsWith(`${name}-`)).length;
+  try {
+    await render("chat-ahead-a", chat("p", 30));
+    // Q is folded ahead: its rows are measured in an idle slot, not at its show.
+    await act(async () => {
+      layoutAhead("chat-ahead-q", chat("q", 120));
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+    expect(measuredOf("q")).toBe(120);
+    measured.clear();
+    // Its first show, its rows built again with the newest reply grown since.
+    const shown = chat("q", 120);
+    shown[119] = { ...shown[119]!, version: 2, text: `${shown[119]!.text} and more` };
+    await render("chat-ahead-q", shown);
+    expect([...measured.keys()]).toEqual(["q-119"]);
   } finally {
     await act(async () => root.unmount());
     host.remove();
