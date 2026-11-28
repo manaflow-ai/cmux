@@ -150,7 +150,7 @@ export default agentPaneEntry({
       snapshot: snapshot("codex-lane", report(3, "codex-lane"), studioSessions),
     },
     "machine-open": {
-      note: 'Leo, 2026-11-27, on "· gcp-agent-lane-19⌄": "these chevrons are too close dont we have any guidelines for these yet?" Opened, the machine ends the line\'s words: its chevron keeps the ink gap after the machine\'s name (design/chevrons.md), never the chip\'s pull-back.',
+      note: 'Leo, 2026-11-27, on "· gcp-agent-lane-19⌄": "these chevrons are too close dont we have any guidelines for these yet?" Opened, the machine ends the line\'s words: its chevron keeps the ink gap after the machine\'s name (docs/cmux-next/ui-guidelines.md), never the chip\'s pull-back.',
       snapshot: snapshot("codex-lane", report(3, "codex-lane"), studioSessions),
       play: openLine,
     },

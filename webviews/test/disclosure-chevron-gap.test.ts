@@ -1,5 +1,5 @@
 // Every label + chevron control keeps one room between its words and its chevron
-// (design/chevrons.md; Leo, 2026-11-27, on two chips whose chevrons touched their last
+// (docs/cmux-next/ui-guidelines.md; Leo, 2026-11-27, on two chips whose chevrons touched their last
 // letter: "these chevrons are too close dont we have any guidelines for these yet?").
 //
 // Measured in Chromium over gallery scenes, at a wide and a narrow width

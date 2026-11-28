@@ -1,4 +1,4 @@
-// The numbers design/chevrons.md sets for chevrons (Leo, 2026-11-27: "these chevrons are too close dont
+// The numbers docs/cmux-next/ui-guidelines.md sets for chevrons (Leo, 2026-11-27: "these chevrons are too close dont
 // we have any guidelines for these yet?"). test/chevron-spacing.test.ts measures every pager against
 // them in Chromium; test/chevron-motion.test.ts holds the motion rule over the stylesheets.
 

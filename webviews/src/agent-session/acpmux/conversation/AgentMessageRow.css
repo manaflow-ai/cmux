@@ -153,7 +153,7 @@ button.cv-agentmsg__name:focus-visible {
 /* Shut and stacked, or opened (the first line is in the card then), the toggle holds no words: it
    takes back the line's gap before it, so the chevron sits right after what ends the sentence, as
    after any row's words (transcript-chevron-after-label), its ink the transcript's room after the
-   last letter (design/chevrons.md). Leo, 2026-11-27, on an opened sender chip and a send's
+   last letter (docs/cmux-next/ui-guidelines.md). Leo, 2026-11-27, on an opened sender chip and a send's
    "· and 7 more commands" with the chevron on their last letter: "these chevrons are too close
    dont we have any guidelines for these yet?". The pull used to assume a chip ended the sentence
    and took its end padding as room too, so after bare words (a machine, "and 7 more commands") it
@@ -167,7 +167,7 @@ button.cv-agentmsg__name:focus-visible {
   margin-inline-start: calc(-1 * var(--grid-gap) + 0.5 * var(--ds-space-1));
 }
 /* A link chip that ends the sentence: the chevron's ink stands --cv-chip-chevron-gap from the
-   chip's box, not its words (design/chevrons.md's 8px floor after a box). */
+   chip's box, not its words (docs/cmux-next/ui-guidelines.md's 8px floor after a box). */
 .acpmux-row
   .cv-agentmsg:not([data-open])
   :is(button.cv-agent-tag.is-open, .cv-received__sender:not(:has(> .cv-received__host)):has(> button.cv-agent-tag.is-open))

@@ -288,7 +288,7 @@ export default agentPaneEntry({
       play: openFirstSend,
     },
     "quiet-received-open": {
-      note: 'Leo, 2026-11-27: "these chevrons are too close dont we have any guidelines for these yet?" A received line with no first line on it (quiet look), opened: the sender\'s chip and its chevron keep the 8px floor (design/chevrons.md, test/transcript-chevron-after-label.test.ts).',
+      note: 'Leo, 2026-11-27: "these chevrons are too close dont we have any guidelines for these yet?" A received line with no first line on it (quiet look), opened: the sender\'s chip and its chevron keep the 8px floor (docs/cmux-next/ui-guidelines.md, test/transcript-chevron-after-label.test.ts).',
       theme: { messageLineLook: "quiet" },
       snapshot: coordinatorTurn(),
       play: openReceived,

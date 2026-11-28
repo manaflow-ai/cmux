@@ -1,7 +1,7 @@
 // The hybrid cloud button's holders menu draws its name and its chevron after it ("acpmux⌄"), now
 // through the shared DisclosureFace (no text glyph).
 // Leo, 2026-11-27: "these chevrons are too close dont we have any guidelines for these yet?"
-// The chevron's ink starts 3-8px (design/chevrons.md) after the name's last ink, wide and narrow.
+// The chevron's ink starts 3-8px (docs/cmux-next/ui-guidelines.md) after the name's last ink, wide and narrow.
 // Source: hybrid/CloudTriToggle.tsx, .acpmux-hybrid-tri__name .ui-disclosure-chevron.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";

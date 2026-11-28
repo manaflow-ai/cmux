@@ -4,7 +4,7 @@ import CmuxNextDesign
 import Testing
 
 /// Leo, 2026-11-27: "these chevrons are too close dont we have any guidelines for these yet?"
-/// A chevron starts at least 8 pt (design/chevrons.md) from the last ink of the label it follows.
+/// A chevron starts at least 8 pt (docs/cmux-next/ui-guidelines.md) from the last ink of the label it follows.
 @MainActor
 struct ChiefTeleportChipChevronGapTests {
     @Test(arguments: [ChiefTeleportChipStyle.plain, .capsule, .outline])

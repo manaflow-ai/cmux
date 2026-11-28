@@ -118,7 +118,7 @@ export function HatQuestionsStage({
   dismissLook?: "hover" | "always" | "corner";
   /// Which question leads: the stills of the started chat's question start on it.
   first?: "child";
-  /// The pager's spacing look (`<html data-pager-look>`, hatQuestions.css; design/chevrons.md).
+  /// The pager's spacing look (`<html data-pager-look>`, hatQuestions.css; docs/cmux-next/ui-guidelines.md).
   pagerLook?: "before" | "gap" | "roomy";
 }) {
   useLayoutEffect(() => {

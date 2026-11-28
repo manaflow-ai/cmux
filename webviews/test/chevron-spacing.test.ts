@@ -1,4 +1,4 @@
-// Every chevron pager, drawn in Chromium, against design/chevrons.md (Leo, 2026-11-27: "these chevrons are
+// Every chevron pager, drawn in Chromium, against docs/cmux-next/ui-guidelines.md (Leo, 2026-11-27: "these chevrons are
 // too close dont we have any guidelines for these yet?"): each chevron's glyph box stands at least 8 px
 // from the count beside it, and each step is at least a 24 px target. The composer hat's pager
 // (agent-pane.hat-questions) drew its chevrons 4 px from "1 of 3" on 20 px steps; `pager-before` keeps
@@ -93,7 +93,7 @@ await requireBrowserLane("chevron-spacing.test.ts", async () => {
     }
   };
 
-  describe("chevron pagers keep design/chevrons.md", () => {
+  describe("chevron pagers keep docs/cmux-next/ui-guidelines.md", () => {
     for (const { entry, variant, pager } of PAGERS) {
       test(`${entry} ${variant}`, async () => {
         const drawn = await measure(entry, variant, pager);

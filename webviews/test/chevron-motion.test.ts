@@ -1,4 +1,4 @@
-// A chevron's turn or slide takes a motion token, never a literal (design/chevrons.md; Leo, 2026-11-27:
+// A chevron's turn or slide takes a motion token, never a literal (docs/cmux-next/ui-guidelines.md; Leo, 2026-11-27:
 // "these chevrons are too close dont we have any guidelines for these yet?"). Every stylesheet rule whose
 // selector names a chevron or a disclosure mark and that transitions `transform` must time it with
 // --cmux-motion-quick, -micro or -standard (or the pane's --agent-motion-* aliases of them), so a chevron
