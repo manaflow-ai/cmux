@@ -1,7 +1,10 @@
 use super::*;
 use crate::ledger::{Ledger, Stage};
 
-fn ledger(rows: &[(&str, Stage, Option<(i64, i64)>)]) -> Ledger {
+/// A project key, its stage, and (move start, first chat) in ms.
+type Row<'a> = (&'a str, Stage, Option<(i64, i64)>);
+
+fn ledger(rows: &[Row]) -> Ledger {
     let mut ledger = Ledger::new();
     for (key, stage, times) in rows {
         let entry = ledger.entry_mut("laptop:abc", key);
