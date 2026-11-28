@@ -9,7 +9,6 @@
     "CmuxAuthRuntime": "Packages/Shared/CmuxAuthRuntime",
     "CmuxChiefList": "Packages/Shared/CmuxChiefList",
     "CmuxEgress": "Packages/Shared/CmuxEgress",
-    "CmuxFeedPushCore": "Packages/Shared/CmuxFeedPushCore",
     "CmuxGhosttyKit": "Packages/Shared/CmuxGhosttyKit",
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
@@ -399,6 +398,7 @@
         "CmuxNextKeys",
         "CmuxNextLaunchImages",
         "CmuxNextLayout",
+        "CmuxNextLinkOrder",
         "CmuxNextLiveCode",
         "CmuxNextMacScreen",
         "CmuxNextMallocZone",
@@ -451,7 +451,6 @@
         "CmuxAgentQuestion",
         "CmuxAppAttest",
         "CmuxEgress",
-        "CmuxFeedPushCore",
         "CmuxHomeCore",
         "CmuxHomeRender",
         "CmuxVisibleRows"
@@ -837,6 +836,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests",
       "targets": [
         "CmuxNextBrowser",
+        "CmuxNextBrowserCore",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextRemoteFetch",
@@ -1412,6 +1412,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeedClient",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDaemon",
@@ -1845,6 +1846,12 @@
       ],
       "packages": []
     },
+    "CmuxNextLinkOrder": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLinkOrder",
+      "targets": [],
+      "packages": []
+    },
     "CmuxNextLiveCode": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode",
@@ -1927,6 +1934,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost",
       "targets": [
         "CmuxNextAgentPane",
+        "CmuxNextBrowserCore",
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDaemon",
@@ -1949,6 +1957,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMobileHostTests",
       "targets": [
         "CmuxNextAgentPane",
+        "CmuxNextBrowser",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextMobile",
@@ -2016,6 +2025,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextAgentIntegrations",
         "CmuxNextBrowserImport",
         "CmuxNextCompat",
@@ -2102,6 +2112,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
@@ -2111,6 +2122,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
