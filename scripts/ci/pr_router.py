@@ -980,9 +980,9 @@ def area_report(files: list[str] | None, path: Path | None = None) -> tuple[list
              f"{len(files)} changed file(s), {len(files) - len(unmapped)} mapped, {len(unmapped)} matched no area "
              "(docs/benches/relevance-map.toml; scripts/bench/cmux-bench for-paths prints the same)", "",
              "| path | area | unit | benches, budgets, tests |", "|---|---|---|---|"]
-    for row in doc["rows"][:AREA_REPORT_ROWS]:
+    for row in doc["paths"][:AREA_REPORT_ROWS]:
         lines.append(f"| `{row['path']}` | {row['area'] or '**none**'} | {row['unit'] or '-'} | {checks(row)} |")
-    if len(doc["rows"]) > AREA_REPORT_ROWS:
+    if len(doc["paths"]) > AREA_REPORT_ROWS:
         lines.append(f"| ... {len(doc['rows']) - AREA_REPORT_ROWS} more | | | |")
     budgets = [a for a in doc["areas"] if a.get("budget")]
     if budgets:
