@@ -18859,6 +18859,11 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "measure-swift-typecheck.yml",
             # The Nightly auto-update e2e (#62005): a PR touching it runs it against the live Nightly feed.
             "nightly-next-update-e2e.yml",
+            # The chat-size ladder (#63929): the 1 MB and 1 GB chats' ratio, base vs head in one job (advisory).
+            "chat-size-ladder.yml",
+            # iOS product UI on a fleet simulator: the gesture-conflict suite (#52373) and the composer and terminal
+            # keyboard screenshot loop (#62182).
+            "cmux-next-ios-gestures.yml", "ios-sim-screenshot-loop.yml",
             # Push-only checks that also run, advisory and path-gated, on PRs into feat-cmux-next (#47445): the
             # acpmux simulator sweep, Chief's evals, the mobile FFI, the cmux-next terminal and the Windows RD host.
             "acpmux-sim-sweep.yml", "chief-evals.yml", "cmux-mobile-ffi.yml", "cmux-next-terminal.yml",
@@ -20542,6 +20547,119 @@ class ActionsCheckRunsOnly(unittest.TestCase):
         self.assertEqual([run["app"]["slug"] for run in seen], ["github-actions"])
         self.assertEqual(excuse.actions_check_runs({"check_runs": runs["check_runs"][:2]}, "Web status"), [])
         self.assertEqual(excuse.actions_check_runs(None, "Web status"), [])
+
+
+class CalledWorkflowStepNames(unittest.TestCase):
+    """A called workflow's job ('<caller's name> / <its job>') is read by the workflow it calls (_called_step_names).
+    2026-11-28: cmux#63846's 'pr pipeline / linux' (pr-router.yml's pr-pipeline job calling pr-pipeline.yml, run
+    46108532940) failed only in its step table on a base red, and every line of its log was AMBIGUOUS: five
+    upload-artifact steps shared one second, so only their workflow's headers could place them, and a caller job
+    always gave STEP_NAMES_UNKNOWN."""
+    CALLER = (
+        "on: pull_request\n"
+        "jobs:\n"
+        "  pipeline:\n"
+        "    name: pr pipeline\n"
+        "    uses: ./.github/workflows/callee.yml\n"
+        "  other:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - run: echo other\n")
+    CALLEE = (
+        "on: workflow_call\n"
+        "jobs:\n"
+        "  linux:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - name: Run the routed steps\n"
+        "        run: |\n"
+        "          scope=()\n"
+        "          exit 1\n"
+        "      - name: Upload one\n"
+        "        if: always()\n"
+        "        uses: actions/upload-artifact@v4\n"
+        "      - name: Upload two\n"
+        "        if: always()\n"
+        "        uses: actions/upload-artifact@v4\n")
+
+    def github(self, caller=None):
+        texts = {".github/workflows/caller.yml": caller or self.CALLER, ".github/workflows/callee.yml": self.CALLEE}
+
+        class Blob:
+            def blob(self, repo, ref, wanted):
+                return texts[wanted]
+        return Blob()
+
+    def job(self, name="pr pipeline / linux"):
+        def at(second):
+            return f"2026-11-28T04:40:{second:02d}Z"
+        steps = [("Set up job", "success", 1, 1), ("Run the routed steps", "failure", 1, 33),
+                 ("Upload one", "success", 33, 33), ("Upload two", "success", 33, 33),
+                 ("Complete job", "success", 33, 33)]
+        return {"name": name, "head_sha": HEAD, "steps": [
+            {"number": n, "name": s, "conclusion": c, "started_at": at(a), "completed_at": at(b)}
+            for n, (s, c, a, b) in enumerate(steps, 1)]}
+
+    LOG = "\n".join((
+        "2026-11-28T04:40:01.0000000Z Current runner version: '2.338.2'",
+        "2026-11-28T04:40:01.5000000Z ##[group]Run scope=()",
+        "2026-11-28T04:40:01.5100000Z exit 1",
+        "2026-11-28T04:40:01.5200000Z ##[endgroup]",
+        "2026-11-28T04:40:33.1000000Z ##[error]Process completed with exit code 1.",
+        "2026-11-28T04:40:33.2000000Z ##[group]Run actions/upload-artifact@v4",
+        "2026-11-28T04:40:33.2100000Z ##[endgroup]",
+        "2026-11-28T04:40:33.3000000Z No files were found with the provided path.",
+        "2026-11-28T04:40:33.4000000Z ##[group]Run actions/upload-artifact@v4",
+        "2026-11-28T04:40:33.4100000Z ##[endgroup]",
+        "2026-11-28T04:40:33.5000000Z No files were found with the provided path.",
+        "2026-11-28T04:40:33.6000000Z Cleaning up orphan processes"))
+
+    def test_a_called_workflows_job_is_placed_by_its_callees_headers(self):
+        job = self.job()
+        before = excuse.step_owners(job, self.LOG, step_names=excuse.STEP_NAMES_UNKNOWN)
+        self.assertEqual({status for _, _, status in before}, {excuse.AMBIGUOUS})
+        names = excuse.workflow_step_names(REPO, job, ".github/workflows/caller.yml", self.github(), {})
+        self.assertIsNot(names, excuse.STEP_NAMES_UNKNOWN)
+        self.assertEqual(dict(names), {2: True, 3: True, 4: True})
+        owned = excuse.step_owners(job, self.LOG, step_names=names)
+        failed = [line for line, _, status in owned if status == excuse.FAILED]
+        self.assertTrue(any("##[error]Process completed with exit code 1." in line for line in failed))
+        self.assertFalse(any("No files were found" in line for line in failed))
+        self.assertNotIn(excuse.AMBIGUOUS, {status for _, _, status in owned})
+
+    def test_what_it_does_not_prove_stays_unknown(self):
+        remote = self.CALLER.replace("./.github/workflows/callee.yml", "other/repo/.github/workflows/callee.yml@v1")
+        matrix = self.CALLER.replace("    uses: ./", "    strategy:\n      matrix:\n        os: [a, b]\n    uses: ./")
+        for case, caller, name in (("remote callee", remote, "pr pipeline / linux"),
+                                   ("caller over a matrix", matrix, "pr pipeline / linux"),
+                                   ("no such inner job", self.CALLER, "pr pipeline / macos"),
+                                   ("the bare prefix", self.CALLER, "pr pipeline / ")):
+            with self.subTest(case=case):
+                names = excuse.workflow_step_names(REPO, self.job(name), ".github/workflows/caller.yml",
+                                                   self.github(caller), {})
+                self.assertIs(names, excuse.STEP_NAMES_UNKNOWN)
+
+    def test_a_caller_with_no_name_is_named_by_its_id(self):
+        # 2026-11-28: cmux-next-post-merge.yml's `rust-workspaces:` job calls rust-workspaces.yml with no `name:`, so
+        # Actions names its job 'rust-workspaces / plan (changed Cargo workspaces)' (feat-cmux-next run 46113542594,
+        # job 140884231693). Read as STEP_NAMES_UNKNOWN, that base log was unplaced and cmux#64053's red of the same
+        # duplicate entry was refused ("its red base verdict's log does not map one to one onto its steps").
+        unnamed = self.CALLER.replace("    name: pr pipeline\n", "")
+        job = self.job("pipeline / linux")
+        names = excuse.workflow_step_names(REPO, job, ".github/workflows/caller.yml", self.github(unnamed), {})
+        self.assertIsNot(names, excuse.STEP_NAMES_UNKNOWN)
+        self.assertEqual(dict(names), {2: True, 3: True, 4: True})
+        owned = excuse.step_owners(job, self.LOG, step_names=names)
+        self.assertNotIn(excuse.AMBIGUOUS, {status for _, _, status in owned})
+        # Its id is its name only when it has none: a named caller is never matched by its id.
+        self.assertIs(excuse.workflow_step_names(REPO, job, ".github/workflows/caller.yml", self.github(), {}),
+                      excuse.STEP_NAMES_UNKNOWN)
+
+    def test_a_workflow_that_calls_itself_ends(self):
+        loop = self.CALLER.replace("./.github/workflows/callee.yml", "./.github/workflows/caller.yml")
+        name = " / ".join(["pr pipeline"] * 12 + ["linux"])
+        names = excuse.workflow_step_names(REPO, self.job(name), ".github/workflows/caller.yml", self.github(loop), {})
+        self.assertIs(names, excuse.STEP_NAMES_UNKNOWN)
 
 
 if __name__ == "__main__":
