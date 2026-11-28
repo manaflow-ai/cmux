@@ -2,7 +2,6 @@ public import AppKit
 import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextIcons
 public import CmuxNextSettings
 import ImageIO
 import QuartzCore
@@ -375,7 +374,7 @@ final class ComputerUseFloatingPreviewView: NSView {
 final class ComputerUseFloatingPreviewButton: NSButton {
     init(symbol: String) {
         super.init(frame: .zero)
-        image = NSImage.icon(symbol: symbol, size: Metrics.smallIconSize)
+        image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         imagePosition = .imageOnly
         isBordered = false
         bezelStyle = .circular
