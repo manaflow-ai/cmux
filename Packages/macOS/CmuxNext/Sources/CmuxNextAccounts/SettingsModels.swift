@@ -601,6 +601,7 @@ public final class SettingsModels {
     }
 
     /// The route-test reply as acpmux sent it, handed to ``routeTestJSON(_:)`` and read only there.
+    // crash-allow: one immutable JSONSerialization reply, made by the caller and only read once by routeTestJSON
     nonisolated private struct RouteTestReply: @unchecked Sendable { let value: [String: Any] }
 
     /// Serializes and parses the reply off the main actor.
