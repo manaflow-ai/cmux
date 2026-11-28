@@ -2732,6 +2732,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     TabsKitMenuItem(title: "Agent Edits", systemImage: "plus.forwardslash.minus",
                                     isEnabled: AgentChatSurface.hasAgentEdits(store)) { surface.openAllChanges(of: store) },
                     TabsKitMenuItem(title: "Files and Artifacts", systemImage: "folder") { surface.showArtifacts = true },
+                ] + (DiffReviewThreadsCenter.shared.isAvailable(on: workspace.macID)
+                    ? [TabsKitMenuItem(id: "chat.reviewThreads", title: "Review Threads", systemImage: "text.bubble") { surface.showReviewThreads = true }]
+                    : []) + [
                     TabsKitMenuItem(id: "chat.sessionInfo", title: "Session Info", systemImage: "info.circle") { surface.parityRoute = .sessionInfo },
                     // The Mac's Copy rows (Agent Name, Session ID, Harness Session ID, Conversation as
                     // Markdown, Session Details, Working Directory, Chat Host), one sheet for the menu.

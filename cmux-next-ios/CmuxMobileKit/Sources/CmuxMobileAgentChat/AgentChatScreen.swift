@@ -99,6 +99,8 @@ public final class AgentChatSurface {
     public var parityRoute: AgentParityRoute?
     /// The session's artifacts browser (a sheet).
     public var showArtifacts = false
+    /// Review Threads: the diff review threads of the chat's folder on its Mac (`DiffReviewThreadsSheet`).
+    public var showReviewThreads = false
     /// `/status`'s sheet while it is up.
     var showStatus = false
     /// The Copy rows' sheet (the Mac's AgentChatCopyActionCatalog).
@@ -503,6 +505,9 @@ public struct AgentChatScreen: View {
         ToolbarItemGroup(placement: .topBarTrailing) {
             Menu {
                 Button("Files and Artifacts", systemImage: "folder") { surface.showArtifacts = true }
+                if DiffReviewThreadsCenter.shared.isAvailable(on: store.summary.macID) {
+                    Button("Review Threads", systemImage: "text.bubble") { surface.showReviewThreads = true }
+                }
                 // Built when chosen: a ShareLink took the whole transcript on every streamed token.
                 Button("Share Transcript", systemImage: "square.and.arrow.up") { ChatShare.present(AgentChatSurface.transcriptText(store)) }
                 Button("Stop Agent", systemImage: "stop.circle", role: .destructive) { store.cancel() }
@@ -631,6 +636,11 @@ public struct AgentChatTranscript: View {
         }
         .sheet(isPresented: $surface.showArtifacts) {
             SessionArtifactsSheet(store: store, surface: surface)
+        }
+        .sheet(isPresented: $surface.showReviewThreads) {
+            if let backend = DiffReviewThreadsCenter.shared.backend {
+                DiffReviewThreadsSheet(backend: backend, store: store)
+            }
         }
         .sheet(isPresented: $surface.showStatus) {
             SessionStatusSheet(store: store)
