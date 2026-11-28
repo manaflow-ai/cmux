@@ -208,6 +208,28 @@ struct CloudMachineUpdateTargetTests {
         #expect((tries, relinks) == (2, 1))
     }
 
+    /// cosmic-gray 2026-11-27: 2 AutoCloud starts failed "started but its agent didn't (timed out: identify (no progress
+    /// for 10.0 s))": the retry's relink took the stale link the app still held. A first-request timeout is a stale link,
+    /// and the relink sees that failure so it can make a new link; a closed or missing link is dropped, not stale.
+    @Test func aFirstRequestTimeoutIsAStaleLinkTheRelinkSees() async throws {
+        let identify = DaemonError.timedOut("identify (no progress for 10.0 s)")
+        #expect(CloudWait.linkStale(identify))
+        #expect(CloudWait.linkStale(DaemonError.timedOut("set-client-info (no progress for 10.0 s)")))
+        #expect(CloudWait.linkDropped(identify))
+        #expect(!CloudWait.linkStale(DaemonError.timedOut("agent-session-start (no progress for 10.0 s)")))
+        #expect(!CloudWait.linkStale(DaemonError.connectionClosed(reason: "EOF")))
+        #expect(!CloudWait.linkStale(DaemonError.connectFailed(path: "/tmp/x.sock", errno: ENOENT)))
+
+        var tries = 0, staleRelinks = 0
+        let started = try await CloudWait.retriedOnce({
+            tries += 1
+            if tries == 1 { throw identify }
+            return "session"
+        }, closed: CloudWait.linkDropped, relinkAfter: { if CloudWait.linkStale($0) { staleRelinks += 1 }; return true })
+        #expect(started == "session")
+        #expect((tries, staleRelinks) == (2, 1), "the relink never heard the link was stale")
+    }
+
     /// The same run's root: a start an older daemon refused updates the machine and starts again, and the update
     /// restarts the daemon. The second start waits for the new handshake first; with no update turn it waits for nothing.
     @Test func aRefusedStartsUpdateWaitsForTheNewLinkBeforeStartingAgain() async {
