@@ -397,12 +397,8 @@ async function liveSteer() {
     emit({ mux: "turn_result", msg: { status: "completed", turnId: "t-1" } });
     live!.touch(id, { status: "ready" });
     await until(() => rows.some((row) => row.kind === "turnSummary"));
-    working = false;
   };
-  // The pane draws a running turn as working (turnView `working`), and only an ended one moves its late steer
-  // over its answer (turns.ts lateSteersLast, #56293).
-  let working = true;
-  const view = (open: string[] = []) => turnView(rows as never, new Set(open), { working }).map((entry) => entry.id);
+  const view = (open: string[] = []) => turnView(rows as never, new Set(open)).map((entry) => entry.id);
   return { client, emit, say, steer, finish, view, rows: () => rows, until };
 }
 
@@ -438,15 +434,9 @@ for (const [name, messageIds] of [
         expect(order.indexOf(steered.id)).toBeLessThan(order.indexOf(reply.id));
       };
       check();
-      // Ended, the turn reads the steer, then the agent's last words: the ones written before the read
-      // join the answer under the steer (Leo, 2026-11-25, #56293: "your completed sent message goes above
-      // mine"; chat-sim.test.ts late-steer), and the answer after the read stays under it.
+      // The order stays once the turn ends.
       await live.finish();
-      const ended = live.view();
-      const at = (text: string) => ended.indexOf(live.rows().find((row) => row.text?.startsWith(text))!.id);
-      expect(at("and the flicker?")).toBeGreaterThan(-1);
-      expect(at("and the flicker?")).toBeLessThan(at("Looking at the list now"));
-      expect(at("Looking at the list now")).toBeLessThan(at("On the flicker"));
+      check();
     } finally {
       live.client.close?.();
     }
