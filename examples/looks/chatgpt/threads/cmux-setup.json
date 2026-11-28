@@ -1,0 +1,24 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/chatgpt-threads",
+  "name": "Reference threads",
+  "tagline": "The reference app's Priority, Unreads and Archive views for your agent chats, as one sidebar section.",
+  "description": "A customize section that lists your agent chats the way a desktop coding agent app's activity view does: Priority first (chats that need input or approval), then Today and Yesterday headings, Mark all read and Clear read chats, and an Archive view with search and Unarchive. Settings turn on cmux's own priority bell and Settled folding to match. Remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "screenshots": [],
+
+  "cmuxProfile": 1,
+  "settings": {
+    // cmux's own bell listing every agent chat, the ones waiting on you first.
+    "sidebar.priorityView.enabled": true,
+    "sidebar.priorityView.shown": true,
+    // Read chats fold away at the end of their list until their next turn.
+    "sidebar.settleFinished": true,
+    "sidebar.showTimestamps": true
+    // Pending (Rust): view options as settings (Show Chat / Work / Pinned / Priority as its own
+    // section / Scheduled), and agent_chat.archive, agent_chat.unarchive and agent_chat.mark_read
+    // ops. Until then the view keeps archived and read marks in its own storage.
+  }
+}
