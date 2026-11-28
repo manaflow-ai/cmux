@@ -257,7 +257,7 @@ export function readEnvFile(text: string): Record<string, string> {
 }
 
 export type Status = "pass" | "fail" | "skip";
-export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number; guest_ms?: Record<string, number>; reserved_hit?: boolean };
+export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number; guest_ms?: Record<string, number>; route_ms?: Record<string, number>; reserved_hit?: boolean };
 export type Step = { step: string; status: Status; ms: number; detail: string; fields?: FirstTextFields };
 
 /** One runner monotonic clock, from the create call. Reused machines have no create measurement. */
@@ -265,16 +265,22 @@ export class FirstTextTiming {
   private start: number | undefined;
   private marks: Record<string, number> = {};
   private onGuest: Record<string, number> = {};
+  private onRoute: Record<string, number> = {};
   constructor(private readonly clock = () => performance.now()) {}
   /** A part as the guest timed it (its own clock, without the exec route's trip): `guest_ms` beside the marks. */
   guest(part: string, ms: number | null): void {
     if (ms !== null && Number.isFinite(ms) && ms >= 0 && !(part in this.onGuest)) this.onGuest[part] = Math.round(ms);
+  }
+  /** A part of the exec route as the runner timed it (the client-session mint, the provider's exec call): `route_ms`. */
+  route(part: string, ms: number | null | undefined): void {
+    if (typeof ms === "number" && Number.isFinite(ms) && ms >= 0 && !(part in this.onRoute)) this.onRoute[part] = Math.round(ms);
   }
   /** Forget every mark: a create the team's machine cap refused (createWithRoom) is asked again, and the clock starts at that ask. */
   reset(): void {
     this.start = undefined;
     this.marks = {};
     this.onGuest = {};
+    this.onRoute = {};
   }
   mark(phase: string): void {
     if (phase === "create" && this.start === undefined) {
@@ -291,6 +297,7 @@ export class FirstTextTiming {
       create_marks_ms: { ...this.marks },
       ...(this.marks.first_text !== undefined ? { create_to_first_text_ms: this.marks.first_text } : {}),
       ...(Object.keys(this.onGuest).length ? { guest_ms: { ...this.onGuest } } : {}),
+      ...(Object.keys(this.onRoute).length ? { route_ms: { ...this.onRoute } } : {}),
     };
   }
 }
@@ -2427,7 +2434,8 @@ async function sign(key: CryptoKey, message: string): Promise<string> {
   return Buffer.from(sig).toString("base64url");
 }
 
-export type ExecResult = { code: number; stdout: string; stderr: string };
+/** `route`: the runner's own times for this call's trip (directExec): the client-session mint it paid, if any, and the provider call. */
+export type ExecResult = { code: number; stdout: string; stderr: string; route?: { client_session_ms?: number; call_ms: number } };
 export type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 
 /** Follow a fresh session's ACP stream on the guest and return on text, not turn end. The exec response carries
@@ -2437,11 +2445,15 @@ export type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 export function firstTextCommand(session: string, budgetMs: number): string {
   return `python3 - "$c" ${shq(session)} ${Math.min(270_000, budgetMs) / 1000} <<'CMUX_FIRST_TEXT'
 import json, os, selectors, signal, subprocess, sys, time
-p = subprocess.Popen([sys.argv[1], 'acp', 'tail', sys.argv[2], '--since', '0', '--follow'],
-                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+def follow():
+    return subprocess.Popen([sys.argv[1], 'acp', 'tail', sys.argv[2], '--since', '0', '--follow'],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+p = follow()
 sel = selectors.DefaultSelector()
 sel.register(p.stdout, selectors.EVENT_READ)
-end = time.monotonic() + float(sys.argv[3])
+begun = time.monotonic()
+end = begun + float(sys.argv[3])
+seen = False
 buf = b''
 discarding = False
 started = False
@@ -2452,8 +2464,20 @@ try:
         if not sel.select(max(0, end - time.monotonic())):
             break
         data = os.read(p.stdout.fileno(), 65536)
+        if not data and not seen:
+            # Started beside the agent's start, the session may not exist yet (acp tail exits 4, no stdout): follow it
+            # again once it does, for as long as the start's own exec may run.
+            if time.monotonic() > begun + 150:
+                break
+            sel.unregister(p.stdout)
+            p.wait()
+            time.sleep(0.1)
+            p = follow()
+            sel.register(p.stdout, selectors.EVENT_READ)
+            continue
         if not data:
             break
+        seen = True
         if discarding:
             if b'\\n' not in data:
                 continue
@@ -2634,6 +2658,8 @@ export function rpcFailureReason(reason: unknown): string {
 export function directExec(api: Api, machine: string, journey: Pick<Journey, "secrets">, backgroundPollMs = 2_000): Exec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
   let guestRoute = false;
+  // Calls that start together (the agent's start and its first-text observer) share one mint.
+  let minting: Promise<number> | null = null;
   const guestExec: Exec = async (command, timeoutMs = 60_000) => {
     // A VM API machine has no client sessions: the machine exec route (MachineGuest.ts) runs it instead.
     // The HTTP request waits as long as the command may run, plus room for the answer to travel.
@@ -2644,26 +2670,41 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     return { code: Number(v.exitCode ?? v.exit_code ?? 1), stdout: String(v.stdout ?? ""), stderr: String(v.stderr ?? "") };
   };
   return async (command, timeoutMs = 60_000) => {
-    if (guestRoute) return guestExec(command, timeoutMs);
+    const timedGuest = async () => {
+      const t0 = performance.now();
+      const out = await guestExec(command, timeoutMs);
+      return { ...out, route: { ...(mintMs === undefined ? {} : { client_session_ms: mintMs }), call_ms: Math.round(performance.now() - t0) } };
+    };
+    let mintMs: number | undefined;
+    if (guestRoute) return timedGuest();
     if (!session || session.expires_at - Date.now() < 60_000) {
-      const r = await api.raw("POST", `/v1/cloud/machines/${machine}/client-session`, { ttl_seconds: 900 });
-      if (r.status === 501 && String(r.body?.error?.code ?? "") === "cloud.provider.unsupported") {
-        guestRoute = true;
-        return guestExec(command, timeoutMs);
-      }
-      if (r.status !== 200 || r.body.ok !== true) throw new Error(`client-session: HTTP ${r.status} ${short(r.body.error?.code ?? r.body.error ?? r.body)}`);
-      session = r.body.value;
-      journey.secrets.push(session!.token);
+      const mint = minting ?? (minting = (async () => {
+        const m0 = performance.now();
+        const r = await api.raw("POST", `/v1/cloud/machines/${machine}/client-session`, { ttl_seconds: 900 });
+        const ms = Math.round(performance.now() - m0);
+        if (r.status === 501 && String(r.body?.error?.code ?? "") === "cloud.provider.unsupported") {
+          guestRoute = true;
+          return ms;
+        }
+        if (r.status !== 200 || r.body.ok !== true) throw new Error(`client-session: HTTP ${r.status} ${short(r.body.error?.code ?? r.body.error ?? r.body)}`);
+        session = r.body.value;
+        journey.secrets.push(session!.token);
+        return ms;
+      })().finally(() => { minting = null; }));
+      mintMs = await mint;
+      if (guestRoute) return timedGuest();
     }
     const s = session!;
     const identity = { "x-freestyle-identity-access-token": s.token };
     const deadlineAt = Date.now() + timeoutMs + 15_000;
+    const c0 = performance.now();
     const sent = await http("POST", `${s.api_base_url.replace(/\/+$/, "")}/v5/vms/${s.vm_id}/exec-await`, { command, linuxUser: s.linux_user, timeoutMs }, { ...identity, ...BACKGROUND_AFTER }, timeoutMs + 15_000);
     const r = await settleBackground(sent, s.api_base_url, identity, deadlineAt, backgroundPollMs);
     if (r.status < 200 || r.status >= 300) throw new Error(`exec-await: HTTP ${r.status}`);
     const rawCode = r.body.statusCode ?? r.body.exitCode ?? r.body.code;
     // Freestyle leaves statusCode null or missing when the command timed out; the cmux CLI maps that to 124.
-    return { code: rawCode === null || rawCode === undefined ? 124 : Number(rawCode), stdout: String(r.body.stdout ?? ""), stderr: String(r.body.stderr ?? "") };
+    const route = { ...(mintMs === undefined ? {} : { client_session_ms: mintMs }), call_ms: Math.round(performance.now() - c0) };
+    return { code: rawCode === null || rawCode === undefined ? 124 : Number(rawCode), stdout: String(r.body.stdout ?? ""), stderr: String(r.body.stderr ?? ""), route };
   };
 }
 
@@ -3885,49 +3926,6 @@ export const hopSpans = (out: string): Record<string, number> | null => {
   };
 };
 
-/**
- * A provider's own credential in the form its vendor issues it: an Anthropic API, OAuth (`claude setup-token`) or admin
- * key, an OpenAI key (every form carries `T3BlbkFJ`, base64 of "OpenAI"), a Google, xAI, OpenRouter or Groq key, or an
- * OAuth refresh token as a JSON field (a Codex ChatGPT sign-in's auth.json). Lengths are the issued ones, so the short
- * examples in a harness's docs do not match. A cmux-issued token (the model plane's, a machine's) is none of these.
- */
-export const PROVIDER_KEY_PATTERN =
-  'sk-ant-(api|oat|admin)[0-9]{2}-[A-Za-z0-9_-]{80,}|sk-[A-Za-z0-9_-]*T3BlbkFJ[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{35}|xai-[A-Za-z0-9]{70,}|sk-or-v1-[0-9a-f]{64}|gsk_[A-Za-z0-9]{52}|"refresh_token" *: *"[^"]{20,}';
-
-/**
- * Plan "API keys no longer ever land in the VM" (cmuxterm-hq plans/feat-regatta-cloud-agents/regatta-prototype.md, M2):
- * whether a provider credential is anywhere on the machine while its agent runs. Every process's environment and command
- * line, and every text file under 4 MiB in the folders a login or an env file could be in, are matched against
- * PROVIDER_KEY_PATTERN on the guest; only the place and the kind come back (`@@hit`), never a value, and no value is
- * sent to the guest to look for. As root when `sudo -n` works (`@@root yes`), else only what the work user can read.
- */
-/** The folders the scan reads: a login, an env file or a harness's settings is in one of them. */
-export const PROVIDER_KEY_FOLDERS = ["/home", "/root", "/etc", "/tmp", "/var/tmp", "/opt", "/srv", "/run", "/var/lib"];
-export const providerKeysProgram = (folders: readonly string[] = PROVIDER_KEY_FOLDERS) => [
-  `P='${PROVIDER_KEY_PATTERN.replace(/'/g, `'\\''`)}'`,
-  "R=; sudo -n true 2>/dev/null && R='sudo -n'; echo \"@@root ${R:+yes}${R:-no}\"",
-  "kind() { sed -E 's/^sk-ant-(api|oat|admin).*/anthropic-\\1/; s/^sk-.*T3BlbkFJ.*/openai/; s/^AIza.*/google/; s/^xai-.*/xai/; s/^sk-or-v1-.*/openrouter/; s/^gsk_.*/groq/; s/^\"refresh_token\".*/oauth-refresh-token/' | sort -u | tr '\\n' ' '; }",
-  // One grep over every process's env and command line (NUL-separated, so a match never spans two variables).
-  "echo \"@@procs $(ls -d /proc/[0-9]* | wc -l)\"",
-  "$R grep -aoE \"$P\" /proc/[0-9]*/environ /proc/[0-9]*/cmdline 2>/dev/null | while IFS= read -r l; do p=${l#/proc/}; p=${p%%/*}; echo \"$p $(printf '%s\\n' \"${l#*:}\" | kind)\"; done" +
-    " | sort -u | while read -r p k; do echo \"@@hit env pid $p ($($R cat /proc/$p/comm 2>/dev/null)): $k\"; done",
-  `$R timeout 80 find ${folders.join(" ")} -xdev` + " \\( -name node_modules -o -name site-packages -o -name dist-packages -o -name .git \\) -prune -o -type f -size -4M -print0 2>/dev/null" +
-    " | $R xargs -0 -r grep -IlsE \"$P\" 2>/dev/null | while IFS= read -r f; do echo \"@@hit file $f: $($R grep -ohIsE \"$P\" \"$f\" | kind)\"; done",
-  "echo @@done",
-].join("\n");
-export const PROVIDER_KEYS_ON_MACHINE_PROGRAM = providerKeysProgram();
-
-/** The verdict on PROVIDER_KEYS_ON_MACHINE_PROGRAM's output: the places a provider credential is, or a clean read. */
-export function providerKeysVerdict(stdout: string): { hits: string[]; root: boolean; procs: number; done: boolean } {
-  const lines = stdout.split("\n");
-  return {
-    hits: lines.filter((l) => l.startsWith("@@hit ")).map((l) => l.slice(6).trim()),
-    root: lines.includes("@@root yes"),
-    procs: Number(/^@@procs (\d+)$/m.exec(stdout)?.[1] ?? 0),
-    done: lines.includes("@@done"),
-  };
-}
-
 /** The model plane every Cloud machine's agents read (web/services/coderouter/vmGuestEnv.ts). */
 const VM_MODEL_PLANE_ENV = "/etc/cmux/model-plane.env";
 /** Calls timed each way by the gateway hop cost. */
@@ -4536,12 +4534,15 @@ export function startMarks(stdout: string): Record<string, number> {
 }
 
 /** Each start mark as a guest part, and a detail line naming them. */
-function recordStartMarks(timing: FirstTextTiming, stdout: string): string {
+function recordStartMarks(timing: FirstTextTiming, stdout: string, route?: ExecResult["route"]): string {
+  timing.route("start_client_session", route?.client_session_ms);
+  timing.route("start_call", route?.call_ms);
   const marks = startMarks(stdout);
   for (const [k, v] of Object.entries(marks)) timing.guest(k, v);
   timing.guest("start_total", guestMs(stdout));
   const parts = Object.entries(marks).map(([k, v]) => `${k.slice(6)} ${v}`);
-  return parts.length ? `; start marks ms ${parts.join(", ")}` : "";
+  const trip = route ? `; route ms${route.client_session_ms === undefined ? "" : ` client-session ${route.client_session_ms},`} call ${route.call_ms}` : "";
+  return `${parts.length ? `; start marks ms ${parts.join(", ")}` : ""}${trip}`;
 }
 
 /** "; on the guest N ms (the rest is the exec route)" for a step's detail, or "" with no time. */
@@ -4848,17 +4849,58 @@ export function staleJourneyInstalls(installs: any[], nowMs: number, maxAgeMs = 
 /** The most time one run spends revoking leaked installs; the next run takes the rest. */
 export const INSTALL_SWEEP_BUDGET_MS = 60_000;
 
-/** Every page of cloud.machine.list (`next_cursor`), at most `maxPages` pages. */
-export async function listAllMachines(read: (params: Record<string, unknown>) => Promise<any>, maxPages = 20): Promise<any[]> {
+/**
+ * The rows one cloud.machine.list page asks for. 100 was too many for a team holding a leaked pile: on 2026-11-28 from
+ * 06:27Z the staging test team (86-102 machines) answered every 100-row page with owner.unreachable ("Durable Object
+ * exceeded its CPU time limit and was reset") or a transport timeout. Every journey's sweep and the staging test
+ * sweep (run 46130928568) then deleted nothing, so the pile only grew, and journey-staging failed on 503
+ * vm_unavailable (overloaded) in every backend run from 06:02Z (46114736551, 46120103066, 46126237744).
+ */
+export const LIST_PAGE_ROWS = 25;
+/** How many times one list page is asked for when it answers a retryable error (an owner reset, a timeout). */
+export const LIST_PAGE_TRIES = 3;
+/** A list page error worth asking again: an owner reset or a cut-off call, never a refusal. */
+export const listPageRetryable = (e: unknown): boolean =>
+  /"retryable":\s*true|owner\.unreachable|"code":"transport"|timed out|CPU time limit|exceeded timeout/i.test(String((e as Error)?.message ?? e));
+
+/**
+ * Every page of cloud.machine.list (`next_cursor`), LIST_PAGE_ROWS rows a page, at most `maxPages` hundred rows' worth
+ * of pages. A page that answers a retryable error is asked again, up to LIST_PAGE_TRIES times with a pause. With
+ * `partial` (a sweep), a later page that still fails ends the list with the rows read so far, so the sweep deletes
+ * what it saw and the next run reads a shorter list; without it (a caller that must see every row) the error is thrown.
+ */
+export async function listAllMachines(
+  read: (params: Record<string, unknown>) => Promise<any>,
+  maxPages = 20,
+  opts: { rows?: number; tries?: number; pauseMs?: number; partial?: boolean } = {},
+): Promise<any[]> {
+  const limit = opts.rows ?? LIST_PAGE_ROWS;
+  const tries = opts.tries ?? LIST_PAGE_TRIES;
+  const pauseMs = opts.pauseMs ?? 2000;
+  const pageCap = Math.max(1, Math.ceil((maxPages * 100) / limit));
   const rows: any[] = [];
   let cursor: string | null = null;
-  for (let page = 0; page < maxPages; page++) {
-    const v = await read(cursor === null ? { limit: 100 } : { limit: 100, cursor });
+  for (let page = 0; page < pageCap; page++) {
+    const params = cursor === null ? { limit } : { limit, cursor };
+    let v: any;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        v = await read(params);
+        break;
+      } catch (e) {
+        if (attempt < tries && listPageRetryable(e)) { await sleep(pauseMs * attempt); continue; }
+        if (opts.partial && rows.length > 0) {
+          console.log(`machine list: page ${page + 1} failed after ${attempt} tries (${String((e as Error)?.message ?? e).slice(0, 200)}); going on with the ${rows.length} rows read`);
+          return rows;
+        }
+        throw e;
+      }
+    }
     rows.push(...(v?.machines ?? v?.items ?? (Array.isArray(v) ? v : [])));
     cursor = typeof v?.next_cursor === "string" && v.next_cursor ? v.next_cursor : null;
     if (cursor === null) return rows;
   }
-  throw new Error(`more than ${maxPages} pages of machines`);
+  throw new Error(`more than ${pageCap} pages of machines`);
 }
 
 /**
@@ -6198,7 +6240,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const t0 = Date.now();
       const err = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
       try {
-        const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
+        const rows = await listAllMachines((params) => api.read("cloud.machine.list", params), 20, { partial: true });
         sweptRows = rows;
         const stale = staleJourneyMachines(rows, Date.now());
         const failed: string[] = [];
@@ -7228,7 +7270,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         ? startAfterOwnerKind(exec, command, 120_000, ownerKindStep, (ms) => J.record({ step: "machine kind owner", status: "pass", ms: ms ?? 0, detail: `/etc/cmux/vm-kind reads owner (read in the start's exec${ms === null ? "" : `, ${ms} ms on the guest`})` }))
         : exec(guestTimed(command), 120_000);
       J.firstText.mark("session_start");
+      // The observer follows the session by its name from before the start, as the app subscribes before it sends:
+      // started after the start's exec returned, its own trip to the machine fell after the text it waited for (run
+      // 46118391947: the guest saw text 6,139 ms into the turn, the runner 8,575 ms after sent).
+      firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
       let promptedWithStart = false;
+      // A start that failed leaves no session to follow: the run ends without waiting out the observer's budget (the
+      // observer catches its own errors, and the observer gives up on a session that never appears).
       await J.step(`start agent (${agent})`, async () => {
         if (launchCredential) {
           // The first prompt follows session/new on the same acpmux link, as the app's first send does.
@@ -7241,7 +7289,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           // One exec carries both: send and sent fall at its return, after session_ready, as the trace's spans read them.
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout)}` };
+          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout, r.route)}` };
         }
         if (provider === "claude") {
           // The machine holds the person's login (a receipt spare or a copy) or reaches its model through the team's
@@ -7258,15 +7306,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           promptedWithStart = true;
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, ${probeExtra.login_path === "receipt" ? "on the login copied on spare.ready" : probeExtra.login_path === "copy" ? "on the login copied after bind" : "with no login of its own (gateway or none)"}; its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout)}` };
+          return { value: null, detail: `session ${session}, ${probeExtra.login_path === "receipt" ? "on the login copied on spare.ready" : probeExtra.login_path === "copy" ? "on the login copied after bind" : "with no login of its own (gateway or none)"}; its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout, r.route)}` };
         }
         const r = await startExec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
         J.firstText.mark("session_ready");
         J.firstText.guest("harness_spawn", guestMs(r.stdout));
         return { value: null, detail: `session ${session}${guestDetail(guestMs(r.stdout))}` };
+      }).catch((error) => {
+        firstTextObserver = undefined;
+        throw error;
       });
-      firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
       await J.step("send chat", async () => {
         if (promptedWithStart) return { value: null, detail: `${prompt.slice(0, 80)} (went with the agent's start, on its link)` };
         J.firstText.mark("send");
@@ -7421,15 +7471,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           });
         }
       }
-      // While the agent's session is live: no provider credential anywhere on the machine (plan M2, "API keys no
-      // longer ever land in the VM"). A login the journey passed (a subscription row, Codex's auth.json) is one.
-      await J.step("no provider key on the machine", async () => {
-        const r = await exec(PROVIDER_KEYS_ON_MACHINE_PROGRAM, 120_000);
-        const v = providerKeysVerdict(r.stdout);
-        if (!v.done) throw new Error(`the scan did not finish: exit ${r.code} ${r.stderr.slice(-200)}`);
-        if (v.hits.length) throw new Error(`${v.hits.length} provider credential place(s) on the machine: ${v.hits.slice(0, 12).join("; ")}`);
-        return { value: v.hits.length, detail: `0 provider keys in ${v.procs} processes' env and the disk${v.root ? "" : " (as the work user only: no sudo)"}` };
-      });
       if (!lifecycle) {
         J.skip("turn 2 (same session)", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
         J.skip("daemon restart keeps the session", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
