@@ -1776,6 +1776,81 @@ final class MutableChannel: LinkChannel, @unchecked Sendable {
         }
     }
 
+    /// no-hangs 2026-11-24: the channel ends and the link with it, and no new link calls
+    /// `reconnect()`. Before, the self-reattach found no link and said "Reattaching…" for
+    /// ever. Now it has its own bound: past it the cached screen stays and the line says
+    /// "Can't reach this terminal" (Retry); manual and automatic retries both recover.
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func aSelfReattachWithNoLinkEndsOnCantReachWithRetry(automatic: Bool) async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.afterAttach = nil
+        let channels = ChannelLog()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let linkUp = LinkFlag()
+        let session = DaemonTerminalSession(surface: 7) {
+            guard linkUp.up else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        session.macName = "mini"
+        session.noLinkBound = .milliseconds(300)
+        session.gaveUpRetryDelay = automatic ? .milliseconds(300) : .seconds(30)
+        defer { session.stop() }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try #require(try await poll(Self.setup) { session.isAttached }, "the first attach never finished")
+
+        linkUp.up = false
+        let start = ContinuousClock.now
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        #expect(try await poll(Self.setup) { !session.isAttached })
+        let ended = try await poll(Self.lag) {
+            session.connectionState == .failed(message: DaemonTerminalSession.unreachableMessage("mini"))
+        }
+        let took = Self.ms(ContinuousClock.now - start)
+        print("TERMRECOVER mode=no-link ms=\(ended ? String(took) : "never(>30000)")")
+        #expect(ended, "a self-reattach with no link said Reattaching for ever")
+        #expect(events.last == .connection(.failed(message: DaemonTerminalSession.unreachableMessage("mini"))))
+
+        if automatic {
+            // Stay offline through another retry: it must also have a bound.
+            let mark = events.count
+            try #require(try await poll(Self.setup) {
+                events.dropFirst(mark).contains(.connection(.reattaching(mac: "mini")))
+            })
+            try #require(try await poll(Self.setup) {
+                session.connectionState == .failed(message: DaemonTerminalSession.unreachableMessage("mini"))
+            })
+        }
+        // The link works again. Automatic recovery gets no explicit reconnect signal.
+        linkUp.up = true
+        if !automatic { session.reconnect() }
+        #expect(try await poll(Self.setup) { session.isAttached })
+        #expect(session.connectionState == .attached)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aFirstAttachDoesNotUseTheSelfRecoveryNoLinkBound() async throws {
+        let rig = AttachWaitsForTheLinkTests.Rig()
+        defer { rig.session.stop() }
+        rig.linkUp = false
+        rig.session.noLinkBound = .milliseconds(30)
+        rig.session.start { [weak rig] in rig?.events.append($0) }
+        try await Task.sleep(for: .milliseconds(150)) // test: past the self-recovery bound
+        #expect(!rig.events.contains { event in
+            if case .connection(.failed) = event { return true }
+            return false
+        })
+        rig.session.send(Data("ls\r".utf8))
+        #expect(rig.notSent.isEmpty)
+        rig.linkUp = true
+        rig.session.reconnect()
+        try await AttachWaitsForTheLinkTests.waitUntil("first attach sends the held input") {
+            rig.session.isAttached && rig.typed == Data("ls\r".utf8)
+        }
+        #expect(rig.notSent.isEmpty)
+    }
+
     /// (i) The daemon closes the attach channel; the link is up.
     @Test(.timeLimit(.minutes(1))) func aClosedChannelReattachesByItself() async throws {
         let daemon = FakeTerminalDaemon()
