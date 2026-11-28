@@ -95,6 +95,8 @@ await requireBrowserLane("composer-keystroke-renders-browser.test.ts", async () 
     await settled();
     const renders = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug.renders())) as Record<string, number>;
     await page.close();
+    // Every part that drew over the run, so a red names what drew with the picker (a pane tick, a chip).
+    console.log(`composer-keystroke-renders: ${JSON.stringify(renders)}`);
     const counted = (prefix: string) =>
       Object.entries(renders)
         .filter(([name]) => name.startsWith(prefix))

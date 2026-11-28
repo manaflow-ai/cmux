@@ -4,16 +4,17 @@
 // already represents a started chat; the absence check is deliberately independent of snapshot
 // persistence so the regression proves the header's render paths rather than a storage detail.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { papercutPane } from "./support/papercutChat";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () => {
   setDefaultTimeout(180_000);
-  for (const [engine, launch] of [
-    ["chromium", chromium],
-    ["webkit", webkit],
-  ] as const) {
+  // WebKit runs where it launches, and must where the lane is required (probeEngineOrSkip).
+  const webkitRuns = await probeEngineOrSkip("chat-environment-scroll-stability.test.tsx (webkit)", "webkit", webkit);
+  const engines: [string, BrowserType][] = [["chromium", chromium]];
+  if (webkitRuns) engines.push(["webkit", webkit]);
+  for (const [engine, launch] of engines) {
     describe(engine, () => {
       let browser: Browser;
       let pane: Awaited<ReturnType<typeof papercutPane>>;

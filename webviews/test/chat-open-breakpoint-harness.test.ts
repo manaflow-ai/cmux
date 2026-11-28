@@ -254,6 +254,8 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
     rowsMovedAfterFirstPaint: number;
     worstMovePx: number;
     movedRows: string[];
+    /// The first frame a first-painted row moved: what changed under it (diagnostic, printed).
+    firstMove: string | null;
     preBreakpointAnimations: number;
     animated: string[];
     containerAnimations: number;
@@ -286,6 +288,7 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
       rowsMovedAfterFirstPaint: 0,
       worstMovePx: 0,
       movedRows: [],
+      firstMove: null,
       preBreakpointAnimations: 0,
       animated: [],
       containerAnimations: 0,
@@ -304,6 +307,32 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
     const early = new Set<string>();
     /// Each visible row's top at the first painted frame.
     const firstTops = new Map<string, number>();
+    /// Each first-painted row's height and the scroller's box at the first painted frame: a move
+    /// after it names what grew or shrank (a row's height, the scroller's height or its scroll).
+    const firstHeights = new Map<string, number>();
+    let firstScroller = "";
+    /// What sits around the rows: the thread's placed top and margin (the older-history room), the
+    /// spacer's height, the gap from the last placed row's foot to the content's end (the room under
+    /// the rows), and the stack's notices and composer card. A move with no row height changed is one
+    /// of these.
+    const around = (scroller: HTMLElement, placed: { row: HTMLElement; rect: DOMRect }[]) => {
+      const thread = scroller.querySelector<HTMLElement>(".acpmux-thread");
+      const spacer = scroller.querySelector<HTMLElement>(".acpmux-spacer");
+      const view = scroller.getBoundingClientRect();
+      const foot = placed.reduce((most, { rect }) => (rect.width > 0 ? Math.max(most, rect.bottom) : most), -Infinity);
+      const contentEnd = view.top - scroller.scrollTop + scroller.scrollHeight;
+      const px = (value: number) => Math.round(value * 100) / 100;
+      const notices = [
+        ...document.querySelectorAll<HTMLElement>(
+          ".acpmux-host-line, .acpmux-host-line-group, .acpmux-host-error, .acpmux-switch-notice, .ui-notice, .acpmux-managed-banner, .acpmux-composer-remote-note",
+        ),
+      ]
+        .map((node) => `${node.className.split(" ")[0]}:${px(node.getBoundingClientRect().height)}`)
+        .join(",");
+      const card = document.querySelector<HTMLElement>(".acpmux-composer-box");
+      return `thread top ${thread?.style.top || "-"} margin ${thread?.style.marginTop || "-"}; spacer ${px(spacer?.getBoundingClientRect().height ?? -1)}; under last row ${Number.isFinite(foot) ? px(contentEnd - foot) : "-"}; notices [${notices}]; card ${px(card?.getBoundingClientRect().height ?? -1)}`;
+    };
+    let firstAround = "";
     const moved = new Set<string>();
     const seen = new WeakSet<Animation>();
     const seenContainer = new WeakSet<Animation>();
@@ -420,7 +449,12 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
               state.screensAboveAtFirstPaint = screensAbove(scroller);
               state.screensMountedAboveAtFirstPaint = mountedAbove(scroller, view, placed);
               state.loadedRowsAboveAtFirstPaint = loadedAbove(visible);
-              for (const { row, rect } of visible) firstTops.set(row.dataset.rowId ?? "", rect.top);
+              for (const { row, rect } of visible) {
+                firstTops.set(row.dataset.rowId ?? "", rect.top);
+                firstHeights.set(row.dataset.rowId ?? "", rect.height);
+              }
+              firstScroller = `top ${Math.round(scroller.getBoundingClientRect().top)} client ${scroller.clientHeight} scroll ${Math.round(scroller.scrollTop)}/${scroller.scrollHeight}`;
+              firstAround = around(scroller, placed);
             }
           } else {
             if (mounted.length === 0 || (previousMounted > 0 && mounted.length < previousMounted / 2)) {
@@ -435,6 +469,18 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
               if (moved.has(id)) continue;
               moved.add(id);
               if (state.movedRows.length < 8) state.movedRows.push(`${id}:${Math.round(rect.top - was)}`);
+              if (state.firstMove === null) {
+                const grew = [...placed]
+                  .map(({ row: other, rect: box }) => {
+                    const otherId = other.dataset.rowId ?? "";
+                    const h = firstHeights.get(otherId);
+                    return h === undefined || Math.abs(box.height - h) <= 1
+                      ? ""
+                      : `${otherId} h${Math.round(h)}->${Math.round(box.height)}`;
+                  })
+                  .filter(Boolean);
+                state.firstMove = `frame ${frame}; scroller at first paint ${firstScroller}, now top ${Math.round(scroller.getBoundingClientRect().top)} client ${scroller.clientHeight} scroll ${Math.round(scroller.scrollTop)}/${scroller.scrollHeight}; heights changed: ${grew.join(", ") || "none"}; at first paint: ${firstAround}; now: ${around(scroller, placed)}`;
+              }
             }
             state.rowsMovedAfterFirstPaint = moved.size;
             const above = mountedAbove(scroller, view, placed);
@@ -559,6 +605,7 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
         rowsMovedAfterFirstPaint: opened.rowsMovedAfterFirstPaint,
         worstMovePx: round(opened.worstMovePx),
         movedRows: opened.movedRows,
+        firstMove: opened.firstMove,
         preBreakpointAnimations: opened.preBreakpointAnimations,
         animated: opened.animated,
         containerAnimations: opened.containerAnimations,

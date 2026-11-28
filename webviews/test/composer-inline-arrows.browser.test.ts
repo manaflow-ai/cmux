@@ -7,7 +7,7 @@ import { expect, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Page, webkit } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-inline-arrows.browser.test.ts", async () => {
   /** The text right before and after the placed attachment, and whether the chip is node-selected. */
@@ -17,6 +17,10 @@ await requireBrowserLane("composer-inline-arrows.browser.test.ts", async () => {
       after: chip.nextSibling?.textContent ?? "",
       selected: chip.classList.contains("ProseMirror-selectednode"),
     }));
+
+  const engines = [chromium];
+  if (await probeEngineOrSkip("composer-inline-arrows.browser.test.ts (webkit)", "webkit", webkit))
+    engines.push(webkit);
 
   test("arrow keys step over a placed attachment as one character", async () => {
     const { createServer } = await import("vite");
@@ -28,7 +32,7 @@ await requireBrowserLane("composer-inline-arrows.browser.test.ts", async () => {
     try {
       await vite.listen();
       const port = (vite.httpServer!.address() as { port: number }).port;
-      for (const engine of [chromium, webkit]) {
+      for (const engine of engines) {
         const browser = await engine.launch({ headless: true });
         try {
           await warmGalleryFrame(vite, "agent-pane.composer", { browser });

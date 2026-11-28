@@ -143,7 +143,10 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
   const expectPickedModel = async (page: Page, stage: Stage, name: string) => {
     // New Tab owns its selection locally. The chat fixture uses a static preview snapshot;
     // model-menu-compact.test.tsx separately asserts the model dispatch for a live chat.
-    if (stage.entry === "agent-pane.new-tab") expect(await page.locator(MODEL).textContent()).toContain(name);
+    // The page also keeps the chat view built and hidden under it (#44638), with its own model
+    // button: read the New Tab composer's.
+    if (stage.entry === "agent-pane.new-tab")
+      expect(await page.locator(`.nt-composer ${MODEL}`).textContent()).toContain(name);
   };
 
   for (const [engine] of engines)

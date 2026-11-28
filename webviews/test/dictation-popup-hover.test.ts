@@ -3,14 +3,17 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("dictation-popup-hover.test.ts", async () => {
   setDefaultTimeout(240_000);
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>>;
+  const engines: [string, BrowserType][] = [["chromium", chromium]];
+  if (await probeEngineOrSkip("dictation-popup-hover.test.ts (webkit)", "webkit", webkit))
+    engines.push(["webkit", webkit]);
   const browsers = new Map<string, Browser>();
   beforeAll(async () => {
     vite = await createServer({
@@ -19,10 +22,7 @@ await requireBrowserLane("dictation-popup-hover.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    for (const [name, engine] of [
-      ["chromium", chromium],
-      ["webkit", webkit],
-    ] as const) {
+    for (const [name, engine] of engines) {
       browsers.set(name, await engine.launch({ headless: true }));
     }
     await warmGalleryFrame(vite, "agent-pane.dictation", { browser: browsers.get("chromium") });
@@ -43,7 +43,7 @@ await requireBrowserLane("dictation-popup-hover.test.ts", async () => {
     ["idle", ".acpmux-mic"],
     ["listening", ".acpmux-mic"],
   ] as const;
-  for (const engine of ["chromium", "webkit"])
+  for (const [engine] of engines)
     for (const theme of ["Catppuccin Mocha", "Catppuccin Latte"])
       for (const [variant, selector] of states) {
         test(`${engine} ${theme} ${variant} ${selector}: retained tone, stable bounds, cleanup`, async () => {

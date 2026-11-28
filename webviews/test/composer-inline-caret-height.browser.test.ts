@@ -9,7 +9,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-inline-caret-height.browser.test.ts", async () => {
   setDefaultTimeout(600_000);
@@ -194,6 +194,7 @@ await requireBrowserLane("composer-inline-caret-height.browser.test.ts", async (
 
   test("chromium: the caret beside a pasted image is the text's height", () =>
     run("chromium", () => chromium.launch({ headless: true })));
-  test("webkit: the caret beside a pasted image is the text's height", () =>
-    run("webkit", () => webkit.launch({ headless: true })));
+  if (await probeEngineOrSkip("composer-inline-caret-height.browser.test.ts (webkit)", "webkit", webkit))
+    test("webkit: the caret beside a pasted image is the text's height", () =>
+      run("webkit", () => webkit.launch({ headless: true })));
 });
