@@ -900,6 +900,11 @@ jobs:
           # broken fleet cache fails the same way. Admission keeps the text
           # match, so a real compile error stays one build.
           source scripts/cmux-next/lib/compilation-cache.sh
+          # Xcode's build service crashing mid-build ("Build again to
+          # continue") is no compile error; one clean retry gets a new one.
+          if [ "$status" -ne 0 ] && cmux_next_build_service_crashed "$compile_log"; then
+            retry_compile=1
+          fi
           if [ "$status" -ne 0 ] && [ "$first_compile_fleet" -eq 1 ]; then
             if cmux_next_runtime_cas_failed "$compile_log"; then
               retry_compile=1
