@@ -158,8 +158,17 @@ fn a_fired_wake_is_no_inbox_item_so_it_wakes_an_idle_chat() {
 /// Another agent's message to the same cold chat still waits for the batch.
 #[tokio::test]
 async fn a_fired_time_watch_waits_for_no_cold_batch() {
+    use crate::hub::cold_wake::{DEFAULT_COMPACT_ABOVE_TOKENS, KNOBS_FOR_TEST, Knobs};
     use crate::hub::cold_wake::{MIN_WINDOW_MS, stamp_due};
     use crate::prompt_provenance::session_message;
+    // Batching on, as on the machine whose log opened the 300 s batch.
+    KNOBS_FOR_TEST.with(|k| {
+        k.set(Some(Knobs {
+            enabled: true,
+            compact: false,
+            compact_above: DEFAULT_COMPACT_ABOVE_TOKENS,
+        }))
+    });
     let config = serde_json::from_value(json!({})).unwrap();
     let hub = crate::hub::Hub::new(config, Box::new(crate::store::MemoryStore::default()));
     let now = crate::store::now_ms();
@@ -188,5 +197,6 @@ async fn a_fired_time_watch_waits_for_no_cold_batch() {
 
     let plain = session_message("lane", "lane", "sink");
     let waits = hub.cold_batch_wait(&session, Some(&plain), now);
+    KNOBS_FOR_TEST.with(|k| k.set(None));
     assert!(waits >= MIN_WINDOW_MS, "another agent's message joins the batch: {waits}");
 }
