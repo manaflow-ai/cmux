@@ -1796,7 +1796,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 <!-- link-names:capabilities:begin (printed from cmux-mobile-link src/names.rs; CMUX_UPDATE_LINK_NAMES=1 cargo test -p cmux-mobile-link names rewrites it) -->
 | Name | Said by | Meaning |
 |---|---|---|
-| `removal-v1` | hostd `version` | After its owner removes it (signaling 4002 `removed`) the Mac stays off until iPhone connections are allowed again on the Mac; without it the Mac may add itself back. |
+| `removal-v1` | hostd `version` | After its owner removes it (signaling 4002 `removed`) the Mac stays off until iPhone connections are allowed again on the Mac; without it the Mac may add itself back. Only the reason `removed` is a removal: the hub's 4002 `silent` (the presence reaper, after 90 s with no heartbeat, as when the Mac slept) is a dropped socket, and hostd reconnects. A recorded removal is checked at the next start: hostd asks `GET /v1/me/devices` (retrying while it cannot reach it) and stays off only when its device is no longer listed; when it is still listed hostd sends `removal_cleared` and connects, and the app clears the record. |
 | `file-preview-v1` | hostd `version` | `file-preview` sends a size metadata frame before the file bytes, so the phone can check free storage first. |
 | `localhost-forward-v1` | hostd `version` | (2026-10-30) The host serves `localhost`: a phone browser tab reaches a port on the Mac's loopback. |
 | `cloud-directory-v1` | hostd `version` | (2026-11-01) The host lists the owner's authenticated Cloud machines through the Mac carrier (`cloud-directory`). |
