@@ -1110,6 +1110,7 @@ impl Store for ForkView {
 
 impl ForkView {
     /// The inner store's `scan_back` (`indexed`: its `scan_back_indexed`).
+    #[allow(clippy::too_many_arguments)]
     fn inner_back(
         &self,
         indexed: bool,
