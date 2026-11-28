@@ -43,6 +43,50 @@ fn enabled() -> bool {
     !cfg!(test) && std::env::var("CMUX_MOBILE_LAN").map_or(true, |v| v.trim() != "0")
 }
 
+/// Whether `transport.tailnetCarrier` is `direct-only` or `on` (RFD 0164 T5): the enroll reply
+/// then carries this Mac's tailnet addresses. `CMUX_TAILNET_CARRIER` wins, as in the Mac daemon
+/// (cmux-tui-util `user_settings::tailnet_carrier`); then cmux-next.json. Default off; off in
+/// this crate's unit tests.
+fn tailnet_carrier_on() -> bool {
+    let env = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
+    if let Some(value) = env("CMUX_TAILNET_CARRIER") {
+        return carrier_on(value.to_str());
+    }
+    if cfg!(test) {
+        return false;
+    }
+    std::fs::read_to_string(next_config_path(env)).is_ok_and(|text| carrier_on_in_config(&text))
+}
+
+/// `direct-only` (or `direct_only`) and `on` are on; anything else, absent included, is off.
+fn carrier_on(value: Option<&str>) -> bool {
+    matches!(value.map(str::trim), Some("direct-only" | "direct_only" | "on"))
+}
+
+fn carrier_on_in_config(text: &str) -> bool {
+    serde_json::from_str::<Value>(&cmux_json::strip_jsonc(text)).ok().is_some_and(|document| {
+        carrier_on(document.pointer("/transport/tailnetCarrier").and_then(Value::as_str))
+    })
+}
+
+/// The settings file, as `cmux_config::location::config_path_from` finds it:
+/// `CMUX_NEXT_CONFIG_FILE` (a leading `~` is the home), else
+/// `$HOME/.config/<cmux-next on macOS, cmux elsewhere>/cmux-next.json`.
+fn next_config_path(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> std::path::PathBuf {
+    use std::path::PathBuf;
+    if let Some(path) = env("CMUX_NEXT_CONFIG_FILE") {
+        let path = PathBuf::from(path);
+        if let Ok(rest) = path.strip_prefix("~")
+            && let Some(home) = env("HOME")
+        {
+            return PathBuf::from(home).join(rest);
+        }
+        return path;
+    }
+    let dir = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
+    PathBuf::from(env("HOME").unwrap_or_default()).join(".config").join(dir).join("cmux-next.json")
+}
+
 /// Start the mesh and serve the links it accepts; `None` when it is off or
 /// its socket could not be had (logged; the relayed paths are unaffected).
 pub async fn start(
@@ -130,10 +174,57 @@ pub(crate) async fn enroll(peer: &Peer, args: &Value, sender: &ChannelSender) ->
     };
     let request: LanEnrollRequest = serde_json::from_value(args.clone())
         .map_err(|error| Refusal::new("bad_request", format!("lan args: {error}")))?;
-    let reply =
-        host.enroll(&peer.device_id, &request).await.map_err(|reason| Refusal::new("bad_request", reason))?;
-    tracing::info!(phone = peer.device_id, "LAN direct path enrolled");
+    let carrier = tailnet_carrier_on();
+    let reply = host
+        .enroll_hinting(&peer.device_id, &request, carrier)
+        .await
+        .map_err(|reason| Refusal::new("bad_request", reason))?;
+    tracing::info!(
+        phone = peer.device_id,
+        tailnet = reply.tailnet.as_ref().map_or(0, |hint| hint.addresses.len()),
+        "LAN direct path enrolled"
+    );
     let body = serde_json::to_vec(&reply).map_err(|error| Refusal::new("internal", error.to_string()))?;
     let _ = sender.send(Bytes::from(body)).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_carrier_setting_reads_like_the_mac_daemon() {
+        assert!(!carrier_on(None), "absent is off");
+        assert!(!carrier_on(Some("off")));
+        assert!(!carrier_on(Some("bogus")), "unknown is off");
+        assert!(carrier_on(Some("on")));
+        assert!(carrier_on(Some(" direct-only ")));
+        assert!(carrier_on(Some("direct_only")));
+        assert!(!carrier_on_in_config("{}"));
+        assert!(!carrier_on_in_config("not json"));
+        assert!(!carrier_on_in_config(r#"{"transport": {"tailnetCarrier": "off"}}"#));
+        assert!(carrier_on_in_config(
+            "{\n  // chosen in Settings\n  \"transport\": {\"tailnetCarrier\": \"on\",},\n}"
+        ));
+    }
+
+    #[test]
+    fn the_settings_file_is_where_the_mac_app_keeps_it() {
+        use std::ffi::OsString;
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| OsString::from(value))
+            }
+        };
+        assert_eq!(
+            next_config_path(env(&[("CMUX_NEXT_CONFIG_FILE", "~/x.json"), ("HOME", "/h")])),
+            std::path::PathBuf::from("/h/x.json")
+        );
+        let dir = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
+        assert_eq!(
+            next_config_path(env(&[("HOME", "/h")])),
+            std::path::PathBuf::from(format!("/h/.config/{dir}/cmux-next.json"))
+        );
+    }
 }

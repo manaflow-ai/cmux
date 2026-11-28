@@ -618,7 +618,9 @@ async fn team_inbox(daemon: &Arc<Client>, args: &Value) -> Value {
     let unread_only = args.get("unreadOnly").and_then(Value::as_bool).unwrap_or(true);
     let mut params = json!({"unreadOnly": unread_only});
     if let Some(before) = args.get("before").and_then(Value::as_u64) {
-        params["before"] = json!(before);
+        if let Some(object) = params.as_object_mut() {
+            object.insert("before".to_owned(), json!(before));
+        }
     }
     match daemon.request(method::MUX_TEAM_INBOX, params).await {
         Ok(result) => ok(team_result_text(&result), result),
@@ -1055,7 +1057,8 @@ fn ls_result(all: &Value, args: &Value) -> Value {
     ok(lines.join("\n"), json!({"sessions": slim, "more": more}))
 }
 
-#[cfg(test)]
+// The proxy stands in front of the daemon on a unix socket.
+#[cfg(all(test, unix))]
 #[path = "acpmux_mcp_restart_tests.rs"]
 mod restart_tests;
 #[cfg(test)]

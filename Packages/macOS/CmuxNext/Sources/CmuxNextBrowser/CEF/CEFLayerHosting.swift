@@ -385,7 +385,9 @@ final class CEFLayerHosting {
     /// ends: a page slower than the display then never holds the window's commits, and every other pane keeps the
     /// display's rate while that page shows its last frame until its next, as a page outside a page sync does.
     func pageViewResized() { // perf-hot: 0.05ms cef-geometry (each hosted page, each motion frame)
-        guard inPaneDrag ? !fenceMissedInDrag : commitResizeOwed, page != nil, let browser,
+        // A detached page (``isDetached``: headless, off screen, in a divider drag) has no frame to present to the window's
+        // fence, so joining it only costs the fence its whole deadline (nightly c6ff12463: 18 joins, 18 misses).
+        guard !isDetached, inPaneDrag ? !fenceMissedInDrag : commitResizeOwed, page != nil, let browser,
               let resizeFence = fork?.resizeFence,
               let view, let window = view.window, let layer = view.layer else { return }
         let start = CEFTrackerStats.now()
