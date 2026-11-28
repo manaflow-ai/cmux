@@ -4,7 +4,7 @@
   padding: var(--ds-space-4);
   color: var(--cmux-text, CanvasText);
   font-family: var(--font-ui, system-ui);
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 .dface-row {
   display: flex;
@@ -16,7 +16,7 @@
   width: 120px;
   flex: none;
   color: var(--cmux-text-secondary, GrayText);
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 .dface-chip {
   display: inline-flex;
