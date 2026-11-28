@@ -271,7 +271,9 @@ async fn steps(
     // Pre-copied when the target takes a stage over the hub: the freeze then carries only the
     // log's tail. A target that lost the stage refuses the move as unstaged: made again in full.
     let staged = precopy(src, &id, daemon).await;
-    let moving = Moving { src, id: &id, args, home: &home, home_text: &home_text, cwd: &cwd };
+    let lane = super::lane_of(&o.name);
+    let lane = lane.as_deref();
+    let moving = Moving { src, id: &id, lane, args, home: &home, home_text: &home_text, cwd: &cwd };
     let (sent, answer, timing) = match moving.run(daemon, host, staged.as_ref()).await {
         Err(e) if staged.is_some() && refused_as(&e, "transfer.unstaged") => {
             moving.run(daemon, host, None).await?
@@ -306,6 +308,8 @@ async fn steps(
 struct Moving<'a> {
     src: &'a Client,
     id: &'a str,
+    /// The chat's lane, its pushes name ([`super::lane_of`]).
+    lane: Option<&'a str>,
     args: &'a MoveArgs,
     home: &'a Path,
     home_text: &'a str,
@@ -390,7 +394,7 @@ impl Moving<'_> {
         host: &str,
         staged: Option<&Staged>,
     ) -> Result<(Value, Value, Timing)> {
-        let Moving { src, id, args, home, home_text, cwd } = *self;
+        let Moving { src, id, lane, args, home, home_text, cwd } = *self;
         let (id, leave_dirty) = (id.to_owned(), args.leave_dirty);
         let started = std::time::Instant::now();
         let started_at = crate::store::now_ms();
@@ -435,8 +439,9 @@ impl Moving<'_> {
             }
             if let (Folder::Worktree { branch, dirty, .. }, Some(c)) = (&folder, &checkout) {
                 let commit = tokio::task::spawn_blocking({
-                    let (top, branch) = (c.top.clone(), branch.clone());
-                    move || push_branch(&top, &branch)
+                    let (top, branch, lane) =
+                        (c.top.clone(), branch.clone(), lane.map(str::to_owned));
+                    move || push_branch(&top, &branch, lane.as_deref())
                 })
                 .await??;
                 sent.set("branch", json!(branch));
