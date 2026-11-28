@@ -173,8 +173,31 @@ class SideInstanceParkedLaunchTests(unittest.TestCase):
                 self.open_log.unlink(missing_ok=True)
                 result = self.side("launch", "probe", flag)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(self.opens(), [expected + [self.env["FAKE_EXE"].rsplit("/Contents/", 1)[0]]])
+                copy = self.copy_open()
+                self.assertEqual(copy[0], "-n")
+                self.assertEqual("-g" in copy, "-g" in expected)
+                self.assertNotIn("--env", copy)
+                self.assertEqual(copy[-1], self.env["FAKE_EXE"].rsplit("/Contents/", 1)[0])
                 self.assertEqual(self.side("stop", "probe").returncode, 0)
+
+    def test_explicit_environment_reaches_launch_services_intact(self):
+        values = [f"HOME={self.tmp}/isolated home", f"CFFIXED_USER_HOME={self.tmp}/isolated home",
+                  "ACPMUX_SOCKET=/tmp/isolated=copy.sock"]
+        args = [part for value in values for part in ("--env", value)]
+        result = self.side("launch", "probe", "--shown", *args)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        copy = self.copy_open()
+        for value in values:
+            self.assertIn(value, copy)
+            self.assertEqual(copy[copy.index(value) - 1], "--env")
+
+    def test_bad_environment_refuses_before_launch(self):
+        for args in (("--env",), ("--env", "HOME"), ("--env", "=value"), ("--env", "BAD-KEY=value")):
+            with self.subTest(args=args):
+                result = self.side("launch", "probe", "--shown", *args)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("--env needs KEY=VALUE", result.stderr)
+                self.assertFalse(self.open_log.exists())
 
     def test_placement_env_sets_the_default_and_a_flag_wins(self):
         result = self.side("launch", "probe", CMUX_SIDE_PLACEMENT="shown")
