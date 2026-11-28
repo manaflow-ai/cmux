@@ -2433,10 +2433,8 @@ function TranscriptView({
   scrollbarRangeRef.current = scrollbarRange;
   const draggedHeight = scrollbarRange?.session === sessionKey ? scrollbarRange.height : undefined;
   useLayoutEffect(() => {
-    if (olderDragPending.current) {
-      olderDragPending.current = false;
-      if (scrollbarRangeRef.current !== undefined) setScrollbarRange(undefined);
-    }
+    olderDragPending.current = false;
+    if (scrollbarRangeRef.current !== undefined) setScrollbarRange(undefined);
   }, [sessionKey]);
   /// How far the reader has scrolled up among the rows while room was owed (olderReserve.ts `rose`),
   /// in total, and the offset the last scroll event read: each rise pays some of what is owed.
@@ -6822,8 +6820,9 @@ function TranscriptView({
   }, [jumpBackHeld]);
   // Another chat: its own places (its idle stretch loads with it, above), nothing held from this one.
   useLayoutEffect(() => {
-    if (jumpBack.current || jumpBackHeldRef.current) dropJumpBack();
-  }, [sessionId, dropJumpBack]);
+    jumpBack.current = undefined;
+    if (jumpBackHeldRef.current) setJumpBackHeld(false);
+  }, [sessionId]);
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
