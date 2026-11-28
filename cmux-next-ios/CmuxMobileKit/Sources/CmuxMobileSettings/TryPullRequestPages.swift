@@ -66,6 +66,7 @@ struct TryPullRequestPage: View {
                         AutoRetryQuietLine(autoRetry)
                     } else {
                         CmuxSpinner(label: Text("Loading pull requests…"))
+                            .placeholderBound("settings.trypr.loading", .milliseconds(2000))
                     }
                 }
             case .unreachable:

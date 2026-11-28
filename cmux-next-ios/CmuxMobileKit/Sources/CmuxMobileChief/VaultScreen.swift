@@ -93,6 +93,7 @@ public struct VaultScreen: View {
                 CmuxSpinner(label: Text("Loading vault…"))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityIdentifier("vault.loading")
+                    .placeholderBound("vault.loading", .milliseconds(2000))
             }
         case .loaded:
             List {
