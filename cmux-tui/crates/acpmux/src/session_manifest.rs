@@ -8,7 +8,16 @@
 //! files) and the names of the MCP servers its agent was given. Step 3 adds Codex's answer for
 //! the person's own `cmux` entry (`codex mcp get cmux`, up to 2 s a start), kept with a digest of
 //! everything it depends on and reused only while the digest is the same ([`CodexRecord`]).
-//! Secrets and ports come next.
+//! Step 4 adds the names of the env its agent started with ([`SessionManifest::env`]), never a
+//! value: a key or token stays on the machine that has it, and each start resolves its values
+//! from its own profile, preset and login env as before. A later start (after a move, or a fork's
+//! first) that lacks a recorded name is logged with the names it lacks and counted
+//! ([`env_missing`]), so a move to a machine without the chat's key shows up at its start, not as
+//! an agent that fails its first turn. Step 5 adds the loopback ports its processes served
+//! ([`SessionManifest::ports`], each found when a preview first shows: `hub/process_preview.rs`),
+//! numbers only. A later start whose machine has one of them taken by something other than the
+//! session's own running processes logs it and counts it ([`ports_taken`]): a moved dev server's
+//! port held by another program on the target shows at the start, not when it fails to bind.
 //!
 //! Off unless [`SWITCH_ENV`] is `1`: then the record is kept and read. Off, nothing is recorded
 //! and every start derives as before; the counter still counts, so the before number is the same
@@ -29,7 +38,8 @@ pub const SWITCH_ENV: &str = "ACPMUX_SESSION_MANIFEST";
 #[serde(rename_all = "camelCase")]
 pub struct SessionManifest {
     /// The folder the record holds for. A move rebinds it to the chat's folder on the target
-    /// (`transfer_in.rs`, [`rebind`]); a fork into another folder does not keep it.
+    /// when its folder plan says that folder is the chat's own (`transfer_in.rs`, [`rebind`],
+    /// `cli/session_move_plan.rs` `same_folder`); a fork into another folder does not keep it.
     pub folder: PathBuf,
     /// Its cmux server lists every tool, not code mode.
     pub all_tools: bool,
@@ -39,7 +49,18 @@ pub struct SessionManifest {
     /// Codex's answer for the person's own `cmux` entry, with the digest it holds for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex: Option<CodexRecord>,
+    /// The names of the env its agent started with, sorted, without the hub's own markers
+    /// ([`env_names`]). Names only: no value is ever kept here, secret or not.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env: Vec<String>,
+    /// The loopback ports its processes served (a preview's port), sorted, at most
+    /// [`MAX_PORTS`]; kept as each shows ([`keep_port`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ports: Vec<u16>,
 }
+
+/// The most ports a manifest keeps: a chat that serves more is not one whose port plan helps.
+pub const MAX_PORTS: usize = 16;
 
 /// The person's own `cmux` entry as Codex answered it (`codex_cmux_entry::CmuxEntry`), only the
 /// answers that are sure: no answer and doubt are never kept.
@@ -237,7 +258,117 @@ pub fn to_record(
         all_tools,
         servers: server_names(servers),
         codex: None,
+        env: Vec::new(),
+        ports: Vec::new(),
     })
+}
+
+/// The names in a start's env the manifest keeps: every one but the hub's own markers
+/// ([`RECORDED_ENV`], [`CODEX_ENV`]), which say what the manifest held, not what the agent needs.
+pub fn env_names(env: &BTreeMap<String, String>) -> Vec<String> {
+    env.keys().filter(|k| *k != RECORDED_ENV && *k != CODEX_ENV).cloned().collect()
+}
+
+/// Keeps the names of this start's `env` in `manifest` when the switch is on, the manifest holds
+/// for `cwd` and has none yet (recorded once, at the first start that has them:
+/// `hub/idle_census.rs` `note_launch`). No env (this daemon started no agent) leaves it as it is.
+pub fn keep_env(
+    on: bool,
+    manifest: &mut Option<SessionManifest>,
+    cwd: &Path,
+    env: Option<&BTreeMap<String, String>>,
+) {
+    if on
+        && let Some(m) = manifest.as_mut().filter(|m| m.folder == cwd && m.env.is_empty())
+        && let Some(env) = env
+    {
+        m.env = env_names(env);
+    }
+}
+
+static ENV_MISSING: AtomicU64 = AtomicU64::new(0);
+
+/// How many starts in this process lacked a name their manifest recorded ([`check_env_with`]).
+pub fn env_missing() -> u64 {
+    ENV_MISSING.load(Ordering::Relaxed)
+}
+
+/// The recorded names this start's `env` lacks, when the switch is on and the manifest holds for
+/// `cwd`; a start that lacks any is counted ([`env_missing`]). Empty while off, for another
+/// folder, or with nothing recorded.
+pub fn check_env_with(
+    on: bool,
+    manifest: Option<&SessionManifest>,
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+) -> Vec<String> {
+    let Some(m) = manifest.filter(|m| on && m.folder == cwd) else { return Vec::new() };
+    let missing: Vec<String> = m.env.iter().filter(|k| !env.contains_key(*k)).cloned().collect();
+    if !missing.is_empty() {
+        ENV_MISSING.fetch_add(1, Ordering::Relaxed);
+    }
+    missing
+}
+
+/// [`check_env_with`] under this daemon's switch.
+pub fn check_env(
+    manifest: Option<&SessionManifest>,
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+) -> Vec<String> {
+    check_env_with(on(), manifest, cwd, env)
+}
+
+/// Adds `port`, a preview one of the session's processes served, to `manifest` when the switch is
+/// on, the manifest holds for `cwd` and has room ([`MAX_PORTS`]). True when it was added, so the
+/// caller saves the meta once per new port, never per preview.
+pub fn keep_port(on: bool, manifest: &mut Option<SessionManifest>, cwd: &Path, port: u16) -> bool {
+    let Some(m) = manifest.as_mut().filter(|m| on && m.folder == cwd) else { return false };
+    match m.ports.binary_search(&port) {
+        Ok(_) => false,
+        Err(_) if m.ports.len() >= MAX_PORTS => false,
+        Err(at) => {
+            m.ports.insert(at, port);
+            true
+        }
+    }
+}
+
+static PORTS_TAKEN: AtomicU64 = AtomicU64::new(0);
+
+/// How many starts in this process found a recorded port taken ([`check_ports_with`]).
+pub fn ports_taken() -> u64 {
+    PORTS_TAKEN.load(Ordering::Relaxed)
+}
+
+/// The recorded ports that are `taken` on this machine and not in `own` (the ports the session's
+/// own running processes serve: a restart beside its dev server is not a conflict), when the
+/// switch is on and the manifest holds for `cwd`; a start with any is counted ([`ports_taken`]).
+pub fn check_ports_with(
+    on: bool,
+    manifest: Option<&SessionManifest>,
+    cwd: &Path,
+    own: &[u16],
+    taken: impl Fn(u16) -> bool,
+) -> Vec<u16> {
+    let Some(m) = manifest.filter(|m| on && m.folder == cwd) else { return Vec::new() };
+    let held: Vec<u16> =
+        m.ports.iter().copied().filter(|p| !own.contains(p) && taken(*p)).collect();
+    if !held.is_empty() {
+        PORTS_TAKEN.fetch_add(1, Ordering::Relaxed);
+    }
+    held
+}
+
+/// Whether something on this machine listens on loopback `port`: binding it fails. The probe
+/// listener closes at once.
+pub fn loopback_taken(port: u16) -> bool {
+    std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).is_err()
+}
+
+/// [`check_ports_with`] under this daemon's switch, probing loopback ([`loopback_taken`]).
+pub fn check_ports(manifest: Option<&SessionManifest>, cwd: &Path, own: &[u16]) -> Vec<u16> {
+    check_ports_with(on(), manifest, cwd, own, loopback_taken)
 }
 
 /// A fork's manifest: its parent's while it works in the same folder; a fork into another
@@ -247,7 +378,8 @@ pub fn for_fork(parent: Option<&SessionManifest>, cwd: &Path) -> Option<SessionM
 }
 
 /// A moved chat's `session.json` (as JSON) with its manifest bound to `cwd`, its folder on this
-/// machine: the same branch checked out, so the same namespace (Plan 9's `bind`).
+/// machine, for a move whose folder plan made it the chat's own: the same branch checked out with
+/// nothing left behind, or its files carried, so the same namespace (Plan 9's `bind`).
 pub fn rebind(meta: &mut Value, cwd: &str) {
     if let Some(m) = meta.get_mut("manifest").and_then(Value::as_object_mut) {
         m.insert("folder".into(), Value::String(cwd.to_owned()));
