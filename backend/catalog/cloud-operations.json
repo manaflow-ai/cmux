@@ -7947,6 +7947,15 @@
         "cloud.sandboxes",
         "cloud.connectServices",
         "cloud.idlePause",
+        "cloud.providers",
+        "cloud.regions",
+        "cloud.egress",
+        "agents.harnesses",
+        "agents.models",
+        "projection.folders",
+        "projection.readOnly",
+        "projection.syncBack",
+        "sandbox.local",
         "telemetry.level",
         "updates.channel",
         "updates.minimumVersion",
@@ -9460,6 +9469,52 @@
         }
       }
     },
+    "TeamEgress": {
+      "kind": "object",
+      "fields": {
+        "mode": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "full",
+              "allowlist",
+              "none"
+            ]
+          }
+        },
+        "presets": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "enum",
+              "values": [
+                "anthropic",
+                "openai",
+                "openrouter",
+                "opencode",
+                "github",
+                "npm",
+                "pypi",
+                "rust"
+              ]
+            }
+          }
+        },
+        "domains": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\\.[a-z0-9-]*[a-z][a-z0-9-]*$"
+            }
+          }
+        }
+      }
+    },
     "TeamId": {
       "kind": "primitive",
       "name": "string",
@@ -10102,6 +10157,229 @@
                 "type": {
                   "kind": "primitive",
                   "name": "boolean"
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "cloud.providers": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^(cmux|byoc:[A-Za-z0-9._-]{1,100})$"
+                  }
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "cloud.regions": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                  }
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "cloud.egress": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "TeamEgress"
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "agents.harnesses": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+                  }
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "agents.models": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,198}\\*?$"
+                  }
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "projection.folders": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1,
+                    "max_length": 500,
+                    "pattern": "^(~|\\/)"
+                  }
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "projection.readOnly": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "projection.syncBack": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "sandbox.local": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "on",
+                    "required"
+                  ]
                 }
               },
               "mode": {
@@ -86489,6 +86767,48 @@
             },
             "maxItems": 2
           },
+          "TeamEgress": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "allowlist",
+                  "none"
+                ]
+              },
+              "presets": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "anthropic",
+                    "openai",
+                    "openrouter",
+                    "opencode",
+                    "github",
+                    "npm",
+                    "pypi",
+                    "rust"
+                  ]
+                },
+                "maxItems": 16
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\\.[a-z0-9-]*[a-z][a-z0-9-]*$"
+                },
+                "maxItems": 48
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "additionalProperties": true
+          },
           "TeamPolicyValues": {
             "type": "object",
             "properties": {
@@ -86798,6 +87118,186 @@
                 "properties": {
                   "value": {
                     "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.providers": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^(cmux|byoc:[A-Za-z0-9._-]{1,100})$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.regions": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.egress": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/TeamEgress"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.harnesses": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.models": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,198}\\*?$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.folders": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500,
+                      "pattern": "^(~|\\/)"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.readOnly": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.syncBack": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "sandbox.local": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "enum": [
+                      "on",
+                      "required"
+                    ]
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -87264,6 +87764,48 @@
             },
             "maxItems": 2
           },
+          "TeamEgress": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "allowlist",
+                  "none"
+                ]
+              },
+              "presets": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "anthropic",
+                    "openai",
+                    "openrouter",
+                    "opencode",
+                    "github",
+                    "npm",
+                    "pypi",
+                    "rust"
+                  ]
+                },
+                "maxItems": 16
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\\.[a-z0-9-]*[a-z][a-z0-9-]*$"
+                },
+                "maxItems": 48
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "additionalProperties": true
+          },
           "TeamPolicyValues": {
             "type": "object",
             "properties": {
@@ -87573,6 +88115,186 @@
                 "properties": {
                   "value": {
                     "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.providers": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^(cmux|byoc:[A-Za-z0-9._-]{1,100})$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.regions": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.egress": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/TeamEgress"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.harnesses": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.models": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,198}\\*?$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.folders": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500,
+                      "pattern": "^(~|\\/)"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.readOnly": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.syncBack": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "sandbox.local": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "enum": [
+                      "on",
+                      "required"
+                    ]
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -87863,6 +88585,15 @@
               "cloud.sandboxes",
               "cloud.connectServices",
               "cloud.idlePause",
+              "cloud.providers",
+              "cloud.regions",
+              "cloud.egress",
+              "agents.harnesses",
+              "agents.models",
+              "projection.folders",
+              "projection.readOnly",
+              "projection.syncBack",
+              "sandbox.local",
               "telemetry.level",
               "updates.channel",
               "updates.minimumVersion",
@@ -88095,6 +88826,48 @@
               ]
             },
             "maxItems": 2
+          },
+          "TeamEgress": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "allowlist",
+                  "none"
+                ]
+              },
+              "presets": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "anthropic",
+                    "openai",
+                    "openrouter",
+                    "opencode",
+                    "github",
+                    "npm",
+                    "pypi",
+                    "rust"
+                  ]
+                },
+                "maxItems": 16
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\\.[a-z0-9-]*[a-z][a-z0-9-]*$"
+                },
+                "maxItems": 48
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "additionalProperties": true
           },
           "TeamPolicyValues": {
             "type": "object",
@@ -88405,6 +89178,186 @@
                 "properties": {
                   "value": {
                     "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.providers": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^(cmux|byoc:[A-Za-z0-9._-]{1,100})$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.regions": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.egress": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/TeamEgress"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.harnesses": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.models": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,198}\\*?$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.folders": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500,
+                      "pattern": "^(~|\\/)"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.readOnly": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.syncBack": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "sandbox.local": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "enum": [
+                      "on",
+                      "required"
+                    ]
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -88856,6 +89809,15 @@
               "cloud.sandboxes",
               "cloud.connectServices",
               "cloud.idlePause",
+              "cloud.providers",
+              "cloud.regions",
+              "cloud.egress",
+              "agents.harnesses",
+              "agents.models",
+              "projection.folders",
+              "projection.readOnly",
+              "projection.syncBack",
+              "sandbox.local",
               "telemetry.level",
               "updates.channel",
               "updates.minimumVersion",
@@ -88950,6 +89912,48 @@
               ]
             },
             "maxItems": 2
+          },
+          "TeamEgress": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "allowlist",
+                  "none"
+                ]
+              },
+              "presets": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "anthropic",
+                    "openai",
+                    "openrouter",
+                    "opencode",
+                    "github",
+                    "npm",
+                    "pypi",
+                    "rust"
+                  ]
+                },
+                "maxItems": 16
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\\.[a-z0-9-]*[a-z][a-z0-9-]*$"
+                },
+                "maxItems": 48
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "additionalProperties": true
           },
           "TeamPolicyValues": {
             "type": "object",
@@ -89260,6 +90264,186 @@
                 "properties": {
                   "value": {
                     "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.providers": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^(cmux|byoc:[A-Za-z0-9._-]{1,100})$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.regions": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.egress": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/TeamEgress"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.harnesses": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.models": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,198}\\*?$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.folders": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500,
+                      "pattern": "^(~|\\/)"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.readOnly": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.syncBack": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "sandbox.local": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "enum": [
+                      "on",
+                      "required"
+                    ]
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
