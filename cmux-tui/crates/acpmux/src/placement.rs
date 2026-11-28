@@ -45,12 +45,20 @@
 
 pub(crate) mod command_sampler;
 pub(crate) mod command_shadow;
+pub mod exec_conformance;
+pub mod exec_conformance_report;
+pub mod exec_conformance_tree;
 pub mod exec_router;
 pub(crate) mod move_targets;
 pub mod reach;
 pub mod run_vm;
+pub mod run_vm_env;
+pub mod run_vm_rows;
+pub mod run_vm_shell;
+pub mod run_vm_tree;
 pub mod sub_fork;
 pub mod sub_fork_run;
+pub mod sub_fork_wire;
 pub mod work_place;
 pub mod work_wire;
 
@@ -648,7 +656,7 @@ pub fn fold_role_holders(registry: &mut Value) {
     let mut roles: Vec<&String> = holders.keys().collect();
     roles.sort();
     for role in roles {
-        let Some(list) = holders[role].as_array() else { continue };
+        let Some(list) = holders.get(role).and_then(Value::as_array) else { continue };
         for host in list.iter().filter_map(Value::as_str) {
             let Some(m) = machines.get_mut(host).and_then(Value::as_object_mut) else { continue };
             let entry = m.entry("roles").or_insert_with(|| json!([]));

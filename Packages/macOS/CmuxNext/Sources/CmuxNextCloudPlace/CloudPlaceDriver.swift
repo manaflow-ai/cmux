@@ -76,8 +76,8 @@ public protocol CloudPlaceHost: AnyObject {
     /// What a bulk run's chats that never started say when the Cloud account or team changed under it.
     func placeIdentityChangedReason() -> String
     /// The daemon's host budget verdict (`_acpmux/status` `host_pressure`, raw JSON), the one source of memory pressure
-    /// and battery for Auto; nil when no daemon answered. Asked once a pass (every 30 s at most): a daemon that does not
-    /// answer in 5 s leaves memory and battery unknown that pass.
+    /// and battery for Auto; nil when no daemon answered. A pass runs every 30 s at most, so a daemon that does not answer
+    /// in 5 s leaves memory and battery unknown that pass.
     func placeVerdict() async -> Data?
     /// Appends one line to this build's `auto-shadow.jsonl`: what Auto would do for the verdict alone.
     func placeShadow(_ line: String)

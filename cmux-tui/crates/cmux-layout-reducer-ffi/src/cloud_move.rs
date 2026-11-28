@@ -629,6 +629,10 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let failure: wait::StartFailure = read(request)?;
             json!({ "dropped": wait::link_dropped(&failure) })
         }
+        b"cloud_move_link_stale" => {
+            let failure: wait::StartFailure = read(request)?;
+            json!({ "stale": wait::link_stale(&failure) })
+        }
         b"cloud_move_outdated_refusal" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
@@ -862,6 +866,16 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 request.before.as_deref(),
                 &request.machines,
             ))?
+        }
+        // Move to Cloud's done toast, with how the folder landed (hq RFD 0066 piece 1, look C).
+        b"cloud_move_landed_toast" => {
+            #[derive(Deserialize)]
+            struct Request {
+                moved: String,
+                landed: Option<cmux_cloud_start_core::moves::landed::Landed>,
+            }
+            let request: Request = read(request)?;
+            json!({ "toast": to_value(cmux_cloud_start_core::moves::landed::toast(&request.moved, request.landed.as_ref()))? })
         }
         b"cloud_move_place_steps" => {
             let steps: Vec<_> = place::Step::ALL

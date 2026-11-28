@@ -139,3 +139,70 @@ fn the_meter_keeps_the_readings_of_its_last_sample() {
     m.sample_at(t0 + Duration::from_secs(3)).unwrap();
     assert_eq!(m.last_sample().unwrap().cpu_busy, Some(0.10));
 }
+
+#[test]
+fn the_verdict_carries_the_cpu_busy_reading_as_a_percent() {
+    let probe = Arc::new(FakeProbe::default());
+    *probe.sample.lock().unwrap() = Sample { cpu_busy: Some(0.4567), ..calm() };
+    let v = meter(&probe).sample_at(Instant::now()).unwrap();
+    assert_eq!(v.cpu_busy_pct, Some(45.7));
+    assert_eq!(v.cpu_p50_pct, None, "one sample covers no window");
+    let json = serde_json::to_value(&v).unwrap();
+    assert_eq!(json["cpu_busy_pct"], 45.7);
+    assert!(json.get("cpu_p50_pct").is_none(), "absent, not null, until measured");
+}
+
+#[test]
+fn cpu_p50_is_the_time_weighted_median_of_the_meters_own_samples() {
+    let probe = Arc::new(FakeProbe::default());
+    let m = meter(&probe);
+    let t0 = Instant::now();
+    let at = |s: u64| t0 + Duration::from_secs(s);
+    let busy = |b: f64| *probe.sample.lock().unwrap() = Sample { cpu_busy: Some(b), ..calm() };
+    busy(0.1);
+    // The first sample's reading covers no interval the meter knows of.
+    assert_eq!(m.sample_at(at(0)).unwrap().cpu_window_s, None);
+    busy(0.2);
+    assert_eq!(m.sample_at(at(30)).unwrap().cpu_p50_pct, None, "30 s is under the minimum");
+    busy(0.9);
+    let v = m.sample_at(at(60)).unwrap();
+    // 30 s at 20 % and 30 s at 90 %: nearest rank stops on the first half.
+    assert_eq!((v.cpu_p50_pct, v.cpu_window_s), (Some(20.0), Some(60.0)));
+    busy(0.9);
+    let v = m.sample_at(at(120)).unwrap();
+    assert_eq!((v.cpu_p50_pct, v.cpu_window_s), (Some(90.0), Some(120.0)));
+    assert_eq!(v.cpu_busy_pct, Some(90.0));
+}
+
+#[test]
+fn the_cpu_window_clips_at_ten_minutes_and_forgets_older_readings() {
+    let t0 = Instant::now();
+    let at = |s: u64| t0 + Duration::from_secs(s);
+    // A long interval at 90 % reaching past the window, then 5 min at 10 %.
+    let ring = [(at(0), at(900), 90.0), (at(900), at(1200), 10.0)];
+    let (p50, window) = cpu_window_p50(ring, at(1200)).unwrap();
+    assert_eq!(window, 600.0, "clipped at the window start");
+    assert_eq!(p50, 10.0, "300 s at 10 % is half of 600 s");
+    assert_eq!(cpu_window_p50([(at(0), at(10), 50.0)], at(1200)), None, "out of the window");
+
+    let probe = Arc::new(FakeProbe::default());
+    *probe.sample.lock().unwrap() = Sample { cpu_busy: Some(0.5), ..calm() };
+    let m = meter(&probe);
+    m.sample_at(at(0)).unwrap();
+    m.sample_at(at(120)).unwrap();
+    // Twenty minutes idle: the 0..120 reading is gone; the new one covers the gap, clipped.
+    let v = m.sample_at(at(1320)).unwrap();
+    assert_eq!(v.cpu_window_s, Some(600.0));
+    assert_eq!(m.lock().cpu.len(), 1);
+}
+
+#[test]
+fn a_host_with_no_cpu_reading_reports_none() {
+    let probe = Arc::new(FakeProbe::default());
+    *probe.sample.lock().unwrap() = Sample { cpu_busy: None, ..calm() };
+    let m = meter(&probe);
+    let t0 = Instant::now();
+    m.sample_at(t0).unwrap();
+    let v = m.sample_at(t0 + Duration::from_secs(120)).unwrap();
+    assert_eq!((v.cpu_busy_pct, v.cpu_p50_pct, v.cpu_window_s), (None, None, None));
+}

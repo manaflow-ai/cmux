@@ -19,6 +19,15 @@ const SWAP_WINDOW: Duration = Duration::from_secs(600);
 
 const MIB: f64 = 1024.0 * 1024.0;
 
+/// How far back the CPU ring reaches: host_budget.py's `cpu_window_max_s` (600).
+pub const CPU_WINDOW: Duration = Duration::from_secs(600);
+
+/// The least the ring must cover before it gives a p50: host_budget.py's `cpu_window_min_s` (60).
+pub const CPU_WINDOW_MIN: Duration = Duration::from_secs(60);
+
+/// The most readings the ring keeps; the meter samples at most every `sample_seconds` (3 s).
+const CPU_RING_MAX: usize = 256;
+
 /// Samples on demand, at most once per `sample_seconds`, and remembers the swap
 /// baseline between samples. No timer: a verdict is made only when one is asked for.
 pub struct Meter {
@@ -39,6 +48,40 @@ struct MeterState {
     /// The readings the last verdict was made from: RFD 0072's signals (CPU busy, thermal, HID
     /// idle, timer lateness) are read into the sample but not into the verdict.
     sample: Option<Sample>,
+    /// When the probe was last read: the start of the interval its next `cpu_busy` covers.
+    last_sample: Option<Instant>,
+    /// Each CPU busy reading (percent) and the interval it covers, oldest first, over [`CPU_WINDOW`].
+    cpu: std::collections::VecDeque<(Instant, Instant, f64)>,
+}
+
+/// The time-weighted nearest-rank p50 of the ring's readings over [`CPU_WINDOW`]
+/// before `now`, each weighted by the seconds of its interval inside the window
+/// (host_budget_cpu.py's `window_p50`), and the seconds they cover. None while
+/// they cover less than [`CPU_WINDOW_MIN`].
+pub fn cpu_window_p50(
+    ring: impl IntoIterator<Item = (Instant, Instant, f64)>,
+    now: Instant,
+) -> Option<(f64, f64)> {
+    let start = now.checked_sub(CPU_WINDOW);
+    let mut values: Vec<(f64, f64)> = ring
+        .into_iter()
+        .filter_map(|(a, b, pct)| {
+            let a = start.map_or(a, |s| a.max(s));
+            let seconds = b.min(now).saturating_duration_since(a).as_secs_f64();
+            (seconds > 0.0 && pct.is_finite()).then_some((pct, seconds))
+        })
+        .collect();
+    let covered: f64 = values.iter().map(|(_, s)| s).sum();
+    if covered < CPU_WINDOW_MIN.as_secs_f64() {
+        return None;
+    }
+    values.sort_by(|x, y| x.0.total_cmp(&y.0));
+    let mut left = covered / 2.0;
+    let p50 = values.iter().find_map(|(pct, seconds)| {
+        left -= seconds;
+        (left <= 0.0).then_some(*pct)
+    })?;
+    Some((p50, covered.round()))
 }
 
 /// Clears [`Meter::sampling`] when a sample ends, however it ends.
@@ -195,7 +238,23 @@ impl Meter {
         if let Some(bytes) = sample.swapout_bytes {
             state.swap = Some((now, bytes));
         }
-        let v = evaluate(&self.host, &sample, rate, &budget);
+        let mut v = evaluate(&self.host, &sample, rate, &budget);
+        if let (Some(at), Some(pct)) = (state.last_sample, v.cpu_busy_pct) {
+            state.cpu.push_back((at, now, pct));
+        }
+        state.last_sample = Some(now);
+        while state.cpu.len() > CPU_RING_MAX
+            || state
+                .cpu
+                .front()
+                .is_some_and(|(_, end, _)| now.saturating_duration_since(*end) >= CPU_WINDOW)
+        {
+            state.cpu.pop_front();
+        }
+        if let Some((p50, window)) = cpu_window_p50(state.cpu.iter().copied(), now) {
+            v.cpu_p50_pct = Some(p50);
+            v.cpu_window_s = Some(window);
+        }
         let was_ok = state.cached.as_ref().is_none_or(|(_, before)| before.ok);
         state.cached = Some((now, v.clone()));
         state.sample = Some(sample);

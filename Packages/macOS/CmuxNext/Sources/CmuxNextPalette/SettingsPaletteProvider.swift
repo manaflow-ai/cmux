@@ -28,7 +28,7 @@ public final class SettingsPaletteProvider: PaletteProvider {
     func makeItems() -> [PaletteItem] {
         let rows = source.rows
         let fontRows = rows.filter(Self.isFontRow)
-        return (fontRows.isEmpty ? [] : [changeFontItem(fontRows)]) + rows.map(item)
+        return (fontRows.isEmpty ? [] : [changeFontItem(fontRows)]) + rows.map(item) + source.navigationItems
     }
 
     /// The rows Change Font… lists: every font family setting and every setting whose key names a

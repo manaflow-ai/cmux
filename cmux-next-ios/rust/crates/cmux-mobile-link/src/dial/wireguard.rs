@@ -1249,6 +1249,9 @@ struct HybridUnderlay {
     learned: Vec<SocketAddr>,
     /// The selector's quiet route was replayed through the relays.
     suspect_replayed: bool,
+    /// The current direct route went quiet (`Paths::current_quiet`) and what
+    /// it swallowed was replayed through the relays.
+    quiet_replayed: bool,
     /// What is being sent answers the peer's liveness ping: nothing comes
     /// back for it, so it does not start the route's silence watch.
     answering: bool,
@@ -1370,6 +1373,7 @@ impl HybridUnderlay {
             last_turn_source: None,
             learned: Vec::new(),
             suspect_replayed: false,
+            quiet_replayed: false,
             answering: false,
             delayed: std::collections::VecDeque::new(),
             delay_timer: None,
@@ -1526,6 +1530,60 @@ impl HybridUnderlay {
         self.sync_paths();
     }
 
+    /// The peer announced a new first endpoint: it moved onto a new socket
+    /// and closed the old one. Addresses learned from its datagrams that the
+    /// announcement does not list were the old socket's, even at the new
+    /// network's address (a socket bound to every interface keeps sending,
+    /// from the new address, until the peer notices the change). Their
+    /// paths may have answered a probe before it closed, and the selector
+    /// would move onto one when the old route's path goes away, and send
+    /// into a closed socket until the silence watch gives up on it (200 to
+    /// 650 ms, plus the tunnel's TCP waiting out its retransmit timer: the
+    /// wificell tail). The new socket's own learned address comes back with
+    /// its next datagram. A route to a dropped address ends too, so the
+    /// replay that follows goes where the peer's datagrams arrive now.
+    fn forget_moved_peer(&mut self) {
+        let candidates = &self.candidates;
+        let before = self.learned.len();
+        self.learned.retain(|addr| candidates.contains(addr));
+        if self.learned.len() != before {
+            tracing::debug!(
+                dropped = before - self.learned.len(),
+                "WireGuard forgets the moved peer's old addresses"
+            );
+        }
+        let gone = |addr: &SocketAddr, this: &Self| {
+            !this.candidates.contains(addr)
+                && !this.learned.contains(addr)
+                && !this.labels.peer_relayed.contains(addr)
+        };
+        let now = Instant::now();
+        if let Some(route) = self.direct
+            && route.carrier == Carrier::Udp
+            && gone(&route.addr, self)
+        {
+            // Where the peer's latest datagram came from, when the
+            // announcement lists it (the new socket); else no route until
+            // its next datagram (the replay waits for it).
+            let next = self
+                .last_udp_from
+                .filter(|addr| self.candidates.contains(addr) && !self.refused.contains(addr))
+                .map(|addr| Route { carrier: Carrier::Udp, addr });
+            self.direct = next;
+            self.route_since = now;
+            self.last_on_route = next.map(|_| now);
+            self.pinned_until = None;
+            self.confirmed = false;
+            self.last_fit = None;
+            self.last_marker = None;
+        }
+        if self.last_udp_from.is_some_and(|addr| gone(&addr, self)) {
+            self.last_udp_from = None;
+        }
+        // Before the replay: the selector must not hold a dropped path.
+        self.sync_paths();
+    }
+
     fn apply_one(&mut self, control: Control) {
         let now = Instant::now();
         match control {
@@ -1643,7 +1701,12 @@ impl HybridUnderlay {
                         self.pinned_until = None;
                         self.demote("the peer replaced the route's relayed address");
                     }
+                    // A new first endpoint: the peer moved onto a new socket.
+                    let moved = self.peer_endpoints.first() != endpoints.first();
                     self.set_peer_endpoints(endpoints);
+                    if moved {
+                        self.forget_moved_peer();
+                    }
                     // A roaming phone announces its new TURN address; an
                     // older peer lists none, and the old ones stay (a stale
                     // entry only matters for a datagram from it).
@@ -2065,6 +2128,28 @@ impl HybridUnderlay {
         }
     }
 
+    /// A handshake response we just sent on a direct route goes through the
+    /// relays too. It is the one copy of the answer: the initiator's repeats
+    /// (and its relayed copies) carry the same timestamp, which boringtun
+    /// refuses as a replay, so nothing answers them. The selector's route
+    /// was chosen by probes up to a probe interval old; a direct path that
+    /// flaps (Leo's phone, 2026-11-25: Direct and TURN every 2 to 5 s) drops
+    /// the answer while it still holds the route, and the initiator waits
+    /// out its REKEY_TIMEOUT (5 s) and starts over, every rekey. The copies
+    /// cost one 92-byte datagram per relay per handshake, and the one that
+    /// arrives second is refused by the initiator (no handshake waits on it).
+    fn send_response_on_relays(&mut self, datagram: &[u8], class: SendClass) {
+        if cmux_transport::classify(datagram) != cmux_transport::DatagramClass::WireGuardResponse {
+            return;
+        }
+        if self.paths.suspect() || !self.direct.is_some_and(|route| self.is_direct(route)) {
+            // Sprayed on every route already, or it went on a relay.
+            return;
+        }
+        tracing::debug!("WireGuard sends its handshake response through the relays too");
+        self.send_on_relays(datagram, class);
+    }
+
     /// Through our TURN allocation, and plain UDP to the peer's relayed
     /// addresses (its TURN allocation).
     fn send_on_relays(&mut self, datagram: &[u8], class: SendClass) {
@@ -2391,6 +2476,18 @@ impl HybridUnderlay {
                     self.paths.sent_data(now);
                 }
                 self.maybe_spray(datagram, route);
+                if self.is_direct(route) && self.paths.current_quiet(now) {
+                    // The direct route went quiet under a send: until it
+                    // answers or the selector judges it, what goes out goes
+                    // through the relays too, and once what it swallowed.
+                    if !self.quiet_replayed {
+                        self.quiet_replayed = true;
+                        self.replay_on_relays();
+                    }
+                    self.send_on_relays(datagram, class);
+                } else {
+                    self.quiet_replayed = false;
+                }
                 return true;
             }
             // Refused: the path is gone; the selector picks another next time.
@@ -2615,6 +2712,7 @@ impl Underlay for HybridUnderlay {
         let class = send_class(datagram);
         self.record(datagram, class);
         self.transmit(datagram, class);
+        self.send_response_on_relays(datagram, class);
         self.assist_send(datagram, class);
         self.note_initiation(datagram, class);
     }
@@ -2624,6 +2722,7 @@ impl Underlay for HybridUnderlay {
         let class = send_class_of(datagram, priority);
         self.record(datagram, class);
         self.transmit(datagram, class);
+        self.send_response_on_relays(datagram, class);
         self.assist_send(datagram, class);
         self.note_initiation(datagram, class);
     }
@@ -2691,9 +2790,7 @@ impl Underlay for HybridUnderlay {
         if let Some(rtt_us) = self.paths.take_turn_quiet()
             && let Some(turn) = self.turn.as_ref()
         {
-            // Two silence windows of the quiet route's smoothed RTT
-            // (max(8 x srtt, 200 ms)): the server's leg is part of that round trip.
-            turn.check_server(cmux_wg::silence_window(rtt_us) * 2);
+            turn.check_server(paths::Paths::turn_server_bound(rtt_us));
         }
         due
     }
@@ -4017,6 +4114,107 @@ mod tests {
         assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: new }));
     }
 
+    /// The phone moves networks: its old socket, bound to every interface,
+    /// sends a few datagrams from the new network's address before the phone
+    /// notices and opens a new socket, so the old socket's address there is
+    /// learned and answers a probe. The phone's announcement (a new first
+    /// endpoint) must drop it: a selector holding it sends into a closed
+    /// socket until the silence watch gives up (the wificell tail).
+    #[tokio::test]
+    async fn a_moved_peer_announcement_forgets_the_old_sockets_learned_address() {
+        let relayed_old: SocketAddr = "203.0.113.7:50000".parse().unwrap();
+        let relayed_new: SocketAddr = "203.0.113.7:50001".parse().unwrap();
+        let wifi_old: SocketAddr = "192.168.1.20:41000".parse().unwrap();
+        let cell_old: SocketAddr = "10.97.0.11:41000".parse().unwrap();
+        let cell_new: SocketAddr = "10.97.0.11:42000".parse().unwrap();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[wifi_old.to_string(), relayed_old.to_string()],
+                peer_relayed: &[relayed_old.to_string()],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
+                control,
+                relay_shared: Default::default(),
+            },
+            &DialOptions::default(),
+        );
+        let answer_all = |underlay: &mut HybridUnderlay, now: Instant| {
+            for (path, probe) in underlay.poll_probes(now).pings {
+                underlay.on_pong(path, probe, now + Duration::from_millis(5));
+            }
+        };
+        let udp_from = |addr| Origin { path: UDP_PATH, addr: Some(addr) };
+        let now = Instant::now();
+        underlay.authenticated(udp_from(wifi_old));
+        answer_all(&mut underlay, now);
+        // The swap: the old socket's datagrams now arrive from cell.
+        underlay.authenticated(udp_from(cell_old));
+        answer_all(&mut underlay, now + Duration::from_millis(10));
+        assert!(underlay.learned.contains(&cell_old), "the old socket's cell address is learned");
+        // The phone's new socket announces itself.
+        underlay.apply(Control::PeerEndpoints {
+            hop: None,
+            endpoints: vec![cell_new.to_string(), relayed_new.to_string()],
+            relayed: vec![relayed_new.to_string()],
+            relayed_tls: vec![],
+        });
+        let stale = |route: Option<Route>| route.is_some_and(|r| r.addr == cell_old || r.addr == wifi_old);
+        assert!(!underlay.learned.contains(&cell_old), "the old socket's learned address is gone");
+        assert!(
+            !stale(underlay.paths.current()),
+            "the selector holds no old-socket path: {:?}",
+            underlay.paths.current()
+        );
+        assert!(!stale(underlay.direct), "the route is not the old socket: {:?}", underlay.direct);
+        // The new socket's first datagram takes the route.
+        underlay.authenticated(udp_from(cell_new));
+        assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: cell_new }));
+    }
+
+    /// A repeated announcement (same first endpoint: the peer did not move)
+    /// keeps what was learned from its datagrams: a NAT-mapped address no
+    /// announcement names must stay a path.
+    #[tokio::test]
+    async fn an_unmoved_peer_announcement_keeps_learned_addresses() {
+        let relayed: SocketAddr = "203.0.113.7:50000".parse().unwrap();
+        let mapped: SocketAddr = "198.51.100.20:41000".parse().unwrap();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[relayed.to_string()],
+                peer_relayed: &[relayed.to_string()],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
+                control,
+                relay_shared: Default::default(),
+            },
+            &DialOptions::default(),
+        );
+        underlay.authenticated(Origin { path: UDP_PATH, addr: Some(mapped) });
+        assert!(underlay.learned.contains(&mapped));
+        underlay.apply(Control::PeerEndpoints {
+            hop: None,
+            endpoints: vec![relayed.to_string(), "198.51.100.30:9".to_string()],
+            relayed: vec![relayed.to_string()],
+            relayed_tls: vec![],
+        });
+        assert!(underlay.learned.contains(&mapped), "an unmoved peer's learned address stays");
+        assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: mapped }));
+    }
+
     /// The peer's datagrams come from a direct address no announcement named
     /// (a NAT whose mapping differs from the STUN answer). Once the selector
     /// holds the relay, only a learned path lets that address win: it is
@@ -4107,6 +4305,155 @@ mod tests {
             .expect("the spray reaches the learned address")
             .unwrap();
         assert_eq!(&buffer[..len], b"stream datagram");
+    }
+
+    /// Leo's Mac and phone (2026-11-25, "so between mac and ios connections
+    /// something broke"): the path flipped between Direct and TURN every 2
+    /// to 5 s and WireGuard died with REKEY_TIMEOUT. The selector holds a
+    /// direct path its probes proved, the peer's handshake initiation
+    /// arrives through TURN (the direct path just dropped), and the answer
+    /// went on the direct route alone. The initiator's repeats carry the
+    /// same timestamp, which boringtun refuses, so that lost answer cost a
+    /// 5 s REKEY_TIMEOUT per try. The answer also goes through the relays.
+    #[tokio::test]
+    async fn a_handshake_response_on_a_direct_route_also_goes_through_the_relays() {
+        let direct = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let relay = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        direct.set_nonblocking(true).unwrap();
+        relay.set_nonblocking(true).unwrap();
+        let (direct_addr, relay_addr) = (direct.local_addr().unwrap(), relay.local_addr().unwrap());
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[direct_addr.to_string(), relay_addr.to_string()],
+                peer_relayed: &[relay_addr.to_string()],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
+                control,
+                relay_shared: Default::default(),
+            },
+            &DialOptions::default(),
+        );
+        underlay.socket.writable().await.unwrap();
+        let start = Instant::now();
+        for (path, probe) in underlay.poll_probes(start).pings {
+            underlay.on_pong(path, probe, start + Duration::from_millis(1));
+        }
+        let direct_route = Route { carrier: Carrier::Udp, addr: direct_addr };
+        assert_eq!(underlay.paths.current(), Some(direct_route), "the selector holds the direct path");
+        underlay.transmit(b"settle", SendClass::Bulk);
+        assert_eq!(underlay.direct, Some(direct_route));
+        let response = {
+            let mut response = vec![0u8; cmux_transport::classify::WG_RESPONSE_LEN];
+            response[0] = 2;
+            response
+        };
+        let got = |socket: &std::net::UdpSocket| {
+            let mut buffer = [0u8; 2048];
+            std::iter::from_fn(|| socket.recv(&mut buffer).ok().map(|len| buffer[..len].to_vec()))
+                .filter(|datagram| *datagram == response)
+                .count()
+        };
+        let _ = (got(&direct), got(&relay));
+        // The initiation came through the peer's TURN relay; boringtun answers it.
+        underlay.authenticated(Origin { path: UDP_PATH, addr: Some(relay_addr) });
+        underlay.send(&response);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(got(&direct), 1, "the selected direct route carries the answer");
+        assert!(got(&relay) >= 1, "the answer went on the direct route alone; a flap loses it");
+        // Data keeps to the selected route: no relay copy.
+        underlay.send(&[4, 0, 0, 0, 9, 9, 9, 9]);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let mut buffer = [0u8; 2048];
+        assert!(relay.recv(&mut buffer).is_err(), "data went through the relay too");
+    }
+
+    /// The flap itself, in paused time: for two minutes the direct path
+    /// answers for 1 s and drops everything for the next 1.5 s, the relay
+    /// carries every datagram, and the session sends data every 10 ms. A
+    /// handshake initiation arrives through the relay every 1.7 s (a rekey
+    /// lands anywhere in the flap). Each answer that reaches the peer on no
+    /// route is a handshake the initiator restarts after REKEY_TIMEOUT
+    /// (5 s), since its repeats are refused as replays. None may be lost.
+    #[tokio::test(start_paused = true)]
+    async fn a_flapping_direct_path_loses_no_handshake_response() {
+        let direct = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let relay = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        direct.set_nonblocking(true).unwrap();
+        relay.set_nonblocking(true).unwrap();
+        let (direct_addr, relay_addr) = (direct.local_addr().unwrap(), relay.local_addr().unwrap());
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[direct_addr.to_string(), relay_addr.to_string()],
+                peer_relayed: &[relay_addr.to_string()],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
+                control,
+                relay_shared: Default::default(),
+            },
+            &DialOptions::default(),
+        );
+        underlay.socket.writable().await.unwrap();
+        let mut response = vec![0u8; cmux_transport::classify::WG_RESPONSE_LEN];
+        response[0] = 2;
+        let delivered = |socket: &std::net::UdpSocket, up: bool| {
+            let mut buffer = [0u8; 2048];
+            let mut count = 0;
+            while let Ok(len) = socket.recv(&mut buffer) {
+                count += usize::from(up && buffer[..len] == response[..]);
+            }
+            count
+        };
+        let step = Duration::from_millis(10);
+        let start = Instant::now();
+        let (mut handshakes, mut lost, mut direct_held_at_loss) = (0, 0, 0);
+        let mut next_handshake = start + Duration::from_millis(3000);
+        while Instant::now() < start + Duration::from_secs(120) {
+            let now = Instant::now();
+            let up = (now - start).as_millis() % 2500 < 1000;
+            let due = underlay.poll_probes(now).pings;
+            for (path, probe) in due {
+                let on_direct = underlay.paths.route_of(path).is_some_and(|route| route.addr == direct_addr);
+                if up || !on_direct {
+                    underlay.on_pong(path, probe, now + Duration::from_millis(300));
+                }
+            }
+            underlay.send(&[4, 0, 0, 0, 1, 2, 3, 4]);
+            let _ = (delivered(&direct, false), delivered(&relay, false));
+            if now >= next_handshake {
+                next_handshake = now + Duration::from_millis(370);
+                handshakes += 1;
+                let held = underlay.direct;
+                underlay.authenticated(Origin { path: UDP_PATH, addr: Some(relay_addr) });
+                underlay.send(&response);
+                if delivered(&direct, up) + delivered(&relay, true) == 0 {
+                    lost += 1;
+                    direct_held_at_loss += usize::from(held.is_some_and(|route| route.addr == direct_addr));
+                }
+            }
+            tokio::time::advance(step).await;
+        }
+        eprintln!(
+            "flap: {handshakes} handshakes, {lost} answers lost ({direct_held_at_loss} on the held direct route)"
+        );
+        assert!(handshakes >= 60);
+        assert_eq!(
+            lost, 0,
+            "{lost} of {handshakes} handshake answers lost: each a 5 s REKEY_TIMEOUT restart"
+        );
     }
 
     /// A liveness pong expects nothing back, so the quiet after it does not
