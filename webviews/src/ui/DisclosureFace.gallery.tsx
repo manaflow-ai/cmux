@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery labels are fixture content, not shipped UI.
-// The room between a control's words and its chevron (design/chevrons.md; Leo, 2026-11-27:
+// The room between a control's words and its chevron (docs/cmux-next/ui-guidelines.md; Leo, 2026-11-27:
 // "these chevrons are too close dont we have any guidelines for these yet?"). Each variant sets
 // --ui-disclosure-gap, the box gap before the registry chevron; the selected one is the default.
 // The first row is the old text "⌄" for comparison; the capped chip shows the label ellipsizing

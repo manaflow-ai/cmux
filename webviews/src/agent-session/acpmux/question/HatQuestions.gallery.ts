@@ -108,7 +108,7 @@ export default componentEntry<Props>({
       props: {},
     },
     // Leo, 2026-11-27: "these chevrons are too close dont we have any guidelines for these yet?"
-    // The pager's spacing (design/chevrons.md; `<html data-pager-look>`), each with three waiting.
+    // The pager's spacing (docs/cmux-next/ui-guidelines.md; `<html data-pager-look>`), each with three waiting.
     "pager-before": {
       note: "Before: 20 px steps touching the count; each chevron's 12 px box stands 4 px from 1 of 3. Too close.",
       props: { pagerLook: "before" },

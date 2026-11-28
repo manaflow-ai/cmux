@@ -208,7 +208,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The < 1 of 3 > pager follows design/chevrons.md (Leo, 2026-11-27: "these chevrons are too close dont we
+/* The < 1 of 3 > pager follows docs/cmux-next/ui-guidelines.md (Leo, 2026-11-27: "these chevrons are too close dont we
    have any guidelines for these yet?"): each step is a 24 px target (--ds-control-compact) with a
    --ds-space-1 gap to the count, so a chevron's 12 px box stands 10 px from the words; before, 20 px
    steps touching the count left 4. The steps' negative block margin keeps the head row's height.

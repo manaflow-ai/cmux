@@ -149,7 +149,7 @@
   outline: none;
 }
 .acpmux-location-button {
-  /* Its trailing chevron keeps the one label-to-chevron room (design/chevrons.md; Leo, 2026-11-27:
+  /* Its trailing chevron keeps the one label-to-chevron room (docs/cmux-next/ui-guidelines.md; Leo, 2026-11-27:
      "these chevrons are too close dont we have any guidelines for these yet?"): the gap before it is
      --ui-disclosure-gap and its end padding takes the chevron's own bearing, not local numbers. */
   --ui-ghost-end-bearing: var(--ui-disclosure-bearing);

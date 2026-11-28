@@ -8,7 +8,7 @@
 //   between MIN_GAP and MAX_GAP px after the right edge of the last visible words before it on its line
 //   (never on the words: Leo, 2026-11-27, on a sender's chip and machine with the chevron touching
 //   them, "these chevrons are too close dont we have any guidelines for these yet?";
-//   design/chevrons.md);
+//   docs/cmux-next/ui-guidelines.md);
 // - a closed chevron's glyph is taller than wide (it points right), an open one's wider than tall
 //   (it points down).
 //
@@ -23,11 +23,11 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
   setDefaultTimeout(240_000);
   /** The farthest a chevron's glyph may start after its words, in CSS px. */
   const MAX_GAP = 8;
-  /** The nearest a chevron's glyph may start after its words, in CSS px (design/chevrons.md). */
-  const MIN_GAP = 3;
+  /** The nearest a chevron's glyph may start after its words' ink: --grid-chevron-gap (docs/cmux-next/ui-guidelines.md). */
+  const MIN_GAP = 4;
   /** The least a first-line preview may keep when it shows: room for an ellipsis and a letter, else it goes. */
   const MIN_PREVIEW = 24;
-  /** The nearest a chevron may start to the chip (sender, recipient) it follows: design/chevrons.md's 8px floor. */
+  /** The nearest a chevron may start to the chip (sender, recipient) it follows: docs/cmux-next/ui-guidelines.md's 8px floor. */
   const MIN_CHIP_GAP = 8;
   const LOG = process.env.CMUX_CHEVRON_LOG === "1";
   const SCENES: { entry: string; variant: string }[] = [
@@ -44,7 +44,7 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     { entry: "agent-pane.message-line-look", variant: "single" },
     // Shut-and-stacked and opened lines: the toggle holds no words, so the chevron follows the
     // sentence's last box, a link chip or bare words (a machine, "· and 7 more commands"); before
-    // 2026-11-27 an opened one drew it on the last letter (design/chevrons.md).
+    // 2026-11-27 an opened one drew it on the last letter (docs/cmux-next/ui-guidelines.md).
     { entry: "agent-pane.message-line-look", variant: "stacked" },
     { entry: "agent-pane.message-line-look", variant: "opened" },
     // An opened lead thought: its own first line and its chevron right after it (cmux#27896 parked it
@@ -55,8 +55,9 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     { entry: "agent-pane.message-line-look", variant: "quiet" },
     { entry: "agent-pane.message-line-look", variant: "quiet-received-open" },
     // A sender on another machine names it after its name ("codex-lane · studio-mac"), closed and
-    // open, default and quiet looks: the chevron follows the machine's name, not the chip (Leo,
-    // 2026-11-27, on "· gcp-agent-lane-19⌄"; from lane/chevron-producer, #62876).
+    // open, default and quiet looks: the chevron follows the machine's name, not the chip (Leo, 2026-11-27, on
+    // "· gcp-agent-lane-19⌄": "these chevrons are too close dont we have any guidelines for these yet?").
+    { entry: "agent-pane.message-line-look", variant: "opened" },
     { entry: "agent-pane.message-line-look", variant: "quiet-sent-open" },
     { entry: "agent-pane.remote-sender", variant: "machine" },
     { entry: "agent-pane.remote-sender", variant: "machine-open" },

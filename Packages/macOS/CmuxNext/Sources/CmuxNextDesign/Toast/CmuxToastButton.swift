@@ -57,7 +57,7 @@ public final class CmuxToastButton: ClickableButton {
     static let disclosureChevron = NSImage(systemSymbolName: "chevron.up", accessibilityDescription: nil)?
         .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold))
     /// Room between an open disclosure's title and its chevron: the layout grid's one chevron token
-    /// (design/chevrons.md; Leo, 2026-11-27: "these chevrons are too close dont we have any guidelines
+    /// (docs/cmux-next/ui-guidelines.md; Leo, 2026-11-27: "these chevrons are too close dont we have any guidelines
     /// for these yet?").
     static let chevronGap: CGFloat = LayoutGrid.chevronGap
     /// A quiet button that rests on a faint fill of the toast's text color, so it reads as a button and not as

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// No control draws its disclosure chevron as a text "⌄" (design/chevrons.md): a font's
+// No control draws its disclosure chevron as a text "⌄" (docs/cmux-next/ui-guidelines.md): a font's
 // glyph sits on the baseline with the fallback font's side bearing, so its room after the label
 // changes per font and per machine, and two shipped chips drew it on their last letter (Leo,
 // 2026-11-27: "these chevrons are too close dont we have any guidelines for these yet?"). Draw the
@@ -30,7 +30,7 @@ const walk = (dir) => {
 walk(root);
 if (bad.length > 0) {
   console.error(
-    `A text "⌄" draws a disclosure chevron; use DisclosureFace or DisclosureChevron (design/chevrons.md):\n${bad.join("\n")}`,
+    `A text "⌄" draws a disclosure chevron; use DisclosureFace or DisclosureChevron (docs/cmux-next/ui-guidelines.md):\n${bad.join("\n")}`,
   );
   process.exit(1);
 }
