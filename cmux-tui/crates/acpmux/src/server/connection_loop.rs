@@ -217,6 +217,9 @@ pub(super) async fn serve_connection_from(
                 );
             }
             Message::Request { id, method: m, mut params } => {
+                if m == method::MUX_SHUTDOWN {
+                    tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: read");
+                }
                 // Every request its caller sent, refused ones too (`caller_stats.rs`); an
                 // `initialize` once it named the client, below.
                 if m != method::INITIALIZE {

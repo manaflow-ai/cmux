@@ -154,6 +154,7 @@ pub mod install_share;
 pub mod key_check;
 pub mod memory_follow;
 pub mod model_router;
+pub mod spec_exec;
 mod subscription_store;
 mod subscriptions;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
@@ -388,6 +389,7 @@ mod session_handle;
 pub mod session_icon;
 pub mod session_identity;
 pub mod session_liveness;
+pub mod session_manifest;
 pub mod session_name;
 pub mod session_order;
 mod session_scope;
