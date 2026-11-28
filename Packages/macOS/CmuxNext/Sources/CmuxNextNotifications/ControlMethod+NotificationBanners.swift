@@ -12,7 +12,8 @@ import Foundation
 /// `notifications.open {"id": <banner id>}`: shows a tab banner's own surface, as its click does
 /// (`DesktopNotifier.openTab`), never one the caller names, and answers `{opened, surface}`; an id no
 /// listed banner has is `not_found` and runs nothing, except a tab banner an earlier launch posted that is still in
-/// Notification Center: it opens from the delivered banner's surface and answers `{opened, surface, source: "delivered"}`. Only a daemon notification's banner opens: any
+/// Notification Center: it opens from the delivered banner's surface and answers `{opened, surface, source: "delivered",
+/// waited_ms}` (the list is re-read for up to 2 s while the banner is missing: just after a relaunch it can lag). Only a daemon notification's banner opens: any
 /// other (passkey, iPhone pairing, attention, Runs) acts on the person's own click and is
 /// `person_required`, and a web page's banner runs none of the page's click handler. It is an
 /// explicit focus-intent command (skills/cmux-socket-policy): it shows the tab and moves in-app focus there.
@@ -51,6 +52,7 @@ extension ControlMethod {
                             "opened": .string(id),
                             "surface": delivered.surface.map { .number(Double($0)) } ?? .null,
                             "source": .string("delivered"),
+                            "waited_ms": .number(Double(delivered.waitedMs)),
                         ]
                     }
                 }

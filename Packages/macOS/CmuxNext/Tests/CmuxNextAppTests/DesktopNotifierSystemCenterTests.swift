@@ -22,6 +22,30 @@ struct DesktopNotifierSystemCenterTests {
         notifier.prepare() // outside the main app bundle: no center, no crash
     }
 
+    /// Just after a relaunch Notification Center's delivered list can lack an old launch's banner for a moment
+    /// (2026-11-28 09:01Z, cmuxterm-hq run 46128344761: the first two of five lookups 0.3 s after the launch
+    /// answered not_found, the next three opened): the lookup re-reads it until it shows, within its bound.
+    @Test func aDeliveredBannerThatShowsLateIsFoundWithinTheBound() async {
+        final class Reads: @unchecked Sendable { var n = 0 }
+        let reads = Reads()
+        let got = await DesktopNotifier.readUntilFound(within: .seconds(2), every: .milliseconds(5)) {
+            reads.n += 1
+            return reads.n < 3 ? (false, nil) : (true, 77)
+        }
+        #expect(got.found && got.surface == 77 && reads.n == 3)
+    }
+
+    /// One that never shows is not found once the bound passes, without reading forever.
+    @Test func aDeliveredBannerThatNeverShowsIsNotFoundPastTheBound() async {
+        final class Reads: @unchecked Sendable { var n = 0 }
+        let reads = Reads()
+        let got = await DesktopNotifier.readUntilFound(within: .milliseconds(40), every: .milliseconds(5)) {
+            reads.n += 1
+            return (false, nil)
+        }
+        #expect(!got.found && got.waitedMs >= 40 && reads.n > 1 && reads.n < 40)
+    }
+
     @Test func aUsersLaunchUsesTheSystemCenter() {
         #expect(DesktopNotifier.usesSystemCenter(in: [:]))
         #expect(DesktopNotifier.usesSystemCenter(in: ["CMUX_NEXT_NATIVE_NOTIFICATIONS": "1"]))

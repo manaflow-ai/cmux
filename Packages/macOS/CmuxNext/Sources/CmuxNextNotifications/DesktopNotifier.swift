@@ -295,8 +295,39 @@ package final class DesktopNotifier: NSObject {
     private let findDeadline = DemandTimer(owner: "notifications.open-when-found")
 
     /// A banner `id` in Notification Center that this launch did not post (it survived a relaunch):
-    /// whether it is there and its tab's surface (`userInfo["surface"]`). Nil center: not found.
-    package func deliveredSurface(_ id: String) async -> (found: Bool, surface: UInt64?) {
+    /// whether it is there and its tab's surface (`userInfo["surface"]`), re-read for up to `within` while it is
+    /// missing. Nil center: not found at once.
+    ///
+    /// Just after a relaunch the delivered list can lack banners the old launch left: on 2026-11-28 09:01Z
+    /// (Nightly a1502d27c010, cmuxterm-hq run 46128344761) the first two of five old-launch banners opened 0.3 s
+    /// after the launch answered `not_found`, and the three looked up right after them opened.
+    package func deliveredSurface(_ id: String, within: Duration = Self.deliveredWait)
+        async -> (found: Bool, surface: UInt64?, waitedMs: Int) {
+        guard configuredCenter() != nil else { return (false, nil, 0) }
+        return await Self.readUntilFound(within: within, every: .milliseconds(100)) { [weak self] in
+            await self?.deliveredOnce(id) ?? (false, nil)
+        }
+    }
+
+    /// How long `deliveredSurface` re-reads a missing banner.
+    package nonisolated static let deliveredWait: Duration = .seconds(2)
+
+    /// Runs `read` until it finds, or once more past `within` (every `every`): what it found and when, in ms.
+    package nonisolated static func readUntilFound(within: Duration, every: Duration,
+                                                   read: @Sendable () async -> (found: Bool, surface: UInt64?))
+        async -> (found: Bool, surface: UInt64?, waitedMs: Int) {
+        let clock = ContinuousClock()
+        let start = clock.now
+        while true {
+            let got = await read()
+            let waited = start.duration(to: clock.now)
+            let ms = Int(waited.components.seconds * 1000 + waited.components.attoseconds / 1_000_000_000_000_000)
+            if got.found || waited >= within { return (got.found, got.surface, ms) }
+            try? await Task.sleep(for: every)
+        }
+    }
+
+    private func deliveredOnce(_ id: String) async -> (found: Bool, surface: UInt64?) {
         guard let center = configuredCenter() else { return (false, nil) }
         return await withCheckedContinuation { continuation in
             center.getDeliveredNotifications { delivered in
