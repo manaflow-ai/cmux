@@ -35,6 +35,17 @@
 //!   peer disconnects across about 200 peers, with a flat 120 s hold that a short-lived punched
 //!   link cleared each time.
 //!
+//! - The claim ([`Offer::claim`]): the dialer's offer names a random nonce and an answerer that
+//!   knows it echoes it. Each side then opens with a 12-byte preamble ([`CLAIM_MAGIC`] and the
+//!   nonce) and reads the other's, and a listener that reads one routes the connection by its
+//!   nonce ([`Punches::claimed`]): to this machine's own punch for it when this machine dialed,
+//!   so the dialer stays the Noise initiator whichever side's SYN made the connection. Before
+//!   it, where only the dialer's address took connections (a public VM dialing a NATed Mac),
+//!   the answerer's connect reached the dialer's listener, both sides waited as the responder,
+//!   and the dialer's own connect then failed on the same pair of addresses: fleet census
+//!   2026-11-28, 12,320 punches in 24 h, 2.6% direct, 5,050 "no candidate of 1 connected".
+//!   A dialer from before it sends no nonce, and both sides open as they did.
+//!
 //! Off with `ACPMUX_DIRECT_PUNCH=0` (no listener of its own, no offers) or `directPort` 0.
 
 use std::collections::{HashMap, HashSet};
@@ -86,6 +97,14 @@ const PENDING_KEEP: Duration = Duration::from_secs(30);
 const MAX_CANDIDATES: usize = 16;
 /// The longest offer line.
 const MAX_OFFER_BYTES: usize = 4096;
+/// A claimed punch's preamble starts with these 4 bytes, then the nonce (8, big-endian). A
+/// legacy circuit's first bytes are a length prefix no larger than `MAX_FRAME_BYTES`; 0xFFFF
+/// read as either a 2- or a 4-byte prefix is past any first handshake frame.
+pub const CLAIM_MAGIC: [u8; 4] = [0xff, 0xff, b'P', b'C'];
+/// The preamble's length.
+pub const CLAIM_LEN: usize = 12;
+/// How long a listener waits for a connection's first bytes before taking it as legacy.
+const CLAIM_PEEK_BOUND: Duration = Duration::from_millis(1500);
 
 /// Keep `port`'s public addresses offered while `carrier` lives: the router's mapping
 /// ([`portmap`]) and, unless `ACPMUX_PUNCH_REFLEXIVE=0`, the STUN-read address ([`reflexive`]).
@@ -115,6 +134,87 @@ fn enabled_by(value: Option<&str>) -> bool {
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Offer {
     pub candidates: Vec<SocketAddr>,
+    /// The dialer's punch nonce, echoed by an answerer that opens with the claim preamble.
+    /// Absent from (and ignored by) a machine from before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim: Option<u64>,
+}
+
+/// The preamble a claimed punch opens with.
+pub fn claim_preamble(nonce: u64) -> [u8; CLAIM_LEN] {
+    let mut out = [0u8; CLAIM_LEN];
+    out[..4].copy_from_slice(&CLAIM_MAGIC);
+    out[4..].copy_from_slice(&nonce.to_be_bytes());
+    out
+}
+
+/// The nonce of a preamble, or None for anything else.
+pub fn claim_nonce(bytes: &[u8]) -> Option<u64> {
+    if bytes.len() < CLAIM_LEN || bytes[..4] != CLAIM_MAGIC {
+        return None;
+    }
+    Some(u64::from_be_bytes(bytes[4..CLAIM_LEN].try_into().ok()?))
+}
+
+/// A punch nonce: random, never 0.
+fn new_nonce() -> u64 {
+    let mut bytes = [0u8; 8];
+    if getrandom::fill(&mut bytes).is_err() {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos() as u64);
+        bytes = (t ^ u64::from(std::process::id()).rotate_left(32)).to_be_bytes();
+    }
+    u64::from_be_bytes(bytes).max(1)
+}
+
+/// Who waits on a claimed punch's nonce on this machine.
+pub(crate) enum Claim {
+    /// This machine's own punch, the Noise initiator: a connection the far side's SYN made goes
+    /// to it.
+    Dial(tokio::sync::oneshot::Sender<(TcpStream, SocketAddr)>),
+    /// An offer this machine answers: a connection the dialer's SYN made is the responder's.
+    Answer,
+}
+
+/// What a listener does with a connection whose preamble it read.
+pub(crate) enum Claimed {
+    /// Hand it to this machine's punch, which dials over it.
+    Dial(tokio::sync::oneshot::Sender<(TcpStream, SocketAddr)>),
+    /// Accept it as the responder.
+    Answer,
+}
+
+/// A nonce's claim, removed when the punch or the answer it belongs to ends.
+struct ClaimGuard<'a> {
+    punches: &'a Punches,
+    nonce: u64,
+}
+
+impl Drop for ClaimGuard<'_> {
+    fn drop(&mut self) {
+        self.punches.claims.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.nonce);
+    }
+}
+
+/// Why a punch made no connection: before the two sides traded candidates (the offer refused,
+/// no relay stream, no answer, no candidate) or after.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PunchMiss {
+    /// The offer was never answered over the relay: says nothing about the network between
+    /// the two, so the hold does not grow.
+    Untraded(String),
+    /// Candidates were traded (or refused by a machine without the service) and no
+    /// connection opened.
+    Missed(String),
+}
+
+impl std::fmt::Display for PunchMiss {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Untraded(why) | Self::Missed(why) => f.write_str(why),
+        }
+    }
 }
 
 /// Whether `ip` is one a machine on another network might reach this one at: a LAN IPv4 (a
@@ -235,6 +335,8 @@ pub(crate) struct Punches {
     punched_at: Mutex<HashMap<(String, CircuitLane), Instant>>,
     /// Offers being answered now (`MAX_ANSWERS_AT_ONCE`).
     answering: std::sync::atomic::AtomicUsize,
+    /// Claimed punches running now, by nonce ([`Claim`]).
+    claims: Mutex<HashMap<u64, Claim>>,
     /// Counts for `_acpmux/carrier` and the tests.
     pub(crate) stats: PunchStats,
 }
@@ -314,6 +416,44 @@ impl Punches {
     /// in a row.
     pub(crate) fn miss(&self, daemon: &str) {
         self.miss_at(daemon, Instant::now(), crate::peer_link::jitter());
+    }
+
+    /// A punch to `daemon` whose offer went unanswered: hold it off for one `PUNCH_HOLD`
+    /// (jittered) without counting a miss, so a relay hiccup does not grow the hold the way a
+    /// network that refuses every SYN does.
+    pub(crate) fn pause(&self, daemon: &str) {
+        self.pause_at(daemon, Instant::now(), crate::peer_link::jitter());
+    }
+
+    pub(crate) fn pause_at(&self, daemon: &str, now: Instant, jitter: f64) -> PunchHold {
+        let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
+        let misses = held.get(daemon).map_or(0, |h| h.misses);
+        let until = now + hold_for(1, jitter);
+        let hold = match held.get(daemon) {
+            Some(h) if h.until > until => *h,
+            _ => PunchHold { until, misses },
+        };
+        held.insert(daemon.to_owned(), hold);
+        hold
+    }
+
+    /// Wait on `nonce` for a connection the far side's SYN made: as `claim` says.
+    fn claim_nonce(&self, nonce: u64, claim: Claim) -> ClaimGuard<'_> {
+        self.claims.lock().unwrap_or_else(|e| e.into_inner()).insert(nonce, claim);
+        ClaimGuard { punches: self, nonce }
+    }
+
+    /// Who takes a connection whose preamble named `nonce`: a dial's claim is taken (one
+    /// connection each), an answer's stays until the answer ends. None: no punch here knows it.
+    pub(crate) fn claimed(&self, nonce: u64) -> Option<Claimed> {
+        let mut claims = self.claims.lock().unwrap_or_else(|e| e.into_inner());
+        match claims.get(&nonce)? {
+            Claim::Answer => Some(Claimed::Answer),
+            Claim::Dial(_) => match claims.remove(&nonce) {
+                Some(Claim::Dial(tx)) => Some(Claimed::Dial(tx)),
+                _ => None,
+            },
+        }
     }
 
     pub(crate) fn miss_at(&self, daemon: &str, now: Instant, jitter: f64) -> PunchHold {
@@ -500,10 +640,13 @@ impl HubCarrier {
                         .unwrap_or_else(|e| e.into_inner())
                         .insert((daemon.clone(), lane), (tcp, address, Instant::now()));
                 }
-                Err(why) => {
-                    tracing::info!("hub carrier punch: none ({why}); the relay");
+                Err(miss) => {
+                    tracing::info!("hub carrier punch: none ({miss}); the relay");
                     punch.stats.failed.fetch_add(1, Relaxed);
-                    punch.miss(&daemon);
+                    match miss {
+                        PunchMiss::Untraded(_) => punch.pause(&daemon),
+                        PunchMiss::Missed(_) => punch.miss(&daemon),
+                    }
                 }
             }
             punch.release(&daemon, lane);
@@ -530,10 +673,15 @@ impl HubCarrier {
         &self,
         daemon: &str,
         lane: CircuitLane,
-    ) -> Result<(TcpStream, SocketAddr), String> {
+    ) -> Result<(TcpStream, SocketAddr), PunchMiss> {
+        use PunchMiss::{Missed, Untraded};
         self.direct.punch.stats.tried.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let port = self.direct.punch.listen_port().ok_or("no punch port")?;
-        let ours = Offer { candidates: self.direct.punch.candidates() };
+        let port = self.direct.punch.listen_port().ok_or(Untraded("no punch port".into()))?;
+        let nonce = new_nonce();
+        let ours = Offer { candidates: self.direct.punch.candidates(), claim: Some(nonce) };
+        // Claimed before the offer goes out: the answerer may connect before its answer lands.
+        let (claimed_tx, claimed_rx) = tokio::sync::oneshot::channel();
+        let _claim = self.direct.punch.claim_nonce(nonce, Claim::Dial(claimed_tx));
         let mut report = DialReport::default();
         let hello = hello_record(CircuitService::DirectOffer);
         let stream = match self
@@ -541,28 +689,55 @@ impl HubCarrier {
             .await
         {
             KeptOpen::Stream(stream) => stream,
-            KeptOpen::Refused(refusal) => return Err(format!("offer refused: {refusal}")),
+            KeptOpen::Refused(refusal) => return Err(Missed(format!("offer refused: {refusal}"))),
             KeptOpen::Failed(why) | KeptOpen::Lost(why) | KeptOpen::Plain(why) => {
-                return Err(format!("no offer stream: {why}"));
+                return Err(Untraded(format!("no offer stream: {why}")));
             }
         };
         let theirs = tokio::time::timeout(OFFER_BOUND, exchange(stream, &ours))
             .await
-            .map_err(|_| format!("no offer answer in {OFFER_BOUND:?}"))??;
+            .map_err(|_| Untraded(format!("no offer answer in {OFFER_BOUND:?}")))?
+            .map_err(Untraded)?;
         let toward = usable_toward(&theirs.candidates);
         if toward.is_empty() {
-            return Err("the machine offered no candidate".into());
+            return Err(Missed("the machine offered no candidate".into()));
         }
+        let claim = (theirs.claim == Some(nonce)).then_some(nonce);
         tracing::debug!(
-            "hub carrier punch: {} for {}: ours {:?}, theirs {:?}",
+            "hub carrier punch: {} for {}: ours {:?}, theirs {:?}, claimed {}",
             daemon,
             lane.name(),
             ours.candidates,
-            toward
+            toward,
+            claim.is_some()
         );
-        open_toward(port, &toward, PUNCH_WINDOW).await.ok_or_else(|| {
-            format!("no candidate of {} connected in {PUNCH_WINDOW:?}", toward.len())
-        })
+        let missed = || {
+            Missed(format!(
+                "no candidate of {} connected in {PUNCH_WINDOW:?}; ours {:?}, theirs {:?}",
+                toward.len(),
+                ours.candidates,
+                toward
+            ))
+        };
+        if claim.is_none() {
+            return open_toward(port, &toward, PUNCH_WINDOW, None).await.ok_or_else(missed);
+        }
+        // Whichever opens first: this side's connect, or the far side's reaching this
+        // listener ([`Punches::claimed`]).
+        let mut claimed_rx = claimed_rx;
+        let opened = open_toward(port, &toward, PUNCH_WINDOW, claim);
+        tokio::select! {
+            found = opened => match found {
+                Some(found) => Ok(found),
+                // A preamble the listener read just as the window ended.
+                None => tokio::time::timeout(ATTEMPT_BOUND, &mut claimed_rx)
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                    .ok_or_else(missed),
+            },
+            Ok(found) = &mut claimed_rx => Ok(found),
+        }
     }
 
     /// Serve one offer stream from `from`: read its candidates, answer ours, and open toward
@@ -580,20 +755,26 @@ impl HubCarrier {
         let Some(port) = self.direct.punch.listen_port() else { return };
         // At the cap the offer goes unanswered: the dialer's punch fails and holds it off.
         let Some(_slot) = self.direct.punch.answer_slot() else { return };
-        let ours = Offer { candidates: self.direct.punch.candidates() };
         let (read, mut write) = tokio::io::split(io);
         let mut read = tokio::io::BufReader::new(read);
         let theirs = match tokio::time::timeout(OFFER_BOUND, read_offer(&mut read)).await {
             Ok(Ok(theirs)) => theirs,
             _ => return,
         };
+        // The dialer's nonce, echoed: both sides then open with the preamble.
+        let claim = theirs.claim.filter(|&n| n != 0);
+        let _claim = claim.map(|n| self.direct.punch.claim_nonce(n, Claim::Answer));
+        let ours = Offer { candidates: self.direct.punch.candidates(), claim };
         if write_offer(&mut write, &ours).await.is_err() {
             return;
         }
         let _ = write.shutdown().await;
         self.direct.punch.stats.answered.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let toward = usable_toward(&theirs.candidates);
-        let Some((tcp, from)) = open_toward(port, &toward, PUNCH_WINDOW).await else { return };
+        let Some((tcp, from)) = open_toward(port, &toward, PUNCH_WINDOW, claim).await else {
+            return;
+        };
+        tracing::info!("hub carrier punch: answered, {from} connected");
         let Some(incoming) = self.direct.incoming() else { return };
         let _ = tcp.set_nodelay(true);
         let (read, write) = tcp.into_split();
@@ -632,11 +813,13 @@ async fn read_offer(read: &mut (impl tokio::io::AsyncBufRead + Unpin)) -> Result
 }
 
 /// Open from local `port` toward each of `toward`, again every [`PUNCH_EVERY`] while one has
-/// not connected, until `window` ends: the first connection, and where it went.
+/// not connected, until `window` ends: the first connection, and where it went. With `claim`,
+/// a connection counts once the far side answered its preamble ([`preamble_connected`]).
 pub async fn open_toward(
     port: u16,
     toward: &[SocketAddr],
     window: Duration,
+    claim: Option<u64>,
 ) -> Option<(TcpStream, SocketAddr)> {
     let deadline = tokio::time::Instant::now() + window;
     let mut tries = tokio::task::JoinSet::new();
@@ -649,8 +832,14 @@ pub async fn open_toward(
                 }
                 let started = now;
                 let bound = ATTEMPT_BOUND.min(deadline - now);
-                if let Ok(Ok(tcp)) = tokio::time::timeout(bound, connect_from(port, address)).await
-                {
+                let attempt = async {
+                    let mut tcp = connect_from(port, address).await.ok()?;
+                    if let Some(nonce) = claim {
+                        preamble_connected(&mut tcp, nonce).await.ok()?;
+                    }
+                    Some(tcp)
+                };
+                if let Ok(Some(tcp)) = tokio::time::timeout(bound, attempt).await {
                     return Some((tcp, address));
                 }
                 tokio::time::sleep_until((started + PUNCH_EVERY).min(deadline)).await;
@@ -664,6 +853,49 @@ pub async fn open_toward(
         }
     }
     None
+}
+
+/// A connecting side's preamble: send ours, then read the same back, from the far listener
+/// that routed it or, in a simultaneous open, from the far side's own connect.
+pub async fn preamble_connected(tcp: &mut TcpStream, nonce: u64) -> std::io::Result<()> {
+    use tokio::io::AsyncReadExt;
+    let ours = claim_preamble(nonce);
+    tcp.write_all(&ours).await?;
+    let mut theirs = [0u8; CLAIM_LEN];
+    tcp.read_exact(&mut theirs).await?;
+    if theirs == ours { Ok(()) } else { Err(std::io::Error::other("another punch's preamble")) }
+}
+
+/// A listener's read of an accepted connection's preamble: the nonce, with the preamble read
+/// off, or None (nothing read) for a legacy connection, or when its first bytes do not come
+/// within [`CLAIM_PEEK_BOUND`].
+pub async fn preamble_accepted(tcp: &TcpStream) -> Option<u64> {
+    let read = async {
+        let mut buf = [0u8; CLAIM_LEN];
+        loop {
+            let n = tcp.peek(&mut buf).await.ok()?;
+            if n == 0 || buf[..n.min(4)] != CLAIM_MAGIC[..n.min(4)] {
+                return None;
+            }
+            if n >= CLAIM_LEN {
+                return claim_nonce(&buf);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+    let nonce = tokio::time::timeout(CLAIM_PEEK_BOUND, read).await.ok().flatten()?;
+    let mut sink = [0u8; CLAIM_LEN];
+    let mut got = 0;
+    while got < CLAIM_LEN {
+        tcp.readable().await.ok()?;
+        match tcp.try_read(&mut sink[got..]) {
+            Ok(0) => return None,
+            Ok(n) => got += n,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(_) => return None,
+        }
+    }
+    Some(nonce)
 }
 
 /// A connect to `to` from local `port`, the port shared with this machine's listener.

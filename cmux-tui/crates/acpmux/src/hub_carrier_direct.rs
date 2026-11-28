@@ -353,14 +353,31 @@ impl HubCarrier {
                     continue;
                 };
                 let _ = tcp.set_nodelay(true);
-                let (read, write) = tcp.into_split();
-                let link = LengthDelimitedLink::new(
-                    format!("hub carrier direct from {from}"),
-                    MAX_FRAME_BYTES,
-                    read,
-                    write,
-                );
+                let punches = carrier.clone();
                 scope().spawn_named("hub carrier direct circuit", async move {
+                    use tokio::io::AsyncWriteExt;
+                    let mut tcp = tcp;
+                    // A claimed punch's connection ([`super::punch::Claim`]): this machine's own
+                    // punch dials over it when this machine dialed; else it is the responder's.
+                    let mut name = format!("hub carrier direct from {from}");
+                    if let Some(nonce) = super::punch::preamble_accepted(&tcp).await {
+                        use super::punch::Claimed;
+                        let Some(claimed) = punches.direct.punch.claimed(nonce) else { return };
+                        if tcp.write_all(&super::punch::claim_preamble(nonce)).await.is_err() {
+                            return;
+                        }
+                        match claimed {
+                            Claimed::Dial(tx) => {
+                                tracing::info!("hub carrier punch: {from} reached this listener");
+                                let _ = tx.send((tcp, from));
+                                return;
+                            }
+                            Claimed::Answer => name = format!("hub carrier punched from {from}"),
+                        }
+                    }
+                    drop(punches);
+                    let (read, write) = tcp.into_split();
+                    let link = LengthDelimitedLink::new(name, MAX_FRAME_BYTES, read, write);
                     incoming.accept(Box::new(link), NetworkPeer::Tcp).await;
                     drop(permit);
                 });
