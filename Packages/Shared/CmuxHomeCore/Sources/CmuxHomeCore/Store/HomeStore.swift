@@ -25,6 +25,17 @@ public final class HomeStore {
     /// for the reconnect (`offlineSendDeadline`).
     public internal(set) var connection: HomeConnection = .connecting
     public private(set) var rows: [InboxRow] = []
+    /// The participant ids of every Chief `rows` lists, computed once per `rows` change: the sidebar
+    /// asks per row whether a Chief is listed, and a walk of every row's participants per row was
+    /// O(rows²) at ~1,100 workspaces (thread p1795759419, cmux#59531's class). Reading it observes `rows`.
+    public var chiefIDs: Set<String> {
+        let rows = rows
+        if let chiefIDsMemo { return chiefIDsMemo }
+        let ids = Set(rows.lazy.flatMap(\.summary.participants).filter(\.isChief).map(\.id.rawValue))
+        chiefIDsMemo = ids
+        return ids
+    }
+    @ObservationIgnored private var chiefIDsMemo: Set<String>?
     /// Increments whenever a transcript's visible items change.
     public private(set) var transcriptVersion: [ConversationID: Int] = [:]
     /// Conversations an owner named this session (its inbox, an event, a
@@ -428,6 +439,6 @@ public final class HomeStore {
     /// cache, so a rebuild writes nothing (the mirror and the log schedule their own writes).
     func rebuildRows() {
         let next = mirror.inboxRows(log: log, typing: Set(typing.keys), tools: toolRuns)
-        if next != rows { rows = next }
+        if next != rows { rows = next; chiefIDsMemo = nil }
     }
 }
