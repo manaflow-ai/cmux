@@ -125,9 +125,10 @@ function page(view: { top: number; height: number }) {
   const loop = () => new CssAnimation([{ opacity: 0 }, { opacity: 1 }], Infinity);
   /// A WAAPI motion, which is not one of the engine's CSS animation classes.
   const waapi = () => new Motion([{ translate: "0 10px" }], 200);
-  /// The mutation observer delivers in the microtask after the commit: one turn of the event loop
-  /// runs it, with nothing timed.
-  const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+  /// The mutation observer delivers in the microtask after the commit and judges in the next animation
+  /// frame: one turn of the event loop, then that frame, runs it, with nothing timed.
+  const flush = () =>
+    new Promise<void>((resolve) => setTimeout(() => window.requestAnimationFrame(() => setTimeout(resolve, 0)), 0));
   const close = () => {
     if (hadElement) globals.Element = priorElement;
     else delete globals.Element;
@@ -455,6 +456,49 @@ test("a page of rows with no motion mounts with no box read; one with a motion i
     expect(reads).toBe(2);
   } finally {
     proto.getBoundingClientRect = read;
+    stop();
+    sheet.close();
+  }
+});
+
+test("the commits of one frame have their motions read once, in that frame, not once a commit", async () => {
+  // `getAnimations` brings style and layout up to date: read in each commit's microtask, a fling up (many
+  // commits a frame, each mounting older rows) paid a whole style and layout pass per commit, 12 a frame in a
+  // 100k-row chat (bench/transcript-scroll-up.bench.ts RESTYLE=1, `cssOf <- observer`).
+  const sheet = page({ top: 0, height: 300 });
+  const stop = endOffscreenMotion(sheet.scroller);
+  const proto = sheet.window.Element.prototype;
+  const motionsOf = proto.getAnimations;
+  let reads = 0;
+  proto.getAnimations = function (this: Element, options?: GetAnimationsOptions) {
+    reads += 1;
+    return motionsOf.call(this, options);
+  };
+  try {
+    const rows: HTMLElement[] = [];
+    const moving: { finished: number }[] = [];
+    // Ten commits before the frame, each mounting a row out of the view and re-classing the first.
+    for (let at = 0; at < 10; at += 1) {
+      const row = sheet.add(sheet.scroller, "acpmux-row", { top: -4000 + at * 60, height: 60 });
+      moving.push(sheet.plays(row, sheet.fade()));
+      rows.push(row);
+      rows[0]!.className = `acpmux-row commit-${at}`;
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    expect(reads).toBe(0);
+    await sheet.flush();
+    // Once per row the frame's commits touched, and every entrance is still ended before it is drawn.
+    expect(reads).toBe(10);
+    expect(moving.every((motion) => motion.finished === 1)).toBe(true);
+    // A row the commits mounted and the next one took away before the frame is not read.
+    const gone = sheet.add(sheet.scroller, "acpmux-row", { top: -500, height: 60 });
+    await Promise.resolve();
+    gone.remove();
+    await sheet.flush();
+    expect(reads).toBe(10);
+  } finally {
+    proto.getAnimations = motionsOf;
     stop();
     sheet.close();
   }

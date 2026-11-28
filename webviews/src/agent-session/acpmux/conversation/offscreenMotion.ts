@@ -8,18 +8,19 @@
 // Worked for clock's roll) start from a class or a mount, whatever the view: the overscan holds up to
 // four viewports of rows the reader cannot see, and each one's motion played there, half done when he
 // scrolled to it. A mutation observer on the thread sees each mount and class change in the microtask
-// after its commit, before the frame that would draw it: a row there that is out of the view has its
-// new finite animations finished, so it is drawn once, at its end. `animationstart` and
+// after its commit and judges them in the next frame's animation callbacks, before that frame draws them:
+// a row there that is out of the view has its new finite animations finished, so it is drawn once, at its end. `animationstart` and
 // `transitionrun` catch what no mutation starts (a transition from an inherited value). Ambient loops
 // (infinite iterations: a spinner) are left alone. WAAPI motions are not seen here; each WAAPI site
 // gates itself (turnEndFold.ts).
 //
-// Cost: per commit that adds nodes or changes a class, nothing for a row an intersection observer last
-// saw wholly in the view (the streaming reply, the live line); else a read of each changed row's and
-// element's motions (a style update), and a box read for the view and one per row or element that has
-// a motion to end. None at rest, none for a text-only change. Read in the mutation's microtask, a
-// box is a forced layout after React's writes: each streamed token of a reply in view paid one (0.65 to
-// 1.3 ms a token, bench/transcript-replay.bench.ts PROFILE=1, `observer` and `started` here).
+// Cost: per frame whose commits added nodes or changed a class, nothing for a row an intersection observer
+// last saw wholly in the view (the streaming reply, the live line); else a read of each changed row's and
+// element's motions (one style and layout pass for the frame, which it would run anyway), and a box read
+// for the view and one per row or element that has a motion to end. None at rest, none for a text-only
+// change. Read in each mutation's microtask, as this once was, each read was a forced pass after React's
+// writes: each streamed token of a reply in view paid one (0.65 to 1.3 ms a token,
+// bench/transcript-replay.bench.ts PROFILE=1), and a fling paid 12 a frame at 100k rows.
 
 /// A box this far past the view's edge still counts as in it (rounding, a 1 px border).
 const EDGE_PX = 1;
@@ -141,14 +142,48 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
     }
   };
   if (seen) for (const row of scroller.querySelectorAll(ROW)) watch(row);
+  // The rows and elements the commits since the last frame touched, judged once, just before that frame draws.
+  const rows = new Set<Element>();
+  const changed = new Set<Element>();
+  let pending = 0;
+  // Boxes only where there is a motion to end: a box read is a forced layout of the page after React's writes,
+  // and a fling up mounts a page of rows every frame with no motion in them (a 100k-row chat paid 9 s of a 46 s
+  // fling in this read, 10.8 ms a frame, bench/transcript-scroll-up.bench.ts MODE=fling SPLIT=1,
+  // `getBoundingClientRect <- observer`).
+  //
+  // And once a frame, not once a commit: `getAnimations` brings style and layout up to date, so reading the
+  // motions in each commit's microtask paid a whole style and layout pass per commit, and a fling commits many
+  // times a frame (a 100k-row chat paid 9,944 forced style-and-layout passes over 830 frames, 12 a frame,
+  // `cssOf <- observer`, bench/transcript-scroll-up.bench.ts RESTYLE=1). In the frame's animation callbacks the
+  // pass is the one the frame would run anyway, and a motion ended there is still drawn at its end: no frame
+  // has drawn the row since it mounted. A motion that starts later is `started`'s, below.
+  const judge = () => {
+    pending = 0;
+    let view: DOMRect | undefined;
+    const outside = (element: Element) =>
+      misses(element.getBoundingClientRect(), (view ??= scroller.getBoundingClientRect()));
+    for (const row of rows) {
+      if (!row.isConnected || whole.has(row)) continue;
+      const motions = cssOf(row);
+      if (motions.some(finishable) && outside(row)) finishAll(motions);
+    }
+    for (const element of changed) {
+      if (!element.isConnected) continue;
+      const row = element.closest(ROW);
+      if (row && whole.has(row)) continue;
+      const motions = cssOf(element);
+      if (motions.some(finishable) && outside(element)) finishAll(motions);
+    }
+    rows.clear();
+    changed.clear();
+  };
+  const frame = View?.requestAnimationFrame?.bind(View);
   const observer = View?.MutationObserver
     ? new View.MutationObserver((records) => {
         // Each row the commit touched, by the row's box, and each element it added or re-classed, by its
         // own box: a long row that is partly in the view still has its words below the view's edge
         // streaming in out of sight. An element's own box alone is not enough: a line that mounts with
         // no box yet (the Thinking roll) reads as in view.
-        const rows = new Set<Element>();
-        const changed = new Set<Element>();
         for (const record of records) {
           // A row that left is no longer watched (the observer would hold it for the chat's life).
           if (seen && record.type === "childList")
@@ -164,24 +199,10 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
             if (node !== row) changed.add(node);
           }
         }
-        if (rows.size === 0) return;
-        // Boxes only where there is a motion to end: a box read here is a forced layout of the page after
-        // React's writes, and a fling up mounts a page of rows every frame with no motion in them (a 100k-row
-        // chat paid 9 s of a 46 s fling in this read, 10.8 ms a frame, bench/transcript-scroll-up.bench.ts
-        // MODE=fling SPLIT=1, `getBoundingClientRect <- observer`). Reading the motions first costs a style
-        // update, no layout, and the frame lays the page out once, as it draws.
-        let view: DOMRect | undefined;
-        const outside = (element: Element) =>
-          misses(element.getBoundingClientRect(), (view ??= scroller.getBoundingClientRect()));
-        for (const row of rows) {
-          const motions = cssOf(row);
-          if (motions.some(finishable) && outside(row)) finishAll(motions);
-        }
-        for (const element of changed) {
-          if (!element.isConnected) continue;
-          const motions = cssOf(element);
-          if (motions.some(finishable) && outside(element)) finishAll(motions);
-        }
+        if (rows.size === 0 || pending) return;
+        // No frame to wait for (a page with no animation frames): judged now, as before.
+        if (!frame) judge();
+        else pending = frame(judge);
       })
     : undefined;
   observer?.observe(scroller, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
@@ -201,6 +222,10 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
   scroller.addEventListener("animationstart", started, true);
   scroller.addEventListener("transitionrun", started, true);
   return () => {
+    if (pending) View?.cancelAnimationFrame?.(pending);
+    pending = 0;
+    rows.clear();
+    changed.clear();
     observer?.disconnect();
     seen?.disconnect();
     scroller.removeEventListener("animationstart", started, true);

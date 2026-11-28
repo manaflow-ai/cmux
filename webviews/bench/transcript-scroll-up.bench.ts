@@ -68,7 +68,7 @@ const ASKED_PAGE_SIZE = process.env.SMALL_PAGES !== "1";
 /// 16.7 ms and long tasks by what filled them (olderPageSplit.ts `OLDER-SPLIT` lines).
 const SPLIT = process.env.SPLIT === "1";
 /// RESTYLE=1 (Chromium): a timeline trace of the run, and the elements each frame restyled (UpdateLayoutTree's
-/// elementCount, summed per painted frame). Its own runs: the trace slows the page, so read no frame times there.
+/// elementCount, summed per painted frame), unminified so each forced pass names its forcer. Its own runs: the trace slows the page, so read no frame times there.
 const RESTYLE = process.env.RESTYLE === "1";
 const PROFILE = process.env.PROFILE === "1" || SPLIT;
 
@@ -124,7 +124,7 @@ async function run(name: string, engine: BrowserType) {
     daemonIndexes: true,
     askedPageSize: ASKED_PAGE_SIZE,
     // DEV=1 measures the dev server (React's development build); timing is of the production build.
-    ...(process.env.DEV === "1" ? {} : { production: { minify: PROFILE ? false : undefined } }),
+    ...(process.env.DEV === "1" ? {} : { production: { minify: PROFILE || RESTYLE ? false : undefined } }),
   });
   try {
     // Each older page on the wire (its `_acpmux/events` ask with `beforeSeq`, the reply's arrival and size)
@@ -616,6 +616,27 @@ async function run(name: string, engine: BrowserType) {
       }
       for (const [key, ms] of top(total, 40))
         console.log(`transcript-scroll-up profile total ${Math.round(ms)} ms ${key}`);
+      // The hottest lines of the busiest bundled functions (each node's `positionTicks`, a sample's line): a
+      // function's self time with no callee to show is a loop or a builtin (a findIndex, a spread) on a line.
+      const ticks = new Map<string, Map<number, number>>();
+      for (const node of profile.nodes) {
+        const at = (node as { positionTicks?: { line: number; ticks: number }[] }).positionTicks;
+        if (!at || !node.callFrame.url) continue;
+        const key = label(node);
+        const lines = ticks.get(key) ?? new Map<number, number>();
+        for (const tick of at) lines.set(tick.line, (lines.get(tick.line) ?? 0) + tick.ticks);
+        ticks.set(key, lines);
+      }
+      for (const [key] of top(self, 6)) {
+        const lines = ticks.get(key);
+        const at = where.get(key);
+        if (!lines || !at) continue;
+        const source = sources.get(at.url) ?? [];
+        for (const [line, count] of [...lines].sort((a, b) => b[1] - a[1]).slice(0, 8))
+          console.log(
+            `transcript-scroll-up profile line ${count} ticks ${key} @${line}: ${(source[line - 1] ?? "").trim().slice(0, 200)}`,
+          );
+      }
     }
     if (tracer) {
       const complete = new Promise<{ stream?: string; dataLossOccurred?: boolean }>((done) =>
