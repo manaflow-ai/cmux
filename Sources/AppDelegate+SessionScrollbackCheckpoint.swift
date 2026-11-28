@@ -133,7 +133,9 @@ extension AppDelegate {
                     guard let terminal else { return nil }
                     return TerminalScrollbackCheckpointExport.begin(
                         terminal: terminal,
-                        lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
+                        // One row past the cap so persisted scrollback can tell
+                        // a full tail from one that dropped older lines.
+                        lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal + 1
                     )
                 }
             ))
@@ -245,11 +247,18 @@ extension AppDelegate {
     func sessionScrollbackCheckpointRestoredSeeds() -> [SessionScrollbackCheckpointCoordinator.Seed] {
         var seeds: [SessionScrollbackCheckpointCoordinator.Seed] = []
         var seen = Set<UUID>()
-        func append(_ scrollbackByPanelId: [UUID: String], panels: [UUID: any Panel]) {
-            for (panelId, scrollback) in scrollbackByPanelId {
-                guard let terminal = panels[panelId] as? TerminalPanel,
+        /// One seed per live terminal, carrying the restored tail and its truncation marker together.
+        func append(_ scrollbackByPanelId: [UUID: SessionPersistedScrollback], panels: [UUID: any Panel]) {
+            for (panelId, persisted) in scrollbackByPanelId {
+                guard let scrollback = persisted.text,
+                      let terminal = panels[panelId] as? TerminalPanel,
                       seen.insert(panelId).inserted else { continue }
-                seeds.append(.init(panelId: panelId, surfaceId: terminal.surface.id, scrollback: scrollback))
+                seeds.append(.init(
+                    panelId: panelId,
+                    surfaceId: terminal.surface.id,
+                    scrollback: scrollback,
+                    scrollbackWasTruncated: persisted.wasTruncated
+                ))
             }
         }
         func append(from dock: DockSplitStore) {

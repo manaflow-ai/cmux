@@ -1,6 +1,8 @@
 import Bonsplit
+import CmuxWorkspaces
 
 extension DockSplitStore {
+    /// Closes every Dock panel and clears restore state, including restored scrollback.
     func removeAllPanels() {
         cancelDockReactGrabTask()
         let tabIds = Set(bonsplitController.allTabIds)

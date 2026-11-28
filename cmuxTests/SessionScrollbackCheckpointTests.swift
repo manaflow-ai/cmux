@@ -431,6 +431,7 @@ struct SessionScrollbackCheckpointStoreTests {
         #expect(store.directoryURL.path == "/tmp/cmux/session-com.cmuxterm.app-scrollback")
     }
 
+    /// A capture past the character cap is stored as a truncated tail, and a later empty capture removes it.
     @Test func writesTruncatesRemovesAndPrunes() throws {
         let store = makeStore()
         defer { cleanUp(store) }
@@ -453,6 +454,7 @@ struct SessionScrollbackCheckpointStoreTests {
         #expect(store.loadRecords(panelIds: [kept, cleared, closed]).count == 3)
         #expect(store.loadRecords(panelIds: [kept])[kept]?.scrollback.count
             == SessionPersistencePolicy.maxScrollbackCharactersPerTerminal)
+        #expect(store.loadRecords(panelIds: [kept])[kept]?.scrollbackWasTruncated == true)
 
         store.apply(.init(
             captures: [capture(cleared, at: 20, "  \n")],
@@ -548,6 +550,69 @@ struct SessionScrollbackCheckpointStoreTests {
         let panels = try #require(merged.windows.first?.tabManager.workspaces.first?.panels)
         #expect(panels[0].terminal?.scrollback == nil)
         #expect(panels[1].terminal?.scrollback == "quit\n")
+    }
+
+    /// A newer checkpoint with the same tail still supplies its truncation marker.
+    @Test func matchingCheckpointTextStillCopiesTheTruncationMarker() throws {
+        let panel = UUID()
+        let tail = "same tail"
+        let record = SessionScrollbackCheckpointRecord(
+            version: SessionScrollbackCheckpointRecord.currentVersion,
+            panelId: panel,
+            capturedAt: 100,
+            scrollback: tail,
+            scrollbackWasTruncated: true
+        )
+        let merged = SessionScrollbackCheckpointMerge.merging(
+            [panel: record],
+            into: Self.snapshot(
+                createdAt: 50,
+                scrollbackCapturedAt: 50,
+                panels: [(panel, tail)]
+            )
+        )
+        let terminal = try #require(
+            merged.windows.first?.tabManager.workspaces.first?.panels.first?.terminal
+        )
+        #expect(terminal.scrollback == tail)
+        #expect(terminal.scrollbackWasTruncated == true)
+
+        let newerSnapshot = SessionScrollbackCheckpointMerge.merging(
+            [panel: record],
+            into: Self.snapshot(
+                createdAt: 200,
+                scrollbackCapturedAt: 200,
+                panels: [(panel, tail)]
+            )
+        )
+        let kept = try #require(
+            newerSnapshot.windows.first?.tabManager.workspaces.first?.panels.first?.terminal
+        )
+        #expect(kept.scrollback == tail)
+        #expect(kept.scrollbackWasTruncated == nil)
+    }
+
+    /// A restored tail that already fits the caps keeps the truncation marker on the checkpoint.
+    @Test func restoredSeedKeepsTruncationWhenTheTailAlreadyFits() throws {
+        let store = makeStore()
+        defer { cleanUp(store) }
+        let panel = UUID()
+        store.apply(.init(
+            captures: [
+                SessionScrollbackCheckpointCapture(
+                    panelId: panel,
+                    surfaceId: panel,
+                    capturedAt: 10,
+                    finish: { "bounded tail\n" },
+                    restoredScrollbackWasTruncated: true
+                )
+            ],
+            removals: [],
+            livePanelIds: [panel]
+        ))
+        let record = try #require(store.loadRecords(panelIds: [panel])[panel])
+        #expect(record.scrollback == "bounded tail\n")
+        #expect(record.scrollbackWasTruncated == true)
     }
 
     @Test func restorePicksTheNewestScrollback() {
