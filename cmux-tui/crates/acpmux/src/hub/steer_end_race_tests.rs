@@ -85,6 +85,14 @@ async fn unsent_steer_after_completion(steer_only: bool) {
         assert_ne!(answer["_meta"]["acpmux"]["turnId"], old_turn);
     }
     let records = hub.events(&session.id, 0, 100_000).unwrap();
+    // codex-acp never says when it read a steer: it answers only at the turn's end, never
+    // `steered`, so acpmux writes no `steer_read` (and no `midReply`) for a Codex session. Its
+    // chat keeps placing the steer from what comes next, as before `steer_read.midReply`.
+    assert!(
+        records.iter().all(|r| r.kind != "steer_read"),
+        "a Codex steer wrote a steer_read: {:?}",
+        records.iter().filter(|r| r.kind == "steer_read").map(|r| &r.msg).collect::<Vec<_>>()
+    );
     let delivered = records
         .iter()
         .filter(|r| {

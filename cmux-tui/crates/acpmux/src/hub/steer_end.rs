@@ -28,6 +28,12 @@ fn forced(answer: &Value) -> bool {
     answer.pointer("/_meta/acpmux/cancelForced") == Some(&Value::Bool(true))
 }
 
+/// Whether the agent said it read a steer while its reply was still being written
+/// (claude_stdio's `_meta.claude.midReply` on the `steered` answer).
+fn steer_read_mid_reply(answer: &Value) -> bool {
+    answer.pointer("/_meta/claude/midReply") == Some(&Value::Bool(true))
+}
+
 /// `sent`: the steer was written to the agent (it may hold it unread, or have read it).
 fn stopped_unread(answer: Value, sent: bool) -> RpcError {
     RpcError::invalid_params(STEER_STOPPED_UNREAD)
@@ -576,8 +582,18 @@ impl Hub {
         // or never (a reply that is only a tool call), and a take-back meanwhile was refused
         // with nothing to show why (Leo, 2026-11-06: "I can't ... cancel and edit these
         // messages").
+        // `midReply`: the agent read it while its model call was still writing the reply
+        // (claude_stdio `reply_streaming`), so the rest of that reply came from before the read
+        // and the chat keeps it whole, drawn under the steer once the turn ends (Leo, 2026-11-25:
+        // "i steer RIGHT before you finish a turn but your completed sent message goes above
+        // mine"). Without it, what the agent writes next answers the steer and draws below it
+        // (Leo, 2026-11-17: "the message you sent after my steer... shot up. instead of landing
+        // after my steer prompt").
         if r.get("stopReason").and_then(Value::as_str) == Some("steered") {
-            let msg = json!({"promptId": prompt_id, "turnId": turn_id});
+            let mut msg = json!({"promptId": prompt_id, "turnId": turn_id});
+            if steer_read_mid_reply(&r) {
+                msg["midReply"] = json!(true);
+            }
             self.append(session, "mux", "steer_read", msg);
         }
         merge_mux_meta(&mut r, json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}));

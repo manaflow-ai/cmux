@@ -204,3 +204,46 @@ async fn a_carried_turn_whose_result_was_lost_fails_its_prompt() {
     assert!(error.as_ref().is_some_and(|e| e.message.contains("size limit")), "{reply:?}");
     assert!(t.holding().is_none());
 }
+
+fn stream(event: Value) -> Value {
+    json!({"type": "stream_event", "event": event})
+}
+
+fn text_delta(text: &str) -> Value {
+    stream(
+        json!({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}}),
+    )
+}
+
+/// A steer Claude Code reads while its model call still writes the reply was read mid-reply: the
+/// answer says so (`_meta.claude.midReply`), so the chat keeps the rest of that reply whole, as
+/// written before the read (Leo, 2026-11-25: "i steer RIGHT before you finish a turn but your
+/// completed sent message goes above mine"). Read once that call ended, it says nothing: what the
+/// agent writes next answers the steer (Leo, 2026-11-17: "the message you sent after my steer...
+/// shot up. instead of landing after my steer prompt").
+#[tokio::test]
+async fn a_steer_read_while_the_reply_streams_says_mid_reply() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let line = turn_with_a_steer(&t).await;
+    t.inbound(&stream(json!({"type": "message_start", "message": {"id": "msg-1"}}))).await;
+    t.inbound(&text_delta("Fixed: the test now waits on the timer.")).await;
+    let read = answer(&t.inbound(&echo(&line)).await, 2).expect("read");
+    assert_eq!(read, json!({"stopReason": "steered", "_meta": {"claude": {"midReply": true}}}));
+}
+
+#[tokio::test]
+async fn a_steer_read_after_the_reply_ended_says_nothing_of_it() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let line = turn_with_a_steer(&t).await;
+    t.inbound(&stream(json!({"type": "message_start", "message": {"id": "msg-1"}}))).await;
+    t.inbound(&text_delta("Looking at the list now.")).await;
+    t.inbound(&stream(json!({"type": "message_stop"}))).await;
+    let read = answer(&t.inbound(&echo(&line)).await, 2).expect("read");
+    assert_eq!(read, json!({"stopReason": "steered"}));
+    // A model call that has written no text yet (it only thinks, or calls a tool) is no reply.
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let line = turn_with_a_steer(&t).await;
+    t.inbound(&stream(json!({"type": "message_start", "message": {"id": "msg-2"}}))).await;
+    let read = answer(&t.inbound(&echo(&line)).await, 2).expect("read");
+    assert_eq!(read, json!({"stopReason": "steered"}));
+}
