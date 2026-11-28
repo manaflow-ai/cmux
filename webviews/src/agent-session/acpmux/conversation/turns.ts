@@ -1908,14 +1908,15 @@ export function lateSteersLast(rows: AcpmuxRow[], live = false): AcpmuxRow[] {
   if (late < 0) return rows;
   const answerIndex = answerAt(rows.slice(0, end));
   // The agent's text just over the first late steer moves with the answer: the reply it was writing
-  // when the steer came, held open in its row over the steer while the agent had not read it. Once
-  // the agent read the steer its next words start a row under it (direct.ts `steer_read`), so an
-  // answer already under the steer leaves the words over it in place: those were written before the
-  // read (Leo, 2026-11-17: "the message you sent after my steer... shot up. instead of landing after
-  // my steer prompt"; carriedSteerOrder.test.ts).
+  // when the steer came, held open in its row over the steer while the agent had not read it, so the
+  // bubble draws over the whole reply (#56293, agent-pane-steer-split.test.ts). When acpmux said
+  // where the agent read the steer (direct.ts `steer_read`, `steerRead`) and the answer is already
+  // under it, the words over it stay in place: those were written before the read (Leo, 2026-11-17:
+  // "the message you sent after my steer... shot up. instead of landing after my steer prompt";
+  // carriedSteerOrder.test.ts).
   let from = late;
   // ends: from walks back to the first row or the preceding change of author
-  if (answerIndex < late) while (from > 0 && isOwnText(rows[from - 1]!)) from -= 1;
+  if (answerIndex < late || !rows[late]!.steerRead) while (from > 0 && isOwnText(rows[from - 1]!)) from -= 1;
   const region = rows.slice(from, end);
   const steers = region.filter(isLateSteer);
   const said = region.filter(isOwnText);

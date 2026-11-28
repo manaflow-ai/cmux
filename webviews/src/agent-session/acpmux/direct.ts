@@ -11085,7 +11085,7 @@ export class AcpmuxDirectClient {
         // acpmux would refuse. Its next words, which said so before, can come a minute later or
         // never (a reply that is only a tool call); meanwhile an X said "Read after this step" of
         // a message already read (Leo, 2026-11-06: "I can't ... cancel and edit these messages").
-        if (typeof msg.promptId === "string") this.landSteer(msg.promptId);
+        if (typeof msg.promptId === "string") this.landSteer(msg.promptId, true);
         // What the agent writes once it read the steer answers it, below the steer: a reply held
         // open past it (`holdAssistantSegment`) ends here, even when its chunks carry no message id
         // or the same one, which would run the answer on in the row above the steer (Leo,
@@ -11927,13 +11927,20 @@ export class AcpmuxDirectClient {
   }
 
   /// The waiting steers (or the one `promptId` names) were read: their rows say so.
-  private landSteer(promptId?: string): void {
+  /// `readHere`: acpmux's `steer_read` said the agent read it now, not a guess from what came next.
+  private landSteer(promptId?: string, readHere = false): void {
     const read = this.waitingSteers.filter((waiting) => promptId === undefined || waiting.promptId === promptId);
     if (!read.length) return;
     this.waitingSteers = this.waitingSteers.filter((waiting) => !read.includes(waiting));
     for (const waiting of read) {
       const row = this.rows.get(waiting.rowId);
-      if (row?.steer === "waiting") this.rows.set(row.id, { ...row, version: row.version + 1, steer: "landed" });
+      if (row?.steer === "waiting")
+        this.rows.set(row.id, {
+          ...row,
+          version: row.version + 1,
+          steer: "landed",
+          ...(readHere && { steerRead: true as const }),
+        });
     }
   }
 

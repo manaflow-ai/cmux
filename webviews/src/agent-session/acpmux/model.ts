@@ -889,6 +889,9 @@ export type AcpmuxRow = {
   /// A prompt sent into a running turn: `waiting` until the agent reads it (it reads a steer when
   /// the step it is on ends), then `landed`.
   steer?: "waiting" | "landed";
+  /// acpmux said where the agent read this steer (`steer_read`, direct.ts): the agent's words over it
+  /// were written before the read, so an ended turn keeps them there (turns.ts `lateSteersLast`).
+  steerRead?: true;
   /// A prompt sent now that ended the turn it went into (acpmux cancels it, or the agent ends it
   /// with `end_turn`) and runs next: accepted, drawn inside that turn (turnStart.ts
   /// ``continuesTurn``), with no mark of its own.
