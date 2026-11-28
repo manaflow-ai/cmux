@@ -2575,6 +2575,12 @@ pre.cv-math-source {
    frame, with the latest row under the card. */
 .acpmux-thread {
   transition: none;
+  /* The thread stays its own compositor layer. Every move of the rows is a `translate` on it: the
+     composer's growth (VirtualTranscript `grew`), a stack change, the follow chase (followChase.ts,
+     which promoted it only while it chased). Promoted on the move and dropped after it, WebKit
+     repainted the whole thread into the scroller's layer, at times in one 100-300 ms frame right after
+     a line wrap grew the field (composer_typing.l0.webkit.rows60 p99 52 ms against 40.67). */
+  will-change: translate;
 }
 /* The transcript's loading marks (VirtualTranscript.tsx, cmux#48605): the chat's own while its rows are
    read with none to show, in the view's middle, and the older history's just above the first loaded row.
