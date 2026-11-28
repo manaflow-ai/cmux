@@ -180,7 +180,9 @@ import Testing
     /// used to apply that record anyway, moving `lastSeq` past the rest of the gap for good.
     /// Now it applies what it read up to its last record, keeps the live one back, and tries
     /// again from there.
-    @Test(.timeLimit(.minutes(1))) func aFailedPageIsReadAgainBeforeNewerRecords() async throws {
+    // The suite's 2-minute limit bounds a hang: a full kit run (1,838 cases, 238 s on cmux#64637's
+    // 2026-11-28 run) holds the main actor past a 1-minute one while the catch-up is still landing.
+    @Test func aFailedPageIsReadAgainBeforeNewerRecords() async throws {
         let calls = Calls()
         let log = Self.log(turns: Chat.turns + 4)
         let link = Self.fake(calls, log: log, reattach: { id, after, n in
