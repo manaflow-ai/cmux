@@ -478,6 +478,8 @@ import { ShortcutsContext, type ShortcutLabels } from "./shortcuts";
 import { revealedAsk, runRevealedAsk } from "./needsYou/askReveal";
 import { notifyRevealRowsChanged, revealedMessage, revealMessageWhenShown, revealTurnWhenShown } from "./links";
 import { useNeedsYou } from "./needsYou/useNeedsYou";
+import { TriageStrip } from "./needsYou/TriageStrip";
+import { askedAt, othersWaiting, triageMove } from "./needsYou/triage";
 import type { ChatImage } from "./conversation/chatImages";
 import { viewerImages } from "./summary/chatGallery";
 import { ImageViewer } from "./conversation/ImageViewer";
@@ -6659,6 +6661,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The chat menu shows New side chat: the right-click menu then opens one from any turn that forks.
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
+  /// The app's triage key (Ctrl-Cmd-Y, AgentTriage) on this chat: answers its ask (needsYou/triage.ts).
+  const triageAnswerRef = useRef<(() => void) | undefined>(undefined);
   const recheckCloudChat = useCallback(async () => {
     // A machine woken while the pane's link was down: connect again now, not at the backoff's turn.
     if (!directClient.current) retryHost.current?.();
@@ -8395,6 +8399,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       readInterruptedResume,
       opensSideChat,
       archiveChatRef,
+      triageAnswerRef,
       newChatLeftover,
       heldBack,
       quoteReply,
@@ -8979,6 +8984,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   askAboutChat.current = sideSession;
   const needsYou = useNeedsYou({ snapshot, callNative, sideSession });
+  // Triage (needsYou/triage.ts): what Ctrl-Cmd-Y does to this chat's ask, said on the strip above it.
+  const triage = triageMove(
+    askOnSingleCard(snapshot.permission, snapshot.permissionGroups) ? snapshot.permission : undefined,
+    needsYou.waiting,
+    snapshot.sessionId,
+    snapshot.permissionGroups,
+  );
+  triageAnswerRef.current = () => {
+    if (triage?.kind === "allow") window.dispatchEvent(new CustomEvent("cmux-acpmux-permissionAllowOnce"));
+    else if (triage?.kind === "choice") void needsYou.actions.answer(triage.item, triage.answer).catch(() => undefined);
+  };
   // Steer queue (steerQueue/): ⌘⇧J or the chat menu opens it over the chat. Each step opens the chat
   // it acts on first, so the step goes through the same send, Stop and fork the chat's own composer
   // and menu use, and the person sees it land in the chat under the queue.
@@ -10562,6 +10578,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         </div>
       )}
 
+      {triage && (
+        <TriageStrip
+          move={triage}
+          others={othersWaiting(needsYou.waiting, snapshot.sessionId)}
+          at={askedAt(snapshot.permission, needsYou.waiting)}
+        />
+      )}
       {hasPermissionGroups && snapshot.permissionGroups && (
         <PermissionPanel
           state={snapshot.permissionGroups}

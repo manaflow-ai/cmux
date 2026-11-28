@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1533,
-    "shortcuts": 208
+    "entries": 1535,
+    "shortcuts": 210
   },
   "sections": [
     {
@@ -6340,6 +6340,12 @@
       "title": "Notifications",
       "entries": [
         {
+          "id": "agent.triage.answer",
+          "title": "Allow and Go to Next Waiting Agent",
+          "shortcut": "⌃⌘Y",
+          "command": null
+        },
+        {
           "id": "notifications.allowDesktop",
           "title": "Allow cmux Notifications",
           "shortcut": null,
@@ -6397,6 +6403,12 @@
           "id": "notificationDismiss",
           "title": "Dismiss Notification",
           "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agent.triage.next",
+          "title": "Go to Longest-Waiting Agent",
+          "shortcut": "⌃⌘;",
           "command": null
         },
         {

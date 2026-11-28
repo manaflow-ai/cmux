@@ -155,10 +155,10 @@ import {
   lostRetryDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
-  hostPlannedRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
+  hostPlannedRestart,
   hostRetryStep,
   HOST_WAKE_EVENTS,
   hostWakeAsks,
@@ -405,6 +405,8 @@ export type PaneSnapshotArgs = {
   readInterruptedResume: () => InterruptedResumeState;
   opensSideChat: React.RefObject<boolean>;
   archiveChatRef: React.RefObject<(() => void) | undefined>;
+  /// The app's triage key (Ctrl-Cmd-Y, AgentTriage) on this chat: answers its ask (needsYou/triage.ts).
+  triageAnswerRef: React.RefObject<(() => void) | undefined>;
   newChatLeftover: React.RefObject<() => { leave: () => void; cancel: () => void } | undefined>;
   heldBack: React.RefObject<{ text: string; attachments: ComposerAttachment[] }[] | undefined>;
   quoteReply: (markdown: string) => void;
@@ -560,6 +562,7 @@ export function paneSnapshotEffect({
   readInterruptedResume,
   opensSideChat,
   archiveChatRef,
+  triageAnswerRef,
   newChatLeftover,
   heldBack,
   quoteReply,
@@ -707,6 +710,7 @@ export function paneSnapshotEffect({
       // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
       // the menu has none or the chat is archived.
       if (name === "archiveChat") archiveChatRef.current?.();
+      if (name === "triageAnswer") triageAnswerRef.current?.();
       // Commit and Push live in the diff tab beside the chat (its Commit form and Push button).
       if (name === "gitCommit" || name === "gitPush") openChangesTab.current();
       // A card that mounts just after the click still takes it (`permissions/focusRequest.ts`).

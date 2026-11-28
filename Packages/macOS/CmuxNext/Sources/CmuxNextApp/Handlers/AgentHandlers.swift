@@ -309,8 +309,7 @@ enum AgentHandlers {
             }
             view.showCreateCheckpoint()
         })
-        // Commit and Push run the changes view's own path. Headless callers
-        // use the session host's `cmux git commit|push` instead.
+        // Commit and Push run the changes view's own path. Headless callers use the session host's `cmux git commit|push` instead.
         for (id, action) in [("agentPane.git.commit", AgentPaneGitAction.commit), ("agentPane.git.push", .push)] as [(ActionID, AgentPaneGitAction)] {
             registry.bind(id, run: { invocation in
                 guard invocation.allowsViewChange else {
@@ -320,6 +319,7 @@ enum AgentHandlers {
                 view.runGitAction(action)
             })
         }
+        AgentTriage(chats: .app).bind(into: registry, chat: { selectedChat(context, $0) }, open: { SidebarPriorityFeed.open($0, services: context.services) })
         TerminalChatHandler.bind(into: registry, context: context)
         AgentShareActions(host: context.services).bind(into: registry)
         AgentTeamsLaunch.bind(into: registry, context: context)

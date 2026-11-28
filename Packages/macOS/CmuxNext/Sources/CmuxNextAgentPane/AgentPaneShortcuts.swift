@@ -12,6 +12,8 @@ public nonisolated struct AgentPaneShortcuts: Equatable, Sendable {
         "agentPane.permission.allowOnce", "agentPane.permission.allowChat", "agentPane.permission.deny",
         "agentPane.permission.expand", "agentPane.permission.retry", "agentPane.permission.revoke",
         "agentPane.permission.refresh", "palette.copySurfaceLink",
+        // Triage's keys, on the strip above a waiting ask (TriageStrip.tsx).
+        "agent.triage.answer", "agent.triage.next",
         // The chat header's tools and "..." menu (AgentPaneModel.headerActions).
         "splitRight", "splitDown", "splitBrowserRight", "openDiffViewer", "renameTab", "palette.toggleTabPin",
         "moveSurfaceToPaneRight", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow", "closeTab",
