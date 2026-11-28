@@ -7227,7 +7227,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (!session) throw new Error(`started with no session: ${JSON.stringify(reply).slice(0, 200)}`);
         J.firstText.mark("session_ready");
         started = true;
-        return { value: null, detail: `${outcome.detail}; no cwd or model credential on the start` };
+        const split = reservedChat.phaseLine();
+        return { value: null, detail: `${outcome.detail}; no cwd or model credential on the start${split ? `; ${split}` : ""}` };
       }).catch(() => undefined);
       if (!started) {
         reservedChat?.stop();
@@ -7294,7 +7295,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const reply = memoryCodeword ? await chat.startAttached(agent) : await chat.start(agent);
           const outcome = appStartDetail(reply);
           if (!outcome.ok) throw new Error(outcome.detail);
-          return { value: String(reply?.data?.session ?? ""), detail: outcome.detail };
+          const split = chat.phaseLine();
+          return { value: String(reply?.data?.session ?? ""), detail: split ? `${outcome.detail}; ${split}` : outcome.detail };
         }).catch(() => null);
         if (!memoryCodeword) {
           for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
