@@ -56,6 +56,7 @@ import type {
 import {
   PROMPT_PENDING_AFTER_MS,
   QUEUED_MESSAGE,
+  sentByPerson,
   SINCE_DIVIDER,
   TURN_RETRY,
   type AcpmuxSince,
@@ -11652,9 +11653,7 @@ export class AcpmuxDirectClient {
   /// One look over the rows since it (a few). False once the row already went under the steer
   /// (`settleCompactions` moved it at the steer's turn start), so it moves at most once.
   private ownSteerBelow(id: string): boolean {
-    return this.rows
-      .rowsFrom(this.rows.orderOf(id))
-      .some((row) => row.kind === "user" && !row.incoming && !row.received && row.from === undefined);
+    return this.rows.rowsFrom(this.rows.orderOf(id)).some(sentByPerson);
   }
 
   /// Puts a background shell's update on the call that started it, and says whether it found the
