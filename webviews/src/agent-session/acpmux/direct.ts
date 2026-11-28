@@ -3476,16 +3476,12 @@ export class AcpmuxDirectClient {
   /// `forThisPage` is false when this client is the one going away, so the tail goes to the app
   /// host alone and not into this page's map (tailCache.ts `rememberTail`). `toHost` is false when
   /// the caller carries it to the host itself (`tailHandOver`). The chat and tail kept, if any.
-  private rememberCurrentTail(
-    forThisPage = true,
-    toHost = true,
-    hostAfterPaint = false,
-  ): { sessionId: string; tail: KeptTail } | undefined {
+  private rememberCurrentTail(forThisPage = true, toHost = true): { sessionId: string; tail: KeptTail } | undefined {
     const sessionId = this.selectedSessionId;
     const tail = this.currentTail();
     // A chat on the store keeps its window instead (rows/chatSource.ts): one kept thing a chat.
     if (!sessionId || !tail || this.chatRows.holds(sessionId)) return undefined;
-    rememberTail(sessionId, tail, forThisPage, toHost, hostAfterPaint);
+    rememberTail(sessionId, tail, forThisPage, toHost);
     if (forThisPage) {
       this.leftRows.delete(sessionId);
       this.leftRows.set(sessionId, new Map(this.rows));
@@ -15125,9 +15121,8 @@ export class AcpmuxDirectClient {
     // Refresh the loaded transcript, not its bounded 400-record cache. Capture before changing
     // the selection generation or resetting events so older visible replies survive a slow attach.
     const fullRefreshTail = onScreen && previousSessionId === sessionId ? this.currentTail(true) : undefined;
-    // The chat being left is kept for its own next open, while it is still the selected one. The
-    // host's copy goes after the switch's frame paints (tailCache.ts `writeHostTailSoon`).
-    this.rememberCurrentTail(true, true, previousSessionId !== sessionId);
+    // The chat being left is kept for its own next open, while it is still the selected one.
+    this.rememberCurrentTail();
     // The tail of a chat that left the list while drawn (`selectFallbackSession`), taken once.
     const leftTail = this.leftTail?.sessionId === sessionId ? this.leftTail.tail : undefined;
     this.leftTail = undefined;
