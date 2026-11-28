@@ -184,7 +184,10 @@ fn ls_prints_names_revisions_and_times_only() {
     let (origin, _requests) = fake(Arc::new(|_: &str| (404, "{}".to_owned())));
     let failure =
         run_vault(&["machine", "vault", "ls"], &origin, OutputMode::Human, VALUE).code.unwrap_err();
-    assert_eq!(failure.message, "the vault isn't available on this server yet (it answered 404)");
+    assert_eq!(
+        failure.message,
+        format!("the vault isn't available on {origin} yet (it answered 404)")
+    );
 }
 
 #[test]

@@ -142,6 +142,11 @@ describe("localized pricing page", () => {
     try {
       const first = await readInitialMain(reader);
       expect(first.includes("$50") && first.includes("$200")).toBe(true);
+      expect(first).toContain("Get Plus");
+      expect(first).toContain("md:grid-cols-2 lg:grid-cols-4");
+      expect(first).toMatch(/<h2[^>]*>Plus<\/h2>/);
+      expect(first).toContain("25% repeat(6,12.5%)");
+      expect(first).not.toMatch(/href="[^"]*(?:plan=go|plan%3Dgo|plan%253Dgo)/i);
       expect(first.includes("Cloud VMs with no count cap, metered beyond the included usage; Max unlocks")).toBe(true);
       expect(first.includes("animate-pulse")).toBe(false);
       expect(first.includes("Current plan")).toBe(false);
