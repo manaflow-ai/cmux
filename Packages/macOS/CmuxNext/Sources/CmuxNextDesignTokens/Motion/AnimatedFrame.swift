@@ -44,6 +44,14 @@ public nonisolated struct AnimatedFrame: Hashable, Sendable {
         setTarget(rect)
     }
 
+    /// Whether ``rebase(onto:)`` to `rect` keeps the shown rect right side out: a window made smaller by more than
+    /// the spring had left to travel would give it a negative width or height, its far edge past its near one, so it
+    /// shows outside the screen and over its neighbours (cmux-layout-reducer `tests/tiling_walk.rs`).
+    public func rebaseKeepsExtent(onto rect: CGRect) -> Bool {
+        let target = targetRect
+        return width.value + rect.width - target.width >= 0 && height.value + rect.height - target.height >= 0
+    }
+
     /// Returns true while any component is still moving. `alphaParameters`
     /// defaults to the geometry spring.
     public mutating func advance(_ dt: Double, parameters: SpringParameters, alphaParameters: SpringParameters? = nil) -> Bool {
