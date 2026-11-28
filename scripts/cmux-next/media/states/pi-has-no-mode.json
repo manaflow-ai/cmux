@@ -54,6 +54,74 @@
    "shot": false
   },
   {
+   "title": "A workspace for the Claude chat",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Claude"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Show Claude",
+   "cmux": [
+    "workspace",
+    "name:Claude",
+    "focus"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Open a New Agent Chat tab for Claude",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "A New Agent Chat on Claude, before any send",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "new_chat",
+     "harness": "claude"
+    }
+   },
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Wait for the Claude composer",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "readiness",
+     "wait_animations": true
+    }
+   },
+   "record": "file",
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Claude: the composer's chips (Pi: model and thinking, no Mode; Claude Code: its Mode)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "record": "file",
+   "wait": 1.5
+  },
+  {
    "title": "A workspace for the Pi chat",
    "cmux": [
     "workspace",
@@ -130,7 +198,20 @@
      "text": "hi"
     }
    },
-   "wait": 4
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Trust /tmp for the chat (the folder question its first send asks)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-trust-ask-primary"
+    }
+   },
+   "wait": 5,
+   "shot": false
   },
   {
    "title": "Pi's running chat: model and thinking, no Mode",
@@ -189,74 +270,6 @@
   },
   {
    "title": "Fresh Pi New Agent Chat: no held Mode chip",
-   "rpc": {
-    "method": "debug.agent_pane",
-    "params": {
-     "action": "chat_state"
-    }
-   },
-   "record": "file",
-   "wait": 1.5
-  },
-  {
-   "title": "A workspace for the Claude chat",
-   "cmux": [
-    "workspace",
-    "new",
-    "--name",
-    "Claude"
-   ],
-   "wait": 1.5,
-   "shot": false
-  },
-  {
-   "title": "Show Claude",
-   "cmux": [
-    "workspace",
-    "name:Claude",
-    "focus"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Open a New Agent Chat tab for Claude",
-   "cmux": [
-    "agent",
-    "new-chat",
-    "--cwd",
-    "/tmp"
-   ],
-   "wait": 4,
-   "shot": false
-  },
-  {
-   "title": "A New Agent Chat on Claude, before any send",
-   "rpc": {
-    "method": "debug.agent_pane",
-    "params": {
-     "action": "new_chat",
-     "harness": "claude"
-    }
-   },
-   "wait": 4,
-   "shot": false
-  },
-  {
-   "title": "Wait for the Claude composer",
-   "rpc": {
-    "method": "debug.agent_pane",
-    "params": {
-     "action": "readiness",
-     "wait_animations": true
-    }
-   },
-   "record": "file",
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Claude: the composer's chips (Pi: model and thinking, no Mode; Claude Code: its Mode)",
    "rpc": {
     "method": "debug.agent_pane",
     "params": {

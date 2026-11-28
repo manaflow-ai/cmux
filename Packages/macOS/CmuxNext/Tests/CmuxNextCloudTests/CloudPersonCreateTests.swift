@@ -64,6 +64,19 @@ import Testing
 
     // MARK: A chat's start
 
+    /// A start with a Cloud environment picked boots its machine in that environment, never a plain create the platform
+    /// serves from the person's generic spare (staging probe run 45132397559: the picked chat ran on the spare, with none of
+    /// the environment's variables or setup). Auto (nil) keeps the plain create, and with it the direct route.
+    @Test func aStartWithAPickedEnvironmentBootsInItNotThePlainCreate() {
+        let picked = CloudMachineRequest(startChatKey: "k", sizedFor: nil, team: "team_a", environment: "env_1")
+        #expect(picked.environment == "env_1")
+        #expect(!picked.takesPlainPath)
+        #expect(picked.createRoute(personsOwnCreate: true, team: "team_a") == .relay)
+        let auto = CloudMachineRequest(startChatKey: "k", sizedFor: nil, team: "team_a")
+        #expect(auto.environment == nil)
+        #expect(auto.createRoute(personsOwnCreate: true, team: "team_a") == .direct)
+    }
+
     /// The start's plan as the ledger answers it (cmux-cloud-start-core's `StartChatPlan`, camelCase).
     private func plan(_ json: String) throws -> CloudMoveCLI.StartChatPlan {
         try JSONDecoder().decode(CloudMoveCLI.StartChatPlan.self, from: Data(json.utf8))
@@ -121,15 +134,9 @@ import Testing
         #expect(route(unsent, personsOwnRun: false).route == .relay)
     }
 
-    /// The server answers a person's create once the provider made the machine, or after 25 s with it provisioning:
-    /// the create waits past that, while an approval's calls keep the short wait.
+    /// The server answers a person's create once the provider made the machine, or after 25 s with it provisioning.
     @Test func aDirectCreateWaitsPastTheServersOwnWait() {
-        let url = URL(string: "https://api.example.test/v1/ops")!
         #expect(CloudPersonCreate.createTimeout > 25)
-        #expect(CloudPersonCreate.post(url, body: Data(), bearer: "b", team: "team_a", timeout: CloudPersonCreate.createTimeout).timeoutInterval == CloudPersonCreate.createTimeout)
-        #expect(CloudPersonCreate.post(url, body: Data(), bearer: "b", team: nil).timeoutInterval == CloudPersonCreate.callTimeout)
-        #expect(CloudPersonCreate.session(timeout: CloudPersonCreate.createTimeout).configuration.timeoutIntervalForRequest == CloudPersonCreate.createTimeout)
-        #expect(CloudPersonCreate.session().configuration.timeoutIntervalForRequest == CloudPersonCreate.callTimeout)
     }
 
     @Test func eachRouteMarksItsOwnStep() {
@@ -176,7 +183,7 @@ import Testing
         let refusal = Data(#"{"_tag":"Unauthenticated","code":"auth.unauthenticated","message":"expired"}"#.utf8)
         let ops = CloudPersonCreate.ops({ _, _ in
             // What the session call's hedge notes when it sends the keyed create again after a connection failure.
-            CloudConnectHedge.resends?.note()
+            CloudPersonCreate.resends?.note()
             return refusal
         }, after: {})
         await #expect(throws: CloudAppOpFailure.self) {
@@ -189,14 +196,6 @@ import Testing
         // The same refusal with no resend never reached the op: the relay may take the create with a new key.
         let once = CloudPersonCreate.ops({ _, _ in refusal }, after: {})
         await #expect(throws: CloudPersonCreate.Unavailable.self) { _ = try await once("cloud.machine.create", .object([:]), "k", .user) }
-    }
-
-    @Test func theSessionPostCarriesTheTeamOnlyWhenGiven() {
-        let url = URL(string: "https://api.example.test/v1/ops")!
-        let pinned = CloudPersonCreate.post(url, body: Data("{}".utf8), bearer: "b", team: "team_a")
-        #expect(pinned.value(forHTTPHeaderField: "x-cmux-team") == "team_a")
-        #expect(pinned.httpMethod == "POST" && pinned.value(forHTTPHeaderField: "authorization") == "Bearer b")
-        #expect(CloudPersonCreate.post(url, body: Data(), bearer: "b", team: nil).value(forHTTPHeaderField: "x-cmux-team") == nil)
     }
 
     // MARK: The answer
@@ -226,6 +225,16 @@ import Testing
         let unreachable = #"{"_tag":"OwnerUnreachable","code":"owner.unreachable","message":"timeout","retryable":true}"#
         #expect(throws: CloudAppOpFailure(code: "cmux.cloud.upstream_error", message: "timeout")) { try CloudPersonCreate.answer(Data(unreachable.utf8)) }
         #expect(throws: CloudAppOpFailure.self) { try CloudPersonCreate.answer(Data("<html>".utf8)) }
+    }
+
+    /// The `created machine` line's note: why the create skipped the spare, from the answer's own spare fields (cmux-platform
+    /// `withSpareAnswer`), reason codes and counts only: no spare's machine id.
+    @Test func theCreatedMachineLineSaysWhyTheCreateSkippedASpare() throws {
+        let reply = #"{"ok":true,"op":"cloud.machine.create","value":{"machine":{"id":"vm_new1"},"spare_skips":{"image":1},"spare_fallback":"all_skipped","spare_skipped":[{"id":"vm_spare9","reason":"image"}]}}"#
+        let note = CloudStartCore().spareNote(answer: try CloudPersonCreate.answer(Data(reply.utf8)))
+        #expect(note == #"spare_fallback=all_skipped spare_skips={"image":1} spare_skipped=1"#)
+        #expect(!note.contains("vm_spare9"))
+        #expect(CloudStartCore().spareNote(answer: .object(["machine": .object([:])])) == "spare=none")
     }
 }
 

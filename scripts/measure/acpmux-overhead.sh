@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # acpmux overhead against each harness run raw, on a quiet Mac. Run alone on a worker:
 #   cmux-ci run --class exclusive --script scripts/measure/acpmux-overhead.sh --ref SHA \
-#     [--arg=n=20] [--arg=harness=claude,codex,opencode] [--arg=before=SHA] \
+#     [--arg=n=20] [--arg=harness=claude,codex,opencode[,antigravity]] [--arg=before=SHA] \
 #     [--arg=claude=2.1.303] [--arg=codex=0.163.0] [--arg=opencode=1.19.3] --timeout 5400
 # Builds acpmux at this ref (and at before=SHA, to compare a change), installs Claude Code,
-# Codex and OpenCode at pinned versions under the step (npm), and runs
+# Codex and OpenCode at pinned versions under the step (npm), uses Antigravity (agy) when the
+# worker has it on PATH (skipped with ACPMUX-OVERHEAD-SKIP otherwise), and runs
 # scripts/cmux-next/acpmux-overhead-bench.py: each harness raw and through acpmux, against a
 # local stand-in model that answers at once (no credential, no network model), so a
 # difference is acpmux's own cost. Exit 1 when acpmux at this ref adds more than noise to the
@@ -41,6 +42,16 @@
 #   cmux-ci run --class exclusive --script scripts/measure/acpmux-overhead.sh --ref SHA \
 #     --arg=bench=hibernate --arg=harness=claude,codex [--arg=n=4] [--arg=before=SHA] --timeout 5400
 #
+# bench=procs: what an open chat costs in processes, each harness alone beside it through acpmux
+# (Leo, 2026-11-24: "cross-comparing to claude code and codex and what processes they spawn and how
+# they manage them"). n chats per harness (default 4) held open after one turn: processes, RSS and
+# idle CPU per chat, the daemon's shared part, every chat's total at n, what still runs 10 s after
+# each chat closes, the processes by program, and the floor (one process per chat, the harness at
+# its raw size). With before=SHA both builds run. Output: ACPMUX-OVERHEAD lines (the table) and
+# PROCS-ROW / PROCS-GAP JSON lines. Exit 1 when a side failed to run.
+#   cmux-ci run --class exclusive --script scripts/measure/acpmux-overhead.sh --ref SHA \
+#     --arg=bench=procs --arg=harness=claude,codex [--arg=n=4] [--arg=before=SHA] --timeout 5400
+#
 # bench=build-turn: an agent turn that runs a build (acpmux cpu_class.rs, the CPU class a session's
 # harness starts at): Claude Code through acpmux, each run a fresh session whose one Bash call is a
 # cold debug build of crate= (default cmux-history) in a fresh target dir. Per acpmux build: the
@@ -52,7 +63,7 @@
 #     --arg=bench=build-turn --arg=harness=claude [--arg=n=3] [--arg=crate=cmux-history] \
 #     [--arg=before=SHA] --timeout 5400
 set -euo pipefail
-n=20
+n=""
 harness="claude,codex,opencode"
 before=""
 claude_version="2.1.303"
@@ -75,14 +86,15 @@ for arg in "$@"; do
     *) echo "acpmux-overhead.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
+[[ -n "$n" ]] || { [[ "$bench" == procs ]] && n=4 || n=20; }
 [[ "$n" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "acpmux-overhead.sh: n is 1-999" >&2; exit 2; }
-[[ "$harness" =~ ^(claude|codex|opencode)(,(claude|codex|opencode)){0,2}$ ]] || { echo "acpmux-overhead.sh: harness=claude,codex,opencode" >&2; exit 2; }
+[[ "$harness" =~ ^(claude|codex|opencode|antigravity)(,(claude|codex|opencode|antigravity)){0,3}$ ]] || { echo "acpmux-overhead.sh: harness=claude,codex,opencode,antigravity" >&2; exit 2; }
 [[ -z "$before" || "$before" =~ ^[0-9a-f]{40}$ ]] || { echo "acpmux-overhead.sh: before= is a 40-character SHA" >&2; exit 2; }
 for v in "$claude_version" "$codex_version" "$opencode_version"; do
   [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "acpmux-overhead.sh: versions are X.Y.Z" >&2; exit 2; }
 done
 [[ "$guard_ms" =~ ^[0-9]{1,4}$ ]] || { echo "acpmux-overhead.sh: guard_ms is a number" >&2; exit 2; }
-[[ "$bench" =~ ^(harness|daemon|prewarm|hibernate|build-turn)$ ]] || { echo "acpmux-overhead.sh: bench=harness, daemon, prewarm, hibernate or build-turn" >&2; exit 2; }
+[[ "$bench" =~ ^(harness|daemon|prewarm|hibernate|build-turn|procs)$ ]] || { echo "acpmux-overhead.sh: bench=harness, daemon, prewarm, hibernate, build-turn or procs" >&2; exit 2; }
 [[ "$crate" =~ ^[a-z0-9_-]{1,64}$ ]] || { echo "acpmux-overhead.sh: crate= is a cmux-tui package name" >&2; exit 2; }
 [[ "$bench" != build-turn || "$harness" == claude ]] || { echo "acpmux-overhead.sh: bench=build-turn runs harness=claude only" >&2; exit 2; }
 # Every tool this bench always calls, checked before anything runs, so a worker without one says
@@ -102,9 +114,9 @@ if [[ "$bench" == daemon ]]; then
 elif [[ "$bench" == build-turn ]]; then
   # The turn's build runs cargo and perl (its clock); ps reads its shell's priority.
   need_tools "bench=build-turn" git sysctl sw_vers curl shasum awk python3 npm ps cargo perl
-elif [[ "$bench" == hibernate ]]; then
+elif [[ "$bench" == hibernate || "$bench" == procs ]]; then
   # Hibernation counts the agent's processes with ps (acpmux-overhead-bench.py).
-  need_tools "bench=hibernate" git sysctl sw_vers curl shasum awk python3 npm ps
+  need_tools "bench=$bench" git sysctl sw_vers curl shasum awk python3 npm ps
 else
   need_tools "bench=$bench" git sysctl sw_vers curl shasum awk python3 npm
 fi
@@ -198,7 +210,22 @@ fi
 npm install --prefix "$work/tools" --no-fund --no-audit \
   "@anthropic-ai/claude-code@$claude_version" "@openai/codex@$codex_version" "opencode-ai@$opencode_version" >/dev/null
 export PATH="$work/tools/node_modules/.bin:$PATH"
-echo "ACPMUX-OVERHEAD-BIN claude $(claude --version) codex $(codex --version) opencode $(opencode --version)"
+# Antigravity (agy) has no npm package: it runs when the worker has agy on PATH (or
+# ACPMUX_BENCH_AGY names it), and otherwise is skipped with ACPMUX-OVERHEAD-SKIP, not failed.
+agy_bin="${ACPMUX_BENCH_AGY:-agy}"
+agy_version=""
+if [[ ",$harness," == *,antigravity,* ]]; then
+  if command -v "$agy_bin" >/dev/null 2>&1; then
+    # acpmux finds agy on PATH, so a named binary's directory goes first.
+    [[ "$agy_bin" == */* ]] && export PATH="$(cd "$(dirname "$agy_bin")" && pwd):$PATH"
+    agy_version=" antigravity $("$agy_bin" --version 2>/dev/null | head -n1)"
+  else
+    echo "ACPMUX-OVERHEAD-SKIP antigravity: $agy_bin is not on PATH; install the Antigravity CLI (agy) on this worker to measure it" >&2
+    harness="$(tr ',' '\n' <<<"$harness" | { grep -vx antigravity || true; } | paste -sd, -)"
+    [[ -n "$harness" ]] || { echo "ACPMUX-OVERHEAD-MISSING-TOOL agy: harness=antigravity needs agy on PATH; run the step on a worker that has it" >&2; exit 2; }
+  fi
+fi
+echo "ACPMUX-OVERHEAD-BIN claude $(claude --version) codex $(codex --version) opencode $(opencode --version)$agy_version"
 
 status=0
 mode=overhead
@@ -250,6 +277,7 @@ SH
   exit "$status"
 fi
 [[ "$bench" == hibernate ]] && mode=hibernate
+[[ "$bench" == procs ]] && mode=procs
 run() {
   local label="$1" bin="$2"
   python3 -I scripts/cmux-next/acpmux-overhead-bench.py --acpmux "$bin" --harness "$harness" -n "$n" --mode "$mode" \
@@ -260,6 +288,13 @@ if [[ "$bench" == hibernate ]]; then
   run after "$work/after/acpmux"
   tail -n 20 "$work/after.log" | sed "s/^/ACPMUX-OVERHEAD-LOG /"
   exit 0
+fi
+if [[ "$bench" == procs ]]; then
+  [[ -n "$before" ]] && { run before "$work/before/acpmux" || status=1; }
+  run after "$work/after/acpmux" || status=1
+  tail -n 20 "$work/after.log" | sed "s/^/ACPMUX-OVERHEAD-LOG /"
+  echo "ACPMUX-OVERHEAD-LOAD end $(sysctl -n vm.loadavg)"
+  exit "$status"
 fi
 if [[ "$bench" == prewarm ]]; then
   [[ -n "$before" ]] && run before "$work/before/acpmux"

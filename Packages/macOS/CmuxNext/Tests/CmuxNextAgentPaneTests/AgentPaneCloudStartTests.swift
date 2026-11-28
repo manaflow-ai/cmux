@@ -62,6 +62,17 @@ struct AgentPaneCloudStartTests {
         #expect(!model.transport.replacements.beginSandbox())
     }
 
+    @Test func aCloudOnlyGeminiPickKeepsItsModelForCloudStart() throws {
+        let params = Self.good.merging(["harness": "gemini", "model": "gemini-3.1-pro-preview"]) { $1 }
+        let ordinary = try #require(AgentPaneCloudStart(params: params))
+        let cloudOnly = try #require(AgentPaneCloudStart(params: params.merging(["cloudOnly": true]) { $1 }))
+        #expect(ordinary.allowsHybridStart)
+        #expect(!cloudOnly.allowsHybridStart)
+        let seed = cloudOnly.seed(cwd: "/home/cmux/paint")
+        #expect(seed.harness == "gemini")
+        #expect(seed.model == "gemini-3.1-pro-preview")
+    }
+
     private static func code(_ reply: [String: Any]) -> String? { (reply["error"] as? [String: Any])?["code"] as? String }
 
     private static let cancel = AgentPaneRequest(body: ["method": "cloud.signInCancel"])
@@ -283,6 +294,17 @@ struct AgentPaneCloudStartTests {
         #expect(unnamed.seed(cwd: "/w").harness == nil)
     }
 
+    @Test func onlyAnAutoStartSeedsItsKeyEvenWhenAnExplicitRetryReusesThePromptAndKey() async throws {
+        var params = Self.good
+        let explicit = try #require(AgentPaneCloudStart(params: params))
+        #expect(explicit.seed(cwd: nil).autoCloudStartKey == nil)
+        params["autoPlaced"] = true
+        let auto = try #require(AgentPaneCloudStart(params: params))
+        let source = AgentPaneSeedSource(auto.seed(cwd: nil))
+        #expect(await source.take()?.autoCloudStartKey == explicit.key)
+        #expect(await source.take()?.autoCloudStartKey == nil)
+    }
+
     /// What the sending tab's composer held while the start ran (its unsent text) is the started chat's
     /// draft, shown and never sent, beside the prompt that goes by itself; an attachment-only start too.
     @Test func theStartedChatsDraftIsWhatTheSendingTabTypedMeanwhile() throws {
@@ -325,9 +347,9 @@ struct AgentPaneCloudStartTests {
         #expect(model.transport.replacements.beginSandbox())
     }
 
-    @Test func noGestureAStartedOrRemoteChatOrABadRequestStartsNothing() async {
+    /// (Where a gesture is still needed: ``aSendWithNoGestureStillPicksNoOutsideFolderAndSendsNoSeededPrompt``.)
+    @Test func aStartedOrRemoteChatOrABadRequestStartsNothing() async {
         let starts = Starts()
-        _ = await Self.pane(starts).respond(to: Self.start(Self.good))
         let started = Self.pane(starts, sessionId: "chat")
         started.transport.gestures.record()
         _ = await started.respond(to: Self.start(Self.good))

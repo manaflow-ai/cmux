@@ -57,7 +57,7 @@ public nonisolated struct AgentPaneProjectInstructions: Equatable, Sendable {
             undo()
             return AgentPaneModel.transportFailure(.pathInvalid)
         }
-        guard let onOpenFile = model.onOpenFile, await onOpenFile(url, .tab) else {
+        guard let onOpenFile = model.onOpenFile, await onOpenFile(url, .tab, nil) else {
             undo()
             return AgentPaneReply.failure(code: "open_failed", message: AgentPaneModel.openFileFailedMessage)
         }

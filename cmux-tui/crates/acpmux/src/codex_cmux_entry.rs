@@ -202,6 +202,20 @@ fn resolve_within(
     env: &[(OsString, OsString)],
     timeout: Duration,
 ) -> CmuxEntry {
+    let deadline = Instant::now() + timeout;
+    resolve_until(codex, args, cwd, env, deadline, |child| child.exited_within(timeout))
+}
+
+/// [`resolve_within`] with the wait for the child's exit supplied: `exited` reports whether it
+/// exited by `deadline`. Tests end the wait on an event of their own instead of a wall clock.
+fn resolve_until(
+    codex: &Path,
+    args: &[OsString],
+    cwd: &Path,
+    env: &[(OsString, OsString)],
+    deadline: Instant,
+    exited: impl FnOnce(&mut cmux_process::Child) -> std::io::Result<bool>,
+) -> CmuxEntry {
     use std::io::Read as _;
     let config = config_args(args);
     let getenv = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
@@ -219,7 +233,6 @@ fn resolve_within(
         .stderr(cmux_process::Stdio::piped())
         // Its own process group, so a timeout ends whatever it started too.
         .process_group(0);
-    let deadline = Instant::now() + timeout;
     let Ok(mut child) = command.spawn() else { return CmuxEntry::Unknown };
     // Each pipe is read on a thread of its own, which sends what it read when the pipe closes.
     // A reader that cannot start drops its sender, so its receiver reads as no answer.
@@ -243,7 +256,7 @@ fn resolve_within(
         child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
     );
     // Unreaped until after the group kill below, so the group id cannot name another process.
-    let exited = child.exited_within(timeout);
+    let exited = exited(&mut child);
     // Whatever it started and left running ends with it, so no process outlives the question
     // and nothing it left holds the output open.
     #[cfg(unix)]
@@ -293,25 +306,7 @@ fn resolve_within(
 /// read-only scan that only ever adds doubt: it never makes cmux send anything.
 pub fn project_doubt(folder: &Path, user: Option<&Path>, entry: &CmuxEntry) -> Option<String> {
     let user = user.and_then(|u| u.canonicalize().ok().or_else(|| Some(u.to_path_buf())));
-    let resolved = folder.canonicalize().ok();
-    let mut files: Vec<PathBuf> = Vec::new();
-    for start in std::iter::once(folder.to_path_buf()).chain(resolved) {
-        // Outside a repository, the launch folder is the project root.
-        let root = start
-            .ancestors()
-            .find(|dir| dir.join(".git").exists())
-            .map_or_else(|| start.clone(), Path::to_path_buf);
-        for dir in start.ancestors() {
-            let file = dir.join(".codex/config.toml");
-            if !files.contains(&file) {
-                files.push(file);
-            }
-            if dir == root {
-                break;
-            }
-        }
-    }
-    for file in files {
+    for file in project_files(folder) {
         let Ok(text) = std::fs::read_to_string(&file) else { continue };
         let real = file.canonicalize().unwrap_or_else(|_| file.clone());
         if user.as_deref() == Some(real.as_path()) {
@@ -346,6 +341,144 @@ pub fn project_doubt(folder: &Path, user: Option<&Path>, entry: &CmuxEntry) -> O
         }
     }
     None
+}
+
+/// The `.codex/config.toml` paths a launch in `folder` may load, there or not: from `folder` up to
+/// the repository root (the nearest folder with `.git`; outside a repository, `folder`'s own
+/// only), for `folder` as written and as resolved. [`project_doubt`] scans them; [`fingerprint`]
+/// hashes them.
+pub fn project_files(folder: &Path) -> Vec<PathBuf> {
+    let resolved = folder.canonicalize().ok();
+    let mut files: Vec<PathBuf> = Vec::new();
+    for start in std::iter::once(folder.to_path_buf()).chain(resolved) {
+        // Outside a repository, the launch folder is the project root.
+        let root = start
+            .ancestors()
+            .find(|dir| dir.join(".git").exists())
+            .map_or_else(|| start.clone(), Path::to_path_buf);
+        for dir in start.ancestors() {
+            let file = dir.join(".codex/config.toml");
+            if !files.contains(&file) {
+                files.push(file);
+            }
+            if dir == root {
+                break;
+            }
+        }
+    }
+    files
+}
+
+/// Whether env key `key` is one Codex finds or chooses its config with: `HOME`, `USER`,
+/// `XDG_CONFIG_HOME` and every `CODEX_*` (`CODEX_HOME` among them). [`fingerprint`] hashes these
+/// only, so a fork, whose env is built apart from its parent's start (`hub/fork.rs`
+/// `harness_env`), gets the same digest when they are the same; Codex's config files expand no
+/// other variable into an `mcp_servers` entry.
+pub fn config_env(key: &str) -> bool {
+    matches!(key, "HOME" | "USER" | "XDG_CONFIG_HOME") || key.starts_with("CODEX_")
+}
+
+/// The folder of the config Codex loads for every launch on the machine (its system and managed
+/// config): [`fingerprint`] hashes every file in it.
+pub const SYSTEM_DIR: &str = "/etc/codex";
+
+/// The macOS managed preferences Codex reads (MDM), the machine's and the person's
+/// (`<dir>/<user>/<file>`): [`fingerprint`] hashes them.
+pub const MANAGED_PREFS: (&str, &str) = ("/Library/Managed Preferences", "com.openai.codex.plist");
+
+/// A digest of everything [`resolve`]'s answer for this launch depends on, so a recorded answer
+/// is reused only while none of it changed (RFD 0181 B7, `session_manifest.rs`): the program's
+/// path, size and modification time; the config arguments `mcp get` is passed; the launch folder;
+/// the child's environment Codex finds its config with ([`config_env`]: hashed, never kept); and
+/// the contents of every config file Codex
+/// merges (the user config, the [`project_files`], [`SYSTEM_DIR`]'s files, the
+/// [`MANAGED_PREFS`]), a missing one as missing. `None` when any of it cannot be read: no digest,
+/// so the answer is asked again. The skip-on-doubt rules hold as before: an answer that was doubt
+/// is never recorded, and a project file's change is a new digest.
+pub fn fingerprint(
+    codex: &Path,
+    args: &[OsString],
+    cwd: &Path,
+    env: &[(OsString, OsString)],
+) -> Option<String> {
+    use sha2::Digest as _;
+    fn put(h: &mut sha2::Sha256, bytes: &[u8]) {
+        h.update((bytes.len() as u64).to_le_bytes());
+        h.update(bytes);
+    }
+    // A file as its contents, a missing one as missing; any other error is no digest.
+    fn file(h: &mut sha2::Sha256, path: &Path) -> Option<()> {
+        put(h, path.as_os_str().as_encoded_bytes());
+        match std::fs::read(path) {
+            Ok(bytes) => {
+                put(h, b"file");
+                put(h, &bytes);
+            }
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) =>
+            {
+                put(h, b"missing")
+            }
+            Err(_) => return None,
+        }
+        Some(())
+    }
+    let h = &mut sha2::Sha256::new();
+    let config = config_args(args);
+    let getenv = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
+    let home = home_dir(&getenv);
+    let folder = launch_folder(cwd, config.cd.as_deref(), home.as_deref());
+    put(h, b"codex-mcp-get-v1");
+    put(h, codex.as_os_str().as_encoded_bytes());
+    let program = std::fs::metadata(codex).ok()?;
+    let modified = program.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
+    put(h, &program.len().to_le_bytes());
+    put(h, &modified.as_nanos().to_le_bytes());
+    put(h, &(config.passed.len() as u64).to_le_bytes());
+    for arg in &config.passed {
+        put(h, arg.as_encoded_bytes());
+    }
+    put(h, folder.as_os_str().as_encoded_bytes());
+    let mut sorted: Vec<&(OsString, OsString)> =
+        env.iter().filter(|(k, _)| config_env(&k.to_string_lossy())).collect();
+    sorted.sort();
+    put(h, &(sorted.len() as u64).to_le_bytes());
+    for (k, v) in sorted {
+        put(h, k.as_encoded_bytes());
+        put(h, v.as_encoded_bytes());
+    }
+    let user = getenv("CODEX_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| home.as_ref().map(|h| h.join(".codex")))
+        .map(|dir| dir.join("config.toml"));
+    match user {
+        Some(user) => file(h, &user)?,
+        None => put(h, b"no-user-config"),
+    }
+    for project in project_files(&folder) {
+        file(h, &project)?;
+    }
+    let mut system: Vec<PathBuf> = match std::fs::read_dir(SYSTEM_DIR) {
+        Ok(entries) => entries.map(|e| e.map(|e| e.path())).collect::<Result<_, _>>().ok()?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(_) => return None,
+    };
+    system.sort();
+    put(h, SYSTEM_DIR.as_bytes());
+    for path in system.iter().filter(|p| !p.is_dir()) {
+        file(h, path)?;
+    }
+    let (prefs, plist) = MANAGED_PREFS;
+    file(h, &Path::new(prefs).join(plist))?;
+    match getenv("USER").filter(|u| !u.is_empty()) {
+        Some(user) => file(h, &Path::new(prefs).join(user).join(plist))?,
+        None => put(h, b"no-user"),
+    }
+    Some(format!("{:x}", h.clone().finalize()))
 }
 
 /// Why a terminal launch of Codex with the person's arguments `args` may load another config than
@@ -491,6 +624,19 @@ mod tests {
         args.iter().map(OsString::from).collect()
     }
 
+    /// [`resolve`] for a test that checks what the answer says, not how soon it came: the fake
+    /// Codex is a shell script, and on a loaded runner its start alone can pass [`TIMEOUT`]
+    /// (CI run 45641669048: the `-C link` case read `Unknown`). The tests of the bound itself
+    /// call `resolve` and `resolve_within`.
+    fn answered(
+        codex: &Path,
+        args: &[OsString],
+        cwd: &Path,
+        env: &[(OsString, OsString)],
+    ) -> CmuxEntry {
+        resolve_within(codex, args, cwd, env, Duration::from_secs(60))
+    }
+
     #[test]
     fn config_args_keeps_the_options_mcp_get_takes_in_order() {
         let found = config_args(&os(&[
@@ -597,9 +743,9 @@ mod tests {
         );
         let none =
             fake_codex(&root, "echo \"Error: No MCP server named 'cmux' found.\" >&2; exit 1");
-        assert_eq!(resolve(&none, &[], &work, &env).0, CmuxEntry::None);
+        assert_eq!(answered(&none, &[], &work, &env), CmuxEntry::None);
         let http = fake_codex(&root, r#"printf '{"transport":{"type":"streamable_http"}}'"#);
-        assert_eq!(resolve(&http, &[], &work, &env).0, CmuxEntry::Http);
+        assert_eq!(answered(&http, &[], &work, &env), CmuxEntry::Http);
         let slow = fake_codex(&root, "exec sleep 5");
         let started = Instant::now();
         assert_eq!(
@@ -617,13 +763,26 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
         let pid_file = root.join("pid");
-        let slow = fake_codex(&root, &format!("sleep 30 & echo $! > {pid_file:?}; wait"));
-        let started = Instant::now();
-        assert_eq!(
-            resolve_within(&slow, &[], &root, &[], Duration::from_millis(300)),
-            CmuxEntry::Unknown
+        let written = root.join("pid.tmp");
+        let slow = fake_codex(
+            &root,
+            &format!("sleep 30 & echo $! > {written:?}; mv {written:?} {pid_file:?}; wait"),
         );
-        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        // The deadline passes once the resolver's child has started its own (the pid file is
+        // there), not at a wall-clock time a loaded runner may reach before the shell gets there.
+        let timed_out = std::cell::Cell::new(None);
+        let entry = resolve_until(&slow, &[], &root, &[], Instant::now(), |_| {
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while !pid_file.exists() {
+                assert!(Instant::now() < deadline, "the fake codex never started its child");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            timed_out.set(Some(Instant::now()));
+            Ok(false)
+        });
+        assert_eq!(entry, CmuxEntry::Unknown);
+        let ended = timed_out.get().unwrap().elapsed();
+        assert!(ended < Duration::from_secs(2), "{ended:?}");
         let left = fake_codex(
             &root,
             r#"sleep 30 & printf '{"transport":{"type":"streamable_http"}}'; exit 0"#,
@@ -746,7 +905,7 @@ mod tests {
         let codex =
             fake_codex(&root, "echo \"Error: No MCP server named 'cmux' found.\" >&2; exit 1");
         assert!(matches!(
-            resolve(&codex, &os(&["-C", "link", "exec", "hi"]), &root, &env).0,
+            answered(&codex, &os(&["-C", "link", "exec", "hi"]), &root, &env),
             CmuxEntry::Doubt(_)
         ));
     }

@@ -24,7 +24,6 @@ use serde_json::{Value, json};
 
 /// The link's round trip: about Leo's to a Cloud machine.
 const RTT: Duration = Duration::from_millis(50);
-
 /// A start key of this run's own, one per start. The projection is named by it, and its process
 /// table and the edits it keeps in the user's state folder outlive a test: two tests (or two runs)
 /// with one key attached to each other's mount, and a later run read the last one's upper layer.
@@ -40,6 +39,14 @@ fn new_key() -> String {
         std::process::id(),
         (nanos ^ (n << 40)) & 0xffff_ffff_ffff
     )
+}
+
+/// Every byte that crossed a link of this test binary, either way (what the Mac sent and what the
+/// machine asked): a secret kept on the Mac must never be in it.
+static CROSSED: std::sync::Mutex<Vec<u8>> = std::sync::Mutex::new(Vec::new());
+
+fn crossed(needle: &[u8]) -> bool {
+    CROSSED.lock().unwrap().windows(needle.len()).any(|window| window == needle)
 }
 
 /// Copies `from` to `to`, each read arriving `RTT`/2 after it left.
@@ -60,6 +67,7 @@ fn delayed(mut from: UnixStream, mut to: UnixStream) {
             match from.read(&mut buffer) {
                 Ok(0) | Err(_) => return,
                 Ok(read) => {
+                    CROSSED.lock().unwrap().extend_from_slice(&buffer[..read]);
                     if due.send((Instant::now() + RTT / 2, buffer[..read].to_vec())).is_err() {
                         return;
                     }
@@ -190,8 +198,8 @@ struct Start {
 }
 
 impl Start {
-    /// FUSE is here but this host may not mount (a container without the right): the start
-    /// copied for that reason alone.
+    // Match the landed harness: restricted containers can expose /dev/fuse
+    // without permitting mounts. This is a skip, never mounted-path evidence.
     fn could_not_mount(&self) -> bool {
         self.answer["mode"] != "projected" && self.stderr.contains("mount failed")
     }
@@ -245,8 +253,8 @@ fn start_chat(
         "start-chat copy: {stdout}{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     let folder = PathBuf::from(answer["folder"].as_str().unwrap());
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     Start { key, took, answer, folder, stderr }
 }
 
@@ -316,6 +324,7 @@ fn a_folder_past_the_limits_is_projected_whole_and_reads_come_from_the_mac() {
         return;
     }
     assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
+    assert_eq!(start.answer["chat"].as_str(), folder.to_str(), "{}", start.answer);
     // One projection per chat, named by its start key: Bring Back finds the chat's edits by it.
     assert_eq!(
         start.answer["projected"]["name"],
@@ -348,6 +357,56 @@ fn a_folder_past_the_limits_is_projected_whole_and_reads_come_from_the_mac() {
     stop(&state, folder);
 }
 
+/// RFD 0007, "Tracked files the skip rules keep home": "the manifest lists such a tracked path
+/// with its real stat and no bytes; opening it fails with `EACCES` and a named reason, so `git
+/// status` is clean and the boundary holds". A key a repository below `~/Projects` commits stats
+/// on the machine as on the Mac, its open is refused, `git status` there is clean, and no byte of
+/// it crossed the link. Leo, 2026-11-22: "THE WHOLE POINT OF PROJECTIONFS IS FOR AGENTS TO BE
+/// ABLE TO DO THIS".
+#[test]
+fn a_tracked_secret_kept_on_the_mac_is_listed_refused_and_git_status_is_clean() {
+    if !fuse_here() {
+        eprintln!("skipping: no FUSE here");
+        return;
+    }
+    let w = world(20);
+    const KEY: &str = "-----BEGIN PRIVATE KEY----- a test key that stays on the Mac\n";
+    write(&w.local.join("cmux/test/fixtures/server.key"), KEY);
+    // Committed long ago, as a repository's test keys are: a key written in the index's own
+    // second is racily clean, and git would read its bytes to check it.
+    let old = Command::new("touch")
+        .args(["-d", "2026-01-01 00:00:00"])
+        .arg(w.local.join("cmux/test/fixtures/server.key"))
+        .status()
+        .unwrap();
+    assert!(old.success());
+    git(&w.local.join("cmux"), &["add", "-f", "test/fixtures/server.key"]);
+    git(&w.local.join("cmux"), &["commit", "-qm", "a test key"]);
+    let state = w.home.parent().unwrap().join("state");
+    let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true, &[]);
+    let folder = &start.folder;
+    if start.could_not_mount() {
+        eprintln!("skipping: this host may not mount FUSE: {}", start.stderr);
+        return;
+    }
+    assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
+
+    let mac = std::fs::metadata(w.local.join("cmux/test/fixtures/server.key")).unwrap();
+    let here = std::fs::metadata(folder.join("cmux/test/fixtures/server.key")).unwrap();
+    assert!(here.is_file());
+    assert_eq!(here.len(), mac.len());
+    assert_eq!(here.modified().unwrap(), mac.modified().unwrap());
+    let error = std::fs::File::open(folder.join("cmux/test/fixtures/server.key")).unwrap_err();
+    // EACCES (Linux's 13).
+    assert_eq!(error.raw_os_error(), Some(13), "{error}");
+    let status = git(&folder.join("cmux"), &["status", "--short"]);
+    assert_eq!(status, "", "git status on the machine: {status}");
+    // Every other file still reads, from the Mac.
+    assert_eq!(std::fs::read_to_string(folder.join("cmux/README.md")).unwrap(), "# cmux\n");
+    assert!(!crossed(KEY.as_bytes()), "the key's bytes crossed the link");
+    stop(&state, folder);
+}
+
 /// The App's first copy asks (`--on-seed-refusal ask`) and ends a start whose folder its
 /// machine's disk cannot hold, so that copy has to project too, before any seed or copy.
 #[test]
@@ -359,19 +418,118 @@ fn the_apps_asking_copy_projects_too() {
     let w = world(50);
     let state = w.home.parent().unwrap().join("state");
     let work = w.home.join("work");
-    let start = start_chat(&state, &w.socket, &w.local, &work, true, &["--on-seed-refusal", "ask"]);
+    let start = start_chat(
+        &state,
+        &w.socket,
+        &w.local,
+        &work,
+        true,
+        &["--on-seed-refusal", "ask", "--subpath", "cmux"],
+    );
     if start.could_not_mount() {
         eprintln!("skipping: this host may not mount FUSE: {}", start.stderr);
         return;
     }
     assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
+    let chat = Path::new(start.answer["chat"].as_str().unwrap());
+    assert_eq!(chat, start.folder.join("cmux"));
+    assert_eq!(git(chat, &["status", "--short"]), "");
     let image = std::fs::metadata(start.folder.join("Downloads/disk.img")).unwrap();
     assert_eq!(image.len(), 21 * 1024 * 1024 * 1024);
     stop(&state, &start.folder);
 }
 
+/// `cmux link seed push` (with `since_last`, `--since-last`) of `local` to `remote`: its answer
+/// line and its stderr.
+fn seed_push(
+    state: &Path,
+    socket: &Path,
+    local: &Path,
+    remote: &Path,
+    since_last: bool,
+) -> (Value, String) {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+    command
+        .env("CMUX_TUI_STATE_DIR", state)
+        .env("CMUX_PROJECTED_FOLDERS", "1")
+        .env("CMUX_PROJECTED_MOVES", "1")
+        .args(["link", "seed", "push", "--socket"])
+        .arg(socket)
+        .arg(local)
+        .arg(remote);
+    if since_last {
+        command.arg("--since-last");
+    }
+    let output = command.output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let answer = stdout
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<Value>(line).ok())
+        .unwrap_or(Value::Null);
+    (answer, String::from_utf8_lossy(&output.stderr).into_owned())
+}
+
+/// Move to Cloud (Leo, 2026-11-21: "improve the cmux moving/teleporting then. we have projection
+/// fs"): its push projects the chat's folder as a new Cloud chat's does, whole and at once, and
+/// the push once the chat is frozen (`--since-last`) projects it again, so what the chat changed
+/// here up to the freeze (an edit, a new file) is what the machine reads.
 #[test]
-#[ignore = "a bench: CMUX_PROJECT_BENCH_FILES=200000 cargo test --test link_project -- --ignored --nocapture"]
+fn a_moved_chats_folder_is_projected_and_projected_again_once_frozen() {
+    if !fuse_here() {
+        eprintln!("skipping: no FUSE here");
+        return;
+    }
+    let w = world(20);
+    let state = w.home.parent().unwrap().join("state");
+    let remote = w.home.join("work/Projects");
+    let (answer, stderr) = seed_push(&state, &w.socket, &w.local, &remote, false);
+    if answer["mode"] != "projected" && stderr.contains("mount failed") {
+        eprintln!("skipping: this host may not mount FUSE: {stderr}");
+        return;
+    }
+    assert_eq!(answer["ok"], true, "{answer} {stderr}");
+    assert_eq!(answer["mode"], "projected", "{answer} {stderr}");
+    let image = std::fs::metadata(remote.join("Downloads/disk.img")).unwrap();
+    assert_eq!(image.len(), 21 * 1024 * 1024 * 1024);
+    assert_eq!(std::fs::read_to_string(remote.join("cmux-matrix-word.txt")).unwrap(), "pelican\n");
+
+    // The chat goes on here until the move freezes it: it edits a file and makes one.
+    write(&w.local.join("cmux-matrix-word.txt"), "a great blue heron\n");
+    write(&w.local.join("cmux/src/new.rs"), "fn new() {}\n");
+    let (again, stderr) = seed_push(&state, &w.socket, &w.local, &remote, true);
+    assert_eq!(again["ok"], true, "{again} {stderr}");
+    assert_eq!(again["mode"], "projected", "{again} {stderr}");
+    assert_eq!(
+        std::fs::read_to_string(remote.join("cmux-matrix-word.txt")).unwrap(),
+        "a great blue heron\n"
+    );
+    assert_eq!(std::fs::read_to_string(remote.join("cmux/src/new.rs")).unwrap(), "fn new() {}\n");
+    assert_eq!(git(&remote.join("cmux"), &["log", "--oneline"]).lines().count(), 1);
+    stop(&state, &remote);
+}
+
+#[test]
+fn the_kill_switch_copies_the_attached_folder_without_a_projection_mount() {
+    let root = tempfile::tempdir().unwrap();
+    let local = root.path().join("local");
+    let home = root.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    write(&local.join("src/file.txt"), "local contents\n");
+    let socket = root.path().join("machine.sock");
+    machine(&socket, &home);
+    let state = root.path().join("state");
+    let start =
+        start_chat(&state, &socket, &local, &home.join("work"), false, &["--subpath", "src"]);
+    assert_ne!(start.answer["mode"], "projected");
+    let chat = Path::new(start.answer["chat"].as_str().unwrap());
+    assert_eq!(chat, start.folder.join("src"));
+    assert_eq!(std::fs::read_to_string(chat.join("file.txt")).unwrap(), "local contents\n");
+    assert_eq!(std::fs::read_to_string(local.join("src/file.txt")).unwrap(), "local contents\n");
+}
+
+#[test]
+#[ignore = "a bench: CMUX_PROJECT_BENCH_FILES=200000 cargo test --test it -- link_project:: --ignored --nocapture"]
 fn a_bench_of_the_first_turn() {
     if !fuse_here() {
         eprintln!("skipping: no FUSE here");

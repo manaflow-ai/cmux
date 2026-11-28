@@ -5,57 +5,6 @@ import CmuxMobileMarkdown
 import CmuxSpinner
 import SwiftUI
 
-/// SPEC 6.7 plan card with live step glyphs.
-struct PlanCard: View {
-    let entries: [ACPPlanEntry]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "list.bullet.clipboard")
-                Text("Plan").font(.headline)
-                Spacer()
-                Text("\(entries.count { $0.status == .completed }) of \(entries.count)")
-                    .font(.footnote.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .contentTransition(.numericText())
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        glyph(entry.status)
-                        Text(InlineMarkdownCache.shared.attributed(entry.content))
-                            .font(.subheadline)
-                            .foregroundStyle(entry.status == .completed ? .secondary : .primary)
-                            .strikethrough(entry.status == .completed, color: .secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-        }
-        .padding(16)
-        .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
-        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: entries)
-        .accessibilityElement(children: .combine)
-    }
-
-    @ViewBuilder
-    private func glyph(_ status: ACPPlanEntry.Status) -> some View {
-        switch status {
-        case .pending:
-            Image(systemName: "circle").foregroundStyle(.tertiary)
-        case .inProgress:
-            Image(systemName: "circle.dotted")
-                .foregroundStyle(.primary)
-                .symbolEffect(.rotate, options: .repeat(.continuous))
-        case .completed:
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(Color.cmuxMobileSuccess)
-                .transition(.symbolEffect(.appear))
-        }
-    }
-}
-
 /// SPEC 6.5 permission card in the transcript; resolved requests collapse to a summary row.
 struct PermissionCard: View {
     let record: PermissionRecord
@@ -105,7 +54,7 @@ struct PermissionCard: View {
                 }
             }
             .padding(16)
-            .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
+            .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
             .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
         }
     }
@@ -189,7 +138,7 @@ public struct PermissionActionBar: View {
                     .contentShape(.rect)
             }
         }
-        .sensoryFeedback(.impact(weight: .light), trigger: taps)
+        .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: taps)
     }
 
     private func style(_ option: ACPPermissionOption) -> CmuxMobileCapsuleButtonStyle.Kind {
@@ -211,6 +160,7 @@ public struct QuestionCard: View {
     @State private var forward = true
     @FocusState private var otherFocused: Bool
     @State private var submitted = 0
+    @Environment(\.chatStill) private var still
     #if DEBUG
     private let director = DemoDirector.shared
     #endif
@@ -243,7 +193,7 @@ public struct QuestionCard: View {
         .onChange(of: state) { _, new in
             if question.isPending { QuestionDraftStore.shared.save(QuestionDraft(new), for: question.id) }
         }
-        .sensoryFeedback(.impact(weight: .light), trigger: submitted)
+        .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: submitted)
         #if DEBUG
         .onChange(of: director.serial) { runDemoCommand() }
         #endif
@@ -312,7 +262,7 @@ public struct QuestionCard: View {
             }
         }
         .padding(16)
-        .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
         .clipShape(.rect(cornerRadius: 20, style: .continuous))
     }
 
@@ -348,14 +298,24 @@ public struct QuestionCard: View {
             .contentShape(.rect)
         }
         .buttonStyle(.cmuxPressFill)
-        .sensoryFeedback(.selection, trigger: chosen)
+        .cmuxMobileSensoryFeedback(.selection, trigger: chosen)
         .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 
     private func otherRow(_ item: AgentQuestion.Item) -> some View {
         let editing = state.editingOther || !(state.otherDrafts[item.id] ?? "").isEmpty
         return Group {
-            if editing {
+            if editing, still {
+                // A text field is a UIKit control, a placeholder in a still: the draft as text.
+                let draft = state.otherDrafts[item.id] ?? ""
+                Text(draft.isEmpty ? "Other…" : draft)
+                    .foregroundStyle(draft.isEmpty ? .secondary : .primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .frame(minHeight: 48)
+                    .background(Color.cmuxMobileFillSelected, in: .rect(cornerRadius: 14, style: .continuous))
+            } else if editing {
                 TextField("Other…", text: Binding(
                     get: { state.otherDrafts[item.id] ?? "" },
                     set: { send(.otherText($0)) }
@@ -462,7 +422,7 @@ struct AnsweredSummary: View {
                         .font(.subheadline)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
-                        .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 16, style: .continuous))
+                        .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 16, style: .continuous))
                 }
             }
         }
@@ -484,6 +444,7 @@ struct FailureCard: View {
     /// (the Mac's error card, `errorRecovery.ts`). Both are acpmux's turn retry.
     var leadsWithContinue = false
     let retry: () -> Void
+    @Environment(\.chatStill) private var still
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -500,12 +461,13 @@ struct FailureCard: View {
                 .tint(.secondary)
             }
             HStack(spacing: 8) {
+                // retry-prompt-ok: re-runs the failed turn (spends tokens; the cause may need fixing first)
                 Button(leadsWithContinue ? "Continue" : "Retry", action: retry)
                     .buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
                     .disabled(!canRetry)
                     .accessibilityIdentifier("agentChat.failure.lead")
                 if let retryWith {
-                    retryWith.menu
+                    retryWith.control(still: still)
                         .labelStyle(.iconOnly)
                         .buttonStyle(CmuxMobileCapsuleButtonStyle(.secondary, size: .large))
                         .accessibilityLabel(RetryModelChoice.title)
@@ -615,11 +577,8 @@ struct NextStepTryView: View {
                 }
             }
             if let target {
-                Text(target)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                SelectableText(target, textStyle: .caption1, monospaced: true, color: .secondaryLabel)
                     .lineLimit(2)
-                    .textSelection(.enabled)
                     .accessibilityIdentifier("agentChat.nextStep.tryTarget")
             }
             if !tryIt.verify.isEmpty {

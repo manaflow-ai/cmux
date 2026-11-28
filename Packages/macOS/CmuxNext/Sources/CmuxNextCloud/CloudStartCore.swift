@@ -1,5 +1,8 @@
 import CCmuxLayoutReducerFFI
+public import CmuxNextDaemon
 public import Foundation
+public import os
+import CmuxNextWakeups
 
 /// The NEXT Cloud start's decisions, asked of Rust (cmux-tui/crates/cmux-cloud-start-core, with
 /// their tests) over the app FFI's JSON channel (`cmux_layout_reducer_json`, ops `cloud_*`). The
@@ -33,6 +36,13 @@ public nonisolated struct CloudStartCore: Sendable {
         return nil
     }
 
+    public func matchesEnvironment(_ selected: String?, machine: CloudMachine, ensured: String? = nil) -> Bool {
+        guard let selected else { return true }
+        guard let actual = machine.environmentId ?? ensured else { return false }
+        return actual == selected
+            || (ensured == selected && selected.hasPrefix("env_") && actual.hasPrefix("denv_"))
+    }
+
     // MARK: The start's own checks (`start`)
 
     /// Whether a send asks the platform for its project's set-up machine (dependencies installed once, then warm): a
@@ -53,6 +63,22 @@ public nonisolated struct CloudStartCore: Sendable {
             return "cloud_disabled"
         }
         return reply.refusal
+    }
+
+    /// Whether a Cloud start that fronts in place keeps the Mac tab's page (`true`: re-homed onto the Cloud
+    /// machine, one renderer from Enter to the end) or draws the Cloud tab its own page that replaces it
+    /// (cmux-cloud-start-core `one_pane`). On by default; `CMUX_CLOUD_ONE_PANE=0` keeps the swap, as does an
+    /// FFI that does not answer.
+    public func keepsPage(inPlace: Bool, pageLive: Bool, cloudPageFree: Bool,
+                          onePaneEnv: String? = ProcessInfo.processInfo.environment["CMUX_CLOUD_ONE_PANE"]) -> Bool {
+        // The wire key stays "killSwitch" (one_pane.rs); the Swift name is not, so check-kill-switches.py reads no reference.
+        struct Request: Encodable {
+            var inPlace: Bool, pageLive: Bool, cloudPageFree: Bool, onePaneEnv: String?
+            enum CodingKeys: String, CodingKey { case inPlace, pageLive, cloudPageFree, onePaneEnv = "killSwitch" }
+        }
+        struct Reply: Decodable { var shown: String }
+        let request = Request(inPlace: inPlace, pageLive: pageLive, cloudPageFree: cloudPageFree, onePaneEnv: onePaneEnv)
+        return call("cloud_one_pane", request, as: Reply.self)?.shown == "rehome"
     }
 
     /// The account a send began in as cmux-tui keeps its sends: its user and team, `/`-joined.
@@ -104,6 +130,43 @@ public nonisolated struct CloudStartCore: Sendable {
         case ("pause", let ms?) where ms > 0: return .pause(ms: ms, readAfter: reply.readAfter ?? false)
         default: return .unread
         }
+    }
+
+    /// What the chat pane's start does with its failure before the card shows it (`recover::pane_step`, the same
+    /// table as `cmux cloud start-chat`'s): start again on its own after `ms`, or show the card.
+    public enum PaneRecovery: Sendable, Equatable {
+        /// Pause `ms`, then do what the card's Retry does; `cls` is the table's class it ran for, if any.
+        case rerun(ms: Int, cls: String?)
+        /// Show the card.
+        case surface
+    }
+
+    /// The pane's step for a failed start: its `code` (empty for none), `message`, whether the card would offer
+    /// Retry, how many reruns already ran and the milliseconds since the send began. An FFI that does not answer
+    /// shows the card, as before.
+    public func paneRecovery(code: String?, message: String, retryable: Bool, reruns: Int, elapsedMs: Int) -> PaneRecovery {
+        struct Request: Encodable { var code: String, message: String, retryable: Bool, reruns: Int, elapsedMs: Int }
+        struct Reply: Decodable { var next: String, pauseMs: Int?, `class`: String? }
+        let request = Request(code: code ?? "", message: message, retryable: retryable, reruns: max(reruns, 0), elapsedMs: max(elapsedMs, 0))
+        guard let reply = call("cloud_start_pane_recovery", request, as: Reply.self), reply.next == "rerun", let ms = reply.pauseMs, ms > 0 else { return .surface }
+        return .rerun(ms: ms, cls: reply.class)
+    }
+
+    /// A failed start the table reads: its code, words and whether the card would offer Retry.
+    public struct PaneFailure: Sendable, Equatable {
+        public let code: String?, message: String, retryable: Bool
+        public init(code: String?, message: String, retryable: Bool) { (self.code, self.message, self.retryable) = (code, message, retryable) }
+    }
+
+    /// Runs `once` (one start, which sets its failure) again, as the card's Retry would, while `paneRecovery` says
+    /// rerun; the table bounds the reruns and the time, and cancelling the task ends it. Returns the last answer.
+    public func paneRecovering<Answer>(_ once: (inout PaneFailure?) async -> Answer) async -> Answer {
+        let began = Date(); var failed: PaneFailure?, reruns = 0, answer = await once(&failed)
+        while let f = failed, case .rerun(let ms, _) = paneRecovery(code: f.code, message: f.message, retryable: f.retryable, reruns: reruns, elapsedMs: Int(Date().timeIntervalSince(began) * 1000)),
+              (try? await Task.sleep(for: .milliseconds(ms))) != nil { // wakeup-allow: bounded same-key rerun (recover::pane_step: PANE_RERUNS within PANE_BUDGET)
+            (failed, reruns) = (nil, reruns + 1); answer = await once(&failed)
+        }
+        return answer
     }
 
     /// Whether `root` is the disk's root or the home folder `home` (each as `standardizedFileURL`
@@ -177,5 +240,59 @@ public nonisolated struct CloudStartCore: Sendable {
     public func vmKind(_ vmKind: String?) -> VmKind {
         struct Request: Encodable { var vmKind: String? }
         return call("cloud_vm_kind", Request(vmKind: vmKind), as: VmKind.self) ?? VmKind(ownsVm: false, teammate: false, linkArguments: [])
+    }
+}
+
+/// The composer's Cloud send as a hybrid start: its first turn runs on this Mac while the Cloud
+/// machine boots, then the chat moves there with the app's own Move (fenced, cmux#55785). Every
+/// decision is cmux-cloud-start-core `hybrid_gui` (FFI `cloud_hybrid_gui_start`); this only passes
+/// the facts, logs the probe line (`cloud hybrid gui start: here` or `... off <reason>`) and runs
+/// `cmux cloud hybrid-begin SESSION new` once the chat here has its session. Kill switches:
+/// `CMUX_HYBRID_START=0`, `CMUX_GUI_HYBRID_START=0` (read by the FFI).
+public nonisolated struct CloudHybridGUIStart {
+    public nonisolated init() {}
+    /// What the app knows of its Cloud send (cmux-cloud-start-core `hybrid_gui::Send`).
+    public struct Send: Sendable {
+        public var plan: String?, signedIn: Bool, cloudDisabled: Bool
+        public var folder: Bool, repository: Bool, team: Bool, replacesChat: Bool, environment: Bool
+        public var harness: String?
+        /// This Mac's acpmux `_acpmux/harnesses` answer, JSON; nil: it did not answer.
+        public var catalog: Data?
+        public init(plan: String?, signedIn: Bool, cloudDisabled: Bool, folder: Bool, repository: Bool, team: Bool,
+                    replacesChat: Bool, environment: Bool, harness: String?, catalog: Data?) {
+            self.plan = plan; self.signedIn = signedIn; self.cloudDisabled = cloudDisabled; self.folder = folder
+            self.repository = repository; self.team = team; self.replacesChat = replacesChat
+            self.environment = environment; self.harness = harness; self.catalog = catalog
+        }
+    }
+
+    /// Whether the send runs its first turn here; logs Rust's probe line either way.
+    public static func runsHere(_ send: Send, logger: Logger) -> Bool {
+        var request: [String: Any] = [
+            "account": ["plan": send.plan as Any, "signedIn": send.signedIn, "cloudDisabled": send.cloudDisabled],
+            "folder": send.folder, "repository": send.repository, "team": send.team,
+            "replacesChat": send.replacesChat, "environment": send.environment,
+        ]
+        if let harness = send.harness { request["harness"] = harness }
+        if let catalog = send.catalog, let object = try? JSONSerialization.jsonObject(with: catalog) { request["catalog"] = object }
+        guard let data = try? JSONSerialization.data(withJSONObject: request),
+              let reply = CloudStartCore().callData("cloud_hybrid_gui_start", data),
+              let answer = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any] else {
+            logger.notice("cloud hybrid gui start: unanswered")
+            return false
+        }
+        logger.notice("\((answer["probe"] as? String) ?? "cloud hybrid gui start: unanswered", privacy: .public)")
+        return answer["here"] as? Bool == true
+    }
+
+    /// Begins the machine and the move for `session`, the chat here: the CLI's own detached driver.
+    public static func begin(session: String, cli: URL, logger: Logger) {
+        // task-owner: fire and forget; the CLI returns once its detached driver is spawned (30 s bound)
+        Task(priority: WorkPriority.bestEffort.taskPriority) {
+            let result = try? await ProcessRunner.run(executable: cli, arguments: ["cloud", "hybrid-begin", session, "new"],
+                                                      environment: nil, timeout: .seconds(30), clock: ContinuousClock())
+            let said = result.map { String(decoding: $0.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) } ?? "not run"
+            logger.notice("cloud hybrid gui start: begun \(session, privacy: .public) status \(result?.status ?? -1) \(said, privacy: .public)")
+        }
     }
 }

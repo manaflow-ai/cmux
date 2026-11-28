@@ -17,6 +17,12 @@ scripts/ci/upload-r2-object.py) is never retried: a rebuild is not
 byte-identical, so a retry cannot succeed. The run stays red and this script
 names the job.
 
+A build leg that failed on a rerun is not retried again. A rerun loses
+attempt 1's runner pick, and on 2026-11-19 58 of the 67 build legs that
+failed on a rerun died the same way (rustc killed by SIGKILL during the fat
+LTO build), and attempts 2 and 3 together cost 3,096 runner-min and published
+2 trees. A leg that ended cancelled or timed out is still retried (#42380).
+
 usage: cmux_tui_artifacts_retry.py --repo OWNER/NAME --run-id ID [--dry-run]
 Needs GH_TOKEN with actions: write and checks: read.
 """
@@ -27,12 +33,19 @@ from dataclasses import dataclass
 import json
 import os
 import sys
+import time
+import urllib.error
 import urllib.request
 
 MAX_ATTEMPTS = 3
+API_ATTEMPTS = 3
+MAX_RATE_WAIT = 45
 CONFLICT_TITLE = "immutable-r2-conflict"
 TREE_PREFLIGHT_JOB = "cmux-tui tree preflight"
 TREE_PUBLISH_JOBS = ("publish tree-addressed cmux-tui",)
+# The reusable build workflow's legs: "build / build TARGET", "build-linux / build TARGET", and the
+# macOS fallback's legs under its own caller job.
+BUILD_LEG_MARK = " / build "
 
 
 @dataclass(frozen=True)
@@ -53,10 +66,14 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]]) -> D
     # only feat-cmux-next's tree-publishing runs (they have this job) are retried.
     if not any(job.get("name") == TREE_PREFLIGHT_JOB for job in jobs):
         return Decision("skip", f"no {TREE_PREFLIGHT_JOB!r} job: not a tree-publishing run")
-    # The macOS fallback publishes the tree while its Linux-cross legs stay red:
-    # nothing is left to rescue, and a rerun would only rerun publish.
+    # The macOS fallback publishes the tree while its Linux-cross legs stay red.
+    # That is recovered unless the separate Mac delivery failed: a source tree
+    # alone does not provide the signed per-commit file `app try` consumes.
     published = [job["name"] for job in jobs if job.get("name") in TREE_PUBLISH_JOBS and job.get("conclusion") == "success"]
-    if published:
+    mac_delivery_failed = any(job.get("name") == "publish the Mac live update"
+                              and job.get("conclusion") in ("failure", "cancelled", "timed_out")
+                              for job in jobs)
+    if published and not mac_delivery_failed:
         return Decision("skip", f"{published[0]} succeeded: the tree is published")
     attempt = int(run.get("run_attempt") or 1)
     if attempt >= MAX_ATTEMPTS:
@@ -67,6 +84,15 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]]) -> D
     failed = [job for job in jobs if job.get("conclusion") in ("failure", "cancelled", "timed_out")]
     if not failed:
         return Decision("skip", "no job failed (the failure is not a job failure)")
+    if attempt >= 2:
+        rebuilt_red = [job["name"] for job in failed
+                       if job.get("conclusion") == "failure" and BUILD_LEG_MARK in (job.get("name") or "")]
+        if rebuilt_red:
+            return Decision(
+                "skip",
+                "build leg failed on rerun attempt " + str(attempt) + ": " + ", ".join(rebuilt_red)
+                + "; another rerun takes the same runner and fails the same way",
+            )
     conflicts = [
         job["name"]
         for job in failed
@@ -91,9 +117,41 @@ def _api(method: str, url: str, token: str) -> object:
             "X-GitHub-Api-Version": "2022-11-28",
         },
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        body = response.read()
-    return json.loads(body) if body else None
+    # A 403/429 with a rate-limit signal is the token's REST budget, not a missing permission
+    # (the job holds actions: write, which includes read). Run 46120896444 (a49c3280) died on a
+    # bare "HTTP Error 403" with no body printed, so the cause could not be told. Print the body,
+    # and wait out a short limit instead of leaving the failed publish unretried.
+    for attempt in range(1, API_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                body = response.read()
+            return json.loads(body) if body else None
+        except urllib.error.HTTPError as err:
+            detail = err.read().decode("utf-8", "replace")[:500]
+            wait = _rate_limit_wait(err.code, err.headers, detail)
+            print(f"{method} {url}: HTTP {err.code}: {detail}", file=sys.stderr)
+            if wait is None or attempt == API_ATTEMPTS:
+                raise
+            print(f"rate limited; waiting {wait}s (try {attempt}/{API_ATTEMPTS})", file=sys.stderr)
+            time.sleep(wait)
+    raise AssertionError("unreachable")
+
+
+def _rate_limit_wait(code: int, headers, detail: str) -> int | None:
+    """Seconds to wait when the response is a rate limit that clears within MAX_RATE_WAIT, else None."""
+    if code not in (403, 429):
+        return None
+    retry_after = headers.get("Retry-After")
+    reset = headers.get("X-RateLimit-Reset")
+    if retry_after and retry_after.isdigit():
+        wait = int(retry_after)
+    elif headers.get("X-RateLimit-Remaining") == "0" and reset and reset.isdigit():
+        wait = max(1, int(reset) - int(time.time()) + 1)
+    elif "rate limit" in detail.lower():
+        wait = 30
+    else:
+        return None
+    return wait if wait <= MAX_RATE_WAIT else None
 
 
 def main(argv: list[str]) -> int:

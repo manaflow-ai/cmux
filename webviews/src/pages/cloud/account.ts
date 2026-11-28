@@ -3,6 +3,8 @@
 // of cmux Cloud classic machines (`cloud.migration.status` and `.start`, contract 4; "Later" is kept
 // per account in this browser). The plan is read
 // on sign-in and after a confirmed change that may move its usage; the page never computes a limit.
+// Whether the latest payment failed (`cmux.cloud.billing.status`) is read on sign-in and each time
+// the page is shown again; the page shows its notice only when the host answers true.
 import type { PageClient } from "../shared/pageClient";
 import type { CloudState } from "./store";
 import {
@@ -16,7 +18,13 @@ import {
   type CloudTeam,
   type MigrationStarted,
   type MigrationStatus,
+  type BillingStatus,
+  CloudActions,
+  type CloudUsage,
 } from "./ops";
+
+/** `cloud.billing.off` as the Cloud app server names it. */
+const BILLING_OFF = "cmux.cloud.billing_off";
 
 export interface AccountHost {
   get(): CloudState;
@@ -108,6 +116,11 @@ export function canUpgradeClassic(migration: MigrationStatus | undefined): boole
   return migration?.state === "moved";
 }
 
+/** The host's billing answer says the latest payment failed: a JSON `true`, nothing else. */
+export function pastDue(answer: BillingStatus | null | undefined): boolean {
+  return answer?.payment_past_due === true;
+}
+
 export class AccountReader {
   constructor(
     private readonly client: PageClient | null,
@@ -118,16 +131,19 @@ export class AccountReader {
   async load(session: number): Promise<void> {
     const client = this.client;
     if (!client) return;
-    const [teams, plan, migration] = await Promise.allSettled([
+    const [teams, plan, migration, billing, usage] = await Promise.allSettled([
       client.call<CloudTeam[]>(AccountOps.teamList, {}),
       client.call<CloudPlan>(CloudOps.planGet, {}),
       client.call<MigrationStatus>(CloudOps.migrationStatus, {}),
+      client.call<BillingStatus | null>(CloudOps.billingStatus, {}),
+      client.call<CloudUsage>(CloudOps.usageCurrent, {}),
     ]);
     if (session !== this.host.session()) return;
     for (const [op, result] of [
       [AccountOps.teamList, teams],
       [CloudOps.planGet, plan],
       [CloudOps.migrationStatus, migration],
+      [CloudOps.usageCurrent, usage],
     ] as const)
       if (result.status === "rejected" && isUnsupported(result.reason)) this.host.unsupported(op);
     const account = migrationAccount(this.host.get());
@@ -136,6 +152,9 @@ export class AccountReader {
       plan: plan.status === "fulfilled" ? plan.value : undefined,
       planFailed: plan.status === "rejected" && !isUnsupported(plan.reason),
       migration: migration.status === "fulfilled" ? migration.value : undefined,
+      paymentPastDue: billing.status === "fulfilled" && pastDue(billing.value),
+      usage: usage.status === "fulfilled" ? usage.value : undefined,
+      usageFailed: usage.status === "rejected" && !isUnsupported(usage.reason),
       // "Later" is kept per account across page opens.
       migrationDismissed: account !== undefined && migrationLater(account),
     });
@@ -154,21 +173,67 @@ export class AccountReader {
       this.host.set({ plan, planFailed: false, ...(lifted ? { refusal: undefined } : {}) });
     } catch {
       // The plan shown stays; the next change or page open reads it again. Without one, the
-      // storefront shows the failure and Retry.
+      // storefront reads it again on its own (Storefront.tsx, useAutoRetry).
       if (session === this.host.session() && !this.host.get().plan) this.host.set({ planFailed: true });
     }
   }
 
-  /** "See plans": the host confirms, then opens the checkout URL in the browser (D-MONEY). */
-  async checkout(plan: string): Promise<void> {
+  /**
+   * Reads whether the latest payment failed again (the page is shown again: the person may have
+   * paid meanwhile). A failed read hides the notice; nothing is read while signed out.
+   */
+  async readBilling(session: number): Promise<void> {
+    if (!this.client || !this.host.get().auth?.signedIn) return;
+    let paymentPastDue = false;
+    try {
+      paymentPastDue = pastDue(await this.client.call<BillingStatus | null>(CloudOps.billingStatus, {}));
+    } catch {
+      // No host op, a signed-out account or cmux.com unreachable: no notice.
+    }
+    if (session !== this.host.session()) return;
+    if (paymentPastDue !== !!this.host.get().paymentPastDue) this.host.set({ paymentPastDue });
+  }
+
+  /**
+   * Reads this month's usage again (the page is shown again, or Retry). A failure keeps the usage the page
+   * has; without one, the panel shows the failure and Retry. Nothing is read while signed out or not served.
+   */
+  async readUsage(session: number): Promise<void> {
+    if (!this.client || !this.host.get().auth?.signedIn) return;
+    if (this.host.get().unavailable.includes(CloudOps.usageCurrent)) return;
+    try {
+      const usage = await this.client.call<CloudUsage>(CloudOps.usageCurrent, {});
+      if (session === this.host.session()) this.host.set({ usage, usageFailed: false });
+    } catch (error) {
+      if (session !== this.host.session()) return;
+      if (isUnsupported(error)) this.host.unsupported(CloudOps.usageCurrent);
+      else if (!this.host.get().usage) this.host.set({ usageFailed: true });
+    }
+  }
+
+  /** Manage Billing beside the payment notice: the app opens the billing page in the browser. */
+  async manageBilling(): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.call<ActionRunResult | null>(ACTION_RUN, { action: CloudActions.manageBilling });
+    } catch (error) {
+      this.host.fail(CloudActions.manageBilling, error);
+    }
+  }
+
+  /** "See plans" (a plan) or Add payment method (none): the host confirms, then opens the checkout URL in
+   * the browser (D-MONEY). Payments not open yet (`cloud.billing.off`) hides the button instead of failing. */
+  async checkout(plan?: string): Promise<void> {
     if (!this.client || !this.host.canChange()) return;
+    const key = this.host.key();
     try {
       await this.client.call<ActionRunResult | null>(ACTION_RUN, {
         action: CloudOps.billingCheckout,
-        args: { plan, idempotency_key: this.host.key() },
+        args: plan ? { plan, idempotency_key: key } : { idempotency_key: key },
       });
     } catch (error) {
-      this.host.fail(CloudOps.billingCheckout, error);
+      if ((error as { code?: unknown } | null)?.code === BILLING_OFF) this.host.set({ paymentOff: true });
+      else this.host.fail(CloudOps.billingCheckout, error);
     }
   }
 

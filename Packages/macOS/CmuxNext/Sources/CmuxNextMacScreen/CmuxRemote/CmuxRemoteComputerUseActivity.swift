@@ -41,44 +41,51 @@ public struct CmuxRemoteComputerUseSession: Equatable, Sendable {
         return ComputerUseLiveSession(id: id, lastActionAt: lastAction, target: target)
     }
 
-    /// The session as the menu bar's Computer Use row shows it; `acting`: it acted within the
-    /// badge's window of `now`.
-    public func menuBar(now: Date) -> MenuBarMenuState.ComputerUse.Session {
-        MenuBarMenuState.ComputerUse.Session(id: id, agent: agent, appName: appName, bundleID: appID,
-                                             acting: !stopped && now.timeIntervalSince(lastAction) < ComputerUseActingWindow.window,
-                                             stopped: stopped)
+    /// The session in Rust's shape (cmux-rd-ffi `remote::Session`).
+    var rd: [String: Any] {
+        var row: [String: Any] = ["id": id, "lastActionMs": lastAction.timeIntervalSince1970 * 1000, "stopped": stopped]
+        row["agent"] = agent
+        row["appId"] = appID
+        row["appName"] = appName
+        row["appPid"] = appPID.map { Int($0) }
+        return row
+    }
+
+    /// A session Rust answered (`remote::Session`).
+    init?(rd row: Any) {
+        guard let row = row as? [String: Any], let id = row["id"] as? String, let millis = (row["lastActionMs"] as? NSNumber)?.doubleValue else { return nil }
+        self.init(id: id, agent: row["agent"] as? String, appID: row["appId"] as? String, appName: row["appName"] as? String,
+                  appPID: (row["appPid"] as? NSNumber)?.int32Value, lastAction: Date(timeIntervalSince1970: millis / 1000),
+                  stopped: row["stopped"] as? Bool ?? false)
     }
 
     /// The sessions of a `computer-use-activity` event's `sessions`, or of the host status's
     /// `workers["computer-use"].activity`: `[{session, label, app: {id, name}?, last_action_ms, stopped?}]`,
-    /// newest action first. Rows without a session are skipped.
+    /// newest action first. Rows without a session are skipped (Rust: remote.activitySessions).
     public static func sessions(from list: [Any]?) -> [CmuxRemoteComputerUseSession] {
-        (list ?? []).compactMap { row -> CmuxRemoteComputerUseSession? in
-            guard let row = row as? [String: Any], let id = row["session"] as? String, !id.isEmpty,
-                  let millis = (row["last_action_ms"] as? NSNumber)?.doubleValue else { return nil }
-            let app = row["app"] as? [String: Any]
-            let pid = (app?["pid"] as? NSNumber)?.int32Value
-            return CmuxRemoteComputerUseSession(id: id, agent: nonEmpty(row["label"]), appID: nonEmpty(app?["id"]),
-                                                appName: nonEmpty(app?["name"]), appPID: pid.flatMap { $0 > 0 ? $0 : nil },
-                                                lastAction: Date(timeIntervalSince1970: millis / 1000),
-                                                stopped: row["stopped"] as? Bool ?? false)
-        }.sorted { $0.lastAction > $1.lastAction }
+        rows(RdUI.call("remote.activitySessions", ["sessions": list ?? []]))
+    }
+
+    /// ``sessions(from:)`` from a daemon event's parsed `sessions`.
+    public static func sessions(fromEvent list: [CmuxNextDaemon.JSONValue]) -> [CmuxRemoteComputerUseSession] {
+        rows(RdUI.call("remote.activitySessions", encoding: ["sessions": list]))
+    }
+
+    private static func rows(_ answer: Any?) -> [CmuxRemoteComputerUseSession] {
+        (answer as? [Any] ?? []).compactMap(CmuxRemoteComputerUseSession.init(rd:))
     }
 }
 
-/// Whether an agent is acting through Computer Use now: one acted within ``window`` (the menu bar
-/// badge). The clear is one deadline (``DemandTimer``) at the newest action's end of window, on an
-/// injected clock; nothing polls.
+/// Whether an agent is acting through Computer Use now: one acted within the menu bar badge's
+/// window (Rust: remote.acting). The clear is one deadline (``DemandTimer``) at the newest
+/// action's end of window, on an injected clock; nothing polls.
 struct ComputerUseActingWindow: Sendable {
-    /// How long after its last action an agent still counts as acting.
-    static let window: TimeInterval = 2
-
     /// Whether `sessions` hold an action within the window of `now`, and when that ends (nil: not acting).
     /// A stopped session never acts.
     static func acting(_ sessions: [CmuxRemoteComputerUseSession], now: Date) -> (acting: Bool, until: Date?) {
-        guard let newest = sessions.filter({ !$0.stopped }).map(\.lastAction).max() else { return (false, nil) }
-        let until = newest.addingTimeInterval(window)
-        return until > now ? (true, until) : (false, nil)
+        let answer = RdUI.call("remote.acting", ["sessions": sessions.map(\.rd), "nowMs": now.timeIntervalSince1970 * 1000]) as? [String: Any]
+        let until = (answer?["untilMs"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
+        return (answer?["acting"] as? Bool ?? false, until)
     }
 }
 
@@ -101,9 +108,8 @@ extension CmuxRemoteComputerUseState {
 
     /// Takes a daemon `computer-use-activity` event's payload.
     public func take(activityEvent payload: CmuxNextDaemon.JSONValue) {
-        guard let data = try? JSONEncoder().encode(payload),
-              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
-        take(activity: CmuxRemoteComputerUseSession.sessions(from: object["sessions"] as? [Any]))
+        guard case .object = payload else { return }
+        take(activity: CmuxRemoteComputerUseSession.sessions(fromEvent: payload["sessions"]?.arrayValue ?? []))
     }
 
     private func settleActing() {
@@ -119,7 +125,13 @@ extension CmuxRemoteComputerUseState {
 
     /// The menu bar's Computer Use rows for the sessions now.
     public func menuBarSessions(now: Date = Date()) -> [MenuBarMenuState.ComputerUse.Session] {
-        sessions.map { $0.menuBar(now: now) }
+        let rows = RdUI.call("remote.menuBar", ["sessions": sessions.map(\.rd), "nowMs": now.timeIntervalSince1970 * 1000]) as? [[String: Any]] ?? []
+        return rows.compactMap { row in
+            guard let id = row["id"] as? String else { return nil }
+            return MenuBarMenuState.ComputerUse.Session(id: id, agent: row["agent"] as? String, appName: row["appName"] as? String,
+                                                        bundleID: row["bundleId"] as? String, acting: row["acting"] as? Bool ?? false,
+                                                        stopped: row["stopped"] as? Bool ?? false)
+        }
     }
 }
 
@@ -140,9 +152,4 @@ extension CmuxRemoteService {
             for await (acting, _) in ObservationStream({ (state.acting, state.sessions) }) { changed(acting) }
         }
     }
-}
-
-nonisolated private func nonEmpty(_ value: Any?) -> String? {
-    guard let text = value as? String, !text.isEmpty else { return nil }
-    return text
 }

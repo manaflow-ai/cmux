@@ -1,5 +1,6 @@
 import CmuxNextActions
 @testable import CmuxNextControl
+import CmuxNextSettings
 import Foundation
 import Testing
 

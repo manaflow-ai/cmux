@@ -214,6 +214,11 @@ impl Shared {
             FromHost::Unsubscribe { sub } => {
                 lock(&self.subs).remove(&sub);
             }
+            // A script session has no daemon signals cache: the runtime reads the source itself.
+            FromHost::Watch { watch, .. } => {
+                self.send(&ToHost::Watch { watch, state: json!({ "fallback": true }) });
+            }
+            FromHost::Unwatch { .. } => {}
             FromHost::Log { level, message } => (self.log)(&level, &message),
             FromHost::Done { cb, ok, body } => {
                 if let Some(waiter) = lock(&self.waiters).remove(&cb) {
@@ -221,7 +226,7 @@ impl Shared {
                 }
             }
             FromHost::Fatal { reason, .. } => *lock(&self.fatal) = Some(reason),
-            FromHost::Mounted { .. } | FromHost::Scene { .. } => {}
+            FromHost::Mounted { .. } | FromHost::Scene { .. } | FromHost::State { .. } => {}
         }
     }
 
@@ -371,6 +376,7 @@ impl Session {
             strings: json!({}),
             main: prelude::main_source(),
             main_name: None,
+            state: None,
         });
         match ready_rx.recv_timeout(START_TIMEOUT) {
             Ok(Ok(())) => Ok(Self { shared, next_cb: AtomicU64::new(1), turn: Mutex::new(()) }),

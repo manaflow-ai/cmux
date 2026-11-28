@@ -1,13 +1,30 @@
-import { expect, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
+import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { renderInDom } from "../../../../test/support/factsCard";
 import { ComputerUsePreviewCard } from "./ComputerUsePreviewCard";
-import type { ComputerUsePreview } from "./computerUsePreview";
+import {
+  computerUsePreviewControls,
+  currentComputerUsePreview,
+  setComputerUsePreview,
+  setComputerUsePreviewControls,
+  type ComputerUsePreview,
+} from "./computerUsePreview";
 
 const frame = "data:image/jpeg;base64,AA==";
 const icon = "data:image/png;base64,AA==";
 const running: ComputerUsePreview = { session: "cua_t1", app: "Calculator", done: false, frame };
 const markup = (preview: ComputerUsePreview) =>
   renderToStaticMarkup(<ComputerUsePreviewCard preview={preview} onClose={() => undefined} />);
+/// The markup with the card's moving, full size and chip on (Labs > Show Preview Features).
+const movableMarkup = (preview: ComputerUsePreview) => {
+  setComputerUsePreviewControls(true);
+  try {
+    return markup(preview);
+  } finally {
+    setComputerUsePreviewControls(false);
+  }
+};
 
 test("a running card is only the frame, with no live dot and the app's name in its label", () => {
   const html = markup(running);
@@ -102,4 +119,78 @@ test("an agent telepointer with no pointer draws the agent's cursor with no clic
   expect(html).not.toContain("acpmux-cu-preview__ripple");
   const hidden = markup({ ...running, telepointers: { agent: { x: 0.4, y: 0.6, visible: false, idle: false } } });
   expect(hidden).not.toContain("acpmux-cu-preview__arrow");
+});
+
+test("a card at its first place sits beside the column, with the full size button on its top right", () => {
+  const html = movableMarkup({ ...running, place: { x: 1, y: 0, size: "small" } });
+  expect(html).toMatch(/^<div class="acpmux-cu-preview">/);
+  expect(html).toContain('class="acpmux-cu-preview__full" aria-label="Full Size" aria-pressed="false"');
+});
+
+test("a moved card draws at its place, as fractions of the pane's room", () => {
+  const html = movableMarkup({ ...running, place: { x: 0.25, y: 0.5, size: "small" } });
+  expect(html).toMatch(/^<div class="acpmux-cu-preview" data-placed="" style="--cu-x:0.25;--cu-y:0.5">/);
+});
+
+test("an enlarged card says so, and a full size one fills the pane with no place of its own", () => {
+  expect(movableMarkup({ ...running, place: { x: 1, y: 0, size: "large" } })).toContain("data-expanded");
+  const full = movableMarkup({ ...running, place: { x: 0.25, y: 0.5, size: "full" } });
+  expect(full).toMatch(/^<div class="acpmux-cu-preview" data-full="">/);
+  expect(full).toContain('aria-label="Exit Full Size" aria-pressed="true"');
+  expect(full).toContain('aria-expanded="true"');
+});
+
+test("a hidden card is only the Show Preview chip, at the card's place", () => {
+  const html = movableMarkup({ ...running, hidden: true, place: { x: 0, y: 1, size: "small" } });
+  expect(html).toMatch(/^<div class="acpmux-cu-preview" data-hidden="" data-placed="" style="--cu-x:0;--cu-y:1">/);
+  expect(html).toContain('class="acpmux-cu-preview__chip"');
+  expect(html).toContain("<span>Show Preview</span>");
+  expect(html).not.toContain("acpmux-cu-preview__frame");
+  expect(html).not.toContain("acpmux-cu-preview__close");
+});
+
+test("with the Labs controls off the card stays the top right one: no place, no full size, no chip", () => {
+  const moved = markup({ ...running, place: { x: 0.25, y: 0.5, size: "full" } });
+  expect(moved).toMatch(/^<div class="acpmux-cu-preview">/);
+  expect(moved).not.toContain("acpmux-cu-preview__full");
+  expect(markup({ ...running, place: { x: 0, y: 1, size: "large" } })).toContain("data-expanded");
+  expect(markup({ ...running, hidden: true })).toBe("");
+});
+
+test("a release before the drag rerenders sends the last pointer position to the host", async () => {
+  const preview = { ...running, session: "drag-release" };
+  const onMove = mock();
+  const previousControls = computerUsePreviewControls();
+  const previousPreview = currentComputerUsePreview();
+  const page = await renderInDom(
+    <ComputerUsePreviewCard preview={preview} onClose={() => undefined} onMove={onMove} />,
+  );
+  const previousStyle = Object.getOwnPropertyDescriptor(globalThis, "getComputedStyle");
+  try {
+    act(() => setComputerUsePreviewControls(true));
+    globalThis.getComputedStyle = window.getComputedStyle.bind(window);
+    const pane = page.container;
+    const card = pane.querySelector<HTMLElement>(".acpmux-cu-preview")!;
+    const button = card.querySelector<HTMLButtonElement>(".acpmux-cu-preview__open")!;
+    Object.defineProperty(card, "offsetParent", { value: pane });
+    // After the card, header and margins are taken out, both axes have 400px of travel.
+    pane.getBoundingClientRect = () => new window.DOMRect(0, 0, 524, 564);
+    card.getBoundingClientRect = () => new window.DOMRect(412, 52, 100, 100);
+    const pointer = (type: string, clientX: number, clientY: number) =>
+      button.dispatchEvent(new window.PointerEvent(type, { bubbles: true, pointerId: 1, clientX, clientY }));
+    act(() => {
+      pointer("pointerdown", 450, 80);
+      pointer("pointermove", 400, 130);
+      pointer("pointermove", 350, 280);
+      pointer("pointerup", 350, 280);
+    });
+    expect(onMove.mock.calls).toEqual([["drag-release", { x: 0.75, y: 0.5 }]]);
+  } finally {
+    await page.close();
+    if (previousStyle) Object.defineProperty(globalThis, "getComputedStyle", previousStyle);
+    else Reflect.deleteProperty(globalThis, "getComputedStyle");
+    setComputerUsePreview({ ...preview, place: { x: 0.75, y: 0.5, size: "small" } });
+    setComputerUsePreview(previousPreview);
+    setComputerUsePreviewControls(previousControls);
+  }
 });

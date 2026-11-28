@@ -104,6 +104,7 @@ public final class SidebarRowFeed {
                 var slots: [Int] = []
                 slots.reserveCapacity(members.count)
                 for index in members { observing(index) { slots.append(makes[index].stage()) } }
+                SidebarPerfCounters.add(.rowBatchRuns)
                 guard batch.run() else { continue }
                 for (index, slot) in zip(members, slots) { observing(index) { rows[index] = makes[index].finish(slot) } }
             }
@@ -513,11 +514,16 @@ public final class SidebarRowFeed {
         let ids = dirty
         dirty.removeAll(keepingCapacity: true)
         var changed: [SidebarWorkspace] = []
+        let runsBefore = SidebarPerfCounters.count(.rowBatchRuns)
+        defer { SidebarPerfCounters.raise(.flushSyncCallsMax, to: SidebarPerfCounters.count(.rowBatchRuns) - runsBefore) }
         SidebarPerfCounters.timed {
-            for (entry, row) in map(ids.filter { id in entries[id].map { !$0.armed } ?? false }) where row != entry.row {
+            let mapped = map(ids.filter { id in entries[id].map { !$0.armed } ?? false })
+            SidebarPerfCounters.add(.rowFlushes)
+            for (entry, row) in mapped where row != entry.row {
                 entry.row = row
                 changed.append(row)
             }
+            SidebarPerfCounters.add(.rowMapsUnchanged, mapped.count - changed.count)
         }
         if !changed.isEmpty { onChange?(changed) }
     }

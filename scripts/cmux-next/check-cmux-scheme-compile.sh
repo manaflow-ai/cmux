@@ -62,6 +62,10 @@ kept_path=0
 if [[ -n "${1:-}" ]]; then
   derived_data="$1"
   kept_path=1
+elif [[ -n "${CMUX_DERIVED_DATA_SLOT:-}" ]]; then
+  # The runner's per-stream DerivedData slot (glaeda disk registry): kept, never removed.
+  derived_data="$CMUX_DERIVED_DATA_SLOT"
+  kept_path=1
 else
   derived_data="$(mktemp -d "${TMPDIR:-/tmp}/cmux-scheme-compile.XXXXXX")"
 fi
@@ -124,7 +128,7 @@ build() {
   result_bundle=""
   [[ -z "$timeline_dir" ]] || result_bundle="$timeline_dir/attempt-${build_attempt}.xcresult"
   xcode_args=(
-    -project cmux.xcodeproj -scheme cmux -configuration "$configuration"
+    -project cmux.xcodeproj -scheme cmux -configuration "$configuration" -skipPackagePluginValidation
     -destination 'platform=macOS,arch=arm64'
     -derivedDataPath "$derived_data"
     # Each build its own SwiftPM download cache: the default ~/Library/Caches/org.swift.swiftpm is shared by
@@ -132,6 +136,7 @@ build() {
     # with "... already exists in file system" (DEV Release compile, 4 feat runs on 2026-11-05). Under
     # SourcePackages, which cmux_next_cas_fresh_tree keeps, so a kept path does not download it again.
     -packageCachePath "$derived_data/SourcePackages/.package-cache"
+    ${package_update_args[@]+"${package_update_args[@]}"}
     ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO
     # This is a compile check; release packaging retains the project dSYM setting.
     DEBUG_INFORMATION_FORMAT=dwarf
@@ -181,12 +186,23 @@ if [[ "$compilation_cache" == 1 ]] && (( kept_path )); then
 fi
 echo "check-cmux-scheme-compile: compilation cache $( (( use_cache )) && echo on || echo off), SWIFT_COMPILATION_MODE=${swift_compilation_mode:-project}"
 SECONDS=0
+package_update_args=()
+# The job's token for github.com package fetches (CMUX_GITHUB_GIT_TOKEN, the
+# workflow passes github.token): anonymous ones share the office's per-address
+# limit (scripts/ci/swiftpm-binary-module-guard.sh, github_git_auth_env).
+# shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
+source "$repo_root/scripts/ci/swiftpm-binary-module-guard.sh"
+github_git_auth_env
 # A cache build starts from a fresh tree: like a fresh directory it has no
 # precompiled modules to guard or clear (and the guard would remove the cache).
 if (( kept_path && ! use_cache )); then
-  # shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
-  source "$repo_root/scripts/ci/swiftpm-binary-module-guard.sh"
-  xcode_binary_module_guard "$repo_root" "$derived_data" -project cmux.xcodeproj -scheme cmux
+  xcode_binary_module_guard "$repo_root" "$derived_data" -project cmux.xcodeproj -scheme cmux || {
+    guard_status=$?
+    echo "${0##*/}: the packages did not resolve (exit $guard_status); no build ran" >&2
+    exit "$guard_status"
+  }
+  # Every pin resolved from the kept packages: the build fetches nothing either.
+  [[ "${xcode_binary_module_guard_offline:-0}" != 1 ]] || package_update_args=(-skipPackageUpdates)
 fi
 status=0
 build || status=$?

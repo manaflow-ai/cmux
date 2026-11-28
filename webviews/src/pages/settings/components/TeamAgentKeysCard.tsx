@@ -36,7 +36,11 @@ export function TeamAgentKeysCard() {
           <div className="accounts-body">
             <div className="accounts-buttons">
               {keys.signIn ? (
-                <SignInButton label={keys.signIn} onSignIn={() => void store.runAccounts({ action: "signIn" })} />
+                <SignInButton
+                  label={keys.signIn}
+                  backend={keys.signInBackend}
+                  onSignIn={() => void store.runAccounts({ action: "signIn" })}
+                />
               ) : (
                 keys.agents.length > 0 && (
                   <Button

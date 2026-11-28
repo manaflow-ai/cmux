@@ -125,17 +125,18 @@ extension AgentShareActions {
             list: { try await Self.connected(chat.connection).request(AgentSessionShareListRequest(surface: chat.surface)).shares },
             invite: { account, role in _ = try await Self.inviteWork(chat, account: account, role: role, ttl: nil, host: host) },
             remove: { account in _ = try await Self.uninviteWork(account: account, shareID: nil, chat: chat, connection: chat.connection) },
-            copy: { host.shareCopy($0) }
+            copy: { host.shareCopy($0) },
+            changes: { host.shareChanges($0) }
         ))
     }
 }
 
 /// The choices an invite run makes from the chat's shares.
 enum AgentShareInvites {
-    /// `--role`: `talk` when absent, `view` or `talk` (any case); nil for anything else.
+    /// `--role`: `talk` when absent, `view`, `talk` or `drive` (any case); nil for anything else.
     static func role(_ text: String?) -> String? {
         guard let text = text?.trimmingCharacters(in: .whitespaces).lowercased(), !text.isEmpty else { return "talk" }
-        return ["view", "talk"].contains(text) ? text : nil
+        return ["view", "talk", "drive"].contains(text) ? text : nil
     }
 
     static func text(_ value: ActionResultValue?) -> String? {

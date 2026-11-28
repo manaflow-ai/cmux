@@ -9,7 +9,13 @@
 //!    workspace.
 //! 2. The target screen is the workspace's focused screen. Its right side is
 //!    every pane outside a docked column that is the agent chat dock (role
-//!    `agent_chat`) or pinned to the left edge.
+//!    `agent_chat`) or pinned to the left edge. On a screen with no such
+//!    dock, a pane that holds an agent chat (a tab bound to an agent
+//!    session, `agent-session-tabs-v1`; the New Tab page is not one) is
+//!    outside it too: a chat the app opened as a plain left pane is the chat
+//!    side as its dock is, and it stands for the dock in step 5 (Lawrence
+//!    2026-11-19: "agent chat that is on left, will open stuff to the
+//!    right").
 //! 3. Reuse: the selected browser tab of the focused right-side pane, else of
 //!    the right-side pane focused most recently (then layout order), else any
 //!    browser tab on the right side. It navigates and becomes its pane's
@@ -33,8 +39,9 @@
 //!    with no screen (a fresh Home) gets the screen and pane that
 //!    `tab.create_browser` makes for it, holding a frontend tab when the app
 //!    renders browsers.
-//! 5. Else (only the dock) a browser in a new viewport column right of the
-//!    dock (`pane-browser-kind-v1`'s `pane.split`; a frontend tab when the
+//! 5. Else (only the dock, or only the chat's pane) a browser in a new
+//!    viewport column right of it (`pane-browser-kind-v1`'s `pane.split`; a
+//!    frontend tab when the
 //!    app renders browsers), and the focus goes back to the pane that had
 //!    it. A frontend tab made with its pane registers its record under the
 //!    create step's key first, as `new-frontend-browser-tab` does.
@@ -64,12 +71,13 @@ use super::{
 };
 use crate::history_ops::ledger;
 use crate::model::{DockEdge, DockRole};
-use crate::mux::{FrontendTabPlacement, PANE_BROWSER_URL_FIELD};
+use crate::mux::{FrontendTabPlacement, PANE_BROWSER_URL_FIELD, PANE_SPLIT_FIT_FIELD};
 use crate::resource::{
     BrowserPublicId, ContentPublicId, PanePublicId, RequestEnvelope, ResourceError,
     ResourceOperation, ScreenPublicId, TabPublicId, WorkspacePublicId,
 };
-use crate::server::FRONTEND_BROWSER_TABS_CAPABILITY;
+use crate::server_protocol::FRONTEND_BROWSER_TABS_CAPABILITY;
+use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::workspace_registry::FrontendBrowserRecord;
 use crate::{Mux, PaneId, ResourceSelectors, ResourceTarget, Surface, SurfaceId, SurfaceKind};
 use cmux_json::JsonSet as _;
@@ -134,6 +142,7 @@ fn open(
     let Some(candidates) = candidates else {
         return Err(ResourceError::not_found("workspace", workspace.as_str()));
     };
+    let candidates = beside_agent_chats(mux, candidates);
     let call = Call { mux, request, url, workspace };
     if let Some(reuse) = reusable_browser(mux, &candidates, frontend) {
         return call.reuse(&steps, &candidates, reuse);
@@ -141,7 +150,10 @@ fn open(
     match (candidates.ranked.first(), candidates.dock.as_ref()) {
         (Some(pane), _) if frontend => call.create_frontend_browser(pane, &candidates, &steps),
         (Some(pane), _) => call.create_browser("pane", pane.id.as_str(), &steps),
-        (None, Some(dock)) => call.new_column(dock, candidates.focused.as_ref(), &steps, frontend),
+        (None, Some(dock)) => {
+            let fit = candidates.undocked_chat;
+            call.new_column(dock, candidates.focused.as_ref(), &steps, frontend, fit)
+        }
         (None, None) if frontend => call.create_frontend_in_workspace(&steps),
         (None, None) => call.create_browser("workspace", workspace.as_str(), &steps),
     }
@@ -235,7 +247,8 @@ struct RightPane {
 }
 
 /// The pane a new tab of `workspace` goes to when the request names no pane
-/// or screen and the workspace's focused pane is its left chat dock: the
+/// or screen and the workspace's focused pane is its left chat dock, or the
+/// pane of an agent chat that is not docked ([`beside_agent_chats`]): the
 /// right-side pane a link would open in (focused most recently, then layout
 /// order), so a tab never lands in the chat dock (cx-ebm.59.5). `None` keeps
 /// the focused pane (no dock focused, no right side, or a request that names
@@ -244,6 +257,26 @@ pub(crate) fn right_pane_beside_focused_dock(
     mux: &Mux,
     selectors: &ResourceSelectors,
 ) -> Option<PanePublicId> {
+    let side = workspace_side(mux, selectors)?;
+    let dock_focused = side.dock.is_some() && side.dock == side.focused;
+    dock_focused.then(|| side.ranked.first().map(|pane| pane.id.clone())).flatten()
+}
+
+/// The sides of the screen a request shows that names a workspace and
+/// nothing below it, with an agent chat that is not docked on the chat side
+/// ([`beside_agent_chats`]). `None` for a request that names no workspace or
+/// names a screen, a pane or a tab: its place is the caller's choice.
+fn workspace_side(mux: &Mux, selectors: &ResourceSelectors) -> Option<RightSide> {
+    if !names_only_workspace(selectors) {
+        return None;
+    }
+    let workspace =
+        mux.resolve_resource_path(ResourceTarget::Workspace, selectors).ok()?.workspace?;
+    Some(beside_agent_chats(mux, mux.with_state(|state| right_side(state, &workspace))?))
+}
+
+/// Whether `selectors` name a workspace and nothing below it.
+pub(super) fn names_only_workspace(selectors: &ResourceSelectors) -> bool {
     let below = [
         &selectors.screen,
         &selectors.pane,
@@ -252,16 +285,62 @@ pub(crate) fn right_pane_beside_focused_dock(
         &selectors.browser,
         &selectors.frontend_projection,
     ];
-    if selectors.workspace.is_none() || below.iter().any(|selector| selector.is_some()) {
+    selectors.workspace.is_some() && below.iter().all(|selector| selector.is_none())
+}
+
+/// The agent chat that is not docked on the screen a workspace-only request
+/// shows (`selectors` name the workspace and nothing below it).
+pub(super) struct UndockedChat {
+    /// The chat's pane: the focused one when the screen holds two chats.
+    pub(super) pane: PanePublicId,
+    /// The chat has the focus and the screen holds nothing but chats, so a
+    /// tab made in the workspace has no pane to go to but the chat's own
+    /// ([`right_pane_beside_focused_dock`] finds none).
+    pub(super) alone: bool,
+}
+
+/// [`UndockedChat`] of the request's workspace. `None` on a screen with a
+/// dock or with no agent chat that runs a session, and for a request that
+/// names more than the workspace.
+pub(super) fn undocked_chat(mux: &Mux, selectors: &ResourceSelectors) -> Option<UndockedChat> {
+    let side = workspace_side(mux, selectors)?;
+    if !side.undocked_chat {
         return None;
     }
-    let workspace =
-        mux.resolve_resource_path(ResourceTarget::Workspace, selectors).ok()?.workspace?;
-    mux.with_state(|state| {
-        let side = right_side(state, &workspace)?;
-        let dock_focused = side.dock.is_some() && side.dock == side.focused;
-        dock_focused.then(|| side.ranked.first().map(|pane| pane.id.clone())).flatten()
-    })
+    let pane = side.dock?;
+    let alone = side.ranked.is_empty() && side.focused.as_ref() == Some(&pane);
+    Some(UndockedChat { pane, alone })
+}
+
+/// `side` of a screen with no dock, with an agent chat that is not docked on
+/// the chat side: a pane that holds a tab bound to an agent session leaves
+/// the right side, and the chat's pane (the focused one first) stands for
+/// the dock, so a link opens in the column on the chat's right, or in a new
+/// column there, never among the chat's own tabs. The app opens a chat as a
+/// plain left pane, so the dock rule alone put every tab a script opened in
+/// a workspace into its chat's tab strip. A screen with a dock is not
+/// changed (Home: its dock is the chat side, and a chat in its right column
+/// keeps taking links), and neither is a pane whose agent tab runs no
+/// session yet (the New Tab page). Call it outside the state lock
+/// (conversation records are read through the presentation snapshot).
+fn beside_agent_chats(mux: &Mux, mut side: RightSide) -> RightSide {
+    if side.dock.is_some() {
+        return side;
+    }
+    let holds_chat = |pane: &RightPane| {
+        pane.tabs.iter().any(|(_, surface)| {
+            matches!(
+                mux.conversation_tab_of(surface),
+                Some(ConversationTabRecord::AgentSession { session: Some(_), .. })
+            )
+        })
+    };
+    let (chats, right): (Vec<RightPane>, Vec<RightPane>) =
+        side.ranked.into_iter().partition(holds_chat);
+    side.dock = chats.first().map(|pane| pane.id.clone());
+    side.undocked_chat = side.dock.is_some();
+    side.ranked = right;
+    side
 }
 
 /// The target screen's right side, best pane first, its dock pane, and the
@@ -271,6 +350,10 @@ struct RightSide {
     ranked: Vec<RightPane>,
     dock: Option<PanePublicId>,
     focused: Option<PanePublicId>,
+    /// `dock` is the pane of an agent chat that is not docked
+    /// ([`beside_agent_chats`]): a scrolling column, so a new column beside
+    /// it shares the window with it.
+    undocked_chat: bool,
 }
 
 /// Read under the state lock; conversation and remote tabs are filtered
@@ -278,7 +361,13 @@ struct RightSide {
 fn right_side(state: &crate::State, workspace: &WorkspacePublicId) -> Option<RightSide> {
     let workspace = state.workspaces.iter().find(|candidate| candidate.public_id == *workspace)?;
     let Some(screen) = workspace.active_screen_ref().or_else(|| workspace.screens.first()) else {
-        return Some(RightSide { screen: None, ranked: Vec::new(), dock: None, focused: None });
+        return Some(RightSide {
+            screen: None,
+            ranked: Vec::new(),
+            dock: None,
+            focused: None,
+            undocked_chat: false,
+        });
     };
     let left_dock = |dock: &crate::ColumnDock| {
         dock.role == Some(DockRole::AgentChat) || dock.edge == DockEdge::Left
@@ -324,6 +413,7 @@ fn right_side(state: &crate::State, workspace: &WorkspacePublicId) -> Option<Rig
         ranked,
         dock,
         focused: public(screen.active_pane),
+        undocked_chat: false,
     })
 }
 
@@ -582,13 +672,17 @@ impl Call<'_> {
     }
 
     /// A browser in a new viewport column right of the lone dock pane; with
-    /// `frontend`, a frontend browser tab.
+    /// `frontend`, a frontend browser tab. With `fit` (`dock` is the pane of
+    /// an agent chat that is not docked, a scrolling column) the new column
+    /// shares the window with the chat (`pane.split`'s `fit`): the width
+    /// beside a dock is the whole strip, which would scroll that chat away.
     fn new_column(
         &self,
         dock: &PanePublicId,
         focused: Option<&PanePublicId>,
         steps: &StepKeys,
         frontend: bool,
+        fit: bool,
     ) -> Result<Value, ResourceError> {
         if !frontend && let Some(error) = self.mux.browser_engine_unavailable(OPERATION) {
             return Err(error);
@@ -599,9 +693,14 @@ impl Call<'_> {
             pane: Some(dock.as_str().to_string()),
             ..Default::default()
         };
+        let width = if fit {
+            (PANE_SPLIT_FIT_FIELD.to_string(), json!(true))
+        } else {
+            ("viewport_width".to_string(), json!(NEW_COLUMN_WIDTH))
+        };
         let fields = Map::from_iter([
             ("direction".to_string(), json!("right")),
-            ("viewport_width".to_string(), json!(NEW_COLUMN_WIDTH)),
+            width,
             (PANE_BROWSER_URL_FIELD.to_string(), json!(self.url)),
         ]);
         let value =

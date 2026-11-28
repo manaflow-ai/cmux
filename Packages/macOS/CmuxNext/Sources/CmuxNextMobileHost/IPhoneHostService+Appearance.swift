@@ -1,7 +1,9 @@
+import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextMobile
 import Foundation
+import os
 
 /// This Mac's theme and wallpaper reach the iPhone (ask-87d30da8e5): the colors the chrome derives
 /// from (the terminal theme, or `appearance.appTheme`, with `appearance.accent`) and the picture
@@ -12,12 +14,70 @@ import Foundation
 /// Stop condition: the task ends when `IPhoneHostService.stop` cancels it (`followingAppearance`).
 @MainActor
 enum ThemePhone {
+    /// One line per appearance handed to hostd, so a run times each hop of a theme change
+    /// (scripts/ci/cmux_next_pair_e2e.py's theme-file leg reads it from the pairing log).
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone.appearance")
+
     /// What the phone gets, read on the main actor: the source picture, not yet the phone copy.
     struct Shown: Equatable, Sendable {
         var appearance: MobileHostAppearance
-        /// The picture the windows show, in the theme's light or dark frame.
-        var picture: URL?
+        /// What the windows show behind their content, in the theme's light or dark frame.
+        var wallpaper: Wallpaper?
         var dark: Bool
+        /// The desktop watch's ``DesktopWallpaperWatch/revision`` while the wallpaper is the
+        /// desktop (0 otherwise), so a new desktop picture is a new state.
+        var desktop = 0
+    }
+
+    /// Where the phone's wallpaper comes from: what this Mac shows behind its windows' content.
+    enum WallpaperSource: Equatable, Sendable {
+        /// A picture file: the background chosen in cmux, or the Ghostty config's `background-image`.
+        case file(URL)
+        /// The desktop picture of the screen the windows are on (the main screen's,
+        /// ``DesktopWallpaperWatch``), which a see-through window shows.
+        case desktop
+    }
+
+    /// The phone's wallpaper before its phone copy: where it comes from and the tint over it.
+    struct Wallpaper: Equatable, Sendable {
+        var source: WallpaperSource
+        /// The alpha of the theme's background the phone lays over the picture, 0...1.
+        var tint: Double
+    }
+
+    /// What this Mac shows behind its windows' content, for the phone (ask-87d30da8e5).
+    /// The first that holds:
+    /// 1. A background chosen in cmux (`selected`): its picture (`selectedPicture`; one without a
+    ///    still, as a living shader, sends none) at the tint the windows lay over it (`selectedTint`).
+    ///    Desktop Wallpaper (`selectedDesktop`) is the desktop, which the watch reads off the main
+    ///    thread and follows as macOS rotates it.
+    /// 2. The Ghostty config's `background-image` (`terminalImage`): that picture. Ghostty draws an
+    ///    opaque pixel of it at `terminalImage.opacity` over the window's background, so the phone's
+    ///    tint is the rest, `1 - opacity`. In a see-through window part of that rest is the desktop
+    ///    under the window's tint; the phone has no desktop and draws all of it as the background.
+    /// 3. A see-through window (`windowSeeThrough`): the desktop picture under the window's tint
+    ///    sheet (`windowTint`, ``WindowBackdrop/tintOpacity``: the resolved `background-opacity`).
+    /// 4. An opaque window with no picture: none.
+    static func wallpaper(selected: Bool, selectedDesktop: Bool = false, selectedPicture: URL?, selectedTint: Double,
+                          terminalImage: TerminalBackgroundImage?, windowSeeThrough: Bool,
+                          windowTint: Double) -> Wallpaper? {
+        if selectedDesktop { return Wallpaper(source: .desktop, tint: selectedTint) }
+        if selected { return selectedPicture.map { Wallpaper(source: .file($0), tint: selectedTint) } }
+        if let terminalImage { return Wallpaper(source: .file(terminalImage.url), tint: 1 - terminalImage.opacity) }
+        if windowSeeThrough { return Wallpaper(source: .desktop, tint: min(max(windowTint, 0), 1)) }
+        return nil
+    }
+
+    /// The window's material in Ghostty's `background-blur` C encoding, as `backdrop` resolved it:
+    /// -2 clear Liquid Glass, -1 regular, the frost radius when frosted, 0 for none (opaque, or
+    /// plain see-through). Glass this Mac cannot draw is already its frost radius in `backdrop`.
+    static func blur(_ backdrop: WindowBackdrop) -> Int {
+        switch backdrop.material {
+        case .glass(.clear): -2
+        case .glass(.regular): -1
+        case .frosted: backdrop.windowBlurRadius
+        case .opaque, .translucent: 0
+        }
     }
 
     /// `#rrggbb` of an opaque color.
@@ -52,18 +112,30 @@ enum ThemePhone {
             groupGradient: design.sidebarSections.groupGradient.rawValue)
     }
 
-    /// What the app's scope shows now (observed: the store's colors and its picture's revision).
+    /// What the app's scope shows now (observed: the store's colors, its picture's revision, the
+    /// Ghostty `background-image`, and while the window shows the desktop, the desktop's revision).
     static func shown(_ scope: ThemeScope) -> Shown {
         let store = scope.store
         _ = store.backdropRevision.value
         let tokens = store.tokens
         let selection = scope.backdropSelection
-        let tint = scope.backdropTintOpacity ?? tokens.wallpaperTintOpacity
-        var appearance = appearance(input: store.input, tokens: tokens, accentFollowsArt: store.accentFollowsArt, tint: tint,
-                                    terminal: store.terminalConfigLines)
+        let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        // The window as it draws: over the chosen picture, else over the desktop.
+        let backdrop = WindowBackdrop(tokens, reduceTransparency: reduceTransparency, art: scope.backdropArt,
+                                      selection: selection, tuning: scope.appearanceTuning,
+                                      tintOpacity: scope.backdropTintOpacity)
+        let selectedTint = scope.backdropTintOpacity ?? tokens.wallpaperTintOpacity
+        let selectedDesktop = selection?.resolved(dark: tokens.isDark) == .desktop
+        let wallpaper = wallpaper(selected: selection != nil, selectedDesktop: selectedDesktop,
+                                  selectedPicture: selectedDesktop ? nil : selection.flatMap { $0.resolvedImageURL(dark: tokens.isDark) },
+                                  selectedTint: selectedTint, terminalImage: store.terminalBackgroundImage,
+                                  windowSeeThrough: !backdrop.isOpaque, windowTint: backdrop.tintOpacity)
+        var appearance = appearance(input: store.input, tokens: tokens, accentFollowsArt: store.accentFollowsArt,
+                                    tint: wallpaper?.tint ?? selectedTint, terminal: store.terminalConfigLines)
+        appearance.backgroundBlur = blur(backdrop)
         appearance.look = look(tuning: scope.appearanceTuning, design: DesignSettings.shared)
-        let picture = selection.flatMap { $0.resolvedImageURL(dark: tokens.isDark) }
-        return Shown(appearance: appearance, picture: picture, dark: tokens.isDark)
+        let desktop = wallpaper?.source == .desktop ? BackdropImageStore.shared.desktop.revision.value : 0
+        return Shown(appearance: appearance, wallpaper: wallpaper, dark: tokens.isDark, desktop: desktop)
     }
 
     /// Where the phone copies of the pictures go.
@@ -92,14 +164,24 @@ enum ThemePhone {
             for await next in states {
                 guard let shown = next else { continue }
                 var appearance = shown.appearance
-                if let picture = shown.picture {
+                if let source = shown.wallpaper?.source {
                     let dark = shown.dark
-                    // Decoding a picture never runs on the main actor.
-                    appearance.wallpaper = await Task.detached(priority: .utility) {
-                        BackdropImageStore.phoneCopy(of: picture, dark: dark, in: folder)
+                    // The desktop as the app's watch last read it (off the main thread); until its
+                    // first reading lands there is none, and that reading sends it.
+                    let desktop = source == .desktop ? BackdropImageStore.shared.desktop.picture : nil
+                    // Resolving and decoding a picture never runs on the main actor.
+                    appearance.wallpaper = await Task.detached(priority: .utility) { () -> URL? in
+                        let picture: URL? = switch source {
+                        case .file(let url): url
+                        case .desktop: desktop?.resolvedURL(dark: dark)
+                        }
+                        return picture.flatMap { BackdropImageStore.phoneCopy(of: $0, dark: dark, in: folder) }
                     }.value
                 }
                 guard !Task.isCancelled, let iphone else { return }
+                let terminalBackground = appearance.terminal.last { $0.hasPrefix("background = ") }
+                    .map { String($0.dropFirst("background = ".count)) } ?? "none"
+                logger.info("appearance to hostd: background \(appearance.background, privacy: .public), terminal background \(terminalBackground, privacy: .public)")
                 await iphone.setAppearance(appearance)
             }
         }

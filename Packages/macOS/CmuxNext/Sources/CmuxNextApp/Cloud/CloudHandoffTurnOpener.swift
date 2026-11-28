@@ -11,8 +11,8 @@ import Foundation
 /// machine reports that turn (running, needs-you, done, failed), and ``HandoffNotices`` follows the
 /// hand-off and tells the person.
 ///
-/// Behind Labs preview features, like the composer's Cloud row. A turn that runs or waits for the
-/// person, a closed hand-off, Cloud off, or a chat not on a Cloud machine answers a refusal code,
+/// Not behind Labs, like Cloud start and the composer's Cloud row (Leo, 2026-10-31: "that seems
+/// dumb. i dont like putting so much stuff in labs"). A turn that runs or waits for the person, a closed hand-off, Cloud off, or a chat not on a Cloud machine answers a refusal code,
 /// and the page sends the prompt under its own id (it runs as before; only its report is missing).
 @MainActor
 struct CloudHandoffTurnOpener {
@@ -29,15 +29,7 @@ struct CloudHandoffTurnOpener {
         { [weak tabs, weak services] view, session in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             if let refusal = refusal(services) { return AgentPaneReply.failure(code: refusal, message: refusal) }
-            let place = { () -> (tab: String, machine: String, host: String?)? in
-                guard let view, let scoped = tabs?.views.entries.first(where: { $0.value === view })?.key,
-                      let (tab, _) = services.locateTab(scoped.key, onMachine: scoped.machine),
-                      view.model.sessionId == nil || view.model.sessionId == session,
-                      ownsSession(recorded: tab.agentSession?.session, asked: session),
-                      let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal,
-                      let machine = services.machines.session(daemon.machineID)?.machineID else { return nil }
-                return (tab.id, machine, tab.agentSession?.host)
-            }
+            let place = { Self.place(view, tabs, services, session: session) }
             guard let before = place() else { return AgentPaneReply.failure(code: "not_cloud", message: "not_cloud") }
             let opened = await CloudHandoffTurnOpener(services: services).reply(session: session, machine: before.machine)
             guard case .turn(let id, let number) = opened else { return Self.answer(opened) }
@@ -50,6 +42,29 @@ struct CloudHandoffTurnOpener {
         }
     }
 
+    /// The tab and Cloud machine of `view`, when it shows `session` (or no chat yet) as recorded on its tab.
+    static func place(_ view: AgentPaneView?, _ tabs: AgentTabStore?, _ services: AppServices, session: String) -> (tab: String, machine: String, host: String?)? {
+        guard let view, let scoped = tabs?.views.entries.first(where: { $0.value === view })?.key,
+              let (tab, _) = services.locateTab(scoped.key, onMachine: scoped.machine),
+              view.model.sessionId == nil || view.model.sessionId == session,
+              ownsSession(recorded: tab.agentSession?.session, asked: session),
+              let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal,
+              let machine = services.machines.session(daemon.machineID)?.machineID else { return nil }
+        return (tab.id, machine, tab.agentSession?.host)
+    }
+
+    /// "Fork first" on a risky step (``AgentPaneForkFirst``): the person's own `cloud.machine.fork` of
+    /// the pane's Cloud machine (a Cloud machine holds no creator credential, so acpmux there cannot).
+    static func forkFirst(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneForkFirst) async -> [String: Any] {
+        { [weak tabs, weak services] view, fork in
+            guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
+            if let refusal = refusal(services) { return AgentPaneReply.failure(code: refusal, message: refusal) }
+            return await fork.run(still: { place(view, tabs, services, session: fork.sessionId)?.machine == fork.machine }) {
+                try await services.cloud.appServerApprovedCall("cloud.machine.fork", args: .object(["machine": .string(fork.machine), "clientKey": .string(fork.clientKey)]), confirm: { true })["id"]?.stringValue
+            }
+        }
+    }
+
     /// Whether a pane may name hand-off turns for `asked`: only the acpmux session recorded on its
     /// tab (`bind-conversation-tab-session`), so a page cannot open a hand-off for a session it
     /// does not show.
@@ -59,9 +74,9 @@ struct CloudHandoffTurnOpener {
     }
 
     /// The store's answer for `session` on `machine`, or a refusal code.
-    func reply(session: String, machine: String) async -> Opened {
+    func reply(session: String, machine: String) async -> CloudHandoffTurn.Opened {
         do {
-            return try await Self.open(session: session, machine: machine, client: ownerClient())
+            return try await CloudHandoffTurn.open(session: session, machine: machine, client: ownerClient())
         } catch {
             services.cloud.logger.error("hand-off turn not opened: \(CloudStrings.errorText(error), privacy: .public)")
             return .refused(Self.storeCode(error) ?? "handoff.unavailable")
@@ -69,80 +84,27 @@ struct CloudHandoffTurnOpener {
     }
 
     /// The page's reply for a refusal (a turn is answered once its pane is checked again).
-    static func answer(_ opened: Opened) -> [String: Any] {
+    static func answer(_ opened: CloudHandoffTurn.Opened) -> [String: Any] {
         switch opened {
         case .turn(_, let number): return AgentPaneReply.success(["turn": number])
         case .refused(let code): return AgentPaneReply.failure(code: code, message: code)
         }
     }
 
-    /// What ``open(session:machine:client:)`` found: the turn a prompt names, or why none.
-    enum Opened: Equatable {
-        case turn(id: String, number: Int)
-        /// `handoff.conflict` (the session's hand-off is on another machine), `handoff.closed`,
-        /// `handoff.turn_running` (a turn runs or waits for the person) or `handoff.turn_conflict`
-        /// (other devices kept beginning turns).
-        case refused(String)
-    }
-
-    /// The turn a prompt of `session` on `machine` names: the session's hand-off is made or read, then
-    /// its current turn is named when it has not run yet, or the next one begins once it ended.
-    static func open(session: String, machine: String, client: CloudOwnerAPIClient) async throws -> Opened {
-        try await open(session: session, machine: machine,
-                       make: { try await client.handoffOpen(session: $0, machine: $1) },
-                       begin: { try await client.handoffBeginTurn($0, after: $1) })
-    }
-
-    /// ``open(session:machine:client:)`` over its two calls (tests stand in for the store).
-    static func open(session: String, machine: String,
-                     make: (String, String) async throws -> CloudHandoffTurn,
-                     begin: (String, Int) async throws -> CloudHandoffTurn) async throws -> Opened {
-        var handoff = try await make(session, machine)
-        // One hand-off per session, made with this machine: one on another machine (a chat moved
-        // since) is not this chat's turn to name.
-        guard handoff.sessionId == session, handoff.machine == machine, handoff.refusal != "handoff.conflict" else {
-            return .refused("handoff.conflict")
-        }
-        // Another device may begin (and even finish) the next turn first (`turn_conflict` answers
-        // the hand-off as it is): its turn is named while it has not run yet, and one that already
-        // ended begins the one after. A few tries, then the prompt goes unnamed.
-        for _ in 0..<3 {
-            switch handoff.next {
-            case .name(let turn): return .turn(id: handoff.id, number: turn)
-            case .none: return .refused(handoff.state == "closed" ? "handoff.closed" : "handoff.turn_running")
-            case .begin(let after):
-                let begun = try await begin(handoff.id, after)
-                // The store may close the hand-off after the create but before this POST. Its
-                // refusal carries the current hand-off (whose turn still equals `after`), so
-                // preserve that authoritative code before validating the normal success shape.
-                if begun.state == "closed" { return .refused("handoff.closed") }
-                if let refusal = begun.refusal, refusal != "handoff.turn_conflict" { return .refused(refusal) }
-                guard begun.id == handoff.id, begun.sessionId == session, begun.machine == machine, begun.turn > after else {
-                    return .refused("handoff.turn_conflict")
-                }
-                handoff = begun
-            }
-        }
-        // The last begin's answer is read too: a turn it made is named, never left unreported.
-        if case .name(let turn) = handoff.next { return .turn(id: handoff.id, number: turn) }
-        return .refused("handoff.turn_conflict")
-    }
-
-    /// Why no hand-off turn opens at all now: Cloud off by policy, Labs off, not signed in (the
+    /// Why no hand-off turn opens at all now: Cloud off by policy, not signed in (the
     /// codes a Sandboxed send answers, ``AgentPageChats/wireSandbox(_:services:)``), or a machine
     /// list not loaded for the account signed in now (``CloudService/hasLoadedCurrentMachines``).
+    /// Labs is not read: a Cloud chat's hand-off turns open with Labs off.
     static func refusal(_ services: AppServices) -> String? {
         refusal(cloudAllowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
-                labs: services.settings?.snapshot.previewFeatures == true,
                 signedIn: services.cloud.isSignedIn, loadedCurrent: services.cloud.hasLoadedCurrentMachines)
     }
 
     /// ``refusal(_:)`` over what it reads. After a team switch the previous team's machines stay in
     /// the store until this team's list lands, and the store's create checks only the machine id's
     /// shape: a hand-off is never made for a machine of a list not loaded for the account now.
-    nonisolated static func refusal(cloudAllowed: Bool, labs: Bool, signedIn: Bool, loadedCurrent: Bool) -> String? {
+    nonisolated static func refusal(cloudAllowed: Bool, signedIn: Bool, loadedCurrent: Bool) -> String? {
         if !cloudAllowed { return "cloud_disabled" }
-        if !labs { return "labs_off" }
         if !signedIn { return "not_signed_in" }
         return loadedCurrent ? nil : "machines_unread"
     }
@@ -160,7 +122,7 @@ struct CloudHandoffTurnOpener {
         return CloudOwnerAPIClient(
             baseURL: FeedService.apiBaseURL(auth: auth),
             accessToken: { try await auth.tokens().access },
-            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }, buildSpace: auth.configuration.buildSpace
+            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }, buildSpace: auth.configuration.buildSpace, machineIO: auth.machineIO
         )
     }
 }

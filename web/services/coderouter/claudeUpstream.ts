@@ -1,5 +1,16 @@
 import { grantVmImportedAccount } from "./vmAccountImport";
 import { accountAccessPredicate, type CoderouterAccountAccess } from "./accountAccess";
+import {
+  claudeFallbackConfig,
+  decideClaudeFallback,
+  defaultClaudeFallbackSpend,
+  fallbackPlanForCaller,
+  loadClaudeAccountRowById,
+  teamHasAnyClaudeAccount,
+  type ClaudeFallbackDependencies,
+  type FallbackRefusal,
+  type FallbackReservation,
+} from "./claudeFallback";
 // Per-team Claude upstream accounts for the coderouter `/v1/messages` leg.
 //
 // A team holds any number of accounts of any kind (Anthropic API key, Claude
@@ -67,6 +78,12 @@ export type ClaudeUpstream = {
   readonly secret: ClaudeUpstreamSecret;
   readonly config: ClaudeUpstreamConfig;
   readonly updatedAt: Date;
+  /**
+   * Set only when this is the house account (claudeFallback.ts) serving a
+   * team with no Claude account of its own. `teamId` above is the account's
+   * owner, not the caller.
+   */
+  readonly fallback?: true;
 };
 
 /** What the dashboard, the CLI, and the GET route see. Never carries a secret. */
@@ -151,6 +168,8 @@ export type ClaudeUpstreamDependencies = {
   readonly keyId?: string;
   readonly now?: () => Date;
   readonly newId?: () => string;
+  /** The house route's reads (claudeFallback.ts); absent means no house route. */
+  readonly fallback?: ClaudeFallbackDependencies<ClaudeAccountRow>;
 };
 
 export type ClaudeSelectionInput = {
@@ -164,12 +183,37 @@ export type ClaudeSelectionInput = {
   readonly excludedAccountIds?: readonly string[];
   /** Request-scoped cancellation for database and credential selection work. */
   readonly signal?: AbortSignal;
+  /**
+   * Reads the requested model; called only by the house route's tier check.
+   * Absent for a request that names none (the model list); returns `null`
+   * when the model cannot be read.
+   */
+  readonly model?: () => string | null;
+  /**
+   * The request's upper bound in list-price cents, read only by the house
+   * route, which then holds it against the cap (claudeFallback.ts). Absent for
+   * a call that costs nothing (count_tokens).
+   */
+  readonly reserveCents?: () => number;
 };
 
 export type ClaudeSelection =
-  | { readonly kind: "selected"; readonly upstream: ClaudeUpstream; readonly total: number; readonly healthy: number }
+  | {
+    readonly kind: "selected";
+    readonly upstream: ClaudeUpstream;
+    readonly total: number;
+    readonly healthy: number;
+    /** House route only: the team's included usage before this request. */
+    readonly included?: { readonly spentCents: number; readonly capCents: number };
+    /** House route only: the request's hold on the cap; the caller must release it once the request settles. */
+    readonly reservation?: FallbackReservation;
+  }
   /** The team has no accounts at all. */
   | { readonly kind: "none" }
+  /** The team has no accounts and the house route refuses this request. */
+  | { readonly kind: "fallback_refused"; readonly reason: FallbackRefusal }
+  /** The team has no accounts and its included usage could not be read. */
+  | { readonly kind: "fallback_unavailable" }
   /** Every remaining account is disabled, cooling down, or already tried. */
   | {
     readonly kind: "exhausted";
@@ -343,7 +387,11 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
 
   /** Whether the caller can be served at all: one active account. A metadata read; nothing is decrypted or written. */
   async function hasActive(teamId: string, access?: CoderouterAccountAccess): Promise<boolean> {
-    return (await store.list(teamId, undefined, access)).some((row) => row.state === "active");
+    const rows = await store.list(teamId, undefined, access);
+    if (rows.length > 0) return rows.some((row) => row.state === "active");
+    // Only reached with no visible account: unset, this is today's `false`.
+    const house = await decideClaudeFallback(dependencies.fallback, fallbackCaller(teamId, access), undefined);
+    return house.kind === "row" && house.row.state === "active";
   }
 
   async function add(
@@ -413,7 +461,61 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     throwIfAborted(input.signal);
     const rows = await store.list(teamId, input.signal, input.access);
     throwIfAborted(input.signal);
-    if (rows.length === 0) return { kind: "none" };
+    if (rows.length === 0) return selectHouse(teamId, input);
+    const picked = pick(rows, input);
+    if (picked.kind === "exhausted") return picked;
+    const upstream = await decrypt(picked.row, input.signal);
+    throwIfAborted(input.signal);
+    return { kind: "selected", upstream, total: rows.length, healthy: picked.healthy };
+  }
+
+  /**
+   * The house route (claudeFallback.ts) for a caller with no visible account.
+   * A reservation it admits is handed to the caller with the selection, and
+   * released here on every other way out.
+   */
+  async function selectHouse(teamId: string, input: ClaudeSelectionInput): Promise<ClaudeSelection> {
+    const house = await decideClaudeFallback(
+      dependencies.fallback,
+      fallbackCaller(teamId, input.access),
+      input.model,
+      input.signal,
+      input.reserveCents,
+    );
+    if (house.kind !== "row") {
+      throwIfAborted(input.signal);
+      if (house.kind === "none") return { kind: "none" };
+      if (house.kind === "refused") return { kind: "fallback_refused", reason: house.reason };
+      return { kind: "fallback_unavailable" };
+    }
+    const reservation = house.reservation;
+    try {
+      throwIfAborted(input.signal);
+      const picked = pick([house.row], input);
+      if (picked.kind === "exhausted") {
+        reservation?.release();
+        return picked;
+      }
+      const upstream = await decrypt(picked.row, input.signal);
+      throwIfAborted(input.signal);
+      return {
+        kind: "selected",
+        upstream: { ...upstream, fallback: true },
+        total: 1,
+        healthy: picked.healthy,
+        included: { spentCents: house.spentCents, capCents: house.capCents },
+        ...(reservation ? { reservation } : {}),
+      };
+    } catch (error) {
+      reservation?.release();
+      throw error;
+    }
+  }
+
+  function pick(
+    rows: readonly ClaudeAccountRow[],
+    input: ClaudeSelectionInput,
+  ): Extract<ClaudeSelection, { kind: "exhausted" }> | { readonly kind: "picked"; readonly row: ClaudeAccountRow; readonly healthy: number } {
     const at = now();
     const excluded = new Set(input.excludedAccountIds ?? []);
     const eligible = rows.filter((row) => row.state === "active" && !excluded.has(row.id));
@@ -426,12 +528,10 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
         capacityRetryAfterSeconds: capacityRetryAfter(eligible, at),
       };
     }
-    const chosen = input.stickyKey
+    const row = input.stickyKey
       ? rendezvousPick(input.stickyKey, healthy)
       : leastRecentlyUsed(healthy);
-    const upstream = await decrypt(chosen, input.signal);
-    throwIfAborted(input.signal);
-    return { kind: "selected", upstream, total: rows.length, healthy: healthy.length };
+    return { kind: "picked", row, healthy: healthy.length };
   }
 
   async function cooldown(
@@ -449,6 +549,11 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
   }
 
   return { list, hasActive, add, update, remove, removeAll, select, cooldown, touchUsed };
+}
+
+/** Only a Cloud machine carries a plan the house route can read. */
+function fallbackCaller(teamId: string, access?: CoderouterAccountAccess) {
+  return { teamId, vmId: access?.kind === "vm" ? access.vmId : null };
 }
 
 function retryAfter(eligible: readonly ClaudeAccountRow[], at: Date): number {
@@ -735,7 +840,19 @@ function rowFromDb(row: typeof coderouterClaudeAccounts.$inferSelect): ClaudeAcc
  * store with test encryption keys. */
 export const claudeAccountStore: ClaudeAccountStore = drizzleStore;
 
-const defaultService = createClaudeUpstreamService({ store: drizzleStore });
+const defaultService = createClaudeUpstreamService({
+  store: drizzleStore,
+  fallback: {
+    config: () => claudeFallbackConfig(),
+    teamHasAnyAccount: teamHasAnyClaudeAccount,
+    planId: fallbackPlanForCaller,
+    loadAccount: async (accountId, signal) => {
+      const row = await loadClaudeAccountRowById(accountId, signal);
+      return row ? rowFromDb(row) : null;
+    },
+    spend: defaultClaudeFallbackSpend,
+  },
+});
 
 export const listClaudeAccounts = defaultService.list;
 export const hasActiveClaudeAccount = defaultService.hasActive;

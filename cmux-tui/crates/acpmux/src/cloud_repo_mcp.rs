@@ -15,25 +15,38 @@ use std::time::Duration;
 
 pub const SERVER_NAME: &str = "cmux-cloud-repos";
 pub const SESSION_ENV: &str = "ACPMUX_CLOUD_REPO_SESSION";
+/// Its acpmux command word: its own stdio process, where the daemon's gateway does not serve it.
+pub const COMMAND: &str = "repo-mcp";
 /// The daemon action names are deliberately shared with `cmux mcp` and the
 /// webview action bridge (rather than a second agent-only protocol).
 pub const REPO_LIST_ACTION: &str = "cloud.repo.list";
 pub const REPO_ADD_ACTION: &str = "cloud.repo.add";
 pub const REPO_WAIT_GITHUB_ACTION: &str = "cloud.repo.wait_github";
 
-/// What the agent tells a person who asks where it runs: the machine, how long its files last,
-/// and how to bring a repository in. A Cloud chat can start with no repository, so the agent says
-/// so plainly instead of guessing (Leo, 2026-11-02, on Claude Code's cloud session that does:
+/// What the agent tells a person who asks where it runs: the machine, where its working folder
+/// comes from, and how work leaves it. A Cloud chat can start with no repository, so the agent
+/// says so plainly instead of guessing (Leo, 2026-11-02, on Claude Code's cloud session that does:
 /// "i want us to be able to do this too"). Facts, not policy: the machine is a cmux Cloud Linux VM
 /// (`/etc/cmux/vm-kind`), its disk stays until it is deleted, and an idle machine may be paused
-/// (cmux-platform CloudIdle) and resumes with its files.
+/// (cmux-platform CloudIdle) and resumes with its files. A chat started on a folder from the
+/// person's Mac works in that folder projected (RFD 0007), empty or not, git or not, and its edits
+/// reach the Mac on Bring Back; the text says both cases and `this_folder` tells which, since the
+/// same text opens every chat (the cached prompt prefix, `tools_mcp::INSTRUCTIONS_IN_PROMPT_ENV`).
+/// Leo, 2026-11-25, on an empty folder's chat that said nothing comes back to the Mac: "and then
+/// like on an empty folder cloud whatever im not sure".
 pub const INSTRUCTIONS: &str = "This chat runs on a cmux Cloud machine: a Linux virtual machine \
-in cmux Cloud, not the person's Mac. Its files stay on the machine between chats, even while it \
-is paused when idle, until the machine is deleted. Nothing on it is copied back to the Mac: push \
-work to GitHub to keep it anywhere else. A chat can start with no repository; then the working \
-folder may be empty. Attach one at any time with add_repo (list_repos finds names); Session Info \
-may also offer the person Add repository. A needs_github result is retried automatically after Connect \
-GitHub finishes. When asked what this environment is, say these things plainly.";
+in cmux Cloud, not the person's Mac. When the person started it on a folder from their Mac, the \
+working folder is that folder projected (empty or not, a git repository or not): its files read \
+from the Mac on first use, and what you write stays on this machine over them until the person \
+brings it back (Bring Back), which applies it to that same Mac folder. Otherwise the working \
+folder is the machine's own (a repository cloned here, or empty when the chat started with none): \
+its files stay on the machine between chats, even while it is paused when idle, until the machine \
+is deleted, and nothing in it is copied to the Mac, so push work to GitHub to keep it anywhere \
+else. Before saying which case this is, call this_folder with your working folder: it names the \
+Mac folder a projection mirrors, how edits reach it, and whether it is a git repository. Attach \
+a repository at any time with add_repo (list_repos finds names); Session Info may also offer the \
+person Add repository. A needs_github result is retried automatically after Connect GitHub \
+finishes. When asked what this environment is, say these things plainly.";
 
 /// Cloud machines carry the same image marker used by acpmux host updates.
 pub fn is_cloud_machine() -> bool {
@@ -42,6 +55,15 @@ pub fn is_cloud_machine() -> bool {
 
 fn tools() -> Value {
     json!([
+        {
+            "name": "this_folder",
+            "description": "Say what a folder on this Cloud machine is: a projection of a folder on the person's Mac (which one, and that edits reach it on Bring Back) or the machine's own folder, and whether it is a git repository. Call it with your working folder before describing where files live or whether they sync to the Mac.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "An absolute folder path, usually your working folder (pwd)."}},
+                "required": ["path"]
+            }
+        },
         {
             "name": "list_repos",
             "description": "List repositories you can attach to this Cloud chat. A bare name is resolved from local projects, recently used Cloud repositories, and the GitHub App installation. If GitHub is not connected, follow the connect action in the result.",
@@ -63,6 +85,20 @@ fn tools() -> Value {
             }
         }
     ])
+}
+
+/// The server for the session in the env, as one of acpmux's own
+/// ([`crate::tools_mcp::SERVERS`]): the daemon's gateway, or the chat's one `acpmux tools-mcp`,
+/// answers it, so a chat runs no `acpmux repo-mcp` process of its own.
+pub(crate) fn served(daemon: &Arc<crate::tools_mcp::Daemon>) -> Result<crate::tools_mcp::Served> {
+    crate::tools_mcp::served(
+        SERVER_NAME,
+        SESSION_ENV,
+        tools(),
+        Some(INSTRUCTIONS.to_owned()),
+        daemon,
+        |daemon, session, params| async move { call(&daemon, &session, &params).await },
+    )
 }
 
 pub async fn run() -> Result<()> {
@@ -98,23 +134,30 @@ fn result_text(result: &Value) -> String {
             .and_then(Value::as_str)
             .unwrap_or("Repository action failed")
             .to_owned();
-        if error.get("code").and_then(Value::as_str) == Some("repo.needs_github") {
+        let code = error.get("code").and_then(Value::as_str);
+        if code == Some("repo.needs_github") {
             text.push_str(
                 " Connect GitHub; this add will be retried automatically when it finishes.",
             );
         }
+        if code == Some("repo.no_access") {
+            // One line the person and the agent both read: whose grant, which owner, the fix.
+            text = no_access_line(
+                error.get("org").and_then(Value::as_str),
+                error.get("install_url").and_then(Value::as_str),
+            );
+        }
+        // The agent reads only this text (no outputSchema is declared, so clients
+        // like Claude Code never show structuredContent to the model), and the chat
+        // reads its card's fields from the same text: keep the payload on it.
+        if matches!(code, Some("repo.needs_github" | "repo.no_access")) {
+            text.push('\n');
+            text.push_str(&serde_json::to_string(error).unwrap_or_default());
+        }
         return text;
     }
     if let Some(repos) = result.get("repos").and_then(Value::as_array) {
-        return if repos.is_empty() {
-            "No repositories match. Connect GitHub or use a local project and try again.".to_owned()
-        } else {
-            format!(
-                "Found {} {}.",
-                repos.len(),
-                if repos.len() == 1 { "repository" } else { "repositories" }
-            )
-        };
+        return repos_text(repos, result.pointer("/connect/install_url").and_then(Value::as_str));
     }
     if result.get("state").and_then(Value::as_str) == Some("done") {
         return format!(
@@ -126,13 +169,76 @@ fn result_text(result: &Value) -> String {
     serde_json::to_string(result).unwrap_or_else(|_| "Repository action completed.".to_owned())
 }
 
+/// The refusal for a repository the team's GitHub grant does not cover, in one line.
+pub(crate) fn no_access_line(owner: Option<&str>, install_url: Option<&str>) -> String {
+    let owner = owner.filter(|o| !o.is_empty());
+    let what = match owner {
+        Some(owner) => format!(
+            "This chat's GitHub grant does not cover {owner}: the cmux GitHub App is not installed on {owner} for this cmux team."
+        ),
+        None => "This chat's GitHub grant does not cover this repository.".to_owned(),
+    };
+    match install_url {
+        Some(url) => format!(
+            "{what} Install it from the chat's Install GitHub App button or {url}, then retry."
+        ),
+        None => format!(
+            "{what} Install the cmux GitHub App there (in cmux choose Connect GitHub), then retry."
+        ),
+    }
+}
+
+/// The most repository names one list result names; the rest are counted.
+const LISTED_REPOS: usize = 200;
+
+/// The names themselves: an agent sees only this text, so "Found 202
+/// repositories." with no names left it nothing to choose (proof-3).
+fn repos_text(repos: &[Value], install_url: Option<&str>) -> String {
+    let mut text = if repos.is_empty() {
+        "No repositories match. Use a repository your GitHub connection covers, or a local project."
+            .to_owned()
+    } else {
+        format!(
+            "Found {} {}; add one with add_repo:",
+            repos.len(),
+            if repos.len() == 1 { "repository" } else { "repositories" }
+        )
+    };
+    for repo in repos.iter().take(LISTED_REPOS) {
+        let Some(name) = repo.get("fullName").and_then(Value::as_str) else { continue };
+        text.push_str("\n- ");
+        text.push_str(name);
+        let private = repo.get("private").and_then(Value::as_bool) == Some(true);
+        match (private, repo.get("source").and_then(Value::as_str)) {
+            (true, Some(source)) => text.push_str(&format!(" (private, {source})")),
+            (true, None) => text.push_str(" (private)"),
+            (false, Some(source)) => text.push_str(&format!(" ({source})")),
+            (false, None) => {}
+        }
+    }
+    if repos.len() > LISTED_REPOS {
+        text.push_str(&format!(
+            "\n...and {} more; pass a query to list_repos to narrow it.",
+            repos.len() - LISTED_REPOS
+        ));
+    }
+    if let Some(url) = install_url {
+        text.push_str(&format!(
+            "\nA repository of an organization that is not listed needs the cmux GitHub App installed there: {url}"
+        ));
+    }
+    text
+}
+
 /// The Cloud CLI already speaks the legacy machine socket contract. Calling
 /// it without a shell keeps the chat ID in an argv value only
 /// (never interpolated into a command string), and makes this bridge work with
 /// the same socket as `cmux cloud repo`.
 async fn run_cli(action: &'static str, request: Value) -> Result<Value, String> {
-    let binary = std::env::var_os("CMUX_BIN").unwrap_or_else(|| "cmux".into());
-    run_cli_with(&binary, std::env::var_os("CMUX_SOCKET_PATH").as_deref(), action, request).await
+    // The chat's env where the daemon's gateway serves it, else this process's.
+    let binary = crate::login_env::cmux_cli_or(crate::tool_env::var("CMUX_BIN"));
+    let socket = crate::tool_env::var("CMUX_SOCKET_PATH").map(std::ffi::OsString::from);
+    run_cli_with(&binary, socket.as_deref(), action, request).await
 }
 
 async fn run_cli_with(
@@ -170,9 +276,10 @@ async fn run_cli_with(
     )
     .await
     .map_err(|_| {
-        "Repository action timed out; reconnect to the Cloud machine and retry.".to_owned()
+        "The Cloud machine did not finish the repository action in time; it is slow or unreachable."
+            .to_owned()
     })?
-    .map_err(|e| format!("Could not reach the Cloud machine; reconnect and retry ({e})."))?;
+    .map_err(|e| format!("Could not run cmux to reach the Cloud machine ({e})."))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     if let Some(line) = stdout.lines().rev().find(|line| line.trim_start().starts_with('{'))
         && let Ok(value) = serde_json::from_str::<Value>(line)
@@ -191,15 +298,15 @@ async fn run_cli_with(
         if value.get("error_code").is_some() {
             return Ok(json!({
                 "code": value.get("error_code").and_then(Value::as_str).unwrap_or("repo.unavailable"),
-                "message": value.get("error").and_then(Value::as_str).unwrap_or("Reconnect to the Cloud machine and retry.")
+                "message": value.get("error").and_then(Value::as_str).unwrap_or("The Cloud machine refused the repository action.")
             }));
         }
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     Err(if stderr.trim().is_empty() {
-        "The Cloud machine returned no repository result; reconnect and retry.".to_owned()
+        "The Cloud machine returned no repository result.".to_owned()
     } else {
-        format!("Repository action failed; reconnect and retry: {}", stderr.trim())
+        format!("Repository action failed: {}", stderr.trim())
     })
 }
 
@@ -228,7 +335,8 @@ where
 {
     if caller != Some(session) {
         return error_result(
-            "Repository tools could not verify this chat. Restart the chat session, then retry Add repository.".to_owned(),
+            "Repository tools could not verify this chat. Restart the chat session to use them."
+                .to_owned(),
         );
     }
     let args = match args_object(params) {
@@ -237,6 +345,19 @@ where
     };
     let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
     match name {
+        "this_folder" => {
+            let Some(path) = args
+                .get("path")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|path| path.starts_with('/'))
+            else {
+                return error_result("path is required: an absolute folder path".to_owned());
+            };
+            let answer = crate::cloud_folder::describe(path);
+            let text = answer["summary"].as_str().unwrap_or_default().to_owned();
+            json!({"content":[{"type":"text","text":text}],"structuredContent":answer,"isError":false})
+        }
         "list_repos" => {
             let mut req = json!({"session": session});
             if let Some(query) =
@@ -244,7 +365,26 @@ where
             {
                 req.set("query", json!(query));
             }
-            match run(REPO_LIST_ACTION, req).await {
+            // A list only reads: one the Cloud machine did not answer is asked again for a few
+            // seconds (a reconnect in progress), never handed to the agent as "retry".
+            let listed = cmux_tui_util::retry::Patience::new("the Cloud machine", LIST_PATIENCE)
+                .quiet()
+                .run_async(
+                    || "The Cloud machine did not return the repository list in time.".to_owned(),
+                    {
+                        let run = &run;
+                        move || {
+                            let req = req.clone();
+                            async move {
+                                run(REPO_LIST_ACTION, req)
+                                    .await
+                                    .map_err(cmux_tui_util::retry::Attempt::Retry)
+                            }
+                        }
+                    },
+                )
+                .await;
+            match listed {
                 Ok(result) => ok(result),
                 Err(e) => error_result(e),
             }
@@ -274,6 +414,9 @@ where
         }
     }
 }
+
+/// How long `list_repos` asks the Cloud machine again while it does not answer.
+const LIST_PATIENCE: Duration = Duration::from_secs(10);
 
 /// Keep retry information in the agent result even if an older daemon only
 /// returns the typed error. The UI uses this exact payload to retry silently.
@@ -306,6 +449,38 @@ fn enrich_retry(result: &mut Value, session: &str, repo: &str, reference: Option
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn this_folder_answers_from_the_machine_without_the_cli() {
+        let folder = std::env::temp_dir();
+        let result = call_for_caller(
+            Some("own-chat"),
+            "own-chat",
+            &json!({"name": "this_folder", "arguments": {"path": folder}}),
+            |_, _| async { panic!("this_folder reached the CLI") },
+        )
+        .await;
+        assert_eq!(result["isError"], false, "{result}");
+        assert_eq!(result["structuredContent"]["projected"], false, "{result}");
+        let relative = call_for_caller(
+            Some("own-chat"),
+            "own-chat",
+            &json!({"name": "this_folder", "arguments": {"path": "work"}}),
+            |_, _| async { panic!("this_folder reached the CLI") },
+        )
+        .await;
+        assert_eq!(relative["isError"], true, "{relative}");
+    }
+
+    /// Leo, 2026-11-25: an empty folder's Cloud chat told him nothing comes back to the Mac.
+    #[test]
+    fn the_instructions_say_a_mac_folder_is_projected_and_comes_back() {
+        assert!(INSTRUCTIONS.contains("projected (empty or not, a git repository or not)"));
+        assert!(INSTRUCTIONS.contains("Bring Back"));
+        assert!(INSTRUCTIONS.contains("call this_folder"));
+        assert!(!INSTRUCTIONS.contains("Nothing on it is copied back to the Mac"));
+        assert!(tools().as_array().unwrap().iter().any(|tool| tool["name"] == "this_folder"));
+    }
     #[tokio::test]
     async fn cloud_repo_missing_or_foreign_caller_never_invokes_cli() {
         for caller in [None, Some("other-chat")] {
@@ -344,13 +519,38 @@ mod tests {
         assert_eq!(result["isError"], false);
     }
 
+    /// A list the Cloud machine did not answer is asked again, and the agent gets the list.
+    #[tokio::test]
+    async fn an_unanswered_list_is_asked_again() {
+        let tries = std::sync::atomic::AtomicU32::new(0);
+        let result = call_for_caller(
+            Some("own-chat"),
+            "own-chat",
+            &json!({"name":"list_repos","arguments":{}}),
+            |_, _| {
+                let n = tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                async move {
+                    if n == 0 {
+                        Err("The Cloud machine returned no repository result.".to_owned())
+                    } else {
+                        Ok(json!({"repos": [{"name": "org/repo"}]}))
+                    }
+                }
+            },
+        )
+        .await;
+        assert_eq!(result["isError"], false, "{result}");
+        assert_eq!(tries.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
     #[test]
     fn instructions_state_the_machine_and_its_lifetime() {
         for fact in [
             "Linux virtual machine",
             "until the machine is deleted",
             "push work",
-            "no repository",
+            // A chat started with no repository (Leo, 2026-11-02), said apart from a Mac folder's.
+            "empty when the chat started with none",
             "add_repo",
         ] {
             assert!(INSTRUCTIONS.contains(fact), "instructions lack {fact:?}");
@@ -376,6 +576,58 @@ mod tests {
             json!({"action": REPO_ADD_ACTION, "args": {"session":"chat-1","repo":"acme/tool"}})
         );
     }
+    /// proof-3: the agent sees only the content text, so it must carry the names.
+    #[test]
+    fn list_repos_text_names_each_repository() {
+        let repos: Vec<Value> = (0..202)
+            .map(
+                |i| json!({"fullName": format!("leo/r{i}"), "private": i == 0, "source": "github"}),
+            )
+            .collect();
+        let result = ok(
+            json!({"repos": repos, "connect": {"install_url": "https://github.com/apps/cmux/installations/new"}}),
+        );
+        assert_eq!(result["isError"], false);
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.starts_with("Found 202 repositories; add one with add_repo:"), "{text}");
+        assert!(text.contains("\n- leo/r0 (private, github)\n- leo/r1 (github)"), "{text}");
+        assert!(text.contains("\n- leo/r199 (github)"), "{text}");
+        assert!(!text.contains("leo/r200"), "{text}");
+        assert!(text.contains("...and 2 more"), "{text}");
+        assert!(text.contains("https://github.com/apps/cmux/installations/new"), "{text}");
+        let one = ok(json!({"repos": [{"fullName": "leo/x"}]}));
+        assert_eq!(
+            one["content"][0]["text"],
+            "Found 1 repository; add one with add_repo:\n- leo/x"
+        );
+        let none = ok(json!({"repos": []}));
+        assert!(!none["content"][0]["text"].as_str().unwrap().contains("Connect GitHub"));
+    }
+
+    /// Gap 1: an owner the grant leaves out reads as one line naming it, and the
+    /// payload the chat's card reads rides on the same text.
+    #[test]
+    fn no_access_says_the_grant_does_not_cover_the_owner_in_one_line() {
+        let url = "https://github.com/apps/cmux/installations/new";
+        let result = ok(
+            json!({"code":"repo.no_access","message":"Install GitHub access.","org":"manaflow-ai","install_url":url}),
+        );
+        assert_eq!(result["isError"], true);
+        let text = result["content"][0]["text"].as_str().unwrap();
+        let (line, payload) = text.split_once('\n').unwrap();
+        assert_eq!(
+            line,
+            format!(
+                "This chat's GitHub grant does not cover manaflow-ai: the cmux GitHub App is not \
+                 installed on manaflow-ai for this cmux team. Install it from the chat's Install \
+                 GitHub App button or {url}, then retry."
+            )
+        );
+        let payload: Value = serde_json::from_str(payload).unwrap();
+        assert_eq!(payload["org"], "manaflow-ai");
+        assert_eq!(payload["install_url"], url);
+    }
+
     #[test]
     fn other_errors_are_not_retried() {
         let mut result = json!({"code":"repo.not_found"});

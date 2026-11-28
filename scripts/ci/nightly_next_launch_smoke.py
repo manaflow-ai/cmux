@@ -8,7 +8,8 @@ launches it from an empty home and then from a seeded home, the home of a person
   verdict --dir DIR [--daemon]
       The verdict of up to two harness runs (DIR/status-N and DIR/attempt-N/report.json). An attempt
       crashed only on the harness's own evidence: exit 1, report verdict fail, and the launched app's
-      pid, plus a nonzero app exit, a crash report, or an uncaught exception in that report. With
+      pid, plus a nonzero app exit (SIGTERM excepted: another process sent it), a crash report, or an
+      uncaught exception in that report. With
       --daemon (the publish gate only, never this post-publish smoke: a rollback of a published build
       is not decided by it) also the harness's word that the app showed Home and its daemon was not
       connected when the watch ended (`daemon_down`: the app is up and cannot be used). A live
@@ -64,8 +65,10 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
+from signal import SIGTERM
 from typing import Callable, Mapping
 
 PASS, CRASH, CANNOT_RUN, UNKNOWN = "pass", "crash", "cannot-run", "unknown"
@@ -95,7 +98,8 @@ def attempt_result(status: int, report: dict, daemon: bool = False) -> str:
     """One harness run's result.
 
     A crash needs both the harness's evidence that the app ran (exit 1, a failed report and its pid)
-    and evidence from the app itself: a nonzero process exit, a crash report or an uncaught exception.
+    and evidence from the app itself: a nonzero process exit (not SIGTERM, which another process sends), a crash
+    report or an uncaught exception.
     With DAEMON (the publish gate's --daemon) also its own word, two times, that its daemon is not
     connected after Home rendered (the harness's `daemon_down`: the app is up and takes no key). That
     counts as a crash counts, with the same rule. Without DAEMON such a report is cannot-run, as before.
@@ -115,8 +119,12 @@ def attempt_result(status: int, report: dict, daemon: bool = False) -> str:
     if status == 0 and report.get("verdict") == "pass":
         return CANNOT_RUN if daemon and daemon_not_of_launch(report) else PASS
     exit_status = report.get("exit")
+    # SIGTERM (-15) is another process's kill, never the app's own end: a crash ends it by SIGSEGV, SIGBUS, SIGILL,
+    # SIGTRAP, SIGABRT or the crash watcher's SIGKILL. One signing Mac SIGTERMed the app 0.1-0.4 s after launch in
+    # both attempts, with no crash report, and held three NEXT nightlies (runs 45505381963, 45516460614,
+    # 45522946100). A crash report or run.exception still decides.
     app_crashed = (
-        isinstance(exit_status, int) and not isinstance(exit_status, bool) and exit_status != 0
+        isinstance(exit_status, int) and not isinstance(exit_status, bool) and exit_status not in (0, -SIGTERM)
     ) or bool(report.get("crash_reports")) or bool(report.get("run_exceptions")) or (
         daemon and bool(report.get("daemon_down")))
     if status in (1, CUT) and report.get("verdict") == "fail" and report.get("pid") and app_crashed:
@@ -321,22 +329,47 @@ def in_flight(runs: list[dict], jobs_of: Callable[[int], list[dict]], build: int
     return None
 
 
+def refusal(error: urllib.error.HTTPError) -> str:
+    """An HTTP refusal with GitHub's own words and the token's remaining budget, so a warning names its cause."""
+    try:
+        message = (json.loads(error.read() or b"{}").get("message") or "").strip()
+    except (OSError, ValueError, AttributeError):
+        message = ""
+    remaining = error.headers.get("x-ratelimit-remaining") if error.headers else None
+    parts = [f"HTTP {error.code}", message[:160], f"rate limit remaining {remaining}" if remaining is not None else ""]
+    return ": ".join(part for part in parts if part)
+
+
 def read_in_flight(build: int | str, env: Mapping[str, str]) -> int | None:
-    """in_flight() over the live runs, read with GH_TOKEN (the repository is public, so any token reads it)."""
+    """in_flight() over the live runs: GH_TOKEN first, then with no token at all. The job's GITHUB_TOKEN shares one
+    per-repository hourly budget with every other job in this repository, and on 2026-11-23/24 it answered 403 on
+    about half of the scheduled ticks, each of which then smoked nothing. The repository is public, so an anonymous
+    read (its own per-address budget) answers when the token is refused. main's scheduled copy of the workflow runs
+    this script from feat-cmux-next, so the fallback reaches the schedule with no workflow change."""
     repo = env["GITHUB_REPOSITORY"]
-    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
-               "User-Agent": "cmux-nightly-next-launch-smoke"}
-    if env.get("GH_TOKEN"):
-        headers["Authorization"] = f"Bearer {env['GH_TOKEN']}"
+    tokens = [token for token in (env.get("GH_TOKEN"),) if token] + [""]
+    refusals: list[str] = []
+    for token in tokens:
+        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+                   "User-Agent": "cmux-nightly-next-launch-smoke"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
 
-    def get(path: str) -> dict:
-        request = urllib.request.Request(f"{API}/repos/{repo}{path}", headers=headers)
-        with urllib.request.urlopen(request, timeout=20) as response:
-            return json.load(response)
+        def get(path: str, headers: dict = headers) -> dict:
+            request = urllib.request.Request(f"{API}/repos/{repo}{path}", headers=headers)
+            with urllib.request.urlopen(request, timeout=20) as response:
+                return json.load(response)
 
-    runs = get(f"/actions/workflows/{SMOKE_WORKFLOW}/runs?per_page=100").get("workflow_runs") or []
-    return in_flight(runs, lambda run: get(f"/actions/runs/{run}/jobs?filter=latest&per_page=100").get("jobs") or [],
-                     build, int(env.get("GITHUB_RUN_ID") or 0))
+        try:
+            runs = get(f"/actions/workflows/{SMOKE_WORKFLOW}/runs?per_page=100").get("workflow_runs") or []
+            return in_flight(runs,
+                             lambda run, get=get: get(f"/actions/runs/{run}/jobs?filter=latest&per_page=100").get("jobs") or [],
+                             build, int(env.get("GITHUB_RUN_ID") or 0))
+        except urllib.error.HTTPError as error:
+            if error.code not in (401, 403, 429):
+                raise
+            refusals.append(refusal(error))
+    raise RuntimeError("; ".join(refusals))
 
 
 def main(argv: list[str] | None = None) -> int:

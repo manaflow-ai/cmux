@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from "react";
 import type { Strings } from "../shared/i18n";
+import { Switch } from "../../ui/Switch";
 import { L } from "./strings";
 import {
   DEFAULT_SECRET_HEADER,
@@ -48,11 +49,11 @@ export function EnvironmentNetwork({
         <>
           <p className="env-note">{t(L.envNetworkPending)}</p>
           <label className="env-checkbox">
-            <input
+            <Switch
+              size="sm"
               aria-label={t(L.envPackages)}
-              type="checkbox"
               checked={network.package_managers}
-              onChange={(event) => store.edit({ network: { ...network, package_managers: event.target.checked } })}
+              onCheckedChange={(on) => store.edit({ network: { ...network, package_managers: on } })}
             />
             {t(L.envPackages)}
           </label>
@@ -263,10 +264,13 @@ export function EnvironmentScript({
   state,
   store,
   strings,
+  deriveStillTrying = false,
 }: {
   state: EnvironmentState;
   store: EnvironmentStore;
   strings: Strings;
+  /** The suggested script's read has failed for a while (the sheet reads it again on its own). */
+  deriveStillTrying?: boolean;
 }) {
   const { t } = strings;
   const script = state.draft?.script ?? state.derivedScript ?? "";
@@ -333,14 +337,10 @@ export function EnvironmentScript({
         </div>
         <div className="env-editor-foot">{t(L.envFileLimit)}</div>
       </div>
-      {state.deriving && <output className="env-note">{t(L.loading)}</output>}
-      {state.deriveFailed && (
-        <p role="alert" className="env-note">
-          {t(L.envDeriveFailed)}{" "}
-          <button type="button" className="env-link" onClick={() => void store.derive()}>
-            {t(L.retry)}
-          </button>
-        </p>
+      {/* A failed suggestion is read again on its own (EnvironmentSheet): quiet until that lasts. */}
+      {state.deriving && !state.deriveFailed && <output className="env-note">{t(L.loading)}</output>}
+      {state.deriveFailed && deriveStillTrying && (
+        <p className="env-note env-derive-still-trying">{t(L.envDeriveStillTrying)}</p>
       )}
       {state.derivedScript !== undefined && state.draft?.script !== null && (
         <button type="button" className="env-link" onClick={() => store.edit({ script: null })}>

@@ -2,6 +2,7 @@ import CmuxNextCompat
 public import CmuxNextDaemon
 import CryptoKit
 import Foundation
+import OSLog
 public import CmuxNextWakeups
 
 /// Bounded waits on main-actor state for the Cloud flows: the observation glue. What counts as done, the
@@ -150,6 +151,96 @@ extension CloudWait {
         }) { status() != .starting }
     }
 
+    /// Waits while `status` reads `pausing` (an idle pause or a Pause Machine landing), up to `limit`, as
+    /// ``outwaitResume(of:within:read:)`` waits out a resume: a start that found its machine not running resumes it
+    /// once it is paused, never refuses it as pausing (cmux#47638). Returns at once for any other status.
+    public static func outwaitPause(of status: @escaping @MainActor @Sendable () -> CloudMachine.Status, within limit: Duration,
+                                    read: @escaping @MainActor @Sendable () async -> Void) async {
+        guard status() == .pausing else { return }
+        _ = await holds(within: limit, redialing: startRedial, redial: {
+            // task-owner: one record read; the wait observes what it applies and ends at its own deadline
+            Task { @MainActor in await read() }
+        }) { status() != .pausing }
+    }
+
+    /// The settle wait's line in the app log, which the probe reads (`cloud machine settle:`).
+    nonisolated static let settleLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud")
+
+    /// What ``settle(of:within:log:read:)`` ended on, as Rust's `cloud_move_settle` answers it.
+    public enum Settled: Equatable, Sendable {
+        /// The machine runs (or is paused, and the caller's attach resumes it).
+        case proceed
+        /// Rust refused: a delete, the deadline, or `CMUX_CLOUD_SETTLE=0` on a pause or resume in flight.
+        case refused(String)
+    }
+
+    /// Waits out one machine's transient states for a caller that needs it running (a chat's start, a send, an exec,
+    /// a fork), as cmux-cloud-start-core's `settle` decides each look: a pause in flight is waited out and a resume in
+    /// flight too, up to `limit`, never answered as "This machine is pausing" (ask-259986a6c4, Leo 2026-11-25: "whoa
+    /// what happened here"). A paused machine proceeds: the caller's attach resumes it. Logs one
+    /// `cloud machine settle:` line when it waited. Only the host loop; the rule is Rust's.
+    /// `waking` is told Rust's `waking` before each wait and false once the loop ends after one: the start card's
+    /// "Waking machine" line.
+    public static func settle(of status: @escaping @MainActor @Sendable () -> CloudMachine.Status, within limit: Duration,
+                              log: ((String) -> Void)? = nil, waking: (@MainActor (Bool) -> Void)? = nil,
+                              read: @escaping @MainActor @Sendable () async -> Void) async -> Settled {
+        struct Look: Encodable { var status: CloudMachine.Status, waitedMs: UInt64, resumes: UInt32, limitMs: UInt64 }
+        struct Act: Decodable { var act: String, reason: String?, waking: Bool? }
+        let clock = ContinuousClock(), began = clock.now
+        let limitMs = UInt64(max(0, limit.components.seconds)) * 1000 + UInt64(limit.components.attoseconds / 1_000_000_000_000_000)
+        var waited: [String] = []
+        defer {
+            if !waited.isEmpty {
+                waking?(false)
+                let ms = began.duration(to: clock.now).components
+                let line = "cloud machine settle: waited \(waited.joined(separator: ",")) \(ms.seconds * 1000 + ms.attoseconds / 1_000_000_000_000_000) ms, now \(status().rawValue)"
+                if let log { log(line) } else { settleLogger.notice("\(line, privacy: .public)") }
+            }
+        }
+        // wakeup-allow: each pass is one bounded wait on the record (outwaitPause / outwaitResume); Rust ends it at `limit`
+        while !Task.isCancelled {
+            let elapsed = began.duration(to: clock.now)
+            let look = Look(status: status(), waitedMs: UInt64(max(0, elapsed.components.seconds)) * 1000
+                                + UInt64(max(0, elapsed.components.attoseconds) / 1_000_000_000_000_000),
+                            resumes: 0, limitMs: limitMs)
+            // No answer from Rust: the old rule (a pause or resume in flight is the caller's to refuse).
+            guard let act = CloudMoveCore().call("settle", look, as: Act.self) else { return .proceed }
+            let left = max(.zero, limit - elapsed)
+            if act.waking == true { waking?(true) }
+            switch act.act {
+            case "waitPausing":
+                waited.append("pausing")
+                await outwaitPause(of: status, within: left, read: read)
+            case "waitStarting":
+                waited.append("starting")
+                await outwaitResume(of: status, within: left, read: read)
+            case "refuse": return .refused(act.reason ?? "deadline")
+            default: return .proceed // proceed, or resume: the caller's attach resumes a paused machine
+            }
+        }
+        return .proceed
+    }
+
+    /// A start whose machine's exec route refused it as not running (`vm_not_running`, cmux#47638) though its link may be up:
+    /// a click's link connect starts a paused machine and answers before its record runs, and an idle pause can land as the
+    /// link comes up. The record is read again (`read(true)`, whatever the link says), a pause in flight is waited out, a
+    /// paused machine resumes (`resume`: Resume Machine, as an attach does), and a resume in flight is waited out, each up
+    /// to `limit`. The caller then connects the machine's link as before.
+    public static func startStopped(status: @escaping @MainActor @Sendable () -> CloudMachine.Status, within limit: Duration,
+                                    read: @escaping @MainActor @Sendable (_ force: Bool) async -> Void,
+                                    resume: @MainActor () async throws -> Void) async throws {
+        await read(true)
+        await outwaitPause(of: status, within: limit) { await read(false) }
+        if status() == .paused {
+            do { try await resume() } catch where !(error is CancellationError) {
+                // A resume from elsewhere (the link's own connect, another Mac) went first: the record runs or starts now.
+                await read(true)
+                guard status() == .starting || status() == .running else { throw error }
+            }
+        }
+        await outwaitResume(of: status, within: limit) { await read(false) }
+    }
+
     /// Whether `wait` answered true within `limit`; true too when it ran past `limit`, since what it waits on
     /// may still run. False only when `wait` answered false (nothing to wait on).
     public static func ended(within limit: Duration, _ wait: @escaping @Sendable () async -> Bool) async -> Bool {
@@ -181,16 +272,48 @@ extension CloudWait {
     /// does not come back throws as it is.
     /// Whether a start's failure is its link dropping under it, which a relink and one more try can help (``retriedOnce``'s
     /// `closed`): the connection closed (an EOF right after a resume), or the link socket was gone or refused while its
-    /// carrier rebound it (`connect …/cmux-link-….sock failed: No such file or directory`, start matrix run 42125025387).
+    /// carrier rebound it (`connect …/cmux-link-….sock failed: No such file or directory`, start matrix run 42125025387),
+    /// or a fresh connection's first request got no reply (Rust `wait::link_dropped` decides from the timed-out request).
     public nonisolated static func linkDropped(_ error: any Error) -> Bool {
-        struct Failure: Encodable { var kind: String, code: Int32? }
         struct Reply: Decodable { var dropped: Bool }
-        let failure = switch error {
-        case DaemonError.connectionClosed: Failure(kind: "connectionClosed", code: nil)
-        case DaemonError.connectFailed(_, let code): Failure(kind: "connectFailed", code: code)
-        default: Failure(kind: "other", code: nil)
+        return CloudMoveCore().call("link_dropped", StartFailure(error), as: Reply.self)?.dropped ?? false
+    }
+
+    /// Whether a start's failure says the link the app still holds is stale (Rust `wait::link_stale`): a fresh
+    /// connection's first request got no reply. A relink for it drops that link and waits for a new one, since a wait
+    /// for "a link is up" answers at once with the dead one (``retriedOnce(_:closed:relinkAfter:)``).
+    public nonisolated static func linkStale(_ error: any Error) -> Bool {
+        struct Reply: Decodable { var stale: Bool }
+        return CloudMoveCore().call("link_stale", StartFailure(error), as: Reply.self)?.stale ?? false
+    }
+
+    /// A start's relink after its failure (``retriedOnce(_:closed:relinkAfter:)``). A stale link (``linkStale(_:)``: a
+    /// fresh connection's first request got no reply) is still held as connected, so a wait for "a link is up" answered
+    /// at once and the one more try dialed the same dead link (cosmic-gray 2026-11-27, 2 AutoCloud starts: "started but
+    /// its agent didn't (timed out: identify (no progress for 10.0 s))"). That LINK is dropped (DROP, as after an update
+    /// that restarted the daemon) and this waits, up to ``relinkWait``, for the connection that replaces it (or a
+    /// REFUSED link) before UP, the usual wait. Any other failure: UP alone.
+    public static func relinked(after error: any Error, link: @escaping @MainActor @Sendable () -> AnyObject?,
+                                drop: () -> Void, refused: @escaping @MainActor @Sendable () -> Bool,
+                                up: () async -> Bool) async -> Bool {
+        if linkStale(error), let stale = link() {
+            drop()
+            _ = await holds(within: relinkWait) { refused() || link().map { $0 !== stale } ?? false }
         }
-        return CloudMoveCore().call("link_dropped", failure, as: Reply.self)?.dropped ?? false
+        return await up()
+    }
+
+    /// A start's failure as Rust's `wait::StartFailure` reads it.
+    private struct StartFailure: Encodable {
+        var kind: String, code: Int32?, what: String?
+        init(_ error: any Error) {
+            switch error {
+            case DaemonError.connectionClosed: (kind, code, what) = ("connectionClosed", nil, nil)
+            case DaemonError.connectFailed(_, let errno): (kind, code, what) = ("connectFailed", errno, nil)
+            case DaemonError.timedOut(let request): (kind, code, what) = ("timedOut", nil, request)
+            default: (kind, code, what) = ("other", nil, nil)
+            }
+        }
     }
 
     /// A refused start's machine `update`, then its new link: the update restarts the machine's daemon and its carrier
@@ -222,10 +345,17 @@ extension CloudWait {
 
     public static func retriedOnce<T>(_ start: () async throws -> T, closed: (any Error) -> Bool,
                                       relink: () async -> Bool) async throws -> T {
+        try await retriedOnce(start, closed: closed, relinkAfter: { _ in await relink() })
+    }
+
+    /// ``retriedOnce(_:closed:relink:)`` whose relink sees the failure: a stale link (``linkStale(_:)``) needs a new
+    /// link, not the one the app still holds.
+    public static func retriedOnce<T>(_ start: () async throws -> T, closed: (any Error) -> Bool,
+                                      relinkAfter relink: (any Error) async -> Bool) async throws -> T {
         do {
             return try await start()
         } catch where closed(error) && !Task.isCancelled {
-            guard await relink() else { throw error }
+            guard await relink(error) else { throw error }
             return try await start()
         }
     }

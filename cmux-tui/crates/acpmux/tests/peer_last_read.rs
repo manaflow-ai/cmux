@@ -47,7 +47,7 @@ impl Fixture {
         let seen = methods.clone();
         let peer = tokio::spawn(async move {
             let (tcp, _) = listener.accept().await.unwrap();
-            let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+            let mut ws = acpmux::server::accept_ws(tcp).await.unwrap();
             while let Some(Ok(frame)) = ws.next().await {
                 let Ws::Text(text) = frame else { continue };
                 let Ok(Message::Request { id, method: m, params }) = Message::parse(&text) else {
@@ -155,13 +155,13 @@ fn last_of_a_connected_peer_that_stops_answering_is_bounded() {
 fn forwarded_history_reads_have_a_deadline_and_release_pending_replies() {
     run(async {
         futures_util::future::join_all(
-            [method::MUX_INFO, method::MUX_EVENTS, method::MUX_HISTORY].into_iter().map(
+            [method::MUX_INFO, method::MUX_EVENTS, method::MUX_HISTORY, method::MUX_SESSION_SEARCH].into_iter().map(
                 |m| async move {
                     let f = Fixture::new(m).await;
                     let client = acpmux::client::Client::connect(&f.socket).await.unwrap();
                     let error = tokio::time::timeout(
                         Duration::from_secs(35),
-                        client.request(m, json!({"sessionId": "remote/chat", "beforeSeq": 3})),
+                        client.request(m, json!({"sessionId": "remote/chat", "beforeSeq": 3, "query": "recent prompt"})),
                     )
                     .await
                     .expect("forwarded read must not use the 600-second request budget")

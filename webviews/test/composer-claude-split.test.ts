@@ -76,6 +76,8 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
     plus: boolean;
     /** Whether Send draws with an empty draft (the chat's waits for a draft; the New Tab page's always draws). */
     sendAtRest: boolean;
+    /** New Tab's card (2026-11-25): the quiet row is the bar inside the card, under the field. */
+    chipsInCard?: boolean;
   };
   const COMPOSERS: Stage[] = [
     {
@@ -90,13 +92,14 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
     {
       name: "New Tab composer",
       entry: "agent-pane.new-tab",
-      // Cards (composer-mic pins it), the first dot, draws the split; Default keeps its chips in the box.
+      // Minimal, the page cmux ships, draws the split.
       variant: "composer-mic",
       composer: ".nt-composer",
       box: ".nt-box",
       // The New Tab page has no + button (it takes pastes and drops): its box has no +.
       plus: false,
       sendAtRest: true,
+      chipsInCard: true,
     },
   ];
 
@@ -194,14 +197,21 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
 
   for (const [engine] of engines) {
     for (const stage of COMPOSERS)
-      test(`${engine}: ${stage.name}: the box keeps the prompt, mic and Send; the mode and the model button sit in the quiet row under it`, async () => {
+      test(`${engine}: ${stage.name}: the box keeps the prompt, mic and Send; the mode and the model button sit in the quiet row (under the box, or the bar of New Tab's card)`, async () => {
         const page = await open(engine, stage);
         const at = await layout(page, stage);
         await page.close();
-        expect(at.inBox, "no chip in the box").toEqual({ model: false, effort: false, mode: false });
         expect(at.foot, "the quiet row draws").not.toBeNull();
-        expect(at.foot!.top, "the row is under the box").toBeGreaterThanOrEqual(at.box.bottom - 0.5);
-        expect(at.foot!.top - at.box.bottom, "a few px under it").toBeLessThanOrEqual(8);
+        if (stage.chipsInCard) {
+          // New Tab's card: the mode and the model are the bar inside the card, under the field.
+          expect(at.inBox, "the chips are in the card").toMatchObject({ model: true, mode: true });
+          expect(at.foot!.top, "the bar is inside the card").toBeGreaterThanOrEqual(at.box.top - 0.5);
+          expect(at.foot!.bottom, "the bar is inside the card").toBeLessThanOrEqual(at.box.bottom + 0.5);
+        } else {
+          expect(at.inBox, "no chip in the box").toEqual({ model: false, effort: false, mode: false });
+          expect(at.foot!.top, "the row is under the box").toBeGreaterThanOrEqual(at.box.bottom - 0.5);
+          expect(at.foot!.top - at.box.bottom, "a few px under it").toBeLessThanOrEqual(8);
+        }
         expect(at.mic, "the mic is in the box").not.toBeNull();
         if (stage.sendAtRest) expect(at.send, "Send is in the box").not.toBeNull();
         else expect(at.send, "no Send with an empty draft").toBeNull();

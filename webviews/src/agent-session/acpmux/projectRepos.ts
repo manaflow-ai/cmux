@@ -79,8 +79,7 @@ const GUESSED = "\u0000repo:";
 /// A folder the pickers offer: its path (`id`), name and, when known, its repository.
 export type RepoFolder = { id: string; label: string; repo?: ProjectRepo };
 
-/// One repository's folders, in the order given (newest first). `lead` is what its row picks: the
-/// current folder when it is one of them, else the main checkout, else the newest.
+/// One repository's folders, in the order given (newest first). `lead` is what its row picks.
 export type RepoGroup<T extends RepoFolder> = {
   key: string;
   name: string;
@@ -122,7 +121,11 @@ const repoKey = (repo: ProjectRepo) => (repo.github ? "\u0000github:" + repo.git
 /// of that name when there is one), else a guessed one whose name is its own as the main checkout
 /// (`~/Projects/cmux`), else it is a row of its own. A lane's scratch folder in no repository, and
 /// the home folder, are left out unless current. The members carry their repository as resolved.
-export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current?: string): RepoGroup<T>[] {
+export function groupByRepo<T extends RepoFolder>(
+  folders: readonly T[],
+  current?: string,
+  leadPreference: "current" | "main" = "current",
+): RepoGroup<T>[] {
   const known = folders.flatMap((folder) => (folder.repo ? [folder.repo] : []));
   // Each name's repository, or null when two repositories share it: a guess can't tell which.
   const byName = new Map<string, ProjectRepo | null>();
@@ -187,10 +190,14 @@ export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current
   }
   return [...groups].map(([key, members]) => {
     const repo = members.map((member) => member.repo).find(Boolean);
+    const selected = members.find((member) => member.id === current);
+    const selectedRoot = selected?.repo?.root;
     const lead =
-      members.find((member) => member.id === current) ??
-      members.find((member) => member.repo && isMainCheckout(member)) ??
+      (leadPreference === "current" ? selected : undefined) ??
+      (selectedRoot ? members.find((member) => member.id === selectedRoot && isMainCheckout(member)) : undefined) ??
+      members.find(isMainCheckout) ??
       members.find((member) => !member.repo) ??
+      selected ??
       members[0]!;
     return {
       key,
@@ -225,11 +232,70 @@ export function projectRows<T extends { cwd: string; label: string; repo?: Proje
 /// folders only when the words name them, not just their repository (shownRepoRows): "cmux" lists
 /// cmux once, "next-reds" its lane, so a hidden folder is one search away. Another machine's
 /// folders are never folded (this Mac reads none of their repositories) and come last, as given.
-export function chooserRows<T extends { cwd: string; label: string; repo?: ProjectRepo; peer?: string; host?: string }>(
-  projects: readonly T[],
-  query: string,
-  current?: string,
-): T[] {
+export function chooserRows<T extends ChooserProject>(projects: readonly T[], query: string, current?: string): T[] {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const { local, remote, groups, ungrouped } = chooserBase(projects, current);
+  if (words.length === 0) return [...groups.map((group) => group.lead.project), ...remote];
+  const has = (project: T) => {
+    const text = chooserText(project);
+    return words.every((word) => text.includes(word));
+  };
+  const rows: T[] = [];
+  for (const { group, worktrees } of shownRepoRows(groups, query, NO_KEYS)) {
+    if (has(group.lead.project)) rows.push(group.lead.project);
+    for (const worktree of worktrees) rows.push(worktree.project);
+  }
+  // A folder no repository's row stands for (the home folder, a scratch folder): by its own words.
+  for (const project of local) if (ungrouped.has(project) && has(project)) rows.push(project);
+  for (const project of remote) if (has(project)) rows.push(project);
+  return rows;
+}
+
+type ChooserProject = { cwd: string; label: string; repo?: ProjectRepo; peer?: string; host?: string };
+type ChooserFolder<T> = { id: string; label: string; repo?: ProjectRepo; project: T };
+type ChooserBase<T> = { local: T[]; remote: T[]; groups: RepoGroup<ChooserFolder<T>>[]; ungrouped: Set<T> };
+const NO_KEYS: ReadonlySet<string> = new Set();
+
+/// What a search of the chooser does not depend on, kept per projects list (its last `current`): the split by machine
+/// and the grouping by repository. Each typed letter regrouped every folder: at 1,100 projects 1.0 ms of the 1.2-1.8 ms
+/// a letter cost, at 11,000 12 of 14-27 ms (test/project-chooser-search.test.ts). Keyed on the list, so a list
+/// nothing holds any more is collected with its entry.
+const chooserBases = new WeakMap<readonly object[], { current: string | undefined; base: ChooserBase<object> }>();
+function chooserBase<T extends ChooserProject>(projects: readonly T[], current: string | undefined): ChooserBase<T> {
+  const kept = chooserBases.get(projects);
+  if (kept && kept.current === current) return kept.base as ChooserBase<T>;
+  const local = projects.filter((project) => !project.peer);
+  const remote = projects.filter((project) => project.peer);
+  const folders = local.map((project) => ({
+    id: project.cwd,
+    label: project.label,
+    ...(project.repo ? { repo: project.repo } : {}),
+    project,
+  }));
+  const groups = groupByRepo(folders, current);
+  const grouped = new Set(groups.flatMap((group) => group.members.map((member) => member.project)));
+  const ungrouped = new Set(local.filter((project) => !grouped.has(project)));
+  const base: ChooserBase<T> = { local, remote, groups, ungrouped };
+  chooserBases.set(projects, { current, base: base as ChooserBase<object> });
+  return base;
+}
+
+/// A project's words for the chooser's search, lowercased once per project object, not once per letter typed.
+const chooserTexts = new WeakMap<object, string>();
+function chooserText(project: ChooserProject): string {
+  let text = chooserTexts.get(project);
+  if (text === undefined) {
+    text = `${project.label} ${project.cwd} ${project.host ?? ""}`.toLowerCase();
+    chooserTexts.set(project, text);
+  }
+  return text;
+}
+
+/// The chooser's rows as it read them before chooserBase and chooserText kept anything: every folder regrouped and
+/// lowercased again per call. The oracle of test/project-chooser-search.test.ts.
+export function chooserRowsScan<
+  T extends { cwd: string; label: string; repo?: ProjectRepo; peer?: string; host?: string },
+>(projects: readonly T[], query: string, current?: string): T[] {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const has = (project: T) => {
     const text = `${project.label} ${project.cwd} ${project.host ?? ""}`.toLowerCase();
@@ -246,7 +312,7 @@ export function chooserRows<T extends { cwd: string; label: string; repo?: Proje
   const groups = groupByRepo(folders, current);
   if (words.length === 0) return [...groups.map((group) => group.lead.project), ...remote];
   const rows: T[] = [];
-  for (const { group, worktrees } of shownRepoRows(groups, query, new Set())) {
+  for (const { group, worktrees } of shownRepoRowsScan(groups, query, new Set())) {
     if (has(group.lead.project)) rows.push(group.lead.project);
     rows.push(...worktrees.map((worktree) => worktree.project));
   }
@@ -259,9 +325,14 @@ export function chooserRows<T extends { cwd: string; label: string; repo?: Proje
 /// The projects in the order they were last used: those a chat used, newest chat first, then the
 /// rest in the order given.
 export function byRecentUse<T extends { cwd: string }>(projects: readonly T[], recent: readonly string[]): T[] {
-  const rank = new Map(recent.map((cwd, index) => [trim(cwd), index]));
-  const order = (project: T) => rank.get(trim(project.cwd)) ?? recent.length;
-  return [...projects].sort((a, b) => order(a) - order(b));
+  const rank = new Map<string, number>();
+  recent.forEach((cwd, index) => rank.set(trim(cwd), index));
+  // Each project's rank read once, not in every comparison: thousands of folders at Leo's scale,
+  // sorted again whenever another folder's chat becomes the newest (bench/session-scale-typing.bench.ts).
+  return projects
+    .map((project, index) => ({ project, index, order: rank.get(trim(project.cwd)) ?? recent.length }))
+    .sort((a, b) => a.order - b.order || a.index - b.index)
+    .map((ranked) => ranked.project);
 }
 
 /// What a worktree row is called: its branch, else its folder's name. A folder inside a checkout
@@ -295,6 +366,56 @@ export function isMainCheckout(folder: RepoFolder): boolean {
 /// lists cmux once, not each of its fifty worktrees). With no words, the `expanded` groups list
 /// all their worktrees.
 export function shownRepoRows<T extends RepoFolder>(
+  groups: readonly RepoGroup<T>[],
+  query: string,
+  expanded: ReadonlySet<string>,
+): { group: RepoGroup<T>; worktrees: T[] }[] {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0)
+    return groups.map((group) => ({
+      group,
+      worktrees: expanded.has(group.key) ? group.members.filter((member) => member !== group.lead) : [],
+    }));
+  const rows: { group: RepoGroup<T>; worktrees: T[] }[] = [];
+  for (const group of groups) {
+    const { shared, own, worktree } = groupTexts(group);
+    const members = group.members;
+    // Which words the repository's name covers is the same for every member: read once per group.
+    const unshared = words.filter((word) => !shared.includes(word));
+    const matches = (index: number) => unshared.every((word) => own[index]!.includes(word));
+    // Named by its own text: a word the repository's name alone does not cover.
+    const named = (index: number) => unshared.some((word) => worktree(index).includes(word));
+    let any = false;
+    for (let index = 0; index < members.length && !any; index++) any = matches(index);
+    if (!any) continue;
+    const worktrees: T[] = [];
+    for (let index = 0; index < members.length; index++)
+      if (members[index] !== group.lead && matches(index) && named(index)) worktrees.push(members[index]!);
+    rows.push({ group, worktrees });
+  }
+  return rows;
+}
+
+/// A group's lowercased search words, kept per group object: the repository's (`shared`), each member's own by its
+/// index (`own`), and each member's worktree words, read only for a member that matches. Each typed letter
+/// lowercased every member's label, name and path again, twice for a match.
+type GroupTexts = { shared: string; own: string[]; worktree: (index: number) => string };
+const groupTextsKept = new WeakMap<RepoGroup<RepoFolder>, GroupTexts>();
+function groupTexts(group: RepoGroup<RepoFolder>): GroupTexts {
+  const kept = groupTextsKept.get(group);
+  if (kept && kept.own.length === group.members.length) return kept;
+  const shared = `${group.name} ${group.github ?? ""}`.toLowerCase();
+  const own = group.members.map((member) => `${member.label} ${worktreeName(member)} ${member.id}`.toLowerCase());
+  const worktrees: (string | undefined)[] = [];
+  const worktree = (index: number) => (worktrees[index] ??= worktreeText(group.members[index]!, group));
+  const texts = { shared, own, worktree };
+  groupTextsKept.set(group, texts);
+  return texts;
+}
+
+/// The search rows as they were read before groupTexts kept anything. The oracle of
+/// test/project-chooser-search.test.ts.
+export function shownRepoRowsScan<T extends RepoFolder>(
   groups: readonly RepoGroup<T>[],
   query: string,
   expanded: ReadonlySet<string>,

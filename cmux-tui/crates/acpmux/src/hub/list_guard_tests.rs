@@ -202,7 +202,7 @@ async fn closed_summary_cache_matches_uncached_after_every_mutation() {
     hub.update_live_session_index(&child);
     hub.subsessions.note_status(&parent.id, &child.id, SessionStatus::Ready);
 
-    hub.set_status(&parent, SessionStatus::Closed);
+    hub.set_status(&parent, NotWaiting::Closed);
     cached_rows_equal_uncached(&hub); // close and the parent's folded child preview
 
     // A list build followed by the full form keeps both serialized rows coherent.
@@ -274,12 +274,12 @@ async fn closed_summary_cache_matches_uncached_after_every_mutation() {
     });
     cached_rows_equal_uncached(&hub); // concurrent metadata writers
 
-    hub.set_status(&child, SessionStatus::Closed); // child count/fold changes
+    hub.set_status(&child, NotWaiting::Closed); // child count/fold changes
     cached_rows_equal_uncached(&hub);
 
     assert!(hub.reopen(&parent, parent.stops.load(Ordering::SeqCst))); // reopen
     cached_rows_equal_uncached(&hub);
-    hub.set_status(&parent, SessionStatus::Closed);
+    hub.set_status(&parent, NotWaiting::Closed);
     cached_rows_equal_uncached(&hub);
 
     // A purge removes the serialized row even when a late metadata writer runs afterward.
@@ -335,8 +335,8 @@ async fn a_live_chats_stream_keeps_closed_rows_cached() {
         "closed rows rebuilt while one live chat streamed: {rebuilt} for {CHUNKS} lists of \
          {CLOSED} closed rows"
     );
-    // The live row is told before the next list read: it was stamped, not built anew.
-    assert!(hub.events.untold.lock().unwrap().contains("live"));
+    // The live row is told at a later list read: it was stamped, not built anew.
+    assert!(hub.events.stream_untold("live"));
     cached_rows_equal_uncached(&hub);
 
     // Another record of the live chat changes its own row only: no closed row is rebuilt.
@@ -467,7 +467,7 @@ async fn a_one_chat_change_rebuilds_only_its_own_closed_row() {
     let child = hub.insert_test_session(child);
     hub.subsessions.note_status(&parent.id, &child.id, SessionStatus::Ready);
     cached_rows_equal_uncached(&hub);
-    hub.set_status(&child, SessionStatus::Closed);
+    hub.set_status(&child, NotWaiting::Closed);
     cached_rows_equal_uncached(&hub);
 
     // Archiving a parent folds its children no more: their rows change with its tags.
@@ -555,4 +555,69 @@ async fn a_change_no_record_carries_is_told_before_the_next_list_read() {
     let head = hub.list_cursor().0;
     drop(lease);
     check(&hub, head, "its end");
+}
+
+/// A live row's kept bytes are reused only while every input it reads is unchanged, and never
+/// stale: a write straight to its metadata with no save, a record, an attach, a status change
+/// and the clock each give the row an uncached build gives (`live_rows.rs`).
+#[tokio::test]
+async fn live_row_cache_matches_uncached_and_renders_only_changed_rows() {
+    const LIVE: u64 = 20;
+    let cfg: crate::config::Config =
+        serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
+    let hub = Hub::new(
+        cfg.clone(),
+        crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap(),
+    );
+    for n in 0..LIVE {
+        hub.insert_test_session(
+            serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA, "id": format!("live-{n}"),
+                "name": format!("live-{n}"), "harness": "claude", "family": "claude",
+                "cwd": "/w", "status": "idle", "createdAt": 1, "updatedAt": 1,
+            }))
+            .unwrap(),
+        );
+    }
+    let renders = || hub.live_row_renders.load(Ordering::SeqCst);
+    cached_rows_equal_uncached(&hub);
+    let before = renders();
+    cached_rows_equal_uncached(&hub);
+    assert_eq!(renders(), before, "an unchanged list rendered a live row again");
+
+    let one = hub.sessions().into_iter().find(|s| s.id == "live-7").unwrap();
+    // No save and no stamp: the gathered inputs still differ.
+    one.meta.lock().unwrap().title = Some("written with no save".into());
+    let before = renders();
+    cached_rows_equal_uncached(&hub);
+    assert!(renders() - before <= 3, "one chat's change rendered other live rows");
+    assert_eq!(
+        list_of(&hub, false, false).iter().filter(|r| r["sessionId"] == "live-7").count(),
+        1
+    );
+
+    hub.append(&one, "mux", "message", json!({"text": "a record"}));
+    cached_rows_equal_uncached(&hub);
+    hub.attach_count(&one, 1, true);
+    cached_rows_equal_uncached(&hub);
+    hub.attach_count(&one, -1, true);
+    cached_rows_equal_uncached(&hub);
+    one.meta.lock().unwrap().usage = Some(json!({"inputTokens": 12, "size": 4096}));
+    cached_rows_equal_uncached(&hub);
+    crate::store::test_clock::advance(60 * 60 * 1_000);
+    cached_rows_equal_uncached(&hub);
+    crate::store::test_clock::reset();
+
+    // Closing it moves its row to the closed cache and drops its live one.
+    hub.set_status(&one, NotWaiting::Closed);
+    cached_rows_equal_uncached(&hub);
+    assert!(!hub.live_row_cache.lock().unwrap().contains_key(&one.id));
+    assert!(hub.reopen(&one, one.stops.load(Ordering::SeqCst)));
+    cached_rows_equal_uncached(&hub);
+    assert!(hub.live_row_cache.lock().unwrap().contains_key(&one.id));
+
+    // A purge drops its live row.
+    one.purged.store(true, Ordering::SeqCst);
+    hub.remove_cached_closed_summary(&one.id);
+    assert!(!hub.live_row_cache.lock().unwrap().contains_key(&one.id));
 }

@@ -15,6 +15,7 @@ import io
 import json
 import sys
 import unittest
+import unittest.mock
 import zipfile
 from pathlib import Path
 
@@ -23,6 +24,8 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import cmux_next_tree_notify as notify  # noqa: E402
 import cmux_tui_tree_takeover as takeover  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import inline_steps  # noqa: E402
 
 KEY = "c9b813e86eddf897113a8117ab43337ff79baca8"
 TIP = "c126e737f3a3b96525ad8ea71a71bfa41e118ad1"  # the waiting feat-cmux-next commit
@@ -58,6 +61,7 @@ class Repo:
             for index, marker in enumerate(markers)]
         self.zips = {f"zip/{100 + index}": marker_zip(marker) for index, marker in enumerate(markers)}
         self.tip_runs = tip_runs
+        self.other_runs: list[dict] = []  # artifacts runs of other waiting commits
         self.next_dispatches: list[dict] = []  # cmux-next.yml same-tree dispatches
         self.reruns: list[int] = []  # artifacts runs re-run
         self.deleted: list[int] = []
@@ -69,6 +73,9 @@ class Repo:
             return {"total_count": len(live), "artifacts": live}
         if path.startswith(f"repos/{REPO}/actions/workflows/cmux-next.yml/runs?event=workflow_dispatch"):
             return {"workflow_runs": []}
+        if path.startswith(f"repos/{REPO}/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&status="):
+            status = path.split("status=", 1)[1].split("&", 1)[0]
+            return {"workflow_runs": [run for run in self.tip_runs + self.other_runs if run["status"] == status]}
         if path.startswith(f"repos/{REPO}/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha="):
             sha = path.split("head_sha=", 1)[1].split("&", 1)[0]
             return {"workflow_runs": self.tip_runs if sha == TIP else []}
@@ -112,7 +119,7 @@ def notify_run(repo: Repo, state: str, exclude_run: int = 0) -> int:
 
 def tip_run(attempt: int = 1, status: str = "completed") -> dict:
     # The tip's own push run: GitHub created none of its jobs (completed, failure, 0 jobs).
-    return {"id": 42672456466, "event": "push", "head_branch": "feat-cmux-next", "status": status,
+    return {"id": 42672456466, "event": "push", "head_branch": "feat-cmux-next", "head_sha": TIP, "status": status,
             "conclusion": "failure", "run_attempt": attempt, "html_url": "https://x/runs/42672456466"}
 
 
@@ -138,6 +145,25 @@ class OwnerEndedWithoutPublishing(unittest.TestCase):
         self.assertEqual(repo.reruns, [])
         self.assertEqual(repo.next_dispatches, [])
 
+    def test_an_earlier_takeover_still_building_is_not_duplicated(self):
+        """2026-11-28 05:56-06:07Z: owners of one key failed one after another, and each notify re-ran the newest
+        waiter whose own run was idle while an older waiter's takeover re-run was still building: 633f285a,
+        d33b51f3 and 70306e4e each rebuilt the same tree in full (134-143 min). An active run of any waiter is
+        the publisher; the newer idle waiter is not re-run."""
+        older = "a" * 40
+        repo = Repo([tip_marker("daemon", 1), dict(tip_marker("daemon", 2), sha=older, status_sha=older)],
+                    [tip_run()])
+        repo.other_runs = [dict(tip_run(attempt=2, status="in_progress"), id=7, head_sha=older)]
+        self.assertEqual(notify_run(repo, "failed"), 0)
+        self.assertEqual(repo.reruns, [], "the takeover already building the key publishes it")
+        self.assertEqual(repo.next_dispatches, [])
+
+    def test_an_active_run_of_a_commit_that_is_not_waiting_is_no_publisher(self):
+        repo = Repo([tip_marker("daemon", 1)], [tip_run()])
+        repo.other_runs = [dict(tip_run(status="in_progress"), id=7, head_sha="b" * 40)]
+        self.assertEqual(notify_run(repo, "failed"), 0)
+        self.assertEqual(repo.reruns, [42672456466])
+
     def test_the_reporting_run_is_no_publisher(self):
         """notify runs inside the failed artifacts run, which is still in progress while it reports. When that run
         is the waiter's own, it is neither a live publisher nor a run to re-run: the waiter is told, as before."""
@@ -153,6 +179,32 @@ class OwnerEndedWithoutPublishing(unittest.TestCase):
                                    log=lambda _line: None, fetch_completion=lambda _key: None,
                                    exclude_run=1, quota_only=lambda: True)
         self.assertEqual((dispatched, repo.reruns), (1, []))
+
+    def test_a_compile_error_is_not_taken_over(self):
+        """Like the hand-off and the tree request (#54942): the waiter's re-run builds the same tree key from the same
+        source and fails on the same compile error (2026-11-25: run 45522424589, cmux-wg E0308, about 75 runner-min
+        a re-run). The waiter is told red instead."""
+        repo = Repo([tip_marker("daemon", 1)], [tip_run()])
+        dispatched = notify.notify(repo, repo=REPO, key=KEY, state="failed", reason="error[E0308]",
+                                   log=lambda _line: None, fetch_completion=lambda _key: None,
+                                   exclude_run=1, compile_error=lambda: True)
+        self.assertEqual((dispatched, repo.reruns), (1, []))
+        self.assertEqual(repo.next_dispatches[0]["inputs"]["same_tree_state"], "failed")
+
+    def test_the_same_tree_takeover_skips_an_owner_that_failed_to_compile(self):
+        """cmux-next.yml's same-tree job runs the takeover with --reason naming the owner run: an owner that failed
+        on a compile error is not taken over, and nothing is re-run."""
+        import cmux_tui_tree_request_rerun as request
+        asked: list[str] = []
+        original = request.failed_on_compile_error
+        request.failed_on_compile_error = lambda repo, run_id: asked.append(run_id) or True  # type: ignore
+        try:
+            with unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+                code = takeover.main(["--repo", REPO, "--commit", TIP, "--key", KEY,
+                                      "--reason", "https://x/actions/runs/42673437035 ended without publishing"])
+        finally:
+            request.failed_on_compile_error = original
+        self.assertEqual((code, asked), (1, ["42673437035"]))
 
     def test_a_fork_runs_marker_starts_no_takeover(self):
         """Review of #39634 (notifier-merge-1): a fork pull request's run executes the fork's workflow file, so
@@ -193,7 +245,9 @@ class OwnerEndedWithoutPublishing(unittest.TestCase):
 
         commits = [f"{index:040x}" for index in range(10)]
         self.assertFalse(takeover.take_over_any(Api(), repo=REPO, commits=commits, log=lambda _l: None))
-        self.assertEqual(len(reads), takeover.MAX_COMMITS)
+        self.assertEqual(len([read for read in reads if "head_sha=" in read]), takeover.MAX_COMMITS)
+        self.assertEqual(len([read for read in reads if "&status=" in read]), len(takeover.ACTIVE_STATUSES),
+                         "the active-waiter read is two list reads, not one per commit")
 
     def test_a_tree_that_failed_every_takeover_is_red_again(self):
         """A key that cannot build is still seen: past the re-run cap the waiters go red."""
@@ -218,7 +272,7 @@ class OwnerEndedWithoutPublishing(unittest.TestCase):
 
     def test_the_same_tree_job_takes_over_before_it_reports_red(self):
         """cmux-next.yml's same-tree job runs the takeover first; red only when it is not taken."""
-        workflow = (ROOT / ".github" / "workflows" / "cmux-next.yml").read_text(encoding="utf-8")
+        workflow = inline_steps((ROOT / ".github" / "workflows" / "cmux-next.yml").read_text(encoding="utf-8"))
         job = workflow.split("\n  same-tree-cmux-tui:\n", 1)[1].split("\n  swift-canary-fleet:\n", 1)[0]
         self.assertIn("actions: write", job)
         red = job.split("name: Report the unavailable same-tree cmux-tui", 1)[1]

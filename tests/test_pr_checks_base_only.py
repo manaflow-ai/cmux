@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
-"""pr-checks.yml skips its advisory jobs only on a push that just merged the base.
+"""pr-checks.yml skips its advisory steps only on a push that just merged the base.
 
 A base-only update started about 6.5 advisory runs per head on 2026-10-26; the
-folded workflow starts one run whose first job answers whether the push only
-merged feat-cmux-next. It says yes only when the new head's parents are the
-previous head and a commit on the base, the new head's tree is the clean merge
-of the two, the pull request's diff is unchanged, the fetched history is whole
-above the merge base, and the previous head's own push run finished green.
-Anything else answers no, so every check runs: another event, a plain commit,
-a merge that also edits or moves an edit, a merge of a branch that is not the
-base, a head the branch has moved past, a cut history, or a previous run that
-was cancelled, held or never ran.
+folded workflow's one job (CI v2 step 6: the checks are steps of ci/steps.toml)
+first answers whether the push only merged feat-cmux-next. It says yes only when
+the new head's parents are the previous head and a commit on the base, the new
+head's tree is the clean merge of the two, the pull request's diff is unchanged,
+the fetched history is whole above the merge base, and the previous head's own
+push run finished green. Anything else answers no, so every check runs: another
+event, a plain commit, a merge that also edits or moves an edit, a merge of a
+branch that is not the base, a head the branch has moved past, a cut history, or
+a previous run that was cancelled, held or never ran.
 
-None of the skipped jobs can fail a pull request, so a skipped one hides no
-verdict; pr-capture-check, which can, is not in this workflow (pr-body-checks.yml).
+None of the skipped steps can fail a pull request, so a skipped one hides no
+verdict. The description lints (capture among them, advisory here) run on every push, a base-only one too.
 
-The step runs here as the workflow runs it, against a local origin, with `gh`
-replaced by a stub that answers the previous head's run.
+The decide step runs here as the workflow runs it, against a local origin, with
+`gh` replaced by a stub that answers the previous head's run. The "Pick the steps"
+step runs on every combination of the old jobs' conditions (base-only, draft,
+CI_QUOTA_HOLD, fork, description edits).
 """
 from __future__ import annotations
 
 import json
+import sys
 import os
 from pathlib import Path
 import subprocess
@@ -36,22 +39,28 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # noqa: E402
+from real_git import real_git, run_bounded  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/pr-checks.yml"
 WORKFLOW = yaml.safe_load(WORKFLOW_PATH.read_text())
 JOBS = WORKFLOW["jobs"]
-STEP = next(s for s in JOBS["base-only"]["steps"] if s.get("id") == "decide")
+JOB = JOBS["advisory"]
+STEP = next(s for s in JOB["steps"] if s.get("id") == "decide")
+PICK = next(s for s in JOB["steps"] if s.get("id") == "pick")
 # PR size answers on every push: a base-only skip would keep an older answer.
-SKIPPED_ON_BASE_ONLY = ("link", "swift-logic", "split", "ui-review")
-ALWAYS = ("size",)
-ANSWER = "needs.base-only.outputs.base_only != 'true'"
+SKIPPED_ON_BASE_ONLY = ("review-link", "swift-logic", "split-plan", "ui-review")
+ALWAYS = ("pr-size",)
+EVERY = ("review-link", "swift-logic", "pr-size", "ui-review", "split-plan")
+# The description lints (CI v2 step 6, second cut: pr-body-checks.yml's push runs): every push, whatever else holds.
+BODY = ("capture", "design-spec", "perf-section", "cloud-backend")
 LINES = "".join(f"let a{i} = {i}\n" for i in range(60))
 SAME = "x\n" * 30  # identical lines: one replacement reads the same wherever it is
 
 
 def git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+    return run_bounded(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True, timeout=60).stdout.strip()
 
 
 def write(repo: Path, path: str, text: str) -> None:
@@ -146,8 +155,10 @@ class BaseOnlyStepTests(unittest.TestCase):
                "GITHUB_STEP_SUMMARY": str(self.temp / "summary.md"), "ACTION": action, "REPOSITORY": "o/r",
                "BEFORE": self.before if before is None else before, "AFTER": after,
                "BASE_REF": "feat-cmux-next", "PR": "7", "REMOTE": remote or f"file://{self.src}", **extra}
-        subprocess.run(["rm", "-rf", str(self.temp / "base-only")], check=True)
-        result = subprocess.run(["bash", "-c", STEP["run"]], cwd=self.temp, env=env, capture_output=True, text=True)
+        subprocess.run(["rm", "-rf", str(self.temp / "base-only")], check=True, timeout=60)
+        # Its own process group with a deadline: a step that hangs or spins fails the test and leaves nothing behind.
+        result = run_bounded(["bash", "-c", STEP["run"]], cwd=self.temp, env=env, capture_output=True, text=True,
+                             timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         outputs = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
         return outputs.get("base_only", ""), result.stdout
@@ -203,7 +214,9 @@ class BaseOnlyStepTests(unittest.TestCase):
     def test_a_failed_history_listing_runs_everything(self):
         after = self.merge_base()
         # A git whose `rev-list ... --not` fails (a SIGPIPE, say): the shallow check is not skipped.
-        real = subprocess.run(["bash", "-c", "command -v git"], capture_output=True, text=True).stdout.strip()
+        # The git binary, never the first git on PATH: a wrapper there (a host's git guard) would exec this fake
+        # again, and the two spun forever in one process (cosmic-gray, 2026-11-10; tests/real_git.py).
+        real = real_git()
         (self.bin / "git").write_text('#!/usr/bin/env bash\nfor a; do [ "$a" = --not ] && exit 141; done\n'
                                       f'exec {real} "$@"\n')
         (self.bin / "git").chmod(0o755)
@@ -256,8 +269,8 @@ class BaseOnlyStepTests(unittest.TestCase):
         write(self.src, "docs/side.md", "side\n")
         git(self.src, "add", "-A")
         old = "2000-01-01T00:00:00Z"
-        subprocess.run(["git", "-C", str(self.src), "commit", "-qm", "side"], check=True,
-                       env={**os.environ, "GIT_AUTHOR_DATE": old, "GIT_COMMITTER_DATE": old})
+        run_bounded(["git", "-C", str(self.src), "commit", "-qm", "side"], check=True, timeout=60,
+                    env={**os.environ, "GIT_AUTHOR_DATE": old, "GIT_COMMITTER_DATE": old})
         git(self.src, "checkout", "-q", "feat-cmux-next")
         git(self.src, "merge", "-q", "--no-ff", "-m", "Merge side", "side")
         git(self.src, "checkout", "-q", "pr")
@@ -270,32 +283,84 @@ class BaseOnlyStepTests(unittest.TestCase):
         self.assertEqual(self.gh_calls(), [])
 
 
+def pick(action: str = "synchronize", *, draft: bool = False, hold: str = "", fork: bool = False,
+         base_only: str = "", size_edit: bool = False, ui_edit: bool = False) -> list[str]:
+    """The "Pick the steps" step's answer, run as the workflow runs it."""
+    with tempfile.TemporaryDirectory() as tmp:
+        output = Path(tmp, "output")
+        env = {**os.environ, "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(Path(tmp, "summary")),
+               "ACTION": action, "DRAFT": str(draft).lower(), "HOLD": hold, "FORK": str(fork).lower(),
+               "BASE_ONLY": base_only, "SIZE_EDIT": str(size_edit).lower(), "UI_EDIT": str(ui_edit).lower()}
+        result = subprocess.run(["bash", "-c", PICK["run"]], env=env, capture_output=True, text=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+        lines = [line for line in output.read_text().splitlines() if line.startswith("steps=")]
+        assert len(lines) == 1, lines
+        return lines[0].removeprefix("steps=").split()
+
+
+class PickTests(unittest.TestCase):
+    """Each old job's `if:`, now one step's choice of steps."""
+
+    def test_a_push_runs_every_step(self):
+        for action in ("opened", "synchronize", "reopened", "ready_for_review"):
+            with self.subTest(action=action):
+                self.assertEqual(sorted(pick(action)), sorted(EVERY + BODY))
+                self.assertEqual(sorted(pick(action, base_only="false")), sorted(EVERY + BODY))
+
+    def test_a_base_only_update_runs_only_the_size_check(self):
+        self.assertEqual(pick(base_only="true"), list(ALWAYS + BODY))
+        self.assertEqual(pick(base_only="true", draft=True), list(BODY), "PR size skips drafts")
+        self.assertEqual(pick(base_only="true", hold="1"), list(BODY), "PR size is held")
+
+    def test_a_draft_runs_only_split_plan(self):
+        # A draft gets its lines and its size and UI answers when it is marked ready.
+        for action in ("opened", "synchronize", "reopened"):
+            self.assertEqual(pick(action, draft=True), ["split-plan", *BODY])
+        self.assertEqual(pick("edited", draft=True, size_edit=True, ui_edit=True), [])
+
+    def test_the_quota_hold_keeps_only_split_plan(self):
+        # CI_QUOTA_HOLD=1 keeps the GITHUB_TOKEN budget for the nightly; split-plan reads only git.
+        self.assertEqual(pick(hold="1"), ["split-plan", *BODY])
+        self.assertEqual(pick("edited", hold="1", size_edit=True, ui_edit=True), [])
+        self.assertEqual(sorted(pick(hold="0")), sorted(EVERY + BODY), "only the value 1 holds")
+
+    def test_a_fork_gets_no_status_lines(self):
+        self.assertEqual(sorted(pick(fork=True)), sorted(["pr-size", "split-plan", "ui-review", *BODY]))
+
+    def test_an_edit_runs_only_what_it_moved(self):
+        self.assertEqual(pick("edited"), [])
+        self.assertEqual(pick("edited", size_edit=True), ["pr-size"])
+        self.assertEqual(pick("edited", ui_edit=True), ["ui-review"])
+        self.assertEqual(pick("edited", size_edit=True, ui_edit=True), ["pr-size", "ui-review"])
+
+    def test_another_event_runs_nothing(self):
+        self.assertEqual(pick("labeled"), [])
+
+    def test_the_pick_reads_the_event_and_the_answer(self):
+        env = PICK["env"]
+        self.assertEqual(env["BASE_ONLY"], "${{ steps.decide.outputs.base_only }}")
+        self.assertEqual(env["HOLD"], "${{ vars.CI_QUOTA_HOLD }}")
+        self.assertEqual(env["DRAFT"], "${{ github.event.pull_request.draft }}")
+        self.assertEqual(env["FORK"], "${{ github.event.pull_request.head.repo.full_name != github.repository }}")
+        self.assertIn("contains(github.event.changes.body.from, 'Size:')", env["SIZE_EDIT"])
+        self.assertIn("contains(github.event.changes.body.from, 'Verdict:')", env["UI_EDIT"])
+        self.assertIn("contains(github.event.pull_request.body, 'UI review')", env["UI_EDIT"])
+
+
 class WorkflowShapeTests(unittest.TestCase):
     def test_the_answer_never_fails_the_run(self):
         self.assertTrue(STEP.get("continue-on-error"))
-        self.assertEqual(JOBS["base-only"]["permissions"], {"contents": "read"})
-        self.assertEqual(JOBS["base-only"]["if"], "github.event.action == 'synchronize'")
+        self.assertEqual(JOB["permissions"], {"contents": "read", "pull-requests": "write"})
+        self.assertEqual(STEP["if"], "github.event.action == 'synchronize'")
+        for step in JOB["steps"]:
+            if step.get("id") != "pick":
+                self.assertTrue(step.get("continue-on-error"), step.get("name"))
 
-    def test_only_advisory_jobs_and_every_one_waits_on_it(self):
-        self.assertEqual(set(JOBS), {"portable-placement", "base-only", *SKIPPED_ON_BASE_ONLY, *ALWAYS})
-        for job_id in SKIPPED_ON_BASE_ONLY:
-            with self.subTest(job=job_id):
-                job = JOBS[job_id]
-                placed = job_id in {"ui-review", "split"}
-                self.assertEqual(job["needs"], ["base-only", "portable-placement"] if placed else "base-only")
-                # A skipped or failed answer runs the job: no implicit success().
-                prefix = "${{ always() && !cancelled() && " if placed else "${{ !cancelled() && "
-                self.assertTrue(str(job["if"]).startswith(prefix + ANSWER))
-                self.assertNotIn("continue-on-error", job)
+    def test_one_advisory_job_whose_steps_wait_on_the_answer(self):
+        self.assertEqual(set(JOBS), {"advisory"})
+        ids = [step.get("id") for step in JOB["steps"]]
+        self.assertLess(ids.index("decide"), ids.index("pick"))
         self.assertNotIn("pull_request_target", WORKFLOW_PATH.read_text())
-
-    def test_the_size_check_never_skips_on_a_base_only_update(self):
-        for job_id in ALWAYS:
-            job = JOBS[job_id]
-            self.assertEqual(job["needs"], "portable-placement")
-            self.assertNotIn("base_only", str(job["if"]))
-            self.assertTrue(str(job["if"]).startswith("${{ always() && !cancelled() && "))
-            self.assertNotIn("continue-on-error", job)
 
     def test_the_run_title_names_the_event_the_previous_run_check_reads(self):
         title = WORKFLOW["run-name"]
@@ -309,24 +374,19 @@ class WorkflowShapeTests(unittest.TestCase):
         group = WORKFLOW["concurrency"]["group"]
         self.assertIn("&& 'edited' || github.event.action == 'edited' && format('edit-{0}', github.run_id) || 'push'", group)
         self.assertTrue(WORKFLOW["concurrency"]["cancel-in-progress"])
-        for job_id in (*SKIPPED_ON_BASE_ONLY, *ALWAYS):
-            self.assertNotIn("concurrency", JOBS[job_id])
+        self.assertNotIn("concurrency", JOB)
 
-    def test_every_push_group_event_runs_every_advisory(self):
-        # A push-group run can cancel another, and a green one vouches for all three answers.
-        for job_id in ("link", "split"):
-            self.assertIn("github.event.action != 'edited'", str(JOBS[job_id]["if"]) + str(JOBS["split"]["if"]))
-        self.assertIn("github.event.action != 'edited'", str(JOBS["split"]["if"]))
+    def test_every_push_group_event_starts_the_job(self):
+        # A push-group run can cancel another, and a green one vouches for every answer.
         for event in ("opened", "synchronize", "reopened", "ready_for_review"):
-            self.assertIn(event, str(JOBS["link"]["if"]))
-            self.assertIn(event, str(JOBS["size"]["if"]))
+            self.assertIn(event, str(JOB["if"]))
+        self.assertNotIn("vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}",
+                         str(JOB["if"]).split("||")[0], "a held or draft push still runs split-plan")
 
-    def test_check_names_are_unchanged(self):
-        names = {job_id: job.get("name", job_id) for job_id, job in JOBS.items()}
-        self.assertEqual(names["link"], "link")
-        self.assertEqual(names["size"], "PR size")
-        self.assertEqual(names["split"], "split-plan advisory")
-        self.assertEqual(names["ui-review"], "UI review advisory")
+    def test_the_check_name_reads_as_advisory(self):
+        # Landing tools treat a job whose name ends "(advisory)" as never a pull request's own red.
+        self.assertEqual(JOB["name"], "PR checks (advisory)")
+        self.assertTrue(JOB["name"].endswith("(advisory)"))
 
 
 if __name__ == "__main__":

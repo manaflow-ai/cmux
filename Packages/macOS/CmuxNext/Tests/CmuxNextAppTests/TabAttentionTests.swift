@@ -333,9 +333,6 @@ import Testing
         #expect(localTab.markedUnread, "a click on the remote tab read this Mac's tab that shares its id")
         #expect(notifications.attentionMarks(for: localWorkspace).count == 1, "a click on the remote tab hid this Mac's ring")
         remoteTab.applyState(SessionStateMirror.TabRecord(attention: Self.attention("Log in again", at: 2_000)), progress: nil)
-        notifications.dismissHighlight(localWorkspace)
-        #expect(notifications.attentionMarks(for: localWorkspace).isEmpty, "Dismiss Highlight left the ring")
-        #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "Dismiss Highlight here hid the remote ring")
 
         // A strip click is delayed until mouse-up. A titlebar tracking loop can consume that
         // mouse-up, so it reaches the service in screen coordinates with no window. The click
@@ -382,6 +379,13 @@ import Testing
         #expect(notifications.attentionMarks(for: remoteWorkspace).isEmpty, "workspace replacement lost the pressed remote tab")
         #expect(localTab.attentionRingHiddenThrough != localTab.attentionGeneration, "workspace replacement redirected the press into the local tab")
         #expect(localTab.markedUnread)
+
+        // Dismiss Highlight on this Mac's workspace leaves the remote ring. It reads this Mac's manual mark too
+        // (5a54e86a27e, #42231), so it runs last: the strip checks above need the local mark still set.
+        remoteTab.applyState(SessionStateMirror.TabRecord(attention: Self.attention("Log in again", at: 5_000)), progress: nil)
+        notifications.dismissHighlight(localWorkspace)
+        #expect(notifications.attentionMarks(for: localWorkspace).isEmpty, "Dismiss Highlight left the ring")
+        #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "Dismiss Highlight here hid the remote ring")
 
         // Mark Tab Unread is a palette/CLI action and is intentionally omitted from the compact
         // pointer menu. The click and owner-request checks above cover the menu's visible ring

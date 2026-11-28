@@ -55,12 +55,7 @@ public struct TabGroupResult: Decodable, Sendable, Equatable {
     }
 }
 
-/// Every live group with its pane, in the `Pane.tab_groups` shape.
-public struct ListTabGroupsRequest: DaemonRequest {
-    public struct Response: Decodable, Sendable, Equatable {
-        public var groups: [TabGroupSnapshot]
-    }
-    public static let command = "list-tab-groups"
-    public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
-    public init() {}
+extension CloseTabGroupRequest {
+    @available(*, deprecated, message: "close-tab-group takes no transaction; use init(group:)")
+    public init(group: TabGroupID, transaction: ClientTransactionID?) { self.init(group: group) }
 }

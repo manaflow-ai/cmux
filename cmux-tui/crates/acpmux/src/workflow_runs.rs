@@ -54,6 +54,19 @@ pub struct CiIntent {
     pub source_ref: String,
     pub command: String,
     pub target_worker: String,
+    /// Controller job kind. Intents saved before the pool route keep their original binding.
+    #[serde(default = "legacy_ci_kind")]
+    pub kind: String,
+    /// Pool label the controller places the job by (empty: none, the legacy route).
+    #[serde(default)]
+    pub label: String,
+    /// The one wait's bound, from the job's creation (0: the default bound).
+    #[serde(default)]
+    pub timeout_secs: u64,
+}
+
+fn legacy_ci_kind() -> String {
+    "cmux".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -368,7 +381,7 @@ fn read(path: &Path) -> Result<RunRecord> {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NOFOLLOW);
     }
-    let record: RunRecord = serde_json::from_reader(options.open(path)?)
+    let record: RunRecord = serde_json::from_reader(std::io::BufReader::new(options.open(path)?))
         .with_context(|| format!("read workflow record {}", path.display()))?;
     ensure!(record.version == 1, "unsupported workflow record version");
     ensure!(record.source_hash == digest(&record.source), "workflow source hash does not match");

@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxSpinner
 import Observation
 import UIKit
 
@@ -144,7 +145,7 @@ final class ChiefSlashSuggestionsView: UIView {
         label.numberOfLines = 2
         var items: [UIView] = []
         if loading {
-            let spinner = UIActivityIndicatorView(style: .medium)
+            let spinner = CmuxSpinnerView()
             spinner.startAnimating()
             items.append(spinner)
         }

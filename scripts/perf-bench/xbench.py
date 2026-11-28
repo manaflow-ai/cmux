@@ -21,6 +21,9 @@ Safari, on one Mac, the same way for every browser:
   memory-closed        MB, back to 1 tab after 20
   power-home-idle, idle-cpu-home, idle-wakeups-home  cmux-terminal only: cmux idle on Home
   budget-*             cmux-budget only: the resource budget session (budget.py, budgets.json)
+  tabsN-*              --scenario idle-tabs only: at N open tabs (--tab-counts, default 1,10,50), each idle
+                       --idle s: memory (MB), CPU and wakeups of the whole instance, the CPU of its GPU
+                       process, and the Mac's GPU Device Utilization (ioreg, as bench_memory.py's GpuSampler)
 
 Method (after Ardia's docs/perf/vs-browsers.md, so numbers compare):
   - local pages on 127.0.0.1 (pages.py), no network-dependent rows;
@@ -48,7 +51,12 @@ Usage (on a fleet mini; scripts/measure/perf-bench.sh is the fleet entry):
   xbench.py gate --results results.json --baseline baseline.json [--tolerance 0.15]
 
 Browser names: cmux-chromium, cmux-webkit, cmux-terminal, cmux-budget (all --app cmux=BUNDLE),
-chrome, helium, dia, ardia, safari (default /Applications/Safari.app).
+chrome, edge (Microsoft Edge), helium, dia, ardia, safari (default /Applications/Safari.app).
+
+--scenario idle-tabs (perf-bench.sh suite=tabs) runs only the idle-tabs session: one launch per browser per
+round, tabs opened to each count of --tab-counts in turn, the same local idle page in every tab (each tab its
+own renderer: Chromium never shares one for an IP address), the newest tab shown and the rest in the
+background, as a user's window after opening that many tabs.
 """
 from __future__ import annotations
 
@@ -114,6 +122,34 @@ ROWS = [
 ROW_INFO = {row: (label, unit, main) for row, label, unit, main in ROWS}
 ROW_INFO.update(budget.ROW_INFO)
 
+# --scenario idle-tabs: one row set per tab count (Leo, 2026-11-20, ask-9176875aef: idle RAM, CPU and GPU
+# per tab against Edge, as tabs grow).
+TAB_COUNTS_DEFAULT = "1,10,50"
+TAB_METRICS = [
+    ("memory", "memory", "MB"),
+    ("cpu", "CPU, idle (100 % = one core)", "%"),
+    ("wakeups", "wakeups, idle", "/s"),
+    ("gpu-cpu", "GPU process CPU, idle", "%"),
+    ("gpu-util", "GPU Device Utilization, idle (whole Mac)", "%"),
+]
+
+
+def tab_counts(text: str) -> list[int]:
+    return sorted({int(part) for part in str(text or TAB_COUNTS_DEFAULT).split(",") if part.strip()})
+
+
+def tab_row(count: int, metric: str) -> str:
+    return f"tabs{count}-{metric}"
+
+
+def register_tab_rows(counts: list[int]):
+    for count in counts:
+        for metric, label, unit in TAB_METRICS:
+            ROW_INFO.setdefault(tab_row(count, metric), (f"{count} tab{'s' if count != 1 else ''}, {label}", unit, False))
+
+
+register_tab_rows(tab_counts(TAB_COUNTS_DEFAULT))
+
 # Ardia's tweet (2026-10-19, Apple M5 Pro, macOS 27.2): Ardia 0.2.38-nightly.8, Helium 0.19.3.1, Dia 1.53.0.
 PUBLISHED = {
     "ardia": {"power-idle-hidden": 3.9, "power-idle-visible": 3.5, "power-scroll": 28.2, "power-video": 82.0,
@@ -127,11 +163,11 @@ PUBLISHED = {
             "idle-cpu-20": 1.05, "memory-1": 480, "memory-10": 1273, "memory-20": 1822},
 }
 
-CHROMIUM = {"chrome", "helium", "dia", "ardia"}
+CHROMIUM = {"chrome", "edge", "helium", "dia", "ardia"}
 CMUX = {"cmux-chromium", "cmux-webkit", "cmux-terminal", budget.NAME}
 LABELS = {"cmux-chromium": "cmux NEXT (Chromium tab)", "cmux-webkit": "cmux NEXT (WebKit tab)",
-          "cmux-terminal": "cmux NEXT (terminals)", budget.NAME: budget.LABEL, "chrome": "Chrome", "helium": "Helium", "dia": "Dia",
-          "ardia": "Ardia", "safari": "Safari"}
+          "cmux-terminal": "cmux NEXT (terminals)", budget.NAME: budget.LABEL, "chrome": "Chrome", "edge": "Microsoft Edge",
+          "helium": "Helium", "dia": "Dia", "ardia": "Ardia", "safari": "Safari"}
 DEFAULT_BROWSERS = "cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
 
 
@@ -144,7 +180,7 @@ def now_ms() -> float:
 
 
 def sleep(seconds: float):
-    time.sleep(seconds)  # bench: a deliberate settle or idle window
+    time.sleep(seconds)  # sleep-ok: the bench's fixed settle and idle points, the same for every browser compared
 
 
 def tree_states(root: str) -> dict[str, tuple[float, int]]:
@@ -452,7 +488,7 @@ class CmuxBrowser(Browser):
         config = os.path.join(profile, "cmux.json")
         if not os.path.exists(config):
             with open(config, "w") as handle:
-                json.dump({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, handle)
+                json.dump({"updates": {"automatic": "off"}}, handle)
         env = {"HOME": home, "CFFIXED_USER_HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": tmp + "/",
                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
                "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config,
@@ -695,7 +731,7 @@ class Run:
             browser.ready()
             log(f"{browser.name} r{round_no}: session (load {load})")
             if browser.name == "cmux-terminal":
-                sleep(a.settle)
+                sleep(a.settle)  # sleep-ok: --settle, the protocol's rest before the home idle window
                 self.window(browser, round_no, {"power-home-idle": "mw", "idle-cpu-home": "cpu_pct",
                                                 "idle-wakeups-home": "wakeups_per_s"}, a.idle)
             browser.adopt_first(first)
@@ -703,7 +739,7 @@ class Run:
                 painted = self.server.wait("fcp", first, timeout=30)
                 if not painted:
                     log(f"{browser.name}: first tab never painted")
-            sleep(a.settle)
+            sleep(a.settle)  # sleep-ok: --settle, the protocol's rest before memory-1 and its idle window
             self.memory(browser, round_no, "memory-1")
             self.window(browser, round_no, {"power-idle-visible-1": "mw", "idle-cpu-1": "cpu_pct",
                                             "idle-wakeups-1": "wakeups_per_s"}, a.idle)
@@ -723,12 +759,12 @@ class Run:
                         browser.tabs.remove(handle)  # Safari keeps it open: it is one of the 20 below
                         browser.tabs.append(handle)
             self.open_to(browser, 10)
-            sleep(10)
+            sleep(10)  # sleep-ok: memory-10 is read 10 s after the tenth tab, the same for every browser
             self.memory(browser, round_no, "memory-10")
             self.open_to(browser, 20)
-            sleep(15)
+            sleep(15)  # sleep-ok: memory-20 is read 15 s after the twentieth tab, the same for every browser
             self.memory(browser, round_no, "memory-20")
-            sleep(a.settle)
+            sleep(a.settle)  # sleep-ok: --settle, the protocol's rest before the 20-tab idle window
             self.window(browser, round_no, {"power-idle-visible": "mw", "idle-cpu-20": "cpu_pct",
                                             "idle-wakeups-20": "wakeups_per_s"}, a.idle)
             if isinstance(browser, ChromiumBrowser):
@@ -775,15 +811,58 @@ class Run:
                         browser.close(handle)
                     sleep(2)
             browser.hide()
-            sleep(10)
+            sleep(10)  # sleep-ok: 10 s hidden before the hidden power window (the OS's hidden-app throttling starts in it)
             self.window(browser, round_no, {"power-idle-hidden": "mw"}, a.idle)
             browser.unhide()
             if browser.can_close:
                 while len(browser.tabs) > 1:
                     browser.close(browser.tabs[-1])
                     sleep(0.2)  # bench: a user's pace closing tabs
-                sleep(30)
+                sleep(30)  # sleep-ok: memory-closed is read 30 s after the closes, the same for every browser
                 self.memory(browser, round_no, "memory-closed")
+        except Exception as error:  # noqa: BLE001 - a failed session is logged, the run goes on
+            self.record(browser.name, round_no, "session-error", None, note=f"{type(error).__name__}: {error}"[:400])
+        finally:
+            browser.quit()
+            shutil.rmtree(profile, ignore_errors=True)
+
+    def idle_tabs(self, browser: Browser, round_no: int, counts: list[int]):
+        """--scenario idle-tabs: idle cost at each tab count, one launch, tabs opened in ascending counts."""
+        import bench_memory as bm  # GpuSampler: the same ioreg counters as perf-10x-idle.sh's axes
+        a = self.args
+        load = self.quiet()
+        profile = self.profile(browser, f"tabs{round_no}")
+        first = self.tab_id("i")
+        try:
+            browser.launch(profile, self.server.url("idle", first) if browser.can_link or browser.name == "safari" else None)
+            browser.ready()
+            log(f"{browser.name} r{round_no}: idle tabs {counts} (load {load})")
+            browser.adopt_first(first)
+            if browser.tab_kind == "page" and not self.server.wait("fcp", first, timeout=30):
+                log(f"{browser.name}: first tab never painted")
+            for count in counts:
+                self.open_to(browser, count)
+                newest = browser.ids.get(browser.tabs[-1], browser.tabs[-1]) if browser.tabs else None
+                painted = self.server.wait("fcp", newest, timeout=30) if browser.tab_kind == "page" else True
+                sleep(a.settle)
+                got = browser.instance.memory()
+                note = {} if painted else {"note": f"tab {newest} never painted"}
+                self.record(browser.name, round_no, tab_row(count, "memory"), got["mb"], processes=got["processes"],
+                            kinds=got["kinds"], tabs=len(browser.tabs), **note)
+                gpu = bm.GpuSampler(interval=2.0)
+                gpu.start()
+                try:
+                    window = browser.instance.window(a.idle)
+                finally:
+                    gpu_got = gpu.finish()
+                kinds = window["kinds"]
+                extra = {"load": round(procs.load_average(), 2), "tabs": len(browser.tabs), **note}
+                self.record(browser.name, round_no, tab_row(count, "cpu"), window["cpu_pct"], kinds=kinds, **extra)
+                self.record(browser.name, round_no, tab_row(count, "wakeups"), window["wakeups_per_s"], **extra)
+                self.record(browser.name, round_no, tab_row(count, "gpu-cpu"),
+                            sum(kinds.get(kind, {}).get("cpu_pct", 0.0) for kind in ("gpu", "webkit-gpu")), **extra)
+                self.record(browser.name, round_no, tab_row(count, "gpu-util"), gpu_got.get("device_utilization_pct"),
+                            gpu=gpu_got, **extra)
         except Exception as error:  # noqa: BLE001 - a failed session is logged, the run goes on
             self.record(browser.name, round_no, "session-error", None, note=f"{type(error).__name__}: {error}"[:400])
         finally:
@@ -841,6 +920,10 @@ class Run:
             for round_no in range(1, a.rounds + 1):
                 order = order[1:] + order[:1] if round_no > 1 else order  # rotate each round
                 for browser in order:
+                    if a.scenario == "idle-tabs":
+                        if browser.name != budget.NAME:
+                            self.idle_tabs(browser, round_no, tab_counts(a.tab_counts))
+                        continue
                     if browser.name == budget.NAME:
                         budget.session(self, browser, round_no, log, a.budgets)
                         continue
@@ -864,6 +947,33 @@ def aggregate(samples: list[dict]) -> dict:
         result[row] = {b: {"median": round(statistics.median(v), 3), "min": min(v), "max": max(v), "n": len(v)}
                        for b, v in per.items()}
     return result
+
+
+def tabs_lines(rows: dict, present: list[str], meta: dict) -> list[str]:
+    """The idle-tabs section: one table row per tab count and metric, cmux against the best other and Edge."""
+    counts = tab_counts(meta.get("args", {}).get("tab_counts"))
+    register_tab_rows(counts)
+    wanted = [tab_row(count, metric) for count in counts for metric, _label, _unit in TAB_METRICS]
+    if not any(rows.get(row) for row in wanted):
+        return []
+    others = [b for b in present if b not in CMUX]
+    head = ["Tabs, idle"] + [LABELS[b] for b in present] + ["best other", "cmux vs best other"]
+    lines = ["## Idle cost as tabs grow", "",
+             f"Each count opened in one window, {meta.get('args', {}).get('idle', '?')} s idle after "
+             f"{meta.get('args', {}).get('settle', '?')} s settle; the newest tab shown. GPU Device Utilization is "
+             "the whole Mac's (ioreg), GPU process CPU is the browser's own GPU process. Lower is better.", "",
+             "| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+    for row in wanted:
+        per = rows.get(row, {})
+        if not per:
+            continue
+        label, unit, _main = ROW_INFO[row]
+        cells = [fmt(per.get(b, {}).get("median"), unit) for b in present]
+        best = min((per[b]["median"], b) for b in others if b in per) if any(b in per for b in others) else None
+        cmux_best = min((per[b]["median"] for b in CMUX if b in per), default=None)
+        lines.append("| " + " | ".join([label] + cells + [
+            f"{fmt(best[0], unit)} ({LABELS[best[1]]})" if best else "–", ratio(cmux_best, best[0] if best else None)]) + " |")
+    return lines + [""]
 
 
 def fmt(value, unit: str) -> str:
@@ -964,16 +1074,114 @@ def palette_rows(path: str | None) -> tuple[dict, list[str]]:
     return rows, lines
 
 
+def pane_drag_rows(path: str | None) -> tuple[dict, list[str]]:
+    """Rows and BENCH.md lines from scripts/ci/frame-pacing/pane_drag.py's report (RFD 0022 item 1): tab drags and
+    pane-header drags through the real mouse path at 2, 8 and 30 panes of mixed kinds. Report only."""
+    if not path or not os.path.exists(path):
+        return {}, []
+    data = json.load(open(path))
+    rows, lines = {}, []
+    lines += ["## Pane and tab drag (cmux NEXT, tagged Debug build)", "",
+              "**Debug only**, like the tab switch rows; report only (no threshold fails the bench). pane_drag.py: "
+              "`debug.mouse` down, one drag event per 120 Hz frame, up. Input to move = the mouse-up's event time "
+              "to the first display frame whose pane layout differs (p50 / max ms); lift = first drag event to "
+              "the first frame the tab strip changes. Over 8.33 ms = frames whose main-thread work passed one "
+              "120 Hz frame, while dragging + after the drop; missed = display intervals over 1.5 refreshes. Blank = "
+              "frames from the commit on with a pane showing its late ground, at alpha 0, or not shown yet (the "
+              "app's signal); pixel-late = frames after rest whose pane pixels still differ from their final "
+              "picture (ScreenCaptureKit rows; noise = the same test at rest before the press). Jumps = a pane "
+              "moving again after it rested.", "",
+              "| Gesture | Panes | Landed | Input to move | Lift | Over 8.33 ms | Missed | Blank / drop | "
+              "Pixel-late / drop (noise) | Jumps |", "|---|---|---|---|---|---|---|---|---|---|"]
+
+    def ms(spread):
+        return f"{spread['p50']:.1f} / {spread['max']:.1f}" if spread else "–"
+
+    def both(entry, key):
+        a, b = entry.get(f"drag_{key}"), entry.get(f"drop_{key}")
+        return "–" if a is None and b is None else f"{a or 0} + {b or 0}"
+
+    for count in data.get("counts") or []:
+        panes = (count.get("setup") or {}).get("panes", count.get("asked"))
+        if count.get("error"):
+            lines.append(f"| – | {panes} | not run: {count['error']} | | | | | | | |")
+            continue
+        for gesture, label in (("tab", "Tab drag"), ("pane", "Pane header drag")):
+            entry = count.get(gesture) or {}
+            if not entry.get("drops"):
+                first = next((d.get("error") for d in entry.get("each") or [] if d.get("error")), "no drop")
+                lines.append(f"| {label} | {panes} | not run: {first} | | | | | | | |")
+                continue
+            pixel = "–" if entry.get("pixel_late_per_drop") is None else \
+                f"{entry['pixel_late_per_drop']:g} ({entry.get('pixel_noise_frames')})"
+            blank = "–" if entry.get("blank_frames_per_drop") is None else f"{entry['blank_frames_per_drop']:g}"
+            lines.append(f"| {label} | {panes} | {entry['landed']}/{entry['drops']} | {ms(entry.get('drop_ms'))} | "
+                         f"{ms(entry.get('lift_ms')) if gesture == 'tab' else 'n/a'} | {both(entry, 'main_over_8_33')} | "
+                         f"{both(entry, 'missed')} | {blank} | {pixel} | {entry.get('jumps') if entry.get('jumps') is not None else '–'} |")
+            slug = f"pane-drag-{gesture}-{count.get('asked', panes)}"
+            if entry.get("drop_ms"):
+                rows.setdefault(f"{slug}-input-to-move", {})[TAB_SWITCH_BROWSER] = {
+                    "median": entry["drop_ms"]["p50"], "max": entry["drop_ms"]["max"], "n": entry["drop_ms"]["n"]}
+            for key in ("blank_frames_per_drop", "pixel_late_per_drop", "jumps"):
+                if entry.get(key) is not None:
+                    rows.setdefault(f"{slug}-{key.replace('_', '-')}", {})[TAB_SWITCH_BROWSER] = {"median": entry[key]}
+    theirs = data.get("theirs") or {}
+    lines += ["", f"Claude Code desktop (the RFD's \"theirs\" column): "
+              f"{'measured' if theirs.get('ran') else 'not run. ' + str(theirs.get('reason') or '')}", ""]
+    return rows, lines
+
+
+def transcript_fling_rows(path: str | None) -> tuple[dict, list[str]]:
+    """Rows and BENCH.md lines from webviews/bench/transcript-fling.bench.ts's TRANSCRIPT_FLING_OUT (RFD 0121 item 2,
+    the native transcript's "before"): one JSON line per arm. Report only."""
+    if not path or not os.path.exists(path):
+        return {}, []
+    arms = [json.loads(line) for line in open(path) if line.strip()]
+    rows, lines = {}, []
+    lines += ["## Transcript fling (headless Chromium on this Mac)", "",
+              "Report only. webviews/bench/transcript-fling.bench.ts: transcript = the shipped React transcript "
+              "(test/browser/transcript-fling.html) flung bottom to top by its debug fling; web = plain DOM rows; "
+              "bare = one text block (the floor). Frame interval p50 / p95 / max ms; late = intervals over 8.33 ms "
+              "(one 120 Hz frame); blank = frames with no row under the viewport. Headless Chromium's frame clock "
+              "is not the display's: compare arms within one run.", "",
+              "| Arm | Rows | Frames | Interval p50 / p95 / max | Late (> 8.33 ms) | Blank |",
+              "|---|---|---|---|---|---|"]
+    for arm in arms:
+        lines.append(f"| {arm['arm']} | {arm['rows']} | {arm['frames']} | {arm['frame_p50_ms']:g} / "
+                     f"{arm['frame_p95_ms']:g} / {arm['frame_max_ms']:g} | {arm['late_frames']} | "
+                     f"{arm['blank_frames']} |")
+        slug = f"transcript-fling-{arm['arm']}-{arm['rows']}"
+        rows.setdefault(f"{slug}-frame-p95", {})["headless-chromium"] = {"median": arm["frame_p95_ms"]}
+        rows.setdefault(f"{slug}-late-frames", {})["headless-chromium"] = {"median": arm["late_frames"]}
+    if not arms:
+        lines.append("| – | | not run: no arm reported | | | |")
+    return rows, lines + [""]
+
+
 def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str | None = None,
-           palette: str | None = None, budgets: str | None = None):
+           palette: str | None = None, budgets: str | None = None,
+           panedrag: str | None = None, transcriptfling: str | None = None):
     path = os.path.join(out, "samples.jsonl")
     samples = [json.loads(line) for line in open(path) if line.strip()] if os.path.exists(path) else []
     meta = json.load(open(os.path.join(out, "meta.json")))
+    register_tab_rows(tab_counts(meta.get("args", {}).get("tab_counts")))  # a run's own --tab-counts
     rows = aggregate(samples)
     switch_rows, switch_lines = tab_switch_rows(tabswitch)
     rows.update(switch_rows)
     palette_found, palette_lines = palette_rows(palette)
     rows.update(palette_found)
+    try:  # report only: a broken pane-drag file never turns the bench red
+        drag_found, drag_lines = pane_drag_rows(panedrag)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        drag_found, drag_lines = {}, ["## Pane and tab drag (cmux NEXT, tagged Debug build)", "",
+                                      f"Not read: {error!r}", ""]
+    rows.update(drag_found)
+    try:  # report only, as pane drag
+        fling_found, fling_lines = transcript_fling_rows(transcriptfling)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        fling_found, fling_lines = {}, ["## Transcript fling (headless Chromium on this Mac)", "",
+                                        f"Not read: {error!r}", ""]
+    rows.update(fling_found)
     errors = [s for s in samples if s["row"] == "session-error" or (s.get("value") is None and s.get("note"))]
     budget_errors = sum(1 for sample in samples if sample["browser"] == budget.NAME and sample["row"] == "session-error")
     # The run's budgets file decides, so samples are judged against the scenario that collected them.
@@ -988,7 +1196,7 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
         with open(json_path, "w") as handle:
             json.dump(result, handle, indent=1)
     m = meta["machine"]
-    present = [b for b in ["cmux-chromium", "cmux-webkit", "cmux-terminal", "chrome", "helium", "ardia", "dia", "safari"]
+    present = [b for b in ["cmux-chromium", "cmux-webkit", "cmux-terminal", "chrome", "edge", "helium", "ardia", "dia", "safari"]
                if any(b in per for per in rows.values())]
     others = [b for b in present if b not in CMUX]
     lines = [f"# xbench, {result['date']}: cmux NEXT against Chrome, Helium, Ardia, Dia, Safari", "",
@@ -1016,9 +1224,12 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
         lines += ["", "\\* not in Ardia's tweet. \"cmux vs best other\" uses the best cmux variant of the row. "
                   "Power is CPU energy (ri_energy_nj) over every process of the browser; GPU and display are not in it. "
                   "The 10x goal: every cmux cell at a tenth of the best other.", ""]
+    lines += tabs_lines(rows, present, meta)
     lines += budget_lines
     lines += switch_lines
     lines += palette_lines
+    lines += drag_lines
+    lines += fling_lines
     if errors:
         lines += ["## Rows that could not be measured", ""]
         seen = set()
@@ -1121,6 +1332,9 @@ def main():
     run.add_argument("--app", action="append", default=[], metavar="NAME=BUNDLE")
     run.add_argument("--browsers", default=DEFAULT_BROWSERS)
     run.add_argument("--rounds", type=int, default=3)
+    run.add_argument("--scenario", choices=("full", "idle-tabs"), default="full",
+                     help="idle-tabs: only the idle cost at each --tab-counts count (perf-bench.sh suite=tabs)")
+    run.add_argument("--tab-counts", default=TAB_COUNTS_DEFAULT, help="idle-tabs: the tab counts, ascending")
     run.add_argument("--launches", type=int, default=2, help="cold launches per browser per round")
     run.add_argument("--newtabs", type=int, default=5)
     run.add_argument("--idle", type=float, default=60)
@@ -1141,6 +1355,8 @@ def main():
     rep.add_argument("--json")
     rep.add_argument("--tabswitch", help="tab-switch-matrix.py's --json report")
     rep.add_argument("--palette", help="palette-open-stages.py's --json report")
+    rep.add_argument("--panedrag", help="scripts/ci/frame-pacing/pane_drag.py's --json report")
+    rep.add_argument("--transcriptfling", help="webviews/bench/transcript-fling.bench.ts's TRANSCRIPT_FLING_OUT")
     rep.add_argument("--budgets", help="budgets.json (default: the one the run used); an enforced budget "
                      "the cmux-budget session broke exits 1")
     gat = sub.add_parser("gate")
@@ -1153,7 +1369,8 @@ def main():
         random.seed(0)
         Run(args).main()
     elif args.command == "report":
-        result = report(args.out, args.md, args.json, args.tabswitch, args.palette, args.budgets)
+        result = report(args.out, args.md, args.json, args.tabswitch, args.palette, args.budgets, args.panedrag,
+                        args.transcriptfling)
         sys.exit(1 if result["budgets"]["failed"] else 0)
     else:
         sys.exit(gate(args.results, args.baseline, args.tolerance))

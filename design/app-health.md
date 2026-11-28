@@ -1,5 +1,15 @@
 # App health
 
+> **Current state (2026-11-24): app health has no surface at all.** There is no sidebar line, no dot, no
+> card, no toast and no Details button on the Restoring sessions card. Leo, 2026-11-22 (ask-a78f915862): "the
+> fuck is actionable about "needs a repair". if it's unactionable, get rid of it. plus the text is
+> overlapping." A part that is stuck, repairing or out of repairs is repaired by the Rust model by itself (the
+> ladder, then a fresh try once its 10-minute window lets go), and each step and each give-up is written to the
+> log by the host (`AppHealthFeeds`, the `debug.health` receipts). Nothing here asks the person for anything.
+> The sections below are the history of the surfaces that were deleted: the footer line, its web twin
+> (`webviews/src/app-health`), the native card (`AppHealthPopover`) with Repair now and Show chat, and the
+> `AppHealthPlaces` that named a chat for them.
+
 Part of the app can stop answering while the rest still works: a page whose script hangs, a web
 renderer at full CPU, a session daemon that restarts every two minutes because each start spends
 its life restoring a huge registry, an acpmux link that went quiet. Before this, the person saw
@@ -13,21 +23,15 @@ repair that kinda thing, and even better of course, prevent it from ever happeni
 
 ## What appears
 
-The start state is an ordinary app with nothing extra on screen. When a part is stuck, being repaired or
-out of repairs, or the host queues an action of the person's while it is unreachable, a tiny dot and one
-line appear at the sidebar's bottom-left. The line names the part and what is happening to it, in words
-the person can act on: "Agent chat isn't responding" (a click opens Repair now), "Repairing Agent chat…"
-(the app is on it), "Agent chat needs a repair" (its repairs ran out), "Reconnecting; will close
-Background task when back". The dot takes the danger color when a part is stuck or its repairs ran out,
-the attention color while the app repairs it, and is muted for a queued action alone.
+The start state is an ordinary app with nothing extra on screen. Slow, stuck and repairing parts,
+and queued actions, draw no footer indicator: the app keeps the last frame and owns recovery.
+Only a failed repair shows a calm line naming the part, with the existing click opening **Repair now**.
+The Rust model holds exhausted repairs quiet until the episode has lasted at least 10 seconds, even
+when all retry attempts fail immediately. Recovery before that deadline cancels escalation.
 
-A part that is only **slow** shows nothing there. Slow means it still answers, late: a page whose
-heartbeat is 5 to 10 s behind, most often because the Mac is busy. If it stops answering the model makes
-it stuck at 10 s and repairs it, which the line then says. Leo, 2026-11-11, after a heavily loaded Mac
-showed "Agent pane: Slow" again and again: "the agent pane: slow indicator on the bottom left is uselsss
-and layout shifts the space. it's bad". The popover still lists a slow part with its detail, and the
-"Restoring sessions…" card already covers a slow restore. The agent pane's page is named "Agent chat",
-not its resource's "Agent pane".
+Leo, 2026-11-16, on “Repairing Connection to the session service…”: “pls no messages like this :(”.
+A ten-second delay followed by endless automatic progress is still chatter. The popover is an
+explicitly opened diagnostic view and retains repair details, receipts and queued actions.
 
 The line never takes room in the footer row. It floats on its own small chip in the sidebar
 cards' veil (the chip radius; never a solid fill) just above the row and any card over it, at the avatar's leading
@@ -51,11 +55,27 @@ There is no animation, pulse, timer or observer in the indicator or the popover,
 is the only timer, in the page layer (`pages/shared/pageHealth.ts`), and it stops while the page is
 hidden.
 
+## Which chat, and no click it does not need
+
+David Beyer, 2026-11-20, on a call: "Agent chat needs a repair" did not say which chat, with several
+open. A page part is named by the title its tab shows, in the line and the card's title ("“Fix the
+login bug” needs a repair"); the card's first line says where it is ("Agent chat in cmux-next"), and
+**Show chat** goes there. A stuck page is always on screen (a hidden page is never timed), so Show
+chat brings its window forward and gives the page the keyboard, through the focus route. The place
+comes from the daemon's store (`AppHealthPlaces(store:)`: the tab the page shows, its title, the
+workspace that holds its pane), read only when a line or the card is drawn, never on a heartbeat. A
+page in no tab (Home's dock, a floating chat) keeps the label "Agent chat".
+
+The cap is 3 repairs in 10 minutes, not 3 for good. A part that is out of repairs keeps one deadline,
+when its oldest attempt leaves the window; then, still stuck, it tries again by itself from step 1,
+and its signal coming back drops the alert. Repair now still starts at once. A repair is still never
+run over unsaved edits: the page's reload refuses, and the next step comes.
+
 ## Queued actions never apply and revert
 
 While the session daemon or page host is unreachable, a tab click or close is queued by the host
-and shown as pending ("Reconnecting; will close Background task when back"), or refused with that
-status. It never selects for a moment and snaps back. Leo, 2026-11-09, on the restart loop: "so in
+and retained as pending in diagnostics, or refused with an actionable failure. It does not
+announce the automatic reconnect in the footer. It never selects for a moment and snaps back. Leo, 2026-11-09, on the restart loop: "so in
 this case even just clicking on the top bar made it flicker. i couldnt close the background task tab
 for some reason".
 
@@ -82,7 +102,14 @@ screen blank").
 
 ## Treatment
 
-Where it sits. Native gallery: `AAAppHealthIndicatorGalleryTests` renders `a-overlay` (shipped), `b-dot`
+Shipped: `hidden`, and the line is gone from the app (Leo, 2026-11-22, ask-eacfb2ec1f: "i see in the
+sidebar a repair connection to agent service... which i have requested to remove a while ago. ... we
+dont need it. ever. entire classes of bullshit fucking error/status bullshit. fuck em. remove them all.").
+The sidebar draws no health line or dot; the parts repair themselves, and the popover opens only from the
+Restoring sessions card's Details (`SidebarView.onHealthDetails`). The rest of this section is the history
+of the treatments tried before.
+
+Where it sat. Native gallery: `AAAppHealthIndicatorGalleryTests` renders `a-overlay` (shipped), `b-dot`
 and `c-hidden` in six states (healthy, only slow, not responding, repairing, needs a repair, a queued
 close), and the restoring card with Details. Web gallery: `ui.app-health.footer-row` draws the sidebar's
 bottom twice per variant, at rest and with the indicator, in the same five states:

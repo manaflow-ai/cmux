@@ -33,17 +33,24 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
     /// A Cloud machine's desktop, reached only over the app's own Cloud tunnel: the state card
     /// says so instead of the phase-1 development note.
     public var viaCloudTunnel = false
-    /// Connecting again after a session that showed frames: the card says "Reconnecting" over
-    /// the last frame. Cleared by the next frame shown.
+    /// Connecting again after a session that showed frames: keep that last frame with no card.
+    /// Cleared by the next frame shown.
     public var reconnecting = false
-    /// When the current reconnect started (nil while not reconnecting): under
-    /// ``reconnectNoticeDelay`` the last frame stays and no card shows.
+    /// When the current reconnect started (nil while not reconnecting), for elapsed diagnostics.
     public var reconnectingSince: ContinuousClock.Instant?
-    /// The reconnect has run for ``reconnectNoticeDelay``: the "Reconnecting" card shows now.
+    /// The reconnect has run for ``reconnectNoticeDelay``. Duration alone never shows a card.
     public var reconnectNoticeDue = false
-    /// How long a reconnect over the last frame stays silent (the conn-quiet bound for an
-    /// open view, ``QuietHold/connectionDelay``): a reconnect, Take over or Hand back usually lands well under it.
+    /// The elapsed reconnect diagnostic threshold. Crossing it does not show a notice.
     public static let reconnectNoticeDelay: Duration = QuietHold.connectionDelay
+    /// When the current first connect started (nil while none is coming up, or for a state no reducer
+    /// stamped): under ``connectNoticeDelay`` nothing shows over the empty pane, so a connect that lands
+    /// fast draws no "Connecting to …" card at all.
+    public var connectingSince: ContinuousClock.Instant?
+    /// The first connect has run for ``connectNoticeDelay``: the connecting card (with Cancel) shows now.
+    public var connectNoticeDue = false
+    /// How long a first connect stays silent (``QuietHold/comingUpDelay``). The card has Cancel, so it may
+    /// show once this short wait is over; a reconnect waits the longer ``reconnectNoticeDelay``.
+    public static let connectNoticeDelay: Duration = QuietHold.comingUpDelay
     /// The toggle, or Take over / Hand back.
     public var modeControl = RemoteModeControl.toggle
     /// Whether the path counts as high latency, held so one sample does not flip it.
@@ -77,15 +84,28 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
     /// The centered card over the pane, if any.
     public var overlay: RemotePaneOverlay? {
         switch sessionState {
-        case .connecting: quietReconnect ? nil : .connecting
+        case .connecting: quietConnecting ? nil : .connecting
         case .waitingForConsent: .waitingForConsent
-        case .streaming: hasFrame || quietReconnect ? nil : .connecting
+        case .streaming: hasFrame || quietConnecting ? nil : .connecting
         case let .ended(reason): .ended(reason)
         }
     }
 
-    /// Reconnecting over the last frame, under the notice bound: nothing to say yet.
-    public var quietReconnect: Bool { reconnecting && !reconnectNoticeDue }
+    /// Automatic reconnect keeps the last frame until recovery or an actionable ended state.
+    public var quietReconnect: Bool { reconnecting }
+
+    /// A first connect (no picture yet, not a reconnect) that is still coming up: connecting, or
+    /// streaming before its first frame.
+    public var comingUp: Bool {
+        guard !reconnecting, !hasFrame else { return false }
+        return sessionState == .connecting || sessionState == .streaming
+    }
+
+    /// A first connect under ``connectNoticeDelay`` (stamped by the reducer): nothing to say yet.
+    public var quietConnect: Bool { comingUp && connectingSince != nil && !connectNoticeDue }
+
+    /// Either connect is still under its quiet time: no card, and the path badge does not say "connecting".
+    public var quietConnecting: Bool { quietReconnect || quietConnect }
 
     /// The "View only: high latency" banner with "Control Anyway".
     public var showsLatencyBanner: Bool {

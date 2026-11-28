@@ -1,4 +1,10 @@
+// CoreGraphics on Apple (CGRect's Double initializer is its overlay, which Foundation does not carry);
+// Foundation's CGRect in the Linux shape.
+#if canImport(CoreGraphics)
 public import CoreGraphics
+#else
+public import Foundation
+#endif
 
 /// Where the copy-mode cursor box goes over a terminal view.
 ///

@@ -182,6 +182,8 @@ pub(crate) struct MeshDriver {
     commands: mpsc::Receiver<MeshCommand>,
     wake: Arc<Notify>,
     pub(crate) scratch: Vec<u8>,
+    /// `CMUX_WG_STALL_TRACE` only.
+    trace: Option<crate::stall_trace::Trace>,
 }
 
 enum Event {
@@ -221,6 +223,7 @@ impl MeshDriver {
             commands,
             wake,
             scratch: vec![0u8; BUFFER_BYTES + 32],
+            trace: crate::stall_trace::Trace::new("mesh"),
         })
     }
 
@@ -235,6 +238,7 @@ impl MeshDriver {
                 .into_iter()
                 .chain(self.pace_deadline)
                 .chain(self.probe_deadline)
+                .chain(self.trace.as_ref().map(crate::stall_trace::Trace::next_dump))
                 .min();
             let backlogged = self.out.udp.backlogged();
             let udp = &mut self.out.udp;
@@ -257,6 +261,12 @@ impl MeshDriver {
                 () = sleep_until(stack_deadline.map(|delay| Instant::now() + delay)) => Event::Wake,
                 () = sleep_until(self.closing) => Event::Wake,
             };
+            if let Some(trace) = &mut self.trace {
+                trace.pass();
+                if let Event::Datagram(count, _) = &event {
+                    trace.received(*count);
+                }
+            }
             self.run_timers();
             match event {
                 Event::Datagram(count, source) => {
@@ -281,6 +291,7 @@ impl MeshDriver {
             self.service();
             self.probe_deadline = self.run_probes();
             self.out.udp.flush();
+            self.dump_trace();
             if let Some(deadline) = self.closing
                 && (self.stack.delivered() || Instant::now() >= deadline)
             {
@@ -290,10 +301,32 @@ impl MeshDriver {
         }
     }
 
-    /// Decrypt the datagrams already waiting on the socket, up to a batch.
+    /// `CMUX_WG_STALL_TRACE` only: the state every [`crate::stall_trace::EVERY`].
+    fn dump_trace(&mut self) {
+        let Some(mut trace) = self.trace.take() else { return };
+        let now = Instant::now();
+        let (pacer, stack, backlogged) = (&self.pacer, &self.stack, self.out.udp.backlogged());
+        let pace_in = self.pace_deadline.map(|at| at.saturating_duration_since(now).as_millis());
+        let peers = self.table.trace_state();
+        trace.due(
+            || {
+                format!(
+                    "backlogged={backlogged} pace_in_ms={pace_in:?} has_room={} pacer {} peers {}",
+                    pacer.has_room(),
+                    pacer.trace_state(now),
+                    peers
+                )
+            },
+            || stack.trace_state(),
+        );
+        self.trace = Some(trace);
+    }
+
+    /// Decrypt the datagrams already waiting on the socket, up to a batch:
+    /// first what the last batched read took, then one more read.
     fn receive_ready(&mut self, buffer: &mut [u8]) {
         for _ in 1..RECEIVE_BATCH {
-            match self.out.udp.socket().try_recv_from(buffer) {
+            match self.out.udp.try_recv(buffer) {
                 Ok((count, source)) => {
                     if let Some(received) = buffer.get(..count) {
                         self.handle_datagram(received, Some(PeerRoute::Udp(source)));
@@ -339,6 +372,8 @@ impl MeshDriver {
             };
             self.send_packet(&packet, now);
         }
+        let pacer = &self.pacer;
+        self.stack.set_pacer_held(|local, remote| pacer.held(local, remote));
     }
 
     /// Encrypt one packet for the peer that routes its destination and send
@@ -347,11 +382,27 @@ impl MeshDriver {
     /// boringtun and starts a handshake.
     fn send_packet(&mut self, packet: &[u8], now: Instant) {
         let Some(key) = Tunn::dst_address(packet).and_then(|dst| self.table.route(dst)) else {
+            if let Some(trace) = &mut self.trace {
+                trace.count("drop_no_route");
+            }
             return;
         };
-        let Some(peer) = self.table.get_mut(&key) else { return };
-        if !peer.paths.has_target() {
+        let Some(peer) = self.table.get_mut(&key) else {
+            if let Some(trace) = &mut self.trace {
+                trace.count("drop_no_peer");
+            }
             return;
+        };
+        if !peer.paths.has_target() {
+            if let Some(trace) = &mut self.trace {
+                trace.count("drop_no_target");
+            }
+            return;
+        }
+        if peer.tunn.time_since_last_handshake().is_none()
+            && let Some(trace) = &mut self.trace
+        {
+            trace.count("no_session");
         }
         if peer.tunn.time_since_last_handshake().is_none() {
             peer.waiting = Some(now);
@@ -362,9 +413,14 @@ impl MeshDriver {
             if classify(datagram) == DatagramClass::WireGuardInitiation {
                 peer.initiated = Some(now);
             }
+            if let Some(trace) = &mut self.trace {
+                trace.sent(datagram.len());
+            }
             let out = &mut self.out;
             deliver(&mut peer.paths, out, now, datagram);
             peer.schedule.on_activity(now);
+        } else if let Some(trace) = &mut self.trace {
+            trace.count("encapsulate_not_written");
         }
     }
 

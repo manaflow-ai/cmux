@@ -29,7 +29,10 @@ struct DensityControlsProportionTests {
             if button is SidebarIconButton || button is OverflowButton { button.updateLayer() }
             let side = min(button.bounds.width, button.bounds.height)
             #expect(side > 0)
-            #expect(button.layer?.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: side))
+            // A pane's tab-row tool rounds as the tabs, the +, and the ⋮ beside it; the band keeps the proportional corner.
+            let tabRow = (button as? TitlebarBandButton)?.roundsAsTabBarControl == true
+            #expect(button.layer?.cornerRadius == (tabRow ? Metrics.tabBarControlCornerRadius(fitting: button.bounds.size)
+                                                       : Metrics.buttonCornerRadius(proportionalTo: side)))
             #expect((button.layer?.cornerRadius ?? side) < side / 2)
             if let cell = button.cell, button.image != nil {
                 let image = cell.imageRect(forBounds: button.bounds)
@@ -57,7 +60,11 @@ struct DensityControlsProportionTests {
             let close = try #require(cell.closeButtonRect)
             let plate = try #require(cell.closeBackgroundLayer)
             let glyph = try #require(cell.closeGlyphLayer)
-            #expect(plate.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: close.height))
+            // Helium's hover (Lawrence 2026-11-28: "must perfectly match helium"): its 4 pt corner, centered on the x.
+            #expect(plate.cornerRadius == 4, "\(preset): plate corner \(plate.cornerRadius)")
+            #expect(abs(plate.frame.midX - close.midX) <= 0.5 && abs(plate.frame.midY - close.midY) <= 0.5, "\(preset): plate \(plate.frame), x \(close)")
+            #expect(cell.layer.bounds.contains(plate.frame) && !plate.frame.intersects(cell.iconLayer.frame))
+            #expect(plate.frame.contains(glyph.frame))
             #expect(close.contains(glyph.frame))
             #expect(!close.intersects(cell.iconLayer.frame))
             // The title layer spans the tab and fades under the x by design; its text must end before the x.
@@ -72,12 +79,12 @@ struct DensityControlsProportionTests {
             #expect(!plus.frame.intersects(menu.frame))
             #expect(strip.convert(cell.frame, from: strip.tabsClip).maxX <= plus.frame.minX)
             let fill = plus.look.fillLayer
-            #expect(fill.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: min(fill.bounds.width, fill.bounds.height)))
+            #expect(fill.cornerRadius == Metrics.tabBarControlCornerRadius(fitting: fill.bounds.size), "the +, a tab's corner")
             let plusInk = try #require(plus.look.glyphLayer.path).boundingBoxOfPath.insetBy(dx: -plus.look.glyphLayer.lineWidth / 2,
                                                                                        dy: -plus.look.glyphLayer.lineWidth / 2)
             #expect(plus.bounds.contains(plusInk))
             for layer in menu.layer?.sublayers ?? [] where !layer.isHidden && layer.cornerRadius > 0 {
-                #expect(layer.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: min(menu.bounds.width, menu.bounds.height)))
+                #expect(layer.cornerRadius == PlusButtonLook.splitCornerRadius, "the ⌄, the +'s corner")
             }
             for layer in menu.layer?.sublayers ?? [] {
                 if let glyph = layer as? CAShapeLayer, let path = glyph.path {

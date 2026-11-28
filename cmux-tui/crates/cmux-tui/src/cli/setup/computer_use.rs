@@ -4,7 +4,7 @@
 //! The state is the app's `computer_use.status` (the model behind Computer
 //! Use Setup and `cmux agents doctor`): `{phase, accessibility,
 //! screen_recording, helper}`. Turned off, setup turns it on with
-//! `settings.set computerUse.enabled true` and `confirm: true`: the key is
+//! `settings.set computerUse.mode fullAccess` and `confirm: true`: the key is
 //! the person's, so the app asks them on a native sheet and setup waits for
 //! that one click (the app bounds the sheet; one left unanswered reads as
 //! declined). The undo turns it off the same way. The macOS grants
@@ -28,11 +28,16 @@ use cmux_json::JsonSet as _;
 
 const TASK: &str = "computer_use";
 
-/// The setting that turns Computer Use on, a key only the person sets.
-const SETTING: &str = "computerUse.enabled";
+/// The setting that turns Computer Use on, a key only the person sets. The
+/// retired `computerUse.enabled` is not it: an old app read `enabled: false`
+/// as mode `off`, so writing it turned Computer Use off with nothing shown.
+const SETTING: &str = "computerUse.mode";
+
+/// The mode setup turns on, the setting's default.
+const ON: &str = "fullAccess";
 
 /// The command that turns it back off, on the same sheet.
-const UNDO: &str = "cmux settings set computerUse.enabled false --confirm";
+const UNDO: &str = "cmux settings set computerUse.mode off --confirm";
 
 /// How long setup waits for the person to answer the app's sheet. The app
 /// bounds the sheet itself; this only keeps a lost reply from hanging setup.
@@ -187,14 +192,30 @@ fn enabled(global: &GlobalArgs) -> bool {
         super::super::app::READ_TIMEOUT,
         None,
     )
-    .is_ok_and(|reply| reply["value"] == Value::Bool(true))
+    .is_ok_and(|reply| mode_on(&reply))
+}
+
+/// The mode the person set is on. `value` reads the row's default (fullAccess) when the file sets
+/// none, and an unset mode still needs the sheet, so `file_value` decides when the app sends it.
+fn mode_on(reply: &Value) -> bool {
+    let mode = reply.get("file_value").or_else(|| reply.get("value"));
+    mode.and_then(Value::as_str).is_some_and(|mode| mode != "off")
+}
+
+#[cfg(test)]
+#[test]
+fn an_unset_mode_is_not_on_though_its_default_is() {
+    assert!(!mode_on(&json!({"value": "fullAccess", "file_value": null})));
+    assert!(mode_on(&json!({"value": "fullAccess", "file_value": "fullAccess"})));
+    assert!(!mode_on(&json!({"value": "off", "file_value": "off"})));
+    assert!(mode_on(&json!({"value": "fullAccess"})), "an app without file_value: value decides");
 }
 
 /// Turns Computer Use on: the app asks the person on its sheet. Answers what
 /// the person must do when it did not turn on.
 fn turn_on(global: &GlobalArgs) -> Result<(), Value> {
     eprintln!("cmux: setup computer-use: waiting for the person to allow Computer Use in cmux");
-    let params = json!({"path": SETTING, "value": true, "confirm": true});
+    let params = json!({"path": SETTING, "value": ON, "confirm": true});
     match super::super::mcp::agent_app(global, "settings.set", params, APPROVAL_TIMEOUT, None) {
         Ok(_) => Ok(()),
         Err(error) if error.pointer("/data/declined") == Some(&Value::Bool(true)) => Err(json!({
@@ -306,18 +327,5 @@ fn wait_step() -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_failed_helper_offers_restart_instead_of_waiting() {
-        let step = next_step(&json!({"phase": "failed", "accessibility": null,
-                                    "screen_recording": null}))
-        .expect("restart step");
-        assert_eq!(step["kind"], "app");
-        assert_eq!(step["command"], "cmux action run palette.computerUse.restart");
-        let text = step["text"].as_str().unwrap();
-        assert!(text.contains("did not respond"));
-        assert!(text.contains("Settings > Agents"));
-    }
-}
+#[path = "computer_use_tests.rs"]
+mod tests;

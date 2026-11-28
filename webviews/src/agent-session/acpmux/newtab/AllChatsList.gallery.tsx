@@ -33,8 +33,9 @@ const baseProps = {
   onOpenInTerminal: () => undefined,
 };
 
-const waitForRetry = async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".nt-chats-retry") !== null);
+// The stage's zero grace (lasting.ts setLastingGrace) shows the quiet line at once.
+const waitForStillLoading = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-all-item.nt-chats-failed") !== null);
 };
 
 const pageLoad =
@@ -93,6 +94,17 @@ const longActive = [
   { id: "gallery-live-short", title: "Release notes", harness: "codex", state: "input" as const, label: "Needs input" },
 ];
 
+// When and the search's operators (ask-b75ea23533): a stand-in for acpmux that reads `since:Nd`
+// and `harness:` as chats/terms.rs does, so the list narrows as it would.
+const operatorLoad: LoadChatsPage = async ({ query = "" }) => {
+  const days = /(?:^|\s)since:(\d+)d(?:\s|$)/.exec(query)?.[1];
+  const harness = /(?:^|\s)harness:(\S+)/.exec(query)?.[1];
+  const since = days ? GALLERY_NOW - Number(days) * DAY_MINUTES * 60_000 : -Infinity;
+  const chats = longRows.chats.filter((row) => row.updatedAt >= since && (!harness || row.harness.startsWith(harness)));
+  return { ...longRows, chats };
+};
+const WHEN = { role: "button", name: "Last used" } as const;
+
 // The leaders (leads.ts): every live chat other chats report to, once, above the live chats.
 const leads = [
   { id: "gallery-lead-area", title: "area-owner", harness: "claude", state: "running" as const, label: "6 reporting" },
@@ -112,12 +124,12 @@ export default componentEntry<ComponentProps<typeof AllChatsList>>({
   anchors: [{ selector: ".nt-all" }],
   variants: {
     "page-failed": {
-      note: "When an older history page fails, the cursor stays in place and the loader becomes an inline Try again action.",
+      note: "When an older history page keeps failing, the cursor stays in place and the list asks again on its own; past the deadline the loader becomes one quiet line, with no button.",
       props: { ...baseProps, load: pageLoad(true) },
-      play: waitForRetry,
+      play: waitForStillLoading,
     },
     "page-recovered": {
-      note: "Retrying the same older page appends its chats and removes the recovery row.",
+      note: "An older page that answers (as an ask again does once the daemon is back) appends its chats with no recovery row.",
       props: { ...baseProps, load: pageLoad(false) },
     },
     "long-values": {
@@ -127,6 +139,31 @@ export default componentEntry<ComponentProps<typeof AllChatsList>>({
     leads: {
       note: "Leads: every leader (a live chat other chats report to) once, with how many report to it; a press opens its chat.",
       props: { ...baseProps, load: async () => longRows, active: longActive, leads, now: GALLERY_NOW },
+    },
+    "when-menu": {
+      note: "When, beside Filter: Any time, Past day, Past week or Past month, Any time checked.",
+      props: { ...baseProps, load: operatorLoad, active: longActive, now: GALLERY_NOW },
+      play: async (ctx) => {
+        await ctx.click(WHEN);
+        await ctx.waitFor(() => ctx.document.querySelector("[role=menuitemradio]"));
+      },
+    },
+    "when-past-week": {
+      note: "Past week writes since:7d into the search: the chats from the last seven days stay, the live chats too (they are in use now).",
+      props: { ...baseProps, load: operatorLoad, active: longActive, now: GALLERY_NOW },
+      play: async (ctx) => {
+        await ctx.click(WHEN);
+        await ctx.click({ role: "menuitemradio", name: "Past week" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-all-item").length === 2);
+      },
+    },
+    "operators-typed": {
+      note: "Operators typed by hand: since:3d harness:claude narrows to Claude chats of the last three days; When names the since: as typed.",
+      props: { ...baseProps, load: operatorLoad, active: longActive, now: GALLERY_NOW },
+      play: async (ctx) => {
+        await ctx.type("since:3d harness:claude", { selector: ".nt-all-search input" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-all-item").length === 1);
+      },
     },
     "page-empty": {
       note: "A first page with no cursor stays a quiet list with no dead loader row.",

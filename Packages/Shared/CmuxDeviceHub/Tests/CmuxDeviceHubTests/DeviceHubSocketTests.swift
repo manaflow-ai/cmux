@@ -48,6 +48,16 @@ final class EventLog: @unchecked Sendable {
 }
 
 @Suite struct DeviceHubSocketTests {
+    /// URLSession fails a WebSocket receive idle past `timeoutIntervalForRequest`; between pings the
+    /// hub's pong is the only frame, so the socket's session must outlast the ping (#54449 went to 60 s
+    /// while the shared REST transport kept 30 s, and every socket timed out between pings).
+    @Test func theSocketSessionOutlastsThePingInterval() {
+        let timeout = URLSessionDeviceHubConnector.makeTransport().configuration.timeoutIntervalForRequest
+        let ping = TimeInterval(DeviceHubSocket.defaultPingInterval.components.seconds)
+        #expect(timeout > ping)
+        #expect(timeout == TimeInterval(URLSessionDeviceHubConnector.idleTimeout.components.seconds))
+    }
+
     @Test func pushMessagesDecode() throws {
         #expect(DeviceHubPush(text: #"{"type":"devices.changed"}"#) == .devicesChanged)
         #expect(DeviceHubPush(text: #"{"type":"permissions.changed","hostId":"h1"}"#) == .permissionsChanged(hostID: "h1"))
@@ -64,6 +74,14 @@ final class EventLog: @unchecked Sendable {
         #expect(DeviceHubPush(text: #"{"type":"session.revoked","sessionId":"s1","reason":"device_removed"}"#)
             == .sessionRevoked(sessionID: "s1", reason: "device_removed"))
         #expect(DeviceHubPush(text: #"{"type":"session.ended","sessionId":"s1","reason":"bye"}"#) == .sessionEnded(sessionID: "s1", reason: "bye"))
+        // The hub's `ownerKind` survives the shared model (cmux Remote's host reads it after the app quits).
+        let own = #"{"type":"session.ticket","sessionId":"s2","ticket":"h.p.s","signalURL":"wss://hub.example/ws","ice":[],"peer":{"id":"v1","name":"Phone","signingKey":"K"},"role":"host","scope":"full","ownerKind":"user"}"#
+        guard case let .sessionTicket(ownTicket) = DeviceHubPush(text: own) else { Issue.record("no ticket"); return }
+        #expect(ownTicket.ownerKind == "user" && ownTicket.isOwnAccount)
+        #expect(!ticket.isOwnAccount && ticket.ownerKind == nil)
+        var team = ownTicket
+        team.ownerKind = "team"
+        #expect(!team.isOwnAccount)
         #expect(DeviceHubPush(text: #"{"type":"pong"}"#) == .pong)
         #expect(DeviceHubPush(text: #"{"type":"later.thing"}"#) == .unknown("later.thing"))
         #expect(DeviceHubPush(text: "not json") == nil)

@@ -8,11 +8,20 @@ pub fn now_ns() -> u64 {
     ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
 }
 
+/// Windows: the performance counter, the same absolute clock cmux-rd-link stamps
+/// datagram departures with, so ledger stages taken in either crate subtract.
 #[cfg(windows)]
 pub fn now_ns() -> u64 {
-    use std::sync::OnceLock;
-    static EPOCH: OnceLock<std::time::Instant> = OnceLock::new();
-    EPOCH.get_or_init(std::time::Instant::now).elapsed().as_nanos() as u64
+    use windows_sys::Win32::System::Performance::{
+        QueryPerformanceCounter, QueryPerformanceFrequency,
+    };
+    let (mut count, mut freq) = (0i64, 0i64);
+    // SAFETY: both calls write one i64 into a live local; they cannot fail on XP and later.
+    unsafe {
+        QueryPerformanceCounter(&mut count);
+        QueryPerformanceFrequency(&mut freq);
+    }
+    (count as u128 * 1_000_000_000 / freq.max(1) as u128) as u64
 }
 
 /// Small xorshift PRNG (test patterns and inter-sample jitter; not cryptographic).
@@ -39,3 +48,19 @@ impl Rng {
         lo + self.next_u64() % (hi - lo + 1)
     }
 }
+
+/// A mach absolute time `then` on the protocol clock (µs), given that the mach clock read `now`
+/// ticks when the protocol clock read `now_us`; `numer`/`denom` is the mach timebase (ns per tick).
+/// Signed: ScreenCaptureKit's frame display time is one such `then`, and it is usually the vsync
+/// the frame will be shown at, a few ms after the frame reaches the capture callback, so it must
+/// land after `now_us`, not be clamped onto it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn mach_to_protocol_us(now_us: u64, now: u64, then: u64, numer: u32, denom: u32) -> u64 {
+    let ticks = i128::from(then) - i128::from(now);
+    let offset_us = ticks * i128::from(numer) / i128::from(denom.max(1)) / 1000;
+    (i128::from(now_us) + offset_us).clamp(0, i128::from(u64::MAX)) as u64
+}
+
+#[cfg(test)]
+#[path = "clock_tests.rs"]
+mod tests;

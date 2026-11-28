@@ -2,7 +2,7 @@
 # Builds this checkout's cmux-tui client set on a build host whose tree is not
 # published: cmux-tui and the companions the bundle scripts install beside it
 # (cmux-tui-host, cmux-cloud, cmux-holder,
-# cmux-agent-screen-detection).
+# cmux-agent-screen-detection, cmux-launch-preread).
 # reload.sh uses it for an
 # nx-remote build (NX_JOB_ID) or a cmux-ci fleet step (CMUX_CI_PHASE_FILE: the
 # scripts/measure/ benches) when pin-cmux-tui.sh probe does not report the
@@ -70,6 +70,32 @@ mkdir -p "$target_dir" "$repo_root/cmux-tui/target"
 stage="$(mktemp -d "$repo_root/cmux-tui/target/.client-local.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
 
+# One target folder serves every checkout on a fleet host (warm slots and step
+# checkouts at different paths), and Cargo calls a workspace crate fresh when
+# its sources are older than the last build of the same (path-independent)
+# fingerprint. A tree checked out before another tree's build would get that
+# tree's artifacts, build scripts included: step 76c434d3 (cmux25, ref 744a93ed)
+# ran a cmux-wallpaper build script compiled for a deleted step checkout and
+# failed with "wallpapers/scene-engine/engine.wgsl: missing". So when the
+# target last built another checkout, this tree's Rust sources are touched:
+# Cargo rebuilds its own crates (what a new checkout path costs anyway) and
+# keeps the registry crates. A lock keeps two checkouts from interleaving.
+# The roots are the Rust sources this script builds: cmux-tui, the cmux-cloud
+# workspace, and the path dependencies they reach outside it.
+rust_roots=(cmux-tui first-party-apps/cloud/server workers/cmux-vm/cli)
+exec 9>>"$target_dir/.cmux-build-lock"
+python3 -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX)' \
+  || { echo "error: could not lock $target_dir" >&2; exit 1; }
+root_mark="$target_dir/.cmux-last-root"
+if [[ "$(cat "$root_mark" 2>/dev/null || true)" != "$repo_root" ]]; then
+  # No mark but a used target: a build before this rule, from any checkout.
+  if [[ -f "$root_mark" || -d "$target_dir/release" ]]; then
+    say "==> $target_dir last built $(cat "$root_mark" 2>/dev/null || echo 'an unmarked checkout'): rebuilding this checkout's crates"
+    (cd "$repo_root" && git ls-files -z -- "${rust_roots[@]}" | xargs -0 -r touch -c --)
+  fi
+  printf '%s\n' "$repo_root" > "$root_mark"
+fi
+
 say "==> building cmux-tui for tree $key ($commit)"
 (cd "$repo_root/cmux-tui" && CMUX_TUI_BUILD_COMMIT="$commit" CMUX_TUI_GHOSTTY_COMMIT="$ghostty_commit" \
   CARGO_TARGET_DIR="$target_dir" cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-host --release --locked >&2)
@@ -79,11 +105,11 @@ install -m 755 "$target_dir/release/cmux-tui-host" "$stage/cmux-tui-host"
 
 # The companions this source bundles beside cmux-tui: the ones its bundle
 # scripts name (the fleet recipe decides the same way).
-# The terminal holder builds on its own (std and libc only): with cmux-tui its
-# libc features would unify with the daemon's.
+# The terminal holder and the login-time pre-read build on their own (std and
+# libc only): with cmux-tui their libc features would unify with the daemon's.
 # The app host and the browser host are not built here: cmux-tui runs both by
 # argv[0], and the bundle scripts link them to it (link-folded-hosts.sh).
-for name in cmux-cloud cmux-holder cmux-agent-screen-detection; do
+for name in cmux-cloud cmux-holder cmux-agent-screen-detection cmux-launch-preread; do
   named=0
   for script in scripts/cmux-next/bundle-cmux-tui.sh scripts/install-cmux-tui-client.sh; do
     if [[ -f "$repo_root/$script" ]] && grep -q -- "$name" "$repo_root/$script"; then named=1; fi
@@ -95,6 +121,8 @@ for name in cmux-cloud cmux-holder cmux-agent-screen-detection; do
     cmux-agent-screen-detection) dir="cmux-tui/bindings/examples/rust-agent-screen-detection" ;;
     *) dir="cmux-tui/crates/$name" ;;
   esac
+  # The pre-read reader lands in its own cmux-tui change: a tree without it bundles none.
+  [[ "$name" == cmux-launch-preread && ! -f "$repo_root/$dir/Cargo.toml" ]] && continue
   [[ -f "$repo_root/$dir/Cargo.toml" ]] || { echo "error: this source bundles $name but has no $dir/Cargo.toml" >&2; exit 1; }
   say "==> building $name beside cmux-tui"
   if [[ "$name" == cmux-cloud || "$name" == cmux-agent-screen-detection ]]; then

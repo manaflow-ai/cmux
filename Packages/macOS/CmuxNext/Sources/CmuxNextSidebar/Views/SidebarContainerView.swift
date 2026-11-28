@@ -207,7 +207,6 @@ public final class SidebarContainerView: NSView {
         syncHandleVisibility()
         handle.restingLineWidth = Metrics.sidebarBorderWidth
         handle.onDrag = { [weak self] phase in self?.handleDrag(phase) }
-        handle.yieldsPress = { [weak self] point in self?.scrollerTakesPress(at: point) ?? false }
         mountRail()
         observe()
     }
@@ -283,6 +282,14 @@ public final class SidebarContainerView: NSView {
         model.presentation = presentation
         animationGeneration += 1
         snap()
+    }
+
+    /// ``restore(width:presentation:)``, unless the sidebar already shows them (a launch window
+    /// opened at the record's or the layout cache's sidebar): nothing snaps or redraws.
+    public func restoreIfChanged(width: CGFloat?, presentation: SidebarPresentation) {
+        guard let width, abs(model.width - width) < 0.5, model.presentation == presentation else {
+            return restore(width: width, presentation: presentation)
+        }
     }
 
     /// Starts inline rename of a workspace, showing the sidebar first when
@@ -401,11 +408,15 @@ public final class SidebarContainerView: NSView {
         setClipReach(paneReach, collapsed: isPanelCollapsed, animated: false)
         SidebarHiddenState.apply(isPanelCollapsed, to: panel)
         panel.alphaValue = 1
+        // A restore can change the float look, and with it the reach: remount so the band follows the
+        // surface edge in this turn, not the observation's next one (as `apply()` does).
+        if paneReach != mountedPaneReach || resizeBand != mountedBand { mountHandle() }
         syncHandleVisibility()
         syncRail()
-        // A layout callback can start a newer width animation; that one owns the motion flag.
+        // A layout callback can start a newer width animation; that one owns the motion flag. Off screen (a window
+        // being built at launch) nothing reads the frames before its first display lays it out once (startup-tti).
         let generation = animationGeneration
-        superview?.layoutSubtreeIfNeeded()
+        if window?.isVisible == true { superview?.layoutSubtreeIfNeeded() } else { superview?.needsLayout = true }
         guard generation == animationGeneration else { return }
         isWidthAnimating = false
     }

@@ -103,6 +103,9 @@ public struct WindowRegistry: Equatable, Sendable {
     /// Workspaces of closed incognito windows until the daemons stop
     /// reporting them: reconcile never gives them to a window.
     public private(set) var discarding: Set<String> = []
+    /// Window lists `reconcile` and `order(like:)` sorted (a list already in the daemons' order is kept as it is, one
+    /// walk, no sort): a test's count that a new workspace sorts no window again. Not part of `==`.
+    public private(set) var sortedLists = 0
 
     public init(windows: [Window] = []) {
         self.windows = windows
@@ -139,6 +142,9 @@ public struct WindowRegistry: Equatable, Sendable {
     public func isGuest(_ workspaceID: String, in id: String) -> Bool { window(id)?.guests.contains(workspaceID) == true }
 
     public var openWindows: [Window] { windows.filter(\.isOpen) }
+
+    /// The open windows' ids, front first.
+    public var openRecency: [String] { recency.filter { window($0)?.isOpen == true } }
 
     /// The front open window `shows` accepts (a saved window that can show a workspace now).
     public func frontOpen(where shows: (Window) -> Bool) -> String? {
@@ -409,16 +415,20 @@ public struct WindowRegistry: Equatable, Sendable {
         let rank = Dictionary(live.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         var pruned = windows
         for index in pruned.indices {
-            pruned[index].workspaceIDs = pruned[index].workspaceIDs.filter { !dead.contains($0) }.merged(adding: [], rank: rank)
+            // No dead workspace (Cmd-N, a join): the list keeps its storage, so `windows`' compare is O(windows).
+            let kept = dead.isEmpty ? pruned[index].workspaceIDs : pruned[index].workspaceIDs.filter { !dead.contains($0) }
+            pruned[index].workspaceIDs = kept.merged(adding: [], rank: rank, sorts: &sortedLists)
             if !pruned[index].guests.isEmpty { pruned[index].guests.subtract(dead) }
         }
         windows = pruned
-        discarding = discarding.intersection(live).subtracting(dead)
-        let owned = Set(owners.keys).union(discarding)
+        if !discarding.isEmpty { discarding = discarding.intersection(live).subtracting(dead) }
+        // Read in place: no set of every owned id per reconcile.
+        let owners = owners, discarding = discarding
+        func owned(_ id: String) -> Bool { owners[id] != nil || discarding.contains(id) }
         // Each heir takes its orphans in one merge (one sort per window, not
         // one per orphan); the result is the same, every orphan is ranked.
         var heirs: [String] = []
-        for orphan in live where !owned.contains(orphan) && !held.contains(orphan) {
+        for orphan in live where !owned(orphan) && !held.contains(orphan) {
             let claimed = placements[orphan].flatMap { placementWindow($0, behind: behind.contains($0)) }
             let heir = claimed ?? mostRecentOpen() ?? recency.first { !isIncognito($0) } ?? register(fallbackWindow())
             guard window(heir) != nil else { continue }
@@ -429,7 +439,7 @@ public struct WindowRegistry: Equatable, Sendable {
             var grown = windows
             for heir in heirs {
                 guard let index = grown.firstIndex(where: { $0.id == heir }), let orphans = changes.moved[heir] else { continue }
-                grown[index].workspaceIDs = grown[index].workspaceIDs.merged(adding: orphans, rank: rank)
+                grown[index].workspaceIDs = grown[index].workspaceIDs.merged(adding: orphans, rank: rank, sorts: &sortedLists)
             }
             windows = grown
         }
@@ -455,7 +465,7 @@ public struct WindowRegistry: Equatable, Sendable {
     public mutating func order(like live: [String]) {
         let rank = Dictionary(live.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         var ordered = windows
-        for index in ordered.indices { ordered[index].workspaceIDs = ordered[index].workspaceIDs.merged(adding: [], rank: rank) }
+        for index in ordered.indices { ordered[index].workspaceIDs = ordered[index].workspaceIDs.merged(adding: [], rank: rank, sorts: &sortedLists) }
         if ordered != windows { windows = ordered }
     }
 
@@ -522,9 +532,14 @@ public struct WindowRegistry: Equatable, Sendable {
 }
 
 extension Array where Element == String {
-    /// `self` plus `adding`, placed by `rank` (unranked entries keep their spot).
-    func merged(adding: [String], rank: [String: Int]) -> [String] {
-        (self + adding).enumerated().sorted { lhs, rhs in
+    /// `self` plus `adding`, placed by `rank` (unranked entries keep their spot). A list already in that order (ranked
+    /// entries first, by rank; the usual case: a new workspace joins at the end of `live`) is returned as it is after
+    /// one walk, with its storage when `adding` is empty; only a list out of order is sorted, counted in `sorts`.
+    func merged(adding: [String], rank: [String: Int], sorts: inout Int) -> [String] {
+        let all = adding.isEmpty ? self : self + adding
+        if all.isRankOrdered(rank) { return all }
+        sorts += 1
+        return all.enumerated().sorted { lhs, rhs in
             switch (rank[lhs.element], rank[rhs.element]) {
             case let (l?, r?): l < r
             case (_?, nil): true
@@ -532,5 +547,17 @@ extension Array where Element == String {
             case (nil, nil): lhs.offset < rhs.offset
             }
         }.map(\.element)
+    }
+
+    /// Whether the sort in `merged` would leave the list as it is: every ranked entry before every unranked one, the
+    /// ranked ones in rank order.
+    func isRankOrdered(_ rank: [String: Int]) -> Bool {
+        var last = Int.min, unranked = false
+        for id in self {
+            guard let r = rank[id] else { unranked = true; continue }
+            if unranked || r < last { return false }
+            last = r
+        }
+        return true
     }
 }

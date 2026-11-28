@@ -8,6 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
+import type { CloudSignIn as CloudSignInActions } from "./cloudAgentLogin";
 import { type HarnessHealth, type UpdateOffer } from "./harnessHealthNoticeModel";
 import { settleReact } from "../../../test/support/domTeardown";
 
@@ -80,7 +81,7 @@ async function render(
   opened: Opened[] = [],
   harness = "codex",
   native: (method: string, params: Record<string, unknown>) => Promise<unknown> = () => new Promise(() => undefined),
-  extra: { turnRunning?: boolean; onUpdated?: () => void } = {},
+  extra: { turnRunning?: boolean; onUpdated?: () => void; signIn?: CloudSignInActions } = {},
 ) {
   await act(async () => {
     root ??= createRoot(container);
@@ -147,6 +148,44 @@ test("a signed-out agent CLI says so, and Log In runs its login in a terminal ta
   // Not Now hides it for this chat.
   await press(container, "dismiss");
   expect(notice(container)).toBeNull();
+});
+
+test("where this Mac's daemon runs the agent's login, Log In is the sign-in card: the code in place, no terminal", async () => {
+  // Logins done right (Leo, 2026-11-22: "this is simply logins, done righr."): localAgentLogin.
+  const container = installDom();
+  const steps: string[] = [];
+  const signIn: CloudSignInActions = {
+    agent: "codex",
+    start: async () => {
+      steps.push("start");
+      return { loginId: "l1", url: "https://auth.openai.com/codex/device", userCode: "ABCD-1234", needsCode: false };
+    },
+    open: () => steps.push("open"),
+    openOnMachine: async () => false,
+    finish: () => new Promise<boolean>(() => {}),
+    apiKey: async () => true,
+    gateway: async () => true,
+    cancel: () => steps.push("cancel"),
+    reserve: async () => undefined,
+    resend: async () => {},
+  };
+  const opened = await render(container, signedOut, [], "codex", undefined, { signIn });
+  expect(notice(container)?.dataset.harnessNotice).toBe("signedOut");
+  expect(button(container, "login")).toBeNull();
+  const start = [...notice(container)!.querySelectorAll("button")].find((node) =>
+    node.textContent?.includes("Sign in to Codex"),
+  )!;
+  expect(start).toBeDefined();
+  await act(async () => start.click());
+  await act(async () => {});
+  expect(steps).toContain("start");
+  expect(text(container)).toContain("ABCD-1234");
+  // The code is the card's text only, in no attribute.
+  const attrs = [...notice(container)!.querySelectorAll("*")].flatMap((node) =>
+    [...node.attributes].map((a) => a.value),
+  );
+  expect(attrs.some((value) => value.includes("ABCD-1234"))).toBe(false);
+  expect(opened).toEqual([]);
 });
 
 test("an expired sign-in says so, and Log In runs its login like a signed-out one", async () => {

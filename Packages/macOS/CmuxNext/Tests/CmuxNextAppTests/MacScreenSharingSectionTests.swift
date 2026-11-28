@@ -118,6 +118,25 @@ struct MacScreenSharingSectionTests {
         }
     }
 
+    /// This Mac not on the device hub yet (its socket reconnecting, run 45954248647): every look still draws
+    /// This Mac with its switch and permissions, and says why the switch waits, not a page with only Your Devices.
+    @Test(arguments: MacScreenSharingLook.allCases)
+    func everyLookDrawsThisMacWhileTheHubReconnects(_ look: MacScreenSharingLook) throws {
+        try withHome { home in
+            var waiting = sharing(screenRecording: false, accessibility: false)
+            waiting.isSharing = false
+            waiting.busy = true
+            waiting.hubNote = MacScreenHomeSnapshot.hubNote(.starting)
+            let section = home.sharingSection(waiting, look: look)
+            let ids = views(under: section).map { $0.accessibilityIdentifier() }
+            #expect(ids.contains("macScreen.home.allowToggle"))
+            #expect(ids.contains("macScreen.home.hubNote"))
+            #expect(texts(under: section).contains(L.t("macScreen.home.thisMacJoining", "Connecting this Mac to the device hub…")))
+            let failed = MacScreenHomeSnapshot.hubNote(.failed("timed out"))
+            #expect(failed.contains("timed out"), "\(failed)")
+        }
+    }
+
     /// Every look draws the switch, and the status while sharing; off, no status and no permission rows.
     @Test(arguments: MacScreenSharingLook.allCases)
     func everyLookDrawsTheSwitchAndStatus(_ look: MacScreenSharingLook) throws {
@@ -132,6 +151,26 @@ struct MacScreenSharingSectionTests {
             #expect(views(under: offView).contains { $0.accessibilityIdentifier() == "macScreen.home.allowToggle" })
             #expect(!texts(under: offView).contains(Self.ready))
             #expect(!texts(under: offView).contains(L.t("macScreen.home.screenRecording", "Screen Recording")))
+        }
+    }
+
+    /// The simple look (the default, Leo 2026-11-16: "i hate the "you approve each one" ... it's too many ... steps"):
+    /// no "approve each one", no per-permission rows; one Grant Access while a permission is missing, and
+    /// who is connected with one Stop.
+    @Test func simpleLookIsOneSwitchOneGrantAndStop() throws {
+        #expect(MacScreenTunables.sharingLook.defaultValue == .simple)
+        try withHome { home in
+            let open = L.t("macScreen.home.openSettings", "Open System Settings")
+            let missing = home.sharingSection(sharing(screenRecording: false, accessibility: false), look: .simple)
+            #expect(!texts(under: missing).contains { $0.localizedCaseInsensitiveContains("approve each") })
+            #expect(views(under: missing).filter { $0.accessibilityIdentifier() == "macScreen.home.grantAccess" }.count == 1)
+            #expect(!views(under: missing).contains { ($0 as? NSButton)?.title == open })
+            let granted = home.sharingSection(sharing(screenRecording: true, accessibility: true), look: .simple)
+            #expect(!views(under: granted).contains { $0.accessibilityIdentifier() == "macScreen.home.grantAccess" })
+            let session = MacScreenHubHost.Session(id: "s", viewerID: "v", viewerName: "Laptop", scope: .full, connected: true)
+            let connected = home.sharingSection(sharing(screenRecording: true, accessibility: true, session: session), look: .simple)
+            #expect(texts(under: connected).contains("Connected: Laptop · Controlling"))
+            #expect(views(under: connected).filter { $0.accessibilityIdentifier() == "macScreen.home.stop" }.count == 1)
         }
     }
 

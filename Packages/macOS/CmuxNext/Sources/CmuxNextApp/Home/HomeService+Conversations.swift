@@ -53,63 +53,38 @@ extension HomeService {
     }
 
     /// Creates another Chief on `backend`; its main conversation shows once the inbox lists it.
-    /// The one create path of the New Chief sheet, the palette and `cmux home new-chief`: an
-    /// engine whose Chiefs are this Mac's (UniiChat, Codex: ``ChiefBackend/createsOnThisMac``)
-    /// goes to this Mac's Chief owner, Claude to the signed-in account's cloud Chiefs.
-    func createChief(named name: String, backend: ChiefBackend = .claude) async -> HomeComposeOutcome {
-        backend.createsOnThisMac ? await createLocalChief(named: name, backend: backend) : await createCloudChief(named: name)
+    /// The one create path of the New Chief sheet, the New Chief button, the palette and `cmux home
+    /// new-chief`. The default is where the engine's Chiefs live: Claude's on the signed-in account's
+    /// cloud Chiefs (`chief.create`), UniiChat's, Codex's and Muse's on this Mac's Chief owner
+    /// (``ChiefBackend/createsOnThisMac``). `onThisMac` is the person's own choice in New Chief
+    /// ("Make it on this Mac"): the Chief is made on this Mac's Chief owner whatever the engine.
+    func createChief(named name: String, backend: ChiefBackend = .claude, onThisMac: Bool = false) async -> HomeComposeOutcome {
+        await createChiefForAction(named: name, backend: backend, onThisMac: onThisMac).outcome
     }
 
     /// Headless action path: returns the exact durable record created by this
     /// invocation, so concurrent Home actions cannot cross their result ids.
-    func createChiefForAction(named name: String, backend: ChiefBackend) async -> HomeActionChiefResult {
-        if backend.createsOnThisMac {
-            guard let connection else { return .failure(.offline) }
+    /// It makes the Chief where ``createChief(named:backend:onThisMac:)`` does.
+    func createChiefForAction(named name: String, backend: ChiefBackend, onThisMac: Bool = false) async -> HomeActionChiefResult {
+        if backend.createsOnThisMac || onThisMac {
+            guard let creator = localChiefCreator() else { return .failure(.offline) }
             do {
-                let made = try await HomeLocalChiefCreator(connection: connection, me: Self.localUser)
-                    .create(name: name, backend: backend)
+                let made = try await creator.create(name: name, backend: backend)
                 pendingSelection = made.conversation
                 refreshChiefHarnesses()
                 return .success(HomeChiefRecord(id: made.chief, name: name, isDefault: false, rev: 0,
                                                 mainConversation: made.conversation.rawValue, placed: true))
-            } catch let error as DaemonError {
-                switch error {
-                case .notConnected, .connectionClosed, .daemonShutdown: return .failure(.offline)
-                case .command(_, let message, let code, _, _): return .failure(.refused(message.isEmpty ? code ?? "" : message))
-                default: return .failure(.refused(error.description))
-                }
             } catch {
-                return .failure(.refused(String(describing: error)))
+                return .failed(error, onThisMac: true)
             }
         }
         do {
-            let record = try await directory.createChief(named: name)
+            let record = try await cloudChiefCreate(name)
             if !record.placed { turnOnBrain(of: record.id) }
             pendingSelection = record.mainConversation.map { ConversationID($0) }
             return .success(record)
-        } catch FeedServiceError.signedOut {
-            return .failure(.offline)
-        } catch FeedServiceError.owner(let code, let message) {
-            return .failure(.refused(code == "policy.denied" || code == "validation.invalid" ? message : code))
         } catch {
-            return .failure(.refused(""))
-        }
-    }
-
-    /// `chief.create` on the signed-in account's cloud Chiefs (the default engine).
-    private func createCloudChief(named name: String) async -> HomeComposeOutcome {
-        do {
-            let record = try await directory.createChief(named: name)
-            if !record.placed { turnOnBrain(of: record.id) }
-            let id = record.mainConversation.map { ConversationID($0) }
-            pendingSelection = id
-            return id.map { HomeComposeOutcome.opened($0) } ?? .invited(nil)
-        } catch FeedServiceError.signedOut {
-            return .offline
-        } catch FeedServiceError.owner(let code, let message) {
-            return code == "policy.denied" || code == "validation.invalid" ? .refused(message) : .refusal(code: code)
-        } catch {
-            return .refused("")
+            return .failed(error, onThisMac: false)
         }
     }
 
@@ -122,7 +97,7 @@ extension HomeService {
     }
 
     /// The Chief record behind a conversation row, when the row is a DM
-    /// with one of my cloud Chiefs (the local Chief is never archived).
+    /// with one of my cloud Chiefs (this Mac's Chiefs are not archived here).
     func chief(of row: InboxRow) -> HomeChiefRecord? {
         guard row.kind == .chief, let me = homeStore.me?.id,
               let agent = row.summary.participants.first(where: { $0.id != me && $0.isChief }) else { return nil }
@@ -271,15 +246,24 @@ extension HomeService {
         }
     }
 
-    /// Each listed Chief's avatar as its Home row, header and bubbles draw it: its own picture or
-    /// text, else its own upload or picked character (`AppServices.chosenPicture(of:)`), so one Chief's
-    /// never shows on another; a Chief with none is left out and draws its name's monogram.
+    /// Each listed Chief's avatar (`HomeChiefAvatars.faces`; its picture is `AppServices.chosenPicture(of:)`).
     var chiefFaces: [String: HomeChiefAvatar] {
-        var chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) } + [HomeChiefAvatars.defaultChief])
+        let chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) } + [HomeChiefAvatars.defaultChief])
+        return HomeChiefAvatars.faces(chiefs: chiefs.union(fixtureChiefs), own: directory.chiefAvatars) { services.chosenPicture(of: $0) }
+    }
+
+    /// `chiefFaces[chief]` alone: the sidebar asks once per row.
+    func chiefFace(of chief: String) -> HomeChiefAvatar? {
+        HomeChiefAvatars.face(of: chief, rows: homeStore.rows, extra: fixtureChiefs, own: directory.chiefAvatars) { services.chosenPicture(of: $0) }
+    }
+
+    /// DEBUG: the sidebar fixture's Chiefs (`debugChiefs`); none in other builds.
+    private var fixtureChiefs: Set<String> {
         #if DEBUG
-        chiefs.formUnion(debugChiefs)
+        return debugChiefs
+        #else
+        return []
         #endif
-        return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) { services.chosenPicture(of: $0) }
     }
 
     /// Chief `chief` (a participant id) as an agent chat draws a message it sent there
@@ -293,22 +277,13 @@ extension HomeService {
             ?? directory.chiefs.first { $0.id == chief }?.name
         // The sidebar draws the default Chief (`agent_mux`) with no id.
         var picture = services.chosenPicture(of: chief == DaemonHomeSource.chief.id ? nil : chief), text: String?
-        switch chiefFaces[chief] {
+        switch chiefFace(of: chief) {
         case .picture(let url): picture = url
         case .text(let own): text = own
         case nil: break
         }
         if picture == nil, text == nil { text = HomeChiefAvatar.monogram(of: name ?? "") }  // as Home's header (CH)
         return await avatars.chiefFace(name: name, picture: picture, text: text)
-    }
-
-    /// `own` (each Chief's own avatar), with each other Chief in `chiefs` wearing its `picture` (its upload) when it has one.
-    static func chiefFaces(chiefs: Set<String>, own: [String: HomeChiefAvatar], picture: (String) -> URL?) -> [String: HomeChiefAvatar] {
-        var faces = own
-        for chief in chiefs where faces[chief] == nil {
-            if let url = picture(chief) { faces[chief] = .picture(url) }
-        }
-        return faces
     }
 
     /// The participant id of the one Chief in `participants`; nil for none or several.

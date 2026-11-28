@@ -1,5 +1,6 @@
 public import CmuxNextPages
 public import CmuxNextSettings
+import CmuxNextCompat
 import Foundation
 
 /// Settings > Updates' App Update card: where a download shows its progress and its Cancel now
@@ -44,6 +45,13 @@ extension UpdaterService {
                 json["detail"] = .string(version.map(UpdaterStrings.foundVersion) ?? UpdaterStrings.restartKeepsSessions)
             }
             actions = [.install]
+            // "What's in this build" (the popover's ``BuildPullRequests``): the staged span's PRs by area.
+            if let prs = stagedPullRequests, !prs.isEmpty,
+               case .object(var members)? = try? JSONValue.parse(JSONEncoder().encode(prs)) {
+                members["title"] = .string(UpdaterStrings.pullRequestsTitle)
+                members["other"] = .string(UpdaterStrings.pullRequestsOther)
+                json["prs"] = .object(members)
+            }
         case .card(let shown):
             let card = Self.settingsQuantized(shown)
             let shown = card.presentation(version: identity.shortVersion, build: identity.build,
@@ -58,8 +66,46 @@ extension UpdaterService {
             actions = Self.settingsActions(card, shown)
         }
         json["phase"] = .string(settingsStatus?.kind ?? "idle")
+        json["schedule"] = .array(settingsSchedule().map { ["id": .string($0.id), "label": .string($0.label), "value": .string($0.value)] })
         json["actions"] = .array(actions.map { ["id": .string($0.rawValue), "title": .string($0.title), "prominent": .bool($0.isProminent)] })
         return .object(json)
+    }
+
+    /// The card's Last Updated and Next Check lines. Last Updated is when this build's bundle was put in place
+    /// (Sparkle's install moves a new bundle in, so its creation date is the install's); Next Check is the
+    /// Rust rule's (`update_idle::next_check_in`) over Sparkle's last check and interval. A line with no
+    /// reading is left out rather than guessed.
+    func settingsSchedule(now: Date = Date()) -> [(id: String, label: String, value: String)] {
+        var lines: [(id: String, label: String, value: String)] = []
+        if let installed = Self.bundleInstalledDate() {
+            lines.append(("lastUpdated", UpdaterStrings.settingsLastUpdated, Self.scheduleDate(installed)))
+        }
+        if let controller {
+            if let interval = controller.scheduledCheckInterval {
+                let since = controller.lastUpdateCheckDate.map { now.timeIntervalSince($0) }
+                if let seconds = nextCheckRule?(since, interval) {
+                    let value = seconds < 60 ? UpdaterStrings.settingsNextCheckSoon : Self.scheduleDate(now.addingTimeInterval(seconds))
+                    lines.append(("nextCheck", UpdaterStrings.settingsNextCheck, value))
+                }
+            } else {
+                lines.append(("nextCheck", UpdaterStrings.settingsNextCheck, UpdaterStrings.settingsNextCheckOff))
+            }
+        }
+        return lines
+    }
+
+    /// The running bundle's creation date: when the install (or the person) put it in place.
+    nonisolated static func bundleInstalledDate(_ bundle: URL = Bundle.main.bundleURL) -> Date? {
+        try? bundle.blockingResourceValues(forKeys: [.creationDateKey]).creationDate
+    }
+
+    /// "Today at 9:41 PM", "Yesterday at 8:02 AM", "Nov 20, 2026 at 6:15 PM", in the person's locale.
+    nonisolated static func scheduleDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        return formatter.string(from: date)
     }
 
     /// `card` with a measured download's bytes rounded down to whole percent, so neither the bar
@@ -121,7 +167,7 @@ public nonisolated enum SettingsUpdateAction: String, Sendable, CaseIterable {
         case .update: self = .update
         case .cancelDownload: self = .cancelDownload
         case .retry: self = .retry
-        case .releaseNotes, .details: return nil
+        case .releaseNotes, .details, .goBack: return nil
         }
     }
 
@@ -130,6 +176,7 @@ public nonisolated enum SettingsUpdateAction: String, Sendable, CaseIterable {
         case .check: UpdaterStrings.settingsCheckNow
         case .update: UpdaterStrings.update
         case .cancelDownload: UpdaterStrings.cancel
+        // retry-prompt-ok: an update that downloads and replaces binaries
         case .retry: UpdaterStrings.retry
         case .install: UpdaterStrings.restartToUpdate
         }
@@ -139,8 +186,8 @@ public nonisolated enum SettingsUpdateAction: String, Sendable, CaseIterable {
     public var isProminent: Bool { self == .install || self == .update }
 }
 
-/// Settings > Updates' App Update card's buttons (`cmux.settings.app_update.run {action}`), routed
-/// here by prefix. The card reads ``UpdaterService/settingsPageJSON`` from the host lists.
+/// Settings > Updates' App Update card's buttons (`cmux.settings.app_update.run {action}`), and its
+/// Go Back to Previous Build row (`.previous`, `.rollback {build}`), routed here by prefix. The card reads ``UpdaterService/settingsPageJSON`` from the host lists.
 @MainActor
 public final class AppUpdatePageProvider: PageProvider {
     public static let prefix = "cmux.settings.app_update."
@@ -151,7 +198,23 @@ public final class AppUpdatePageProvider: PageProvider {
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
-        guard op == Self.prefix + "run" else { throw PageError.unknownOp(op) }
+        switch op {
+        case Self.prefix + "previous":
+            // The card's Go Back to Previous Build row: the newest kept build and whether it would run.
+            return await updater.previousBuildPageJSON()
+        case Self.prefix + "rollback":
+            // It restarts the app into the kept build: the person's own click only.
+            guard context.userGesture else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: "Go Back to Previous Build needs the person's click")
+            }
+            guard let build = params["build"]?.stringValue else { throw PageError.invalidParams("build") }
+            if let failure = await updater.goBackToPreviousBuild(build) { throw PageError(code: "cmux.page.refused", message: failure) }
+            return .object([:])
+        case Self.prefix + "run":
+            break
+        default:
+            throw PageError.unknownOp(op)
+        }
         guard let id = params["action"]?.stringValue, let action = SettingsUpdateAction(rawValue: id) else {
             throw PageError.invalidParams("action is one of \(SettingsUpdateAction.allCases.map(\.rawValue))")
         }

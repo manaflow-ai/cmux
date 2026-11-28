@@ -32,10 +32,10 @@
 //!
 //! The launch and seed (`terminal_respawn/launch.rs`) and the pre-fill
 //! (`terminal_respawn/prefill.rs`): an agent session's resume runs at the
-//! shell's own empty prompt ("Resume Agents After Restart", on by default)
-//! unless its flags turn approvals off; a resume command a person set, or an
-//! agent resume with approvals off, is typed without Return (#22292); a
-//! command never runs again, and the marker line names it. The manual
+//! shell's own empty prompt ("Resume Agents After Restart", on by default),
+//! through the launcher and with the flags it was started with (`sr2 claude
+//! --resume <id> ...`); a resume command a person set is typed without
+//! Return; a command never runs again, and the marker line names it. The manual
 //! restart of a tab this path leaves dead (`terminal_respawn/manual.rs`,
 //! `restart-tab`) runs the same worker, in the same gate: a frontend restarts
 //! every kept tab of a restored session at its connect, and those launches
@@ -43,6 +43,7 @@
 
 #[cfg(any(unix, windows))]
 pub(super) mod launch;
+pub(crate) mod lazy;
 pub(crate) mod manual;
 #[cfg(any(unix, windows))]
 mod prefill;
@@ -142,6 +143,15 @@ pub(crate) struct TerminalRespawns {
     /// Respawn launches still to fail on purpose with a launch error
     /// (`CMUX_TUI_TEST_RESPAWN_LAUNCH_ERRORS`, debug builds).
     injected_launch_errors: AtomicU64,
+    /// Lazy start (`terminal_respawn/lazy.rs`, `CMUX_TUI_LAZY_START`, on
+    /// by default, `0` turns it off): a lost plain shell of a workspace
+    /// nobody shows is parked, not respawned, and starts on its first need.
+    lazy_start: AtomicBool,
+    /// Never-started lazy tabs by host terminal id (`lazy.rs`): their
+    /// placeholder runtime is placed, and their park is pending or done.
+    lazy_created: Mutex<HashMap<String, lazy::LazyCreated>>,
+    /// One park of a never-started tab at a time (`lazy.rs`).
+    lazy_finish: Mutex<()>,
 }
 
 /// At most this many command argvs are kept; the oldest goes first.
@@ -205,6 +215,9 @@ impl TerminalRespawns {
                     .unwrap_or(0),
             ),
             injected_launch_errors: AtomicU64::new(injected_launch_errors()),
+            lazy_start: AtomicBool::new(lazy::lazy_start_from_env()),
+            lazy_created: Mutex::default(),
+            lazy_finish: Mutex::new(()),
         }
     }
 
@@ -242,6 +255,7 @@ impl TerminalRespawns {
     pub(crate) fn forget_argv(&self, terminal_id: &str) {
         self.argv.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
         self.guard.lock().unwrap_or_else(PoisonError::into_inner).forget(terminal_id);
+        self.lazy_created.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
     }
 
     pub(crate) fn argv(&self, terminal_id: &str) -> Option<Vec<String>> {
@@ -261,6 +275,10 @@ pub(super) enum RespawnDecision {
     Planned(Box<RespawnPlan>),
     /// The terminal used every attempt of the window.
     Exhausted(TerminalPublicId),
+    /// Lazy start: a plain shell of a workspace nobody shows. Its tabs are
+    /// parked (`relaunch.on_show`) and it starts on its first need
+    /// (`terminal_respawn/lazy.rs`).
+    Park(TerminalPublicId),
 }
 
 /// What is left for a respawn worker when its try ends, to do with its turn
@@ -350,6 +368,10 @@ impl Mux {
             RespawnDecision::Planned(plan) => *plan,
             RespawnDecision::Exhausted(public_id) => {
                 self.end_terminal_respawn_exhausted(terminal_id, end, &public_id);
+                return;
+            }
+            RespawnDecision::Park(public_id) => {
+                self.park_lazy_restored_terminal(&public_id);
                 return;
             }
         };
@@ -453,6 +475,10 @@ impl Mux {
             .any(|(id, marker)| id == terminal_id && *marker == PendingTerminal::Respawning)
         {
             return None;
+        }
+        // Lazy start: a plain shell nobody shows waits for its first need.
+        if self.lazy_restore_parks(registry, state, terminal_id, slot) {
+            return Some(RespawnDecision::Park(public_id));
         }
         let admitted = self
             .terminal_respawns
@@ -650,8 +676,16 @@ impl Mux {
             .unwrap_or_else(PoisonError::into_inner)
             .terminal_relaunch_record(&plan.terminal_id)?;
         // Its own short registry holds: the rebuild runs with no lock.
-        let seed_source = self.previous_screen(&plan);
-        let launch = self.respawn_launch(&plan, record.as_ref(), seed_source, geometry);
+        // A never-started lazy tab (`lazy.rs`) has no previous screen: its
+        // first shell starts as a new tab's does, with no marker line.
+        let never_started = self.lazy_never_started(&plan.terminal_id);
+        let seed_source = if never_started { None } else { self.previous_screen(&plan) };
+        let mut launch = self.respawn_launch(&plan, record.as_ref(), seed_source, geometry);
+        if never_started {
+            launch.seed.clear();
+            // From its first start on it is an ordinary terminal.
+            self.forget_lazy_created(&plan.terminal_id);
+        }
         let workspace_key = {
             let mut registry =
                 self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
@@ -889,45 +923,5 @@ fn wait_for_old_hosts(root: &Path, terminal_id: &str) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// R-LIFECYCLE S1b: an abandoned respawn changes what keeps an app
-    /// session's owner (server/owner_keepers.rs), so it wakes the terminal
-    /// lifecycle watchers, as the other ends of a respawn do.
-    #[cfg(any(unix, windows))]
-    #[test]
-    fn an_abandoned_respawn_wakes_the_terminal_lifecycle_watchers() {
-        let mux = Mux::new_for_test("test", SurfaceOptions::default());
-        let events = mux.subscribe_terminal_lifecycle();
-        while events.try_recv().is_ok() {}
-        mux.pending_terminals
-            .lock()
-            .unwrap()
-            .insert("term_x".to_string(), ("t1".to_string(), PendingTerminal::Respawning));
-        mux.abandon_terminal_respawn("t1");
-        assert!(!mux.terminal_is_respawning("t1"));
-        assert!(
-            events.try_recv().is_ok(),
-            "an abandoned respawn woke no terminal lifecycle watcher"
-        );
-    }
-
-    #[test]
-    fn a_closed_terminals_argv_is_forgotten_and_the_memory_is_bounded() {
-        let respawns = TerminalRespawns::from_env();
-        let argv = vec!["make".to_string(), "test".to_string()];
-        respawns.remember_argv("t1", &argv);
-        assert_eq!(respawns.argv("t1"), Some(argv.clone()));
-        respawns.forget_argv("t1");
-        assert_eq!(respawns.argv("t1"), None);
-        for index in 0..ARGV_LIMIT + 10 {
-            respawns.remember_argv(&format!("t{index}"), &argv);
-        }
-        assert_eq!(respawns.argv("t0"), None, "the oldest argv was not evicted");
-        assert_eq!(respawns.argv(&format!("t{}", ARGV_LIMIT + 9)), Some(argv));
-        let memory = respawns.argv.lock().unwrap_or_else(PoisonError::into_inner);
-        assert_eq!(memory.by_terminal.len(), ARGV_LIMIT);
-        assert_eq!(memory.order.len(), ARGV_LIMIT);
-    }
-}
+#[path = "terminal_respawn_tests.rs"]
+mod tests;
