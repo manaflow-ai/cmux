@@ -245,6 +245,10 @@ done
 # Pools this call may move to, in order, and the ones that refused it so far (space-padded).
 pools="${GH_TOKEN_SPARE:-} ${GH_TOKEN_SPARES:-}"
 refused=" "
+# The token the call came with: a spare that cannot do this call (a read-only pool on a write, a
+# repo it does not cover) hands the call back to it, which then waits out its reset as before.
+orig_set="${GH_TOKEN+set}" orig_token="${GH_TOKEN:-}" moved=""
+denied='Resource not accessible|HTTP 403|HTTP 404|Not Found|Bad credentials|HTTP 401'
 
 try=1
 while [ "$try" -le "$attempts" ]; do
@@ -256,6 +260,14 @@ while [ "$try" -le "$attempts" ]; do
   rc=$?
   [ "$rc" -ne 0 ] && [ "$try" -lt "$attempts" ] || break
   if ! grep -qiE "$throttled" "$work/err" "$work/out"; then
+    if [ -n "$moved" ] && grep -qiE "$denied" "$work/err" "$work/out"; then
+      log_wait "gh ${1:-} ${2:-} was denied on a spare token (try $try of $attempts); the call goes back to its own token"
+      if [ -n "$orig_set" ]; then export GH_TOKEN="$orig_token"; else unset GH_TOKEN; fi
+      pools="" moved=""
+      wait_for_budget "$(seconds_to_reset "$try")" "gh ${1:-} ${2:-} was refused for the API rate limit on its own token" || break
+      try=$((try + 1))
+      continue
+    fi
     grep -qE "$unsent" "$work/err" || break
     want=$((15 << (try - 1)))
     [ "$want" -le 120 ] || want=120
@@ -278,6 +290,7 @@ while [ "$try" -le "$attempts" ]; do
   if [ -n "$next" ]; then
     log_wait "gh ${1:-} ${2:-} was refused for the API rate limit (try $try of $attempts); the next try goes out on $which now"
     export GH_TOKEN="$next"
+    moved=1
     try=$((try + 1))
     continue
   fi
