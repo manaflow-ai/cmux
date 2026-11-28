@@ -852,6 +852,14 @@ impl Hub {
                 _ => None,
             };
             let pair = pair.filter(|_| !matches!(joined, Some(None)));
+            // Own mode on a Cloud machine: the machine plane's fill must not route it.
+            if claude_on_cloud && pair.is_none() {
+                crate::claude_cloud_auth::drop_plane_pair(
+                    &mut p.env,
+                    &env,
+                    &crate::cloud_model_plane::machine_plane(),
+                );
+            }
             if let (Some(pair), Ok(flag)) = (pair, &flag) {
                 let headers = match &joined {
                     Some(Some((proxy, headers))) => {

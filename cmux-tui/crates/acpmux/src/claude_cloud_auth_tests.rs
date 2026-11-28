@@ -370,3 +370,48 @@ async fn only_an_owner_cloud_image_with_a_team_plane() {
     .unwrap();
     assert_eq!(pair(&m, &[], true).await, None);
 }
+
+fn plane_pair() -> BTreeMap<String, String> {
+    BTreeMap::from([
+        ("ANTHROPIC_BASE_URL".to_owned(), "https://coderouter.cmux.internal".to_owned()),
+        ("ANTHROPIC_API_KEY".to_owned(), crate::cloud_model_plane::PLACEHOLDER.to_owned()),
+        ("OPENAI_BASE_URL".to_owned(), "https://coderouter.cmux.internal/v1".to_owned()),
+    ])
+}
+
+fn unset_of(env: &BTreeMap<String, String>) -> Vec<&str> {
+    env.get(crate::routes::UNSET_KEY).map(|l| l.split(',').collect()).unwrap_or_default()
+}
+
+#[test]
+fn own_launch_drops_the_plane_claude_pair() {
+    let mut env = BTreeMap::new();
+    drop_plane_pair(&mut env, &BTreeMap::new(), &plane_pair());
+    assert_eq!(unset_of(&env), ["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"]);
+}
+
+#[test]
+fn own_launch_drops_an_inherited_plane_value_and_keeps_unset_list() {
+    let mut env = BTreeMap::from([(crate::routes::UNSET_KEY.to_owned(), "FOO".to_owned())]);
+    let effective = plane_pair();
+    drop_plane_pair(&mut env, &effective, &plane_pair());
+    assert_eq!(unset_of(&env), ["FOO", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"]);
+}
+
+#[test]
+fn own_launch_keeps_its_own_pair() {
+    let mut env = BTreeMap::from([("ANTHROPIC_API_KEY".to_owned(), "sk-mine".to_owned())]);
+    let effective = BTreeMap::from([
+        ("ANTHROPIC_BASE_URL".to_owned(), "https://proxy.example".to_owned()),
+        ("ANTHROPIC_API_KEY".to_owned(), "sk-mine".to_owned()),
+    ]);
+    drop_plane_pair(&mut env, &effective, &plane_pair());
+    assert!(!env.contains_key(crate::routes::UNSET_KEY));
+}
+
+#[test]
+fn no_plane_drops_nothing() {
+    let mut env = BTreeMap::new();
+    drop_plane_pair(&mut env, &BTreeMap::new(), &BTreeMap::new());
+    assert!(env.is_empty());
+}
