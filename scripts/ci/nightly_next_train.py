@@ -88,14 +88,25 @@ def git(*args: str, input: str | None = None, check: bool = True, env: dict | No
 def gh_api(path: str, paginate: bool = False) -> object:
     args = ["gh", "api", "-H", "Accept: application/vnd.github+json", path]
     if paginate:
-        args[2:2] = ["--paginate", "--slurp"]
+        # No --slurp (gh 2.48+): the pages come back to back and are split
+        # here, so an older gh on a runner works too.
+        args[2:2] = ["--paginate"]
     proc = subprocess.run(args, capture_output=True, text=True)
     if proc.returncode != 0:
         raise TrainError(f"gh api {path} failed: {proc.stderr.strip()[:500]}")
-    data = json.loads(proc.stdout or "null")
-    if paginate and isinstance(data, list) and data and isinstance(data[0], list):
-        return [item for page in data for item in page]
-    return data
+    if not paginate:
+        return json.loads(proc.stdout or "null")
+    decoder, pages, index, text = json.JSONDecoder(), [], 0, proc.stdout
+    while True:
+        while index < len(text) and text[index].isspace():
+            index += 1
+        if index >= len(text):
+            break
+        page, index = decoder.raw_decode(text, index)
+        pages.append(page)
+    if pages and all(isinstance(page, list) for page in pages):
+        return [item for page in pages for item in page]
+    return pages[0] if len(pages) == 1 else pages
 
 
 def http_get(url: str) -> bytes | None:

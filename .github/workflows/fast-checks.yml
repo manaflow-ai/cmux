@@ -360,6 +360,12 @@ jobs:
 
       - name: Prepare full webview tests
         if: inputs.setup == 'webviews'
+        # The bundles here only feed this run's webview tests; they never ship. A missing translation must not hide
+        # the webview verdict (cmux#58259: ~80 missing strings failed this step at 5c1d06c3, so no webview test ran).
+        # Strictness stays where it is a verdict of its own: pr-router's `compile preflight / web bundle build` and the
+        # nightly and release builds, which run gen-strings.mjs without this flag.
+        env:
+          CMUX_STRINGS_BEST_EFFORT: "1"
         run: |
           if [[ -x scripts/cmux-next/build-web-bundles.sh ]]; then
             ./scripts/cmux-next/build-web-bundles.sh --force

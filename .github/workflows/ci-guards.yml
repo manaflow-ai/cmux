@@ -1119,6 +1119,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_api_call_log_bootstrap.py
 
+      - name: Validate the nightly artifact wait stops at its deadline
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_wait_for_run_artifact.py
+
       - name: Validate every workflow guard is wired
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
@@ -1402,6 +1406,10 @@ jobs:
       - name: Validate console-session environment forwarding
         if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_ci_console_session_env_forwarding.py
+
+      - name: Validate console-session sudo probe
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: python3 tests/test_ci_console_session_sudo_probe.py
 
       - name: Validate notification semantics gates
         if: ${{ matrix.group == 'ci' }}

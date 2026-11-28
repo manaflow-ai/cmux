@@ -671,6 +671,10 @@ path = "tests/test_ci_console_session_env_forwarding.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_console_session_sudo_probe.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_cmux_unit_test_shard.py"
 lane = "linux-guard"
 
@@ -2576,4 +2580,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_app_host_cache_measure.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_wait_for_run_artifact.py"
 lane = "linux-guard"

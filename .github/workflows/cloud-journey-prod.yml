@@ -166,6 +166,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          MACHINE_ROUTE_MODEL: ${{ vars.CMUX_JOURNEY_MACHINE_ROUTE_MODEL }}
         run: |
           set -uo pipefail
           verdict=""
@@ -186,17 +187,33 @@ jobs:
             # A tick on the machine's route says nothing about the login's quota: look further back.
             [ "$(unzip -p "$RUNNER_TEMP/real-probe.zip" route.txt 2>/dev/null | tr -d '[:space:]')" = machine ] && continue
             probe="$(unzip -p "$RUNNER_TEMP/real-probe.zip" probe.json 2>/dev/null || true)"
+            # probe.json cuts its error at 300 characters, before the turn_error that names the limit (run 46099930567
+            # ends "... usage_limi"), so the limit is read from journey.json and summary.md too, which keep the whole step.
+            full="$(unzip -p "$RUNNER_TEMP/real-probe.zip" probe.json journey.json summary.md 2>/dev/null || true)"
             if printf '%s' "$probe" | grep -q '"first_text"'; then replied=yes
             # Claude Code's own words for a spent login: "Claude AI usage limit reached", "You've hit your (weekly) limit",
             # "5-hour limit reached ∙ resets 3pm".
-            elif printf '%s' "$probe" | grep -Eqi "usage limit|hit your (session |weekly |opus )?limit|(5-hour|weekly|session) limit|limit reached"; then replied=spent
+            # The session records' words when the login is refused before any text (run 46109302040, 04:47Z: ten
+            # "claude.system.api_retry: attempt N/14 rate_limit" and a usage_limits record, then no reply in 300 s;
+            # the gate read "reply no" and kept the login, so the next hour spent another 300 s on it).
+            elif printf '%s' "$full" | grep -Eqi "usage limit|hit your (session |weekly |opus )?limit|(5-hour|weekly|session) limit|limit reached|api_retry: attempt [0-9]+/[0-9]+ rate_limit|usage_limits=[1-9]"; then replied=spent
             fi
             verdict="$c, reply $replied (run $id)"; break
           done
           echo "newest real run on the login: ${verdict:-none found}"
           case "$verdict" in *"reply spent"*)
             echo "route=machine" >> "$GITHUB_OUTPUT"
-            echo "Hourly real tick on the machine's own model route: the newest real run on the login hit the usage limit (${verdict})." >> "$GITHUB_STEP_SUMMARY"
+            # The machine route answers only once the test team has a model there (a gateway or the house route): until
+            # then every machine-route tick took a machine for 25 min and failed at the reply with no model (runs
+            # 46059370159 and every hourly tick 11-26 to 11-28: model-plane.env team=none, gateway off, "Not logged in").
+            # While the repository variable CMUX_JOURNEY_MACHINE_ROUTE_MODEL is not 1 the tick ends here as a skip
+            # (no machine, no probe row, not judged), the way a spent login's tick was a skip before #58192.
+            if [ "${MACHINE_ROUTE_MODEL:-}" != 1 ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "Hourly real tick skipped: no model: the login is spent (${verdict}) and the machine route has no model (CMUX_JOURNEY_MACHINE_ROUTE_MODEL is not 1)." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "Hourly real tick on the machine's own model route: the newest real run on the login hit the usage limit (${verdict})." >> "$GITHUB_STEP_SUMMARY"
+            fi
             ;; *)
             echo "route=login" >> "$GITHUB_OUTPUT"
             ;;
@@ -216,8 +233,18 @@ jobs:
         run: |
           set -euo pipefail
           sha="$(git rev-parse HEAD)"
-          status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$sha...feat-cmux-next" --jq .status)"
-          case "$status" in ahead|identical) echo "journey commit $sha is on feat-cmux-next ($status)" ;; *) echo "::error::journey_ref $sha is not on feat-cmux-next (compare: $status)"; exit 1 ;; esac
+          # Asked of git, not the REST compare endpoint: a spent installation REST budget failed this gate before any
+          # journey step ran (run 46107610051). Commits only (tree:0), unshallowed so merge-base can walk history.
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          deepen=()
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then deepen=(--unshallow); fi
+          git -c "http.https://github.com/.extraheader=$auth" fetch --quiet --no-tags --filter=tree:0 "${deepen[@]}" \
+            origin +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next
+          if git merge-base --is-ancestor "$sha" refs/remotes/origin/feat-cmux-next; then
+            echo "journey commit $sha is on feat-cmux-next"
+          else
+            echo "::error::journey_ref $sha is not on feat-cmux-next"; exit 1
+          fi
       # The shipped Linux cmux-tui, for the app's part on a warm spare (--preclaim-login: warm-spare, ready, installed
       # and the login receipt), built as the staging preclaim job below builds it.
       - name: Install Linux cmux-tui build dependencies
@@ -272,6 +299,7 @@ jobs:
           # The hourly tick's gate picks route=machine when the login is spent: no login, the machine's own model route.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.agent == 'claude' && matrix.model == 'real' && steps.gate.outputs.route != 'machine' && (secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN) || '' }}
           REAL_ROUTE: ${{ steps.gate.outputs.route || 'login' }}
+          NO_MODEL: ${{ steps.gate.outputs.skip }}
           CODEX_AUTH_JSON: ${{ matrix.agent == 'codex' && matrix.model == 'real' && secrets.CODEX_AUTH_JSON || '' }}
           AGENT: ${{ matrix.agent }}
           MODEL: ${{ matrix.model }}
@@ -296,6 +324,10 @@ jobs:
           if [ "$AGENT" = claude ] && [ "$MODEL" = real ]; then
             echo "$REAL_ROUTE" > "$out/route.txt"
             echo "Real model route: $REAL_ROUTE" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${NO_MODEL:-}" = true ]; then
+            printf '%s\n' '| result | step | ms | detail |' '|---|---|---:|---|' '| skip | real model route | 0 | no model: the login is spent and the machine route has no model; no production machine was created |' > "$out/summary.md"
+            exit 0
           fi
           probe=cloud-chat-replies-production
           if [ "$AGENT" = codex ] && [ "$MODEL" = stub ]; then probe=cloud-chat-replies-production-codex-stub; elif [ "$AGENT" = codex ]; then probe=cloud-chat-replies-production-codex; elif [ "$MODEL" = real ]; then probe=cloud-chat-replies-production-real-model; fi
@@ -351,7 +383,7 @@ jobs:
           route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           route-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       - name: Open, update or close the red-journey issue
-        if: always() && env.SELECTED == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: always() && env.SELECTED == 'true' && steps.gate.outputs.skip != 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         env:
           GH_SPARE_TOKENS: ${{ steps.spare.outputs.cmux-bot }} ${{ steps.spare.outputs.glaeda-route }}
           GH_SPARE_WAIT_SECONDS: "600"  # after the journey, inside the job's 75 min
