@@ -22,8 +22,16 @@ pub const AFTER_SECS: u64 = 60;
 const ID_HEADER: &str = "x-freestyle-background-request-id";
 const POLL: Duration = if cfg!(test) { Duration::from_millis(10) } else { Duration::from_secs(2) };
 const POLL_TIMEOUT: Duration = Duration::from_secs(30);
-/// Failed polls in a row (no answer, 429 or 5xx) before the answer is given up as lost.
-const POLL_FAILURES: u32 = 5;
+/// How long polls may fail (no answer, 429 or 5xx) since the last answered one before the answer
+/// is given up as lost. It is apart from the caller's deadline, the way a CDN keeps its origin
+/// timeout apart from its retry window: the provider stores the answer, so an overload (Freestyle
+/// answered 503 to every poll for 9 min, rebake 45960390204, 2026-11-27) is waited out instead of
+/// losing a command that ran. Five failed polls in a row (10 s) did.
+const OUTAGE: Duration =
+    if cfg!(test) { Duration::from_millis(400) } else { Duration::from_secs(300) };
+/// The longest wait between polls while the provider fails them (it doubles from [`POLL`]).
+const MAX_BACKOFF: Duration =
+    if cfg!(test) { Duration::from_millis(80) } else { Duration::from_secs(15) };
 /// A 202's body is a few dozen bytes.
 const ACCEPTED_BYTES: usize = 4096;
 
@@ -51,7 +59,8 @@ async fn request_id(accepted: reqwest::Response) -> Option<String> {
 
 /// The final answer of `response`: itself unless it is a 202, else the stored answer of its
 /// background request, polled at `api_base_url` with `identity` (header name and value, never the
-/// cmux credential) until `deadline`. A stored refusal comes back as that answer (its status);
+/// cmux credential) until `deadline`. Failed polls back off and keep going, past the deadline too,
+/// until none has answered for [`OUTAGE`]. A stored refusal comes back as that answer (its status);
 /// [`Lost`] when no answer came.
 pub async fn settle(
     client: &reqwest::Client,
@@ -65,27 +74,35 @@ pub async fn settle(
     }
     let id = request_id(response).await.ok_or(Lost)?;
     let url = format!("{}/v5/background-requests/{id}", api_base_url.trim_end_matches('/'));
-    let mut failures = 0;
-    while Instant::now() + POLL < deadline {
-        tokio::time::sleep(POLL).await;
-        let left = deadline.saturating_duration_since(Instant::now());
-        let timeout = left.min(POLL_TIMEOUT).max(Duration::from_millis(1));
-        match client.get(&url).header(identity.0, identity.1).timeout(timeout).send().await {
-            Ok(answer) if answer.status() == StatusCode::ACCEPTED => failures = 0,
-            Ok(answer)
-                if answer.status() == StatusCode::TOO_MANY_REQUESTS
-                    || answer.status().is_server_error() =>
-            {
-                failures += 1;
-            }
-            Ok(answer) => return Ok(answer),
-            Err(_) => failures += 1,
-        }
-        if failures >= POLL_FAILURES {
+    let mut last_answer = Instant::now();
+    let mut wait = POLL;
+    let mut failing = false;
+    loop {
+        let until = if failing { deadline.max(last_answer + OUTAGE) } else { deadline };
+        if Instant::now() + wait >= until {
             return Err(Lost);
         }
+        tokio::time::sleep(wait).await;
+        let left = until.saturating_duration_since(Instant::now());
+        let timeout = left.min(POLL_TIMEOUT).max(Duration::from_millis(1));
+        match client.get(&url).header(identity.0, identity.1).timeout(timeout).send().await {
+            Ok(answer) if answer.status() == StatusCode::ACCEPTED => {
+                last_answer = Instant::now();
+                wait = POLL;
+                failing = false;
+            }
+            Ok(answer)
+                if answer.status() != StatusCode::TOO_MANY_REQUESTS
+                    && !answer.status().is_server_error() =>
+            {
+                return Ok(answer);
+            }
+            _ => {
+                failing = true;
+                wait = (wait * 2).min(MAX_BACKOFF);
+            }
+        }
     }
-    Err(Lost)
 }
 
 #[cfg(test)]

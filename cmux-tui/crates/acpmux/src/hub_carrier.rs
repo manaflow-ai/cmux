@@ -188,6 +188,9 @@ pub enum CircuitService {
     /// "control for my other machines signed in to this account" on that machine
     /// ([`SessionGate`], `cmux_tui_service.rs`); refused by default.
     CmuxTuiSession,
+    /// The machine's consent service: one request, one answer (`consent_grant_service.rs`).
+    /// Hello `{"service":"consent"}`.
+    Consent,
     /// Calls this machine's acpmux daemon runs for another of the person's machines, one JSON
     /// line each way per call (`machine_call_service.rs`): Computer Use here for an agent whose
     /// loop runs on that machine. Hello `{"service":"machine-call"}`. Reached only while the
@@ -258,6 +261,7 @@ impl CircuitLane {
             // A broker call is one request and its answer, which a click waits for.
             CircuitService::Acpmux
             | CircuitService::CmuxTuiSession
+            | CircuitService::Consent
             | CircuitService::MachineCall
             | CircuitService::Echo
             | CircuitService::LaneGhBroker
@@ -272,6 +276,9 @@ impl CircuitLane {
         }
     }
 }
+
+/// The service name a hello gives [`CircuitService::Consent`].
+pub const CONSENT_SERVICE: &str = "consent";
 
 /// The `target` a hello gives [`CircuitService::CmuxTuiSession`].
 pub const SESSION_TARGET: &str = "session";
@@ -353,6 +360,7 @@ pub fn service_name(service: CircuitService) -> &'static str {
         CircuitService::CmuxTui { .. }
         | CircuitService::CmuxTuiResume { .. }
         | CircuitService::CmuxTuiSession => CMUX_TUI_SERVICE,
+        CircuitService::Consent => CONSENT_SERVICE,
         CircuitService::MachineCall => MACHINE_CALL_SERVICE,
         CircuitService::TransferSource => TRANSFER_SERVICE,
         CircuitService::Echo => ECHO_SERVICE,
@@ -386,6 +394,7 @@ fn hello_record(service: CircuitService) -> Bytes {
         CircuitService::CmuxTuiSession => {
             serde_json::json!({"service": CMUX_TUI_SERVICE, "target": SESSION_TARGET})
         }
+        CircuitService::Consent => serde_json::json!({"service": CONSENT_SERVICE}),
         CircuitService::MachineCall => serde_json::json!({"service": MACHINE_CALL_SERVICE}),
         CircuitService::TransferSource => serde_json::json!({"service": TRANSFER_SERVICE}),
         CircuitService::Echo => serde_json::json!({"service": ECHO_SERVICE}),
@@ -422,6 +431,9 @@ fn named_service(first: &[u8]) -> Option<Result<CircuitService, ServiceRefusal>>
         }
         (Some(CMUX_TUI_SERVICE), None, Some(SESSION_TARGET)) if hello.get("port").is_none() => {
             Ok(CircuitService::CmuxTuiSession)
+        }
+        (Some(CONSENT_SERVICE), None, None) if hello.get("port").is_none() => {
+            Ok(CircuitService::Consent)
         }
         (Some(MACHINE_CALL_SERVICE), None, None) if hello.get("port").is_none() => {
             Ok(CircuitService::MachineCall)
@@ -719,6 +731,8 @@ pub struct HubCarrier {
     cmux_tui: RwLock<Option<Arc<dyn CmuxTuiGate>>>,
     /// Whether a circuit may reach this machine's own cmux-tui session daemon; none refuses it.
     session: RwLock<Option<Arc<dyn SessionGate>>>,
+    /// Whether a circuit may reach this machine's consent service; none refuses it.
+    consent: RwLock<Option<Arc<dyn crate::consent_grant_service::ConsentGate>>>,
     /// Who may have this machine run calls for them; None refuses every such circuit.
     machine_call: RwLock<Option<Arc<dyn MachineCallGate>>>,
     /// Whether a circuit may read the pages of a move this machine began; none refuses it.
@@ -776,6 +790,7 @@ impl HubCarrier {
             key_check: None,
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            consent: RwLock::new(None),
             machine_call: RwLock::new(None),
             transfer: RwLock::new(None),
             lane_gh_broker: RwLock::new(None),
@@ -816,6 +831,7 @@ impl HubCarrier {
             key_check: Some(check),
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            consent: RwLock::new(None),
             machine_call: RwLock::new(None),
             transfer: RwLock::new(None),
             lane_gh_broker: RwLock::new(None),
@@ -960,6 +976,11 @@ impl HubCarrier {
         self.session.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// Let circuits reach this machine's consent service as `gate` decides.
+    pub fn set_consent_gate(&self, gate: Arc<dyn crate::consent_grant_service::ConsentGate>) {
+        *self.consent.write().unwrap_or_else(|e| e.into_inner()) = Some(gate);
+    }
+
     /// Let this machine run calls for the person's other machines as `gate` decides.
     pub fn set_machine_call_gate(&self, gate: Arc<dyn MachineCallGate>) {
         *self.machine_call.write().unwrap_or_else(|e| e.into_inner()) = Some(gate);
@@ -991,6 +1012,12 @@ impl HubCarrier {
     /// to the platform's `peer_key`, as a byte stream. The caller speaks WebSocket over it.
     pub async fn dial(&self, daemon: &str) -> Result<HubStream, String> {
         self.dial_service(daemon, CircuitService::Acpmux).await
+    }
+
+    /// Whether a kept circuit to `daemon` on `lane` is open now (relay or direct), so
+    /// [`Self::dial_service_on`] that lane opens a stream on it and asks the relay for nothing.
+    pub fn kept_live(&self, daemon: &str, lane: CircuitLane) -> bool {
+        self.kept.has_live(daemon, lane) || self.direct.kept.has_live(daemon, lane)
     }
 
     /// [`Self::dial`] to `service` on that machine. A service other than the acpmux listener is
@@ -1489,6 +1516,9 @@ impl HubCarrier {
     /// One pass of [`Self::keep_reopening`]: every machine at once, each slot locked while its
     /// circuit opens, so a dial to that machine waits on this open rather than racing it.
     pub async fn reopen_closed(&self) -> usize {
+        // Machines with nothing kept go first, so the map is only those with something to keep.
+        self.kept.prune();
+        self.direct.kept.prune();
         let slots: Vec<_> =
             self.kept.to_reopen().into_iter().chain(self.direct.kept.to_reopen()).collect();
         let opened =
@@ -2304,6 +2334,21 @@ impl Incoming {
         }
     }
 
+    /// This machine's end of a consent stream from `from` and the consent service's serving of
+    /// the other end (the caller runs it beside the stream), or why it may not have one.
+    async fn consent(
+        &self,
+        from: Option<String>,
+    ) -> Result<(HubStream, impl Future<Output = ()> + Send + use<>), ServiceRefusal> {
+        let gate = self.carrier.consent.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let (gate, host) = crate::consent_grant_service::admit(gate, from).await?;
+        let wait = self.carrier.timings.handshake;
+        let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
+        Ok((ours, async move {
+            crate::consent_grant_service::serve_stream(gate, host, theirs, wait).await;
+        }))
+    }
+
     /// This machine's end of a move's page circuit from `from` and the transfer gate's serving
     /// of the other end (the caller runs it beside the stream), or why it may not have one.
     async fn transfer(
@@ -2396,6 +2441,13 @@ impl Incoming {
                 return;
             }
         };
+        if named_service(&first) == Some(Ok(CircuitService::Consent)) {
+            drop(listener);
+            let gate = self.carrier.consent.read().unwrap_or_else(|e| e.into_inner()).clone();
+            let wait = self.carrier.timings.handshake;
+            crate::consent_grant_service::serve(gate, from, Box::new(link), wait).await;
+            return;
+        }
         if mux::is_mux_hello(&first) && self.carrier.serves_kept.load(Ordering::SeqCst) {
             // A kept circuit: each stream names its own service and is admitted on its own.
             drop(listener);
@@ -2519,6 +2571,7 @@ impl Incoming {
                     Ok(
                         CircuitService::CmuxTuiResume { .. }
                         | CircuitService::CmuxTuiSession
+                        | CircuitService::Consent
                         | CircuitService::MachineCall
                         | CircuitService::TransferSource
                         | CircuitService::Echo
@@ -2940,6 +2993,9 @@ pub async fn start_configured(
     carrier.set_cmux_tui_gate(Arc::new(crate::cmux_tui_service::ConfiguredGate::new(hub)));
     // Off unless the person on this machine allowed its other signed-in machines in.
     carrier.set_session_gate(Arc::new(crate::session_service::ConfiguredSessionGate::new(hub)));
+    // Switches only by a grant a key pinned here signed (`consent_grant_service.rs`).
+    carrier
+        .set_consent_gate(Arc::new(crate::consent_grant_service::ConfiguredConsentGate::new(hub)));
     // Off under the same grant: this machine runs Computer Use calls for those machines.
     carrier.set_machine_call_gate(Arc::new(crate::machine_call_service::ConfiguredGate::new(hub)));
     // A move's pages, only to the machine its move names (`hub/transfer_pull.rs`); and this
@@ -2952,7 +3008,7 @@ pub async fn start_configured(
     hub.hub_carrier.set(carrier.clone());
     carrier.keep_reopening();
     // Off unless `ACPMUX_HUB_HOLD_CIRCUITS` names machines (`hub_carrier_hold.rs`).
-    carrier.hold_configured();
+    carrier.hold_configured(hub);
     // The start's answer, whether or not the relay takes the registration yet (it retries).
     tracing::info!(
         "hub carrier: on, bridging admitted circuits to this daemon's listener {websocket}"
@@ -3067,7 +3123,7 @@ mod rehome;
 
 #[path = "hub_carrier_hold.rs"]
 mod hold;
-pub use hold::{HOLD_CIRCUITS_ENV, held_machines};
+pub use hold::{HOLD_BOOK_WAIT, HOLD_CIRCUITS_ENV, held_machines, is_daemon_id, resolve_held};
 
 #[path = "hub_carrier_placed.rs"]
 pub mod placed;
@@ -3112,3 +3168,7 @@ mod silent_circuit_tests;
 #[cfg(test)]
 #[path = "hub_carrier_kept_hedge_tests.rs"]
 mod kept_hedge_tests;
+
+#[cfg(test)]
+#[path = "hub_carrier_kept_prune_tests.rs"]
+mod kept_prune_tests;

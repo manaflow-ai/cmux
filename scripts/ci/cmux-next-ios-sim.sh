@@ -47,6 +47,7 @@
 #           argument pattern has no spaces, so lists are comma-separated):
 #             only=TARGET/SUITE[,TARGET/SUITE...]   run only those kit tests
 #               (-only-testing), e.g. only=CmuxMobileLiveTests/LinkRecoveryTests
+#               (only= naming ResumeMatrixBenchTests or ResumeStagesBenchTests turns it on)
 #               (a suite, or TARGET/SUITE/test for an XCTest method).
 #               A filter naming TickHarnessCellsTests also sets
 #               CMUX_TICK_HARNESS=1, the suite's opt-in (it allocates and
@@ -464,7 +465,8 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
           [[ ! -d cmux-next-ios/CmuxMobileKit/Tests || -d "cmux-next-ios/CmuxMobileKit/Tests/${item%%/*}" ]] ||
             { echo "cmux-next-ios-sim.sh: only= '$item': '${item%%/*}' is not a CmuxMobileKit test target (one of: $(ls cmux-next-ios/CmuxMobileKit/Tests | tr '\n' ' '); UI suites go in ui=)" >&2; exit 2; }
           kit_only+=("-only-testing:$item")
-          [[ "$item" == */TickHarnessCellsTests* ]] && kit_env=(TEST_RUNNER_CMUX_TICK_HARNESS=1)
+          [[ "$item" == */TickHarnessCellsTests* ]] && kit_env+=(TEST_RUNNER_CMUX_TICK_HARNESS=1)
+          [[ "$item" == */Resume*BenchTests* ]] && kit_env+=(TEST_RUNNER_CMUX_RESUME_LIVE_BENCH=1)
         done ;;
       ui=?*)
         IFS=',' read -r -a items <<< "${sel#ui=}"
@@ -761,6 +763,10 @@ cleanup() {
       (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip) || result=1
     fi
   fi
+  # try: a host that could not set up (exit 3) is no verdict on the head. cmux-next-ios-try-ahead.yml hands the
+  # verdict to the controller (report_check.go), which posts 69 as neutral and 3 as failure, and the picker
+  # (try.sh list) would then call a head that builds "failed".
+  if [[ "$mode" == try && "$result" == 3 ]]; then result=69; fi
   if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" || "${CMUX_IOS_OWNER_ACCESS_PROOF:-0}" == 1 ]]; then
     python3 -I scripts/ci/cmux_next_cloud_pair_proof.py --export-out "$out" --status "$result" || result=1
   fi
