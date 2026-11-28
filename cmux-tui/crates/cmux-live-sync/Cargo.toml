@@ -1,0 +1,28 @@
+[package]
+name = "cmux-live-sync"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Continuous two-way folder sync between the Mac and an AutoCloud VM while a chat runs there: file watchers on both sides, batched rounds over one duplex stream (the machine link), the cmux-sync three-tree rule, compare-and-swap writes, catch-up after a drop, a pause or a sleep"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+cmux-sync.workspace = true
+crossbeam-channel.workspace = true
+# Text conflicts merge by line against the synced base, as `cmux link seed pull` does.
+diffy.workspace = true
+# The same gitignore rules the seed export uses: ignored files (node_modules, build output) never sync.
+ignore.workspace = true
+# FSEvents on macOS, inotify on Linux.
+notify.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
