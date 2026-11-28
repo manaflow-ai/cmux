@@ -4194,6 +4194,29 @@ fn a_cloud_start_sets_effort_and_mode_before_the_first_prompt() {
     assert!(fake.ran[3][5].contains("acp send --no-wait sess-1 -"));
 }
 
+/// The settings exec failing on the way (the service busy, no route) is asked again; the chat is not left
+/// without its effort (`chat.settings_refused`, 32 of 33 in 24 h on 2026-11-28).
+#[test]
+fn a_settings_exec_that_fails_on_the_way_is_asked_again() {
+    let busy = || Ran {
+        code: 1,
+        stdout: String::new(),
+        stderr: "the Cloud service is busy; retry shortly".into(),
+    };
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        busy(),
+        busy(),
+        exec_out("@@set\nok\n@@exit 0\n"),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let asked = request(&["--effort", "low", "--no-folder", "-p", "1+1?"]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["effort"].as_str(), Some("low"));
+    assert_eq!(answer["sent"], true);
+}
+
 /// A refused effort: the chat started, nothing is sent, and the answer says how to go on.
 #[test]
 fn a_refused_effort_sends_nothing_and_names_the_chat() {

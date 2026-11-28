@@ -2145,6 +2145,9 @@ pub(super) fn settings_script(request: &Request, session: &str) -> Option<String
     Some(format!("{GUEST_PRELUDE}echo @@set; {}; x=$?; echo \"@@exit $x\"", sets.join(" && ")))
 }
 
+/// How many times [`apply_settings`] runs its exec when the exec itself fails (not when the script refuses).
+const SETTINGS_EXEC_TRIES: u32 = 4;
+
 /// Step 3b, `--effort` and `--mode` on the new session (the composer's picks, applied as its
 /// chip would), in one exec before the first prompt. A refusal fails the start with the chat's
 /// answer so far, so nothing runs at an effort or in a mode that was not asked for.
@@ -2172,9 +2175,25 @@ fn apply_settings(
             1,
         )
     };
-    let ran = exec(runner, machine_id, &script).map_err(|error| {
-        refused(at(&error, "message").as_str().unwrap_or("cloud exec failed").to_owned())
-    })?;
+    // The exec itself can fail on the way ("Couldn't reach cmux Cloud", "the Cloud service is busy", "the machine
+    // did not answer"): 32 of 33 `chat.settings_refused` in 24 h (2026-11-28) were that, with the chat already
+    // started. The script only sets two values, so asking again is safe; a script that ran and was refused
+    // (`@@exit` not 0) is never asked again. Never past the deadline.
+    let mut tries = 1;
+    let ran = loop {
+        match exec(runner, machine_id, &script) {
+            Ok(ran) => break ran,
+            Err(error) => {
+                if tries >= SETTINGS_EXEC_TRIES || deadline.passed(runner) {
+                    return Err(refused(
+                        at(&error, "message").as_str().unwrap_or("cloud exec failed").to_owned(),
+                    ));
+                }
+                runner.pause(Duration::from_secs(2 * u64::from(tries)));
+                tries += 1;
+            }
+        }
+    };
     let reported = sections(&ran);
     if reported.get("exit").map(|code| code.trim()) == Some("0") {
         return Ok(());
