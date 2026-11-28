@@ -29,14 +29,14 @@ import UIKit
                       quietStatus: QuietStatusGate(delay: delay))
     }
 
-    /// A cached frame wins over the skeleton in every state; the skeleton is
-    /// only for a terminal never opened on this phone.
-    @Test func theCachedFrameNeverGivesWayToTheSkeleton() {
+    /// A cached frame wins in every state; a terminal never opened on this phone draws
+    /// nothing over its own surface, never a skeleton.
+    @Test func theCachedFrameWinsAndThereIsNoSkeleton() {
         #expect(TerminalConnectingView.content(hasLastFrame: true, showsPlaceholder: true) == .lastFrame)
         #expect(TerminalConnectingView.content(hasLastFrame: true, showsPlaceholder: false) == .lastFrame)
-        #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: true) == .skeleton)
+        #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: true) == .nothing)
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: false) == .nothing)
-        // The Mac's pushed screen text stands in for the skeleton, never over a frame or live rows.
+        // The Mac's pushed screen text draws where there is no frame, never over a frame or live rows.
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: true, hasScreenText: true) == .screenText)
         #expect(TerminalConnectingView.content(hasLastFrame: true, showsPlaceholder: true, hasScreenText: true) == .lastFrame)
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: false, hasScreenText: true) == .nothing)

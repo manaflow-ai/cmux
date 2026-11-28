@@ -79,7 +79,12 @@ import UIKit
         let before = surface.renderedFrames
         let start = ContinuousClock.now
         var fed = 0
-        while start.duration(to: .now) < .seconds(1) {
+        // At least a second, and on until Ghostty has parsed enough batches to outrun the
+        // display: a loaded CI simulator parsed only the first 64 in one second (2026-11-27),
+        // and the frame budget below scales with the time taken.
+        let enough = Int(refresh * 2) + 1
+        while start.duration(to: .now) < .seconds(1)
+            || (parsed.value < enough && start.duration(to: .now) < .seconds(15)) {
             if inFlight.count >= Self.inFlightLimit {
                 await inFlight.nextCompletion()
                 continue
