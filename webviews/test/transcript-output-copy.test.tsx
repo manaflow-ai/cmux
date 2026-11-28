@@ -181,7 +181,11 @@ test("Find reveals the full rendered fetch result and copy keeps its complete so
 test("an output of exactly 400 lines and a final newline shows whole", async () => {
   const lines = Array.from({ length: 400 }, (_, index) => `line ${index}`);
   await openRow("execute", `${lines.join("\n")}\n`, "seq 400");
-  expect(host.querySelector(".cv-shell__output")?.textContent).toBe(lines.join("\n"));
+  // From its first line, no cut mark: its box mounts the lines in its view (lineWindow.ts).
+  const drawn = host.querySelector(".cv-shell__output")?.textContent ?? "";
+  expect(drawn.startsWith("line 0\n")).toBe(true);
+  expect(lines.join("\n").startsWith(drawn)).toBe(true);
+  expect(host.querySelector(".cv-output-cut")).toBeNull();
   expect([...host.querySelectorAll("button")].some((node) => node.textContent === "Show all output")).toBe(false);
 });
 
@@ -194,12 +198,16 @@ test("a long output shows its last lines until Show all output", async () => {
   const lines = Array.from({ length: 5000 }, (_, index) => `line ${index}`);
   await openRow("execute", lines.join("\n"), "seq 5000");
   const shown = () => host.querySelector(".cv-shell__output")?.textContent ?? "";
-  expect(shown().endsWith("line 4999")).toBe(true);
+  // Its last 400 lines scroll in the block's box, from the first of them (the box mounts the lines in
+  // its view, lineWindow.ts).
+  expect(shown().startsWith("line 4600\n")).toBe(true);
+  expect(lines.slice(4600).join("\n").startsWith(shown())).toBe(true);
   expect(shown()).not.toContain("line 0\n");
   expect(shown().split("\n").length).toBeLessThan(1000);
-  // Its end scrolls in the block's box; Show all output draws all of it.
+  // Show all output puts all of it in the box, from its first line.
   await click([...host.querySelectorAll("button")].find((node) => node.textContent === "Show all output"));
-  expect(shown()).toBe(lines.join("\n"));
+  expect(shown().startsWith("line 0\n")).toBe(true);
+  expect(lines.join("\n").startsWith(shown())).toBe(true);
 });
 
 // The `hover-actions` experiment's "all" arm: a Copy in the output's corner on hover.

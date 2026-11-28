@@ -15,6 +15,7 @@ import { menuPartRef } from "./menuParts";
 import { OpenPreview } from "./OpenPreview";
 import { isAgentMotionOff } from "../../shared/motion";
 import { entranceAllowed } from "../../shared/pageReveal";
+import type { LineWindow } from "./lineWindow";
 
 /// The card's chrome over plain lines: an open fence, or a closed one drawn plain (the highlighted
 /// card's chunk still loading, a fence over the highlight limits, a highlight past its budget). A
@@ -59,27 +60,52 @@ export function PlainCode({
 }
 
 /// The same visible lines serve the lazy chunk and the worker wait. Pierre treats a final newline
-/// as the end of the last line, not an extra empty row.
+/// as the end of the last line, not an extra empty row. In a box that scrolls them (a read's peek,
+/// FileResultCard.tsx), `lineWindow` names the lines in its view, and two spacers stand for the rest.
 export function PlainCodeLines({
   code,
   trimTrailingLine = true,
   wrap = false,
+  lineWindow,
 }: {
   code: string;
   trimTrailingLine?: boolean;
   wrap?: boolean;
+  lineWindow?: LineWindow;
 }) {
-  const lines = (trimTrailingLine ? code.replace(/\n$/, "") : code).split("\n");
+  const lines = useMemo(
+    () => (trimTrailingLine ? code.replace(/\n$/, "") : code).split("\n"),
+    [code, trimTrailingLine],
+  );
+  const from = lineWindow?.from ?? 0;
+  const drawn = lineWindow ? lines.slice(from, lineWindow.to) : lines;
   return (
     <pre
       className="cv-code-plain selectable"
       style={wrap ? { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } : undefined}
     >
-      {lines.map((line, index) => (
-        <div key={index} className="cv-code-plain__line">
+      {lineWindow && (
+        <div ref={lineWindow.top} className="cv-line-spacer" aria-hidden="true" style={{ height: lineWindow.before }} />
+      )}
+      {drawn.map((line, index) => (
+        <div
+          key={from + index}
+          className="cv-code-plain__line"
+          role={lineWindow?.setsize ? "listitem" : undefined}
+          aria-posinset={lineWindow?.setsize ? from + index + 1 : undefined}
+          aria-setsize={lineWindow?.setsize}
+        >
           {line || "​"}
         </div>
       ))}
+      {lineWindow && (
+        <div
+          ref={lineWindow.bottom}
+          className="cv-line-spacer"
+          aria-hidden="true"
+          style={{ height: lineWindow.after }}
+        />
+      )}
     </pre>
   );
 }

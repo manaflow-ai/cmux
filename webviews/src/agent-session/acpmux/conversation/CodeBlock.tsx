@@ -6,6 +6,7 @@ import { isDiagram } from "./codeShape";
 import { highlightsCode } from "./highlightLimits";
 import { PlainCode, PlainCodeLines } from "./StreamingCode";
 import { loadHighlightedCode } from "./codeBlockModel";
+import type { LineWindow } from "./lineWindow";
 
 export type CodeBlockProps = {
   code: string;
@@ -25,14 +26,16 @@ const HighlightedLines = lazy(() =>
 );
 
 /// A file's bare lines (a read's peek, FileResultCard.tsx), highlighted by `path`'s language in the
-/// same chunk as the fenced card; plain while it loads and past the highlight limits.
-export function CodeLines({ code, path }: { code: string; path: string }) {
+/// same chunk as the fenced card; plain while it loads and past the highlight limits, where `lineWindow`
+/// names the lines its box shows (lineWindow.ts).
+export function CodeLines({ code, path, lineWindow }: { code: string; path: string; lineWindow?: LineWindow }) {
+  const highlighted = highlightsCode(code);
   const plain = (
     <div className="cv-filepeek__lines">
-      <PlainCodeLines code={code} />
+      <PlainCodeLines code={code} lineWindow={highlighted ? undefined : lineWindow} />
     </div>
   );
-  return highlightsCode(code) ? (
+  return highlighted ? (
     <Suspense fallback={plain}>
       <HighlightedLines code={code} path={path} />
     </Suspense>

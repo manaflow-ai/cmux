@@ -6245,6 +6245,15 @@ a.cv-sha:focus-visible {
 .cv-edit-diff__body[data-preview="cut"]:not([data-more-below]) {
   mask-image: none;
 }
+/* A long block in its box mounts only the lines in view (lineWindow.ts): two empty spacers stand for
+   the rest. Their heights change as the window moves, and the window holds the reader's line itself,
+   so the browser's own scroll anchoring stays off in that box. */
+.cv-line-spacer {
+  display: block;
+}
+[data-line-window] {
+  overflow-anchor: none;
+}
 /* Its lines, one block each: wrapped, a long one hangs under its first row; unwrapped, it stays on
    one row and the body scrolls sideways (trackpad, Shift-wheel). */
 :is(.cv-shell__body, .cv-tool-output) .cv-line {
