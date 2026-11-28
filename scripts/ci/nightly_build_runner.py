@@ -34,7 +34,7 @@ A Linux job runs this right before the macOS job queues and prints its labels:
   (side_lane_placement.compatible_labels()), while an online runner carrying it
   is idle now (pr_runner_pool.live_owned_free(), the rule side lanes are placed
   with). When the runners cannot be read (no routing token, or its API budget
-  spent) and the caller sets UNREAD_OWNED_FALLBACK=1 (nightly.yml's build and verify picks,
+  spent) and the caller sets UNREAD_OWNED_FALLBACK=1 (nightly.yml's build pick,
   only while vars.CI_PR_POOL_OWNED is on and the rescue watches the build), it is
   the first watched label itself, so the build still queues on the owned pool
   before Blacksmith (unread_owned_route()). Empty when no label is one the
@@ -85,12 +85,6 @@ It never fails the job and never prints an empty `blacksmith`:
 
 `nightly_build_runner.py dedicated` prints only `dedicated`, with no wait.
 
-`nightly_build_runner.py verify` prints only `owned`, never the dedicated builder (it keeps
-that Mac for the next tip's build): pick-nightly-sign-runner's route for the secret-free
-verify jobs (verify-signed-nightly, verify-final-dmg-nightly, signer-dmg-image),
-by the same owned rule as the build. Until 2026-10-27 that step ran the pull request pool picker
-(e2e_runner_pool.py), which named a Blacksmith macOS 15 label in run 40515681971 while owned
-side runners were idle, so verify queued about 1.5 h on Blacksmith.
 """
 
 from __future__ import annotations
@@ -424,13 +418,6 @@ def nightly_only_builder_route(builder: str, fallback: str,
     return fallback, f"`{builder}` is {'busy' if m4pro else 'offline'}, so `{fallback}`"
 
 
-# The verify jobs (signer-dmg-image, both final verifies, the legacy identity verify) take the all-nightly
-# reservation on attempt 1. On the shared nightly slot pool a mini GitHub lists as idle can still be full in
-# glaeda's ledger, and a nightly job then waits for running PR jobs to free units: signer-dmg-image sat 809 s in
-# "Set up runner" ("1 of 14 units free, signer-dmg-image (light) needs 2", run 41365440328), and a verify over
-# 13 min in run 41366478487, where setup takes 0-4 s. The reservation's runners take no shared capacity unit, and
-# glaeda's nightly-only admission admits these light, secret-free nightly.yml jobs.
-
 
 def write_output(env: Mapping[str, str], values: Mapping[str, str], lines: Sequence[str]) -> None:
     for line in lines:
@@ -482,22 +469,8 @@ def main(env: Mapping[str, str] = os.environ,
                      ["the explicitly reserved all-nightly mini takes the app and helper",
                       f"app: {app} ({app_why})"])
         return 0
-    if (list(argv[:1]) == ["verify"] and repo == "manaflow-ai/cmux" and attempt == "1"
-            and env.get("GITHUB_REF") == "refs/heads/nightly-next"
-            and env.get("GITHUB_EVENT_NAME") in {"push", "workflow_dispatch"}
-            and nightly_only == NIGHTLY_ONLY_LABEL):
-        # No live read: the verify pick runs 35-40 min into the run, past the dispatch-time runner document's
-        # max age, so its read went live, hit the spent routing-App budget (403) and sent both jobs to the shared
-        # slot pool, where they waited 6-15 min for units (run 41400519218). The reservation admits only nightly
-        # jobs and holds no shared capacity, so it needs no idle check; a re-run (attempt 2) keeps the owned pick.
-        write_output(env, {"owned": nightly_only},
-                     [f"verify: {nightly_only} (the all-nightly reservation, taken without a runner read)"])
-        return 0
     dedicated_label = (env.get("DEDICATED_LABEL") or "").strip()
     only_dedicated = list(argv[:1]) == ["dedicated"]
-    only_verify = list(argv[:1]) == ["verify"]
-    if only_verify:
-        dedicated_label = ""  # the verify jobs never take the dedicated builder: it keeps that Mac for the next build
     event = (env.get("GITHUB_EVENT_NAME") or "").strip()
     ref = (env.get("GITHUB_REF") or "").strip()
     off_event = bool(dedicated_label) and event not in DEDICATED_EVENTS
@@ -592,13 +565,8 @@ def main(env: Mapping[str, str] = os.environ,
         # The trusted pair is the dedicated builder (trusted_route()), and build-nightly-app takes `trusted`
         # before `owned`: offering it would send the build back to the Mac that is refusing it.
         trusted, trusted_why = "", f"{refused_why} (the trusted pair is the same builder)"
-    if only_verify:
-        write_output(env, {"owned": owned}, [f"verify: {owned or 'none'} ({owned_why})",
-                                             f"blacksmith otherwise: {blacksmith} ({blacksmith_why})"])
-        return 0
-
     # The Ghostty helper never takes the dedicated builder (its hook admits only build-nightly-app),
-    # so while the app build holds it the helper gets its own owned pick, as the verify jobs do.
+    # so while the app build holds it the helper gets its own owned pick.
     helper, helper_why = owned, owned_why
     if dedicated:
         helper_runners = read() if any(owned_label(label) for label in labels) else None
