@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxMobileModel
 import Foundation
 import OSLog
@@ -27,7 +28,7 @@ enum ChatShareOpener {
     /// The page to open for `link`. `token` is the signed-in account's Stack access token, nil
     /// when signed out.
     static func page(for link: ChatShareLink, token: String?,
-                     session: URLSession = .shared) async -> Page {
+                     session: URLSession = CmuxEgress.shared(site: "CmuxMobileShell.ChatShareOpener")) async -> Page {
         guard let token, !token.isEmpty else { return Page(url: link.pageURL(handoff: nil), signedIn: false) }
         let code = await mint(link, token: token, session: session)
         log.info("chat share \(link.page.rawValue, privacy: .public) page: hand-off \(code == nil ? "refused" : "minted", privacy: .public)")
