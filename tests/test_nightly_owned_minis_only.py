@@ -87,7 +87,17 @@ HOSTED_TAIL_JOBS = {
     # pull-requests: write token, so the one-job JIT VM rather than the shared persistent cmux-linux pool.
     "published-in": "up to 300 min of paced PR comments through the API (7.5 s a write); compiles nothing",
 }
-# Leo's override (2026-11-08, "no. if this is still a good idea, we can still do it."): a loop-run job on an ephemeral
+# The post-feed dispatch jobs (#56483): a refused dispatch moves to cmux-bot's and the CI pools' installation hours at
+# once instead of sleeping out github.token's (run 45562645699 slept 18.4 and 12.9 min), so each mints those App
+# tokens. #56483 moved them off the mini to keep the keys off it; they take the one-job JIT VM, not the PR-shared
+# persistent Linux runners. They run in the push run too (after nightly-next-one or publish), so a slow JIT start
+# delays the push group's end: the stated cost, as for HOSTED_LOOP_JOBS. They hold only the dispatch keys. job -> why.
+HOSTED_DISPATCH_JOBS = {
+    "wake-nightly-next-tick": "asks main's nightly-next tick; a refused dispatch moves to another App's hour",
+    "dispatch-published-in": "asks for the post-publication run; a refused dispatch moves to another App's hour",
+}
+HOSTED_DISPATCH_SECRETS = {"CMUX_BOT_APP_KEY", "CMUX_CI_POOL_KEYS"}
+# Leo's override (2026-11-08, "no. if this is still a good idea, we can still do it."): loop-run jobs on an ephemeral
 # VM (GitHub-hosted Ubuntu then, JIT_LABEL now). job -> why. Its whole-Mac hold on cmux15 (289-406 s a build, after 79-412 s queued behind keep-published-dsyms:
 # runs 42547726872, 42552327203, 42555458535, 42563930397) kept the signer from the next sign; a hosted job queued
 # 2-89 s in the same runs' tails. It holds the push group as before, so a slow JIT VM start would hold it too: the
@@ -95,6 +105,8 @@ HOSTED_TAIL_JOBS = {
 HOSTED_LOOP_JOBS = {
     "publish-nightly-next-github": "uploads only, with the release App key that publish-release-notes already takes to "
                                    "an ephemeral JIT VM; on the signer it held the whole Mac",
+    "keep-published-dsyms": "downloads and retains symbols with release credentials; on the signer its API and R2 work "
+                            "held the whole Mac",
 }
 # The secret-free runner preflight ahead of decide left GitHub-hosted Ubuntu on 2026-11-18: the org-wide hosted
 # queue held it 1h25m+ (run 44207617943), and every nightly with it, while the nightly Macs were idle. It now runs on
@@ -102,11 +114,14 @@ HOSTED_LOOP_JOBS = {
 # (tests/test_nightly_runner_preflight.py). No nightly job waits on GitHub-hosted Ubuntu before publish.
 HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
 # Secret-free Linux controls on our own persistent Linux pool, cmux-linux: one label for every own-branch Linux job.
+HOSTED_DISPATCH_RUNS_ON = f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || '{JIT_LABEL}' }}}}"
 # A fork takes GitHub-hosted Ubuntu.
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-tui-client",
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
-                   "check-nightly-app-store-shelf", "report-nightly-shelf-red", "published-build")
+                   "check-nightly-app-store-shelf", "published-build",
+                   "check-nightly-webviews", "early-nightly-webviews")
+# report-nightly-shelf-red holds issues: write, so it takes the nightly-only route every nightly report job does.
 # RFD 0021 route by need: of those, the essential ones take the nightly's reserved label on the first run, before a rerun or loop retry.
 NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
                        "published-build")
@@ -127,7 +142,6 @@ TRACK_HOSTED = f"github.ref != 'refs/heads/nightly-next' && '{JIT_LABEL}' ||"
 _PUBLISHER_SWITCH = f"vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && '{JIT_LABEL}' || "
 HOSTED_SIGNING_SWITCHES = {
     "publish-nightly": _PUBLISHER_SWITCH,
-    "keep-published-dsyms": _PUBLISHER_SWITCH,
     "republish-nightly-deltas": _PUBLISHER_SWITCH,
 }
 
@@ -152,11 +166,11 @@ def manaflow_routes(name: str) -> list[str] | None:
     return [route.replace(TRACK_HOSTED, "", 1) for route in routes] if name in NIGHTLY_NEXT_ONLY_OWNED else routes
 
 
-# Secret jobs glaeda's SIGNING_JOBS gives the whole mini, that hold no signing keychain. The last three ran on
-# GitHub-hosted Ubuntu until glaeda admitted them on the trusted signing runner; keep-published-dsyms holds the
-# push group (it runs in the loop run), republish-nightly-deltas follows generate-nightly-deltas' own hold.
+# Secret jobs glaeda's SIGNING_JOBS gives the whole mini, that hold no signing keychain. The last two ran on
+# GitHub-hosted Ubuntu until glaeda admitted them on the trusted signing runner; republish-nightly-deltas follows
+# generate-nightly-deltas' own hold.
 EXCLUSIVE_PUBLISHERS = ("promote-nightly-next", "publish-nightly",
-                        "keep-published-dsyms", "republish-nightly-deltas", "promote-nightly-next-acked")
+                        "republish-nightly-deltas", "promote-nightly-next-acked")
 # Of those, the ones that need no sign pick: promote-nightly-next and its retired (if: false) acked twin share a route.
 PROMOTE_ROUTE = ("promote-nightly-next", "promote-nightly-next-acked")
 SIGNER = "glaeda-trusted-next-signing"
@@ -190,6 +204,11 @@ class EveryJobOnOurMinis(unittest.TestCase):
         failures = {}
         for name, job in JOBS.items():
             if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS or job.get("uses"):
+                continue
+            if name in HOSTED_DISPATCH_JOBS:
+                if (workflow_jobs.runs_on_cells(job) != [HOSTED_DISPATCH_RUNS_ON]
+                        or not workflow_jobs.secret_names(job) <= HOSTED_DISPATCH_SECRETS):
+                    failures[name] = "a post-feed dispatch takes the one-job JIT VM and holds only the dispatch keys"
                 continue
             if name in CMUX_LINUX_JOBS:
                 expected = NIGHTLY_PINNED_RUNS_ON if name in NIGHTLY_PINNED_JOBS else CMUX_LINUX_RUNS_ON
@@ -243,7 +262,8 @@ class EveryJobOnOurMinis(unittest.TestCase):
     def test_only_the_listed_tail_jobs_are_hosted(self) -> None:
         off = {name for name in JOBS if not JOBS[name].get("uses")
                and ((routes := manaflow_routes(name)) is None or any(OFF_THE_MINIS.search(route) for route in routes))}
-        self.assertEqual(off, set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS) | set(HOSTED_PREFLIGHT_JOBS),
+        self.assertEqual(off, set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS) | set(HOSTED_PREFLIGHT_JOBS)
+                         | set(HOSTED_DISPATCH_JOBS),
                          "a nightly job may not leave our minis")
         for name in sorted(off):
             with self.subTest(job=name, ephemeral="jit-only"):
@@ -258,7 +278,7 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 self.assertEqual(workflow_jobs.secret_names(JOBS[name]), set(), "the preflight holds no secret")
                 # issues: write only, for the nightly-next-failure notice (the job's GITHUB_TOKEN; no secret).
                 self.assertEqual(JOBS[name].get("permissions"), {"issues": "write"})
-        for name in (*HOSTED_TAIL_JOBS, *HOSTED_LOOP_JOBS):
+        for name in (*HOSTED_TAIL_JOBS, *HOSTED_LOOP_JOBS, *HOSTED_DISPATCH_JOBS):
             with self.subTest(job=name):
                 permissions = JOBS[name].get("permissions")
                 writes = isinstance(permissions, dict) and "write" in permissions.values()
@@ -269,7 +289,7 @@ class EveryJobOnOurMinis(unittest.TestCase):
         # Leo's override covers this one job only, and only on an ephemeral VM: no variable, pick or one-mini mode may
         # put the release App key on a mini without the whole-Mac claim, so its route is the literal JIT label on every
         # attempt (the fork branch keeps GitHub-hosted Ubuntu).
-        self.assertEqual(set(HOSTED_LOOP_JOBS), {"publish-nightly-next-github"})
+        self.assertEqual(set(HOSTED_LOOP_JOBS), {"publish-nightly-next-github", "keep-published-dsyms"})
         for name in HOSTED_LOOP_JOBS:
             job = JOBS[name]
             resolved = workflow_jobs.resolve(job, name)
@@ -277,7 +297,10 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 self.assertEqual(resolved.runs_on_cells,
                                  ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                                   f"'{JIT_LABEL}' }}}}"])
-                self.assertIn("secrets.CMUX_RELEASE_APP_KEY", json.dumps(job))
+                if name == "publish-nightly-next-github":
+                    self.assertIn("secrets.CMUX_RELEASE_APP_KEY", json.dumps(job))
+                else:
+                    self.assertIn("secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID", json.dumps(job))
                 self.assertIn("release-next", resolved.environments)
                 self.assertEqual(resolved.environments_unresolved, set())
                 self.assertNotIn("pick-nightly-sign-runner", json.dumps(job))
@@ -394,14 +417,25 @@ class OwnedWorkdirSteps(unittest.TestCase):
     """The clean and wipe steps, run: they empty the workspace (and the temp dir, but the runner's own) on an
     owned Mac, and touch nothing on an ephemeral runner."""
 
-    def run_step(self, step: dict, runner: str) -> tuple[set, set]:
+    # The owned-fleet marker the steps test besides the runner name. Fleet Linux hosts (the cmux-linux pool, lane
+    # VMs) carry it too, so the test points the step at a marker of its own instead of reading the host's: with the
+    # host's, "an ephemeral runner" emptied its workspace there and both tests went red (feat-cmux-next 82b21593).
+    FLEET_MARKER = "/Users/Shared/cmux-build-fleet"
+
+    def run_step(self, step: dict, runner: str, fleet: bool = False) -> tuple[set, set]:
         with tempfile.TemporaryDirectory() as temp:
             ws, tmp = Path(temp) / "ws", Path(temp) / "tmp"
             for directory in (ws / "nightly-out", ws / ".publish-tooling", tmp / "gh-app-token", tmp / "_runner_file_commands"):
                 directory.mkdir(parents=True)
             (ws / "appcast.xml").write_text("feed")
             (tmp / "gh-app-token" / "token").write_text("x")
-            subprocess.run(["/bin/bash", "-e", "-c", str(step["run"])], check=True,
+            marker = Path(temp) / "fleet-marker"
+            if fleet:
+                marker.mkdir()
+            run = str(step["run"])
+            self.assertIn(f"[ -d {self.FLEET_MARKER} ]", run)
+            run = run.replace(self.FLEET_MARKER, str(marker))
+            subprocess.run(["/bin/bash", "-e", "-c", run], check=True,
                            env={"PATH": "/usr/bin:/bin", "HOME": temp, "RUNNER_NAME": runner,
                                 "GITHUB_WORKSPACE": str(ws), "RUNNER_TEMP": str(tmp)})
             return {p.name for p in ws.iterdir()}, {p.name for p in tmp.iterdir()}
@@ -411,11 +445,14 @@ class OwnedWorkdirSteps(unittest.TestCase):
         self.assertEqual(self.run_step(clean, "glaeda-runner-cmux15-glaeda-nightly-only-3"),
                          (set(), {"gh-app-token", "_runner_file_commands"}))
         self.assertEqual(self.run_step(clean, "GitHub Actions 12")[0], {"nightly-out", ".publish-tooling", "appcast.xml"})
+        # A fleet Mac whose runner name is not glaeda's is owned by its marker.
+        self.assertEqual(self.run_step(clean, "GitHub Actions 12", fleet=True)[0], set())
 
     def test_wipe_removes_tokens_and_files_but_the_runners_own(self) -> None:
         wipe = steps("publish-nightly")[-1]
         self.assertEqual(self.run_step(wipe, "glaeda-runner-cmux7s-glaeda-nightly-only-4"), (set(), {"_runner_file_commands"}))
         self.assertEqual(self.run_step(wipe, "GitHub Actions 12")[1], {"gh-app-token", "_runner_file_commands"})
+        self.assertEqual(self.run_step(wipe, "GitHub Actions 12", fleet=True), (set(), {"_runner_file_commands"}))
 
 
 class RecoveryTakesAnOwnedPick(unittest.TestCase):

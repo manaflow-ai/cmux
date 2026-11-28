@@ -1407,25 +1407,17 @@ pub const CAPACITY_MAX_WAIT: Duration = Duration::from_secs(2 * 60 * 60);
 /// (503) and the API's overload (529), at their "retry after Ns", else
 /// [`CAPACITY_DEFAULT_WAIT`]. None for any other error.
 pub fn capacity_retry_after(error: &str) -> Option<Duration> {
-    let lower = error.to_ascii_lowercase();
-    // An overload without a retry-after stays the turn's error (the shared
-    // corpus, cmux-chief-corpus/1, pins "(turn failed: ...)" for it).
-    let capacity = lower.contains("no non-exhausted")
-        || ((lower.contains("overloaded")
-            || lower.contains("api error: 529")
-            || lower.contains("api error: 503"))
-            && lower.contains("retry after"));
-    if !capacity {
+    // What the error says is read once for acpmux, the compactor and this turn
+    // (cmux_upstream_error; ask-616b73f6bc): "HTTP 529 ...; retry-after: 30" waits here as
+    // it does there. An overload without a retry-after stays the turn's error (the shared
+    // corpus, cmux-chief-corpus/1, pins "(turn failed: ...)" for it); the subrouter's
+    // exhausted pool waits even unnamed.
+    let wait = cmux_upstream_error::retry_after(error);
+    let exhausted = error.to_ascii_lowercase().contains("no non-exhausted");
+    if !(exhausted || cmux_upstream_error::is_capacity(error) && wait.is_some()) {
         return None;
     }
-    let seconds = lower.find("retry after ").and_then(|at| {
-        let digits: String = lower[at + 12..]
-            .chars()
-            .take_while(char::is_ascii_digit)
-            .collect();
-        digits.parse::<u64>().ok()
-    });
-    Some(seconds.map_or(CAPACITY_DEFAULT_WAIT, Duration::from_secs))
+    Some(wait.unwrap_or(CAPACITY_DEFAULT_WAIT))
 }
 
 /// Runs `outcome`'s turn again while its route refuses it for want of

@@ -647,27 +647,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "99de33e5513cd5ea3ae708115d2b919681d3f9cb",
-      "url": "https://files.cmux.com/cmux-tui/99de33e5513cd5ea3ae708115d2b919681d3f9cb/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "462eee03884b28e835e493a7d0db86722163a6f7a1a53bae35a6b853fca45fd8",
-      "size": 172144272,
+      "version": "589544f1e56b6a59d1cae2f6364f0a9524b4ffda",
+      "url": "https://files.cmux.com/cmux-tui/589544f1e56b6a59d1cae2f6364f0a9524b4ffda/machine/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "2a3fca13f68ef03e562ccc51ed6b59867cc7d19811fc4549f5f931a75a48e382",
+      "size": 221633264,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/99de33e5513cd5ea3ae708115d2b919681d3f9cb/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45828728108; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/589544f1e56b6a59d1cae2f6364f0a9524b4ffda/machine/ (the Cloud machine build, write-once; sha256 of the bytes; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "99de33e5513cd5ea3ae708115d2b919681d3f9cb",
-      "url": "https://files.cmux.com/cmux-tui/99de33e5513cd5ea3ae708115d2b919681d3f9cb/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "d542fab61037bc5d2ff86448f6a54b451eda94a07d6ecebf02d7a9d6796512ee",
-      "size": 4986240,
+      "version": "589544f1e56b6a59d1cae2f6364f0a9524b4ffda",
+      "url": "https://files.cmux.com/cmux-tui/589544f1e56b6a59d1cae2f6364f0a9524b4ffda/machine/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "bbe957f7e46f849c5819c9abf16e8460a03e0d352f5b17a254583926ca69312d",
+      "size": 16233400,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/99de33e5513cd5ea3ae708115d2b919681d3f9cb/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45828728108; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/589544f1e56b6a59d1cae2f6364f0a9524b4ffda/machine/ (the Cloud machine build, write-once; sha256 of the bytes; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "optchat-chief",

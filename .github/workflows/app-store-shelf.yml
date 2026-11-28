@@ -13,22 +13,9 @@
 # a_command_only_store_listing_has_nothing_to_open_after_install).
 name: App Store shelf
 
+# A pull request into feat-cmux-next runs the shelf check as ci/steps.toml's app-store-shelf step in
+# pr-pipeline.yml's linux job; this workflow keeps the feat-cmux-next push and dispatch runs.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
-    branches: [feat-cmux-next]
-    paths:
-      - ".github/workflows/app-store-shelf.yml"
-      - "first-party-apps/**"
-      - "samples/apps/**"
-      - "scripts/cmux-next/sync-app-runtime.sh"
-      - "scripts/cmux-next/store-package-sign.py"
-      - "scripts/ci/app-store-shelf-check.sh"
-      - "cmux-tui/crates/cmux-tui-core/src/apps/**"
-      - "cmux-tui/crates/cmux-app-host/**"
-      - "cmux-tui/crates/cmux-app-manifest/**"
-      - "cmux-tui/crates/cmux-layout-reducer/src/sidebar_bridge*"
-      - "cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs"
   push:
     branches: [feat-cmux-next]
     paths:
@@ -54,7 +41,7 @@ concurrency:
 
 jobs:
   shelf:
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: App Store shelf (every listing installs and shows something)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
@@ -62,7 +49,7 @@ jobs:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CMUX_GHOSTTY_SRC: ""
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -85,6 +72,40 @@ jobs:
 
       - name: Set up pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The compiled dependencies come from R2 (public reads, no credentials), seeded on feat-cmux-next by
+      # app-store-shelf-cargo-seed.yml under the same key. A miss or a slow restore builds cold, as before.
+      - name: Key the cargo build in R2
+        id: r2-cargo-key
+        if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith-') }}
+        continue-on-error: true
+        run: bash scripts/ci/app-store-shelf-cargo-key.sh >> "$GITHUB_OUTPUT"
+
+      - name: Restore the cargo build from R2
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: cmux-tui/target
+          key: ${{ steps.r2-cargo-key.outputs.target-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+
+      - name: Restore the cargo registry from R2
+        if: ${{ steps.r2-cargo-key.outputs.registry-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.registry }}
+          key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
 
       - name: Every Discover listing installs and shows something
         run: bash scripts/ci/app-store-shelf-check.sh

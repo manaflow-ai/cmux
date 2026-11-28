@@ -2790,7 +2790,8 @@ IOS_XCODE_PIN = ("${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (gith
 
 def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_owned="1", owned="1",
               slots=None, ios_version="", device_family="", upload="", called="", ios_since=0, measure=None,
-              swift_package="", seed_cache="", fork=False, queue_rounds=None, pull_requests_since=0, log=None):
+              swift_package="", seed_cache="", fork=False, queue_rounds=None, pull_requests_since=0, log=None,
+              runners=None):
     calls = []
 
     def measured():
@@ -2805,7 +2806,8 @@ def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_
         pr_xcode_app=PR_XCODE, order="", max_queued="",
         ios_version=ios_version, device_family=device_family, upload=upload, called=called,
         swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW, fork=fork,
-        queue_rounds=queue_rounds, log=log or (lambda message: None))
+        queue_rounds=queue_rounds, log=log or (lambda message: None),
+        list_runners=None if runners is None else (lambda: runners))
     return route, len(calls)
 
 
@@ -3023,6 +3025,52 @@ class IOSRouting(unittest.TestCase):
         self.assertEqual(json.loads(route.package_runs_on), MINI)
         self.assertEqual(json.loads(route.retry_runs_on), SMALL)
 
+    def test_pipeline_uses_a_configured_idle_simulator_in_pool_order(self):
+        aws = MINI.replace("glaeda-", "glaeda-aws-")
+        wrong = aws.replace("26.6", "26.5")
+        office = mini_runner("office", 0, MINI, IOS_SIM)
+        cloud = mini_runner("cloud", 0, MINI, aws, IOS_SIM)  # AWS also advertises the office alias.
+        host_only = mini_runner("office", 1, MINI)
+        order = f"{MINI},{aws}"
+        for name, runners, labels, expected in (
+            ("office first", [office, cloud], order, MINI),
+            ("AWS first", [office, cloud], f"{aws},{MINI}", aws),
+            ("office busy", [{**office, "busy": True}, cloud], order, aws),
+            ("office absent", [cloud], order, aws),
+            ("AWS absent", [office], order, MINI),
+            ("AWS lacks runtime", [host_only, mini_runner("cloud", 0, aws)], order, SMALL),
+            ("AWS busy", [host_only, {**cloud, "busy": True}], order, SMALL),
+            ("AWS offline", [host_only, {**cloud, "status": "offline"}], order, SMALL),
+            ("AWS opt-in required", [host_only, cloud], MINI, SMALL),
+            ("other Xcode", [host_only, mini_runner("cloud", 0, wrong, IOS_SIM)], f"{MINI},{wrong}", SMALL),
+        ):
+            with self.subTest(name=name), unittest.mock.patch.object(pool, "GitHub") as github:
+                client = github.return_value
+                client.runners.return_value = runners
+                client.runs_since.return_value = []
+                client.get.return_value = {"artifacts": []}
+                out = io.StringIO()
+                args = ["--lane", "pipeline", "--requested", "auto", "--owned", "1", "--ios-owned", "1",
+                        "--owned-slots", json.dumps(IOS_SLOTS), "--pr-xcode-app", PR_XCODE, "--order", labels]
+                env = {"GH_TOKEN": "job", "ROUTE_TOKEN": "route", "GH_REPO": "manaflow-ai/cmux"}
+                with unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", io.StringIO()):
+                    self.assertEqual(ios_pool.main(args, env=env), 0)
+                output = dict(line.split("=", 1) for line in out.getvalue().splitlines())
+                self.assertEqual(json.loads(output["runs_on"]), SMALL if expected == SMALL else [expected, IOS_SIM])
+                self.assertEqual(json.loads(output["retry_runs_on"]), SMALL)
+                client.runners.assert_called_once_with()
+
+    def test_pipeline_aws_shares_the_simulator_limit_with_office_jobs(self):
+        aws = MINI.replace("glaeda-", "glaeda-aws-")
+        runner = mini_runner("cloud", 0, aws, IOS_SIM)
+        kit = {"id": 1, "path": ".github/workflows/cmux-next-ios-kit.yml", "run_attempt": 1}
+        job = {"name": "CmuxMobileKit tests (macOS swift test, iOS simulator)", "labels": [MINI, IOS_SIM],
+               "status": "in_progress", "runner_name": "office-glaeda"}
+        for capacity, expected in ((1, 0), (2, 1)):
+            free = ios_pool.live_free([runner], aws, [kit], now=NOW, capacity=capacity,
+                                      jobs={1: [job]}, idle_sim_only=True)
+            self.assertEqual(free.sim, expected)
+
     def test_a_simulator_job_never_asks_for_the_pool_label_alone(self):
         for route in (ios_route(sim_fleet())[0], ios_route(requested="owned")[0],
                       ios_route(lane="screenshots", requested="owned")[0]):
@@ -3112,6 +3160,25 @@ class IOSRouting(unittest.TestCase):
                 ios_route(requested="owned", slots=slots)
         with self.assertRaisesRegex(ValueError, "seed_cache"):
             ios_route(requested="owned", seed_cache="true")
+
+    def test_owned_takes_the_first_pin_pool_an_online_simulator_runner_carries(self):
+        # hosted#1034: the first pin pool's every carrier was offline and the job
+        # queued 46 minutes. A label routes while one online runner carries it.
+        def carrier(status, *labels):
+            return {"status": status, "busy": True, "labels": [{"name": name} for name in labels]}
+
+        light_live = [carrier("offline", MINI, IOS_SIM), carrier("online", MINI),
+                      carrier("online", LIGHT, IOS_SIM)]
+        route, _ = ios_route(requested="owned", runners=light_live)
+        self.assertEqual(json.loads(route.runs_on), [LIGHT, IOS_SIM])
+        route, _ = ios_route(requested="owned", runners=[carrier("online", MINI, IOS_SIM), *light_live])
+        self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
+        with self.assertRaisesRegex(ValueError, f"{MINI} 0 of 1 registered, {LIGHT} 0 of 0 registered"):
+            ios_route(requested="owned", runners=[carrier("offline", MINI, IOS_SIM), carrier("online", MINI)])
+        # An unread or empty listing is not a dead pool: keep the first pin pool.
+        for runners in (None, []):
+            route, _ = ios_route(requested="owned", runners=runners)
+            self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
 
     def test_a_package_only_run_needs_no_simulator(self):
         self.assertEqual(ios_pool.sim_jobs("test-ios", "", "CmuxMobileShell"), 0)
@@ -3763,6 +3830,32 @@ class IOSRouting(unittest.TestCase):
             self.assertEqual(ios_pool.granted_default(ios_pool.ephemeral(SMALL), **{**base, "event": event}).label,
                              "cmux-mac", event)
 
+    def test_no_free_runner_keeps_the_default_it_logged_instead_of_the_grant(self):
+        # cmux#53546: the picker logged "staying on blacksmith-6vcpu-macos-26" and the job still took
+        # cmux-mac + glaeda-ios-sim + xcode-26.6, a 39 min queue. With 0 runners free the labels match the log.
+        base = dict(fork=False, owner="manaflow-ai", requested="auto", variable="", blocker="", overflow="",
+                    pr_xcode_app=PR_XCODE, event="pull_request")
+        for pool_free, sim_free in ((0, 0), (2, 0), (0, 2)):
+            messages = []
+            route = self.live(pool_free, sim_free, log=messages.append)
+            self.assertTrue(route.starved, (pool_free, sim_free))
+            self.assertIn(f"staying on {SMALL}", messages[-1])
+            granted = ios_pool.granted_default(route, **{**base, "log": messages.append})
+            self.assertIs(granted, route)
+            self.assertEqual((json.loads(granted.runs_on), json.loads(granted.package_runs_on), granted.grant_labels),
+                             (SMALL, SMALL, ()))
+            self.assertIn(f"staying on {SMALL}, not cmux-mac", messages[-1])
+        # The snapshot path: no simulator free keeps the default as well.
+        busy = ios_route(sim_fleet(), device_family="iphone", ios_since=2)[0]
+        self.assertTrue(busy.starved)
+        self.assertIs(ios_pool.granted_default(busy, **base), busy)
+        # A route the picker did not measure (no token, an unread queue) is still granted.
+        unread = ios_route(measure=lambda: (_ for _ in ()).throw(RuntimeError("no token")))[0]
+        self.assertFalse(unread.starved)
+        self.assertEqual(ios_pool.granted_default(unread, **base).label, "cmux-mac")
+        # Free runners still take the owned pool.
+        self.assertTrue(self.live(2, 2).persistent)
+
     def test_main_grants_the_same_repository_default_and_keeps_a_forks(self):
         def run(args, env):
             out = io.StringIO()
@@ -4046,7 +4139,7 @@ class IOSRouting(unittest.TestCase):
                 self.assertEqual(ios_pool.main(args, env=env), 0)
             return dict(line.split("=", 1) for line in out.getvalue().splitlines())
 
-        full = [{"name": "mini-a-glaeda", "status": "online", "busy": True, "labels": [{"name": MINI}]}]
+        full = [{"name": "mini-a-glaeda", "status": "online", "busy": True, "labels": [{"name": MINI}, {"name": IOS_SIM}]}]
         # runner: owned (every cmux-next lane) reads no queue: one runners listing, with the route token.
         outputs = run(full + [self.sim_first_runner("mini-a")])
         self.assertEqual(json.loads(outputs["build_runs_on"]), self.SIM_FIRST)
@@ -4057,13 +4150,28 @@ class IOSRouting(unittest.TestCase):
         # None idle: build_runs_on is runs_on.
         outputs = run(full + [self.sim_first_runner("mini-a", busy=True)])
         self.assertEqual(outputs["build_runs_on"], outputs["runs_on"])
-        # A Swift package run has no build and lists nothing more; nor does a run without the route token.
+        # A Swift package run has no build: its one listing proves only the pool's carrier;
+        # a run without the route token lists nothing and keeps the first pin pool.
         reads.clear()
         outputs = run(full + [self.sim_first_runner("mini-a")], package="CmuxHomeCore")
         self.assertEqual(outputs["build_runs_on"], outputs["runs_on"])
+        self.assertEqual(reads, ["route"])
+        reads.clear()
         outputs = run(full + [self.sim_first_runner("mini-a")], env_extra={"ROUTE_TOKEN": ""})
         self.assertEqual(outputs["build_runs_on"], outputs["runs_on"])
         self.assertEqual(reads, [])
+        # Every carrier of the pin pools offline: refuse with the counts, never queue silently (hosted#1034).
+        offline = [{**full[0], "status": "offline"}]
+        with unittest.mock.patch.object(pool, "GitHub", type("C", (), {
+                "__init__": lambda self, token, repo: None, "runners": lambda self: offline})), \
+                unittest.mock.patch("sys.stdout", io.StringIO()), unittest.mock.patch("sys.stderr", io.StringIO()) as err:
+            self.assertEqual(ios_pool.main(["--lane", "test-ios", "--requested", "owned", "--owned", "1",
+                                            "--ios-owned", "1", "--owned-slots", json.dumps(IOS_SLOTS),
+                                            "--pr-xcode-app", PR_XCODE, "--order", MINI, "--queue-rounds", "0",
+                                            "--swift-package", ""],
+                                           env={"GH_TOKEN": "job", "ROUTE_TOKEN": "route",
+                                                "GH_REPO": "manaflow-ai/cmux"}), 1)
+        self.assertIn(f"{MINI} 0 of 1 registered", err.getvalue())
         # The auto live path reuses its own listing: still one read.
         idle = [{"name": "mini-a-glaeda", "status": "online", "busy": False, "labels": [{"name": MINI}, {"name": IOS_SIM}]},
                 {"name": "mini-b-glaeda", "status": "online", "busy": False, "labels": [{"name": MINI}, {"name": IOS_SIM}]},
@@ -4303,14 +4411,18 @@ class IrohReleaseGateWiring(unittest.TestCase):
 
 class IOSWiring(unittest.TestCase):
     """The unsigned iOS jobs read ios_runner_pool.py; everything that signs or leaks stays on Blacksmith."""
-    SCREENSHOTS_RUNS_ON = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 "
-                           "&& needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}")
+    PLAIN_RUNS_ON = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 "
+                     "&& needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}")
+    BOT = "contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)"
+    # Only the rescue bot's re-run takes the picker's Blacksmith retry; a person's re-run keeps the
+    # run's pick (RFD 0165).
+    SCREENSHOTS_RUNS_ON = PLAIN_RUNS_ON.replace("fromJSON(github.run_attempt > 1 ",
+                                                f"fromJSON(github.run_attempt > 1 && {BOT} ")
     # test-ios: a bot's re-run takes the picker's Blacksmith route, a person's the lane's
     # (tests/test_ci_ios_bot_rerun_route.py).
-    TEST_IOS_RUNS_ON = SCREENSHOTS_RUNS_ON.replace(
+    TEST_IOS_RUNS_ON = PLAIN_RUNS_ON.replace(
         "fromJSON(github.run_attempt > 1 ",
-        "fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), "
-        "github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 ")
+        f"fromJSON(github.run_attempt > 1 && {BOT} && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 ")
 
     def workflow(self, name):
         return yaml.safe_load((WORKFLOWS / name).read_text())
@@ -4896,9 +5008,9 @@ class SharedRunnerStateTests(unittest.TestCase):
                         continue
                     # The compile report's `gap` subcommand only reads git;
                     # the default invocation is the runner picker.
-                    hits = [script for script in scripts if f"scripts/ci/{script}" in run and not (
+                    hits = [script for script in scripts if f"scripts/ci/{script}" in with_moved_step_scripts(run) and not (
                         script == "dev_landing_place.py"
-                        and re.search(r"dev_landing_place\.py\s+gap\b", run))]
+                        and re.search(r"dev_landing_place\.py\s+gap\b", with_moved_step_scripts(run)))]
                     if hits:
                         self.assertEqual(step.get("env", {}).get("CI_RUNNER_STATE"),
                                          "${{ vars.CI_RUNNER_STATE }}", (name, hits))
@@ -4937,11 +5049,75 @@ def with_moved_step_scripts(run: str) -> str:
     nightly.yml moves long run blocks into those scripts to stay under its size cap
     (tests/test_workflow_file_size.py); a step that runs the picker through one still
     counts as a picker step, and one whose script runs no picker still fails."""
-    for path in re.findall(r"scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh", run):
+    for path in re.findall(r"scripts/ci/(?:nightly|cmux-next)-steps/[A-Za-z0-9_.-]+\.sh", run):
         script = ROOT / path
         if script.is_file():
             run += "\n" + script.read_text()
     return run
+
+
+class RunnerListingPages(unittest.TestCase):
+    """A live runner listing reads to its total_count: GitHub lists oldest first, and ~3,700 cmux-fleet-linux
+    registrations cut at 5 pages held no online runner (cmux#62792, run 46049698131)."""
+
+    PATH = "/orgs/manaflow-ai/actions/runner-groups/24/runners"
+
+    def listing(self, total: int, *, with_total: bool = True):
+        rows = [{"id": index + 1, "name": f"fleet-{index + 1}", "status": "online" if index >= total - 3 else "offline",
+                 "busy": False, "labels": [{"name": "cmux-fleet-linux-x64"}]} for index in range(total)]
+        calls = []
+
+        def get_api(path):
+            calls.append(path)
+            page = int(path.rsplit("page=", 1)[1])
+            batch = rows[(page - 1) * pool.PAGE_SIZE:page * pool.PAGE_SIZE]
+            return {"total_count": total, "runners": batch} if with_total else {"runners": batch}
+        client = pool.GitHub("app-token", "manaflow-ai/cmux")
+        client.get_api = get_api
+        return client, calls
+
+    def test_reads_past_five_pages_to_the_newest_online_runners(self):
+        client, calls = self.listing(3_700)
+        with unittest.mock.patch.dict(pool.os.environ, {}, clear=True):
+            found = client._runner_pages(self.PATH)
+        self.assertEqual(len(found), 3_700)
+        self.assertEqual(len(calls), 37)
+        self.assertEqual(sum(1 for runner in found if runner["status"] == "online"), 3)
+
+    def test_stops_at_total_count_without_an_empty_page(self):
+        client, calls = self.listing(300)
+        with unittest.mock.patch.dict(pool.os.environ, {}, clear=True):
+            self.assertEqual(len(client._runner_pages(self.PATH)), 300)
+        self.assertEqual(len(calls), 3)
+
+    def test_a_listing_without_total_count_stops_on_a_short_page(self):
+        client, calls = self.listing(250, with_total=False)
+        with unittest.mock.patch.dict(pool.os.environ, {}, clear=True):
+            self.assertEqual(len(client._runner_pages(self.PATH)), 250)
+        self.assertEqual(len(calls), 3)
+
+    def test_the_variable_restores_the_old_five_page_stop_and_names_the_cut(self):
+        client, calls = self.listing(3_700)
+        stderr = io.StringIO()
+        with unittest.mock.patch.dict(pool.os.environ, {pool.RUNNER_LIST_PAGES_VARIABLE: "5"}, clear=True), \
+                unittest.mock.patch.object(pool.sys, "stderr", stderr):
+            found = client._runner_pages(self.PATH)
+        self.assertEqual(len(found), 500)
+        self.assertEqual(len(calls), 5)
+        self.assertFalse(any(runner["status"] == "online" for runner in found))
+        self.assertIn("read 500 of 3700 registrations", stderr.getvalue())
+
+    def test_a_bad_variable_keeps_the_default_bound(self):
+        for raw in ("", "0", "-3", "five"):
+            self.assertEqual(pool.runner_list_max_pages({pool.RUNNER_LIST_PAGES_VARIABLE: raw}),
+                             pool.RUNNER_LIST_MAX_PAGES)
+
+    def test_the_quota_reserve_stops_a_long_listing(self):
+        client, calls = self.listing(3_700)
+        client.remaining = pool.ROUTE_QUOTA_RESERVE - 1
+        with unittest.mock.patch.dict(pool.os.environ, {}, clear=True), self.assertRaises(pool.RateLimited):
+            client._runner_pages(self.PATH)
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":

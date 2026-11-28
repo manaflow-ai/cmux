@@ -395,7 +395,8 @@ struct ExecArgs {
     /// The values of `env_names`, read from the environment before the request (not a flag)
     #[arg(skip)]
     env_values: Vec<(String, String)>,
-    /// The command; several words are joined with spaces (put them after `--`)
+    /// The command (put it after `--`): one word is a shell line as written; several keep their
+    /// argv, each shell-quoted, so `-- sh -c 'cat > f'` runs as typed
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     command: Vec<String>,
 }
@@ -457,6 +458,16 @@ struct CreateArgs {
     /// Allow public outbound traffic; requires vm:network
     #[arg(long)]
     public_egress: bool,
+    /// Lock the VM's outbound traffic to an allowlist: a preset (npm, pypi, rust, github,
+    /// anthropic, openai, openrouter, opencode) or an exact HTTPS host name; repeatable.
+    /// `--egress-allow npm` is registry-only: the VM reaches registry.npmjs.org and the names
+    /// every cmux VM needs (its CLI downloads, GitHub releases), and nothing else, not DNS
+    #[arg(
+        long = "egress-allow",
+        value_name = "PRESET|HOST",
+        conflicts_with = "public_egress"
+    )]
+    egress_allow: Vec<String>,
     /// Seconds without network activity before the VM pauses; -1 never pauses
     #[arg(long, value_name = "SECONDS", allow_negative_numbers = true)]
     idle_timeout: Option<i64>,
@@ -475,6 +486,39 @@ struct CreateArgs {
     /// Reuse this key when retrying, so the VM is created only once [default: a new random key]
     #[arg(long, value_name = "KEY")]
     idempotency_key: Option<String>,
+}
+
+/// The preset ids the VM API expands (workers/cmux-vm/src/egress-allowlist.ts EGRESS_PRESETS).
+const EGRESS_PRESETS: [&str; 8] = [
+    "anthropic",
+    "openai",
+    "openrouter",
+    "opencode",
+    "github",
+    "npm",
+    "pypi",
+    "rust",
+];
+
+/// `create`'s `initialNetwork`: public egress, an allowlist (`--egress-allow`, each word a
+/// preset id or an exact host name), or none (the API's default).
+fn initial_network(public_egress: bool, egress_allow: &[String]) -> Option<Value> {
+    if public_egress {
+        return Some(json!({ "publicEgress": true }));
+    }
+    if egress_allow.is_empty() {
+        return None;
+    }
+    let (presets, domains): (Vec<&str>, Vec<&str>) = egress_allow
+        .iter()
+        .flat_map(|word| word.split(','))
+        .map(str::trim)
+        .filter(|word| !word.is_empty())
+        .partition(|word| EGRESS_PRESETS.contains(word));
+    Some(json!({
+        "publicEgress": false,
+        "egress": { "mode": "allowlist", "presets": presets, "domains": domains },
+    }))
 }
 
 /// `KEY=VALUE` of `create --label`, both sides non-empty.
@@ -924,7 +968,7 @@ async fn dispatch(
                 "snapshotId": args.snapshot,
                 "idleTimeoutSeconds": args.idle_timeout,
                 "image": image,
-                "initialNetwork": args.public_egress.then(|| json!({ "publicEgress": true })),
+                "initialNetwork": initial_network(args.public_egress, &args.egress_allow),
                 "resources": requested_resources(args.vcpus, args.memory_mib, args.disk_mib),
                 "labels": (!args.labels.is_empty())
                     .then(|| {
@@ -936,10 +980,10 @@ async fn dispatch(
             }))?;
             let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
             let key = parse_key::<types::VmsCreateVmIdempotencyKey>(&key_text)?;
-            let vm = fetch_body(client.vms_create_vm(Some(&key), None, &body))
+            let vm = fetch_body(client.vms_create_vm(Some(&key), None, None, &body))
                 .await
                 .map_err(|e| e.with_idempotency_hint(&key_text))?;
-            if args.image.is_some() || args.public_egress {
+            if args.image.is_some() || args.public_egress || !args.egress_allow.is_empty() {
                 let response: Option<Value> = serde_json::from_slice(&vm).ok();
                 let confirmed = response.as_ref().is_some_and(|value| {
                     let image_confirmed = args.image.as_deref().is_none_or(|expected| {
@@ -952,7 +996,12 @@ async fn dispatch(
                             .pointer("/initialNetwork/publicEgress")
                             .and_then(Value::as_bool)
                             == Some(true);
-                    image_confirmed && network_confirmed
+                    let egress_confirmed = args.egress_allow.is_empty()
+                        || value
+                            .pointer("/initialNetwork/allowedDomains")
+                            .and_then(Value::as_array)
+                            .is_some_and(|names| !names.is_empty());
+                    image_confirmed && network_confirmed && egress_confirmed
                 });
                 if !confirmed {
                     let public_id = serde_json::from_slice::<types::Vm>(&vm)
@@ -1157,7 +1206,7 @@ async fn dispatch(
                 .map(|(name, value)| (name, Value::String(value)))
                 .collect();
             let body: types::ExecRequest = request_body(json!({
-                "command": args.command.join(" "),
+                "command": run::command_line(&args.command),
                 "timeoutMs": args.timeout_ms,
                 "env": (!env.is_empty()).then_some(env),
             }))?;

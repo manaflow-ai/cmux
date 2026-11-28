@@ -211,6 +211,12 @@ pub(in crate::mux) struct AgentRosterWorker {
     /// The replay is done, and the projection reconcile it owes waits for a
     /// pass whose fold reached the journal head (`run_roster_pass`).
     pub(in crate::mux) reconcile_pending: AtomicBool,
+    /// Direct reports' echoes the roster has not folded yet
+    /// (`agent_report_echoes.rs`).
+    pub(in crate::mux) report_echoes: Mutex<ReportEchoes>,
+    /// Each terminal's turn to append an echo. Never taken under the hook
+    /// projector's lock: the append runs the projector.
+    pub(in crate::mux) echo_appends: EchoAppends,
     /// Test seam (`agent_roster_restore::REPLAY_GATE_FOR_TEST`).
     #[cfg(test)]
     pub(in crate::mux) replay_gate: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
@@ -233,6 +239,15 @@ pub(in crate::mux) struct AgentRosterWorker {
     /// save the roster at this version, so a stop before the rebuild cannot
     /// leave it passing for the current reducer's fold.
     pub(in crate::mux) unmarked_from: std::sync::atomic::AtomicU32,
+    /// Test seam: runs once in a direct agent report, after its projection
+    /// commit and before its journal echo.
+    #[cfg(test)]
+    pub(in crate::mux) report_echo_seam: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Test seam: runs once in the owner's deferred reconcile
+    /// (`settle_report_echoes`), after it read the roster and before it takes
+    /// the hook projector's lock.
+    #[cfg(test)]
+    pub(in crate::mux) settle_seam: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl Drop for AgentRosterWorker {
@@ -299,6 +314,7 @@ fn run_owner(control: &RosterControl, mux: &Weak<Mux>) {
         let left = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let left = session.run_roster_pass(pass);
             session.run_agent_roster_rebuild_slice();
+            session.settle_report_echoes();
             left
         }))
         .unwrap_or_else(|_| {

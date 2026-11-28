@@ -823,7 +823,7 @@ fn refusal(state: FreeState) -> Box<Response<Body>> {
         _ => (
             StatusCode::SERVICE_UNAVAILABLE,
             "free.unavailable",
-            "Free AI access could not be checked. Try again in a moment.",
+            "Free AI access could not be checked: the cmux service did not answer, and cmux checks again by itself shortly. Sign in to use AI models now.",
         ),
     };
     Box::new(crate::json_error(status, code, message))

@@ -23,7 +23,14 @@
 //!   own 503s cut on every turn, so none ended well: cmux#57784) gets its own model back before
 //!   its next capacity attempt fires, instead of staying on the fallback for good, and before
 //!   any other prompt goes in ([`Hub::restore_capacity_fallback_if_off`], called from
-//!   `turns.rs` `prompt_with`): nobody runs a turn on a model they did not pick.
+//!   `turns/prompt_entry.rs` `prompt_with`): nobody runs a turn on a model they did not pick.
+//! - A capacity error that asks for another model (Codex's "Selected model is at capacity.
+//!   Please try a different model.", [`model_catalog::asks_for_another_model`]) switches at its
+//!   first attempt, whatever `capacityFallbackAfter` says: the provider itself says this model
+//!   has no room (acp-chief-issues 2026-11-25: Codex chats on gpt-6.2-sol retried the same full
+//!   model for hours). It goes to [`model_catalog::asked_fallback`] (`gpt-6.2-sol` ->
+//!   `gpt-6.1-sol`), and back once a turn there ends well; the prompt path leaves that switch in
+//!   place with switching off (`CapacityFallback::asked`).
 //! - One line says each switch, in the daemon's log and as a notice row in the transcript:
 //!   `capacity_failover` `{from, to, attempt, promptId, text}` and `capacity_restored`
 //!   `{from, to, text}`.
@@ -44,6 +51,12 @@ pub(in crate::hub) const RESTORED_RECORD: &str = "capacity_restored";
 /// The longest the way back waits for the turn that ended well to let go of the chat.
 const IDLE_DEADLINE: Duration = Duration::from_secs(10);
 
+/// The attempt a capacity cut switches at: `after` as configured (0: never), but the first for an
+/// error that asks for another model (`asked`).
+pub(super) fn switch_after(after: usize, asked: bool) -> usize {
+    if asked { 1 } else { after }
+}
+
 /// Whether capacity attempt `attempt` runs on the fallback model when it is set to switch from
 /// attempt `after` on (0: never).
 pub(super) fn fails_over_at(attempt: usize, after: usize) -> bool {
@@ -53,6 +66,11 @@ pub(super) fn fails_over_at(attempt: usize, after: usize) -> bool {
 /// The notice of a switch from `from` to `to`.
 pub(super) fn failover_text(from: &str, to: &str) -> String {
     format!("acpmux: Anthropic overloaded: continuing on {to} (was {from}); back when it recovers")
+}
+
+/// The notice of a switch from `from` to `to` that the provider's error asked for.
+pub(super) fn asked_text(from: &str, to: &str) -> String {
+    format!("acpmux: {from} is at capacity: continuing on {to}; back when it recovers")
 }
 
 /// The notice of the way back to `from` from `to`.
@@ -67,6 +85,7 @@ impl Hub {
         &self,
         session: &Session,
         model: &str,
+        asked: bool,
     ) -> Option<crate::catalog::CatalogHarness> {
         let harness = session.meta().harness;
         let profile = self.config.read().await.profile(&harness).cloned()?;
@@ -77,7 +96,13 @@ impl Hub {
         model_catalog::ALIASED_HARNESSES
             .iter()
             .filter_map(|h| model_catalog::bundled_harness(h))
-            .find(|entry| model_catalog::capacity_fallback(entry, model).is_some())
+            .find(|entry| {
+                if asked {
+                    model_catalog::asked_fallback(entry, model).is_some()
+                } else {
+                    model_catalog::capacity_fallback(entry, model).is_some()
+                }
+            })
     }
 
     /// The model `session` runs now, as it names it.
@@ -91,27 +116,35 @@ impl Hub {
     pub(in crate::hub) async fn capacity_fallback_target(
         &self,
         session: &Session,
+        asked: bool,
     ) -> Option<(String, String)> {
         if session.meta().capacity_fallback.is_some() {
             return None;
         }
         let running = Self::running_model(session)?;
-        let entry = self.failover_entry(session, &running).await?;
-        let to = model_catalog::capacity_fallback(&entry, &running)?;
+        let entry = self.failover_entry(session, &running, asked).await?;
+        let to = if asked {
+            model_catalog::asked_fallback(&entry, &running)?
+        } else {
+            model_catalog::capacity_fallback(&entry, &running)?
+        };
         (!model_catalog::same_model(Some(&entry), &running, &to)).then_some((running, to))
     }
 
     /// Before capacity attempt `attempt` at the cut prompt `root` fires: moves the chat to its
-    /// fallback model when the attempt is the configured one or later. The attempt's mark is
-    /// firing here, so a Stop or close still refuses its turn.
+    /// fallback model when the attempt is the configured one or later, or the cut's `error` asks
+    /// for another model. The attempt's mark is firing here, so a Stop or close still refuses
+    /// its turn.
     pub(super) async fn fail_over_on_capacity(
         self: &Arc<Self>,
         session: &Arc<Session>,
         root: &str,
         attempt: usize,
+        error: &str,
     ) {
         let configured = self.config.read().await.capacity_fallback_after;
-        let after = super::settings::capacity_fallback_after(configured);
+        let asked = model_catalog::asks_for_another_model(error);
+        let after = switch_after(super::settings::capacity_fallback_after(configured), asked);
         if !fails_over_at(attempt, after) {
             // Switching is off, or not yet due: a chat a past switch left on its fallback goes
             // back to its own model before this attempt, instead of waiting for a turn that ends
@@ -125,10 +158,10 @@ impl Hub {
             }
             return;
         }
-        let Some((from, to)) = self.capacity_fallback_target(session).await else { return };
+        let Some((from, to)) = self.capacity_fallback_target(session, asked).await else { return };
         // The chat's own model is saved first: a daemon that dies mid-switch still knows it.
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).capacity_fallback =
-            Some(CapacityFallback { from: from.clone(), to: to.clone() });
+            Some(CapacityFallback { from: from.clone(), to: to.clone(), asked });
         if let Err(e) = self.save_meta_answered(session) {
             tracing::warn!(session = %session.id, "capacity-failover: meta not saved: {}", e.message);
         }
@@ -138,7 +171,7 @@ impl Hub {
             let _ = self.save_meta_answered(session);
             return;
         }
-        let text = failover_text(&from, &to);
+        let text = if asked { asked_text(&from, &to) } else { failover_text(&from, &to) };
         tracing::info!(session = %session.id, "capacity-failover: {} {text}", Self::who(session));
         let root = split_attempt(root).0;
         let msg =
@@ -156,7 +189,8 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) {
-        if session.read_meta(|m| m.capacity_fallback.is_none()) {
+        // None, or one the provider's error asked for: it stands until a turn ends well.
+        if session.read_meta(|m| m.capacity_fallback.as_ref().is_none_or(|f| f.asked)) {
             return;
         }
         let configured = self.config.read().await.capacity_fallback_after;
@@ -203,9 +237,9 @@ impl Hub {
     /// meta. A chat someone moved to another model meanwhile keeps theirs; a switch the harness
     /// refuses keeps the fallback recorded, for the next try.
     async fn put_back(self: &Arc<Self>, session: &Arc<Session>, fallback: CapacityFallback) {
-        let CapacityFallback { from, to } = fallback;
+        let CapacityFallback { from, to, asked } = fallback;
         let running = Self::running_model(session);
-        let entry = self.failover_entry(session, &from).await;
+        let entry = self.failover_entry(session, &from, asked).await;
         // Someone chose another model meanwhile: theirs stays.
         if running.as_deref().is_none_or(|r| !model_catalog::same_model(entry.as_ref(), r, &to)) {
             tracing::info!(session = %session.id, ?running, "capacity-failover: {} kept its model; {from} not put back", Self::who(session));
@@ -216,7 +250,7 @@ impl Hub {
             tracing::warn!(session = %session.id, "capacity-failover: back to {from} refused: {}", e.message);
             // The next turn that ends well, or the next attempt, tries again.
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            meta.capacity_fallback.get_or_insert(CapacityFallback { from, to });
+            meta.capacity_fallback.get_or_insert(CapacityFallback { from, to, asked });
             return;
         }
         let _ = self.save_meta_answered(session);
@@ -227,29 +261,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_switch_comes_at_the_configured_attempt_and_after() {
-        assert!(!fails_over_at(1, 3));
-        assert!(!fails_over_at(2, 3));
-        assert!(fails_over_at(3, 3));
-        assert!(fails_over_at(7, 3));
-        assert!(fails_over_at(1, 1));
-        // 0 never switches.
-        assert!(!fails_over_at(1, 0));
-        assert!(!fails_over_at(50, 0));
-    }
-
-    #[test]
-    fn the_notices_name_both_models() {
-        assert_eq!(
-            failover_text("claude-opus-5-5", "claude-sonnet-5-5"),
-            "acpmux: Anthropic overloaded: continuing on claude-sonnet-5-5 (was claude-opus-5-5); back when it recovers"
-        );
-        let back = restored_text("claude-opus-5-5", "claude-sonnet-5-5");
-        assert!(back.contains("continuing on claude-opus-5-5"), "{back}");
-        assert!(back.contains("claude-sonnet-5-5"), "{back}");
-    }
-}
+#[path = "capacity_failover_tests.rs"]
+mod tests;

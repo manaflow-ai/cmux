@@ -154,7 +154,7 @@
   "setting_methods": ["session/set_mode", "session/set_config_option"],
   "known_params": {
     "initialize": {"params": ["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], "acpmux": ["peerRowBatches", "chunkDeltas", "sessionChangedDelta"]},
-    "session/new": {"params": ["cwd", "mcpServers", "additionalDirectories", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject", "model", "restricted", "autoPlace"]},
+    "session/new": {"params": ["cwd", "mcpServers", "additionalDirectories", "_meta"], "acpmux": ["harness", "adopt", "peer", "cloudRegistryId", "noProject", "model", "restricted", "autoPlace"]},
     "chat.fix_from_link": {"params": ["url", "cwd", "harness", "model", "_meta"], "acpmux": []},
     "chat.fix_from_link.prepare": {"params": ["url", "cwd", "harness", "model"], "acpmux": []},
     "session/prompt": {"params": ["sessionId", "prompt", "_meta"], "acpmux": ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion"]},
@@ -294,10 +294,10 @@
   "reply_shapes": {
     "_acpmux/info": {"object": {"liveTree": {"object": {"available": "bool", "updated": "number", "seq": "number", "stale": "bool", "lanes": {"list": {"object": {"name": "string", "verdict": "string"}}}}}}},
     "_acpmux/peers": {"object": {"peers": {"list": {"object": {"name": "string", "state": "string", "lastSeen": "number", "error": "string", "group": "string", "liveSessions": "number"}}}}},
-    "_acpmux/status": {"object": {"device": "string", "peers": {"list": {"object": {"name": "string", "transport": {"scheme": "url"}, "connected": "bool", "state": "string", "lastSeen": "number", "attempts": "number", "group": "string", "liveSessions": "number", "health": {"object": {"unsupported": "bool", "device": "string", "load": {"list": "number"}, "cpus": "number", "ram": {"object": {"freeBytes": "number"}}, "pressure": {"object": {"cores": "number", "load_limit": "number", "ok": "bool", "over": {"list": "string"}}}, "autoCloud": {"object": {"enrolled": "bool", "accepting": "bool", "ownerIdle": "bool", "caps": {"list": "string"}}}}}}}}}},
+    "_acpmux/status": {"object": {"device": "string", "peers": {"list": {"object": {"name": "string", "transport": {"scheme": "url"}, "connected": "bool", "cloudRegistryId": "string", "state": "string", "lastSeen": "number", "attempts": "number", "agentLogin": "bool", "group": "string", "liveSessions": "number", "health": {"object": {"unsupported": "bool", "device": "string", "load": {"list": "number"}, "cpus": "number", "ram": {"object": {"freeBytes": "number"}}, "pressure": {"object": {"cores": "number", "load_limit": "number", "ok": "bool", "over": {"list": "string"}}}, "autoCloud": {"object": {"enrolled": "bool", "accepting": "bool", "ownerIdle": "bool", "caps": {"list": "string"}}}}}}}}}},
     "_acpmux/move_targets": {"object": {"targets": {"list": {"object": {"id": "string", "label": "string", "kind": "string", "status": "string", "reason": "string", "room": "number"}}}, "pick": "string"}},
     "_acpmux/place_chat": {"object": {"placement": {"object": {"at": "string", "place": "string"}}, "reason": {"object": {"code": "string"}}, "why": "string", "fork": {"object": {"at": "string", "machine": "string", "clientKey": "string", "why": "string"}}}},
-    "_acpmux/peer_reconnect": {"object": {"peers": {"list": {"object": {"name": "string", "transport": {"scheme": "url"}, "connected": "bool", "state": "string", "lastSeen": "number", "attempts": "number", "error": "string"}}}}}
+    "_acpmux/peer_reconnect": {"object": {"peers": {"list": {"object": {"name": "string", "transport": {"scheme": "url"}, "connected": "bool", "cloudRegistryId": "string", "state": "string", "lastSeen": "number", "attempts": "number", "error": "string", "agentLogin": "bool", "group": "string", "liveSessions": "number"}}}}}
   },
   "history_replies": ["_acpmux/attach", "_acpmux/events"],
   "path_keys": ["cwd", "path", "additionalDirectories", "directory", "directories", "workingDirectory",

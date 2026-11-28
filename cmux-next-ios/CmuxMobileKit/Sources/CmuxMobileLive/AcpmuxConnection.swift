@@ -29,9 +29,10 @@ public actor AcpmuxConnection {
     }
 
     private let channel: any LinkChannel
+    /// Only outgoing bytes on this connection's serialized ACP channel.
+    nonisolated var sentBytes: UInt64? { channel.sentBytes }
     /// The link's last progress (its Mac's ``MacSession/progress``, or this channel's own): every
-    /// frame heard and every write taken tells it, and a ``submit(_:_:timeout:)``'s write is
-    /// bounded by silence on it, not by a fixed time.
+    /// frame heard and every completed write contributes to the Mac's link status.
     nonisolated let progress: LinkProgress
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<JSONValue, any Error>] = [:]
@@ -131,7 +132,7 @@ public actor AcpmuxConnection {
             sends[id] = Task {
                 do {
                     try Task.checkCancellation()
-                    try await channel.send(data)
+                    try await send(data)
                     sends[id] = nil
                 } catch { fail(id, error) }
             }
@@ -185,11 +186,8 @@ public actor AcpmuxConnection {
     /// its answer. Requests a caller submits one after another reach the Mac in that order
     /// (``request(_:_:)`` writes from a task of its own), and the caller need not wait for an
     /// answer before the next: a `session/prompt` is answered only when its turn ends.
-    /// The write is bounded by a quiet window of `timeout` (by default ``writeBound(bytes:base:)``
-    /// of its size) that ``progress`` (anything heard from the Mac, a write taken) restarts, not
-    /// by `timeout` in all: a write on a link that keeps moving goes on (Leo, 2026-11-24: "if
-    /// it's making good progress, it shiukd be allowed to keep going?"). It is released when the
-    /// caller is cancelled, as ``request(_:_:timeout:)``'s is.
+    /// A write continues while its chunks or a preceding serialized write enter the transport.
+    /// Without transport progress, the deadline scales with the encoded payload.
     public func submit(_ method: String, _ params: JSONValue, timeout: Duration? = nil,
                        base: Duration = AcpmuxConnection.writeBase) async throws -> Int {
         try Task.checkCancellation()
@@ -211,15 +209,15 @@ public actor AcpmuxConnection {
             sending.insert(id)
         }
         defer { sending.remove(id) }
-        let channel = channel
-        let window = timeout ?? Self.writeBound(bytes: data.count, base: base)
+        let write = channel.observedWrite(data)
+        let window = timeout ?? (write.takeProgress == nil ? Self.writeBound(bytes: data.count, base: base) : base)
         do {
             try await LinkDeadline.run(
                 timeout: window,
                 timeoutError: LinkError(code: "timeout", message: "write of \(method) made no progress"),
-                extend: progress.stallExtension(after: window),
-                operation: { try await channel.send(data) },
-                onCancel: { await self.release(id) }
+                extend: { write.takeProgress?() == true ? window : nil },
+                operation: write.send,
+                onCancel: { write.cancel() }
             )
         } catch {
             release(id)
@@ -249,8 +247,8 @@ public actor AcpmuxConnection {
 
     /// How long a write of `bytes` may take: `base`, plus its bytes at ``writeFloorRate``. A fixed
     /// bound cut off a large prompt that was still going out on a slow link, and the prompt came
-    /// back as "unreachable" though the Mac was there (``LinkChannel/send(_:)`` reports no
-    /// progress, so the bound scales with the size instead of watching for a stall).
+    /// back as "unreachable" though the Mac was there. Channels without per-write observations
+    /// use this bound for a complete write.
     public static func writeBound(bytes: Int, base: Duration = writeBase) -> Duration {
         base + .milliseconds(Int64(max(0, bytes)) * 1000 / Int64(writeFloorRate))
     }
@@ -301,7 +299,17 @@ public actor AcpmuxConnection {
         if let ended { throw ended }
         start()
         let message: JSONValue = .object(["jsonrpc": .string("2.0"), "method": .string(method), "params": params])
-        try await channel.send(try JSONEncoder().encode(message))
+        try await send(try JSONEncoder().encode(message))
+    }
+
+    /// A request or notification may queue behind a multi-frame prompt. Cancelling the caller
+    /// must release its native waiter before a later write can send the abandoned request.
+    private func send(_ data: Data) async throws {
+        let write = channel.observedWrite(data)
+        try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            try await write.send()
+        } onCancel: { write.cancel() }
     }
 
     public func close() async {
