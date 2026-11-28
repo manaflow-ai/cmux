@@ -105,9 +105,12 @@ nonisolated enum AgentPaneGitProcess {
     /// folders an app launched from Finder lacks.
     static func toolFolders(_ app: [String: String], loginPath: String? = rememberedLoginPath()) -> [String] {
         let home = app["HOME"] ?? NSHomeDirectory()
-        let folders = (loginPath ?? "").split(separator: ":").map(String.init)
-            + (app["PATH"] ?? "").split(separator: ":").map(String.init)
-            + AcpmuxEnvironment.installDirectories.map { $0.hasPrefix("~/") ? home + "/" + $0.dropFirst(2) : $0 }
+        let login: [String] = (loginPath ?? "").split(separator: ":").map(String.init)
+        let own: [String] = (app["PATH"] ?? "").split(separator: ":").map(String.init)
+        let installed: [String] = AcpmuxEnvironment.installDirectories.map { directory in
+            directory.hasPrefix("~/") ? home + "/" + directory.dropFirst(2) : directory
+        }
+        let folders = login + own + installed
         var seen: Set<String> = []
         return folders.filter { $0.hasPrefix("/") && seen.insert($0).inserted }
     }
