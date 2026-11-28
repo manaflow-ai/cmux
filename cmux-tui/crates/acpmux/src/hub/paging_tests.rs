@@ -995,22 +995,12 @@ fn subagent_page_perf() {
 
 /// The subagent pane's open as `readSubagentLog` makes it: the newest page of one subagent's own
 /// records, behind a long chat of the parent's and other subagents' lines. Before the newest read
-/// took the forward read's byte search it parsed every line back to the subagent's records. Prints
-/// p50 and p95 over `RUNS` opens per chat length and holds the newest open to its p95 budget. Run
+/// took the forward read's byte search it parsed every line back to the subagent's records. Run
 /// with `cargo test -p acpmux --release --lib -- --ignored --nocapture subagent_newest_page_perf`.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn subagent_newest_page_perf() {
-    const RUNS: usize = 40;
-    // p95 budget for one newest-page open, ms: (later parent lines, budget). Release build, with
-    // headroom for a loaded runner (the PR's duress table: 100k lines p95 ~117 ms with every core busy).
-    const BUDGET_MS: [(usize, f64); 3] = [(2_000, 25.0), (20_000, 100.0), (100_000, 250.0)];
-    let pct = |runs: &[f64], p: f64| {
-        let rank = ((runs.len() as f64 * p).ceil() as usize).clamp(1, runs.len());
-        runs.get(rank.saturating_sub(1)).copied().unwrap_or(f64::NAN)
-    };
-    let mut over = Vec::new();
-    for (later, budget) in BUDGET_MS {
+    for later in [2_000usize, 20_000, 100_000] {
         let root = std::env::temp_dir()
             .join(format!("acpmux-subagent-newest-perf-{}", uuid::Uuid::now_v7()));
         let sessions = root.join("sessions");
@@ -1034,7 +1024,7 @@ fn subagent_newest_page_perf() {
         let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
         let filter = transcript(true).of_subagent(Some("sub-old"));
         let mut runs = Vec::new();
-        for _ in 0..RUNS {
+        for _ in 0..5 {
             let started = std::time::Instant::now();
             let page = hub
                 .events_page("c", 0, Some(seq + 1), OPEN_LIMIT, Some(256 * 1024), true, &filter)
@@ -1043,16 +1033,12 @@ fn subagent_newest_page_perf() {
             assert_eq!(page.events.len(), 20);
         }
         runs.sort_by(f64::total_cmp);
-        let (p50, p95) = (pct(&runs, 0.50), pct(&runs, 0.95));
         println!(
-            "subagent newest page after {later} later lines: p50 {p50:.1} ms p95 {p95:.1} ms (n {RUNS}, budget p95 {budget:.0} ms)"
+            "subagent newest page after {later} later lines: median {:.1} ms (min {:.1})",
+            runs[2], runs[0]
         );
-        if p95 > budget {
-            over.push(format!("{later} lines: p95 {p95:.1} ms > {budget:.0} ms"));
-        }
         std::fs::remove_dir_all(&root).ok();
     }
-    assert!(over.is_empty(), "subagent newest-page open over its p95 budget: {over:?}");
 }
 
 /// A subagent's newest page skips the chat's other lines unparsed and still holds exactly that
@@ -1222,111 +1208,4 @@ fn the_turn_opener_reads_one_turn_back_not_sixteen() {
     // None of the newest `read` opens a turn: none, and the read stops there.
     assert_eq!(hub.newest_prompt_where("c", before, 16, &|_| false).unwrap(), None);
     let _ = std::fs::remove_dir_all(&root);
-}
-
-/// A chat of `before` parent lines of `text`, then a subagent `sub-late` that starts and writes
-/// every 7th of `span` more lines. Its last seq.
-fn late_subagent_chat(sessions: &std::path::Path, before: usize, span: usize, text: &str) -> u64 {
-    let writer = LocalStore::new(sessions.to_path_buf(), 8 << 20).unwrap();
-    writer.save(&meta("c")).unwrap();
-    let mut seq = 0;
-    for _ in 0..before {
-        seq += 1;
-        writer.append("c", &update_of(seq, None, text)).unwrap();
-    }
-    for n in 0..span {
-        seq += 1;
-        writer.append("c", &update_of(seq, (n % 7 == 0).then_some("sub-late"), text)).unwrap();
-    }
-    seq
-}
-
-/// The pane's read of a subagent (webviews `readSubagentLog`): its newest page, then its pages
-/// forward from the log's start. The seqs it got.
-fn read_pane(hub: &Hub, last: u64) -> Vec<u64> {
-    let filter = transcript(true).of_subagent(Some("sub-late"));
-    let newest =
-        hub.events_page("c", 0, Some(last + 1), 10, Some(OPEN_BYTES), true, &filter).unwrap();
-    let mut seqs: Vec<u64> = newest.events.iter().map(|e| e.seq).collect();
-    if newest.has_more {
-        let newest_start = seqs[0];
-        let mut after = 0;
-        let mut older = Vec::new();
-        loop {
-            let page = hub
-                .events_page("c", after, None, OPEN_LIMIT, Some(OPEN_BYTES), false, &filter)
-                .unwrap();
-            older.extend(page.events.iter().map(|e| e.seq).filter(|s| *s < newest_start));
-            match page.events.last() {
-                Some(last) if page.has_more && last.seq < newest_start => after = last.seq,
-                _ => break,
-            }
-        }
-        older.extend(seqs);
-        seqs = older;
-    }
-    seqs
-}
-
-/// Once a read proved where a subagent's records start, its next read starts there: a subagent
-/// that began late in a long chat reads its own span, not the chat before it, and gets the same
-/// records (ask-4646da8b19).
-#[test]
-fn a_late_subagents_second_read_starts_at_its_first_record() {
-    let root = std::env::temp_dir().join(format!("acpmux-subagent-late-{}", uuid::Uuid::now_v7()));
-    let sessions = root.join("sessions");
-    let last = late_subagent_chat(&sessions, 3_000, 700, "parent line");
-    let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
-    let read = |hub: &Hub| {
-        crate::store::FORWARD_READ_BYTES.with(|n| n.set(0));
-        let seqs = read_pane(hub, last);
-        (seqs, crate::store::FORWARD_READ_BYTES.with(std::cell::Cell::get))
-    };
-    let (first, first_bytes) = read(&hub);
-    let (again, again_bytes) = read(&hub);
-    assert_eq!(first.len(), 100);
-    assert_eq!(first[0], 3_001);
-    assert_eq!(again, first, "the bounded read gets the same records");
-    assert!(
-        again_bytes * 4 < first_bytes,
-        "the second read read {again_bytes} bytes, the first {first_bytes}"
-    );
-    // A log whose lines read differently (a fork's history, a cut) is read whole again.
-    hub.store.bump_log_stamp("c", 1).unwrap();
-    let (stamped, stamped_bytes) = read(&hub);
-    assert_eq!(stamped, first);
-    assert!(stamped_bytes >= first_bytes / 2, "a changed log read {stamped_bytes} bytes");
-    std::fs::remove_dir_all(&root).ok();
-}
-
-/// A subagent that started late in a long chat, read as the pane reads it: its first read (no
-/// start known: as every read was before `subagent_starts.rs`) and a read after it. Run with
-/// `cargo test -p acpmux --release --lib -- --ignored --nocapture late_subagent_read_perf`.
-#[test]
-#[ignore = "a measurement, not a check"]
-fn late_subagent_read_perf() {
-    let text = "x".repeat(900);
-    for before in [20_000usize, 100_000, 200_000] {
-        let root = std::env::temp_dir()
-            .join(format!("acpmux-subagent-late-perf-{}", uuid::Uuid::now_v7()));
-        let sessions = root.join("sessions");
-        let last = late_subagent_chat(&sessions, before, 2_100, &text);
-        let (mut cold, mut warm) = (Vec::new(), Vec::new());
-        for _ in 0..5 {
-            let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
-            let started = std::time::Instant::now();
-            assert_eq!(read_pane(&hub, last).len(), 300);
-            cold.push(started.elapsed().as_secs_f64() * 1000.0);
-            let started = std::time::Instant::now();
-            assert_eq!(read_pane(&hub, last).len(), 300);
-            warm.push(started.elapsed().as_secs_f64() * 1000.0);
-        }
-        cold.sort_by(f64::total_cmp);
-        warm.sort_by(f64::total_cmp);
-        println!(
-            "late subagent after {before} parent lines: unknown start median {:.1} ms, known start median {:.1} ms",
-            cold[2], warm[2]
-        );
-        std::fs::remove_dir_all(&root).ok();
-    }
 }

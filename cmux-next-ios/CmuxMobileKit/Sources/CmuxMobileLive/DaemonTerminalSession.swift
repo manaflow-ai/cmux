@@ -1868,17 +1868,6 @@ public final class DaemonTerminalSession: TerminalSession {
             eventTask = nil
             inbox?.close()
             inbox = nil
-            // The link came back while this attach was out (its `reconnect()` was remembered,
-            // not run): this failure is the old link's, so a fresh round attaches on the new
-            // one instead of giving up on it. Before, only a "no link" failure honoured it, and
-            // a refused attach on the old link ("unknown surface") gave up with the new link up
-            // ("Can't reach this terminal" over a Mac that was back). Once: the flag is spent.
-            if reconnectWhileAttaching, handler != nil, !ended {
-                reconnectWhileAttaching = false
-                attachRetries = 0
-                Task { [weak self] in self?.reconnect() }
-                return
-            }
             // Retries ran out. Nothing is written into the terminal: transport
             // words ("[daemon channel closed]") are not the Mac's output, and bytes
             // on the stream read as live content (the page dropped its cached

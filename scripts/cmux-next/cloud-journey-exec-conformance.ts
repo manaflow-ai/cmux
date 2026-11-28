@@ -84,36 +84,12 @@ export function execConformanceProbe(): string {
 export function execConformanceCargoInstall(): string {
   return [
     PREAMBLE,
-    "cargo --version >/dev/null 2>&1 && { echo '@@ec cargo already'; exit 0; }",
+    "command -v cargo >/dev/null && { echo '@@ec cargo already'; exit 0; }",
     "curl -fsSL --max-time 120 https://sh.rustup.rs -o /tmp/rustup-init.sh",
     "sh /tmp/rustup-init.sh -y -q --profile minimal --default-toolchain stable --no-modify-path >/dev/null 2>&1; s=$?",
     "rm -f /tmp/rustup-init.sh",
     'echo "@@ec cargo_install exit=$s cargo=$(command -v cargo || echo none)"',
     "exit $s",
-  ].join("; ");
-}
-
-/** Starts that install in the background before the acpmux upload, so the two overlap (run 46159895648: the install
- *  ran past its 300 s exec and was cut mid-toolchain, so the local side saw "rustup could not choose a version of
- *  cargo" while the routed side, run later, found the finished toolchain: cargo-build-test DIFF exit 1/0). */
-export function execConformanceCargoStart(): string {
-  return [
-    PREAMBLE,
-    "rm -f /tmp/cmux-ec-cargo.done",
-    "if cargo --version >/dev/null 2>&1; then echo 0 > /tmp/cmux-ec-cargo.done; echo '@@ec cargo already'; exit 0; fi",
-    `setsid nohup sh -c ${q(`( ${execConformanceCargoInstall()} ) >/tmp/cmux-ec-cargo.log 2>&1; echo $? > /tmp/cmux-ec-cargo.done`)} </dev/null >/dev/null 2>&1 & echo '@@ec cargo_install started'`,
-  ].join("; ");
-}
-
-/** Waits for the background install, then proves cargo runs, so both sides of a case see one toolchain. */
-export function execConformanceCargoWait(budgetSeconds = 420): string {
-  return [
-    PREAMBLE,
-    `i=0; while [ ! -e /tmp/cmux-ec-cargo.done ] && [ $i -lt ${Math.max(1, Math.floor(budgetSeconds / 5))} ]; do sleep 5; i=$((i+1)); done`,
-    "cargo --version >/dev/null 2>&1 || rustup default stable >/dev/null 2>&1",
-    'v=$(cargo --version 2>&1 | head -1)',
-    'echo "@@ec cargo_ready=$(cargo --version >/dev/null 2>&1 && echo yes || echo no) install_exit=$(cat /tmp/cmux-ec-cargo.done 2>/dev/null || echo unfinished) waited_s=$((i*5)) version=$v"',
-    "cargo --version >/dev/null 2>&1 || tail -5 /tmp/cmux-ec-cargo.log 2>/dev/null",
   ].join("; ");
 }
 

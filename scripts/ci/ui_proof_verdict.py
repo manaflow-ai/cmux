@@ -815,11 +815,10 @@ def rerun_gate(repo: str, sha: str) -> str:
         for run in (runs or {}).get("workflow_runs", []):
             for j in gh("api", f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100").get("jobs", []):
                 if j["name"] == GATE_JOB and j.get("status") == "completed" and j.get("conclusion") != "skipped":
-                    how = proof_record.rerun_gate_job(repo, run["id"], j["id"])
-                    return f"reran {GATE_JOB} (job {j['id']}; {how})"
-    except subprocess.CalledProcessError as e:
-        return f"gate not rerun: {e}: {e.stderr or ''}".rstrip(": ")
-    except (OSError, ValueError) as e:
+                    subprocess.run(["gh", "run", "rerun", str(run["id"]), "--job", str(j["id"]), "--repo", repo],
+                                   check=True, capture_output=True)
+                    return f"reran {GATE_JOB} (job {j['id']})"
+    except (OSError, subprocess.CalledProcessError, ValueError) as e:
         return f"gate not rerun: {e}"
     return "gate job has not run yet: it reads the record when it does"
 

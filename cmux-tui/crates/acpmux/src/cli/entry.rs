@@ -114,12 +114,6 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
         return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
     }
-    // A parked wait (`parked_wait.rs`): one `sleep` handed to the platform, no CLI.
-    if args.first().is_some_and(|a| a == crate::parked_wait::ARG) {
-        let rest: Vec<String> =
-            args.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
-        return crate::parked_wait::main(&rest);
-    }
     // `cmux github` for an agent session on a machine added from a Mac (`github_lane_mint.rs`):
     // git's credential helper and the `gh` shim the session's env names. No runtime, no daemon
     // start; stdout is git's or gh's alone.

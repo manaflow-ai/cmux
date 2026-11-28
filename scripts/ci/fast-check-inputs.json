@@ -28,7 +28,6 @@
           "plans/cmux-next/",
           "cmux.xcodeproj/project.pbxproj",
           "scripts/whats-new/",
-          "scripts/measure/",
           "scripts/swift_source_mask.py",
           "scripts/git-hooks/pre-push",
           "tests/workflow_jobs.py",

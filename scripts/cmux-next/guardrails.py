@@ -3139,6 +3139,29 @@ def owner_route_files(repo: Path, own) -> list[str]:
     return sorted(files)
 
 
+LANE_WORK_DAYS = 14
+
+
+def lane_worked(repo: Path, name: str, globs: list[str], base: str | None, cache: dict) -> bool:
+    """Whether lane NAME has its own commits from the last LANE_WORK_DAYS under GLOBS, read from its pushed branch
+    (origin/lane/NAME or origin/NAME) less BASE. No such branch: False (a name with no work is no holder)."""
+    key = (name, tuple(globs))
+    if key in cache:
+        return cache[key]
+    found = False
+    for ref in (f"refs/remotes/origin/lane/{name}", f"refs/remotes/origin/{name}"):
+        try:
+            out = git(repo, "log", "--no-merges", f"--since={LANE_WORK_DAYS}.days", "--format=", "--name-only", ref,
+                      *(["--not", base] if base else []))
+        except (Exception, SystemExit):
+            continue
+        if any(f and any(glob_match(f, g) for g in globs) for f in out.split("\n")):
+            found = True
+            break
+    cache[key] = found
+    return found
+
+
 def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None = None,
                 pusher: str | None = None, worked=None) -> list[str]:
     """The push's owned areas, each with the live session that holds it now (owner_live.holder), which gets one
@@ -3148,6 +3171,7 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
     live = load_owner_live()
     hits: dict[str, tuple[str, str, list[str], str]] = {}
     area_globs: dict[str, list[str]] = {}
+    base: str | None = None
     for own in ranges:
         if not own.head:
             continue
@@ -3156,10 +3180,12 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
             names = owner_route_files(repo, own)
         except (Exception, SystemExit):  # an unreadable head (a range the push could not name) routes nothing
             continue
+        for area, _, _, _ in owners:
+            area_globs.setdefault(area, next((g for a, g, _, _ in owners if a == area), []))
+        base = base or own.base
         for area, cell, doc, files in owner_hits(names, owners):
             prev = hits.get(area)
             hits[area] = (cell, doc, sorted(set(files) | set(prev[2] if prev else [])), own.head)
-            area_globs.setdefault(area, next((g for a, g, _, _ in owners if a == area), []))
     if not hits:
         return []
     given = listing is not None
@@ -3172,15 +3198,12 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
         branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip() or None
     except (Exception, SystemExit):
         branch = None
-    # Who committed in each area decides its role lane, not a name that happens to start with the area word (the
-    # 2026-11-28 sidebar-bench-chiefs-61230-2 misroutes, owner_live step 2). A test's listing reads commits only when
-    # it gives WORKED; with no agent-link key here no lane holds by name: the push goes to the coordinator.
-    key = None if given else live.link_key()
     out = []
+    seen: dict = {}
     for area, (cell, doc, files, head) in hits.items():
-        mine = worked if given else (
-            live.worked_by(live.area_work(repo, area_globs.get(area, [])), key) if key else None)
-        who, how = live.holder(cell, rows, coordinator, area, pusher, branch, mine)
+        globs = area_globs.get(area, [])
+        area_worked = worked or (lambda name, g=globs: lane_worked(repo, name, g, base, seen))
+        who, how = live.holder(cell, rows, coordinator, area, pusher, branch, area_worked)
         if not who:
             out.append(f"owner: {area}: {how}. Tag a holder: `acpmux session tag SESSION owns={live.tag_hint(area, cell)}`.")
             continue

@@ -24,10 +24,6 @@ on:
       - feat-cmux-next
     paths:
       - "cmux-tui/crates/cmux-rd-host/Cargo.toml"
-      # A change to this file re-runs the tag job too, so a release whose tag
-      # step failed is made again by fixing the step (a version already tagged
-      # does nothing).
-      - ".github/workflows/cmux-rd-release.yml"
   workflow_dispatch:
     inputs:
       tag:
@@ -80,17 +76,11 @@ jobs:
           fi
           version="$(python3 cmux-tui/crates/cmux-rd-host/scripts/release.py version)"
           tag="cmux-rd-v$version"
-          # Git over HTTPS, not the REST API: the shared installation REST budget
-          # runs dry on busy hours (v0.2.10's run died on a 403 rate limit at the
-          # create call), and a swallowed 403 on the lookup read as "missing".
-          # ls-remote fails loudly; push of an existing tag is refused, not moved.
-          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          found="$(git ls-remote --tags "$remote" "refs/tags/$tag")"
-          if [[ -n "$found" ]]; then
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
             echo "$tag exists; nothing to release"
             echo "tag=" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          git push "$remote" "$GITHUB_SHA:refs/tags/$tag"
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$tag" -f "sha=$GITHUB_SHA" >/dev/null
           echo "made $tag at $GITHUB_SHA"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 

@@ -120,7 +120,7 @@ impl Peer {
                 continue;
             };
             let delay = if redial_now { Duration::ZERO } else { delay };
-            match self.wait_backoff_after(delay, backoff.failures()).await {
+            match self.wait_backoff(delay).await {
                 BackoffWait::Done => {}
                 // The network that failed before the sleep may take a moment to come back: the
                 // next attempts are quick ones again.

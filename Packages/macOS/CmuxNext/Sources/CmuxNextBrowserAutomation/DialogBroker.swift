@@ -50,49 +50,31 @@ final class DialogBroker {
     }
 
     func respond(_ params: DriverParams) throws(DriverError) -> DriverJSON {
-        // Swift drops the held dialog before reading `accept`, as before: it is gone after any call that got past the id.
-        let id = params.has("dialogId") ? (try? params.string("dialogId")) : nil
-        let prompt = id.flatMap { dialogs.removeValue(forKey: $0) }
-        var request: [String: Any] = ["params": BrowserRulesFFI.foundation(params.json)]
-        if let prompt {
-            request["held"] = Self.wire(prompt.kind)
-            request["resolved"] = prompt.isResolved
+        let id = try params.string("dialogId")
+        guard let prompt = dialogs.removeValue(forKey: id), !prompt.isResolved else {
+            throw DriverError(.notFound, "Dialog \(id) is gone")
         }
-        guard case .object(let reply)? = BrowserRulesFFI.call("dialog_respond", request) else {
-            throw DriverError(.unsupported, "dialog.respond: the app's rules library did not answer")
-        }
-        if case .object(let failure)? = reply["error"] {
-            let code = failure["code"]?.stringValue.flatMap(DriverError.Code.init(rawValue:)) ?? .invalid
-            throw DriverError(code, failure["message"]?.stringValue ?? "dialog.respond failed")
-        }
-        guard let prompt, case .object(let answer)? = reply["answer"] else { return .null }
-        switch answer["kind"]?.stringValue {
-        case "text": prompt.respond(.text(answer["text"]?.stringValue ?? ""))
-        case "accept": prompt.respond(.accept)
-        default: prompt.respond(.cancel)
+        let accept = try params.bool("accept")
+        switch prompt.kind {
+        case .textInput(_, let defaultText) where accept:
+            prompt.respond(.text(try params.optionalString("promptText") ?? defaultText ?? ""))
+        default:
+            prompt.respond(accept ? .accept : .cancel)
         }
         return .null
     }
 
-    /// What `dialog.opened` says of a prompt, or nil for one that stays the
-    /// person's (Rust: op `browser_rules_automation_dialog_describe`).
-    static func describe(_ kind: BrowserPromptKind) -> (String, String, String)? {
-        guard case .object(let reply)? = BrowserRulesFFI.call("dialog_describe", ["prompt": wire(kind)]),
-              let type = reply["type"]?.stringValue, let message = reply["message"]?.stringValue else { return nil }
-        return (type, message, reply["defaultValue"]?.stringValue ?? "")
-    }
-
-    /// A prompt kind as the rules read it. Permission and HTTP credential
-    /// prompts, another app, a saved password, an email's verification code
-    /// and a page's "Leave site?" stay the person's: an agent never answers
-    /// them (plans/cmux-next/passwords.md), so they cross with no fields.
-    static func wire(_ kind: BrowserPromptKind) -> [String: Any] {
+    private static func describe(_ kind: BrowserPromptKind) -> (String, String, String)? {
         switch kind {
-        case .alert(let message): ["kind": "alert", "message": message]
-        case .confirm(let message): ["kind": "confirm", "message": message]
-        case .textInput(let message, let defaultText):
-            defaultText.map { ["kind": "textInput", "message": message, "defaultText": $0] } ?? ["kind": "textInput", "message": message]
-        case .permission, .credentials, .openExternalApp, .noAppForScheme, .savePassword, .verificationOffer, .beforeUnload: ["kind": "personOnly"]
+        case .alert(let message): ("alert", message, "")
+        case .confirm(let message): ("confirm", message, "")
+        case .textInput(let message, let defaultText): ("prompt", message, defaultText ?? "")
+        // Permission and HTTP credential prompts stay the person's: an agent
+        // never answers them (credentials, plans/cmux-next/passwords.md).
+        // Nor is another app opened for an agent, nor a password saved, nor
+        // an email's verification code read or filled, nor a page's
+        // "Leave site?" answered (unsaved work is the person's).
+        case .permission, .credentials, .openExternalApp, .noAppForScheme, .savePassword, .verificationOffer, .beforeUnload: nil
         }
     }
 }

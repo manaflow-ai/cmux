@@ -223,7 +223,6 @@ impl Hub {
         hold: bool,
     ) -> Result<Arc<Session>, RpcError> {
         let (live, guarded, replace_durable, defer_finalize, staged) = plain;
-        let moved_in = matches!(live, Live::Moved(_));
         let mut steps = transfer_out::transfer_live::MoveSteps::new("import");
         let meta_text = std::fs::read_to_string(bundle.join("session.json"))
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
@@ -339,7 +338,6 @@ impl Hub {
             Ok(Ok(Some(found))) => found,
             _ => meta.worktree.take().filter(|w| w.cwd == meta.cwd),
         };
-        steps.step("git_state");
         // An approve-all an older daemon or a vmHost machine gave asks here (`policy_source.rs`).
         super::policy_source::settle_imported_grant(&mut meta);
         meta.subsession = None;
@@ -362,7 +360,6 @@ impl Hub {
                     return Err(super::credentials::credential_needed());
                 }
                 self.prepare_claude_move_without_credential(&mut meta).await?;
-                steps.step("claude_login");
             }
         }
         steps.step("meta");
@@ -539,10 +536,6 @@ impl Hub {
             self.recover_staged_replacements();
             let _ = self.kill(&session, true).await;
             return Err(RpcError::internal(error.to_string()));
-        }
-        steps.step("finalize");
-        if moved_in {
-            transfer_out::transfer_live::keep_import_steps(&session.id, steps.split());
         }
         Ok(session)
     }
@@ -1181,15 +1174,7 @@ mod tests {
         let bundle = dir.path().join("bundle");
         std::fs::create_dir_all(bundle.join("events")).unwrap();
         let id = uuid::Uuid::now_v7().to_string();
-        // The binding is under test, not durable harness state: a harness without a journal to
-        // carry (`restore_harness_state` needs one for `cmux-harness`).
-        {
-            let mut cfg = hub.config.write().await;
-            let profile = cfg.harnesses["cmux-harness"].clone();
-            cfg.harnesses.insert("plain".into(), profile);
-        }
         let mut meta = harness_meta(&id, "agent-setup-token");
-        meta["harness"] = json!("plain");
         meta["cwd"] = json!(dir.path());
         std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
         let binding = format!("claude-token:{}", "a".repeat(64));

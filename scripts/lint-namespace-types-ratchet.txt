@@ -43,7 +43,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/CloudStrings.swift:CloudSt
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/RefusalStrings.swift:RefusalStrings
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionMarquee.swift:MotionMarquee
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StatusIndicatorTunables.swift:StatusIndicatorTunables
-Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/BrowserChromeTuning.swift:HeliumClose
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:ChromeTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:DesignTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift:MetricTunables
@@ -82,6 +81,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/SplitRoom.swift:SplitRoo
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/StripScrollbarGeometry.swift:StripScrollbarGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/ColumnWidthPreset.swift:SplitRatio
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/NewColumnWidth.swift:NewColumnWidth
+Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Scroll/ColumnViewOffset.swift:ColumnViewOffset
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayGeometry.swift:DropOverlayGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayTunables.swift:DropOverlayTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayTunables.swift:LayoutTunables

@@ -90,7 +90,7 @@ pub(crate) async fn probe(relay: &str, wait: Duration) -> Option<Duration> {
     }
 }
 
-pub(crate) fn scope() -> &'static cmux_scope::Scope {
+fn scope() -> &'static cmux_scope::Scope {
     static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
     SCOPE.get_or_init(|| cmux_scope::Scope::new("hub carrier placed relays"))
 }
@@ -127,24 +127,6 @@ impl Nearest {
         )
         .into_iter()
         .next()
-    }
-
-    /// Every reachable relay in `placed` by the measurements in hand, nearest first.
-    pub(crate) fn ranked(&self, placed: &[PlacedTicket]) -> Vec<String> {
-        let measured = self.measured.lock().unwrap_or_else(|e| e.into_inner());
-        let mut seen: Vec<String> = Vec::new();
-        let ranked = rank(
-            placed
-                .iter()
-                .filter(|p| {
-                    let new = !seen.contains(&p.relay);
-                    seen.push(p.relay.clone());
-                    new
-                })
-                .map(|p| (p.relay.clone(), measured.get(&p.relay).and_then(|(_, rtt)| *rtt)))
-                .collect(),
-        );
-        ranked
     }
 
     /// Keeps `rtt` as `relay`'s round trip now (a probe's, or a test's).

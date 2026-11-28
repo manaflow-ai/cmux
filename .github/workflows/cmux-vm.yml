@@ -1105,8 +1105,6 @@ jobs:
       product: ${{ steps.product.outcome }}
       boot_image: ${{ steps.product.outputs.boot_image }}
       done_at: ${{ steps.product.outputs.done_at }}
-      # The gate's output, "" only when no step ran (a runner lost before its first step): settle deploys again then.
-      ran: ${{ steps.gate.outputs.enabled }}
     defaults:
       run:
         working-directory: workers/cmux-vm
@@ -1277,7 +1275,6 @@ jobs:
           DEPLOY: ${{ needs.deploy-production.result }}
           PRODUCT: ${{ needs.smoke-production.outputs.product }}
           BOOT: ${{ needs.smoke-production.outputs.boot_image }}
-          SMOKE_RAN: ${{ needs.smoke-production.outputs.ran }}
         run: |
           set -euo pipefail
           if [ "$EVENT" = push ]; then
@@ -1298,7 +1295,7 @@ jobs:
           git fetch -q --depth 1 origin "$GITHUB_SHA" || true
           git show "${GITHUB_SHA}:workers/cmux-vm/wrangler.jsonc" > "$RUNNER_TEMP/deployed-wrangler.jsonc"
           bun images/cmux-vm/auto-roll.ts settle --kind "$kind" --image "$image" --deploy "$DEPLOY" --product "$PRODUCT" \
-            --boot-image "$BOOT" --smoke-ran "$SMOKE_RAN" --attempt "$attempt" --deployed-wrangler "$RUNNER_TEMP/deployed-wrangler.jsonc" > "$RUNNER_TEMP/settle.json"
+            --boot-image "$BOOT" --attempt "$attempt" --deployed-wrangler "$RUNNER_TEMP/deployed-wrangler.jsonc" > "$RUNNER_TEMP/settle.json"
           cat "$RUNNER_TEMP/settle.json"
           outcome="$(jq -r .outcome "$RUNNER_TEMP/settle.json")"
           { echo "outcome=$outcome"; echo "next=$(jq -r .nextAttempt "$RUNNER_TEMP/settle.json")"; } >> "$GITHUB_OUTPUT"
@@ -1452,7 +1449,7 @@ jobs:
         run: |
           set -euo pipefail
           redeploy=false; what="rollback is not verified yet"
-          if [ "$KIND" = roll ]; then redeploy=true what="roll's production deploy or smoke did not run"; fi
+          if [ "$KIND" = roll ]; then redeploy=true what="roll's production deploy did not run"; fi
           gh workflow run cmux-vm.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f action=deploy-production \
             -f image_rollback="$IMAGE" -f image_roll_run="$ROLL" -f image_rollback_attempt="$NEXT" -f image_roll_redeploy="$redeploy"
           echo "::warning title=Image ${KIND}::${IMAGE}'s ${what}; production deploy ${NEXT} dispatched"

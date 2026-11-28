@@ -48,10 +48,6 @@ OWN_SUPERSESSION = {
     # (next_batch.py `superseded`), within its 15-minute timeout. Cancelling one
     # instead would read as a red run on the pull request.
     "cmux-next-batch.yml": "debounce runs supersede themselves and exit 0",
-    # Its seconds-long `changed` gate has no group on purpose: it diffs against the previous head, and a push that
-    # measures nothing must not cancel the head still being measured. The measuring `report` job cancels per pull
-    # request through its own job-level concurrency.
-    "chat-open-perf-report.yml": "the changed gate has no group; the report job cancels per pull request",
 }
 # Every context whose workflows must be bounded. Tests patch this name.
 REQUIRED_CONTEXTS = tuple(dict.fromkeys((*_required_status_checks.REQUIRED_CHECKS, *ALWAYS_BOUNDED)))

@@ -261,12 +261,9 @@ fn record_verdict(
     }
 }
 
-/// The largest whiteouts log [`detached_layer_empty`] reads to see whether its tombstones undo it.
-const WHITEOUTS_READ_MAX: u64 = 64 * 1024;
-
 /// A chat ID supplied with detach is a notification address. Its disappearance never
 /// authorizes discarding unsaved files or deletions. Only the first upper entry and the
-/// whiteouts file length (and a small log's bytes) are needed, regardless of the number of changes.
+/// whiteouts file length are needed, regardless of the number of changes.
 fn detached_layer_empty(state: &Path) -> bool {
     let empty = match fs::read_dir(state.join("upper")) {
         Ok(mut entries) => entries.next().is_none(),
@@ -274,14 +271,7 @@ fn detached_layer_empty(state: &Path) -> bool {
     };
     empty
         && match fs::symlink_metadata(state.join("whiteouts")) {
-            Ok(meta) if meta.is_file() && meta.len() == 0 => true,
-            // A log whose tombstones undo every whiteout is empty too; one past the bound is
-            // judged not empty unread (kept, never discarded).
-            Ok(meta) if meta.is_file() && meta.len() <= WHITEOUTS_READ_MAX => {
-                fs::read(state.join("whiteouts"))
-                    .is_ok_and(|bytes| crate::whiteouts::parse_whiteouts(&bytes).0.is_empty())
-            }
-            Ok(_) => false,
+            Ok(meta) => meta.is_file() && meta.len() == 0,
             Err(error) => error.kind() == io::ErrorKind::NotFound,
         }
 }

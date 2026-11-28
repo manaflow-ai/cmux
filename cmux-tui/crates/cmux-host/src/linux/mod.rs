@@ -429,12 +429,6 @@ impl LinuxPlatform {
             let _ = std::process::Command::new("systemd-analyze")
                 .args(["service-watchdogs", "no"])
                 .status();
-            // The system switch does not reach the user managers (the acpmux
-            // daemon's unit has its own WatchdogSec under one); they ride
-            // into the template snapshot too.
-            let _ = std::process::Command::new("/bin/sh")
-                .args(["-c", &user_watchdogs_script("no")])
-                .status();
         }
         Ok(None)
     }
@@ -444,8 +438,7 @@ impl LinuxPlatform {
             return Ok(None);
         }
         let script = format!(
-            "systemd-analyze service-watchdogs yes; {}systemctl start {}",
-            user_watchdogs_script("yes"),
+            "systemd-analyze service-watchdogs yes; systemctl start {}",
             HOUSEKEEPING_TIMERS.join(" ")
         );
         self.job("/bin/sh", &["-c".to_owned(), script], JobKind::Other, true)?;
@@ -1121,23 +1114,3 @@ pub(crate) fn trusted_text(
 #[cfg(test)]
 #[path = "carrier_file_tests.rs"]
 mod carrier_file_tests;
-
-/// Sets every live user manager's `service-watchdogs` switch (same loop as
-/// cmux-devbox-boot `user_watchdogs_script`).
-fn user_watchdogs_script(state: &str) -> String {
-    format!(
-        "for d in /run/user/[0-9]*; do [ -S \"$d/systemd/private\" ] && timeout 2 systemctl --user -M \"$(id -nu \"${{d##*/}}\")@\" service-watchdogs {state}; done; "
-    )
-}
-
-#[cfg(test)]
-mod user_watchdogs_tests {
-    #[test]
-    fn user_watchdogs_script_holds_every_live_user_manager_as_that_user() {
-        let s = super::user_watchdogs_script("no");
-        assert_eq!(
-            s,
-            "for d in /run/user/[0-9]*; do [ -S \"$d/systemd/private\" ] && timeout 2 systemctl --user -M \"$(id -nu \"${d##*/}\")@\" service-watchdogs no; done; "
-        );
-    }
-}

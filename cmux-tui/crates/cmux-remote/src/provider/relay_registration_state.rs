@@ -18,10 +18,6 @@ pub enum RegistrationState {
     CredentialUnavailable { error: String },
     /// No live registration, and the relay refused or did not answer the last attempt.
     RelayUnavailable { error: String },
-    /// No live registration: the relay is full or rate limiting (503 or 429 on the upgrade).
-    /// The wait before the next attempt honours `retry_after`; a carrier that has another
-    /// relay to register on moves to it at once instead of waiting here.
-    RelayBusy { error: String, retry_after: Option<Duration> },
 }
 
 impl RegistrationState {

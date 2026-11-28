@@ -4,7 +4,6 @@
 // daemon decides every value. Words come from the catalog (computerPanel.*), no vendor names.
 import "./computerPanel.css";
 import { useT } from "../i18n";
-import { Icon } from "../icons/Icon";
 import {
   awakeRow,
   type ComputerPanelProps,
@@ -25,7 +24,14 @@ export type ComputerPanelViewProps = ComputerPanelProps & {
 };
 
 function PinIcon() {
-  return <Icon name="state.pinned" size={12} selected className="computer-panel-pin" />;
+  return (
+    <svg className="computer-panel-pin" width={12} height={12} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        d="M9.5 1.5 14.5 6.5l-1.7.4-2.6 2.6.2 3.2-1 1L5.6 10 2 13.6l-.6-.6L5 9.4 1.9 6.3l1-1 3.2.2 2.6-2.6Z"
+      />
+    </svg>
+  );
 }
 
 function Row({ label, pinned, children }: { label: string; pinned?: boolean; children: string }) {

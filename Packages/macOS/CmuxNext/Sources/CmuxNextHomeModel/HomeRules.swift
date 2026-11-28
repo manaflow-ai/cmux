@@ -1,5 +1,4 @@
 internal import CCmuxHomeFFI
-internal import CmuxNextCompat
 internal import Foundation
 
 /// The Swift caller of the Rust home rules (cmux-tui/crates/cmux-home-rules): one JSON op,
@@ -55,7 +54,6 @@ public nonisolated struct HomeRules {
                 )
             }
         }
-        BridgeByteMeter.record(op, sent: request.count, received: out.len)
         guard status == CMUX_HOME_OK else {
             throw HomeRulesError(op: op, code: HomeRulesError.Code(status: status), detail: nil)
         }

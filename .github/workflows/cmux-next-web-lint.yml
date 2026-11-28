@@ -3,8 +3,8 @@ name: cmux-next web lint
 # Saves the caches pull requests restore: the pinned lint tools and the Bun package cache, on feat-cmux-next pushes
 # (coalesced; it ran in cmux-next-web.yml until that workflow's web checks were coalesced). It gives no verdict. The
 # checks it ran after the merge now run on the pull request (CI v2 step 5, post-merge-checks.json): `web lint (fast)`
-# is cmux-next-fast-gates.yml's; the hook tests and whole-tree typecheck are the independent steps
-# `web-lint-hook-tests` and `webviews-typecheck` of ci/steps.toml. Its lint still runs, because its installs fill the Bun cache, and its red no
+# is cmux-next-fast-gates.yml's, and the hook tests and the whole-tree `webviews typecheck` are the step
+# `webviews-typecheck` of ci/steps.toml. Its lint still runs, because its installs fill the Bun cache, and its red no
 # longer fails the run.
 on:
   push:

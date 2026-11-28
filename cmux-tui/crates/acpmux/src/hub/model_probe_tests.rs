@@ -277,26 +277,3 @@ async fn a_dropped_probe_ends_its_agent() {
     }
     assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "the dropped probe's agent still runs");
 }
-
-#[tokio::test]
-async fn background_probes_run_two_at_a_time_and_a_waited_one_takes_no_slot() {
-    static GATE: tokio::sync::Semaphore =
-        tokio::sync::Semaphore::const_new(super::BACKGROUND_PROBE_SLOTS);
-    let a = super::background_probe_slot(&GATE, false).await;
-    let b = super::background_probe_slot(&GATE, false).await;
-    assert!(a.is_some() && b.is_some());
-    // A third waits for one of the two to end.
-    let third = tokio::spawn(super::background_probe_slot(&GATE, false));
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    assert!(!third.is_finished());
-    // A refresh the person waits on is never queued behind them.
-    let waited = tokio::time::timeout(
-        std::time::Duration::from_millis(50),
-        super::background_probe_slot(&GATE, true),
-    )
-    .await;
-    assert!(matches!(waited, Ok(None)));
-    drop(a);
-    let third = tokio::time::timeout(std::time::Duration::from_secs(5), third).await;
-    assert!(matches!(third, Ok(Ok(Some(_)))));
-}

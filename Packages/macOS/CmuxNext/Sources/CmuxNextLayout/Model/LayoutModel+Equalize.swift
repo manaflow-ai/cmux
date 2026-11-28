@@ -23,21 +23,32 @@ extension LayoutModel {
     @discardableResult
     public func equalize(screen id: ScreenID, viewportWidth: CGFloat?) -> EqualizeResult {
         guard let screen = screens.first(where: { $0.id == id }) else { return .nothingToEqualize }
-        let style = style
-        var widths: [String: Double] = [:]
-        if case .columns(let columns) = screen.layout {
-            for column in columns { widths[column.id.rawValue] = Double(column.minimumSize(style: style).width) }
+        let trees: [SplitNode] = switch screen.layout {
+        case .splits(let root): [root]
+        case .columns(let columns): columns.flatMap(\.trees)
         }
-        let request = EqualizeRequest(layout: screen.layout, zoomed: screen.zoomed, visiblePanes: visiblePanes,
-                                      viewportWidth: viewportWidth.map(Double.init), gap: Double(style.stripGap),
-                                      minimumWidths: widths)
-        guard let reply: EqualizeReply = LayoutRules.call("layout_model_equalize", request),
-              reply.outcome == "equalized" else { return .nothingToEqualize }
-        let values: [DividerDragValue] = reply.values.compactMap { value in
-            if let split = value.split, let ratio = value.ratio { return .ratio(split, ratio) }
-            if let column = value.column, let width = value.width { return .width(column, width) }
-            return nil
+        var values: [DividerDragValue] = []
+        var hasSplits = false
+        for tree in trees {
+            for split in tree.splits {
+                hasSplits = true
+                if let ratio = tree.equalizedRatio(for: split), let current = tree.ratio(of: split), abs(current - ratio) > 1e-6 {
+                    values.append(.ratio(split, ratio))
+                }
+            }
         }
+        var hasColumns = false
+        if !screen.zoomed, case .columns(let columns) = screen.layout {
+            let style = style
+            let visibleColumns = Set(columns.filter { $0.root.panes.contains(where: visiblePanes.contains) }.map(\.id))
+            let equalizer = ColumnEqualizer(columns: columns, visible: visibleColumns, viewportWidth: viewportWidth ?? 0,
+                                            gap: style.stripGap) { $0.minimumSize(style: style).width }
+            let shared = DockStripGeometry.docks(columns)
+            hasColumns = shared.scrolling.filter { $0.dock == nil }.count
+                + [shared.left, shared.right].compactMap { $0 }.filter { $0.dock?.mode == .docked }.count > 1
+            values += equalizer.resizes.map { .width($0.column, $0.width) }
+        }
+        guard hasSplits || hasColumns else { return .nothingToEqualize }
         guard !values.isEmpty else { return .equalized }
         let change = EndedValues(values)
         guard change.canSend(in: self) else { return .refused }
@@ -54,27 +65,4 @@ extension LayoutModel {
         explicitReflowUntil = ProcessInfo.processInfo.systemUptime + Self.explicitReflowWindow
         setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
     }
-}
-
-/// `layout_model_equalize` of cmux-layout-reducer (`schemas/layout-model/vectors.json`): even ratios for every split
-/// and, on an unzoomed columns screen, the same width for every column the window shows side by side.
-private nonisolated struct EqualizeRequest: Encodable {
-    var layout: ScreenLayout
-    var zoomed: Bool
-    var visiblePanes: Set<PaneID>
-    var viewportWidth: Double?
-    var gap: Double
-    var minimumWidths: [String: Double]
-}
-
-private nonisolated struct EqualizeReply: Decodable {
-    struct Value: Decodable {
-        var split: SplitID?
-        var ratio: Double?
-        var column: ColumnID?
-        var width: Double?
-    }
-
-    var outcome: String
-    var values: [Value]
 }

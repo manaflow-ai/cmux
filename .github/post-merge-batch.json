@@ -122,8 +122,6 @@
       "paths": [
         "Packages/macOS/CmuxNext/Sources/**",
         "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
-        "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
-        "scripts/cmux-next/gen-agent-pane-policy-swift.py",
         "scripts/ci/check-swift-acpmux-protocol.py",
         "scripts/ci/swift-acpmux-protocol-allowlist.txt",
         "tests/test_check_swift_acpmux_protocol.py",
@@ -666,7 +664,6 @@
         "schemas/sidebar-drag-geometry/vectors.json",
         "schemas/sidebar-region-layout/vectors.json",
         "backend/catalog/cloud-relay-operations.json",
-        "Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/include/cmux_screen_kit.h",
         "schemas/settings/source/notifications.json",
         "schemas/settings/source/page-layout.json",
         "docs/mdm/cmux-example.mobileconfig",

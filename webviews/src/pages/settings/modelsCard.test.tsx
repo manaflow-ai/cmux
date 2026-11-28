@@ -292,7 +292,7 @@ test("a Kimi Code sign-in from another build directs cleanup to that build", asy
   });
   const rendered = await render(models);
   expect(status(rendered, "kimi-plan")?.textContent).toBe(
-    "Open the cmux build that saved this sign-in, disconnect it there, then connect it here again.",
+    "Open the cmux build that saved this sign-in and disconnect it there before reconnecting here.",
   );
   await click(menuButton(rendered, "kimi-plan"));
   expect(menuItem("signInAgain")).toBeNull();
@@ -310,7 +310,7 @@ test("a Kimi Code approval that hits another build's keychain directs cleanup th
     }),
   );
   expect(panel()?.querySelector("[role=alert]")?.textContent).toBe(
-    "Open the cmux build that saved this sign-in, disconnect it there, then connect it here again.",
+    "Open the cmux build that saved this sign-in and disconnect it there before reconnecting here.",
   );
   expect(action(panel()!, "connectChatGPTDevice")?.disabled).toBe(true);
 });

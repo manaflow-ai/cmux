@@ -89,7 +89,7 @@ import type { PeerLinkDetail } from "./linkState";
 import { readComposerStatus } from "./composerStatusModel";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
-import { resolvedTarget, whenIdle } from "./conversation/sessionRefs";
+import { resolvedTarget } from "./conversation/sessionRefs";
 import { isNews, isOthersNews } from "./conversation/sinceNews";
 import { noteReplaced } from "./sessionIndex";
 import { onlyOtherChatsTicked } from "./otherChatsLive";
@@ -986,17 +986,6 @@ const SWITCH_HOLD_MS = 1_500;
 /// How many chats this page keeps the rows of once left (`leftRows`): one map of row references each,
 /// the rows themselves already held by the chat's kept tail (tailCache.ts `KEPT_TAILS`).
 const LEFT_ROWS_KEPT = 8;
-/// How many chats never shown this page keeps folded ahead (`warmedRows`): the most recent ones a
-/// switch most likely goes to, one map of row references each.
-const WARMED_ROWS_KEPT = 4;
-
-/// A chat folded ahead while the page was idle (`AcpmuxDirectClient.warmRows`): its rows as its first
-/// open draws them, and the family its turns fold by.
-export interface WarmedChat {
-  sessionId: string;
-  rows: readonly AcpmuxRow[];
-  family: string | undefined;
-}
 /// The longest a chat drawn from its own rows (a copy kept while its machine was down) keeps that
 /// frame while its machine's page and the records between them are read (`reattachPeerCopy`): the
 /// copy, marked offline, is a whole transcript, where the page alone has a hole in it. The hold
@@ -1471,14 +1460,6 @@ export class AcpmuxDirectClient {
   private readonly leftRows = new Map<string, ReadonlyMap<string, AcpmuxRow>>();
   /// The left rows of the chat a kept tail is being drawn for, for that rebuild alone (`drawKeptTail`).
   private revisitRows: ReadonlyMap<string, AcpmuxRow> | undefined;
-  /// Chats this page has a kept tail of but never showed, folded into rows while the page was idle
-  /// (`warmRows`), at most ``WARMED_ROWS_KEPT``, newest last. Their first open gets these objects
-  /// back as a revisit gets `leftRows`, so the pane's turns shaped ahead from them are reused
-  /// (settled-page bench, chat_switch: the first switch to a chat did all a revisit skips).
-  private readonly warmedRows = new Map<string, ReadonlyMap<string, AcpmuxRow>>();
-  /// Each `warmRows` result, for the pane to shape ahead (`onWarmed`).
-  private readonly warmListeners = new Set<(warmed: WarmedChat) => void>();
-  private warmIdle?: () => void;
   /// Each drawn offer's row (a suggested tasks card), by offer id (offer/SuggestedTasks.tsx).
   private offerRows = new Map<string, string>();
   /// Offers whose result prompt reached this chat (its user_message): a replayed `queued` record
@@ -2550,79 +2531,6 @@ export class AcpmuxDirectClient {
     }
   }
 
-  /// The chat a switch most likely goes to next that has no rows on this page yet: a listed one, newest
-  /// first, with a kept tail, not shown, not in the cold archive, not on the store (`chatRows`), not
-  /// left or warmed already. A running one too: its tail is behind its turn, but every turn before
-  /// that comes out the same and is kept (`keepSame`); a new read of its tail warms it again.
-  private nextToWarm(): string | undefined {
-    if (this.closed || this.fedMode || !pageShown()) return undefined;
-    // ends: one pass over the listed chats
-    const recent = [...this.sessions]
-      .filter((session) => session.sessionId && session.sessionId !== this.selectedSessionId)
-      .sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))
-      .slice(0, READ_AHEAD_RECENT);
-    for (const session of recent) {
-      const sessionId = session.sessionId;
-      if (this.leftRows.has(sessionId) || this.warmedRows.has(sessionId)) continue;
-      if (session.coldArchive || this.chatRows.holds(sessionId)) continue;
-      const tail = keptTail(sessionId);
-      if (tail && !olderThanShown(sessionId, tail)) return sessionId;
-    }
-    return undefined;
-  }
-
-  /// Folds one chat's kept tail into rows ahead of its first open, as `retainedSnapshot` folds a
-  /// restored tab's (a `fed` client, no connection), and keeps them in `warmedRows`. Correct by
-  /// construction: the open folds its tail again and keeps only the rows that came out equal
-  /// (`OrderedRows.keepSame`). Undefined when the chat has nothing to fold.
-  warmRows(sessionId: string): WarmedChat | undefined {
-    if (this.closed || this.fedMode || sessionId === this.selectedSessionId) return undefined;
-    const tail = keptTail(sessionId);
-    if (!tail || olderThanShown(sessionId, tail) || this.chatRows.holds(sessionId)) return undefined;
-    const client = AcpmuxDirectClient.fed(sessionId, () => undefined);
-    // The open reads the listed entry with the tail (`drawKeptTail`): so does this fold.
-    client.sessions = this.sessions;
-    try {
-      const { status: _status, retry: _retry, queue: _queue, ...past } = tail.summary ?? {};
-      if (client.drawKeptTail(sessionId, { ...tail, summary: tail.summary && past, queue: [] }) === 0) return undefined;
-      const rows = client.rows.sorted();
-      this.warmedRows.delete(sessionId);
-      this.warmedRows.set(sessionId, new Map(client.rows));
-      // ends: each pass deletes the oldest key, so the map shrinks to WARMED_ROWS_KEPT
-      while (this.warmedRows.size > WARMED_ROWS_KEPT) this.warmedRows.delete(this.warmedRows.keys().next().value!);
-      const family = client.summary?.family;
-      return { sessionId, rows, family: typeof family === "string" ? family : undefined };
-    } finally {
-      client.dispose();
-    }
-  }
-
-  /// Folds the next likely chat (`nextToWarm`) once the page is idle, one chat per idle slot, until
-  /// none is left; each result goes to `onWarmed`. Asked again after each read ahead and switch.
-  private scheduleWarm(): void {
-    if (this.warmIdle || this.warmListeners.size === 0 || this.nextToWarm() === undefined) return;
-    this.warmIdle = whenIdle(() => {
-      this.warmIdle = undefined;
-      const sessionId = this.nextToWarm();
-      const warmed = sessionId === undefined ? undefined : this.warmRows(sessionId);
-      if (warmed) for (const listener of this.warmListeners) listener(warmed);
-      if (sessionId !== undefined) this.scheduleWarm();
-    });
-  }
-
-  /// The pane shapes each chat folded ahead into turns (pane/useTurnActions.ts `shapeAhead`).
-  onWarmed(listener: (warmed: WarmedChat) => void): () => void {
-    this.warmListeners.add(listener);
-    this.scheduleWarm();
-    return () => {
-      this.warmListeners.delete(listener);
-      if (this.warmListeners.size === 0) {
-        this.warmIdle?.();
-        this.warmIdle = undefined;
-      }
-    };
-  }
-
   /// Ends a `fed` client: nothing it was fed draws after this, a frame already asked for included.
   dispose(): void {
     this.disposed = true;
@@ -3568,16 +3476,12 @@ export class AcpmuxDirectClient {
   /// `forThisPage` is false when this client is the one going away, so the tail goes to the app
   /// host alone and not into this page's map (tailCache.ts `rememberTail`). `toHost` is false when
   /// the caller carries it to the host itself (`tailHandOver`). The chat and tail kept, if any.
-  private rememberCurrentTail(
-    forThisPage = true,
-    toHost = true,
-    hostAfterPaint = false,
-  ): { sessionId: string; tail: KeptTail } | undefined {
+  private rememberCurrentTail(forThisPage = true, toHost = true): { sessionId: string; tail: KeptTail } | undefined {
     const sessionId = this.selectedSessionId;
     const tail = this.currentTail();
     // A chat on the store keeps its window instead (rows/chatSource.ts): one kept thing a chat.
     if (!sessionId || !tail || this.chatRows.holds(sessionId)) return undefined;
-    rememberTail(sessionId, tail, forThisPage, toHost, hostAfterPaint);
+    rememberTail(sessionId, tail, forThisPage, toHost);
     if (forThisPage) {
       this.leftRows.delete(sessionId);
       this.leftRows.set(sessionId, new Map(this.rows));
@@ -4097,8 +4001,7 @@ export class AcpmuxDirectClient {
     // native root while it consumes the historical events, not after the malformed tree is drawn.
     const keptSummary = { ...kept.summary, ...listed };
     this.summary = keptSummary;
-    this.revisitRows = this.leftRows.get(sessionId) ?? this.warmedRows.get(sessionId);
-    if (!this.fedMode) this.warmedRows.delete(sessionId);
+    this.revisitRows = this.leftRows.get(sessionId);
     try {
       this.rebuild();
     } finally {
@@ -15218,9 +15121,8 @@ export class AcpmuxDirectClient {
     // Refresh the loaded transcript, not its bounded 400-record cache. Capture before changing
     // the selection generation or resetting events so older visible replies survive a slow attach.
     const fullRefreshTail = onScreen && previousSessionId === sessionId ? this.currentTail(true) : undefined;
-    // The chat being left is kept for its own next open, while it is still the selected one. The
-    // host's copy goes after the switch's frame paints (tailCache.ts `writeHostTailSoon`).
-    this.rememberCurrentTail(true, true, previousSessionId !== sessionId);
+    // The chat being left is kept for its own next open, while it is still the selected one.
+    this.rememberCurrentTail();
     // The tail of a chat that left the list while drawn (`selectFallbackSession`), taken once.
     const leftTail = this.leftTail?.sessionId === sessionId ? this.leftTail.tail : undefined;
     this.leftTail = undefined;
@@ -15891,13 +15793,6 @@ export class AcpmuxDirectClient {
   /// Chats read ahead, by how far their kept tail's read went and the chat it was of (its
   /// `createdAt` and machine): the next read of one that ran on asks only for what came after.
   private readAheadThrough = new Map<string, { through: number; createdAt: unknown; peer: unknown }>();
-  /// Chats whose read ahead acpmux answered with no record a tail draws, by the row's
-  /// `transcriptSeq` when it was asked: a pending agent start that logs only `agent_start_waiting`,
-  /// a chat whose log holds only raw harness lines. Nothing was kept of them, so the `!keptTail`
-  /// test read each again on every change in the list, every 5 s while its row moved for
-  /// bookkeeping, and acpmux walked the log back each time for nothing (Leo, 2026-11-19: "audit
-  /// claude desktop's ram cpu gpu usage network usage"). Read again only once its transcript moves.
-  private readAheadNothing = new Map<string, number>();
   /// Reads out now, by chat, so a switch to one can wait on it briefly.
   private readingAhead = new Map<string, Promise<void>>();
   /// Chats waiting for a read, the next one first.
@@ -15914,7 +15809,6 @@ export class AcpmuxDirectClient {
     this.readAheadAt.delete(sessionId);
     this.readAheadSeq.delete(sessionId);
     this.readAheadThrough.delete(sessionId);
-    this.readAheadNothing.delete(sessionId);
     this.shareOnRead.delete(sessionId);
     if (this.readAheadQueue.includes(sessionId))
       this.readAheadQueue = this.readAheadQueue.filter((queued) => queued !== sessionId);
@@ -15958,9 +15852,6 @@ export class AcpmuxDirectClient {
     const wanted = sessionIds.filter((sessionId) => {
       if (!sessionId || sessionId === this.selectedSessionId || this.readingAhead.has(sessionId)) return false;
       if (this.listedCold(sessionId)) return false;
-      const nothingAt = this.readAheadNothing.get(sessionId);
-      if (nothingAt !== undefined && nothingAt === transcriptSeq(this.sessions.find((s) => s.sessionId === sessionId)))
-        return false;
       const readAt = this.readAheadAt.get(sessionId);
       // A chat this page opened keeps the tail it read itself; one read ahead is read again only
       // when it ran on since, and not more often than READ_AHEAD_REFRESH_MS.
@@ -15992,10 +15883,7 @@ export class AcpmuxDirectClient {
         .finally(() => {
           this.readingAhead.delete(sessionId);
           this.shareOnRead.delete(sessionId);
-          // Its tail may be new: what was folded ahead from the old one is folded again.
-          this.warmedRows.delete(sessionId);
           this.pumpReadAhead();
-          this.scheduleWarm();
         });
       this.readingAhead.set(sessionId, read);
     }
@@ -16048,12 +15936,7 @@ export class AcpmuxDirectClient {
     // The chat was opened meanwhile: its attach holds the newer read.
     if (this.closed || this.socket !== connection || sessionId === this.selectedSessionId) return;
     const page = records(result?.events);
-    if (page.length === 0) {
-      // Answered with nothing to keep: asked again only once its transcript moves (`readAheadNothing`).
-      if (askedSeq !== undefined) this.readAheadNothing.set(sessionId, askedSeq);
-      return;
-    }
-    this.readAheadNothing.delete(sessionId);
+    if (page.length === 0) return;
     const oldest = Math.min(...page.map((event) => event.seq));
     const turnOpener = await this.fetchTurnOpener(sessionId, page, result?.hasMore === true);
     // The opener read may finish after an open or a machine/generation change. It cannot publish
@@ -17187,6 +17070,21 @@ export class AcpmuxDirectClient {
   async contextInventory(sessionId = this.actingSessionId): Promise<unknown> {
     if (!sessionId) throw new Error(translate("error.notOpen"));
     return this.request("_acpmux/context", { sessionId });
+  }
+  /// The instructions and memory files that follow the person to this machine, and the notes other
+  /// machines propose to add (`_acpmux/agent_home`): Session Info's Carried memory.
+  async agentHome(sessionId = this.actingSessionId): Promise<unknown> {
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    return this.request("_acpmux/agent_home", { sessionId });
+  }
+  /// Accepts or drops proposals by id (`_acpmux/agent_home_resolve`). Sent on the click with no await
+  /// before it: acpmux takes it only from the person, like `_acpmux/memory_resolve`.
+  async resolveAgentHome(
+    change: { accept: string[]; drop: string[] },
+    sessionId = this.actingSessionId,
+  ): Promise<unknown> {
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    return this.request("_acpmux/agent_home_resolve", { sessionId, accept: change.accept, drop: change.drop });
   }
   /// Saves (or with `text: null` removes) the guidance new chats get, for every chat (`user`) or
   /// this folder's (`project`), and answers with the inventory after it (`_acpmux/context_override`).
@@ -18800,9 +18698,6 @@ export class AcpmuxDirectClient {
     clearTimeout(this.readAheadTimer);
     this.readAheadTimer = undefined;
     this.readAheadQueue = [];
-    this.warmIdle?.();
-    this.warmIdle = undefined;
-    this.warmedRows.clear();
     this.hoverReads.stop();
     this.shareOnRead.clear();
     clearTimeout(this.sessionReread);

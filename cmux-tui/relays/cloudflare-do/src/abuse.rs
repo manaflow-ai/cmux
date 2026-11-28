@@ -208,7 +208,6 @@ impl CircuitLedger {
 
     /// `reserve_for` with the slot's inline circuits (`crate::inline`) counted against the same total and
     /// allocation-rate limits as the ledger's own.
-    #[cfg(test)]
     pub fn reserve_beside(
         &mut self,
         circuit: String,
@@ -332,7 +331,6 @@ impl CircuitLedger {
 
     /// Whether one more inline circuit fits beside the ledger's: the same total and allocation-rate limits
     /// `reserve_beside` applies, read without writing the ledger.
-    #[cfg(test)]
     pub fn admits_inline(&self, now_ms: u64, inline: InlineLoad) -> bool {
         self.inline_refusal(now_ms, inline).is_none()
     }

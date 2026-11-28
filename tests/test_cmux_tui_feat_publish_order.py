@@ -117,7 +117,6 @@ def context(ref, event="push", daemon_tests="true", daemon_result="success"):
         "github.repository": "manaflow-ai/cmux",
         "needs.tree-preflight.result": "success",
         "needs.tree-preflight.outputs.key": KEY,
-        "needs.tree-preflight.outputs.red_known": "",
         "needs.tree-preflight.outputs.daemon_tests": daemon_tests,
         "needs.tree-preflight.outputs.tree_ready": "false",
         "needs.build.result": "success",
@@ -293,9 +292,9 @@ def coalesce_marks_only_a_window_without_a_tree(all_jobs):
     expression = str(job["if"]).replace("needs.*.result", "needs.ALL.result")
     held_expression = str(job.get("with", {}).get("held", "false"))
 
-    def outcome(claimed="true", red_known="", **results):
+    def outcome(claimed="true", **results):
         """(marks, held): whether the job runs, and whether it saves a held marker."""
-        values = {"needs.coalesce.outputs.claimed": claimed, "needs.tree-preflight.outputs.red_known": red_known}
+        values = {"needs.coalesce.outputs.claimed": claimed}
         for name in names:
             values[f"needs.{name}.result"] = results.get(name.replace("-", "_"), "success")
         values["needs.ALL.result"] = [values[f"needs.{name}.result"] for name in names]
@@ -319,10 +318,6 @@ def coalesce_marks_only_a_window_without_a_tree(all_jobs):
                == (True, False), f"tree-preflight {result}: the window's next push builds again")
         _check(outcome(publish_tree=result) == (True, False),
                f"publish-tree {result}: the window's next push builds again")
-    # RED_TREE_MARK: a push whose key already failed on a compile error builds nothing, so no job fails; it still
-    # marks the window, unheld, and the next push (a new key) builds.
-    _check(outcome(red_known="true", build_linux="skipped", build="skipped", publish_tree="skipped") == (True, False),
-           "a known compile red re-opens the window for the next push")
     base_coalesce_holds_a_held_window()
     base_coalesce_retries_from_the_caller()
 

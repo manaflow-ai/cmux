@@ -179,7 +179,6 @@ on:
       - "webviews/bench/link-profiles.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
       - "webviews/test/fixtures/adopted-codex-turn.events.json"
-      - "Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/include/cmux_screen_kit.h"
       - "schemas/settings/source/page-layout.json"
       - "docs/mdm/cmux-example.mobileconfig"
       - "docs/mdm/com.manaflow.cmux.intune.plist"

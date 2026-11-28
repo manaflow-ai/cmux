@@ -16,7 +16,6 @@ use std::time::Duration;
 
 mod cookie_purge;
 mod idle;
-mod leases;
 pub use idle::DEFAULT_IDLE_TIMEOUT;
 use idle::{Idle, IdleCall};
 
@@ -102,7 +101,7 @@ pub struct SessionContext {
 }
 
 /// The profile agents get unless the person names another (D12).
-pub const AGENT_PROFILE: &str = cmux_browser_grants::AGENTS_PROFILE;
+pub const AGENT_PROFILE: &str = "agent";
 
 type EventSlot = Arc<Mutex<Option<(Arc<Gate>, std::sync::mpsc::Sender<DriverEvent>)>>>;
 
@@ -247,7 +246,6 @@ impl Host {
             }
             "browser.repl.list" => Ok(self.list()),
             "browser.repl.guide" => Ok(json!({"guide": bundle::GUIDE})),
-            "browser.repl.leases" => self.set_leases(caller, params),
             "browser.cookieBackups.list" => self.cookie_backups_list(caller),
             "browser.cookieBackups.purge" => self.cookie_backups_purge(caller, params),
             _ => Err(DriverError::unsupported_method(method)),

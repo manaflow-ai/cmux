@@ -4,14 +4,9 @@
 //! own temporary directory holds, once a [`TICK`].
 //!
 //! - Use: per scope, the sum over its live processes of `/proc/<pid>/io` `write_bytes` less
-//!   `cancelled_write_bytes` (what it wrote and did not delete before writeback) over the last
-//!   [`WINDOW`] ([`Known::recent`]), or the size of the session's `ACPMUX_SESSION_TMPDIR`,
-//!   whichever is larger. A 20 GB file writer shows while it writes; a build's many short
-//!   compilers each count only while they run. The counter never falls when a file is deleted,
-//!   so a lifetime sum told every long chat its harness's own churn was disk it kept: one
-//!   37-hour Claude chat read 10.7 GiB "written and kept" while it kept about 160 MB, and the
-//!   number stayed after it removed six worktrees. A scope's first [`WINDOW`] counts its whole
-//!   life, as before.
+//!   `cancelled_write_bytes` (what it wrote and did not delete before writeback), or the size of
+//!   the session's `ACPMUX_SESSION_TMPDIR`, whichever is larger. A 20 GB file writer shows while
+//!   it writes; a build's many short compilers each count only while they run.
 //! - Bounded: at most [`MAX_SCOPES`] scopes and [`MAX_PIDS`] processes a tick, and at most
 //!   [`MAX_TMP_ENTRIES`] entries of a temporary directory (then its size is a floor, `partial`).
 //!   No worktree is walked. The cost is the processes acpmux scopes hold, which their `TasksMax`
@@ -36,11 +31,6 @@
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::time::Duration;
-
-/// How far back a scope's writes count ([`Known::recent`]).
-pub(crate) const WINDOW: Duration = Duration::from_secs(6 * 3600);
-/// How often [`Known::recent`] keeps a mark: at most `WINDOW / MARK_EVERY + 2` per scope.
-pub(crate) const MARK_EVERY: Duration = Duration::from_secs(30 * 60);
 
 /// How often the watcher measures.
 pub(crate) const TICK: Duration = Duration::from_secs(15);
@@ -81,33 +71,6 @@ pub(crate) struct Known {
     /// its harness or task runner alone; one that was already running when the daemon started
     /// keeps every group it had, so it is only warned).
     pub protected: Vec<i32>,
-    /// The scope's lifetime write total at points in time, oldest first ([`Known::recent`]).
-    pub marks: std::collections::VecDeque<(std::time::Instant, u64)>,
-}
-
-impl Known {
-    /// Of the scope's lifetime write total `total` at `now`, what it wrote over the last
-    /// [`WINDOW`]: `total` less its total at the newest mark at or before the window's start.
-    /// The first mark is 0 at first sight, so a scope's first window counts its whole life. A
-    /// writer that exits lowers `total`; every older mark is lowered with it, so growth after
-    /// counts and the window never reads below 0.
-    pub(crate) fn recent(&mut self, now: std::time::Instant, total: u64) -> u64 {
-        if self.marks.is_empty() {
-            self.marks.push_back((now, 0));
-        }
-        for m in self.marks.iter_mut() {
-            m.1 = m.1.min(total);
-        }
-        if self.marks.back().is_some_and(|(t, _)| now.saturating_duration_since(*t) >= MARK_EVERY) {
-            self.marks.push_back((now, total));
-        }
-        while self.marks.len() > 1
-            && self.marks.get(1).is_some_and(|(t, _)| now.saturating_duration_since(*t) >= WINDOW)
-        {
-            self.marks.pop_front();
-        }
-        total.saturating_sub(self.marks.front().map_or(0, |m| m.1))
-    }
 }
 
 /// One scope's reading.
@@ -115,9 +78,7 @@ impl Known {
 pub(crate) struct Sample {
     pub scope: String,
     pub session: Option<String>,
-    /// What its live processes wrote and kept over the last [`WINDOW`], and over their lives.
     pub written: u64,
-    pub lifetime: u64,
     pub tmp: u64,
     pub tmp_partial: bool,
     /// The process group of the top writer, and the groups never stopped (`Known::protected`).
@@ -261,7 +222,7 @@ impl Watch {
             .map(|(_, s)| {
                 json!({
                     "scope": s.scope, "sessionId": s.session, "diskBytes": s.used(),
-                    "writtenBytes": s.written, "writtenLifetimeBytes": s.lifetime, "tmpBytes": s.tmp, "tmpPartial": s.tmp_partial,
+                    "writtenBytes": s.written, "tmpBytes": s.tmp, "tmpPartial": s.tmp_partial,
                     "memoryBytes": s.memory, "tasks": s.tasks, "state": state_word(&s.scope),
                     "stoppedPgid": match self.states.get(&s.scope) {
                         Some(State::Stopped(g)) => json!(g), _ => Value::Null },
@@ -406,10 +367,8 @@ pub(crate) fn scan(manager: &str, known: &mut BTreeMap<String, Known>) -> (Vec<S
                         Some((get("ACPMUX_SESSION_ID"), get("ACPMUX_SESSION_TMPDIR")))
                     })
                     .unwrap_or((None, None));
-                Known { session, tmp, protected: groups.clone(), ..Known::default() }
+                Known { session, tmp, protected: groups.clone() }
             });
-            s.lifetime = s.written;
-            s.written = known.recent(std::time::Instant::now(), s.lifetime);
             s.protected = known.protected.clone();
             s.session = known.session.clone();
             if let Some(tmp) = &known.tmp {

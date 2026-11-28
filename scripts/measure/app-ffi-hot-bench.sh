@@ -8,7 +8,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 out="$(mktemp -d "${TMPDIR:-/tmp}/app-ffi-hot-bench.XXXXXX")"
 burners=()
-cleanup() { for pid in ${burners[@]+"${burners[@]}"}; do kill "$pid" 2>/dev/null || true; done; rm -rf "$out"; }
+cleanup() { for pid in "${burners[@]}"; do kill "$pid" 2>/dev/null || true; done; rm -rf "$out"; }
 trap cleanup EXIT
 opts=("$@")
 ((${#opts[@]})) || opts=(3 z)

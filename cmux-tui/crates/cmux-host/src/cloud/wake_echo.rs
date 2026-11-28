@@ -38,8 +38,6 @@ struct Wake {
     pty_attach_at: Option<u64>,
     input_at: Option<u64>,
     echo_at: Option<u64>,
-    /// The sockets that may have woken it, read at the resume (`wake_sockets.rs`).
-    sockets: Option<Value>,
 }
 
 impl Wake {
@@ -48,7 +46,7 @@ impl Wake {
     }
 
     fn block(&self, outcome: &str) -> Value {
-        let mut block = json!({
+        json!({
             "v": WAKE_ECHO_VERSION,
             "resumed_at": self.resumed_at,
             "net_up_at": self.net_up_at,
@@ -56,12 +54,7 @@ impl Wake {
             "input_at": self.input_at,
             "echo_at": self.echo_at,
             "outcome": outcome,
-        });
-        // Absent from an old guest's block and from a wake with no table read.
-        if let (Some(sockets), Some(obj)) = (&self.sockets, block.as_object_mut()) {
-            obj.insert("sockets".to_owned(), sockets.clone());
-        }
-        block
+        })
     }
 }
 
@@ -84,16 +77,8 @@ impl WakeEcho {
             pty_attach_at: None,
             input_at: None,
             echo_at: None,
-            sockets: None,
         });
         ended
-    }
-
-    /// The sockets read at this wake's resume (`wake_sockets.rs`), kept in its block.
-    pub fn sockets(&mut self, sockets: Value) {
-        if let Some(w) = self.cur.as_mut() {
-            w.sockets = Some(sockets);
-        }
     }
 
     /// A status report came back ok at monotonic `now`: the first after a resume is net up.
@@ -146,9 +131,7 @@ impl WakeEcho {
         match &self.cur {
             Some(w) => {
                 let mut b = w.block("");
-                if let Some(obj) = b.as_object_mut() {
-                    obj.insert("outcome".to_owned(), Value::Null);
-                }
+                b["outcome"] = Value::Null;
                 Some(b)
             }
             None => self.done.clone(),

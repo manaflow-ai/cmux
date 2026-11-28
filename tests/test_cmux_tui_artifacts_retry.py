@@ -12,11 +12,9 @@ they are.
 from __future__ import annotations
 
 import importlib.util
-import io
 from pathlib import Path
 import sys
 import unittest
-from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci/cmux_tui_artifacts_retry.py"
 spec = importlib.util.spec_from_file_location("retry", SCRIPT)
@@ -142,49 +140,6 @@ class RetryPolicyTests(unittest.TestCase):
                 self.assertEqual(retry.decide(run(run_attempt=2), tree_jobs(leg), {}).action, "rerun-failed-jobs")
         verify = {"id": 8, "name": "verify the CDN publication", "conclusion": "failure"}
         self.assertEqual(retry.decide(run(run_attempt=2), tree_jobs(verify), {8: []}).action, "rerun-failed-jobs")
-
-
-COMPILE_LOG = ("2026-11-23T20:45:31.0255786Z error[E0599]: no method named `lock_or_recover` found for struct `ChatLocks`\n"
-               "2026-11-23T20:45:31.0263638Z error: could not compile `acpmux` (lib) due to 1 previous error\n")
-LEG = {"id": 5, "name": "build / build aarch64-unknown-linux-musl", "conclusion": "failure"}
-
-
-class CompileErrorTests(unittest.TestCase):
-    def test_compile_red_skips_the_rerun(self):
-        decision = retry.decide(run(), tree_jobs(LEG), {5: []}, compile_red=True)
-        self.assertEqual(decision.action, "skip")
-        self.assertIn("compile error", decision.reason)
-
-    def test_other_failures_still_rerun(self):
-        self.assertEqual(retry.decide(run(), tree_jobs(LEG), {5: []}).action, "rerun-failed-jobs")
-
-    def _main(self, log_text):
-        calls = []
-
-        def api(method, url, token):
-            calls.append((method, url))
-            if url.endswith("/actions/runs/7"):
-                return run(id=7)
-            if "/jobs?" in url:
-                return {"jobs": tree_jobs(LEG)}
-            if "/annotations" in url:
-                return []
-            return None
-
-        with mock.patch.object(retry, "_api", api), \
-                mock.patch.object(retry, "_log_text", lambda url, token: log_text), \
-                mock.patch.dict(retry.os.environ, {"GH_TOKEN": "t"}), \
-                mock.patch("sys.stdout", new_callable=io.StringIO):
-            self.assertEqual(retry.main(["--repo", "o/r", "--run-id", "7"]), 0)
-        return [c for c in calls if c[0] == "POST"]
-
-    def test_main_holds_a_compile_red_run(self):
-        self.assertEqual(self._main(COMPILE_LOG), [])
-
-    def test_main_reruns_when_the_log_is_not_a_compile_error_or_unreadable(self):
-        for text in ("error: process didn't exit successfully (signal: 9, SIGKILL)\n", None):
-            with self.subTest(text=text):
-                self.assertEqual(len(self._main(text)), 1)
 
 
 class RateLimitWaitTests(unittest.TestCase):

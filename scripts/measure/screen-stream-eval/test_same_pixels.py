@@ -43,18 +43,9 @@ class SamePixels(unittest.TestCase):
         self.assertIn("same pixels", out["crops"]["coordinate_space"])
 
     def test_a_crop_is_kept_in_the_receipt(self):
-        read = {"width": 64, "height": 24}
-        out = self.run_on((64, 32), (64, 32), {"cer": 0.0, "host_ocr_image": read, "viewer_ocr_image": read},
-                          crop="0,8,64,24")
+        out = self.run_on((64, 32), (64, 32), {"cer": 0.0}, crop="0,8,64,24")
         self.assertIs(out["comparison_ready"], True)
         self.assertEqual(out["crops"]["viewer_crop"], [0, 8, 64, 24])
-
-    def test_ocr_of_an_uncut_image_under_a_crop_is_not_ready(self):
-        whole, cut = {"width": 64, "height": 32}, {"width": 64, "height": 24}
-        out = self.run_on((64, 32), (64, 32), {"cer": 0.0, "host_ocr_image": whole, "viewer_ocr_image": cut},
-                          crop="0,8,64,24")
-        self.assertIs(out["comparison_ready"], False)
-        self.assertIn("not the crop", out["crops"]["reason"])
 
     def test_different_sizes_are_not_ready_and_say_why(self):
         out = self.run_on((64, 32), (32, 16), {"cer": 0.07})

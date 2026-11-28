@@ -156,9 +156,7 @@ def sign_in(step: dict) -> str | None:
     do not hold, so an unsigned pair-e2e exits 1 at pairing ("DEBUG dev credential: set ...") after a
     45-minute Mac build (#59658 attempt 7, step 9c79c4ec8782598d8441941a).
     The session is minted on the submitting machine (cmux-ci's signin_session), so this signs in only where that
-    machine holds the agent account. main() stops before any step when a pair-e2e would go unsigned
-    (unsigned_pair), so no Mac build is spent on a step that can only fail at pairing; the automatic run
-    (cmux-next-ios-verify-auto.yml) holds the account from the repository's CMUX_DOGFOOD_STACK_* pair."""
+    machine holds the agent account; elsewhere (a lane VM) the step goes unsigned as before, with a note."""
     if step["mode"] != "pair-e2e":
         return None
     return "agent" if has_agent_account() else None
@@ -183,16 +181,6 @@ def has_agent_account(environ=os.environ, home: str | None = None) -> bool:
         if all(k in names for k in AGENT_KEYS):
             return True
     return False
-
-
-UNSIGNED_EXIT = 3  # main(): a pair-e2e would go unsigned; nothing ran and nothing is posted
-
-
-def unsigned_pair(steps: list[dict], reused: dict) -> list[str]:
-    """The pair-e2e steps this run would send unsigned (not read back with --from-step). Each builds the Mac app
-    (45-60 min on a fleet Mac) and then exits 1 at pairing, so a proof with one can only fail: cmux#59658 attempt 7
-    and cmux#56372 (step bc44f3331ab09c7100d021ea) each spent a Mac build and hours of simulator queue to learn it."""
-    return [s["name"] for s in steps if s["mode"] == "pair-e2e" and s["name"] not in reused and not sign_in(s)]
 
 
 def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str = "1") -> str:
@@ -331,7 +319,7 @@ def finished_step(step: dict, head: str, ids: list[str]) -> dict | None:
 # auto.yml) runs this tool from the protected branch, so the head's scripts run in a worktree of the head, with no
 # token in their environment (SCRUBBED): head code never sees the token that posts the record.
 SCRUBBED = ("GH_TOKEN", "GITHUB_TOKEN", "TOKENS", "GH_TOKEN_SPARES", "CI_POOL_GH_TOKEN", "CI_POOL_GH_TOKEN_SPARES",
-            "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", *AGENT_KEYS)
+            "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN")
 SCRIPTS_AT: Path | None = None
 
 
@@ -542,10 +530,8 @@ def rerun_gate(repo: str, sha: str) -> str:
             jobs = gh_json("api", f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100")
             for j in jobs.get("jobs", []):
                 if j["name"] == GATE_JOB and j.get("status") == "completed" and j.get("conclusion") != "skipped":
-                    how = proof_record.rerun_gate_job(repo, run["id"], j["id"])
-                    return f"reran {GATE_JOB} (job {j['id']}; {how})"
-    except subprocess.CalledProcessError as e:
-        return f"gate not rerun: {e}: {e.stderr or ''}".rstrip(": ")
+                    sh("gh", "run", "rerun", str(run["id"]), "--job", str(j["id"]), "--repo", repo)
+                    return f"reran {GATE_JOB} (job {j['id']})"
     except SystemExit as e:
         return f"gate not rerun: {e}"
     return "gate job has not run yet: it reads the proof when it does"
@@ -704,7 +690,7 @@ def main(argv: list[str] | None = None) -> int:
     base_sha = git("merge-base", f"origin/{view['baseRefName']}", head)
     manifest = json.loads(select_flows.MANIFEST.read_text())
     changed = select_flows.changed_from_git(base_sha, head)
-    selection = select_flows.select(manifest, changed, edited=select_flows.edited_flows(manifest, base_sha, head))
+    selection = select_flows.select(manifest, changed)
     steps = plan(selection, manifest["flows"], workers, a.pair_e2e)
     if a.plan:
         print(json.dumps({"head": head, "ios": selection["ios"], "flows": selection["flows"],
@@ -728,14 +714,6 @@ def main(argv: list[str] | None = None) -> int:
             if got is None:
                 raise SystemExit(f"ios verify: no --from-step ran {s['name']} at {head[:12]}")
             reused[s["name"]] = got
-        unsigned = unsigned_pair(steps, reused)
-        if unsigned:
-            print(f"ios verify: {', '.join(unsigned)} needs the agent account to sign both apps in, and this machine "
-                  f"has none ({'/'.join(AGENT_KEYS)} in the environment, or ~/{AGENT_FILES[0]}); an unsigned step "
-                  "builds the Mac app and then fails at pairing. Nothing ran and nothing was posted. Run this from a "
-                  "machine with the account (a coordinator Mac), or let cmux-next-ios-verify-auto.yml run it",
-                  file=sys.stderr, flush=True)
-            return UNSIGNED_EXIT
         leased = set() if a.pin_strict or not workers or reused else leased_hosts()
         with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
             futs = [pool.submit(lambda r: r, reused[s["name"]]) if s["name"] in reused else

@@ -165,7 +165,7 @@ impl Hub {
         if let Err(e) = self.save_meta_answered(session) {
             tracing::warn!(session = %session.id, "capacity-failover: meta not saved: {}", e.message);
         }
-        if let Err(e) = self.set_model_automatically(session, &to).await {
+        if let Err(e) = self.set_model(session, &to).await {
             tracing::warn!(session = %session.id, "capacity-failover: {from} -> {to} refused: {}", e.message);
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).capacity_fallback = None;
             let _ = self.save_meta_answered(session);
@@ -246,7 +246,7 @@ impl Hub {
             let _ = self.save_meta_answered(session);
             return;
         }
-        if let Err(e) = self.set_model_automatically(session, &from).await {
+        if let Err(e) = self.set_model(session, &from).await {
             tracing::warn!(session = %session.id, "capacity-failover: back to {from} refused: {}", e.message);
             // The next turn that ends well, or the next attempt, tries again.
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());

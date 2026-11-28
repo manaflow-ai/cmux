@@ -178,7 +178,6 @@ pub(crate) fn migrate_personal_v1(
     let tx = connection.unchecked_transaction()?;
     create_personal_schema(&tx)?;
     super::personal_browser_profiles::create_browser_profile_schema(&tx)?;
-    super::personal_browser_grants::create_browser_grant_schema(&tx)?;
     super::personal_bookmarks::create_bookmark_schema(&tx)?;
     blobs::open_blob_store(&tx)?;
     tx.execute("INSERT OR IGNORE INTO meta(key, value) VALUES(?1, '0')", [REVISION_META_KEY])?;

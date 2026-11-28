@@ -23,7 +23,6 @@ public struct SidebarBandItems {
         .chief: ChiefSidebar.openAction,
         .automations: "automations.show",
         .forum: "forum.show",
-        .feed: "feed.show",
     ]
 
     /// Presentation of every built-in, app and workspace item in `layout` (a closed workspace dimmed); `registered` says
@@ -32,10 +31,10 @@ public struct SidebarBandItems {
     /// Chief item the picture `chiefFavicon` (its worn upload's, ``ChiefSidebarPictures``), and each
     /// built-in carries its action's `shortcut` for its tooltip. The update
     /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL). `showsStore` false hides the App Store,
-    /// `showsForum` false the Forum, `showsFeed` false the Feed.
+    /// `showsForum` false the Forum.
     public static func info(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
                          unread: Int = 0,
-                         homeUnread: Int = 0, showsStore: Bool = true, showsForum: Bool = false, showsFeed: Bool = false,
+                         homeUnread: Int = 0, showsStore: Bool = true, showsForum: Bool = false,
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
                          shortcut: (ActionID) -> String? = { _ in nil },
                          workspace: (LayoutItemRef) -> SidebarItemInfo? = { _ in nil },
@@ -51,7 +50,7 @@ public struct SidebarBandItems {
                 continue
             }
             guard let builtIn = item.ref.builtIn else { continue }
-            var info = builtIn.defaultInfo(showsStore: showsStore, showsForum: showsForum, showsFeed: showsFeed)
+            var info = builtIn.defaultInfo(showsStore: showsStore, showsForum: showsForum)
             info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
             info.shortcut = builtInActions[builtIn].flatMap(shortcut)
             if builtIn == .notifications { info.badge = unread > 0 ? unread : nil } else if builtIn == .home {

@@ -106,7 +106,6 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import time
 import tomllib
 from typing import NamedTuple
 
@@ -446,25 +445,13 @@ def main(argv: list[str] | None = None) -> int:
     print(" ".join(command), flush=True)
     # From cmux-tui/ so rustup uses its rust-toolchain.toml pin and cargo its workspace.
     text: list[str] = []
-    lint_started = time.monotonic()
     result = run_clippy(warnings_soft(command, repo), repo / ROOT, repo, text, hidden)
-    lint_seconds = time.monotonic() - lint_started
     report_lints(result.lints, scope)
     if paths is None and (verdict_out := os.environ.get("CMUX_CLIPPY_VERDICT_OUT")):
         # cmux-tui-clippy-seed.yml on feat-cmux-next: the whole workspace's verdict, which pull requests read.
         write_verdict(repo, Path(verdict_out), result, workspace, requires)
-    if result.rc and (killed := killed_units(text)):
-        # A unit the kernel killed (SIGKILL: the runner ran out of memory) is no lint and no code error: the
-        # autofix below cannot repair it, and its `clippy --fix` rebuilt every unit for ~23 min until the job's
-        # 40-min cap cancelled it with no verdict and no cache save (141020758253, 2026-11-28).
-        print(f"::error title=cmux-tui clippy::the compiler was killed ({killed[0]}) on "
-              f"{', '.join(killed[1:]) or 'a unit'} for {scope}: the runner ran out of memory, not a code error. "
-              f"Rerun the job; the autofix was not tried (it cannot repair a kill)")
-        if skipped:
-            report_base_red_skips(skipped, base_reds, dependents, base, verdict_sha, scope, False)
-        return 1
-    if result.rc and not result.lock and args.autofixed_ok and paths is not None and autofix_fits(lint_seconds) \
-            and autofixed(repo, command, paths, workspace, args.autofixed_ok):
+    if result.rc and not result.lock and args.autofixed_ok and paths is not None and autofixed(
+            repo, command, paths, workspace, args.autofixed_ok):
         return 0
     if result.rc and result.lock:
         print(stale_lock_error("cmux-tui clippy", result.lock))
@@ -497,51 +484,6 @@ def main(argv: list[str] | None = None) -> int:
         name_base_reds(repo, base if paths is not None else "", red_files)
         return 1
     return 0
-
-
-KILLED = re.compile(r"\(signal: (\d+), (SIG[A-Z]+)")
-KILLED_UNIT = re.compile(r"^error: could not compile `([^`]+)` \(([^)]+)\)")
-
-
-def killed_units(text: list[str]) -> list[str]:
-    """[signal, unit, ...] when the run's compiler was killed by a signal (`process didn't exit successfully:
-    ... (signal: 9, SIGKILL: kill)`), else []. The units are cargo's `could not compile` lines just before it."""
-    units: list[str] = []
-    signal = ""
-    for index, line in enumerate(text):
-        if (match := KILLED.search(line)) and "process didn't exit successfully" in line:
-            signal = signal or match.group(2)
-            for earlier in reversed(text[max(0, index - 4):index]):
-                if (unit := KILLED_UNIT.match(earlier.strip())) and (name := f"{unit.group(1)} ({unit.group(2)})") not in units:
-                    units.append(name)
-                    break
-    return [signal, *units] if signal else []
-
-
-# `cargo clippy --fix` runs rustc through cargo itself, so no unit the lint run built is fresh for it: it
-# rebuilt every unit of the selection (23m34s in job 141020758253, after a 15.5-min lint run). The steps after
-# this one (panic ratchet, frame work contracts, the R2 save) need their time too.
-AUTOFIX_COST = 1.5
-AUTOFIX_RESERVE_S = 10 * 60
-
-
-def autofix_fits(lint_seconds: float, now: float | None = None) -> bool:
-    """Whether the autofix's rebuild (AUTOFIX_COST times the lint run) still ends AUTOFIX_RESERVE_S before the
-    job's cap: CLIPPY_JOB_STARTED (epoch seconds, the workflow's "Start the time budget" step) plus
-    CLIPPY_JOB_MINUTES. Without them (a local run) it always fits."""
-    try:
-        started = int(os.environ["CLIPPY_JOB_STARTED"])
-        minutes = int(os.environ["CLIPPY_JOB_MINUTES"])
-    except (KeyError, ValueError):
-        return True
-    left = started + minutes * 60 - (time.time() if now is None else now)
-    need = AUTOFIX_COST * lint_seconds + AUTOFIX_RESERVE_S
-    if need <= left:
-        return True
-    print(f"::warning title=cmux-tui clippy::the autofix was not tried: its rebuild needs ~{need / 60:.0f} min "
-          f"(the lint run took {lint_seconds / 60:.1f} min) and the job has {max(left, 0) / 60:.0f} min left; "
-          f"run `scripts/cmux-next/autofix-clippy.sh` locally or let the PR autofix push it", flush=True)
-    return False
 
 
 def load_isolate(repo: Path):

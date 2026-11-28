@@ -635,10 +635,7 @@ def pin_step(job: dict) -> dict:
 
 def dispatch_step(job: dict) -> dict:
     """The re-pin job's step that starts app-ffi-repin.yml when the re-pin failed."""
-    # #63649 moved the dispatch into scripts/cmux-next/dispatch-app-ffi-repin.sh (cmux-bot's budget, a wait for the
-    # rate limit's reset); the step that runs it is the one.
-    return next(step for step in job["steps"] if any(
-        mark in str(step.get("run", "")) for mark in ("gh workflow run", "dispatch-app-ffi-repin.sh")))
+    return next(step for step in job["steps"] if "gh workflow run" in str(step.get("run", "")))
 
 
 class RePinPublication(unittest.TestCase):
@@ -1029,10 +1026,6 @@ class RePinPublication(unittest.TestCase):
                                                                    "failure"])},
             "the merge train's seat status": {"checks": ("success",),
                                               "status": [["merge-train", "error"], ["ci", "success"]]},
-            # 2026-11-28: cmux#64303 was moved off 512ee340 and 68a65d55 for one red each (a cancelled migration
-            # plan, a build fleet fetch fault) while its Mac and fleet compiles still ran; every pinned land stopped.
-            "a failed check while others still run": {"checks": ("success", "failure", None)},
-            "a failed commit status while a check still runs": {"checks": ("success", None), "status": "failure"},
         }
         for name, options in cases.items():
             with self.subTest(name):
@@ -1046,10 +1039,6 @@ class RePinPublication(unittest.TestCase):
         cases = {
             "past the hold": {"head_age_min": 95},
             "a failed check run": {"head_age_min": 20, "checks": ("success", "failure")},
-            "a failed check run, and only an advisory one still running": {
-                "head_age_min": 20, "checks": ("failure", ["nightly app compile arm64 fleet job (advisory)", None])},
-            "a failed check with checks still running, past the hold": {"head_age_min": 95,
-                                                                       "checks": ("failure", None)},
             "a timed-out check run": {"head_age_min": 20, "checks": ("timed_out",)},
             "a check run that never started": {"head_age_min": 20, "checks": ("startup_failure",)},
             "a stale check run": {"head_age_min": 20, "checks": ("stale",)},
@@ -1480,7 +1469,7 @@ class RePinPublication(unittest.TestCase):
                 env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                            GH_TOKEN="actions-token", GITHUB_REPOSITORY=REPO)
                 result = subprocess.run(["bash", "-e", "-c", step["run"]], env=env, capture_output=True, text=True,
-                                        timeout=10, cwd=ROOT)
+                                        timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(state_path.read_text())["dispatches"],
                                  [["app-ffi-repin.yml", "--ref", "feat-cmux-next"]])

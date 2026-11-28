@@ -7,7 +7,6 @@ import {
   admitNetworkAddress,
   ipv4CidrCapacity,
   networkAdmissionVerdict,
-  pausedHolders,
   resetNetworkAddressAlertsForTest,
 } from "../services/vms/networkAdmission";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
@@ -98,51 +97,5 @@ describe("admitNetworkAddress", () => {
       listNetworkTunnelIds: () => Effect.fail(new Error("provider down")),
     }, input()));
     expect(usage).toMatchObject({ held: 200, tunnels: null });
-  });
-});
-
-describe("paused address holders (item 4: paused machines keep their address)", () => {
-  function repoWithPaused(total: number, paused: { paused: number; oldestPausedWriteAt: number | null } | "error" | "hang") {
-    let pausedReads = 0;
-    return {
-      pausedReads: () => pausedReads,
-      repo: {
-        countNetworkAddressHolders: () => Effect.succeed(total),
-        countPausedNetworkAddressHolders: () => {
-          pausedReads += 1;
-          if (paused === "error") return Effect.fail(new Error("db down") as never);
-          if (paused === "hang") return Effect.never;
-          return Effect.succeed(paused);
-        },
-      },
-    };
-  }
-
-  test("below 80% admission never reads the paused share", async () => {
-    const r = repoWithPaused(100, { paused: 90, oldestPausedWriteAt: 0 });
-    await Effect.runPromise(admitNetworkAddress(r.repo, {}, input()));
-    expect(r.pausedReads()).toBe(0);
-  });
-
-  test("an 80% alert reads the paused share once per alert window, and a full network still refuses", async () => {
-    const r = repoWithPaused(255, { paused: 180, oldestPausedWriteAt: Date.now() - 50 * 3_600_000 });
-    expect((await Effect.runPromiseExit(admitNetworkAddress(r.repo, {}, input())))._tag).toBe("Failure");
-    expect((await Effect.runPromiseExit(admitNetworkAddress(r.repo, {}, input())))._tag).toBe("Failure");
-    expect(r.pausedReads()).toBe(1);
-  });
-
-  test("names how many held addresses are paused and the oldest pause age in hours", async () => {
-    const r = repoWithPaused(220, { paused: 180, oldestPausedWriteAt: Date.now() - 50 * 3_600_000 - 1_000 });
-    expect(await Effect.runPromise(pausedHolders(r.repo, input()))).toEqual({ paused: 180, oldestPausedHours: 50 });
-    const none = repoWithPaused(220, { paused: 0, oldestPausedWriteAt: null });
-    expect(await Effect.runPromise(pausedHolders(none.repo, input()))).toEqual({ paused: 0, oldestPausedHours: null });
-  });
-
-  test("a failed, slow or absent paused read reports null and never blocks admission", async () => {
-    expect(await Effect.runPromise(pausedHolders(repoWithPaused(220, "error").repo, input()))).toBeNull();
-    expect(await Effect.runPromise(pausedHolders(repoWithPaused(220, "hang").repo, input()))).toBeNull();
-    expect(await Effect.runPromise(pausedHolders(repoHolding(220).repo, input()))).toBeNull();
-    const usage = await Effect.runPromise(admitNetworkAddress(repoWithPaused(220, "hang").repo, {}, input()));
-    expect(usage).toMatchObject({ held: 220 });
   });
 });

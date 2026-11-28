@@ -25,9 +25,7 @@
 //! peer of this host, no peer state and no host suggestion. Only a session of this daemon takes
 //! it ([`Hub::mesh_target`]); a name this daemon's peers list is refused, never forwarded. Its
 //! prompt id is the message id, with `resend`, so a message the hub leases again (a lost ack, a
-//! restart) answers with its first run instead of running twice (`hub/prompt_ledger.rs`). A
-//! message for a chat of this daemon that moved to another machine goes on through the hub to
-//! where it went, under one key per message and destination (`forward_moved`).
+//! restart) answers with its first run instead of running twice (`hub/prompt_ledger.rs`).
 
 use super::*;
 use crate::mesh::{Ack, Backoff, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode, StartWork};
@@ -1473,14 +1471,6 @@ pub async fn deliver(
             );
             None
         }
-        // The chat moved to another machine before it ran: the text goes on through the hub
-        // to where it went ([`forward_moved`]), so a send that left before the move landed
-        // reaches the chat. Before, it was refused here, the sender's outbox had settled when
-        // the hub took it, and nothing followed: the super-highway ring lost 191 of 576 sends
-        // this way (2026-11-28, 3 lanes, 40 moves).
-        Err((why, Next::Moved(to))) if !team => {
-            forward_moved(hub, &session, message, &to, &why).await
-        }
         // Nothing here will ever run it: a chat that moved away (the hub leases it to this
         // daemon again, never where the chat went), or no such session any more. Refused at
         // once with why, so the sender reads where the chat went instead of the hub's "leased
@@ -1554,94 +1544,6 @@ fn gone_reason(why: &str, next: &super::outbox::Next) -> String {
             format!("the chat moved to daemon {socket} as {session}: {why}")
         }
         _ => why.to_owned(),
-    }
-}
-
-/// How long a forward of a moved chat's message waits for the hub before its lease brings the
-/// message back (the post's key makes the next try the same message).
-const FORWARD_WAIT: Duration = Duration::from_secs(30);
-
-/// The hub key of the forward of message `message_id` to `to`: one post per message and
-/// destination, so a lease of the same message again (a lost ack, a restart) posts nothing new.
-pub(crate) fn forward_key(message_id: &str, to: &str) -> String {
-    format!("{message_id}~moved~{to}")
-}
-
-/// Delivers `message`, which a chat here refused because it moved to `to` (`HOST/SESSION`), to
-/// where the chat went: the same text, mode and sender, posted to the hub for `to` under
-/// [`forward_key`]. Acked as delivered once the hub took the forward, naming it; left unacked
-/// when the hub did not answer (its lease brings it back and the same key posts it again);
-/// refused with where the chat went when the hub refuses the forward, or when `to` names no host
-/// (a chat that moved on this machine, which the hub does not reach) or no hub is configured.
-///
-/// Exactly once: a message this copy took before it moved (its log names the prompt id) is acked
-/// as taken, never posted again; a tombstone runs nothing else; the forward is one hub message per
-/// (message, destination); and the destination dedupes that message's id as its prompt id
-/// (`resend`, `hub/prompt_ledger.rs`), whose log moves with the chat. A chain of moves is followed one hop per
-/// daemon, each tombstone pointing at the next; the live copy has none, so the chain ends there.
-async fn forward_moved(
-    hub: &Arc<Hub>,
-    session: &Arc<crate::hub::Session>,
-    message: &InMessage,
-    to: &str,
-    why: &str,
-) -> Option<Ack> {
-    let prompt_id = message.message_id.as_str();
-    // The hub leased it again after this copy took it before the move (a lost ack, a restart):
-    // it ran or queued here and moved with the chat, so it is acked, never posted again.
-    let (ledger_hub, ledger_session, id) = (hub.clone(), session.clone(), prompt_id.to_owned());
-    let known =
-        tokio::task::spawn_blocking(move || ledger_hub.knows_prompt(&ledger_session, &id, true));
-    if known.await.unwrap_or(false) {
-        return Some(Ack::delivered(
-            prompt_id,
-            Some(format!("taken here before the chat moved to {to}")),
-        ));
-    }
-    let refuse = |detail: String| {
-        Some(Ack { prompt_id: Some(prompt_id.to_owned()), ..Ack::refused(detail) })
-    };
-    let moved = || gone_reason(why, &super::outbox::Next::Moved(to.to_owned()));
-    let (Some((host, session)), Some(mesh)) = (to.split_once('/'), hub.mesh.get()) else {
-        return refuse(moved());
-    };
-    let post = crate::mesh::OutMessage {
-        to: crate::mesh::Target {
-            session_id: Some(session.to_owned()),
-            host: Some(host.to_owned()),
-            ..Default::default()
-        },
-        from: message.from.clone(),
-        kind: Kind::Prompt,
-        op: None,
-        body: message.body.clone(),
-        mode: message.mode,
-        idempotency_key: forward_key(prompt_id, to),
-    };
-    let posted = tokio::time::timeout(FORWARD_WAIT, mesh.send(&post)).await.unwrap_or_else(|_| {
-        Err(HubError::unavailable(format!("no answer within {}s", FORWARD_WAIT.as_secs())))
-    });
-    match posted {
-        Ok(receipt) => {
-            tracing::info!(
-                "mesh relay: {prompt_id} for a chat that moved, forwarded to {to} as {}",
-                receipt.message_id
-            );
-            Some(Ack::delivered(
-                prompt_id,
-                Some(format!(
-                    "forwarded: the chat moved to {to}; hub message {}",
-                    receipt.message_id
-                )),
-            ))
-        }
-        Err(e) if crate::mesh_retry::transient(&e, true) => {
-            tracing::info!(
-                "mesh relay: {prompt_id} not forwarded to {to} yet ({e}); its lease brings it back"
-            );
-            None
-        }
-        Err(e) => refuse(format!("{}; the forward was refused: {e}", moved())),
     }
 }
 

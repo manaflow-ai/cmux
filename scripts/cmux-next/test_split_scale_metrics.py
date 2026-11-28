@@ -365,33 +365,7 @@ class RowTableTests(unittest.TestCase):
     def test_markdown_marks_flagged_rows(self):
         text = ssm.row_table_markdown(ssm.row_table(self.report()))
         self.assertIn("over", text.splitlines()[0])
-        self.assertIn("| s4-browser-w1 | split_down | 12 | 2 | - | 90 | **blank** |", text)
-
-    def test_retargets_flag_drift(self):
-        rows = ssm.row_table({"cells": {"s1-empty-w1": {"bottom_open": {"first_frame_ms": 9.0, "blank_frames": 0,
-                                                                         "retargets": 1, "settled_ms": 120.0}}}})
-        self.assertEqual(rows[0]["flag"], "drift")
-        self.assertFalse(ssm.row_table_ok(rows))
-
-    def test_baseline_round_trip_and_before_after_columns(self):
-        nightly = {"cells": {"s1-empty-w1": {"close_right": {"first_frame_ms": 41.0, "blank_frames": 1, "retargets": 0,
-                                                             "settled_ms": 300.0, "frame_p95_ms": 9.0}},
-                             "s9-browser-w30": {"divider_drag": {"first_frame_ms": 900.0}}}}
-        cells = ssm.baseline_cells(nightly, keep=lambda c: c.startswith("s1-"))
-        self.assertEqual(list(cells), ["s1-empty-w1"])
-        self.assertNotIn("frame_p95_ms", cells["s1-empty-w1"]["close_right"])
-        base = ssm.decode_baseline(ssm.encode_baseline("d5bd605a8d2e3dd37aaa8c2db45be1c6b5c0bfeb", cells))
-        self.assertEqual(base["cells"], cells)
-        self.assertIsNone(ssm.decode_baseline("not base64!"))
-        self.assertIsNone(ssm.decode_baseline(""))
-        rows = ssm.row_table(self.report(), base=base)
-        close = next(r for r in rows if r["transition"] == "close_right")
-        self.assertEqual((close["base_first_frame_ms"], close["first_frame_ms"]), (41.0, 20.5))
-        text = ssm.row_table_markdown(rows, base_sha=base["sha"])
-        self.assertIn("at `d5bd605a8d2e`, same cells", text)
-        self.assertIn("0 rows worse, 1 better", text)
-        self.assertIn("| s1-empty-w1 | close_right | 41 -> 20.5 | 1 -> 0 | 0 -> - | 300 -> 90 | **slow** |", text)
-        self.assertIn("| s4-browser-w1 | split_down | - -> 12 |", text)
+        self.assertIn("| s4-browser-w1 | split_down | 12 | 2 | 90 | **blank** |", text)
 
 
 if __name__ == "__main__":

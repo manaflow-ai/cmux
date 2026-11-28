@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 880,
+  "count": 860,
   "sections": [
     {
       "id": "general",
@@ -273,14 +273,6 @@
             "max": 2,
             "unit": "fraction"
           }
-        },
-        {
-          "key": "agents.additionalDirectories",
-          "title": "Folders Every Chat Sees",
-          "help": "Added to every new chat's Sources. Use full or ~/ paths.",
-          "kind": "folder_list",
-          "default": [],
-          "group": "Agent Chat"
         },
         {
           "key": "agents.appControl",
@@ -633,70 +625,6 @@
           ]
         },
         {
-          "key": "agents.defaults.claude.effort",
-          "title": "Claude Code Effort for New Chats",
-          "help": "How hard a new chat thinks. Last Used keeps the last effort you picked.",
-          "kind": "choice",
-          "default": "auto",
-          "group": "Agent Chat",
-          "values": [
-            "auto",
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ]
-        },
-        {
-          "key": "agents.defaults.claude.model",
-          "title": "Claude Code Model for New Chats",
-          "help": "A model id such as claude-opus-5-5. Empty starts on the last model you picked.",
-          "kind": "text",
-          "default": "",
-          "group": "Agent Chat"
-        },
-        {
-          "key": "agents.defaults.codex.effort",
-          "title": "Codex Effort for New Chats",
-          "help": "How hard a new chat thinks. Last Used keeps the last effort you picked.",
-          "kind": "choice",
-          "default": "auto",
-          "group": "Agent Chat",
-          "values": [
-            "auto",
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ]
-        },
-        {
-          "key": "agents.defaults.codex.model",
-          "title": "Codex Model for New Chats",
-          "help": "A model id such as gpt-6.2-sol. Empty starts on the last model you picked.",
-          "kind": "text",
-          "default": "",
-          "group": "Agent Chat"
-        },
-        {
-          "key": "agents.env",
-          "title": "Agent Environment",
-          "help": "Variables every new chat's agent and its tools get. A value an agent profile already sets wins.",
-          "kind": "string_map",
-          "default": {},
-          "group": "Agent Chat"
-        },
-        {
-          "key": "agents.envExclude",
-          "title": "Hidden from Agents",
-          "help": "Variable names agents never get, such as AWS_SECRET_ACCESS_KEY or AWS_*.",
-          "kind": "string_list",
-          "default": [],
-          "group": "Agent Chat"
-        },
-        {
           "key": "agents.guidance.claude",
           "title": "cmux Guidance for Claude Code",
           "help": "Tells new Claude Code chats how cmux shows plans, side sessions and recaps.",
@@ -757,94 +685,6 @@
           "group": "Agent Sessions"
         },
         {
-          "key": "agents.providers.claude.args",
-          "title": "Claude Code Launch Arguments",
-          "help": "Arguments added when cmux starts Claude Code, one per entry.",
-          "kind": "string_list",
-          "default": [],
-          "group": "Agent Chat"
-        },
-        {
-          "key": "agents.providers.claude.env",
-          "title": "Claude Code Environment",
-          "help": "Variables Claude Code starts with. Keep keys and tokens out: use cmux harness secret.",
-          "kind": "string_map",
-          "default": {},
-          "group": "Agent Chat"
-        },
-        {
-          "key": "agents.providers.claude.home",
-          "title": "Claude Code Home Folder",
-          "help": "Where Claude Code keeps its settings and sign-in (CLAUDE_CONFIG_DIR). Empty uses ~/.claude.",
-          "kind": "text",
-          "default": "",
-          "group": "Agent Chat"
-        },
-        {
-          "key": "agents.providers.claude.path",
-          "title": "Claude Code Program",
-          "help": "The Claude Code program new chats run. Empty uses the one on your PATH.",
-          "kind": "text",
-          "default": "",
-          "group": "Agent Chat"
-        },
-        {
-          "key": "agents.providers.codex.args",
-          "title": "Codex Launch Arguments",
-          "help": "Arguments added when cmux starts Codex, one per entry.",
-          "kind": "string_list",
-          "default": [],
-          "group": "Agent Chat"
-        },
-        {
-          "key": "agents.providers.codex.env",
-          "title": "Codex Environment",
-          "help": "Variables Codex starts with. Keep keys and tokens out: use cmux harness secret.",
-          "kind": "string_map",
-          "default": {},
-          "group": "Agent Chat"
-        },
-        {
-          "key": "agents.providers.codex.home",
-          "title": "Codex Home Folder",
-          "help": "Where Codex keeps its settings and sign-in (CODEX_HOME). Empty uses ~/.codex.",
-          "kind": "text",
-          "default": "",
-          "group": "Agent Chat"
-        },
-        {
-          "key": "agents.providers.codex.path",
-          "title": "Codex Program",
-          "help": "The Codex program new chats run. Empty uses the one on your PATH.",
-          "kind": "text",
-          "default": "",
-          "group": "Agent Chat"
-        },
-        {
-          "key": "agents.sandbox.mode",
-          "title": "Agent Sandbox",
-          "help": "Workspace Only keeps agents' writes inside their workspace and turns full-access modes off.",
-          "kind": "choice",
-          "default": "permissionMode",
-          "group": "Agent Chat",
-          "values": [
-            "permissionMode",
-            "workspaceWrite"
-          ]
-        },
-        {
-          "key": "agents.sandbox.network",
-          "title": "Sandbox Network",
-          "help": "Allow lets Codex's workspace sandbox reach the network.",
-          "kind": "choice",
-          "default": "harness",
-          "group": "Agent Chat",
-          "values": [
-            "harness",
-            "allow"
-          ]
-        },
-        {
           "key": "agents.subsessions.answerQuestions",
           "title": "Let Sessions Answer Their Sub-sessions' Questions",
           "help": "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
@@ -898,19 +738,6 @@
             "max": 1000,
             "unit": "count"
           }
-        },
-        {
-          "key": "agents.titles.model",
-          "title": "Text Generation Model",
-          "help": "The Claude model that writes chat titles and summaries.",
-          "kind": "choice",
-          "default": "haiku",
-          "group": "Agent Chat",
-          "values": [
-            "haiku",
-            "sonnet",
-            "opus"
-          ]
         },
         {
           "key": "agents.trust.autoTrust",
@@ -2813,14 +2640,6 @@
           ]
         },
         {
-          "key": "agentPane.display.ownHarnessUpdatesOnly",
-          "title": "Only This Chat's Agent Updates",
-          "help": "The model menu offers an update for this chat's agent only, not for every agent on this Mac.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Agent Chat"
-        },
-        {
           "key": "agentPane.display.promptCoach",
           "title": "Prompt Coach",
           "help": "After a chat with many corrections, shows a better first prompt.",
@@ -2942,6 +2761,14 @@
             "overlay",
             "inline"
           ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.carried",
+          "title": "Session Info: Carried memory",
+          "help": "The MCP servers and carried the chat has.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.sessionInfo.sections.changes",
@@ -5797,14 +5624,6 @@
             "app",
             "account"
           ]
-        },
-        {
-          "key": "sidebar.relativeTimestamps",
-          "title": "Relative Timestamps",
-          "help": "With Show Timestamps on, a change today reads as its age, such as 5m or 2h, not its time.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Sidebar"
         },
         {
           "key": "sidebar.sectionLook",
@@ -8968,14 +8787,6 @@
           "group": "Experiments"
         },
         {
-          "key": "experiments.feed",
-          "title": "Feed",
-          "help": "Read every update in one feed: agents that finished or wait on you, approvals, pull requests, CI and notifications, newest first.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Experiments"
-        },
-        {
           "key": "experiments.foldSummaryCounts",
           "title": "Fold Summary Counts",
           "help": "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files.",
@@ -9190,14 +9001,6 @@
           "group": "Labs"
         },
         {
-          "key": "labs.chatMultiplayer",
-          "title": "Chat Multiplayer",
-          "help": "Teammates you share a chat with show when they view it and when they type.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Labs"
-        },
-        {
           "key": "labs.commentThreads",
           "title": "Comment Threads in Browser and Terminal",
           "help": "Send browser and terminal comments to the chat as threads that show the agent's reply.",
@@ -9265,6 +9068,14 @@
           "key": "labs.previousBuild",
           "title": "Go Back to Previous Build",
           "help": "Show the build cmux kept before the last update on the Updates card, with a button to go back to it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.teamCompute",
+          "title": "Team Compute",
+          "help": "Show your team's compute allotment and each member's use in Settings > Cloud.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

@@ -23,7 +23,6 @@ whole-table scan, kept as the oracle the property test compares against.
 """
 from __future__ import annotations
 
-import json
 import posixpath
 import random
 import re
@@ -400,35 +399,18 @@ def run_one(run: dict, timeout: float, root: Path = ROOT, repeats: int = 1) -> d
 
 
 def run_benches(plan_: dict, timeout: float = 120, root: Path = ROOT, repeats: int = 1,
-                baseline_docs: dict | None = None, base_root: Path | None = None) -> list[dict]:
+                baseline_docs: dict | None = None) -> list[dict]:
     """Every bench the plan's areas name. With baseline_docs (baselines.fetch), each result also carries its
-    baseline and the 3-repeat verdict; only a REGRESSED verdict changes an OK status.
-
-    A bench with no baseline for this machine class and a base_root (the pull request's base, checked out on this
-    same runner) runs there too, `repeats` times, and its median is the baseline: verdict BASE_REGRESSED or
-    within-baseline, with baseline_source "base". That compare is a notice, never a red (fail open: no recorded
-    baseline means the check warns and passes)."""
+    baseline and the 3-repeat verdict; only a REGRESSED verdict changes an OK status."""
     results = [run_one(r, timeout, root, repeats) for r in runs_for(plan_)]
     if baseline_docs is None:
         return results
     from . import baselines
     for r in results:
         value, area = baselines.lookup(baseline_docs, r["areas"], r["cmd"])
-        measured = r["status"] in (OK, OVER)
-        verdict = baselines.judge(r.get("repeats_s") or [], value) if measured else baselines.NO_MEASURE
-        r.update(baseline_s=value, baseline_area=area or None, verdict=verdict,
-                 baseline_source="nightly" if value is not None else None)
-        if verdict == baselines.NO_BASELINE and base_root is not None and measured:
-            base = run_one({"cmd": r["cmd"], "areas": r["areas"], "budget_s": None}, timeout, base_root, repeats)
-            reps = base.get("repeats_s") or []
-            if base["status"] == OK and len(reps) >= baselines.REPEATS:
-                value = round(statistics.median(reps), 4)
-                verdict = baselines.judge(r["repeats_s"], value)
-                if verdict == baselines.REGRESSED:
-                    verdict = baselines.BASE_REGRESSED  # a notice: the status stays OK
-                r.update(baseline_s=value, baseline_source="base", base_repeats_s=reps, verdict=verdict)
-            else:
-                r.update(base_detail=f"base run {base['status']} {base.get('detail', '')}".strip())
+        verdict = baselines.judge(r.get("repeats_s") or [], value) if r["status"] in (OK, OVER) else \
+            baselines.NO_MEASURE
+        r.update(baseline_s=value, baseline_area=area or None, verdict=verdict)
         if verdict == baselines.REGRESSED and r["status"] == OK:
             r["status"] = REGRESSED
     return results
@@ -624,11 +606,6 @@ def cargo_test_commands(root: Path, crate_dirs: list[str]) -> list[str]:
             for ws, names in by_ws.items()]
 
 
-TOOLING_TREES = ("scripts", "schemas", "docs", "tests", "webviews", "web", "backend", "workers", "evals", "examples",
-                 "first-party-apps", ".github", "plans", "skills", "release-notes", "design", "experiments",
-                 "Native", "ci", "persisted-formats", "Packages")
-
-
 def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[dict]:
     """One unit per testable folder of the repo layout, with the command that tests just that folder.
 
@@ -672,34 +649,16 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
         elif len(parts) == 3 and parts[:2] == ["webviews", "src"] and (root / d).is_dir():
             add(f"web:{parts[2]}", d, [f"bash scripts/ci/run-webviews-tests.sh src/{parts[2]}"])
         # Second-level folders of the tooling trees.
-        elif len(parts) == 2 and parts[0] in TOOLING_TREES and (root / d).is_dir():
+        elif len(parts) == 2 and parts[0] in ("scripts", "schemas", "docs", "tests", "webviews", "web", "backend",
+                                              "workers", "evals", "examples", "first-party-apps", ".github",
+                                              "plans", "skills", "release-notes", "design", "experiments",
+                                              "Native", "ci", "persisted-formats") and (root / d).is_dir():
             add(f"{parts[0].lstrip('.')}:{parts[1]}", d)
         # Rust workspace roots and language bindings.
         elif len(parts) == 2 and parts[0] == "cmux-tui" and (root / d).is_dir() and parts[1] != "crates":
             add(f"cmux-tui:{parts[1]}", d)
         elif len(parts) == 3 and parts[:2] == ["cmux-tui", "bindings"] and (root / d).is_dir():
             add(f"binding:{parts[2]}", d)
-        # Package roots: a folder with its own manifest owns everything under it that no narrower unit takes
-        # (Package.swift, Package.resolved, CEFShim/, Plugins/, Demo/, go.mod, ...), so a manifest or resources
-        # change runs that package's tests instead of falling back to its top-level folder.
-        elif (root / d / "Package.swift").is_file():
-            add(f"swiftpkg:{d}", d, [f"swift test --package-path {d}"] if (root / d / "Tests").is_dir() else [])
-        elif (root / d / "go.mod").is_file():
-            add(f"go:{d}", d, [f"cd {d} && go test ./..."])
-        elif (root / d / "Cargo.toml").is_file() and "crates" not in parts:
-            doc = _toml(root / d / "Cargo.toml")
-            add(f"cargo:{d}", d, [f"cargo test --manifest-path {d}/Cargo.toml"] if "package" in doc else [])
-        elif (root / d / "package.json").is_file() and "node_modules" not in parts:
-            try:
-                scripts_ = json.loads((root / d / "package.json").read_text(encoding="utf-8")).get("scripts") or {}
-            except (OSError, ValueError, AttributeError):
-                scripts_ = {}
-            add(f"node:{d}", d, [f"npm test --prefix {d}"] if "test" in scripts_ else [])
-    # Files directly in a tooling tree (scripts/foo.py, docs/x.md): the tree's top level, not its default.
-    for tree in TOOLING_TREES:
-        if any(f.startswith(tree + "/") and f.count("/") == 1 for f in files) and tree != "tests":
-            units.append({"name": f"{tree.lstrip('.')}:(top level)", "paths": [tree + "/*"], "tests": [],
-                          "dependents": []})
     return units
 
 

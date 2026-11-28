@@ -917,9 +917,6 @@ impl Store for JournalStore {
         self.inner
             .fenced(id, || Store::scan_matching(&self.inner.local, id, after, may_match, visit))
     }
-    fn scan_raw(&self, id: &str, after: u64, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
-        self.inner.fenced(id, || Store::scan_raw(&self.inner.local, id, after, visit))
-    }
     fn scan_strict(
         &self,
         id: &str,

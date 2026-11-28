@@ -130,67 +130,6 @@ pub struct HereResult {
     /// Absent unless requested. Empty means no peer has exchanged yet, not globally synced.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync: Option<Vec<HereSyncPeer>>,
-    /// What the sidebar's status icon shows (RFD 0140), reduced here so no client re-derives it.
-    /// Present exactly when `sync` is.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub summary: Option<HereSummary>,
-}
-
-/// The sync state the status icon draws, most urgent first.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub enum HereSyncState {
-    /// No peer is connected and some have edits they have not acknowledged: they queue and merge on reconnect.
-    Offline,
-    /// A connected peer has not acknowledged every local edit yet.
-    Syncing,
-    /// Every connected peer acknowledged every local edit. A disconnected one can still have unseen offline edits.
-    Synced,
-    /// No peer has exchanged state yet: nothing to sync with.
-    Alone,
-}
-
-/// `HereResult::summary`: the one sync state, the edits it counts, and who else is here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-#[schemars(transform = require_all)]
-pub struct HereSummary {
-    pub sync: HereSyncState,
-    /// Offline: the most edits any peer is missing. Syncing: the most any connected peer is missing. Else 0.
-    pub pending_edits: u64,
-    /// People here besides this machine's own person.
-    pub others: u32,
-    /// Agents here, in a turn on this daemon or beating from elsewhere.
-    pub agents: u32,
-}
-
-impl HereSummary {
-    /// The reduction. Offline needs every peer down: a sleeping phone must not mark a Mac with a live VM offline.
-    pub fn of(here: &[HereMember], sync: &[HereSyncPeer], own_id: &str) -> Self {
-        let max = |it: &mut dyn Iterator<Item = &HereSyncPeer>| {
-            it.map(|p| p.unacknowledged_edits).max().unwrap_or(0)
-        };
-        let (state, pending_edits) = if sync.is_empty() {
-            (HereSyncState::Alone, 0)
-        } else if !sync.iter().any(|p| p.connected) {
-            let n = max(&mut sync.iter());
-            (if n > 0 { HereSyncState::Offline } else { HereSyncState::Synced }, n)
-        } else {
-            let n = max(&mut sync.iter().filter(|p| p.connected));
-            let behind =
-                sync.iter().any(|p| p.connected && (!p.acknowledged || p.unacknowledged_edits > 0));
-            (if behind { HereSyncState::Syncing } else { HereSyncState::Synced }, n)
-        };
-        let count = |kind: HereKind| {
-            here.iter().filter(|m| m.kind == kind && m.id != own_id).count() as u32
-        };
-        Self {
-            sync: state,
-            pending_edits,
-            others: count(HereKind::Person),
-            agents: count(HereKind::Agent),
-        }
-    }
 }
 
 /// A peer's last acknowledged chat-state vector, separate from its current connectivity.

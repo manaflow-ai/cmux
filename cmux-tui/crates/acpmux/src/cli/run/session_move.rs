@@ -1060,11 +1060,7 @@ async fn move_steps(
             return Err(e);
         }
     };
-    let (record, same_folder) = record;
-    let there = record
-        .get("cwd")
-        .and_then(Value::as_str)
-        .map(|cwd| super::transfer::There { cwd: cwd.to_owned(), same_folder });
+    let there = record.get("cwd").and_then(Value::as_str).map(str::to_owned);
     let finished = waiting(
         &name,
         "copying the chat to the target",
@@ -1117,7 +1113,7 @@ async fn move_steps(
 
 /// The frozen chat's folder made on the target: the checkout read again (it may have changed
 /// before the freeze), its branch pushed, the folder made there. Returns the move's record
-/// (`movedTo`) and whether the folder there is the chat's own (`plan::same_folder`). The client of the target's daemon is `target_ask::open`'s, from before the freeze.
+/// (`movedTo`). The client of the target's daemon is `target_ask::open`'s, from before the freeze.
 async fn prepare(
     cwd: &Path,
     home: &Path,
@@ -1126,7 +1122,7 @@ async fn prepare(
     args: &MoveArgs,
     source: &Source,
     o: &mut Outcome,
-) -> Result<(Value, bool)> {
+) -> Result<Value> {
     let checkout = checkout_unless_named(cwd, args, source).await?;
     let folder = plan::plan_folder(
         cwd,
@@ -1142,8 +1138,6 @@ async fn prepare(
     let mut at = None;
     let mut bundle = None;
     let mut packed: Option<Vec<u8>> = None;
-    // The folder's files went (`packed` is moved into the unpack below).
-    let mut packed_files = false;
     // The commit the target's folder is made at, whether the folder has uncommitted work, and
     // its checkout's top folder on the source.
     let mut base: Option<(String, bool, PathBuf)> = None;
@@ -1172,7 +1166,6 @@ async fn prepare(
             match read {
                 files::Packed::Files(bytes) => {
                     record.set("filesCopied", json!(bytes.len()));
-                    packed_files = true;
                     packed = Some(bytes);
                 }
                 files::Packed::TooBig(n) => bail!(
@@ -1190,10 +1183,9 @@ async fn prepare(
         let dest = if *snapshot { snapshot_ref() } else { format!("refs/heads/{branch}") };
         let commit = tokio::task::spawn_blocking({
             let (top, dest, ssh) = (c.top.clone(), dest.clone(), source.ssh().map(str::to_owned));
-            let lane = lane_of(&o.name);
             move || match ssh {
-                None => push_branch(&top, &dest, lane.as_deref()),
-                Some(ssh) => push_branch_on(&ssh, &top, &dest, lane.as_deref()),
+                None => push_branch(&top, &dest),
+                Some(ssh) => push_branch_on(&ssh, &top, &dest),
             }
         })
         .await??;
@@ -1258,10 +1250,10 @@ async fn prepare(
     .await;
     if let Some((dest, _, top)) = at {
         // The target has the commit (or failed to): the move's own ref is not left on origin.
-        let (ssh, lane) = (source.ssh().map(str::to_owned), lane_of(&o.name));
+        let ssh = source.ssh().map(str::to_owned);
         let _ = tokio::task::spawn_blocking(move || match ssh {
-            None => drop_ref(&top, &dest, lane.as_deref()),
-            Some(ssh) => drop_ref_on(&ssh, &top, &dest, lane.as_deref()),
+            None => drop_ref(&top, &dest),
+            Some(ssh) => drop_ref_on(&ssh, &top, &dest),
         })
         .await;
     }
@@ -1277,8 +1269,7 @@ async fn prepare(
     }
     o.cwd = Some(there.clone());
     record.set("cwd", json!(there));
-    let same = plan::same_folder(&folder, args.cwd.is_some(), packed_files, args.carry_changes);
-    Ok((record, same))
+    Ok(record)
 }
 
 /// The checkout `cwd` is in, unless `--cwd` names the folder there (no checkout is carried).
@@ -1371,66 +1362,29 @@ fn checkout_on(ssh: &str, cwd: &Path) -> Result<Option<Checkout>> {
     parse_checkout(&out.stdout)
 }
 
-/// The moving chat's lane, as lane-gh's `LANE_GH_LANE` names it: the last part of the chat's
-/// name (`swarm-10/lane-12` -> `lane-12`), kept to `[A-Za-z0-9._-]`. A move is driven from
-/// outside the chat (lane-gh's broker strips its own `ACPMUX_SESSION*`), so the pushes it makes
-/// for the chat name its lane themselves, or lane-gh refuses them as "lease acquisition requires
-/// a lane session". `None` for a name with nothing left: lane-gh's own lookup then applies.
-pub(crate) fn lane_of(name: &str) -> Option<String> {
-    let last = name.rsplit('/').next().unwrap_or(name);
-    let mut out = String::new();
-    for c in last.chars() {
-        if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
-            out.push(c);
-        } else if !out.ends_with('-') {
-            out.push('-');
-        }
-    }
-    let out: String = out.trim_matches(|c| c == '-' || c == '.').chars().take(60).collect();
-    (!out.is_empty()).then_some(out)
-}
-
-/// The move's git writes for the chat name its lane ([`lane_of`]); lane-gh's service identity is
-/// not the lane's, so it is dropped (as `lane_move_rescue.py` does for its push).
-fn named(command: &mut StdCommand, lane: Option<&str>) {
-    if let Some(lane) = lane {
-        command.env("LANE_GH_LANE", lane).env_remove("LANE_GH_SERVICE");
-    }
-}
-
-/// The stdin of [`PUSH_SCRIPT`] and [`DROP_REF_SCRIPT`]: the checkout, the ref, the lane.
-fn script_input(top: &Path, dest: &str, lane: Option<&str>) -> String {
-    format!("{}\n{dest}\n{}\n", top.display(), lane.unwrap_or_default())
-}
-
-/// The fixed script that pushes HEAD on a source machine, never forced: the checkout, the
-/// full ref it goes to (`refs/heads/BRANCH`, or a [`SNAPSHOT_REFS`] one) and the chat's lane
-/// ([`lane_of`], may be empty or absent) on stdin; prints the commit pushed.
-/// Its third line names the lane (see [`named`]); a lane of any other characters is refused.
-pub(crate) const PUSH_SCRIPT: &str = r#"read -r top; read -r dest; read -r lane || lane=""
-case "$lane" in "") ;; *[!A-Za-z0-9._-]*) exit 2;; *) LANE_GH_LANE=$lane; export LANE_GH_LANE; unset LANE_GH_SERVICE;; esac
+/// The fixed script that pushes HEAD on a source machine, never forced: the checkout and the
+/// full ref it goes to (`refs/heads/BRANCH`, or a [`SNAPSHOT_REFS`] one) on stdin; prints the
+/// commit pushed.
+pub(crate) const PUSH_SCRIPT: &str = r#"read -r top; read -r dest
 case "$dest" in refs/heads/*|refs/acpmux/moves/*) ;; *) exit 2;; esac
 head=$(git -C "$top" rev-parse HEAD) || exit 2
 git -C "$top" push --quiet origin "HEAD:$dest" || exit 3
 printf '%s\n' "$head""#;
 
-/// The fixed script that deletes a move's own [`SNAPSHOT_REFS`] ref on origin, best effort; its
-/// stdin as [`PUSH_SCRIPT`]'s.
-const DROP_REF_SCRIPT: &str = r#"read -r top; read -r dest; read -r lane || lane=""
-case "$lane" in "") ;; *[!A-Za-z0-9._-]*) exit 2;; *) LANE_GH_LANE=$lane; export LANE_GH_LANE; unset LANE_GH_SERVICE;; esac
+/// The fixed script that deletes a move's own [`SNAPSHOT_REFS`] ref on origin, best effort.
+const DROP_REF_SCRIPT: &str = r#"read -r top; read -r dest
 case "$dest" in refs/acpmux/moves/*) ;; *) exit 2;; esac
 git -C "$top" push --quiet origin ":$dest""#;
 
-/// Deletes the snapshot ref `dest` from origin, from the checkout `top` here, as `lane`; best
-/// effort.
-fn drop_ref(top: &Path, dest: &str, lane: Option<&str>) {
-    let input = script_input(top, dest, lane);
+/// Deletes the snapshot ref `dest` from origin, from the checkout `top` here; best effort.
+fn drop_ref(top: &Path, dest: &str) {
+    let input = format!("{}\n{dest}\n", top.display());
     let _ = run_here(DROP_REF_SCRIPT, input.as_bytes());
 }
 
 /// [`drop_ref`] on the ssh host `ssh`.
-fn drop_ref_on(ssh: &str, top: &Path, dest: &str, lane: Option<&str>) {
-    let input = script_input(top, dest, lane);
+fn drop_ref_on(ssh: &str, top: &Path, dest: &str) {
+    let input = format!("{}\n{dest}\n", top.display());
     let _ = crate::cli::hosts::Remote::exec(
         &crate::cli::hosts::SshRemote(ssh),
         DROP_REF_SCRIPT,
@@ -1439,9 +1393,9 @@ fn drop_ref_on(ssh: &str, top: &Path, dest: &str, lane: Option<&str>) {
 }
 
 /// [`push_branch`] on the ssh host `ssh`.
-fn push_branch_on(ssh: &str, top: &Path, dest: &str, lane: Option<&str>) -> Result<String> {
+fn push_branch_on(ssh: &str, top: &Path, dest: &str) -> Result<String> {
     let branch = dest.strip_prefix("refs/heads/").unwrap_or(dest);
-    let input = script_input(top, dest, lane);
+    let input = format!("{}\n{dest}\n", top.display());
     let out = crate::cli::hosts::Remote::exec(
         &crate::cli::hosts::SshRemote(ssh),
         PUSH_SCRIPT,
@@ -1645,15 +1599,17 @@ fn checkout_of(cwd: &Path) -> Result<Option<Checkout>> {
 
 /// Pushes HEAD of `top` to the full ref `dest` on `origin` (`refs/heads/BRANCH`, or a
 /// [`SNAPSHOT_REFS`] one), never forced: a branch that moved on there refuses the move rather
-/// than losing either side. The push names the chat's lane `lane` ([`named`]). Returns the
-/// commit pushed.
-fn push_branch(top: &Path, dest: &str, lane: Option<&str>) -> Result<String> {
+/// than losing either side. Returns the commit pushed.
+fn push_branch(top: &Path, dest: &str) -> Result<String> {
     let branch = dest.strip_prefix("refs/heads/").unwrap_or(dest);
     let head = git(top, &["rev-parse", "HEAD"]).ok_or_else(|| anyhow!("no HEAD commit"))?;
-    let mut push = StdCommand::new("git");
-    push.arg("-C").arg(top).args(["push", "--quiet", "origin"]).arg(format!("HEAD:{dest}"));
-    named(&mut push, lane);
-    let out = push.output().context("git push")?;
+    let out = StdCommand::new("git")
+        .arg("-C")
+        .arg(top)
+        .args(["push", "--quiet", "origin"])
+        .arg(format!("HEAD:{dest}"))
+        .output()
+        .context("git push")?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         let last = err.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim();

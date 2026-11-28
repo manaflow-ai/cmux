@@ -249,9 +249,7 @@ pub(crate) const RESTART_WINDOW: &str = "restartWindow";
 /// daemon unit's [`RESTART_WINDOW_ENV`] from [`SERVICE_ENV`], then the
 /// shell's, else [`RESTART_WINDOW_SECS`]); `$acpmux_nw` 1 (`--now`) turns the check
 /// off; a stamp from the host's future (its clock went back) never holds it
-/// off for good; and a daemon that does not run has nothing to wake, while one
-/// that runs but does not answer yet (its `daemon.lock` pid lives: still loading
-/// its sessions) is held like one that answers. A
+/// off for good; and a daemon that does not answer has nothing to wake. A
 /// rollback never runs it: it puts `acpmux.prev` back without an install.
 pub(crate) fn restart_window_check() -> String {
     format!(
@@ -264,20 +262,12 @@ pub(crate) fn restart_window_check() -> String {
   [ -n "$acpmux_ws" ] || acpmux_ws=$(printf '%s' "${{{RESTART_WINDOW_ENV}-}}" | tr -cd '0-9')
   [ -n "$acpmux_ws" ] || acpmux_ws={RESTART_WINDOW_SECS}
   acpmux_age=$((acpmux_now - acpmux_rs)); [ "$acpmux_age" -lt "$acpmux_ws" ] || return 1
-  acpmux_up= acpmux_st=
-  case "$("$HOME/.local/bin/acpmux" --json daemon status 2>/dev/null)" in *'"pid": null'*|*'"pid":null'*) ;; *'"pid":'*) acpmux_up=1;; esac
-  if [ -z "$acpmux_up" ]; then
-    # Not answering is not "not running": a daemon still loading its sessions holds daemon.lock
-    # before it answers (a fleet lane VM, 2026-11-28: ~270 sessions, 8+ min; every pass restarted it).
-    acpmux_dp=$(head -n 1 {REMOTE_HOME}/daemon.lock 2>/dev/null | tr -cd '0-9')
-    [ -n "$acpmux_dp" ] && kill -0 "$acpmux_dp" 2>/dev/null || return 1
-    acpmux_st="; its daemon (pid $acpmux_dp) is still starting"
-  fi
+  case "$("$HOME/.local/bin/acpmux" --json daemon status 2>/dev/null)" in *'"pid": null'*|*'"pid":null'*) return 1;; *'"pid":'*) ;; *) return 1;; esac
   acpmux_nx=$((acpmux_rs + acpmux_ws))
   # The case stays out of a $( ): the macOS sh (bash 3.2) refuses the whole script otherwise.
   case "$(uname -s 2>/dev/null)" in Linux*) acpmux_nt=$(date -u -d "@$acpmux_nx" +%H:%MZ 2>/dev/null);; *) acpmux_nt=$(date -u -r "$acpmux_nx" +%H:%MZ 2>/dev/null);; esac
   [ -n "$acpmux_nt" ] || acpmux_nt='?'
-  acpmux_why="restart window: last update restart $((acpmux_age / 60)) min ago${{acpmux_st-}}; next after $acpmux_nt (--now restarts it now)"
+  acpmux_why="restart window: last update restart $((acpmux_age / 60)) min ago; next after $acpmux_nt (--now restarts it now)"
 }}
 acpmux_window_refuses() {{
   acpmux_window || return 1
@@ -893,10 +883,11 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     }
     // A running daemon an update restarted within the host's window (its
     // timer, or a `host update` from any machine) is left alone, nothing
-    // installed, answering or still starting (the host's check decides). The
-    // host's install step refuses it too (`push_update`), for a pusher that
-    // never asks; asking first only saves the copy.
-    if let Some(why) = probe.window.clone() {
+    // installed. The host's install step refuses it too (`push_update`), for
+    // a pusher that never asks; asking first only saves the copy.
+    if probe.build.is_some()
+        && let Some(why) = probe.window.clone()
+    {
         return up.end(Outcome::Busy, RESTART_WINDOW, why);
     }
     // The host's install step refuses a binary of an older commit than its

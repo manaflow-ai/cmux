@@ -55,28 +55,3 @@ fn a_prefix_digest_is_of_the_first_bytes_only() {
     );
     assert_eq!(prefix_digest(&file, 7).unwrap(), None);
 }
-
-/// A move's step split names each step once (a repeated step adds up) and the whole, so a slow
-/// freeze's record says which step it spent its time in (goal super-highway: finishMs p95 629 ms
-/// in the ring while the test import took ~10 ms).
-#[test]
-fn a_move_step_split_names_each_step_and_the_whole() {
-    let mut steps = MoveSteps::new("finish");
-    steps.step("lock");
-    std::thread::sleep(std::time::Duration::from_millis(20));
-    steps.step("retire");
-    steps.step("lock");
-    let split = steps.split();
-    let ms = |k: &str| split[k].as_u64().unwrap_or_else(|| panic!("{k} in {split}"));
-    assert!(ms("retire") >= 20, "{split}");
-    assert!(ms("totalMs") >= ms("retire") + ms("lock"), "{split}");
-    assert_eq!(split.as_object().unwrap().len(), 3, "{split}");
-}
-
-/// An import's split is kept for its finish once, then gone: the map never grows.
-#[test]
-fn an_import_split_is_taken_once() {
-    keep_import_steps("chat-split-once", json!({"git_state": 5}));
-    assert_eq!(take_import_steps("chat-split-once"), Some(json!({"git_state": 5})));
-    assert_eq!(take_import_steps("chat-split-once"), None);
-}

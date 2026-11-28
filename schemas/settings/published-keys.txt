@@ -541,7 +541,6 @@ experiments.composerHatGroups
 experiments.composerV2
 experiments.eventsAsToolCalls
 experiments.expandedEditsEstimate
-experiments.feed
 experiments.foldSummaryCounts
 experiments.forum
 experiments.forumCallCard

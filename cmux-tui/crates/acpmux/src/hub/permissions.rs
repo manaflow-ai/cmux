@@ -48,7 +48,7 @@ pub(super) mod settled;
 
 /// The person-readable line on a request (`toolCall._meta.acpmux.display`).
 mod display;
-pub(crate) use display::{ChildTags, display_may_change, drop_display_lines};
+pub(crate) use display::{ChildTags, drop_display_lines};
 
 pub(super) mod external;
 mod inbound;

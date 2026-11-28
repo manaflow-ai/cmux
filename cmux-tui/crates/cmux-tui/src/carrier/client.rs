@@ -830,17 +830,7 @@ where
     let mut asking = std::pin::pin!(next(Duration::ZERO));
     let mut daemon = None;
     loop {
-        // Biased, the answer first: with both ready, an answer in hand is used before the link
-        // asks again. Unbiased, tokio picks at random, so one call asked once or twice.
         tokio::select! {
-            biased;
-            answer = &mut asking, if daemon.is_none() => {
-                match answer {
-                    Ok(answer) if answer.daemon_key.is_some() => daemon = answer.daemon_key,
-                    Err(failure) if !failure.retryable => return Err(failure),
-                    Ok(_) | Err(_) => asking.set(next(every)),
-                }
-            }
             opened = &mut open => {
                 let link = opened?;
                 let daemon = match daemon {
@@ -848,6 +838,13 @@ where
                     None => pinned_daemon(&ask().await?)?,
                 };
                 return Ok((link, daemon));
+            }
+            answer = &mut asking, if daemon.is_none() => {
+                match answer {
+                    Ok(answer) if answer.daemon_key.is_some() => daemon = answer.daemon_key,
+                    Err(failure) if !failure.retryable => return Err(failure),
+                    Ok(_) | Err(_) => asking.set(next(every)),
+                }
             }
         }
     }

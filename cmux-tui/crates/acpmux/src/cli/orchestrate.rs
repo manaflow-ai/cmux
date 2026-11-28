@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use std::io::Write;
 use std::sync::Arc;
 
-pub(crate) const SKILL: &str = include_str!("../../skills/agents/SKILL.md");
+pub(crate) const SKILL: &str = include_str!("../../skills/acpmux/SKILL.md");
 mod presets;
 #[cfg(test)]
 mod wait_tests;

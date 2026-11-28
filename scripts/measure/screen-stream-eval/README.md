@@ -424,32 +424,6 @@ cmux-ci wait JOB && cmux-ci log JOB
 
 The JSON lines and the table are in the job's log.
 
-### Seconds to 15 Mbps on demand, and a controller sweep
-
-The goal screen-share-rate-control reads `rate_s_to_15mbps` from the wired Mac pair, and the pair
-measures it only when its scheduled leg runs. `rate-sweep.py` measures the same number in minutes, on
-any Linux box with root and `sch_netem`: a lane VM itself, or a pool host through the routes above. It
-builds `cmux-rd` once at `--commit`. Each `--var` then rewrites constants of the rate controller
-(`cmux-tui/crates/cmux-rd-core/src/cc.rs`: a `const`, or a `CcConfig::default()` field) and rebuilds
-incrementally. Every variant runs `--trials` fresh-host passive sessions, interleaved, through
-`rd-netem-linux.py`'s rig. The trials are scored with NOW's rule: both the host's target and the
-received rate at 15 Mbps on the 100 ms rows, and an unreached trial counts as its length + 1 s.
-
-```
-sudo -n true && python3 -I scripts/measure/screen-stream-eval/rate-sweep.py --commit FULL_SHA --out DIR \
-  --work ~/rate-sweep-work --trials 10 --profile clean --profile loss-1 \
-  --var pg3:PROBE_GROWTH_PER_S=3.0 --var start12:start_bps=12_000_000
-python3 scripts/measure/screen-stream-eval/rate-sweep.py table DIR/sweep.jsonl [MORE.jsonl ...]
-```
-
-`clean` is a LAN, so the LAN start (`lan_start_bps` under `lan_rtt_us`) applies, as on the wired pair.
-`loss-1` is a 20 ms round trip with 1 % loss, so the start runs from `start_bps` and the growth
-constants decide the number. To split a sweep across machines, give each one a disjoint set of `--var`
-(add `--no-base` on all but one) and join their `sweep.jsonl` files with `table`. The Linux host
-captures `cmux-rd testapp --workload motion` on Xvfb, not the pair's synthetic churn scene. So this
-is a reading for comparing controller settings against each other. The pair's leg stays the goal's
-production reading.
-
 ## Two Macs
 
 By default host and viewer run on one Mac, so the network leg is loopback. For the LAN row, run two

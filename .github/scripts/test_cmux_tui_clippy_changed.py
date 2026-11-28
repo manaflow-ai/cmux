@@ -73,11 +73,6 @@ ratchet_json() {
   printf '{"reason":"compiler-message","message":{"level":"%s","code":{"code":"clippy::unwrap_used"},"message":"used `unwrap()` on a `Result` value","rendered":"%s: used `unwrap()` on a `Result` value\\\\n  --> crates/a/src/lib.rs:7:9\\\\n","spans":[{"is_primary":true,"file_name":"crates/a/src/lib.rs","line_start":7,"column_start":9}]}}\\n' "$1" "$1"
 }
 case "${CLIPPY_JSON:-}" in
-  killed)
-    echo 'error: could not compile `pkg-b` (lib test); 1 warning emitted' >&2
-    echo "Caused by:" >&2
-    echo "  process didn't exit successfully: 'clippy-driver rustc --crate-name pkg_b' (signal: 9, SIGKILL: kill)" >&2
-    exit 101 ;;
   ratchet) ratchet_json warning; lint_json warning; echo '{"reason":"build-finished","success":true}'; exit 0 ;;
   warn) lint_json warning; lint_json warning; echo '{"reason":"build-finished","success":true}'; exit 0 ;;
   build-script) lint_json error; echo "error: failed to run custom build command for pkg-a v0.1.0" >&2; exit 101 ;;
@@ -270,49 +265,6 @@ class ClippyChangedTests(unittest.TestCase):
                                 env_extra={"FIX_OUTSIDE": "cmux-tui/crates/a/src/lib.rs", "FIXABLE": "1"})
         self.assertEqual(result.returncode, 1)
         self.assertEqual(self.git("status", "--porcelain"), "")
-
-    def test_a_killed_compiler_fails_fast_without_the_autofix(self) -> None:
-        # 141020758253: clippy-driver was SIGKILLed (out of memory); the autofix's `clippy --fix` then rebuilt
-        # every unit until the 40-min cap cancelled the job with no verdict and no cache save.
-        self.change("cmux-tui/crates/b/src/lib.rs")
-        result = self.run_check("--base", self.base, "--autofixed-ok", self.head(),
-                                env_extra={"CLIPPY_JSON": "killed", "FIX_FILE": "cmux-tui/crates/b/src/lib.rs",
-                                           "FIXABLE": "1"})
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("killed (SIGKILL) on pkg-b (lib test)", result.stdout)
-        self.assertFalse(any("--fix" in call for call in self.calls()))
-
-    def test_the_autofix_is_not_tried_past_the_job_budget(self) -> None:
-        self.change("cmux-tui/crates/b/src/lib.rs")
-        started = int(__import__("time").time()) - 35 * 60  # 5 of the job's 40 min left: less than the reserve
-        result = self.run_check("--base", self.base, "--autofixed-ok", self.head(), fail="pkg-b",
-                                env_extra={"FIX_FILE": "cmux-tui/crates/b/src/lib.rs", "FIXABLE": "1",
-                                           "CLIPPY_JOB_STARTED": str(started), "CLIPPY_JOB_MINUTES": "40"})
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("the autofix was not tried", result.stdout)
-        self.assertFalse(any("--fix" in call for call in self.calls()))
-
-    def test_the_autofix_is_tried_inside_the_job_budget(self) -> None:
-        self.change("cmux-tui/crates/b/src/lib.rs")
-        result = self.run_check("--base", self.base, "--autofixed-ok", self.head(), fail="pkg-b",
-                                env_extra={"FIX_FILE": "cmux-tui/crates/b/src/lib.rs", "FIXABLE": "1",
-                                           "CLIPPY_JOB_STARTED": str(int(__import__("time").time())),
-                                           "CLIPPY_JOB_MINUTES": "40"})
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("(autofixed)", result.stdout)
-
-    def test_autofix_fits_weighs_the_rebuild_against_the_time_left(self) -> None:
-        env = {"CLIPPY_JOB_STARTED": "1000", "CLIPPY_JOB_MINUTES": "40"}
-        old = {key: os.environ.get(key) for key in env}
-        os.environ.update(env)
-        try:
-            # 141020758253: lint done 16.5 min in, after a 15.5-min run: 23.5 min left, ~33 min needed.
-            self.assertFalse(MODULE.autofix_fits(15.5 * 60, now=1000 + 16.5 * 60))
-            self.assertTrue(MODULE.autofix_fits(2 * 60, now=1000 + 5 * 60))
-        finally:
-            for key, value in old.items():
-                os.environ.pop(key, None) if value is None else os.environ.__setitem__(key, value)
-        self.assertTrue(MODULE.autofix_fits(10 ** 6))
 
     def test_autofixed_ok_is_strict_on_an_autofix_head(self) -> None:
         self.write("cmux-tui/crates/b/src/lib.rs", "pub fn changed() {}\n")

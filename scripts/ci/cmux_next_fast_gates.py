@@ -137,26 +137,6 @@ def web_needed(repo: Path, base: str, merge: str) -> bool:
     return bool(plan.script_packages or plan.eslint_files)
 
 
-# The webviews checks gate's lint-class checks that web lint's own webviews run (package.json's check:pieces) also
-# runs, with the same base comparison: when both gates run on one merge, the second run of each only repeats the
-# first (11 of the gate's 13 checks; typecheck and the bundle matrix are the gate's own). 2026-11-28: web lint 220 s
-# beside webviews checks 280 s on the same runner, the same scripts twice. The post-merge workflow keeps the full run.
-WEB_LINT_RUNS = ("check:effect-cleanup", "check:browser-lanes", "check:fixed-waits", "check:whole-list-rows",
-                 "check:design-tokens", "check:ui-review", "check:catalog-keys", "check:catalog-unused",
-                 "check:popup-hover-reveals", "check:surface-bypass", "check:status-outside-dot")
-
-
-def web_lint_runs_webviews(repo: Path, base: str, merge: str) -> bool:
-    """Whether web lint's plan on base..merge runs the webviews package's scripts (so WEB_LINT_RUNS ran there)."""
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    import web_lint_prepush  # noqa: PLC0415  (scripts/web_lint_prepush.py)
-
-    files = web_lint_prepush.changed_files(repo, base, merge)
-    exists, _ = web_lint_prepush.snapshot(repo, merge)
-    plan = web_lint_prepush.make_plan(repo, files, guard_executed=False, exists=exists)
-    return any(package.directory == "webviews" for package in plan.script_packages)
-
-
 # The webviews checks' inputs: webviews/ itself, and outside it the string catalogs (check:catalog-keys) and the
 # acpmux protocol spec (acpmux-protocol:check), which ci-web's react-apps routing does not run them for.
 # A webviews/ change runs them here too, though ci-web's react-apps-check runs them on the same merge: that run is
@@ -519,10 +499,6 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
         # with BASE from git objects: a key the base already misses is a note, not this PR's failure.
         ("settings catalog keys", [py, "-I", "scripts/ci/settings_catalog_keys.py", "--root", str(repo),
                                    "--base-rev", base]),
-        # Every pull request, text only: a scripts/measure/*.sh under `set -u` expands no array that starts empty
-        # bare (macOS bash 3.2 aborts on it). tooling-tests' tt-measure-tests runs this too, but feat-cmux-next
-        # pull requests skip tooling-tests, so #64030 and #64588 landed it and the post-merge batch went red.
-        ("measure bash 3.2 arrays", [py, "-I", "scripts/measure/tests/empty-array-bash32.test.py"]),
     ]
     if tier == "pr":
         if deferred is not None:
@@ -531,13 +507,10 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
     return table
 
 
-def gate_lanes(active: list[tuple[str, list[str]]], shared_install: bool = False) -> list[list[tuple[str, list[str]]]]:
+def gate_lanes(active: list[tuple[str, list[str]]]) -> list[list[tuple[str, list[str]]]]:
     """Group gates into lanes that run side by side; a lane's gates run one after another. Web lint and webviews
-    checks share a lane, since both may run bun install in webviews/ (a 220 s gate then a 280 s gate: the job's
-    critical path, 2026-11-28); SHARED_INSTALL says run() already installed webviews/ once, so each has its own."""
+    checks share a lane, since both may run bun install in webviews/; every other gate has its own."""
     bun = [entry for entry in active if entry[0] in {"web lint", "webviews checks"}]
-    if shared_install:
-        return [[entry] for entry in active]
     return [[entry] for entry in active if entry[0] not in {"web lint", "webviews checks"}] + ([bun] if bun else [])
 
 
@@ -709,19 +682,6 @@ def ensure_bun_tmpdir(env: dict) -> Path | None:
     return None
 
 
-def preinstall_webviews(repo: Path) -> bool:
-    """bun install --frozen-lockfile in webviews/ once, before web lint and webviews checks run side by side (each
-    would install there; web lint's own install then finds it current). False: not installed, they share a lane."""
-    if not (repo / "webviews").is_dir() or not shutil.which("bun"):
-        return False
-    started = time.monotonic()
-    code = subprocess.run(["bun", "install", "--frozen-lockfile", "--silent"], cwd=repo / "webviews",
-                          capture_output=True).returncode
-    print(f"fast-gates: webviews install {'ok' if code == 0 else f'failed ({code})'} in "
-          f"{time.monotonic() - started:.1f}s", flush=True)
-    return code == 0
-
-
 def run(args: argparse.Namespace) -> int:
     repo = args.repo.resolve()
     if not SHA.match(args.base) or not rev(repo, args.base):
@@ -748,16 +708,7 @@ def run(args: argparse.Namespace) -> int:
         # when both run. Every other gate reads the merge and its exported base tree and starts at once: on
         # 2026-11-22 webviews checks (93 s) waited out crash-class rules (61 s) in a second batch, a 157 s step whose
         # critical gate was 93 s (job 137149366688), and fast gates' p90 sat at 4.0 min against its 3.0 min budget.
-        names = {name for name, _ in active}
-        if {"web lint", "webviews checks"} <= names and web_lint_runs_webviews(repo, args.base, merge):
-            skips = [flag for check in WEB_LINT_RUNS for flag in ("--skip", check)]
-            active = [(n, a + skips if n == "webviews checks" else a) for n, a in active]
-            print(f"fast-gates: webviews checks leaves {len(WEB_LINT_RUNS)} checks to web lint's own run of them",
-                  flush=True)
-        shared_install = {"web lint", "webviews checks"} <= names and preinstall_webviews(repo)
-        if shared_install:
-            active = [(n, a + ["--no-install"] if n == "webviews checks" else a) for n, a in active]
-        lanes = gate_lanes(active, shared_install)
+        lanes = gate_lanes(active)
         max_parallel = len(lanes)
         active_results = run_gate_batch(lanes, repo, deadline, holder / "gate-logs")
 

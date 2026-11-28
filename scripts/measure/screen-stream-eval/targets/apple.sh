@@ -168,17 +168,10 @@ connect() {
   # launched, never a Screen Sharing window someone else opened.
   local before new count pid candidate expected
   before=" $(viewer_pids | tr '\n' ' ') "
-  # The login (vnc_url.py: the --vnc-login step's file, the login file, the fleet keychain item):
-  # without one Screen Sharing stops at its login sheet and the scene never shows. The URL holds
-  # the password: only `open` sees it, never a log (screen-share-vs.py opens the same form).
-  local vnc
-  vnc=$(python3 -I "$EVAL_ROOT/scripts/measure/screen-stream-eval/vnc_url.py" "$host") || vnc="vnc://$host"
-  if ! open -g -n -a "$app" "$vnc" >/dev/null 2>&1; then
-    unset vnc
+  if ! open -g -n -a "$app" "vnc://$host" >/dev/null 2>&1; then
     echo "apple-$mode: Screen Sharing.app could not open the connection" >&2
     return 1
   fi
-  unset vnc
   new="" count=0
   for _ in $(seq 1 150); do
     new="" count=0

@@ -60,8 +60,6 @@ const DONE_MARK: &[u8] = b"SCROLLPROBE-DONE";
 /// the daemon both use (`DEFAULT_SCROLLBACK_LIMIT_BYTES`).
 const MIRROR_SCROLLBACK_BYTES: usize = 10_000_000;
 const STATUS_ROWS: u64 = 3;
-/// How long the probe waits for the daemon's snap after it types a key.
-const INPUT_SNAP_WAIT: Duration = Duration::from_secs(3);
 
 #[derive(Clone)]
 struct Options {
@@ -625,8 +623,6 @@ struct Probe<'s, 'e> {
     reattach: Vec<Value>,
     stall: Value,
     snap_on_input: Option<bool>,
-    /// How long after the typed key the daemon's snap `scroll-changed` came.
-    input_snap_ms: Option<u64>,
     mirror_after_input_moved: Option<bool>,
     unsolicited_scroll_changed: u64,
     resized: u64,
@@ -664,7 +660,6 @@ impl<'s, 'e> Probe<'s, 'e> {
             reattach: Vec::new(),
             stall: Value::Null,
             snap_on_input: None,
-            input_snap_ms: None,
             mirror_after_input_moved: None,
             unsolicited_scroll_changed: 0,
             resized: 0,
@@ -1025,12 +1020,6 @@ impl<'s, 'e> Probe<'s, 'e> {
                     self.snap_on_input = Some(true);
                     // The documented snap: not a jump even if its frame comes later.
                     self.daemon.was_back = false;
-                    self.daemon.offset = offset;
-                    self.daemon.at_bottom = at_bottom;
-                    // Frames that came before this event were held (see
-                    // `check_daemon`): judge the newest one now, at the bottom.
-                    self.check_daemon();
-                    return;
                 } else {
                     self.unsolicited_scroll_changed += 1;
                     self.d.note(format!(
@@ -1131,13 +1120,6 @@ impl<'s, 'e> Probe<'s, 'e> {
             return;
         }
         let at_bottom = self.daemon.at_bottom;
-        if self.daemon.expect_snap && !at_bottom {
-            // Input was sent and its snap's `scroll-changed` has not come:
-            // the daemon may already draw the bottom while its last position
-            // still reads scrolled back (it paces `scroll-changed`, and over a
-            // Cloud link the two arrive apart). Judged once the snap shows.
-            return;
-        }
         let (defects, top) = check_viewport(&rows, at_bottom, self.daemon.cols, &self.ordinals);
         self.d.samples += 1;
         if defects.blank + defects.missing > 0 {
@@ -1242,26 +1224,9 @@ impl<'s, 'e> Probe<'s, 'e> {
         let mirror_top = self.check_mirror(false);
         self.daemon.expect_snap = true;
         self.snap_on_input = Some(false);
-        let sent = Instant::now();
         self.request(Conn::Control, json!({"cmd": "send", "surface": self.surface, "text": "x"}))?;
-        // Wait for the snap itself, not a fixed time: over a Cloud link its
-        // `scroll-changed` can come after 200 ms (a 200 ms wait counted one
-        // late snap as 1 blank, 4 missing and 3 jumps, cloud-journey-prod
-        // run 46136983311). Bounded: no snap in 3 s reads snap_on_input false.
-        while self.snap_on_input != Some(true) && sent.elapsed() < INPUT_SNAP_WAIT {
-            self.pump_for(Duration::from_millis(50))?;
-        }
-        if self.snap_on_input == Some(true) {
-            self.input_snap_ms = Some(sent.elapsed().as_millis() as u64);
-            self.pump_for(Duration::from_millis(100))?;
-        } else {
-            self.d.note(format!(
-                "input did not snap the daemon view in {} ms",
-                INPUT_SNAP_WAIT.as_millis()
-            ));
-        }
+        self.pump_for(Duration::from_millis(200))?;
         self.daemon.expect_snap = false;
-        self.check_daemon();
         let after = self.check_mirror(false);
         self.mirror_after_input_moved = Some(after != mirror_top);
         if self.daemon.at_bottom {
@@ -1367,8 +1332,7 @@ impl<'s, 'e> Probe<'s, 'e> {
                 "pruned": mirror_total.is_some_and(|t| t < total_rows),
             },
             "events": {
-                "snap_on_input": self.snap_on_input, "input_snap_ms": self.input_snap_ms,
-                "mirror_moved_on_input": self.mirror_after_input_moved,
+                "snap_on_input": self.snap_on_input, "mirror_moved_on_input": self.mirror_after_input_moved,
                 "unsolicited_scroll_changed": self.unsolicited_scroll_changed, "resized": self.resized,
                 "overflow": self.overflow, "reattach": self.reattach, "stall": self.stall,
             },

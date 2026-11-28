@@ -13,7 +13,7 @@
 //!   (`--plugin-dir`) whose skills are `cmux:cmux-browser`,
 //!   `cmux:cmux-computer-use`, `cmux:cmux-customization` (settings, and a view of the
 //!   person's own that an agent writes as the customize app) and
-//!   `cmux:agents` (the `cmux agent` CLI guide, for driving sessions from a shell) and
+//!   `cmux:acpmux` (the acpmux CLI guide, for driving sessions from a shell) and
 //!   `cmux:cmux-chat` (plans, sub-sessions, links and the recap; `agent_guidance.rs`, which
 //!   also adds the person's own skills as a `cmux-user` plugin). The skill text is compiled in from `skills/` and
 //!   written once per content hash under `<ACPMUX_HOME>/agent-tools/`.
@@ -232,7 +232,7 @@ pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
 /// server's `instructions` (`cmux mcp serve`, both modes). Chats start in
 /// Full access (`hub/policy_mode.rs`), and an agent there asked Leo a
 /// multiple-choice question that read "Waiting for you: allow this?" (Leo
-/// 2026-10-21: decide, say why, continue). The bundled agents skill and the
+/// 2026-10-21: decide, say why, continue). The bundled acpmux skill and the
 /// cmux skill say the same. Claude Code may cut server instructions past
 /// 2048 characters, so both compact rules stay under that.
 pub const ASKING_RULE: &str = "Asking the person: Full access already permits harness tool calls; never ask them to allow or confirm one. Decide, say why, continue. This never widens the task: respect user-only skill steps and consent cards; never bypass refusals. Ask only unresolved product taste, not permission.";
@@ -430,7 +430,7 @@ const SKILL_FILES: &[(&str, &str)] = &[
         "cmux-rich-output/templates/deck.html",
         include_str!("../skills/cmux-rich-output/templates/deck.html"),
     ),
-    ("agents/SKILL.md", include_str!("../skills/agents/SKILL.md")),
+    ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
     // How the chat draws a plan, sub-sessions, links and a recap (`agent_guidance.rs`).
     ("cmux-chat/SKILL.md", include_str!("../skills/cmux-chat/SKILL.md")),
     // Waiting and cleaning up without wasting the person's GitHub quota, CPU or disk: one shared

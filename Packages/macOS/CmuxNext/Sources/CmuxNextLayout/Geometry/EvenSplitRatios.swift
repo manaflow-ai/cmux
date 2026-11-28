@@ -6,14 +6,12 @@ public nonisolated enum EvenSplitRatios {
     /// each cell of that chain (the split pane counting as two) gets an
     /// equal share. The new split itself is 0.5 already. Unchanged splits
     /// are left out.
-    /// Run by cmux-layout-reducer (`layout_model_even_split`; `schemas/layout-model/vectors.json`).
     public static func changes(splitting pane: PaneID, axis: SplitAxis, in root: SplitNode) -> [SplitRatioChange] {
-        struct Request: Encodable { var root: SplitNode, pane: PaneID, axis: SplitAxis }
-        let reply: Reply? = LayoutRules.call("layout_model_even_split", Request(root: root, pane: pane, axis: axis))
-        return reply?.changes ?? []
+        guard let top = chainTop(of: pane, axis: axis, in: root) else { return [] }
+        var result: [SplitRatioChange] = []
+        collect(top, pane: pane, axis: axis, into: &result)
+        return result
     }
-
-    struct Reply: Decodable { var changes: [SplitRatioChange] }
 
     /// The ratio changes that give every cell of the same-axis chain under `top` an equal share
     /// (a close, `pane_close_split_changes`). Unchanged splits are left out.
@@ -30,6 +28,43 @@ public nonisolated enum EvenSplitRatios {
         if abs(even - ratio) > 1e-6 { result.append(SplitRatioChange(split: id, ratio: even)) }
         equalize(a, axis: axis, into: &result)
         equalize(b, axis: axis, into: &result)
+    }
+
+    /// The highest node of the same-axis chain directly above `pane`; nil
+    /// when the pane's parent splits across the other axis (or it is the root).
+    private static func chainTop(of pane: PaneID, axis: SplitAxis, in root: SplitNode) -> SplitNode? {
+        var path: [SplitNode] = []
+        guard ancestors(of: pane, in: root, path: &path) else { return nil }
+        var top: SplitNode?
+        for node in path.reversed() {
+            guard case let .split(_, nodeAxis, _, _, _) = node, nodeAxis == axis else { break }
+            top = node
+        }
+        return top
+    }
+
+    /// Fills `path` with the split nodes from `node` down to `pane`'s parent.
+    private static func ancestors(of pane: PaneID, in node: SplitNode, path: inout [SplitNode]) -> Bool {
+        guard case let .split(_, _, _, a, b) = node else { return false }
+        path.append(node)
+        if a == .leaf(pane) || b == .leaf(pane) { return true }
+        if ancestors(of: pane, in: a, path: &path) || ancestors(of: pane, in: b, path: &path) { return true }
+        path.removeLast()
+        return false
+    }
+
+    /// Cells along `axis`, the split pane counting as two.
+    private static func weight(_ node: SplitNode, pane: PaneID, axis: SplitAxis) -> Double {
+        Double(node.cellCount(along: axis) + (node.contains(pane) ? 1 : 0))
+    }
+
+    private static func collect(_ node: SplitNode, pane: PaneID, axis: SplitAxis, into result: inout [SplitRatioChange]) {
+        guard case let .split(id, nodeAxis, ratio, a, b) = node, nodeAxis == axis else { return }
+        let wa = weight(a, pane: pane, axis: axis), wb = weight(b, pane: pane, axis: axis)
+        let even = wa / (wa + wb)
+        if abs(even - ratio) > 1e-6 { result.append(SplitRatioChange(split: id, ratio: even)) }
+        collect(a, pane: pane, axis: axis, into: &result)
+        collect(b, pane: pane, axis: axis, into: &result)
     }
 }
 

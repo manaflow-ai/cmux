@@ -359,11 +359,7 @@ describe("devbox private-network announce (services/vms/images/network.ts)", () 
     // kills nothing on resume), back on with the delayed re-arm.
     expect(devboxBoot).toContain("  systemd-analyze service-watchdogs no >/dev/null 2>&1 || true\n");
     expect(devboxBoot).toContain('--on-active="$HOUSEKEEPING_DELAY"');
-    expect(devboxBoot).toContain(`/bin/sh -c "systemd-analyze service-watchdogs yes; $(user_watchdogs_script yes | sed 's/\\$/$$/g')systemctl start $HOUSEKEEPING_TIMERS"`);
-    // Every live user manager too (the acpmux daemon's unit has its own WatchdogSec), as each user's own manager;
-    // the re-arm's copy doubles each $ because systemd expands $VAR in a transient unit's ExecStart.
-    expect(devboxBoot).toContain('  sh -c "$(user_watchdogs_script no)" >/dev/null 2>&1 || true\n');
-    expect(devboxBoot).toContain('for d in /run/user/[0-9]*; do [ -S "$d/systemd/private" ] && timeout 2 systemctl --user -M "$(id -nu "${d##*/}")@" service-watchdogs %s; done; ');
+    expect(devboxBoot).toContain('/bin/sh -c "systemd-analyze service-watchdogs yes; systemctl start $HOUSEKEEPING_TIMERS"');
     const bound = devboxBoot.indexOf(`printf '%s\\n' "$id" > "$BOUND_INSTANCE_FILE"`);
     expect(devboxBoot.indexOf('[ -n "$parked" ] && { rearm_housekeeping; parked=""; }')).toBeGreaterThan(bound);
   });

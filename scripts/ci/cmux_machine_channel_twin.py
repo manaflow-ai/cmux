@@ -18,14 +18,7 @@ the binary is uploaded instead of when the build job ends: the workspace delta p
 took 266-356 s on 4 builds 09:00-10:18Z on 2026-11-28 (jobs 140947298764, 140939170962, 140932761510,
 140929057634), and the channel's next point waited for them.
 
-Every `find` lookup that fails prints nothing, and the push builds as before.
-
-WAIT_THROUGH_REFUSALS: a `wait` read that fails (a 403 for the cmux-bot App's spent hourly quota, a 5xx, a
-timeout) is one miss, and the wait polls again until its --wait budget, which outlasts the quota's hourly reset.
-It used to end the wait at once with nothing, so the point job skipped: run 46156562765's self-x86_64 read
-"API rate limit exceeded for installation" at 14:49:15Z on 2026-11-28, 6 s into a build that then uploaded,
-and its point never ran. No run pointed the channel from 13:11:58Z (d0e92049e) while merges landed every
-minute or so.
+Every lookup that fails prints nothing, and the push builds as before.
 """
 
 from __future__ import annotations
@@ -131,53 +124,40 @@ def wait(api: Api, run_id: int, targets: list[str], prefix: str, wait_s: float,
     want = {f"{prefix}cmux-tui-{t}" for t in targets}
     deadline = now() + wait_s
     while True:
-        try:
-            done, run = _wait_once(api, run_id, targets, prefix, want)
-        except Exception as exc:  # WAIT_THROUGH_REFUSALS (see the module docstring): one read, not the wait
-            log(f"read failed, still waiting: {exc}")
-            done, run = False, None
-        if done:
-            return run
+        have = {
+            a["name"]
+            for a in (api(f"actions/runs/{run_id}/artifacts?per_page=100") or {}).get("artifacts", [])
+            if not a.get("expired")
+        }
+        if want <= have:
+            log(f"run {run_id} has {', '.join(sorted(want))}")
+            return run_id
+        jobs = (api(f"actions/runs/{run_id}/jobs?per_page=100") or {}).get("jobs", [])
+        for t in targets:
+            if f"{prefix}cmux-tui-{t}" in have:
+                continue
+            mine = [j for j in jobs if build_job(t).match(j.get("name", ""))]
+            if mine and all(j.get("status") == "completed" for j in mine):
+                # Its last artifact upload can trail the job's end by a moment: one more read.
+                again = {
+                    a["name"] for a in (api(f"actions/runs/{run_id}/artifacts?per_page=100") or {}).get("artifacts", [])
+                    if not a.get("expired")
+                }
+                if want <= again:
+                    return run_id
+                log(f"run {run_id}'s {t} build ended ({mine[0].get('conclusion')}) with no artifact")
+                return None
+            # A lane build superseded while pending ends before its build job is listed (run 46131463895: the
+            # x86_64 lane's "select binary targets" cancelled after 6 min pending): nothing will come.
+            lane = [j for j in jobs if j.get("name", "").startswith(f"build-machine-channel {t.split('-')[0]} ")]
+            if not mine and lane and all(j.get("status") == "completed" for j in lane) and any(
+                    j.get("conclusion") not in ("success", "skipped") for j in lane):
+                log(f"run {run_id}'s {t} build lane ended ({', '.join(sorted({str(j.get('conclusion')) for j in lane}))}) with no build")
+                return None
         if now() >= deadline:
-            log(f"run {run_id} has no {', '.join(sorted(want))} in {wait_s:.0f} s")
+            log(f"run {run_id} has no {', '.join(sorted(want - have))} in {wait_s:.0f} s")
             return None
         sleep(60)
-
-
-def _wait_once(api: Api, run_id: int, targets: list[str], prefix: str, want: set[str]) -> tuple[bool, int | None]:
-    """(done, run) after one look: done with run when every artifact is there, done with None when a build ended
-    without one, not done while it is still coming."""
-    have = {
-        a["name"]
-        for a in (api(f"actions/runs/{run_id}/artifacts?per_page=100") or {}).get("artifacts", [])
-        if not a.get("expired")
-    }
-    if want <= have:
-        log(f"run {run_id} has {', '.join(sorted(want))}")
-        return True, run_id
-    jobs = (api(f"actions/runs/{run_id}/jobs?per_page=100") or {}).get("jobs", [])
-    for t in targets:
-        if f"{prefix}cmux-tui-{t}" in have:
-            continue
-        mine = [j for j in jobs if build_job(t).match(j.get("name", ""))]
-        if mine and all(j.get("status") == "completed" for j in mine):
-            # Its last artifact upload can trail the job's end by a moment: one more read.
-            again = {
-                a["name"] for a in (api(f"actions/runs/{run_id}/artifacts?per_page=100") or {}).get("artifacts", [])
-                if not a.get("expired")
-            }
-            if want <= again:
-                return True, run_id
-            log(f"run {run_id}'s {t} build ended ({mine[0].get('conclusion')}) with no artifact")
-            return True, None
-        # A lane build superseded while pending ends before its build job is listed (run 46131463895: the
-        # x86_64 lane's "select binary targets" cancelled after 6 min pending): nothing will come.
-        lane = [j for j in jobs if j.get("name", "").startswith(f"build-machine-channel {t.split('-')[0]} ")]
-        if not mine and lane and all(j.get("status") == "completed" for j in lane) and any(
-                j.get("conclusion") not in ("success", "skipped") for j in lane):
-            log(f"run {run_id}'s {t} build lane ended ({', '.join(sorted({str(j.get('conclusion')) for j in lane}))}) with no build")
-            return True, None
-    return False, None
 
 
 def main(argv: list[str]) -> int:

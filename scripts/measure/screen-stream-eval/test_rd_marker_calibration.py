@@ -209,10 +209,9 @@ class Receipt(unittest.TestCase):
     VERIFIED = {"schema": cal.SCHEMA, "verified": True, "expected_nonce": NONCE, "host_crop": [0, 1, 2, 3],
                 "viewer_crop": [0, 1, 2, 3], "host_image": {"width": 4, "height": 4},
                 "viewer_image": {"width": 4, "height": 4}, "viewer_pixels_per_host_pixel": 1.0}
-    READ = {"host_ocr_image": {"width": 2, "height": 3}, "viewer_ocr_image": {"width": 2, "height": 3}}
 
     def test_verified_with_a_cer_is_ready(self):
-        out = cal.receipt({"cer": 0.03, **self.READ}, self.VERIFIED)
+        out = cal.receipt({"cer": 0.03}, self.VERIFIED)
         self.assertIs(out["comparison_ready"], True)
         self.assertEqual(out["cer"], 0.03)
         self.assertEqual(out["crops"]["current_source_nonce"], NONCE)
@@ -222,18 +221,6 @@ class Receipt(unittest.TestCase):
         self.assertIs(out["comparison_ready"], False)
         self.assertIsNone(out["cer"])
         self.assertIn("stale nonce", out["crops"]["reason"])
-
-    def test_ocr_of_an_uncut_host_screenshot_is_not_ready(self):
-        # 11-28 ssqc-1141: sips left the 1920x1080 host screenshot whole; OCR read it, not the
-        # [0,318,1920,762] crop, and the host baseline read 42-100 % against the drawn text.
-        cases = ({**self.READ, "host_ocr_image": {"width": 4, "height": 4}},
-                 {**self.READ, "viewer_ocr_image": {"width": 2, "height": 4}},
-                 {"viewer_ocr_image": self.READ["viewer_ocr_image"]})
-        for read in cases:
-            out = cal.receipt({"cer": 0.03, **read}, self.VERIFIED)
-            self.assertIs(out["comparison_ready"], False, read)
-            self.assertIsNone(out["cer"])
-            self.assertIn("crop", out["crops"]["reason"])
 
     def test_no_cer_is_not_ready(self):
         self.assertIs(cal.receipt({"cer": None}, self.VERIFIED)["comparison_ready"], False)

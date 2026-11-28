@@ -1,13 +1,20 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 918,
-    "mcp": 833
+    "verbs": 914,
+    "mcp": 831
   },
   "nouns": [
     {
       "noun": "accounts",
       "verbs": [
+        {
+          "command": "cmux accounts connect",
+          "title": "Connect Account to CodeRouter…",
+          "id": "accounts.connect",
+          "mcp": false,
+          "mcpTool": null
+        },
         {
           "command": "cmux accounts github-connect",
           "title": "Connect GitHub",
@@ -28,6 +35,13 @@
           "id": "accounts.refresh",
           "mcp": true,
           "mcpTool": "app_accounts_refresh"
+        },
+        {
+          "command": "cmux accounts remove",
+          "title": "Remove Account from CodeRouter",
+          "id": "accounts.remove",
+          "mcp": false,
+          "mcpTool": null
         },
         {
           "command": "cmux accounts show",
@@ -552,13 +566,6 @@
           "command": "cmux app quit",
           "title": "Quit cmux",
           "id": "quit",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
-          "command": "cmux app quit-completely",
-          "title": "Quit Completely",
-          "id": "quitCompletely",
           "mcp": false,
           "mcpTool": null
         },
@@ -2139,18 +2146,6 @@
       ]
     },
     {
-      "noun": "harness",
-      "verbs": [
-        {
-          "command": "cmux harness disable",
-          "title": "Disable Folder Agent…",
-          "id": "agent.harness.disableFolder",
-          "mcp": true,
-          "mcpTool": "app_harness_disable"
-        }
-      ]
-    },
-    {
       "noun": "history",
       "verbs": [
         {
@@ -3401,18 +3396,6 @@
       ]
     },
     {
-      "noun": "presence",
-      "verbs": [
-        {
-          "command": "cmux presence live-toggle",
-          "title": "Toggle Live",
-          "id": "presence.live.toggle",
-          "mcp": true,
-          "mcpTool": "app_presence_live_toggle"
-        }
-      ]
-    },
-    {
       "noun": "remote",
       "verbs": [
         {
@@ -3806,27 +3789,6 @@
           "command": "cmux settings always-center-focused-column",
           "title": "Always Center Focused Column",
           "id": "layout.centerFocusedColumn.always",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
-          "command": "cmux settings appearance-dark",
-          "title": "Appearance: Dark",
-          "id": "appearance.mode.dark",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
-          "command": "cmux settings appearance-light",
-          "title": "Appearance: Light",
-          "id": "appearance.mode.light",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
-          "command": "cmux settings appearance-system",
-          "title": "Appearance: Match System",
-          "id": "appearance.mode.system",
           "mcp": false,
           "mcpTool": null
         },
@@ -6708,8 +6670,8 @@
     }
   ],
   "mcpExempt": {
-    "credentials": 5,
-    "endsApp": 6,
-    "systemChange": 74
+    "credentials": 7,
+    "endsApp": 5,
+    "systemChange": 71
   }
 }

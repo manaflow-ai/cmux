@@ -4,9 +4,6 @@
 # the step's env: still sets every input, and the step runs it with `bash -e` as GitHub's default `bash -e {0}`
 # ran the inline block.
 base=()
-# Only a shallow checkout fetches shallow: a full clone must not turn shallow.
-depth=()
-[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
 [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
 if [[ "$EVENT_NAME" == push && -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
   depth=()

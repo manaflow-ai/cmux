@@ -26,7 +26,6 @@ cmux-cloud-machine.workspace = true
 cmux-presence.workspace = true
 cmux-egress.workspace = true
 cmux-build-space.workspace = true
-cmux-browser-grants.workspace = true
 cmux-json.workspace = true
 # Names a crash sidecar's backtrace in a stripped release binary.
 cmux-panic-log.workspace = true

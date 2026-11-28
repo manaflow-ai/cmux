@@ -12,8 +12,6 @@
 # mode=p0-casual    p0, then P0's first tasks the way a terminal person does them: a shell in a new tab, more tabs, a
 #                   split, switching by keyboard, a 2,000-line paste, Find, Settings.
 # mode=p0-hardcore  p0-casual, then a million lines of output, 20 tabs, and quit and reopen (tabs come back).
-# mode=p2           p0, then P2 (2025): claude in two worktree tabs, a background tab's ask, the needs-you mark and its
-#                   click (scripts/measure/persona-walk-p2.sh).
 # New terminals open with Ctrl-` (Cmd-T opens a chat); Cmd-Q asks once, so quit presses it twice.
 # Each task is judged by its effect, not by the keys sent: the command typed writes a marker file, and a task whose
 # marker never appears is a STUCK line (a person would have been stuck there too).
@@ -240,7 +238,6 @@ case "$mode" in
   p0) p0 && finish ;;
   p0-casual) p0 && p0_casual; finish ;;
   p0-hardcore) p0 && p0_casual && p0_hardcore; finish ;;
-  p2) . scripts/measure/persona-walk-p2.sh; p0 && p2; finish ;;  # P2 (2025): claude in two worktree tabs, needs-you
   *) echo "unknown mode $mode" >&2; exit 2 ;;
 esac
 [ "$blind" = 1 ] && { note "done BLIND: this host's cua-driver lacks its grants; no timing here is valid"; exit 3; }

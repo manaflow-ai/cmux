@@ -326,7 +326,7 @@ class Loop:
         if ANCHOR not in self.original:
             raise RuntimeError("edit anchor not found in %s: %s" % (args.edit, ANCHOR))
         self.notes, self.rounds, self.floors = [], [], dict((s, []) for s in STAGES)
-        self.front_tab, self.front_workspace, self.front_drift = None, None, []  # hold_front
+        self.front_tab, self.front_drift = None, []  # hold_front
         self.started = now_ms()
         self.watch = Watcher()
         self.launches = []  # Popen of every launch-ready this run started
@@ -472,56 +472,14 @@ class Loop:
             f.write(seed.stdout + seed.stderr)
         # The terminal tab the seed left in front, read while the priming app still runs: every quit leaves it in front
         # again (hold_front), since the typed key needs a restored terminal.
-        front = self.seeder().front() if seed.returncode == 0 else {}
-        self.front_tab, self.front_workspace = front.get("tab"), front.get("workspace")
-        # 2026-11-28 step 73f0f7a49094b79bef04f5bb: the seed saw no socket file in 120 s ("socket_exists": false) while
-        # the priming launch still showed its window. Whether the app was alive then and where it bound a socket, if
-        # anywhere, are read before finish_launch ends it, since the step returns only report.json.
-        where = "" if seed.returncode == 0 else self.socket_census(pid)
+        self.front_tab = self.seeder().front().get("tab") if seed.returncode == 0 else None
         self.finish_launch("prime", p, outp)
         if seed.returncode != 0:
             # The step returns only report.json, so carry the priming launch's own words too.
             prime = " | ".join("%s: %s" % (os.path.basename(f), open(f, errors="replace").read()[-500:].strip())
                                for f in (outp, outp + ".err") if os.path.exists(f))
-            raise RuntimeError("seed of a terminal front failed: " + (seed.stdout + seed.stderr)[-800:] + " (" + where + ")"
+            raise RuntimeError("seed of a terminal front failed: " + (seed.stdout + seed.stderr)[-800:]
                                + (" (prime launch: %s)" % prime if prime else ""))
-
-    def socket_census(self, pid):
-        """At a failed seed: the priming app alive or not, the socket folder's entries with their owner and mode, and
-        every socket under the app's home (the app's own default path, when it did not take CMUX_NEXT_SOCKET_PATH)."""
-        def entry(path):
-            try:
-                st = os.lstat(path)
-                return "%s uid %d mode %o" % (path, st.st_uid, st.st_mode & 0o7777)
-            except OSError as error:
-                return "%s %s" % (path, error.strerror)
-        found = []
-        for root, _, files in os.walk(self.home):
-            found += [os.path.join(root, f) for f in files if f.endswith(".sock") or "socket" in f]
-            if len(found) > 8:
-                break
-        return "app pid %s %s; step uid %d; sock dir %s [%s]; sockets under the app home: %s" % (
-            pid, "alive" if pid and alive(pid) else "gone", os.getuid(), entry(self.sock_dir),
-            ", ".join(entry(os.path.join(self.sock_dir, n)) for n in sorted(os.listdir(self.sock_dir))) or "empty",
-            ", ".join(entry(f) for f in found[:8]) or "none")
-
-    @staticmethod
-    def terminal_tabs(top, workspace):
-        """The terminal tabs in snapshot.get's topology: those of the workspace whose key or id is WORKSPACE first,
-        then the rest (tab ids, in order)."""
-        def tabs(node):
-            if isinstance(node, dict):
-                if str(node.get("id", "")).startswith("tab_") and node.get("page") == "terminal":
-                    yield node["id"]
-                for value in node.values():
-                    yield from tabs(value)
-            elif isinstance(node, list):
-                for value in node:
-                    yield from tabs(value)
-        ours, rest = [], []
-        for ws in top.get("workspaces") or []:
-            (ours if workspace and workspace in (ws.get("key"), ws.get("id")) else rest).extend(tabs(ws))
-        return ours + rest
 
     def seeder(self):
         """launch-ready-seed.py's Seed on this app's control socket, for its front() and action()."""
@@ -543,24 +501,8 @@ class Loop:
         front = seed.front()
         if front.get("tab") == self.front_tab and not front.get("home"):
             return
-        # 2026-11-27 step 8b00d1c5fa633db4a07602df: floor1's restored front was the docked Home and tab.focus on the
-        # seeded tab's id answered not_found: the relaunched session names its tabs anew. The seeded tab is the
-        # restored terminal tab of the seeded workspace (by its model key), whatever its id is now.
-        top = seed.topology()
-        tabs = self.terminal_tabs(top, self.front_workspace)
-        drift = {"launch": label, "front": front}
-        if self.front_tab not in tabs:
-            if not tabs:
-                raise RuntimeError("launch %s: no terminal tab restored to keep in front (front %s; workspaces %s)" % (
-                    label, json.dumps(front), json.dumps([{"key": w.get("key"), "panes": w.get("panes")}
-                                                          for w in top.get("workspaces") or []])[:600]))
-            drift["retargeted"] = {"from": self.front_tab, "to": tabs[0]}
-            self.front_tab = tabs[0]
-            if front.get("tab") == self.front_tab and not front.get("home"):
-                self.front_drift.append(drift)
-                return
-        self.front_drift.append(drift)
-        log(label, "front drifted off the seeded tab", json.dumps(drift))
+        self.front_drift.append({"launch": label, "front": front})
+        log(label, "front drifted off the seeded tab", json.dumps(front))
         seed.action("tab.focus", target="tab:%s" % self.front_tab)
         end = time.time() + FRONT_WAIT_S
         while time.time() < end:  # measurement script: a bounded wait for the app's own front

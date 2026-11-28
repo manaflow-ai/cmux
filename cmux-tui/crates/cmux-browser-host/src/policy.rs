@@ -6,7 +6,6 @@
 //! Pattern syntax and matching follow PR #15570's `agent-tools.js`
 //! (browser-use's `allowed_domains`).
 
-use cmux_browser_grants::Tier;
 use std::fmt;
 use url::{Host, Url};
 
@@ -139,9 +138,118 @@ fn normalize_host(raw: &str, host: &str) -> Result<String, PolicyError> {
     }
 }
 
-/// The site (registrable domain) of a host: one copy for the host and the
-/// daemon's browser grants (RFD 0125 D7.2).
-pub use cmux_browser_grants::site_of;
+/// Multi-label public suffixes common enough to matter; any other host is
+/// treated as having a one-label suffix. The runtime's compact stand-in
+/// (agent-tools.js registrableDomain) until a Public Suffix List lands
+/// (port plan D6, a slice S1 proposal).
+const MULTI_SUFFIXES: &[&str] = &[
+    "co.uk",
+    "org.uk",
+    "ac.uk",
+    "gov.uk",
+    "me.uk",
+    "ltd.uk",
+    "plc.uk",
+    "net.uk",
+    "co.jp",
+    "ne.jp",
+    "or.jp",
+    "ac.jp",
+    "go.jp",
+    "co.at",
+    "or.at",
+    "com.au",
+    "net.au",
+    "org.au",
+    "edu.au",
+    "gov.au",
+    "co.nz",
+    "org.nz",
+    "govt.nz",
+    "co.in",
+    "net.in",
+    "org.in",
+    "gov.in",
+    "ac.in",
+    "com.br",
+    "net.br",
+    "org.br",
+    "gov.br",
+    "com.cn",
+    "net.cn",
+    "org.cn",
+    "gov.cn",
+    "edu.cn",
+    "com.hk",
+    "org.hk",
+    "com.tw",
+    "org.tw",
+    "co.kr",
+    "or.kr",
+    "com.sg",
+    "edu.sg",
+    "com.mx",
+    "org.mx",
+    "co.za",
+    "org.za",
+    "com.tr",
+    "com.ar",
+    "com.co",
+    "com.pe",
+    "com.my",
+    "com.ph",
+    "com.vn",
+    "co.id",
+    "co.il",
+    "co.th",
+    "com.ua",
+    "com.pl",
+    "com.es",
+    "com.sa",
+    "com.eg",
+    "com.ng",
+    "github.io",
+    "gitlab.io",
+    "pages.dev",
+    "workers.dev",
+    "vercel.app",
+    "netlify.app",
+    "herokuapp.com",
+    "web.app",
+    "firebaseapp.com",
+    "appspot.com",
+    "blogspot.com",
+    "azurewebsites.net",
+    "cloudfront.net",
+    "amazonaws.com",
+    "s3.amazonaws.com",
+    "fly.dev",
+    "onrender.com",
+    "glitch.me",
+    "repl.co",
+    "ngrok.io",
+    "ngrok-free.app",
+    "trycloudflare.com",
+];
+
+/// The site (registrable domain) of a host, for cookie scoping and
+/// storageState; an IP address, a single label or a bracketed IPv6 address
+/// is its own site.
+pub fn site_of(host: &str) -> String {
+    let h = host.trim_start_matches('.').trim_end_matches('.').to_ascii_lowercase();
+    let is_ipv4 = h.split('.').count() == 4
+        && h.split('.').all(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_digit()));
+    if h.is_empty() || h.starts_with('[') || is_ipv4 || !h.contains('.') {
+        return h;
+    }
+    let labels: Vec<&str> = h.split('.').collect();
+    for i in 1..labels.len() {
+        if MULTI_SUFFIXES.contains(&labels[i..].join(".").as_str()) {
+            return labels[i - 1..].join(".");
+        }
+    }
+    labels[labels.len() - 2..].join(".")
+}
 
 fn glob_match(pattern: &str, text: &str) -> bool {
     match pattern.split_once('*') {
@@ -210,15 +318,6 @@ pub struct Policy {
     locked: bool,
     /// The session layer is locked (by VM code, against later VM code).
     agent_locked: bool,
-    /// Browser grants (RFD 0125 D7.2): `Some` when the session drives the
-    /// person's profile and holds at least one grant there. Then a document,
-    /// a fetch or a cookie reaches only a site with a live lease; the
-    /// layers above still narrow it. `None` (no grant): today's
-    /// allowedDomains/prohibitedDomains behaviour, unchanged.
-    leases: Option<cmux_browser_grants::Leases>,
-    /// Commit leases spent by their one approved action (D7.4): a later
-    /// `set_leases` with the same row does not lend it again.
-    spent: Vec<cmux_browser_grants::Lease>,
 }
 
 /// Schemes an agent may never open, whatever the policy.
@@ -326,70 +425,6 @@ impl Policy {
         &self.agent
     }
 
-    /// The session's leases (`None`: it holds no grant).
-    pub fn leases(&self) -> Option<&cmux_browser_grants::Leases> {
-        self.leases.as_ref()
-    }
-
-    /// Replaces the session's leases (the owner's, from the daemon's
-    /// `browser_grants` rows). `None` returns the session to its domain
-    /// policy alone.
-    pub fn set_leases(&mut self, leases: Option<cmux_browser_grants::Leases>) {
-        let now = now_ms();
-        self.spent.retain(|lease| lease.live_at(now));
-        self.leases = leases.map(|mut leases| {
-            leases.0.retain(|lease| !self.spent.contains(lease));
-            leases
-        });
-    }
-
-    /// Something limits where the session goes: a layer or its leases.
-    pub fn is_active(&self) -> bool {
-        self.base.is_active() || self.agent.is_active() || self.leases.is_some()
-    }
-
-    /// Why the session's leases do not reach `url` now, or `None`.
-    pub fn lease_refusal(&self, url: &Url) -> Option<String> {
-        self.lease_refusal_at(url, now_ms())
-    }
-
-    /// [`Policy::lease_refusal`] at `now_ms` (milliseconds since the epoch).
-    pub fn lease_refusal_at(&self, url: &Url, now_ms: u64) -> Option<String> {
-        self.lease_tier_refusal_at(url, Tier::Read, now_ms)
-    }
-
-    /// Why the session's leases do not allow an action that needs `needed`
-    /// on a page or request at `url` at `now_ms`, or `None`. The host goes
-    /// through the grants crate's one normalization (punycode, no IPv6
-    /// brackets), the same as the grant row.
-    pub fn lease_tier_refusal_at(&self, url: &Url, needed: Tier, now_ms: u64) -> Option<String> {
-        let leases = self.leases.as_ref()?;
-        if matches!(url.scheme(), "data" | "blob" | "about") {
-            return None;
-        }
-        match url.host_str() {
-            Some(host) => leases.refusal_for(host, needed, now_ms),
-            None => Some(format!("its scheme {}: has no host", url.scheme())),
-        }
-    }
-
-    /// Allows one action that needs `needed` on the page or request at
-    /// `url`: refused unless a live lease of that tier covers its site. A
-    /// commit lease that is the only cover is spent by this action.
-    pub fn authorize_lease(&mut self, url: &Url, needed: Tier) -> Result<(), String> {
-        let now = now_ms();
-        if let Some(reason) = self.lease_tier_refusal_at(url, needed, now) {
-            return Err(reason);
-        }
-        let (Some(leases), Some(host)) = (self.leases.as_mut(), url.host_str()) else {
-            return Ok(());
-        };
-        if let Some(spent) = leases.authorize(host, needed, now)? {
-            self.spent.push(spent);
-        }
-        Ok(())
-    }
-
     /// Replaces a layer. The base layer needs `Writer::Owner` and refuses
     /// changes once locked; the agent layer is always writable by the agent.
     pub fn set(&mut self, writer: Writer, layer: Layer, lock: bool) -> Result<(), PolicyError> {
@@ -441,7 +476,7 @@ impl Policy {
         if scheme == "data" || scheme == "blob" {
             return None;
         }
-        self.subresource_refusal(&parsed).or_else(|| self.lease_refusal(&parsed))
+        self.subresource_refusal(&parsed)
     }
 
     /// Why a request may not load (subresources, child frames, fetch).
@@ -468,12 +503,6 @@ impl Policy {
                 .is_ok_and(|url| self.subresource_refusal(&url).is_none())
         })
     }
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
 }
 
 mod cookies;

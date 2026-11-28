@@ -31,6 +31,7 @@ def _load(name, rel):
 
 live = _load("cmux_next_owner_live", "scripts/cmux-next/owner_live.py")
 CELL = "PL-acpmux (session cmux-4f; lead decision 2026-10-23)"
+ANY = lambda name: True  # noqa: E731  every lane has its own commits in the area (the role tests' premise)
 
 
 def hold(*args, **kw):
@@ -41,16 +42,8 @@ def route(guardrails, *args, **kw):
     return guardrails.owner_route(*args, worked=ANY, **kw)
 
 
-def row(name, status="idle", sid=None, updated=1, createdAt=None, **tags):
-    out = {"name": name, "status": status, "sessionId": sid or f"id-{name}", "updatedAt": updated, "tags": tags or None}
-    if createdAt is not None:
-        out["createdAt"] = createdAt
-    return out
-
-
-ANY = lambda r: (0, 1)  # noqa: E731  every lane committed in the area (the role tests' premise)
-NONE = lambda r: None  # noqa: E731  commits read, nobody's in the area
-ROLE = "committed in the area last (1970-01-01)"
+def row(name, status="idle", sid=None, updated=1, **tags):
+    return {"name": name, "status": status, "sessionId": sid or f"id-{name}", "updatedAt": updated, "tags": tags or None}
 
 
 class Holder(unittest.TestCase):
@@ -67,18 +60,15 @@ class Holder(unittest.TestCase):
         self.assertEqual(live.cell_lanes(cell), ["tabs-refine", "tab-strip-*"])
         rows = [row("h1/tab-strip-old", "closed", updated=9), row("h2/tab-strip-pins", updated=3),
                 row("h3/tabs-refine", "ready", updated=5), row("h4/sidebar-x", updated=99)]
-        self.assertEqual(live.holder(cell, rows, "", worked=ANY), ("h3/tabs-refine", f"a lane of tabs-refine,tab-strip-*, {ROLE}"))
-        # a name alone holds nothing: no commits read, or none in the area, and the push goes down the chain
-        self.assertEqual(live.holder(cell, rows, "")[0], None)
-        self.assertEqual(live.holder(cell, rows, "", worked=NONE)[0], None)
+        self.assertEqual(hold(cell, rows, ""), ("h3/tabs-refine", "a lane of tabs-refine,tab-strip-*"))
 
     def test_a_pr_finisher_named_for_the_area_never_holds_the_role(self):
         # 2026-11-23: `lanes *sidebar*` sent every sidebar push to finish-cmux-52161-sidebar, a one-PR finisher.
         cell = "sidebar lanes: lanes *sidebar* (coordinator rule 2026-11-23)"
         rows = [row("g9/finish-cmux-52161-sidebar", "running", updated=99), row("g12/sidebar-running-tree", updated=3)]
-        self.assertEqual(live.holder(cell, rows, "", worked=ANY), ("g12/sidebar-running-tree", f"a lane of *sidebar*, {ROLE}"))
+        self.assertEqual(hold(cell, rows, ""), ("g12/sidebar-running-tree", "a lane of *sidebar*"))
         only = [row("g9/finish-cmux-52161-sidebar", "running"), row("c/coord", owns="coordinator")]
-        self.assertEqual(live.holder(cell, only, "", worked=ANY)[0], "c/coord")
+        self.assertEqual(hold(cell, only, "")[0], "c/coord")
         self.assertFalse(live.FINISHER.match("sidebar-finish-pass"))
         self.assertTrue(live.FINISHER.match("finish-cmux-52161"))
 
@@ -89,10 +79,10 @@ class Holder(unittest.TestCase):
         cell = "sidebar lanes: lanes *sidebar* (coordinator rule 2026-11-23)"
         rows = [row("g7/rex-sidebar-look", "running", updated=99), row("g9/finish-cmux-52161-sidebar", updated=98),
                 row("g3/sidebar-owner", updated=2)]
-        self.assertEqual(live.holder(cell, rows, "", worked=ANY), ("g3/sidebar-owner", f"a lane of *sidebar*, {ROLE}"))
+        self.assertEqual(hold(cell, rows, ""), ("g3/sidebar-owner", "a lane of *sidebar*"))
         rows = rows[:2] + [row("c/coord", owns="coordinator")]
-        who, how = live.holder(cell, rows, "", worked=NONE)
-        self.assertEqual((who, how), ("c/coord", "no live lane of *sidebar* committed in it; the coordinator"))
+        who, how = hold(cell, rows, "")
+        self.assertEqual((who, how), ("c/coord", "no live lane of *sidebar*; the coordinator"))
         self.assertTrue(live.is_fallback(how))
         tagged = rows + [row("g7/rex-sidebar-look-2", owns="PL-sidebar")]
         self.assertEqual(hold("PL-sidebar, else lanes *sidebar*", tagged, "")[0], "g7/rex-sidebar-look-2")
@@ -104,153 +94,73 @@ class Holder(unittest.TestCase):
                             ("sidebar-owner", ["tabs-*"])]:
             self.assertFalse(live.fills_role(name, globs), name)
 
-    # 2026-11-28: seven pushes into CmuxNextSidebar told sidebar-bench-chiefs-61230-2, a benchmark lane that had never
-    # committed there, "you hold it now": its name starts with the word the anchored `*sidebar*` glob reads. In two
-    # the pushing session itself was told. (head, pusher, branch) of each, as the notices named them.
-    MISROUTES_1128 = [
-        ("ab1d2f99adce", "hetzner-2/goal-ci-runner-100k-r4", "lane/ssf-port-sidebar-layout"),
-        ("e54670f4e797", "gcp-codex-swarm-07/rfd-0140-status-icon-gallery", "lane/rfd0140-status-icon-swift"),
-        ("3a4c51c69703", "gcp-codex-swarm-07/rfd-0140-status-icon-gallery", "lane/rfd0140-status-icon-swift"),
-        ("8b4698939870", "gcp-codex-swarm-07/feed-design-feed-style-281116-bdb0", "HEAD"),
-        ("c5b79e731ed2", "hetzner-2/goal-ci-runner-100k-r4", "lane/ssf-port-sidebar-layout"),
-        ("0c2a2f26cd29", "gcp-codex-swarm-07/feed-design-feed-style-281116-bdb0", "lane/feed-sidebar-snap"),
-        ("d0e77039331c", "gcp-codex-swarm-07/rfd-0140-status-icon-gallery", "HEAD"),
-    ]
-    SIDEBAR_CELL = "sidebar lanes: lanes *sidebar* (coordinator rule 2026-11-23: the live lane working in it; a590 ended)"
-    BENCH = "fs-agent-lane-14/sidebar-bench-chiefs-61230-2"
+    def test_a_lane_whose_check_in_dropped_its_work_never_holds_the_role(self):
+        # 2026-11-28: sidebar-bench-chiefs-61230 (a CI-routing PR, no sidebar code) checked in dropped at 01:15Z, stayed
+        # listed idle, and `lanes *sidebar*` sent it two sidebar pushes. Its later idle check-in (no outcome) does not
+        # revive it; an in-progress one does.
+        cell = "sidebar lanes: lanes *sidebar* (coordinator rule 2026-11-23)"
+        def beat(host, name, sid, at, state, outcome=None):
+            return {"host": host, "name": name, "at": at,
+                    "checkin": {"acpmux_session": sid, "name": name, "at": at, "state": state, "outcome": outcome}}
+        beats = [beat("f14", "sidebar-bench-chiefs-61230", "s-bench", 10, "idle", "dropped"),
+                 beat("f14", "sidebar-bench-chiefs-61230", "s-bench", 20, "idle")]
+        self.assertEqual(live.ended_sessions(beats), {"s-bench", "f14/sidebar-bench-chiefs-61230"})
+        rows = [row("f14/sidebar-bench-chiefs-61230", sid="s-bench", updated=99), row("g3/sidebar-owner", updated=2),
+                row("c/coord", owns="coordinator")]
+        marked = live.mark_ended(rows, beats)
+        self.assertEqual(hold(cell, marked, ""), ("g3/sidebar-owner", "a lane of *sidebar*"))
+        self.assertEqual(hold(cell, [marked[0], marked[2]], "")[0], "c/coord")
+        revived = beats + [beat("f14", "sidebar-bench-chiefs-61230", "s-bench", 30, "in_progress")]
+        self.assertEqual(live.ended_sessions(revived), set())
+        self.assertIs(live.mark_ended(rows, []), rows)
+        # an owns= tag set by hand still holds it
+        tagged = live.mark_ended([row("f14/sidebar-bench-chiefs-61230", sid="s-bench", owns="PL-sidebar")], beats)
+        self.assertEqual(hold("PL-sidebar, else lanes *sidebar*", tagged, "")[0], "f14/sidebar-bench-chiefs-61230")
 
-    def _sidebar_listing(self):
-        """The 11-28 listing's sidebar-named sessions (the bench lane newest), the three pushers and a coordinator;
-        WORKED: who committed in CmuxNextSidebar, the pushers newest."""
-        rows = [row(self.BENCH, "running", updated=99, createdAt=1_795_862_641_611),
-                row("fs-agent-lane-33/finish-cmux-60227-sidebar-2", updated=5, createdAt=1_795_000_000_000),
-                row("gcp-agent-lane-5/goal-sidebar-customization-shipped-8-of-12-shipp", updated=4,
-                    createdAt=1_795_000_000_000),
-                row("fs-agent-lane-22/dsa-macos-sidebar-settings", updated=3),
-                row("hetzner-2/goal-ci-runner-100k-r4", "running", updated=50),
-                row("gcp-codex-swarm-07/rfd-0140-status-icon-gallery", "running", updated=51),
-                row("gcp-codex-swarm-07/feed-design-feed-style-281116-bdb0", "running", updated=52),
-                row("c/coord", "running", owns="coordinator")]
-        commits = {"fs-agent-lane-33/finish-cmux-60227-sidebar-2": (1_795_100_000, 1_795_800_000),
-                   "gcp-agent-lane-5/goal-sidebar-customization-shipped-8-of-12-shipp": (1_795_100_000, 1_795_700_000),
-                   "hetzner-2/goal-ci-runner-100k-r4": (1_795_850_000, 1_795_870_000),
-                   "gcp-codex-swarm-07/rfd-0140-status-icon-gallery": (1_795_850_000, 1_795_871_000),
-                   "gcp-codex-swarm-07/feed-design-feed-style-281116-bdb0": (1_795_850_000, 1_795_872_000)}
-        return rows, lambda r: commits.get(r["name"])
+    def test_a_lane_named_for_the_area_with_no_commits_in_it_never_holds_the_role(self):
+        # 2026-11-28: a fresh, live sidebar-bench-chiefs-61230-2 (a bench, no owns= tag, no sidebar commits) was sent
+        # a sidebar push by its name alone. A role lane holds only with its own commits under the area's paths; with
+        # none, the push goes to the coordinator, never to a name guess.
+        cell = "sidebar lanes: lanes *sidebar* (coordinator rule 2026-11-23)"
+        bench, coord = row("f14/sidebar-bench-chiefs-61230-2", "running", updated=99), row("c/coord", owns="coordinator")
+        worker = row("g3/sidebar-layout-port", updated=2)
+        worked = {"sidebar-layout-port"}.__contains__
+        self.assertEqual(live.holder(cell, [bench, worker, coord], "", worked=worked),
+                         ("g3/sidebar-layout-port", "a lane of *sidebar*"))
+        self.assertEqual(live.holder(cell, [bench, coord], "", worked=worked),
+                         ("c/coord", "no live lane of *sidebar*; the coordinator"))
+        self.assertEqual(live.holder(cell, [bench, worker], "")[0], None)  # no commit reader: no name guess
+        tagged = row("f14/sidebar-bench-chiefs-61230-2", owns="PL-sidebar")
+        self.assertEqual(live.holder("PL-sidebar, else lanes *sidebar*", [tagged], "", worked=worked)[0], tagged["name"])
 
-    def test_the_1128_sidebar_pushes_go_to_the_lane_that_committed_there_never_a_name_or_the_pusher(self):
-        rows, worked = self._sidebar_listing()
-        # Before, the name glob alone made the bench lane holder of every one of them; with no commits read (no
-        # agent-link key) a name still holds nothing now: the coordinator hears it.
-        for head, pusher, branch in self.MISROUTES_1128:
-            self.assertEqual(live.holder(self.SIDEBAR_CELL, rows, "", "Sidebar", pusher, branch)[0], "c/coord", head)
-        for head, pusher, branch in self.MISROUTES_1128:
-            who, how = live.holder(self.SIDEBAR_CELL, rows, "", "Sidebar", pusher, branch, worked)
-            self.assertNotEqual(who, self.BENCH, head)
-            self.assertNotEqual(who, pusher, head)
-            self.assertFalse(live.is_self(how), head)
-            # the newest committer that is not the pusher (nor a PR finisher): another pusher still working there
-            self.assertIn(who, {p for _, p, _ in self.MISROUTES_1128}, head)
-            self.assertTrue(how.startswith("committed in the area last ("), how)
-        quiet = [r for r in rows if r["name"] in (self.BENCH, "fs-agent-lane-22/dsa-macos-sidebar-settings", "c/coord")]
-        for head, pusher, branch in self.MISROUTES_1128:
-            who, how = live.holder(self.SIDEBAR_CELL, quiet, "", "Sidebar", pusher, branch, worked)
-            self.assertEqual((who, how), ("c/coord", "no live lane of *sidebar* committed in it; the coordinator"), head)
+    def test_the_hook_reads_a_lanes_commits_in_the_area_from_its_pushed_branch(self):
+        guardrails = _load("cmux_next_guardrails_lane_worked_test", "scripts/cmux-next/guardrails.py")
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                   "GIT_COMMITTER_EMAIL": "t@t"}
+            def git(*a):
+                return subprocess.run(["git", *a], cwd=repo, env=env, check=True, capture_output=True, text=True).stdout
+            git("init", "-q", "-b", "main")
+            (repo / "README").write_text("x\n"); git("add", "-A"); git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD").strip()
+            for name, path in (("sidebar-layout-port", "Sidebar/Layout.swift"), ("sidebar-bench-chiefs-61230-2", "ci/bench.yml")):
+                git("checkout", "-qb", f"lane/{name}", base)
+                (repo / path).parent.mkdir(parents=True, exist_ok=True); (repo / path).write_text(name)
+                git("add", "-A"); git("commit", "-qm", name)
+                git("update-ref", f"refs/remotes/origin/lane/{name}", "HEAD")
+            cache = {}
+            self.assertTrue(guardrails.lane_worked(repo, "sidebar-layout-port", ["Sidebar/"], base, cache))
+            self.assertFalse(guardrails.lane_worked(repo, "sidebar-bench-chiefs-61230-2", ["Sidebar/"], base, cache))
+            self.assertFalse(guardrails.lane_worked(repo, "no-such-lane", ["Sidebar/"], base, cache))
 
-    def test_an_owns_tag_still_outranks_the_committers_and_a_young_session_never_holds_by_commits(self):
-        rows, worked = self._sidebar_listing()
-        tagged = rows + [row("g2/sidebar-keeper", owns="sidebar")]
-        self.assertEqual(live.holder(self.SIDEBAR_CELL, tagged, "", "Sidebar", "hetzner-2/goal-ci-runner-100k-r4",
-                                     "lane/ssf-port-sidebar-layout", worked), ("g2/sidebar-keeper", "holds owns=sidebar"))
-        # a session started after its first commit in the area did not write it (a rotated or adopted name)
-        young = [row("h/late", createdAt=1_795_900_000_000), row("c/coord", owns="coordinator")]
-        self.assertEqual(live.holder(self.SIDEBAR_CELL, young, "", "Sidebar", None, None,
-                                     lambda r: (1_795_850_000, 1_795_950_000) if r["name"] == "h/late" else None)[0],
-                         "c/coord")
-
-    def test_the_pusher_is_never_the_answer_of_a_later_step(self):
-        cell = "PL-acpmux (session cmux-4f)"
-        rows = [row("h1/cmux-4f", "running"), row("c/coord", owns="coordinator")]
-        self.assertEqual(live.holder(cell, rows, "", None, "h1/cmux-4f")[0], "c/coord")
-        self.assertEqual(live.holder(cell, rows[1:], "", None, "c/coord"), (None, "cmux-4f gone; no live lead or coordinator"))
-
-    def test_an_agent_id_is_the_keyed_hash_acpmux_mints(self):
-        # opaque_agent_id_tests.rs: Key(b"0123456789abcdef").id("Lane-Host", "claude", "s1") == aid-6ca1e7736f56c73fb9b8
-        key = b"0123456789abcdef"
-        r = {"name": "Lane-Host/x", "harness": "claude", "agentSessionId": "s1", "retiredAgentSessionIds": ["s0"]}
-        self.assertIn("aid-6ca1e7736f56c73fb9b8", live.agent_ids(r, key, "other"))
-        self.assertEqual(len(live.agent_ids(r, key, "other")), 2)
-        bare = {"name": "x", "harness": "claude", "agentSessionId": "s1"}
-        self.assertEqual(live.agent_ids(bare, key, "LANE-HOST"), {"aid-6ca1e7736f56c73fb9b8"})
-        worked = live.worked_by({"aid-6ca1e7736f56c73fb9b8": (5, 9)}, key, "lane-host")
-        self.assertEqual(worked(bare), (5, 9))
-        self.assertIsNone(worked({"name": "y", "harness": "claude", "agentSessionId": "s2"}))
-        self.assertIsNone(live.worked_by(None, key))
-        self.assertIsNone(live.worked_by({}, None))
-
-    def test_area_work_reads_agent_session_trailers_under_the_area_paths(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        repo = Path(tmp.name)
-        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-               "GIT_COMMITTER_EMAIL": "t@t"}
-
-        def commit(path, aid, when):
-            (repo / path).parent.mkdir(parents=True, exist_ok=True)
-            (repo / path).write_text(f"{aid} {when}\n")
-            subprocess.run(["git", "add", "-A"], cwd=repo, env=env, check=True)
-            stamp = {"GIT_AUTHOR_DATE": f"@{when} +0000", "GIT_COMMITTER_DATE": f"@{when} +0000"}
-            subprocess.run(["git", "commit", "-qm", f"c\n\nAgent-Session: https://cmux.com/deeplink/agent?id={aid}"],
-                           cwd=repo, env={**env, **stamp}, check=True)
-
-        subprocess.run(["git", "init", "-q"], cwd=repo, env=env, check=True)
-        import time as _t
-        now = int(_t.time())
-        a, b = "aid-" + "a" * 20, "aid-" + "b" * 20
-        commit("Sources/CmuxNextSidebar/Logic/Rules.swift", a, now - 3000)
-        commit("Sources/CmuxNextSidebar/Views/Row.swift", a, now - 1000)
-        commit("Sources/Other/Thing.swift", b, now - 500)
-        work = live.area_work(repo, ["Sources/CmuxNextSidebar/"])
-        self.assertEqual(work, {a: (now - 3000, now - 1000)})
-        self.assertEqual(live.area_work(repo, ["Sources/*/Thing.swift"]), {b: (now - 500, now - 500)})
-        self.assertIsNone(live.area_work(repo / "missing", ["Sources/"]))
-        self.assertIsNone(live.area_work(repo, []))
-
-    def test_a_squash_merge_keeps_the_agent_session_that_area_work_reads(self):
-        # GitHub squashes a lane into feat-cmux-next and the lane branch is deleted: only the squash commit is left.
-        # Its message (the shape of cmux#64561's) puts Agent-Session in its own paragraph above the Co-authored-by
-        # block, so git's `%(trailers)` (last paragraph only) misses it; area_work reads it from the body.
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        repo = Path(tmp.name)
-        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-               "GIT_COMMITTER_EMAIL": "t@t"}
-
-        def git(*args):  # no hooks: this host's commit-msg hook would add its own Agent-Session trailer
-            return subprocess.run(["git", "-c", "core.hooksPath=/dev/null", *args], cwd=repo, env=env, check=True,
-                                  capture_output=True, text=True).stdout.strip()
-
-        aid, other = "aid-" + "c" * 20, "aid-" + "d" * 20
-        git("init", "-q", "-b", "main")
-        (repo / "README").write_text("x\n")
-        git("add", "-A")
-        git("commit", "-qm", "base")
-        git("checkout", "-qb", "lane/sidebar-port")
-        for i in (1, 2):
-            path = repo / "Sources/CmuxNextSidebar" / f"F{i}.swift"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(f"{i}\n")
-            git("add", "-A")
-            git("commit", "-qm", f"part {i}\n\nAgent-Session: https://cmux.com/deeplink/agent?id={aid}")
-        git("checkout", "-q", "main")
-        git("merge", "-q", "--squash", "lane/sidebar-port")
-        git("commit", "-qm", f"sidebar: port rows (#1)\n\nBody, which names {other} in passing.\n\n\n"
-            f"Agent-Session: https://cmux.com/deeplink/agent?id={aid}&model=claude-opus-5-5\n\n"
-            "Co-authored-by: Someone <s@example.com>\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>")
-        git("branch", "-qD", "lane/sidebar-port")
-        self.assertEqual(git("log", "-1", "--format=%(trailers:key=Agent-Session,valueonly)"), "")
-        work = live.area_work(repo, ["Sources/CmuxNextSidebar/"])
-        self.assertEqual(set(work or {}), {aid})
+    def test_an_unreachable_session_is_not_live(self):
+        self.assertFalse(live.is_live(row("h/x", "unreachable")))
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(live.read_beats(Path(d) / "none.json"), [])
+            f = Path(d) / "fleet.json"
+            f.write_text(json.dumps({"beats": [{"host": "h", "name": "n"}, 3]}))
+            self.assertEqual(live.read_beats(f), [{"host": "h", "name": "n"}])
 
     def test_a_tag_the_full_listing_dropped_is_read_from_the_filtered_one(self):
         rows = [{"name": "h2/acpmux-owner", "sessionId": "s1", "status": "ready", "tags": None, "updatedAt": 1}]
@@ -328,14 +238,12 @@ class Holder(unittest.TestCase):
         self.assertTrue(live.is_self(hold(cell, [tagged], "", area, "h/keeper")[1]))
         # a pusher outside the row: with the stale tag removed and no lane of the role, the coordinator, unheld
         for p, b in pushers[:3]:
-            who, how = live.holder(cell, [coord, *lane_rows], "", area, p, b)
+            who, how = hold(cell, [coord, *lane_rows], "", area, p, b)
             self.assertEqual((who, how), ("c/coord", "no live lane of motion-*,layout-*; the coordinator"), p)
             self.assertTrue(live.is_fallback(how))
-        # ... and a live lane of the role that committed in it when there is one
+        # ... and a live lane of the role when there is one
         motion = row("h9/motion-spring-tune", "running", updated=1)
-        did = lambda r: (0, 1) if r["name"] == motion["name"] else None  # noqa: E731
-        self.assertEqual(live.holder(cell, [coord, motion, *lane_rows], "", area, *pushers[2], did)[0], "h9/motion-spring-tune")
-        self.assertEqual(live.holder(cell, [coord, motion, *lane_rows], "", area, *pushers[2])[0], "c/coord")
+        self.assertEqual(hold(cell, [coord, motion, *lane_rows], "", area, *pushers[2])[0], "h9/motion-spring-tune")
         # a local bare-named row is the pusher's own row
         local = row("ask-x", "ready", owns="PL-motion-core")
         self.assertEqual(hold(cell, [local], "", area, "gcp-agent-lane-19/ask-x")[1],
@@ -502,7 +410,7 @@ class Route(unittest.TestCase):
         rows = [row("host-a/cmux-4f", "closed"), row("host-a/coordinator", "running")]
         sent = []
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
-            lines = guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+            lines = route(guardrails, repo, [own], (rows, None), "host-a/coordinator")
         self.assertEqual(len(lines), 1, lines)
         self.assertIn("acpmux daemon is held by host-a/coordinator (cmux-4f gone; the coordinator)", lines[0])
         # The coordinator stands in: one notice an area a UTC day, asking for a holder, not one per push.
@@ -614,7 +522,7 @@ class Route(unittest.TestCase):
         commit("Packages/iOS/CmuxTabsKit/Tab.swift", "tab 2\n", "own tabs edit")
         own = types.SimpleNamespace(base=old_remote, head=git("rev-parse", "HEAD"), before=())
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
-            lines = guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator", worked=ANY)
+            lines = route(guardrails, repo, [own], (rows, None), "host-a/coordinator")
         self.assertEqual([(to, area) for to, area, *_ in sent], [("host-a/ios-terminal-first-composer", "iOS tabs")])
 
 
@@ -654,7 +562,7 @@ class Route(unittest.TestCase):
         rows = [row("host-a/design-transcript-motion", "running"), row("host-b/motion-springs", "running")]
         sent = []
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
-            guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator", worked=ANY)
+            route(guardrails, repo, [own], (rows, None), "host-a/coordinator")
         self.assertEqual([(to, area) for to, area, *_ in sent], [("host-b/motion-springs", "Layout motion")])
         # A push that itself rewrites the row means its own table.
         prev = git("rev-parse", "HEAD")
@@ -664,7 +572,7 @@ class Route(unittest.TestCase):
         rows.append(row("host-c/mobile-bandwidth-steps", "running"))
         sent.clear()
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
-            guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator", worked=ANY)
+            route(guardrails, repo, [own], (rows, None), "host-a/coordinator")
         self.assertEqual([to for to, *_ in sent], ["host-c/mobile-bandwidth-steps"])
 
     def test_a_github_update_branch_merge_carries_no_owned_files(self):

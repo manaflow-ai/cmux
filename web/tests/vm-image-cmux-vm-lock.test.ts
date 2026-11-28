@@ -605,8 +605,7 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
   test("0.2.9 is pinned from release cmux-rd-v0.2.9 (#50463, run 45160613949) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
     const pinned = readInputsLock().programs.find((p) => p.name === "cmux-rd")!;
     expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.2.9"), sha256: "09e4120d8428b2e7ce626e14dbbbb74e29f0a36c2ce5b4080c958fca4496305e", size: 10234313 });
-    // cmux-rd 0.2.10 (#63946) releases from its own merge commit; the PR that pins it clears this marker.
-    expect(pinned.pendingRelease).toBe("0.2.10");
+    expect(pinned.pendingRelease).toBeUndefined();
     expect(pinned.firstUse).toBeUndefined();
     expect(bakedPrograms(readInputsLock()).map((p) => p.name)).toContain("cmux-rd");
   });

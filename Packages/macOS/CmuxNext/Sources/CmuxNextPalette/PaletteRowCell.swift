@@ -154,11 +154,7 @@ final class PaletteTableRowView: NSTableRowView {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        dropPendingFade()
-    }
-
-    /// A fade asked for before this view showed another row (reused, or updated in place) belongs to its old row.
-    func dropPendingFade() {
+        // A fade asked for before the row was reused belongs to its old row.
         fadesNextFill = false
     }
 

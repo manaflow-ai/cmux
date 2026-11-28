@@ -30,9 +30,9 @@ public nonisolated struct KeychainCookieBackupKey: CookieBackupKeySource {
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         add[kSecAttrLabel as String] = "cmux cookie backup key"
         let status = loginKeychain.withoutUI { SecItemAdd(add as CFDictionary, nil) }
-        if try CookieBackupKeyRules.addStep(status) == "useFresh" { return SymmetricKey(data: fresh) }
+        if status == errSecSuccess { return SymmetricKey(data: fresh) }
         // Another process made it first: use that one.
-        if let existing = try read() { return SymmetricKey(data: existing) }
+        if status == errSecDuplicateItem, let existing = try read() { return SymmetricKey(data: existing) }
         throw CookieBackupError("the cookie backup key could not be stored in the Keychain (status \(status))")
     }
 
@@ -47,41 +47,11 @@ public nonisolated struct KeychainCookieBackupKey: CookieBackupKeySource {
         var result: CFTypeRef?
         // No UI: an item another signature of this bundle id made is refused, never prompted for.
         let status = loginKeychain.withoutUI { SecItemCopyMatching(query as CFDictionary, &result) }
-        let data = result as? Data
-        guard try CookieBackupKeyRules.readFound(status, length: data?.count), let data else { return nil }
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = result as? Data, data.count == 32 else {
+            throw CookieBackupError("the cookie backup key could not be read from the Keychain (status \(status))")
+        }
         return data
-    }
-}
-
-/// What the Keychain's and the key file's answers mean: Rust's (cmux-browser-rules
-/// `page_events.rs`, ops `browser_rules_automation_cookie_backup_key_*`). Swift makes
-/// the Keychain calls, the 32 random bytes and the file; Rust reads their answers.
-nonisolated enum CookieBackupKeyRules {
-    /// The library always answers; only an app FFI pin behind the Rust lacks the ops.
-    private static let silent = CookieBackupError("the cookie backup key rules did not answer (app FFI pin behind cmux-browser-rules)")
-
-    private static func ask(_ op: String, _ request: [String: Any], _ field: String) throws(CookieBackupError) -> DriverJSON {
-        guard case .object(let reply)? = BrowserRulesFFI.call(op, request) else { throw silent }
-        if let error = reply["error"]?.stringValue { throw CookieBackupError(error) }
-        guard let value = reply[field] else { throw silent }
-        return value
-    }
-
-    /// Whether a Keychain read found the key (false: none yet, make one); throws its error text.
-    static func readFound(_ status: OSStatus, length: Int?) throws(CookieBackupError) -> Bool {
-        var request: [String: Any] = ["status": Int(status)]
-        if let length { request["length"] = length }
-        return try ask("cookie_backup_key_read", request, "found").boolValue ?? false
-    }
-
-    /// The step after `SecItemAdd` answered `status`: `useFresh` or `readExisting`; throws its error text.
-    static func addStep(_ status: OSStatus) throws(CookieBackupError) -> String {
-        try ask("cookie_backup_key_add", ["status": Int(status)], "step").stringValue ?? ""
-    }
-
-    /// Whether the DEBUG key file's contents are the key.
-    static func fileUsable(length: Int) -> Bool {
-        BrowserRulesFFI.call("cookie_backup_key_file", ["length": length])?.boolValue ?? false
     }
 }
 
@@ -96,7 +66,7 @@ public nonisolated struct FileCookieBackupKey: CookieBackupKeySource {
     }
 
     public func key() throws(CookieBackupError) -> SymmetricKey {
-        if let data = FileManager.default.contents(atPath: url.path), CookieBackupKeyRules.fileUsable(length: data.count) { return SymmetricKey(data: data) }
+        if let data = FileManager.default.contents(atPath: url.path), data.count == 32 { return SymmetricKey(data: data) }
         let fresh = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard FileManager.default.createFile(atPath: url.path, contents: fresh, attributes: [.posixPermissions: 0o600]) else {

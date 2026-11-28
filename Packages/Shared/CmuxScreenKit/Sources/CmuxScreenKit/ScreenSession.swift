@@ -1,4 +1,3 @@
-import CCmuxScreenKit
 import CmuxVNC
 import CmuxVNCDemoServer
 import CmuxVNCWebRTC
@@ -212,7 +211,7 @@ public final class ScreenSession {
     public private(set) var reconnectNoticeDue = false
     /// How long a reconnect stays silent: about the time after which a frozen picture
     /// stops reading as a hiccup. A reattach lands well under it on a short drop.
-    public nonisolated static let reconnectNoticeDelay: Duration = .seconds(cmux_screen_notice_delay())
+    public nonisolated static let reconnectNoticeDelay: Duration = .seconds(10)
     @ObservationIgnored private var reconnectNoticeTask: Task<Void, Never>?
     /// A first connect has run for ``connectNoticeDelay``: only now does the view say
     /// "Connecting to …". One that answers within it (the usual case) never flashes the card.
@@ -229,7 +228,8 @@ public final class ScreenSession {
     /// a first connect only past ``connectNoticeDelay``. Under them the view draws no card, over
     /// the last frame on a reconnect. A failure is its own phase and is never held.
     public var connectingNoticeShown: Bool {
-        cmux_screen_connecting_notice_shown(phaseCode, isReconnecting, reconnectNoticeDue, connectNoticeDue)
+        guard case .connecting = phase else { return false }
+        return isReconnecting ? reconnectNoticeDue : connectNoticeDue
     }
     /// An owner that gets a fresh ticket for a dropped stream (a device hub viewer, whose
     /// `reconnectLimit` is 0): a drop calls it, and when the owner takes the drop (true) the
@@ -239,16 +239,8 @@ public final class ScreenSession {
     /// Connected, or reconnecting: the toolbar, shortcuts and trackpad keep their places so
     /// the screen does not jump while it comes back.
     public var keepsLiveLayout: Bool {
-        cmux_screen_keeps_live_layout(phaseCode, isReconnecting)
-    }
-    /// ``phase`` as the screen kit's C ABI numbers it.
-    private var phaseCode: UInt32 {
-        switch phase {
-        case .connecting: 1
-        case .connected: 2
-        case .failed: 3
-        case .ended: 4
-        }
+        if case .connected = phase { return true }
+        return isReconnecting
     }
     /// The connection stalled (ICE disconnected): no picture is coming,
     /// though WebRTC has not given up yet. Cleared when it recovers.
@@ -258,7 +250,7 @@ public final class ScreenSession {
     /// When the current run of reconnects started (the give-up clock).
     @ObservationIgnored private var reconnectStarted: Date?
     /// Reconnects stop once they have tried this long, whatever `reconnectLimit` says.
-    public nonisolated static let reconnectDeadline: TimeInterval = cmux_screen_reconnect_deadline()
+    public nonisolated static let reconnectDeadline: TimeInterval = 45
     /// The TURN relays' errors in the current connection (refused
     /// credentials, unreachable), so a failure can say why; cleared on connect.
     public private(set) var relayErrors: [ICECandidateError] = []
@@ -547,12 +539,12 @@ public final class ScreenSession {
     /// How long one try may wait: 30 s, or what is left of the reconnect
     /// deadline (at least 1 s), so the last try never runs past it.
     public nonisolated static func attemptTimeout(elapsed: TimeInterval) -> TimeInterval {
-        cmux_screen_reconnect_attempt_timeout(elapsed)
+        max(1, min(30, reconnectDeadline - elapsed))
     }
 
     /// Whether reconnecting stops: after `limit` tries, or once it has tried for ``reconnectDeadline`` seconds.
     public nonisolated static func givesUp(attempts: Int, limit: Int, elapsed: TimeInterval) -> Bool {
-        cmux_screen_reconnect_gives_up(Int64(attempts), Int64(limit), elapsed)
+        attempts >= limit || elapsed > reconnectDeadline
     }
 
     private func streamDropped(_ message: String) {
@@ -577,7 +569,7 @@ public final class ScreenSession {
         reconnectAttempts += 1
         isReconnecting = true
         phase = .connecting
-        let delay = cmux_screen_reconnect_backoff_delay(Int64(reconnectAttempts))
+        let delay = reconnectAttempts == 1 ? 0 : min(pow(2, Double(reconnectAttempts - 2)), 8)
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay)) // reconnect backoff
@@ -934,11 +926,14 @@ public final class ScreenSession {
     }
 
     static func encodingName(_ raw: Int32) -> String {
-        // "#-2147483648" is the longest name.
-        withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 16) { buffer in
-            var length = 0
-            guard cmux_screen_encoding_name(raw, buffer.baseAddress, buffer.count, &length) == CMUX_SCREEN_OK else { return "#\(raw)" }
-            return String(decoding: buffer.prefix(length), as: UTF8.self)
+        switch RFBEncoding(rawValue: raw) {
+        case .raw: "Raw"
+        case .copyRect: "CopyRect"
+        case .rre: "RRE"
+        case .hextile: "Hextile"
+        case .zlib: "Zlib"
+        case .zrle: "ZRLE"
+        default: "#\(raw)"
         }
     }
 }

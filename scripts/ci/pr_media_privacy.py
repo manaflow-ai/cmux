@@ -80,8 +80,6 @@ PR_FOLDER = re.compile(r"[1-9][0-9]{0,6}")
 MEDIA_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".mov"})
 TEXT_SUFFIXES = frozenset({".html", ".json", ".md", ".txt"})
 FRAME_SEPARATOR = re.compile(r"@@frame (\d+)\s*$")
-# A refusal line pr_media_ocr_tesseract.py or pr_media_ocr.swift prints: a file name, a step, an error class.
-OCR_TOOL_LINE = re.compile(r"^pr-media-ocr: [\w ./@:()-]{1,200}$")
 PUSH_ATTEMPTS = 3
 AUTHOR_BATCH = 50
 
@@ -354,11 +352,6 @@ def ocr_file(ocr: str, local: Path) -> list[str]:
     done = subprocess.run([ocr, str(local)], capture_output=True, text=True,
                           timeout=float(os.environ.get("PR_MEDIA_PRIVACY_OCR_TIMEOUT_SECONDS", "2400")))
     if done.returncode != 0:
-        # The tool's own refusals (`pr-media-ocr: could not read reel.mp4 (TimeoutExpired)`) name a file and an
-        # error class, never recognized text: forward those so a held file says why. Anything else stays unprinted.
-        for line in done.stderr.splitlines():
-            if OCR_TOOL_LINE.match(line):
-                print(f"pr-media privacy: {line}", file=sys.stderr, flush=True)
         raise RuntimeError(f"OCR exited {done.returncode}")
     return [line for line in done.stdout.splitlines() if not FRAME_SEPARATOR.match(line)]
 

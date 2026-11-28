@@ -160,16 +160,6 @@ impl Hub {
             if session.meta().status == SessionStatus::Closed {
                 return Err(super::super::queue::closing_error());
             }
-            // A chat being moved to another daemon (`transfer_out.rs`) takes no message: its
-            // record would be written after the bundle's log was read and stay behind on the
-            // tombstone. Refused, a relayed message stays leased and goes where the chat went
-            // once the move commits (`server/mesh_relay.rs` `forward_moved`); a local sender's
-            // outbox follows the refusal's `movedTo`. The super-highway ring lost the sends that
-            // reached a chat mid-move this way (2026-11-28). Auto mode's freeze moves nothing.
-            // Read here, then written below with no await between, as the close is.
-            if session.moving().is_some_and(|mark| mark != super::super::AUTO_AWAY) {
-                return Err(super::super::queue::moving_error(session));
-            }
             let now = now_ms();
             let verdict =
                 page_message.as_ref().and_then(|m| page_rule::judge(&inbox.folds, m, now));

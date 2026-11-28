@@ -609,26 +609,6 @@ impl Store for ForkView {
         }
         self.inner.scan(id, after.max(r.through_seq), visit)
     }
-    fn scan_raw(&self, id: &str, after: u64, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
-        // A fork's own log is read as its lines; one read from its source is read as `scan`
-        // reads it, each record serialized.
-        let _held = self.shared();
-        if self.reference(id)?.is_none() {
-            return self.inner.scan_raw(id, after, visit);
-        }
-        let mut failed = None;
-        self.scan(id, after, &mut |rec| match serde_json::to_vec(&rec) {
-            Ok(line) => visit(&line),
-            Err(e) => {
-                failed = Some(e);
-                false
-            }
-        })?;
-        match failed {
-            Some(e) => Err(e.into()),
-            None => Ok(()),
-        }
-    }
     fn scan_matching(
         &self,
         id: &str,
@@ -1121,9 +1101,6 @@ impl Store for ForkView {
     }
     fn briefs_path(&self) -> Option<PathBuf> {
         self.inner.briefs_path()
-    }
-    fn usage_tracker_dir(&self) -> Option<PathBuf> {
-        self.inner.usage_tracker_dir()
     }
     fn writes_history(&self) -> bool {
         self.inner.writes_history()

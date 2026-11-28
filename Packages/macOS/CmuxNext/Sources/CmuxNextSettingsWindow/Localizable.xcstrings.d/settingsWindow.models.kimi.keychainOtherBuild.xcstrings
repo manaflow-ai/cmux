@@ -7,7 +7,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Open the cmux build that saved this sign-in, disconnect it there, then connect it here again."
+            "value" : "Open the cmux build that saved this sign-in and disconnect it there before reconnecting here."
           }
         },
         "ar" : {

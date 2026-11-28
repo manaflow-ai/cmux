@@ -170,24 +170,6 @@ fn the_screen_host_unit_is_the_one_cmux_rd_writes() {
 }
 
 /// A scratch directory removed when dropped (no tempfile dependency).
-/// A person's pick names the glyph (Leo, 2026-10-20: "if you want to add your own icon for your
-/// machine, sure"); no file, an empty one or a typo keeps the detected kind.
-#[test]
-fn a_chosen_kind_names_the_glyph_and_a_typo_keeps_the_detected_one() {
-    let home = tempdir::Dir::new();
-    assert_eq!(chosen_kind_in(&home.0), None);
-    let file = home.0.join(CHOSEN_KIND_FILE);
-    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-    for kind in DeviceKind::ALL {
-        std::fs::write(&file, format!("{kind}\n")).unwrap();
-        assert_eq!(chosen_kind_in(&home.0), Some(kind));
-    }
-    for junk in ["", "  \n", "toaster", "Mac-Mini"] {
-        std::fs::write(&file, junk).unwrap();
-        assert_eq!(chosen_kind_in(&home.0), None, "{junk:?}");
-    }
-}
-
 mod tempdir {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};

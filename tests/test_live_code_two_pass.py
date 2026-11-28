@@ -77,30 +77,5 @@ class LiveCodeCheckTests(unittest.TestCase):
         self.assertEqual(missing, [SHORT])
 
 
-class PinStaticLink(unittest.TestCase):
-    """live_code_pin_static_link writes Package.swift's live code switch (it no longer rides Context.environment)."""
-
-    def pin(self, text):
-        with tempfile.TemporaryDirectory() as tmp:
-            manifest = os.path.join(tmp, "Package.swift")
-            with open(manifest, "w") as f:
-                f.write(text)
-            subprocess.run(["bash", "-c", 'source "$1"; live_code_pin_static_link "$2"; live_code_pin_static_link "$2"',
-                            "_", LIB, manifest], check=True, capture_output=True)
-            with open(manifest) as f:
-                return f.read()
-
-    def test_the_real_manifest_links_statically(self):
-        with open(os.path.join(ROOT, "Packages", "macOS", "CmuxNext", "Package.swift")) as f:
-            real = f.read()
-        pinned = self.pin(real)
-        self.assertNotIn('Context.environment["CMUX_LIVE_CODE_BUILD"]', pinned)
-        self.assertIn("let appLinksStatically = true", pinned)
-        self.assertEqual(len(pinned.splitlines()), len(real.splitlines()))
-
-    def test_a_manifest_without_the_switch_is_left_alone(self):
-        self.assertEqual(self.pin("let package = 1\n"), "let package = 1\n")
-
-
 if __name__ == "__main__":
     unittest.main()

@@ -25,8 +25,6 @@ cmux-cloud-machine = { path = "../cmux-cloud-machine" }
 cmux-cloud-start-core = { path = "../cmux-cloud-start-core" }
 cmux-cloud-tasks = { path = "../cmux-cloud-tasks" }
 cmux-error-journal = { path = "../cmux-error-journal" }
-# The feed push rules (src/feed_push.rs: `feed_push_*`), shared with the phones.
-cmux-feed-push-core = { path = "../cmux-feed-push-core" }
 cmux-focus-core = { path = "../cmux-focus-core" }
 cmux-imessage = { path = "../cmux-imessage" }
 cmux-layout-reducer = { path = "../cmux-layout-reducer" }

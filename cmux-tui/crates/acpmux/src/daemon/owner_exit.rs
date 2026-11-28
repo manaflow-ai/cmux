@@ -60,21 +60,9 @@ pub(super) fn follow() -> Option<(u32, watch::Receiver<bool>)> {
     let exe = std::env::var_os(OWNER_APP_EXE_ENV)
         .filter(|exe| !exe.is_empty())
         .map(std::path::PathBuf::from)
-        .or_else(|| process_exe(pid));
+        .or_else(|| crate::agent_host::tree::exe(pid));
     *owner() = Some(Owner { pid, exe, generation: 0 });
     watch_owner(pid, 0).then(|| (pid, GONE.subscribe()))
-}
-
-/// `pid`'s executable: `agent_host::tree` reads it on unix; Windows has no such reader yet, so the
-/// owner is followed by pid alone there and a relaunch is never adopted.
-#[cfg(unix)]
-fn process_exe(pid: u32) -> Option<std::path::PathBuf> {
-    crate::agent_host::tree::exe(pid)
-}
-
-#[cfg(not(unix))]
-fn process_exe(_pid: u32) -> Option<std::path::PathBuf> {
-    None
 }
 
 /// The pid of the owner followed now, if any.
@@ -126,7 +114,7 @@ pub(crate) fn adopt_if_relaunched(pid: u32) -> bool {
     if !owner_gone() || owner_pid(Some(&pid.to_string())).is_none() {
         return false;
     }
-    let Some(peer_exe) = process_exe(pid) else { return false };
+    let Some(peer_exe) = crate::agent_host::tree::exe(pid) else { return false };
     let generation = {
         let mut owner = owner();
         let Some(current) = owner.as_mut() else { return false };

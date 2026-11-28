@@ -54,7 +54,7 @@ static CAPTURE_TOKEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 impl Gate {
     fn policy_active(&self) -> bool {
         let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
-        policy.is_active()
+        policy.base().is_active() || policy.agent().is_active()
     }
 
     /// Refuses a cookie call the domain policy does not allow, before the

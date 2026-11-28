@@ -63,7 +63,6 @@ jobs:
             scripts/ci/ios_fast_dispatch.py
             scripts/ci/gh_http.py
             scripts/ci/deadline_http.py
-            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Resolve the PR's merge commit at the given head
@@ -122,7 +121,6 @@ jobs:
             scripts/ci/gh_http.py
             scripts/ci/deadline_http.py
             ci/steps.toml
-            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Post the verdict

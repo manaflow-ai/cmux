@@ -510,24 +510,7 @@ if (provider === "freestyle") {
     }
     const pin = await exec(`printf '%s  %s\\n' ${bakedSha} ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui | sha256sum -c >/dev/null 2>&1 && echo baked-pin-ok`, 30_000);
     if (pin.exitCode !== 0) {
-      // Name what replaced the baked file: its digest, size, mtime and build,
-      // the folders beside it, and any self-update the clone ran on its own.
-      const bin = `${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui`;
-      const why = await exec(
-        [
-          `ls -l --time-style=full-iso ${bin} ${DEVBOX_WORK_HOME}/.local/bin/ ${DEVBOX_WORK_HOME}/.cmux/bin/ 2>&1`,
-          `sha256sum "$(readlink -f ${bin})" 2>&1; stat -c 'size=%s mtime=%y' "$(readlink -f ${bin})" 2>&1`,
-          `${bin} --version 2>&1 | head -2`,
-          `ls -la ${DEVBOX_WORK_HOME}/.acpmux/ 2>&1 | head -30`,
-          `XDG_RUNTIME_DIR=/run/user/${DEVBOX_WORK_UID} setpriv --reuid=${DEVBOX_WORK_UID} --regid=${DEVBOX_WORK_UID} --init-groups systemctl --user list-timers --all --no-pager 2>&1 | head -15`,
-          `journalctl --no-pager -o short-iso _UID=${DEVBOX_WORK_UID} 2>/dev/null | grep -iE 'self-update|acpmux-update|cmux-tui (updated|replaced)|installed' | tail -25`,
-          `journalctl --no-pager -o short-iso 2>/dev/null | grep -iE 'acpmux-update' | tail -15`,
-        ].join("; echo ---; "),
-        60_000,
-      );
-      throw new Error(
-        `baked cmux-tui does not match the pin recorded at bake time (${bakedSha} ${bakedCommit}):\n${why.output.slice(-6000)}`,
-      );
+      throw new Error(`baked cmux-tui does not match the pin recorded at bake time: ${pin.output.slice(-500)}`);
     }
     const live = await resolveCmuxTuiSource("freestyle");
     console.log(

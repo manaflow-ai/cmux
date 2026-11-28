@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 use super::sender::{Answer, AttentionQueue, EventOutcome, EventQueue, OpRequest, Reporter};
 use super::wake_echo::WakeEcho;
 use super::wire::{
-    ACP_ACTIVITY_TTL_MS, ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY, ATTENTION_EMIT_OP,
-    Activity, ActivityChange, DaemonInfo, EVENT_EMIT_OP, activity_from_daemon,
+    ACP_ACTIVITY_TTL_MS, ATTENTION_EMIT_OP, Activity, ActivityChange, DaemonInfo, EVENT_EMIT_OP,
+    activity_from_daemon,
 };
 use super::workload::Workload;
 use serde_json::json;
@@ -165,19 +165,6 @@ impl AcpActivity {
 
 /// What a report's phases say for the sleep decision: relayed, and each turn's phase and since
 /// (a process count or an attached flag alone that changes rides along with the next report).
-/// Whether `next` lets the Cloud tell a machine's idle where `prev` did not: it gains `activity`
-/// (the stream went live) or `activity-turns` (acpmux's count is known). Until then the Cloud reads
-/// the machine as `blind_report` (cmux-platform `Census.ts` `blindCauseOf`) and never pauses it, so
-/// the report that gains either goes at once, past the 10 s floor (`Reporter::trigger_now`), as a
-/// machine running short does: a start's first report goes before the stream connects, and the
-/// floor kept every start blind for up to 10 s more.
-fn sight_gained(prev: &DaemonInfo, next: &DaemonInfo) -> bool {
-    let has = |d: &DaemonInfo, cap: &str| d.capabilities.iter().any(|c| c == cap);
-    [ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY]
-        .iter()
-        .any(|cap| has(next, cap) && !has(prev, cap))
-}
-
 fn phase_key(phases: &Option<Value>) -> Option<(bool, Vec<(String, u64)>)> {
     let phases = phases.as_ref()?;
     let turns = phases.field("turns").as_array()?;
@@ -240,22 +227,8 @@ impl Session {
     /// unchanged instance id) at wall-clock `wall`: one report named `resume`, and the wake's
     /// timing starts (`wake_echo.rs`).
     pub fn resume(&mut self, now: u64, wall: u64) -> Vec<OpRequest> {
-        self.resume_with_sockets(now, wall, None)
-    }
-
-    /// [`Session::resume`] with the sockets that may have woken the guest, read before any pooled
-    /// connection was dropped (`wake_sockets.rs`); they ride in the wake's block.
-    pub fn resume_with_sockets(
-        &mut self,
-        now: u64,
-        wall: u64,
-        sockets: Option<Value>,
-    ) -> Vec<OpRequest> {
         if let Some(ended) = self.wake.resumed(now, wall) {
             self.reporter.replace_wake(Some(ended));
-        }
-        if let Some(sockets) = sockets {
-            self.wake.sockets(sockets);
         }
         self.reporter.trigger("resume", now).into_iter().collect()
     }
@@ -306,12 +279,9 @@ impl Session {
     fn acp_refresh(&mut self, now: u64) -> Vec<OpRequest> {
         let daemon = self.daemon_now();
         let block_changed = &daemon != self.reporter.daemon();
-        let gained = sight_gained(self.reporter.daemon(), &daemon);
         self.reporter.replace_daemon(daemon);
         let mut out = self.acp_changed(now);
-        if gained && out.is_empty() {
-            out.extend(self.reporter.trigger_now("daemon", now));
-        } else if block_changed && out.is_empty() {
+        if block_changed && out.is_empty() {
             out.extend(self.reporter.trigger("daemon", now));
         }
         out
@@ -491,10 +461,6 @@ impl Session {
         let daemon = self.daemon_now();
         if &daemon == self.reporter.daemon() {
             return Vec::new();
-        }
-        if sight_gained(self.reporter.daemon(), &daemon) {
-            self.reporter.replace_daemon(daemon);
-            return self.reporter.trigger_now("daemon", now).into_iter().collect();
         }
         self.reporter.set_daemon(daemon, now).into_iter().collect()
     }
@@ -857,16 +823,10 @@ mod tests {
         let start = s.start(0);
         assert_eq!(start[0].params["daemon"]["version"], "0.1.0+aaaaaaaaaaaa");
         s.answered(&start[0], &ok(), 0, 0.5);
-        // The stream going live and acpmux's count each go at once (the report that ends blind).
-        for req in s.activity_stream(true, 1_000) {
-            s.answered(&req, &ok(), 1_000, 0.5);
-        }
-        for req in s.line(&acp(0, None), 2_000).0 {
-            s.answered(&req, &ok(), 2_000, 0.5);
-        }
-        for req in s.fire(20_000) {
-            s.answered(&req, &ok(), 20_000, 0.5);
-        }
+        s.activity_stream(true, 1_000);
+        s.line(&acp(0, None), 2_000);
+        let r = s.fire(20_000);
+        s.answered(&r[0], &ok(), 20_000, 0.5);
 
         // The same block (or the same one with activity capabilities) changes nothing.
         assert!(s.daemon_identified(&baked, 30_000).is_empty());
@@ -909,35 +869,6 @@ mod tests {
         let r = s.updater(Some(current.clone()), 50_000);
         assert_eq!(r.len(), 1, "a new outcome is reported");
         assert_eq!(r[0].params["updater"], current);
-    }
-
-    /// cmux-platform census 2026-11-28 13:35Z: `blind_report` was 0.050 of the hour's running
-    /// minutes, `no_stream` on 275 of its 470 machines. A start's first report goes before the
-    /// stream connects, so the report that turns `activity` on, and the one that turns
-    /// `activity-turns` on, each go at once rather than after the 10 s floor; a later change
-    /// that gains no sight still waits for it.
-    #[test]
-    fn the_report_that_ends_blind_goes_past_the_floor() {
-        let mut s = session();
-        let has = |r: &OpRequest, cap: &str| {
-            r.params["daemon"]["capabilities"].as_array().unwrap().iter().any(|c| c == cap)
-        };
-        for req in s.start(0) {
-            s.answered(&req, &ok(), 0, 0.5);
-        }
-        let r = s.activity_stream(true, 2_000);
-        assert_eq!(r.len(), 1, "the stream going live is reported at once, not at 10 s");
-        assert!(has(&r[0], ACTIVITY_CAPABILITY));
-        s.answered(&r[0], &ok(), 2_000, 0.5);
-
-        let r = s.line(&acp_from("/a.sock", 0), 3_000).0;
-        assert_eq!(r.len(), 1, "acpmux's count becoming known is reported at once");
-        assert!(has(&r[0], ACTIVITY_TURNS_CAPABILITY));
-        s.answered(&r[0], &ok(), 3_000, 0.5);
-
-        let r = s.line(&acp_from("/a.sock", 1), 4_000).0;
-        assert!(r.is_empty(), "a count change that gains no sight keeps the floor");
-        assert_eq!(s.fire(13_000).len(), 1, "and goes at the floor");
     }
 
     fn acp_from(daemon: &str, turns: u64) -> String {

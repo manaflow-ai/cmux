@@ -85,45 +85,6 @@ class ReadTest(unittest.TestCase):
             chat({"elements": [{"role": "AXTextArea", "label": "Type a question", "element_index": 3},
                                {"role": "AXButton", "label": "This Mac", "element_index": 4}]})
 
-    def toggle(self, screens):
-        """step_toggle on a stand-in chat whose tree is SCREENS[face] for the chip's face, plus the menu once open."""
-        state = {"face": "Auto · This Mac", "open": False}
-        chip = {"role": "AXPopUpButton", "label": rb.PLACE, "element_index": 1}
-        rows = {"Local": "local", "Auto": "auto"}
-
-        def nodes(pid):
-            seen = [chip, {"role": "AXStaticText", "value": state["face"]}]
-            if state["open"]:
-                seen += [{"role": "AXMenuItem", "title": label, "element_index": 10 + i} for i, label in enumerate(screens)]
-            return seen
-
-        def press(pid, element):
-            if element is chip:
-                state["open"] = True
-            elif element.get("title") in rows:
-                state["open"], state["face"] = False, "Local" if element["title"] == "Local" else "Auto · This Mac"
-            return {}
-        old = rb.nodes, rb.press, rb.dump, rb.lkr.cua, rb.time.sleep
-        rb.nodes, rb.press, rb.dump, rb.lkr.cua, rb.time.sleep = nodes, press, lambda *a, **k: {}, lambda *a, **k: {}, lambda s: None
-        try:
-            return rb.step_toggle(1, Path("/tmp"))
-        finally:
-            rb.nodes, rb.press, rb.dump, rb.lkr.cua, rb.time.sleep = old
-
-    def test_the_running_chat_turns_autocloud_off_and_back_on(self):
-        step = self.toggle(["Local", "Auto"])
-        self.assertNotIn("failure", step)
-        self.assertEqual(step["off"]["face_before"], "Auto · This Mac")
-        self.assertEqual(step["off"]["face_after"], "Local")
-        self.assertEqual(step["on"]["face_after"], "Auto · This Mac")
-        self.assertIsNotNone(step["off"]["face_s"])
-        self.assertIsNotNone(step["on"]["face_s"])
-
-    def test_a_menu_without_local_is_a_failure_the_step_keeps(self):
-        step = self.toggle(["Auto"])
-        self.assertIn("no 'Local' row", step["failure"])
-        self.assertNotIn("off", step)
-
     def test_the_copy_launches_with_the_accessibility_switch(self):
         script = (ROOT / "scripts/measure/cloud-mvp-nightly-readback.sh").read_text()
         self.assertIn('CMUX_NEXT_ACCESSIBILITY=1 "$side" launch', script)

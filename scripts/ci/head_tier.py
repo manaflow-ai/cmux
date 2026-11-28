@@ -855,37 +855,6 @@ def same_change_as(base: str, sha: str, first_parent: str) -> bool:
     return key is not None and own_patch_key(repo, base, first_parent, token) == key
 
 
-def pushed_on_top(before: str, sha: str, depth: int = 30) -> bool:
-    """Whether SHA is BEFORE plus one or more single-parent commits (git's first parents, read from the checkout,
-    fetching commits only, no trees, when missing) with a different tree: an ordinary push. The merge base with the
-    base is then the same and the tree is not, so the change is not BEFORE's, and same_patch_facts answers without its
-    two compare reads. Every workflow that tiers a push read both (two of the repository's GITHUB_TOKEN hour each, about
-    13 workflows a push); the hour ran dry about 8 min after each reset on 2026-11-28. False (read the compares) when
-    anything is unread, a merge is on the way, or BEFORE is not within DEPTH commits."""
-    try:
-        shallow = _git("rev-parse", "--is-shallow-repository").strip() == "true"
-
-        def commit(rev: str) -> tuple[str, list[str]]:
-            if subprocess.run(["git", "cat-file", "-e", f"{rev}^{{commit}}"], capture_output=True,
-                              timeout=30).returncode != 0:
-                _git("fetch", "--no-tags", "--quiet", *([f"--depth={depth + 1}"] if shallow else []),
-                     "--filter=tree:0", "origin", sha)
-            header = _git("cat-file", "commit", rev).partition("\n\n")[0].splitlines()
-            tree = next(line.split()[1] for line in header if line.startswith("tree "))
-            return tree, [line.split()[1] for line in header if line.startswith("parent ")]
-
-        head_tree, parents = commit(sha)
-        for _ in range(depth):
-            if len(parents) != 1:
-                return False
-            if parents[0] == before:
-                return commit(before)[0] != head_tree
-            parents = commit(parents[0])[1]
-    except (subprocess.SubprocessError, OSError, StopIteration, ValueError, IndexError):
-        return False
-    return False
-
-
 def same_patch_facts(event: dict) -> dict:
     """{"before", "same_patch_green"} for a synchronize event: whether the head's own change equals the previous
     head's (`before`) and every run at `before` passed. Reads nothing when `before` is not a commit."""
@@ -895,8 +864,6 @@ def same_patch_facts(event: dict) -> dict:
     base = str((pr.get("base") or {}).get("ref") or "")
     if not (re.fullmatch(r"[0-9a-f]{40}", before) and re.fullmatch(r"[0-9a-f]{40}", sha) and before != sha):
         return {}
-    if pushed_on_top(before, sha):
-        return {"before": before, "same_patch_green": False}
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
     key = own_patch_key(repo, base, sha, token)
@@ -918,30 +885,14 @@ def batch_post_merge_workflows(root: str | None = None) -> set[str]:
     """Workflow files that RFD 0013 puts after the merge (merge_tier.post_merge, switch on) and that a post-merge
     batch suite runs. Empty when either file is unreadable or the switch is off."""
     root = root or _repo_root()
-    checks = _load_at_head(root, ".github/post-merge-checks.json").get("merge_tier")
-    batch = _load_at_head(root, ".github/post-merge-batch.json").get("suites")
+    checks = _load(os.path.join(root, ".github", "post-merge-checks.json")).get("merge_tier")
+    batch = _load(os.path.join(root, ".github", "post-merge-batch.json")).get("suites")
     if not isinstance(checks, dict) or str(checks.get("switch") or "") != "on" or not isinstance(batch, dict):
         return set()
     listed = checks.get("post_merge")
     listed = set(listed) if isinstance(listed, (dict, list)) else set()
     run = {str(v.get("workflow") or "") for v in batch.values() if isinstance(v, dict)}
     return {str(w) for w in listed} & run
-
-
-def _load_at_head(root: str, rel: str) -> dict:
-    """ROOT/REL as JSON; when the worktree lacks it, the checked-out commit's copy (`git show HEAD:REL`). A reused
-    pool-VM workspace whose `git sparse-checkout reapply` refused ("not uptodate", cmux-tui-spec run 46148570367,
-    11-28 13:14Z) has the file in HEAD but not on disk: the rule read no config and planned `full` on every head."""
-    data = _load(os.path.join(root, rel))
-    if data:
-        return data
-    try:
-        out = subprocess.run(["git", "-C", root, "show", f"HEAD:{rel}"], capture_output=True, text=True,
-                             timeout=20, check=False)
-        parsed = json.loads(out.stdout) if out.returncode == 0 else {}
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
 
 
 def post_merge_tier(event_name: str, event: dict, workflow: str, switch: str | None = None,

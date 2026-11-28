@@ -402,13 +402,9 @@ test("turning Reduce Motion on mid-reply shows the whole reply and stops the rev
   expect(container.querySelectorAll(".cv-fresh").length).toBe(0);
   expect(pending.size).toBe(0);
 
-  // Unmounted, the row's own Reduce Motion listener goes. The page's one stays: the motion tokens'
-  // document watcher (ui/motion/motionTokens.ts epochOf, #52080), one per document for its life.
-  const mounted = motion.listeners.size;
   act(() => root!.unmount());
   root = undefined;
-  expect(motion.listeners.size).toBe(mounted - 1);
-  expect(motion.listeners.size).toBeLessThanOrEqual(1);
+  expect(motion.listeners.size).toBe(0);
 });
 
 // Text can render and have its pending frame cancelled before the reveal reads it. Turning Reduce

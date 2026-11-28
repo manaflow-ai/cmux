@@ -204,25 +204,6 @@ class TableTests(unittest.TestCase):
                       lines[2])
         self.assertIn('error: host did not listen', lines[3])
 
-    def test_build_only_copies_the_binary_and_measures_nothing(self):
-        import tempfile
-        from unittest import mock
-        with tempfile.TemporaryDirectory() as tmp:
-            built = Path(tmp) / 'built'
-            built.write_bytes(b'elf')
-            dest = Path(tmp) / 'out' / 'cmux-rd'
-            ok = mock.Mock(returncode=0, stderr='')
-            with mock.patch.object(rdnl, 'build', return_value=built) as build, \
-                    mock.patch.object(rdnl, 'run', return_value=ok), \
-                    mock.patch.object(rdnl, 'measure_binary') as measure:
-                self.assertEqual(rdnl.main(['--commit', 'a' * 40, '--out', str(Path(tmp) / 'o'),
-                                            '--build-only', str(dest)]), 0)
-            self.assertEqual(dest.read_bytes(), b'elf')
-            self.assertEqual(build.call_args.args[0], 'a' * 40)
-            measure.assert_not_called()
-            with self.assertRaises(SystemExit):
-                rdnl.main(['--commit', 'a' * 40, '--commit', 'b' * 40, '--out', tmp, '--build-only', str(dest)])
-
     def test_table_cli_reads_jsonl(self):
         import io, tempfile, contextlib
         with tempfile.TemporaryDirectory() as d:

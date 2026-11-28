@@ -183,11 +183,18 @@ pub(super) async fn claude_home(hub: &Hub, meta: &crate::store::SessionMeta) -> 
 }
 
 async fn ancestor_claude_home(hub: &Hub, meta: &crate::store::SessionMeta) -> Option<PathBuf> {
-    let (claude, env) = hub.launch_env(meta).await?;
-    if !claude {
+    let (profile, defaults) = {
+        let cfg = hub.config.read().await;
+        let profile =
+            super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                .ok()?;
+        (profile, cfg.defaults_for(&meta.harness))
+    };
+    let profile = hub.spawn_profile_for(meta, &profile, &defaults.env).await.ok()?;
+    if profile.kind != crate::config::HarnessKind::ClaudeStdio {
         return None;
     }
-    crate::harness_config::config_dir("CLAUDE_CONFIG_DIR", ".claude", &[&env])
+    crate::harness_config::config_dir("CLAUDE_CONFIG_DIR", ".claude", &[&profile.env])
 }
 
 /// An id that names one folder or file and nothing else: ASCII letters, digits, `-` and `_`.

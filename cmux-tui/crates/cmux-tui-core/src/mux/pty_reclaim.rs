@@ -21,13 +21,7 @@
 //! program reports a status, it is not kept), and it sits at its prompt and
 //! printed nothing for at least [`RECLAIM_MIN_IDLE`] (a background job that
 //! prints keeps it). The oldest prompt goes first. Nothing happens while PTYs
-//! are plentiful. At the limit (fewer than [`PTY_FLOOR`] free, or a launch just
-//! failed for lack of one) and with too few shells past that floor, the pass
-//! takes shells idle for [`RECLAIM_MIN_IDLE_AT_LIMIT`] too, still oldest prompt
-//! first and under every other rule: otherwise a burst of new workspaces (each
-//! a shell at its prompt) refused every one past the machine's 511 PTYs, with
-//! hundreds of shells nobody looked at (the infinite-tabs bench, 2026-11-28:
-//! 255 workspaces, then "527 PTYs open of 511" for each new one). Besides what the owner holds it reads only the child
+//! are plentiful. Besides what the owner holds it reads only the child
 //! processes of the shells it would park (cmux-next never scans every
 //! process, plans/cmux-next/pty-holder.md).
 //!
@@ -46,11 +40,6 @@ pub(crate) const PTY_RESERVE: usize = 64;
 pub(crate) const PTY_REFILL: usize = 128;
 /// The shortest time a shell must sit at its prompt to be parked.
 pub(crate) const RECLAIM_MIN_IDLE: Duration = Duration::from_secs(30 * 60);
-/// Free PTYs under which the machine counts as at its limit (module docs).
-pub(crate) const PTY_FLOOR: usize = 16;
-/// The shortest time at its prompt a shell needs to be parked at the limit, when too few have
-/// sat there for [`RECLAIM_MIN_IDLE`]: the alternative is a refused new terminal.
-pub(crate) const RECLAIM_MIN_IDLE_AT_LIMIT: Duration = Duration::from_secs(60);
 /// The most often the headroom is read when nothing failed.
 pub(crate) const RECLAIM_CHECK_EVERY: Duration = Duration::from_secs(2);
 
@@ -87,31 +76,25 @@ pub(crate) fn read_children(candidates: &mut [ReclaimCandidate]) {
 }
 
 /// The tab surfaces to park so `want` PTYs come free: oldest prompt first,
-/// only terminals that pass every rule in the module docs. `at_limit`: shells
-/// idle for [`RECLAIM_MIN_IDLE_AT_LIMIT`] fill what the longer floor leaves.
+/// only terminals that pass every rule in the module docs.
 pub(crate) fn pick_reclaim(
     candidates: &[ReclaimCandidate],
     now_ms: u64,
     want: usize,
-    at_limit: bool,
 ) -> Vec<SurfaceId> {
-    let floor = if at_limit { RECLAIM_MIN_IDLE_AT_LIMIT } else { RECLAIM_MIN_IDLE };
-    let floor_ms = floor.as_millis() as u64;
-    let long_ms = RECLAIM_MIN_IDLE.as_millis() as u64;
-    let idle_for = |at: u64| now_ms.saturating_sub(at);
-    let mut eligible: Vec<(bool, u64, &ReclaimCandidate)> = candidates
+    let min_idle = RECLAIM_MIN_IDLE.as_millis() as u64;
+    let mut eligible: Vec<(u64, &ReclaimCandidate)> = candidates
         .iter()
         .filter(|c| park_refusal(&c.facts, ParkRules::PRESSURE).is_none())
+        .filter(|c| c.last_output_ms.is_none_or(|at| now_ms.saturating_sub(at) >= min_idle))
         .filter(|c| !c.surfaces.is_empty())
         .filter_map(|c| {
             let since = c.facts.prompt_since_ms?;
-            let quiet = c.last_output_ms.map_or(u64::MAX, idle_for).min(idle_for(since));
-            // Past the long floor first; at the limit, past the short one after them.
-            (quiet >= floor_ms).then_some((quiet < long_ms, since, c))
+            (now_ms.saturating_sub(since) >= min_idle).then_some((since, c))
         })
         .collect();
-    eligible.sort_by_key(|(short, since, _)| (*short, *since));
-    eligible.into_iter().take(want).flat_map(|(_, _, c)| c.surfaces.iter().copied()).collect()
+    eligible.sort_by_key(|(since, _)| *since);
+    eligible.into_iter().take(want).flat_map(|(_, c)| c.surfaces.iter().copied()).collect()
 }
 
 /// Of `surfaces`, what `park-tabs` may park under `rules`, and each surface whose terminal
@@ -297,8 +280,7 @@ impl Mux {
             .unwrap_or(0);
         let mut candidates = self.reclaim_candidates(None);
         read_children(&mut candidates);
-        let at_limit = forced || max.saturating_sub(used) < PTY_FLOOR;
-        let surfaces = pick_reclaim(&candidates, now_ms, want, at_limit);
+        let surfaces = pick_reclaim(&candidates, now_ms, want);
         if surfaces.is_empty() {
             self.report_internal_diagnostic(format!(
                 "PTYs low ({used} of {max} in use) and no idle shell can be parked"

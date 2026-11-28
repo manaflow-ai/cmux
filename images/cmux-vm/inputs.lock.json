@@ -934,7 +934,6 @@
     {
       "name": "cmux-rd",
       "version": "0.2.9",
-      "pendingRelease": "0.2.10",
       "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.9/cmux-rd-0.2.9-x86_64-unknown-linux-gnu.tar.gz",
       "sha256": "09e4120d8428b2e7ce626e14dbbbb74e29f0a36c2ce5b4080c958fca4496305e",
       "size": 10234313,

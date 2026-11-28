@@ -107,51 +107,10 @@ fn a_frame_index_round_trips() {
         moved: 0.5,
         hash: u64::MAX,
         url: None,
-        shape: Some(7),
-        change: Some("+1 -1 +h1 Saved -h1 Save".into()),
     };
     let bytes = serde_json::to_vec(&vec![frame.clone()]).unwrap();
     let back: Vec<Frame> = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(back, vec![frame]);
-}
-
-/// The same picture is dropped unless the page's outline changed under it; with no outline on
-/// either side it is pixel-only, as before.
-#[test]
-fn the_same_picture_is_kept_only_when_its_outline_changed() {
-    let session = "ses_turn_frames_outline";
-    let dir = tempfile::tempdir().unwrap();
-    let picture = split(64, 32, 16);
-    let outline = |lines: &[&str]| shape::of_lines(lines.iter().map(|l| (*l).to_owned()).collect());
-    let first = Frame {
-        index: 0,
-        seq: 1,
-        trigger: "turn-start".into(),
-        at: 1,
-        width: 64,
-        height: 32,
-        distance: 0.0,
-        moved: 0.0,
-        hash: dhash(&picture),
-        url: None,
-        shape: None,
-        change: None,
-    };
-    let turn = Turn { id: "t1".into(), live: true, frames: vec![first], ..Default::default() };
-    turns().insert(session.to_owned(), turn);
-    shape::kept(session, "t1", Some(outline(&["h1 Draft", "button Save"])));
-    let same = Some(outline(&["h1 Draft", "button Save"]));
-    assert_eq!(keep(session, "t1", dir.path(), &picture, "edit", None, same), None);
-    assert_eq!(keep(session, "t1", dir.path(), &picture, "edit", None, None), None);
-    let saved = Some(outline(&["h1 Draft", "button Saved"]));
-    let frame = keep(session, "t1", dir.path(), &picture, "edit", None, saved.clone()).unwrap();
-    assert_eq!(frame.index, 1);
-    assert_eq!(frame.change.as_deref(), Some("+1 -1 +button Saved -button Save"));
-    assert_eq!(frame.shape, saved.as_ref().map(|s| s.hash));
-    assert_eq!(read_index(dir.path())[1].change, frame.change);
-    // The kept frame is the new last: the same outline again is dropped.
-    assert_eq!(keep(session, "t1", dir.path(), &picture, "turn-end", None, saved), None);
-    remove_session(session);
 }
 
 #[test]

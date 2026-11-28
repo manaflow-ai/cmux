@@ -194,35 +194,6 @@ class CompileErrorFailureTests(unittest.TestCase):
         self.assertFalse(self.compile_error([job(1, "build / build aarch64-apple-darwin", "success")], {1: E0599}))
 
 
-FIXTURES = ROOT / "tests/fixtures/cmux_tui_tree_handoff"
-
-
-class RedTreeFixtureTests(unittest.TestCase):
-    """RED_TREE_MARK: base-coalesce re-opens a window after a red and the next feat-cmux-next push built the same
-    tree key again. Only a compile red marks the key; a lost runner must still retry. The two logs are real jobs."""
-
-    def verdict(self, name):
-        text = (FIXTURES / name).read_text()
-        return handoff.job_compile_error(job(1, "build-linux / build x86_64-unknown-linux-musl", "failure", "Build"), text)
-
-    def test_a_compile_error_is_deterministic(self):
-        # Job 140738192295: cmux-vm error[E0061] x2, "could not compile `cmux-vm`".
-        self.assertTrue(self.verdict("compile-error-job-140738192295.log"))
-
-    def test_a_runner_shutdown_is_not(self):
-        # Job 140873130298: "The runner has received a shutdown signal", then "The operation was canceled".
-        self.assertFalse(self.verdict("runner-shutdown-job-140873130298.log"))
-
-    def test_a_runner_loss_after_a_compile_error_still_retries(self):
-        compile_log = (FIXTURES / "compile-error-job-140738192295.log").read_text()
-        for loss in ("##[error]The runner has received a shutdown signal. This can happen when the runner service is stopped",
-                     "##[error]The operation was canceled.",
-                     "The self-hosted runner: x lost communication with the server."):
-            text = compile_log + loss + "\n"
-            self.assertFalse(handoff.job_compile_error(job(1, "build / build aarch64-apple-darwin", "failure", "Build"),
-                                                       text), loss)
-
-
 class CandidateTests(unittest.TestCase):
     def test_order_skips_self_and_expired(self):
         artifacts = [marker(1, 10, "lane/x"), marker(2, 11), marker(3, 12), marker(4, 13, expired=True), marker(5, 99)]
@@ -248,8 +219,7 @@ class CommandTests(unittest.TestCase):
             gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
             Path(tmp, "state.json").write_text(json.dumps(state))
             env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "GH_TOKEN": token, "GH_TOKEN_SPARE": spare,
-                   "FAKE_STATE": str(Path(tmp, "state.json")), "FAKE_LOG": str(Path(tmp, "log")),
-                   "GITHUB_OUTPUT": str(Path(tmp, "output"))}
+                   "FAKE_STATE": str(Path(tmp, "state.json")), "FAKE_LOG": str(Path(tmp, "log"))}
             if not token:
                 env.pop("GH_TOKEN")
             result = subprocess.run([sys.executable, str(SCRIPT), "--repo", "o/r", "--run-id", "99", "--key", KEY, *extra],
@@ -258,8 +228,6 @@ class CommandTests(unittest.TestCase):
             calls = [json.loads(line) for line in log_path.read_text().splitlines()] if log_path.exists() else []
             # The token of each answered call, in order (the refused calls are in neither list).
             self.tokens = tokens_path.read_text().splitlines() if tokens_path.exists() else []
-            output = Path(tmp, "output")
-            self.outputs = dict(line.split("=", 1) for line in output.read_text().splitlines()) if output.exists() else {}
             return result, calls
 
     def test_reruns_the_newest_feat_run_under_the_cap_and_deletes_its_marker(self):
@@ -277,32 +245,6 @@ class CommandTests(unittest.TestCase):
         lists = [c for c in calls if c[0] == "api" and c[-1].endswith("per_page=100&page=1")]
         self.assertEqual(len(lists), 2, "jobs and artifacts are each one bounded page")
         self.assertFalse(any("--paginate" in c for c in calls))
-
-    def test_a_superseded_feat_run_is_not_rerun(self):
-        # Latest wins: a newer feat-cmux-next push at another commit builds its own tree, so an older deferred
-        # run is not rebuilt whole. Same-commit newest, other branches and an unreadable newest are re-run as before.
-        feat = {"status": "completed", "run_attempt": 1, "head_branch": "feat-cmux-next", "head_sha": "a" * 40}
-        newer = {"status": "in_progress", "run_attempt": 1, "head_branch": "feat-cmux-next", "head_sha": "b" * 40}
-        base = {"jobs_pages": [[job(1, "build", "failure", "cargo build")]], "artifacts": [marker(31, 12)]}
-        result, calls = self.run_handoff({**base, "runs": {"12": feat, "20": newer}, "run_list_ids": ["20"]})
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("superseded by run 20", result.stdout)
-        self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
-        for state in ({**base, "runs": {"12": feat, "20": dict(newer, head_sha="a" * 40)}, "run_list_ids": ["20"]},
-                      {**base, "runs": {"12": feat, "20": newer}, "run_list_ids": []},
-                      {**base, "runs": {"12": dict(feat, head_branch="main"), "20": newer}, "run_list_ids": ["20"],
-                       "artifacts": [marker(31, 12, "main")]}):
-            with self.subTest(state=state["runs"]["12"]["head_branch"]):
-                result, calls = self.run_handoff(state)
-                self.assertIn(["run", "rerun", "12", "--repo", "o/r"], calls, result.stdout + result.stderr)
-
-    def test_superseded(self):
-        run = {"id": 12, "head_branch": "feat-cmux-next", "head_sha": "a"}
-        self.assertTrue(handoff.superseded(run, {"id": 20, "head_sha": "b"}))
-        self.assertFalse(handoff.superseded(run, {"id": 20, "head_sha": "a"}))
-        self.assertFalse(handoff.superseded(run, {"id": 10, "head_sha": "b"}))
-        self.assertFalse(handoff.superseded(run, None))
-        self.assertFalse(handoff.superseded(dict(run, head_branch="main"), {"id": 20, "head_sha": "b"}))
 
     def test_quota_only_owner_hands_nothing_off(self):
         state = {"jobs_pages": [[job(2, "publish to R2", "failure", "Upload to R2")]],
@@ -322,8 +264,6 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Rust compile error", result.stdout)
         self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
-        # RED_TREE_MARK: the workflow marks the key, and a later push of the same key skips its builds.
-        self.assertEqual(self.outputs.get("red_tree"), "true")
         # Each log is read once though both checks read it.
         self.assertEqual(sum(1 for c in calls if c[-1].endswith("/jobs/1/logs")), 1)
 
@@ -579,32 +519,6 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("github.event_name == 'push'", step["if"])
         # The job still admits a dispatch only on the trunks, whose runs hold the claim.
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", notify["if"])
-
-    def test_a_compile_red_tree_key_skips_the_next_push_builds(self):
-        workflow = yaml.safe_load(WORKFLOW.read_text())
-        jobs = workflow["jobs"]
-        pre = jobs["tree-preflight"]
-        lookup = next(s for s in pre["steps"] if s.get("id") == "red-tree")
-        self.assertIn("actions/cache/restore@", lookup["uses"])
-        self.assertTrue(lookup["with"]["lookup-only"])
-        self.assertEqual(lookup["with"]["key"], "cmux-tui-red-tree-${{ steps.inspect.outputs.key }}")
-        # Only a first attempt of a feat-cmux-next push skips; a re-run always builds; the var turns it off.
-        for part in ("github.run_attempt == 1", "refs/heads/feat-cmux-next", "github.event_name == 'push'",
-                     "format('{0}', vars.NEXT_TUI_RED_TREE_SKIP) != '0'"):
-            self.assertIn(part, lookup["if"])
-        self.assertEqual(pre["outputs"]["red_known"], "${{ steps.red-tree.outputs.cache-hit }}")
-        for name in ("build-linux", "build", "build-windows", "cmux-next-daemon-tests"):
-            self.assertIn("needs.tree-preflight.outputs.red_known != 'true'", jobs[name]["if"], name)
-        # A skipped red still re-opens the window, so a new push (a new key) builds.
-        self.assertIn("needs.tree-preflight.outputs.red_known == 'true'", jobs["coalesce-failed"]["if"])
-        notify = jobs["notify-unpublished-tree"]
-        save = next(s for s in notify["steps"] if s.get("name") == "Save the compile-red marker")
-        self.assertIn("actions/cache/save@", save["uses"])
-        self.assertEqual(save["with"]["key"], "cmux-tui-red-tree-${{ needs.tree-preflight.outputs.key }}")
-        self.assertEqual(save["with"]["path"], lookup["with"]["path"])
-        self.assertIn("steps.handoff.outputs.red_tree == 'true'", save["if"])
-        hand = next(s for s in notify["steps"] if s.get("id") == "handoff")
-        self.assertIn("needs.tree-preflight.outputs.red_known != 'true'", hand["if"])
 
 
 if __name__ == "__main__":

@@ -208,6 +208,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/RemoteAcpmuxWire.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/UIPointerNativeElement.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentActivity/AgentActivityPageProvider.swift": {
   "JSON / property-list encode": 1
  },
@@ -431,6 +434,9 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/IncognitoWorkspaceLedger.swift": {
   "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Customization/SidebarCustomizationService.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppFailureCopy.swift": {
   "regular expression": 3
@@ -743,12 +749,16 @@
   "JSON / property-list decode": 1,
   "JSON / property-list encode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarDocStore+Intents.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarDocStore+PendingChief.swift": {
   "JSON / property-list decode": 2,
   "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarDocStore.swift": {
-  "JSON / property-list encode": 3
+  "JSON / property-list encode": 3,
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarMirror.swift": {
   "JSON / property-list decode": 2,
@@ -768,6 +778,9 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSession+CommentAnchor.swift": {
   "line split of a whole input": 1,
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSession+Output.swift": {
   "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/InstalledBuildRelaunch.swift": {
