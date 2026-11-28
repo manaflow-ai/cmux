@@ -5584,6 +5584,17 @@ class UnreadPartFirstTests(unittest.TestCase):
         self.assertEqual(state["history"][-1]["launch_dead"], ["switch"])
         self.assertTrue(cron.last_tip_launch_dead(state))
 
+    def test_a_launch_dead_tip_makes_the_tick_look_up_a_newer_tip(self):
+        # Before: the plan's newest gate lacked launch_dead_tip, so a launch-dead tip with no unread part never looked
+        # up a newer tip and supersede_for_unread's launch-dead branch could not fire. After: the gate asks for one.
+        state = self.launch_dead_tip_state()
+        self.assertTrue(cron.wants_newest(state, state["current"], self.NEW))
+        fresh = cron.empty_state(T0)
+        fresh["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1} for n in ALL if n != "build"}
+        cron.decide(fresh, T0, self.OLD, None, self.supported, None)
+        self.assertFalse(cron.wants_newest(fresh, fresh["current"], self.NEW), "a healthy tip needs no newer tip")
+        self.assertFalse(cron.wants_newest(fresh, {}, self.NEW))
+
     def test_a_second_tip_in_a_row_that_crashed_at_launch_keeps_its_parts(self):
         # The base is likely broken: the next tip would crash the same way, so the measurement keeps going.
         state = self.launch_dead_tip_state(history=[{"sha": "e" * 40, "kind": "tip", "launch_dead": ["motion"]}])
