@@ -136,7 +136,7 @@ import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { codeword, deviceHome as memoryDeviceHome, follow as memoryFollow, PROMPT as MEMORY_PROMPT, push as memoryPush, PUSH_STEP as MEMORY_PUSH_STEP, REPLY_STEP as MEMORY_REPLY_STEP, replyNamesCodeword } from "./cloud-memory-codeword.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
-import { EXEC_CONFORMANCE_CARGO_CASE, EXEC_CONFORMANCE_STEP, execConformanceCargoStart, execConformanceCargoWait, execConformanceCase, execConformanceOn, execConformanceProbe, JOURNEY_ACPMUX_DIR, JOURNEY_ACPMUX_MAX_BYTES, journeyAcpmuxAssemble, journeyAcpmuxPieces, parseCaseNames, parseRows, rowText, verdict } from "./cloud-journey-exec-conformance.ts";
+import { EXEC_CONFORMANCE_CARGO_CASE, EXEC_CONFORMANCE_STEP, execConformanceCargoStart, execConformanceCargoWait, execConformanceCase, execConformanceOn, execConformanceProbe, JOURNEY_ACPMUX_DIR, JOURNEY_ACPMUX_MAX_BYTES, journeyAcpmuxAssemble, journeyAcpmuxPieces, journeyAcpmuxWrite, parseCaseNames, parseRows, rowText, verdict } from "./cloud-journey-exec-conformance.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { pauseWithReconciliation, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
@@ -6690,7 +6690,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (execConformanceOn(process.env.CMUX_JOURNEY_EXEC_CONFORMANCE)) {
         await J.step(EXEC_CONFORMANCE_STEP, async () => {
           // The acpmux this job built from journey_ref, not the image's (cloud-journey-exec-conformance.ts).
-          let binNote = "";
           // The toolchain installs while the acpmux uploads; the wait below proves it before any case runs.
           const cargoStart = await exec(execConformanceCargoStart(), 60_000).catch((e: unknown) => ({ code: -1, stdout: "", stderr: String((e as Error)?.message ?? e) }));
           console.log(`[exec-conformance] ${cargoStart.stdout.split("\n").filter((l) => l.startsWith("@@ec")).join(" ")} ${cargoStart.code ? cargoStart.stderr.slice(-200) : ""}`);
@@ -6707,12 +6706,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             const pieces = journeyAcpmuxPieces(gz);
             await exec(`mkdir -p ${shq(JOURNEY_ACPMUX_DIR)}`, 30_000);
             // Four writes at a time: one after another, 22 pieces took 532 s of the step's 25 minutes (run 46159895648).
+            // Each write is tried up to JOURNEY_ACPMUX_WRITE_TRIES times: run 46172370728's first piece got one 502
+            // vm_unavailable, the upload gave up, and the image's acpmux (c6cd14b59, older than the fork route fix
+            // #64491) answered every fork with the owner API's empty 404.
             let next = 0;
             const writer = async () => {
               while (next < pieces.length) {
                 const p = pieces[next++];
-                const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: p.path, dataBase64: Buffer.from(p.data).toString("base64"), mode: 0o644 }, 120_000);
-                if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${p.path}: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
+                await journeyAcpmuxWrite(p.path, () => api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: p.path, dataBase64: Buffer.from(p.data).toString("base64"), mode: 0o644 }, 120_000));
               }
             };
             await Promise.all(Array.from({ length: Math.min(4, pieces.length) }, writer));
@@ -6721,8 +6722,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (a.code !== 0) throw new Error(`assemble exit ${a.code}: ${line} ${a.stderr.slice(-200)}`);
             console.log(`[exec-conformance] ${line} (${raw.length} bytes, ${pieces.length} pieces, ${Date.now() - t0} ms)`);
           } catch (e) {
-            binNote = `the journey's acpmux is NOT on the machine (${String((e as Error)?.message ?? e).slice(0, 200)}): the image's acpmux ran, so this run does not test journey_ref`;
-            console.log(`::warning::[exec-conformance] ${binNote}`);
+            // No row from the image's acpmux: it is not journey_ref's, so its rows prove nothing about the commit under
+            // test (run 46172370728 read a stale fork route's 404 and an old notice as differences).
+            const why = `journey acpmux not uploaded (${String((e as Error)?.message ?? e).slice(0, 300)}): no case ran, the image's acpmux is not journey_ref's`;
+            console.log(`::error::[exec-conformance] ${why}`);
+            throw new Error(why);
           }
           const probe = await exec(execConformanceProbe(), 60_000);
           const facts = probe.stdout.split("\n").filter((l) => l.startsWith("@@ec")).join(" ");
@@ -6760,12 +6764,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (!got.length) console.log(`[exec-conformance] ${name}: no row (exit ${r.code}) ${r.stdout.slice(-400)} ${r.stderr.slice(-400)}`);
             rows.push(...got);
           }
+          // A fork that failed: say where it went, for which machine, and what that machine's own platform route
+          // answers with the same token (a 404 there too means the id; a 200 means the fork route).
+          const forkFailed = rows.find((row) => row.routedCause?.startsWith("fork:"));
+          if (forkFailed) {
+            let platform = "(client-config unread)";
+            let probe = "";
+            try {
+              platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+              const g = await http("GET", `${platform}/v1/machines/${encodeURIComponent(created.id)}`, undefined, { authorization: `Bearer ${await forkToken()}`, ...(forkTeam ? { "x-cmux-team": forkTeam } : {}) }, 15_000);
+              probe = `GET ${platform}/v1/machines/${created.id} -> HTTP ${g.status} ${short(g.body).slice(0, 300)}`;
+            } catch (e) {
+              probe = `probe failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`;
+            }
+            console.log(`[exec-conformance] fork failed: machine=${created.id} CMUX_CLOUD_API_URL=${api.origin} team=${forkTeam ?? "(none)"} platform=${platform}; ${probe}; cause ${forkFailed.routedCause?.slice(0, 400)}`);
+          }
           const v = verdict(cases, rows);
           console.log(`[exec-conformance] summary: ${v.line}`);
           console.log(`[exec-conformance] ${EXEC_CONFORMANCE_CARGO_CASE}: ${v.cargo}`);
-          const tail = binNote ? `; ${binNote}` : "";
-          if (!v.ok) throw new Error(`${v.line}${tail}`);
-          return { value: { total: v.total, identical: v.identical, onRunVm: v.onRunVm }, detail: `${v.line}; ${v.cargo}${tail}` };
+          if (!v.ok) throw new Error(v.line);
+          return { value: { total: v.total, identical: v.identical, onRunVm: v.onRunVm }, detail: `${v.line}; ${v.cargo}` };
         });
       }
       // A person's own create that no spare serves: the create above asks the chat start size and claims a ready spare,

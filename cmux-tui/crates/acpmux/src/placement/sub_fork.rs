@@ -236,9 +236,16 @@ impl Machines for CloudMachines {
             args.insert("size".into(), Value::from(size));
         }
         request.args = args;
-        let answer = cmux_cloud_api::perform(&request, zeroize::Zeroizing::new(Vec::new()))
-            .await
-            .map_err(|f| Self::failure(&f, &request))?;
+        // The exact route in every refusal: run 46172370728 read only "the Cloud API answered
+        // HTTP 404", which cannot tell a stale owner-API route (pre-#64491) from a wrong id.
+        let url = format!(
+            "{}/v1/machines/{machine}/fork",
+            cmux_cloud_client::backend::platform_for(&request.api, |k| std::env::var(k).ok())
+        );
+        let answer =
+            cmux_cloud_api::perform(&request, zeroize::Zeroizing::new(Vec::new())).await.map_err(
+                |f| format!("POST {url} (machine {machine}): {}", Self::failure(&f, &request)),
+            )?;
         answer
             .get("id")
             .and_then(Value::as_str)
