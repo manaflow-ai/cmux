@@ -8,6 +8,12 @@ Reclaim disk taken by tagged dev artifacts from `./scripts/reload.sh --tag <tag>
 
 2. **Read the preview to the user.** Confirm the active tag and any tag they care about appears under `skipping:`.
 
+   The cleanup also protects tags in
+   `~/.cache/cmux-manager-loop/pinned-tags.txt` and tags referenced by an open
+   cmux PR's `http://127.0.0.1:17320/<tag>` dogfood URL in its body, comments,
+   or commits. If the GitHub scan is unavailable, the script fails closed and
+   skips every tag for that run.
+
 3. **Ask before deleting.** Never run `--apply` without explicit confirmation. Surface tags they may want to protect with `--keep <tag>`.
 
 4. **Apply.** `./scripts/cleanup-dev-builds.sh --apply`. Optional: `--keep <tag>` (repeatable) to protect specific tags, `--older-than <DAYS>` to skip recently touched artifacts.
