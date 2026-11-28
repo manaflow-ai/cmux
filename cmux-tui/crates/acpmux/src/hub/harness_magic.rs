@@ -42,6 +42,7 @@ pub(crate) const FEATURES: &[Feature] = &[
         on: crate::claude_stdio::path_rules_enabled,
     },
     Feature { name: "verify", on: super::verify::enabled },
+    Feature { name: crate::model_router::FEATURE, on: crate::model_router::enabled },
     Feature { name: "prefetch", on: super::prefetch::enabled },
     Feature { name: super::plan_first::FEATURE, on: super::plan_first::enabled },
     Feature { name: "surgery", on: super::surgery::enabled },
@@ -51,6 +52,7 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: super::turn_checkpoint::FEATURE, on: super::turn_checkpoint::enabled },
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
     Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
+    Feature { name: super::turn_artifacts::FEATURE, on: super::turn_artifacts::enabled },
     Feature { name: "consensus", on: super::surge_triage::consensus_enabled },
 ];
 

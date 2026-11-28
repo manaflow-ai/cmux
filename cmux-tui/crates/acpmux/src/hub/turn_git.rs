@@ -83,6 +83,8 @@ impl Hub {
         self.cache_alarm(session, &mut msg);
         self.turn_rules_end(session, &mut msg);
         self.plan_first_end(session, &mut msg);
+        // The turn's edits, tests and PRs as one card (`turn_artifacts.rs`).
+        super::turn_artifacts::stamp(&session.id, &mut msg);
         self.record_last_turn(session, &msg);
         // The chat's page after the turn (`turn_shots.rs`), taken once the result is written.
         let turn = msg.get("turnId").and_then(Value::as_str).map(str::to_owned);

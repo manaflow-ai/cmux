@@ -66,6 +66,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import load_modes  # noqa: E402
 from bench_launch import BenchApp, LaunchError, tag_of as bench_tag_of, tag_state_root  # noqa: E402
 from state_wait import wait_until, wait_stable  # noqa: E402
+from windowserver_metrics import parse_process_time
+from windowserver_gpu import GPUSampler  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FAKE_AGENT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "cmux-tui/crates/acpmux/tests/fake_agent.py")
@@ -161,7 +163,8 @@ parser.add_argument("--ab", help="a tunable key (debug.tunables) to measure off 
 parser.add_argument("--backdrops", default="default",
                     help="comma list of window backdrops, one launch each: default (the bench's config), opaque "
                          "(Opacity 1), opacity85 (Opacity 0.85, no picture), picture (van-gogh-starry-night at Opacity "
-                         "0.85). Each run's session is SESSION/BACKDROP; every measure records the app's and "
+                         "0.85), blur-none/blur-frosted/blur-glass/blur-glassClear (explicit material at opacity 0.85). "
+                         "Each run's session is SESSION/BACKDROP; every measure records the app's and "
                          "WindowServer's CPU over its keys, which is where a see-through terminal's compositing costs")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
@@ -768,64 +771,65 @@ def measure_agentpane(phase, pid, pane, streams=()):
     # For a launch-time --ab key, what this launch actually passed Chromium: the row carries it so no cell is read
     # as an arm's number before its switch is proven to have landed (`launch_switch_once`, one read per launch).
     switch_ok, switch_detail = launch_switch_once()
-    cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
-    stats_before = rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {}
-    before_keys = stats_before.get("keys", 0) if isinstance(stats_before, dict) else 0
-    clear_select = rpc("debug.key", dict(target, key="a", modifiers=["command"]), timeout=10)
-    clear_delete = rpc("debug.key", dict(target, key="delete"), timeout=10)
-    cleared = wait(lambda: (lambda report: report if report.get("composer_text") == "" and
-                             report.get("keys", 0) >= before_keys + 2 else None)(
-        rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 5, step=0.2)
-    reset_params = {"action": "reset_typing", "pane": pane}
-    if opts.prefill > 0:
-        reset_params["draft"] = opts.prefill
-    reset = rpc("debug.agent_pane", reset_params, timeout=30)
-    prefix_chars = (reset or {}).get("chars", 0) if opts.prefill > 0 else 0
-    rpc("debug.hangs", {"clear": True})
-    rpc("debug.timings", {"clear": True})
-    rpc("debug.frames", {"action": "start"})
-    sampler = None
-    if opts.sample and phase == "load":
-        sample_path = os.path.join(OUT, f"sample-{SESSION}-agentpane-{phase}.txt")
-        seconds = max(3, int(opts.samples * opts.interval))
-        sampler = (subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-file", sample_path],
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), sample_path)
-    expected = agent_expected_text(opts.samples)
-    dispatch, trips = [], []
-    probe = SchedProbe(pid, opts.samples * opts.interval)
-    probe.start()
-    send_start = time.monotonic()
-    for index, key in enumerate(expected):
-        deadline = send_start + index * opts.interval
-        time.sleep(max(0, deadline - time.monotonic()))
-        started = time.monotonic()
-        epoch_ms = time.time() * 1000
-        reply = rpc("debug.key", dict(target, key=key), timeout=10)
-        dispatch.append({"index": index, "key": key, "epoch_ms": epoch_ms,
-                         "late_ms": (started - deadline) * 1000,
-                         "rpc_ms": (time.monotonic() - started) * 1000, "reply": reply})
-        trips.append(dispatch[-1]["rpc_ms"])
-    probe.halt.set()
-    probe.join(timeout=10)
-    typing = wait(lambda: (lambda report: report if report.get("keys", 0) >= len(expected) else None)(
-        rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 15, step=0.25)
-    typing = typing or (rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {})
-    if streams:
-        for stream in streams:
-            stream.stop()
-    frames = rpc("debug.frames", {"action": "stop", "raw": True}, timeout=20)
-    hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
-    main_profile = None
-    if sampler:
-        try:
-            sampler[0].wait(timeout=opts.samples * opts.interval + 60)
-        except subprocess.TimeoutExpired:
-            sampler[0].terminate()
-        try:
-            main_profile = digest_sample(open(sampler[1], errors="replace").read())
-        except OSError:
-            main_profile = {"error": "sample output unavailable", "file": os.path.basename(sampler[1])}
-    cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
+    with GPUSampler() as gpu_sampler:
+        cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
+        stats_before = rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {}
+        before_keys = stats_before.get("keys", 0) if isinstance(stats_before, dict) else 0
+        clear_select = rpc("debug.key", dict(target, key="a", modifiers=["command"]), timeout=10)
+        clear_delete = rpc("debug.key", dict(target, key="delete"), timeout=10)
+        cleared = wait(lambda: (lambda report: report if report.get("composer_text") == "" and
+                                 report.get("keys", 0) >= before_keys + 2 else None)(
+            rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 5, step=0.2)
+        reset_params = {"action": "reset_typing", "pane": pane}
+        if opts.prefill > 0:
+            reset_params["draft"] = opts.prefill
+        reset = rpc("debug.agent_pane", reset_params, timeout=30)
+        prefix_chars = (reset or {}).get("chars", 0) if opts.prefill > 0 else 0
+        rpc("debug.hangs", {"clear": True})
+        rpc("debug.timings", {"clear": True})
+        rpc("debug.frames", {"action": "start"})
+        sampler = None
+        if opts.sample and phase == "load":
+            sample_path = os.path.join(OUT, f"sample-{SESSION}-agentpane-{phase}.txt")
+            seconds = max(3, int(opts.samples * opts.interval))
+            sampler = (subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-file", sample_path],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), sample_path)
+        expected = agent_expected_text(opts.samples)
+        dispatch, trips = [], []
+        probe = SchedProbe(pid, opts.samples * opts.interval)
+        probe.start()
+        send_start = time.monotonic()
+        for index, key in enumerate(expected):
+            deadline = send_start + index * opts.interval
+            time.sleep(max(0, deadline - time.monotonic()))
+            started = time.monotonic()
+            epoch_ms = time.time() * 1000
+            reply = rpc("debug.key", dict(target, key=key), timeout=10)
+            dispatch.append({"index": index, "key": key, "epoch_ms": epoch_ms,
+                             "late_ms": (started - deadline) * 1000,
+                             "rpc_ms": (time.monotonic() - started) * 1000, "reply": reply})
+            trips.append(dispatch[-1]["rpc_ms"])
+        probe.halt.set()
+        probe.join(timeout=10)
+        typing = wait(lambda: (lambda report: report if report.get("keys", 0) >= len(expected) else None)(
+            rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 15, step=0.25)
+        typing = typing or (rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {})
+        if streams:
+            for stream in streams:
+                stream.stop()
+        frames = rpc("debug.frames", {"action": "stop", "raw": True}, timeout=20)
+        hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
+        main_profile = None
+        if sampler:
+            try:
+                sampler[0].wait(timeout=opts.samples * opts.interval + 60)
+            except subprocess.TimeoutExpired:
+                sampler[0].terminate()
+            try:
+                main_profile = digest_sample(open(sampler[1], errors="replace").read())
+            except OSError:
+                main_profile = {"error": "sample output unavailable", "file": os.path.basename(sampler[1])}
+        cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
     frames_after = draw_on_input_frames()
     verdict = agent_typing_verdict(typing, expected, dispatch, prefix_chars)
     frame_report = frame_metrics(frames)
@@ -839,6 +843,7 @@ def measure_agentpane(phase, pid, pane, streams=()):
                   # The app's and WindowServer's CPU over the keys: a frame-pacing arm buys latency with
                   # frames nobody sees, so its cost belongs in the same row as its win (`--ab`).
                   "cpu_percent": cpu_share(cpu_start, cpu_end),
+                  "gpu": gpu_sampler.result,
                   "frame_timing": frame_timing_validity(phase, streams),
                   # `counter: false`: this engine has no draw-on-input counter, so the mode cannot be live here
                   # whatever a setting reads, and `drew: 0` with a counter means the mode was off or opted this page out.
@@ -1003,6 +1008,9 @@ def digest_sample(text):
 
 BACKDROPS = {"default": {}, "opaque": {"backgroundOpacity": 1}, "opacity85": {"backgroundOpacity": 0.85},
              "picture": {"background": "van-gogh-starry-night", "backgroundOpacity": 0.85}}
+BACKDROPS.update({"blur-" + material: {"background": "none", "backgroundOpacity": 0.85,
+                                      "backgroundBlur": material}
+                  for material in ("none", "frosted", "glass", "glassClear")})
 WINDOW_SERVER = None
 
 
@@ -1013,11 +1021,11 @@ def cpu_seconds(pid):
     out = subprocess.run(["ps", "-o", "cputime=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
     if not out:
         return None
-    parts = [float(x) for x in out.replace("-", ":").split(":")]
-    total = 0.0
-    for x in parts:
-        total = total * 60 + x
-    return total
+    try:
+        return parse_process_time(out)
+    except ValueError:
+        return None
+
 
 
 class SchedProbe(threading.Thread):
@@ -1084,9 +1092,23 @@ def window_server_pid():
     return int(out[0]) if out else None
 
 
+def backdrop_evidence():
+    windows = rpc("debug.themes").get("windows") or []
+    if not windows:
+        raise RuntimeError("native backdrop readback unavailable")
+    for window in windows:
+        backdrop = window.get("backdrop") or {}
+        if backdrop.get("blending") != "false" or backdrop.get("glassOverlay") != "":
+            raise RuntimeError("native backdrop is transitioning or its settled state is unverified")
+    return [{"window_number": window.get("window_number"), "backdrop": window["backdrop"]}
+            for window in windows]
+
+
 def measure(surface, phase, params, column, pid, streams=()):
     global WINDOW_SERVER
     WINDOW_SERVER = WINDOW_SERVER or window_server_pid()
+    appearance = BACKDROPS.get(SESSION.split("/", 1)[-1], {})
+    backdrop_before = backdrop_evidence() if "backgroundBlur" in appearance else None
     rpc("debug.hangs", {"clear": True})
     rpc("debug.timings", {"clear": True})
     rows_before = len(probe_rows())
@@ -1106,9 +1128,12 @@ def measure(surface, phase, params, column, pid, streams=()):
     # debug.view_churn (which views ask for display or layout while the keys are typed) exists only in a probe
     # build (scratch branch pl-typing-view-churn, never landed: a DEBUG swizzle of NSView); elsewhere this records the error.
     rpc("debug.view_churn", {"action": "start"})
-    cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
-    rows, trips, verdicts = type_keys(opts.samples, params, column)
-    cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
+    with GPUSampler() as gpu_sampler:
+        cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
+        rows, trips, verdicts = type_keys(opts.samples, params, column)
+        cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
+    gpu = gpu_sampler.result
+    backdrop_after = backdrop_evidence() if "backgroundBlur" in appearance else None
     wall = cpu_end[0] - cpu_start[0]
     share = lambda i: (round(100.0 * (cpu_end[i] - cpu_start[i]) / wall, 1)
                        if wall > 0 and cpu_end[i] is not None and cpu_start[i] is not None else None)
@@ -1153,6 +1178,10 @@ def measure(surface, phase, params, column, pid, streams=()):
                        "marks": {m: sum(bool(r.get(m)) for r in every) for m in marks}},
         "stream_replies": LOAD.get("stream_replies", [])[:4],
         "cpu_pct": {"app": share(1), "window_server": share(2), "seconds": round(wall, 2)},
+        "gpu": gpu,
+        "requested_appearance": appearance,
+        "backdrop_readback": {"before": backdrop_before, "after": backdrop_after},
+        "effective_material": None,  # no existing debug report exposes the window backdrop's native material
     }
     if sampler:
         try:
@@ -1491,6 +1520,9 @@ def run_session(session, phases=None, backdrop="default"):
                             SURFACES[surface](phase, app.pid)
                         except Exception as error:  # one surface failing must not hide the others
                             note(f"{session} {surface}.{phase}: failed: {error!r}")
+                            results.setdefault("surface_failures", []).append(
+                                {"session": SESSION, "surface": surface, "phase": phase, "round": ROUND,
+                                 "error": repr(error)})
                         if opts.ab:
                             arm = LAUNCH_ARM if launch_arm_key() else ARM
                             for row in results["runs"][first:]:

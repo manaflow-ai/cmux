@@ -722,6 +722,12 @@ fn a_commit_on_the_machine_fast_forwards_the_macs_branch() {
     let t = trip_or_skip!("commit", repo);
     write(&t.at("src/a.txt"), "alpha, committed on the machine\n");
     t.machine.side.git(&t.folder, &["commit", "-qam", "on the machine"]);
+    assert_eq!(
+        t.machine_status(),
+        "",
+        "machine index must match its commit before Bring Back: {}",
+        t.machine.side.git(&t.folder, &["diff", "--cached"])
+    );
     let answer = t.brought_back();
     assert_eq!(answer["fast_forwarded"], true, "{answer}");
     assert_eq!(
@@ -729,7 +735,14 @@ fn a_commit_on_the_machine_fast_forwards_the_macs_branch() {
         t.machine.side.git(&t.folder, &["rev-parse", "HEAD"])
     );
     assert_eq!(read(&t.mac("src/a.txt")), "alpha, committed on the machine\n");
-    assert_eq!(t.mac_status(), "");
+    assert_eq!(
+        t.mac_status(),
+        "",
+        "Bring Back: {answer}; machine index: {}; Mac index: {}; Mac staged diff: {}",
+        t.machine.side.git(&t.folder, &["ls-files", "--stage"]),
+        t.mac.git(&t.local, &["ls-files", "--stage"]),
+        t.mac.git(&t.local, &["diff", "--cached"])
+    );
     t.statuses_agree();
 }
 
@@ -815,12 +828,104 @@ fn a_second_bring_back_takes_the_later_edits() {
 fn a_bring_back_after_the_server_restarted_takes_the_later_edits() {
     let t = trip_or_skip!("restart", repo);
     write(&t.at("src/a.txt"), "alpha, first\n");
-    t.brought_back();
+    let first = t.brought_back();
+    assert_eq!(first["manifest_saved"], true, "first Bring Back: {first}");
+    assert_eq!(read(&t.mac("src/a.txt")), "alpha, first\n", "first Bring Back: {first}");
+    let baseline = read(&t.at(".git/cmux-sync.json"));
+    let state = t.machine.side.state.join("projections").join(t.projection_name());
+    let upper_base = state.join("upper/.git/cmux-sync.json");
+    assert_eq!(read(&upper_base), baseline, "sync base persisted before restart");
     let _server = t.restart_server();
+    assert_eq!(read(&upper_base), baseline, "sync base persisted after restart");
+    assert_eq!(read(&t.at(".git/cmux-sync.json")), baseline, "restart preserves the sync base");
+    assert_eq!(read(&t.mac("src/a.txt")), "alpha, first\n", "restart preserves local edits");
     write(&t.at("src/a.txt"), "alpha, second\n");
     let answer = t.brought_back();
     assert_eq!(read(&t.mac("src/a.txt")), "alpha, second\n", "{answer}");
     t.statuses_agree();
+}
+
+/// Leo, 2026-11-25: "we'll also presumably want to deal with various cases of like them maybe
+/// adding/removing folders and files per chat?" The folder is removed from its chat mid-turn,
+/// the agent holding a file open and writing: what it wrote before the removal is kept, every
+/// write after it is refused, nothing lands on the machine's disk outside the projection, and
+/// Bring Back takes the kept edits home. Adding the folder back serves it again, edits intact.
+#[test]
+fn a_folder_removed_mid_turn_keeps_its_edits_for_bring_back_and_refuses_later_writes() {
+    use std::io::Write as _;
+    let t = trip_or_skip!("removed", repo);
+    write(
+        &t.at("src/a.txt"),
+        "alpha, edited before the removal
+",
+    );
+    // Mid-turn: a tool has a file open and is writing it.
+    let mut held =
+        fs::OpenOptions::new().create(true).append(true).open(t.at("notes.txt")).unwrap();
+    held.write_all(b"written before\n").unwrap();
+    held.sync_all().unwrap();
+
+    let name = t.projection_name();
+    let output = t
+        .mac
+        .cmux()
+        .args(["link", "project", "detach", "--socket"])
+        .arg(&t.machine.dial)
+        .arg("--at")
+        .arg(&t.folder)
+        .args(["--chat", "chat-removing"])
+        .arg(&t.local)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let answer: Value =
+        serde_json::from_str(stdout.lines().last().unwrap_or("")).unwrap_or_default();
+    assert_eq!(answer["ok"], true, "detach: {stdout}{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(answer["was_mounted"], true, "{answer}");
+
+    // The write in flight is refused, not silently dropped.
+    let late = held.write_all(b"written after\n").and_then(|()| held.sync_all());
+    assert!(late.is_err(), "a write after the removal was taken");
+    drop(held);
+    // A new write to the removed folder fails; nothing appears on the machine's disk there.
+    assert!(fs::write(t.at("src/after.txt"), "after\n").is_err());
+    assert!(!t.at("src/after.txt").exists(), "a write after the removal landed on the disk");
+
+    // Bring Back of a removed folder reads its kept upper layer (`cmux link project back`, what
+    // Bring Back Local's `seed pull --or-copy` runs for a projected folder): the mount is gone.
+    // `--keep`, so the folder can be added back below with its layer.
+    let output = t
+        .mac
+        .cmux()
+        .args(["link", "project", "back", "--socket"])
+        .arg(&t.machine.dial)
+        .arg("--at")
+        .arg(&t.folder)
+        .arg("--keep")
+        .arg(&t.local)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let answer: Value =
+        serde_json::from_str(stdout.lines().last().unwrap_or("")).unwrap_or_default();
+    assert_eq!(
+        answer["ok"],
+        true,
+        "Bring Back: {stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(read(&t.mac("src/a.txt")), "alpha, edited before the removal\n", "{answer}");
+    assert_eq!(read(&t.mac("notes.txt")), "written before\n", "{answer}");
+    assert!(!t.mac("src/after.txt").exists(), "{answer}");
+
+    // Added back: served again under the same name (`--keep` left the kept layer and this Mac's
+    // record), the mount reads the kept edits.
+    assert_eq!(name, t.projection_name());
+    let _server = t.restart_server();
+    assert_eq!(read(&t.at("src/a.txt")), "alpha, edited before the removal\n");
+    write(&t.at("src/b.txt"), "bravo, after it came back\n");
+    let answer = t.brought_back();
+    assert_eq!(read(&t.mac("src/b.txt")), "bravo, after it came back\n", "{answer}");
 }
 
 /// A server [`Trip::restart_server`] started, ended when it drops.
