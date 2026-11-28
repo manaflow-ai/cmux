@@ -13,12 +13,13 @@ import { PlanBuildSplit } from "./PermissionCard";
 import { PaneMomentTips } from "./momentTips";
 import { momentTipsExperiment } from "./momentTips.experiment";
 import { MOMENT_TIP_ANCHORS, momentStreaming, momentTips } from "./momentTipsModel";
+import type { Translate } from "./i18n";
 
 const strings = (key: string) =>
   JSON.parse(readFileSync(join(import.meta.dir, "Localizable.xcstrings.d", `${key}.xcstrings`), "utf8")).strings[key]
     .localizations as Record<string, { stringUnit: { value: string } }>;
 const english = (key: string) => strings(key).en!.stringUnit.value;
-const TIPS = momentTips(english);
+const TIPS = momentTips(english as Translate);
 
 let dom: JSDOM;
 let clock: number;

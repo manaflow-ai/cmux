@@ -1,5 +1,5 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
-import { defineExperiment } from "../../../experiments/experiment";
+import { defineExperiment } from "../../experiments/experiment";
 
 /// Moment tips (momentTips.tsx): a feature tip shown when its situation is on screen, not at launch.
 /// Off until tested on a real install. Dogfood: set `cmux.experiments` to `{"moment-tips":"on"}` in

@@ -10,6 +10,7 @@
 //   SinceDivider.tsx, drawn only on a return with news and the away recap under the line).
 import type { TipAnchor } from "../../ui/featureTips/controller";
 import type { FeatureTipEntry } from "../../ui/featureTips/policy";
+import type { Translate } from "./i18n";
 
 /** The controls a moment tip points at, each drawn only in its situation. */
 export const MOMENT_TIP_ANCHORS: Readonly<Record<string, TipAnchor>> = {
@@ -18,8 +19,6 @@ export const MOMENT_TIP_ANCHORS: Readonly<Record<string, TipAnchor>> = {
   /** The Jump to new pill, only while shown (it is inert otherwise): a return to news. */
   "agent.sinceJump": { selector: ".acpmux-since-jump[data-shown] .acpmux-since-jump__body", side: "bottom" },
 };
-
-type Translate = (key: string) => string;
 
 /** The moment tips, in the pane's language. Ids are install records (Swift AgentPaneFeatureTipRecords):
  *  never rename one, or it shows again. */
