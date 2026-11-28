@@ -154,6 +154,9 @@ mio.workspace = true
 cmux-projection.workspace = true
 # The agent service's v2 list: the list callers' one source (server/agent_session_list_source.rs).
 acpmux-client = { path = "../acpmux-client", features = ["tokio"] }
+# Claude Code transcripts read into records, for a phone viewer drawn at its own grid
+# (server/agent_cli_phone.rs); the cmux-tui binary links acpmux already.
+acpmux = { path = "../acpmux", default-features = false }
 acpmux-list-types = { path = "../acpmux-list-types" }
 # The Cloud API calls the daemon's cloud.* ops answer (server/cloud_api.rs).
 cmux-cloud-api.workspace = true

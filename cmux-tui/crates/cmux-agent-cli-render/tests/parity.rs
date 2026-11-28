@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use cmux_agent_cli_render::claude::{self, Chrome};
+use cmux_agent_cli_render::claude_facts::ScreenFacts;
 use cmux_agent_cli_render::hybrid::{Delta, Overlay};
 use cmux_agent_cli_render::lean::{LeanDecoder, LeanEncoder};
 use cmux_agent_cli_render::stream::{FramePacer, HybridStream};
@@ -276,6 +277,8 @@ fn chrome(draft: &str) -> Chrome {
         utc_offset_minutes: 0,
         done_verb: None,
         placeholder: None,
+        spinner: None,
+        notice: None,
     }
 }
 
@@ -1318,6 +1321,41 @@ fn phone_chrome(name: &str, moment: &str, draft: &str) -> Chrome {
             "done" => v["placeholders"]["done"].as_str().map(str::to_owned),
             _ => None,
         },
+        spinner: None,
+        notice: None,
+    }
+}
+
+/// The facts read off the real screen are the ones the session had.
+fn check_facts(
+    name: &str,
+    moment: &str,
+    facts: &ScreenFacts,
+    truth: &Chrome,
+    failures: &mut Vec<String>,
+) {
+    let check = |failures: &mut Vec<String>, what: &str, got: Option<&str>, want: Option<&str>| {
+        if got != want {
+            failures.push(format!("{name} {moment}: screen fact {what} {got:?}, want {want:?}"));
+        }
+    };
+    if moment == "start" {
+        check(failures, "version", facts.version.as_deref(), truth.version.as_deref());
+        check(failures, "model line", facts.model_line.as_deref(), truth.model_line.as_deref());
+        check(failures, "effort", facts.effort.as_deref(), truth.effort.as_deref());
+        check(failures, "placeholder", facts.placeholder.as_deref(), truth.placeholder.as_deref());
+    }
+    if facts.prompt_seen {
+        check(failures, "mode", facts.mode.as_deref(), Some(truth.mode.as_str()));
+    }
+    if moment == "typed" && !truth.draft.starts_with(&facts.draft) {
+        failures.push(format!("{name} typed: draft {:?} is not the typed prompt", facts.draft));
+    }
+    if moment == "done" {
+        check(failures, "done verb", facts.done_verb.as_deref(), truth.done_verb.as_deref());
+        if facts.running {
+            failures.push(format!("{name} done: the screen still reads as running"));
+        }
     }
 }
 
@@ -1331,8 +1369,9 @@ fn claude_code_at_the_phones_grid_from_records() {
     .unwrap();
     let scratch = std::env::temp_dir()
         .join(format!("cmux-agent-cli-render-phone-{}.jsonl", std::process::id()));
-    let mut report =
-        String::from("| fixture | screen | live | seeded |\n| --- | --- | ---: | ---: |\n");
+    let mut report = String::from(
+        "| fixture | screen | live | seeded | screen facts |\n| --- | --- | ---: | ---: | ---: |\n",
+    );
     let mut failures = Vec::new();
     for name in &names {
         let session = load(&format!("phone/{name}"));
@@ -1347,8 +1386,13 @@ fn claude_code_at_the_phones_grid_from_records() {
                     .flatten()
             })
             .unwrap_or_default();
-        let mut totals = [(0, 0), (0, 0)];
+        let mut totals = [(0, 0), (0, 0), (0, 0)];
         let mut dumps = String::new();
+        // The chrome as the daemon builds it: only what the screen has shown so far.
+        let mut seen = Chrome {
+            utc_offset_minutes: phone_chrome(name, "", "").utc_offset_minutes,
+            ..Chrome::default()
+        };
         for (moment, t) in &session.moments {
             let mut term = terminal_at(cols, rows);
             for (at, bytes) in &session.chunks {
@@ -1362,24 +1406,36 @@ fn claude_code_at_the_phones_grid_from_records() {
             let (live, open) = live_records(&lines);
             let seeded = seeded_records(&lines, open, &scratch);
             let draft = if moment == "typed" { prompt.as_str() } else { "" };
-            let chrome = phone_chrome(name, moment, draft);
+            let mut chrome = phone_chrome(name, moment, draft);
+            // The spinner row is a host fact like the done verb: the screen's own cells.
+            chrome.spinner = ScreenFacts::read(&real).spinner;
             let a = real.parity(&claude::render(&live, &chrome, cols, rows));
             let seeded_grid = claude::render(&seeded, &chrome, cols, rows);
             let b = real.parity(&seeded_grid);
-            for (total, p) in totals.iter_mut().zip([a, b]) {
+            // The host's facts read off the real screen, as the daemon reads the Mac's.
+            let facts = ScreenFacts::read(&real);
+            facts.apply(&mut seen);
+            check_facts(name, moment, &facts, &chrome, &mut failures);
+            let c = real.parity(&claude::render(&seeded, &seen, cols, rows));
+            for (total, p) in totals.iter_mut().zip([a, b, c]) {
                 total.0 += p.0;
                 total.1 += p.1;
             }
-            report.push_str(&format!("| {name} | {moment} | {:.1}% | {:.1}% |\n", pct(a), pct(b)));
+            report.push_str(&format!(
+                "| {name} | {moment} | {:.1}% | {:.1}% | {:.1}% |\n",
+                pct(a),
+                pct(b),
+                pct(c)
+            ));
             dumps.push_str(&format!(
                 "  {name} {moment} (seeded):\n{}",
                 diff_rows(&real, &seeded_grid)
             ));
         }
-        let (live, seeded) = (pct(totals[0]), pct(totals[1]));
-        report.push_str(&format!("| {name} | all | {live:.1}% | {seeded:.1}% |\n"));
+        let (live, seeded, facts) = (pct(totals[0]), pct(totals[1]), pct(totals[2]));
+        report.push_str(&format!("| {name} | all | {live:.1}% | {seeded:.1}% | {facts:.1}% |\n"));
         println!("rows that differ, {name}:\n{dumps}");
-        for (kind, got) in [("live", live), ("seeded", seeded)] {
+        for (kind, got) in [("live", live), ("seeded", seeded), ("facts", facts)] {
             let floor = floors[name.as_str()][kind].as_f64().unwrap_or(0.0);
             if got + 0.05 < floor {
                 failures.push(format!("{name} {kind}: {got:.1}% under its floor {floor:.1}%"));

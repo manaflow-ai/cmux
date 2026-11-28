@@ -57,6 +57,12 @@ pub struct Chrome {
     /// The dim text in an empty prompt (a tip, or the model's suggested next prompt): the
     /// host's fact. None draws none.
     pub placeholder: Option<String>,
+    /// The spinner row as the host's screen draws it (`claude_facts`); None draws
+    /// `✻ Working…`.
+    pub spinner: Option<Vec<Cell>>,
+    /// A one-time notice the host drew under the banner, its rows at the host's width
+    /// (`claude_facts`): laid out again at this width.
+    pub notice: Option<Vec<Vec<Cell>>>,
 }
 
 /// One tool call, as its `tool_call` and `tool_call_update` records say.
@@ -168,6 +174,17 @@ fn items(records: &[Value]) -> (Vec<Item>, bool) {
 /// Draws Claude Code's screen for `records` (acpmux log records: `{kind, msg, at}`) on a
 /// `cols` x `rows` terminal.
 pub fn render(records: &[Value], chrome: &Chrome, cols: u16, rows: u16) -> Grid {
+    render_with_history(records, chrome, cols, rows).1
+}
+
+/// [`render`], and the rows above the screen, oldest first: what a viewer on the primary
+/// screen keeps in its own scrollback (the phone's agent terminal scrolls natively).
+pub fn render_with_history(
+    records: &[Value],
+    chrome: &Chrome,
+    cols: u16,
+    rows: u16,
+) -> (Vec<Vec<Cell>>, Grid) {
     let width = usize::from(cols);
     let (items, running) = items(records);
     let mut lines: Vec<Line> = Vec::new();
@@ -175,31 +192,44 @@ pub fn render(records: &[Value], chrome: &Chrome, cols: u16, rows: u16) -> Grid 
         banner(&mut lines, version, chrome, width);
         lines.push(Line::new());
     }
-    for item in &items {
+    if let Some(rows) = &chrome.notice {
+        notice(&mut lines, rows, width);
+    }
+    for (i, item) in items.iter().enumerate() {
+        // A turn that ended in an API error draws no done line.
+        let after_error = i
+            .checked_sub(1)
+            .and_then(|j| items.get(j))
+            .is_some_and(|prev| matches!(prev, Item::Answer(text) if is_api_error(text)));
+        if matches!(item, Item::Done { .. }) && after_error {
+            continue;
+        }
         lines.push(Line::new());
         match item {
             Item::Prompt(text) => prompt(&mut lines, text, width),
+            Item::Answer(text) if is_api_error(text) => error_answer(&mut lines, text, width),
             Item::Answer(text) => answer(&mut lines, text, width),
             Item::Tool(tool) => tool_lines(&mut lines, tool, chrome, width),
             Item::Done { started, ended } => done(&mut lines, *started, *ended, chrome),
         }
     }
+    if fullscreen(chrome) {
+        // The full-screen look pins the spinner to the input box (`fullscreen_box`).
+        return fullscreen_grid(lines, chrome, running, items.is_empty(), cols, rows);
+    }
     if running {
         lines.push(Line::new());
-        let mut l = Line::new();
-        l.push("✻", Style::fg(CLAUDE)).push(" ", Style::PLAIN).push("Working…", Style::fg(CLAUDE));
-        lines.push(l);
-    }
-    if fullscreen(chrome) {
-        return fullscreen_grid(lines, chrome, running, items.is_empty(), cols, rows);
+        lines.push(spinner(chrome));
     }
     input_box(&mut lines, chrome, running, width);
     let skip = lines.len().saturating_sub(usize::from(rows));
     let mut grid = Grid::blank(cols, rows);
-    for (slot, line) in grid.cells.iter_mut().zip(lines.into_iter().skip(skip)) {
+    let mut lines = lines.into_iter();
+    let history = lines.by_ref().take(skip).map(|line| line.into_row(width)).collect();
+    for (slot, line) in grid.cells.iter_mut().zip(lines) {
         *slot = line.into_row(width);
     }
-    grid
+    (history, grid)
 }
 
 /// Claude Code from 2.1.320 draws full-screen (the alternate screen): a blank first row, the
@@ -212,6 +242,29 @@ fn fullscreen(chrome: &Chrome) -> bool {
     parts.as_slice() >= [2, 1, 320].as_slice()
 }
 
+/// The spinner row: the host's own cells when it sent them, else `✻ Working…`.
+fn spinner(chrome: &Chrome) -> Line {
+    let mut l = Line::new();
+    match &chrome.spinner {
+        Some(cells) => {
+            // An empty cell is a blank, or the trailing half of a wide glyph.
+            let mut after_wide = false;
+            for cell in cells {
+                let spacer = after_wide && cell.text.is_empty();
+                after_wide = !spacer && crate::str_width(&cell.text) == 2;
+                if !spacer {
+                    l.push(if cell.text.is_empty() { " " } else { &cell.text }, cell.style);
+                }
+            }
+        }
+        None => {
+            l.push("✻", Style::fg(CLAUDE)).push(" ", Style::PLAIN);
+            l.push("Working…", Style::fg(CLAUDE));
+        }
+    }
+    l
+}
+
 fn fullscreen_grid(
     content: Vec<Line>,
     chrome: &Chrome,
@@ -219,7 +272,7 @@ fn fullscreen_grid(
     fresh: bool,
     cols: u16,
     rows: u16,
-) -> Grid {
+) -> (Vec<Vec<Cell>>, Grid) {
     let width = usize::from(cols);
     let mut top = vec![Line::new()];
     top.extend(content);
@@ -227,7 +280,10 @@ fn fullscreen_grid(
     let avail = usize::from(rows).saturating_sub(bottom.len());
     let skip = top.len().saturating_sub(avail);
     let mut grid = Grid::blank(cols, rows);
-    for (slot, line) in grid.cells.iter_mut().zip(top.into_iter().skip(skip)) {
+    let mut top = top.into_iter();
+    let mut history: Vec<Vec<Cell>> =
+        top.by_ref().take(skip).map(|line| line.into_row(width)).collect();
+    for (slot, line) in grid.cells.iter_mut().zip(top) {
         *slot = line.into_row(width);
     }
     // A box taller than the screen keeps its bottom rows (the newest draft rows and the footer).
@@ -236,7 +292,7 @@ fn fullscreen_grid(
     for (slot, line) in grid.cells.iter_mut().skip(first).zip(bottom.into_iter().skip(cut)) {
         *slot = line.into_row(width);
     }
-    for row in &mut grid.cells {
+    for row in grid.cells.iter_mut().chain(history.iter_mut()) {
         // The message gutter's dot only: a `●` the text itself holds stays.
         if let Some(gutter) = row.first_mut()
             && gutter.text == "●"
@@ -260,7 +316,7 @@ fn fullscreen_grid(
             cell.style.bg = truecolor(cell.style.bg);
         }
     }
-    grid
+    (history, grid)
 }
 
 /// The 24-bit color 2.1.332's dark theme draws for each 256-color index the 2.1.310 look uses.
@@ -291,8 +347,13 @@ fn truecolor(color: crate::Color) -> crate::Color {
 /// then.
 fn fullscreen_box(chrome: &Chrome, running: bool, fresh: bool, width: usize) -> Vec<Line> {
     let mut out = Vec::new();
+    if running {
+        // Claude Code 2.1.332 draws the spinner just above the box, after a blank row.
+        out.push(Line::new());
+        out.push(spinner(chrome));
+    }
     let mut e = Line::new();
-    if let Some(effort) = chrome.effort.as_deref().filter(|_| fresh) {
+    if let Some(effort) = chrome.effort.as_deref().filter(|_| fresh || running) {
         let right = format!("◐ {effort} · /effort");
         e.pad_to(width.saturating_sub(2 + crate::str_width(&right)), Style::PLAIN);
         e.push(&right, Style::fg(GRAY));
@@ -329,7 +390,7 @@ fn fullscreen_box(chrome: &Chrome, running: bool, fresh: bool, width: usize) -> 
     let amber = Style { fg: crate::Color::Rgb(255, 193, 7), ..Style::PLAIN };
     f.push(&format!("⏵⏵ {}", chrome.mode), amber);
     let hint = if running {
-        " · esc to interrupt"
+        " · esc to interrupt · ← for agents"
     } else if fresh {
         " (shift+tab to cycle) · ← for agents"
     } else {
@@ -401,6 +462,55 @@ fn prompt(lines: &mut Vec<Line>, text: &str, width: usize) {
 }
 
 /// Answer text: `code` spans in their color without the backticks, `**bold**` bold.
+/// Claude Code's own message for a failed request (`API Error: 502 ...`), stored in the
+/// transcript as the turn's answer.
+fn is_api_error(text: &str) -> bool {
+    text.starts_with("API Error")
+}
+
+/// An API error answer: dot and text in Claude Code's warning amber.
+fn error_answer(lines: &mut Vec<Line>, text: &str, width: usize) {
+    let amber = Style { fg: crate::Color::Rgb(255, 193, 7), ..Style::PLAIN };
+    for (i, row) in wrap(text.trim_end(), width.saturating_sub(2)).iter().enumerate() {
+        let mut l = Line::new();
+        l.push(if i == 0 { "●" } else { " " }, amber).push(" ", Style::PLAIN);
+        l.push(row, amber);
+        lines.push(l);
+    }
+}
+
+/// The host's notice, laid out at `width`: its rows joined into paragraphs (a row of a new
+/// style, or a link, starts one), each wrapped behind the notice's bar.
+fn notice(lines: &mut Vec<Line>, rows: &[Vec<Cell>], width: usize) {
+    let mut paragraphs: Vec<(Style, Style, String)> = Vec::new();
+    for row in rows {
+        let bar = row.first().map_or(Style::PLAIN, |c| c.style);
+        let body: Vec<&Cell> = row.iter().skip(2).collect();
+        let style = body.iter().find(|c| !c.is_blank()).map_or(Style::PLAIN, |c| c.style);
+        let text: String = body
+            .iter()
+            .map(|c| if c.text.is_empty() { " " } else { c.text.as_str() })
+            .collect::<String>()
+            .trim()
+            .to_owned();
+        match paragraphs.last_mut() {
+            Some((_, last, para)) if *last == style && !text.starts_with("http") => {
+                para.push(' ');
+                para.push_str(&text);
+            }
+            _ => paragraphs.push((bar, style, text)),
+        }
+    }
+    for (bar, style, text) in paragraphs {
+        for row in wrap(&text, width.saturating_sub(2)) {
+            let mut l = Line::new();
+            l.push("▎", bar).push(" ", Style::PLAIN);
+            l.push(&row, style);
+            lines.push(l);
+        }
+    }
+}
+
 fn answer(lines: &mut Vec<Line>, text: &str, width: usize) {
     let mut first = true;
     for para in text.trim_end().split('\n') {
