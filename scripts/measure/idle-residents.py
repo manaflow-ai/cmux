@@ -2,7 +2,8 @@
 """Resident agent harnesses on this host and what keeps each one up: what the lane cap should count.
 
 For every `acpmux __agent-host` this daemon runs (each is one session's harness, its session id in its
-environment, ACPMUX_SESSION_ID) it reads the whole process tree under it from /proc and joins it with
+environment, ACPMUX_SESSION_ID) it reads the process tree and the recorded harness PID
+(after custody recovery it may no longer be a child), deduplicates PIDs, and joins them with
 `acpmux ls --json --machine local`:
   status      the session's acpmux status (running, ready, idle, ...)
   idle_s      seconds since its last turn ended (None while one runs)
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+from pathlib import Path
 import json
 import os
 import subprocess
@@ -83,10 +85,75 @@ def is_mcp(cmd: str) -> bool:
     return "mcp" in cmd.lower() or "code-mode-host" in cmd
 
 
+def host_records(folder):
+    """Read only identity fields; never emit credentials stored alongside them."""
+    out = {}
+    for path in Path(folder).glob("*.json"):
+        try:
+            record = json.loads(path.read_text())
+            host = record.get("host_pid")
+            if isinstance(host, int):
+                out[host] = {k: record.get(k) for k in ("session_id", "harness_pid")}
+        except (OSError, ValueError, AttributeError):
+            continue
+    return out
+
+
+def process_rows(table, sessions, records, now, identify=session_of):
+    kids = collections.defaultdict(list)
+    for pid, info in table.items():
+        kids[info[0]].append(pid)
+    rows, counted = [], set()
+    for host, info in table.items():
+        if "__agent-host" not in info[2]:
+            continue
+        record = records.get(host, {})
+        harness = list(kids[host])
+        recorded = record.get("harness_pid")
+        sid = identify(host) or next((sid for sid in map(identify, harness) if sid), None)
+        # Custody leaves the harness orphaned. Match its session identity before trusting a PID
+        # from disk, which could have been reused since a stale record was written.
+        if (recorded in table and record.get("session_id")
+                and identify(recorded) == record["session_id"]
+                and (sid is None or sid == record["session_id"])):
+            if recorded not in harness:
+                harness.append(recorded)
+            sid = sid or record["session_id"]
+        tree, stack = set(), [host] + harness
+        while stack:
+            pid = stack.pop()
+            if pid in tree or pid in counted or pid not in table:
+                continue
+            tree.add(pid)
+            stack.extend(kids[pid])
+        if not tree:
+            continue
+        counted.update(tree)
+        session = sessions.get(sid or "", {})
+        below = {pid for pid in tree if table[pid][0] in harness}
+        extra = tree - set(harness) - {host}
+        non_mcp = [pid for pid in extra if not is_mcp(table[pid][2]) and not any(
+            is_mcp(table[parent][2]) for parent in ancestors(pid, table, host)
+            if parent in tree and parent not in harness)]
+        pin = "none" if not non_mcp else "wait" if all(is_wait(table[pid][2]) for pid in non_mcp) else "work"
+        ended = (session.get("lastTurn") or {}).get("endedAt")
+        status = session.get("status") or "?"
+        rows.append({
+            "session": sid, "name": session.get("name"), "status": status, "harness": session.get("harness"),
+            "idle_s": None if status == "running" or not ended else round((now - ended) / 1000),
+            "rss_mb": round(sum(table[pid][1] for pid in tree) / 1e6),
+            "cpu_s": round(sum(table[pid][3] for pid in tree), 1),
+            "procs": len(tree), "pin": pin, "below": len(below),
+        })
+    return rows
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rows", action="store_true")
     ap.add_argument("--ls", help="a saved `acpmux ls --json` instead of asking the daemon")
+    ap.add_argument("--hosts-dir", default=os.path.join(os.environ.get("ACPMUX_HOME", os.path.expanduser("~/.acpmux")), "hosts"),
+                    help="agent-host record directory for custody-recovered harness PIDs")
     a = ap.parse_args()
     raw = open(a.ls).read() if a.ls else subprocess.run(
         ["acpmux", "ls", "--json", "--machine", "local"], capture_output=True, text=True, timeout=120).stdout
@@ -96,34 +163,7 @@ def main() -> int:
         sessions[sid] = s
     now = time.time() * 1000
     table = procs()
-    kids = collections.defaultdict(list)
-    for p, v in table.items():
-        kids[v[0]].append(p)
-    rows = []
-    for host, v in table.items():
-        if "__agent-host" not in v[2]:
-            continue
-        tree, stack = [], [host]
-        while stack:
-            x = stack.pop()
-            tree.append(x)
-            stack += kids[x]
-        harness = kids[host]
-        sid = session_of(host) or next((x for x in map(session_of, harness) if x), None)
-        s = sessions.get(sid or "", {})
-        below = [x for h in harness for x in tree if table[x][0] == h]
-        extra = [x for x in tree if x not in harness and x != host]
-        non_mcp = [x for x in extra if not is_mcp(table[x][2]) and not any(
-            is_mcp(table[y][2]) for y in ancestors(x, table, host) if y not in harness)]
-        pin = "none" if not non_mcp else "wait" if all(is_wait(table[x][2]) for x in non_mcp) else "work"
-        ended = (s.get("lastTurn") or {}).get("endedAt")
-        status = s.get("status") or "?"
-        rows.append({
-            "session": sid, "name": s.get("name"), "status": status, "harness": s.get("harness"),
-            "idle_s": None if status == "running" or not ended else round((now - ended) / 1000),
-            "rss_mb": round(sum(table[x][1] for x in tree) / 1e6), "cpu_s": round(sum(table[x][3] for x in tree), 1),
-            "procs": len(tree), "pin": pin, "below": len(below),
-        })
+    rows = process_rows(table, sessions, host_records(a.hosts_dir), now)
     if a.rows:
         for r in sorted(rows, key=lambda r: (r["status"], -(r["idle_s"] or 0))):
             print(json.dumps(r))
