@@ -38,11 +38,14 @@ impl EffectiveSettings {
         let mut team = team.limited_to_catalog(schema);
         // Each layer's retired keys answer for the row that replaced them in that layer, so a
         // forced old key keeps its value and its lock (retired-keys.json `replaced_by`).
-        team.defaults = crate::schema::aliasing_replaced(&team.defaults);
-        team.enforced = crate::schema::aliasing_replaced(&team.enforced);
+        let policy_layer = |map: &BTreeMap<String, Value>| {
+            crate::managed::limit_github_login_policy(crate::schema::aliasing_replaced(map))
+        };
+        team.defaults = policy_layer(&team.defaults);
+        team.enforced = policy_layer(&team.enforced);
         let managed = &ManagedPreferences {
-            forced: crate::schema::aliasing_replaced(&managed.forced),
-            recommended: crate::schema::aliasing_replaced(&managed.recommended),
+            forced: policy_layer(&managed.forced),
+            recommended: policy_layer(&managed.recommended),
         };
         // The file's own old keys likewise answer for the row before a lower layer fills it.
         for replaced in crate::schema::replaced_keys() {

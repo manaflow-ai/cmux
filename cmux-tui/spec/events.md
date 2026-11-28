@@ -19,6 +19,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
 | Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
+| Control disconnect notice | No command; sent to a client another participant (or the client itself) disconnected with `detach-client` | `client-disconnected-by` |
 | Native owner inventory watch | Trusted Unix `agent-inventory-watch` with `agent-inventory-watch-v1` | `agent-inventory-changed`, `agent-inventory-watch-ended` |
 | Cloud machine state watch | Verified app `apps-machine-state-watch` with `apps-v1` | `apps-cloud-machine` |
 
@@ -93,6 +94,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `notification` | subscribe, byte attach, browser attach | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
 | `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
+| `client-disconnected-by` | control (targeted) | session | protocol 12 additive; only to the disconnected client, before its connection closes |
 | `terminal-input-unclaimed` | control | `terminal_id` | `terminal-input-while-creating-v1`; only to the connection that queued the bytes |
 | `terminal-clipboard-read` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the one frontend subscribed to the terminal |
 | `terminal-clipboard-read-cancelled` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the frontend that got the read |
@@ -1547,6 +1549,34 @@ Example:
 {"event":"daemon-shutdown"}
 ```
 
+### client-disconnected-by
+
+| Field | Value |
+| --- | --- |
+| event | `client-disconnected-by` |
+| status | implemented control event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"client-disconnected-by",by?:SizeDetachActor}
+```
+
+Meaning: Sent on the control queue of a client that a participant disconnected with
+`detach-client` (the whole client, not one view), before its connection closes. It is sent
+even when the client has not attached a terminal yet, so a client with no stream still learns
+why it was closed. `by` names the participant that asked (`user_id`, `display_name`,
+`device_name`); it is absent when the request named nobody. A client that receives it does not
+reconnect by itself. Each attached stream of the client also gets `detached` with
+`reason:"disconnected-by"`.
+
+Example:
+
+```json
+{"event":"client-disconnected-by","by":{"display_name":"Lawrence","device_name":"iPhone"}}
+```
+
 ### terminal-input-unclaimed
 
 | Field | Value |
@@ -1574,6 +1604,32 @@ Example:
 
 ```json
 {"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
+```
+
+### phone-open-link
+
+| Field | Value |
+| --- | --- |
+| event | `phone-open-link` |
+| status | implemented targeted control event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"phone-open-link",terminal_id:string,url:string}
+```
+
+Meaning: A program in terminal `terminal_id` asked a browser for `url` while this phone drove
+the terminal (`offer-link-to-phone`, [commands.md](commands.md#offer-link-to-phone)). Sent on the
+control queue of one connection of that phone that is attached to the terminal and declared
+`phone-open-link-v1` in `set-client-info`. The phone opens the page in its own browser; the
+Mac does not open it. Never replayed.
+
+Example:
+
+```json
+{"event":"phone-open-link","terminal_id":"term_0123456789abcdef0123456789abcdef","url":"https://github.com/login/device"}
 ```
 
 ### device-setup-step

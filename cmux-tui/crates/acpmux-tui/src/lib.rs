@@ -22,6 +22,7 @@
 use cmux_json::JsonSet as _;
 
 pub mod actions;
+mod agent_names;
 mod answering;
 mod capacity_wait;
 pub mod chat_find;
@@ -29,6 +30,8 @@ mod composer_draft;
 #[cfg(all(test, unix))]
 mod composer_draft_tests;
 mod events;
+mod failure_copy;
+mod live_line;
 pub mod new_line;
 mod reconnect_wait;
 mod run;
@@ -36,6 +39,8 @@ mod scheduler;
 mod start_wait;
 mod state;
 mod terminal;
+mod turn_fold;
+mod usage_reset;
 pub use run::run;
 
 /// Make this process's acpmux CLI open sessions in this terminal UI (`acpmux::tui_entry::run`).
@@ -50,15 +55,20 @@ fn entry(
     Box::pin(run(client, session))
 }
 pub use state::*;
+#[cfg(test)]
+mod bounds_tests;
 mod collapse;
 pub mod dialog;
 pub mod editor;
 mod keys;
 pub mod links;
 pub mod menu;
+mod modes;
 mod mouse;
 pub mod notify;
+mod paste_link;
 mod picker;
+mod picks_hold;
 pub mod render;
 pub use menu::{Menu, MenuAction};
 #[cfg(all(test, unix))]
@@ -149,6 +159,8 @@ impl Reread {
 
 /// Screen rects from the last frame, for mouse hit testing.
 pub struct App {
+    /// Requests started by this terminal UI end when it closes.
+    pub(crate) scope: cmux_scope::Scope,
     pub(crate) client: Arc<Client>,
     pub(crate) tx: mpsc::UnboundedSender<AppMsg>,
     pub sessions: Vec<Value>,
@@ -330,7 +342,8 @@ impl App {
         let next =
             (current as isize + delta).clamp(0, self.sidebar_nav.len() as isize - 1) as usize;
         self.sidebar_nav_pos = next;
-        match self.sidebar_nav[next].clone() {
+        let Some(item) = self.sidebar_nav.get(next).cloned() else { return };
+        match item {
             SidebarNav::Session(idx) => self.select(idx),
             SidebarNav::ShowMore(group) => {
                 self.expanded_groups.insert(group);
@@ -360,8 +373,8 @@ impl App {
         }
     }
     pub fn row_visible(&self, i: usize) -> bool {
-        if i < self.drafts.len() {
-            self.host_matches(self.drafts[i].peer.as_deref())
+        if let Some(draft) = self.drafts.get(i) {
+            self.host_matches(draft.peer.as_deref())
         } else {
             self.sessions
                 .get(i - self.drafts.len())
@@ -377,9 +390,8 @@ impl App {
         }
     }
     pub fn editor_mut(&mut self) -> &mut Editor {
-        if self.on_draft() {
-            let i = self.selected;
-            &mut self.drafts[i].text
+        if let Some(draft) = self.drafts.get_mut(self.selected) {
+            &mut draft.text
         } else {
             &mut self.input
         }
@@ -390,8 +402,8 @@ impl App {
     }
 
     fn take_prompt_images(&mut self) -> Vec<PromptImage> {
-        if self.on_draft() {
-            std::mem::take(&mut self.drafts[self.selected].images)
+        if let Some(draft) = self.drafts.get_mut(self.selected) {
+            std::mem::take(&mut draft.images)
         } else {
             std::mem::take(&mut self.input_images)
         }
@@ -421,7 +433,8 @@ impl App {
         for token in tokens {
             let token = token.trim_matches(|c| matches!(c, '"' | '\'' | '`'));
             let path = token.strip_prefix("file://").unwrap_or(token);
-            let path = if path.starts_with("localhost/") { &path[9..] } else { path };
+            let path =
+                path.strip_prefix("localhost").filter(|rest| rest.starts_with('/')).unwrap_or(path);
             let path = std::path::Path::new(path);
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
             let mime = match ext.as_str() {
@@ -449,8 +462,8 @@ impl App {
         if found.is_empty() {
             return false;
         }
-        if self.on_draft() {
-            self.drafts[self.selected].images.extend(found);
+        if let Some(draft) = self.drafts.get_mut(self.selected) {
+            draft.images.extend(found);
         } else {
             self.input_images.extend(found);
         }
@@ -809,7 +822,7 @@ impl App {
         }
         let Some(id) = self.selected_id() else { return };
         let Some(t) = self.transcripts.get(&id) else { return };
-        let Some(Item::Permission { id: pid, options, .. }) = t.pending_permission() else {
+        let Some(Item::Permission { id: pid, options, .. }) = live_permission(t) else {
             self.status = "no pending permission".into();
             return;
         };
@@ -846,6 +859,13 @@ fn session_route_id(session: &Value) -> Option<String> {
 /// A session or transcript status with a turn still open: running, or waiting on a permission.
 fn turn_open_status(status: &str) -> bool {
     matches!(status, "running" | "waiting")
+}
+
+/// The transcript's undecided permission or question, only while its turn is open (cmux#41497
+/// `liveAsk`): an ask left behind when the turn ended, failed or was cancelled is no longer real,
+/// so no card offers Allow for it and y/n answer nothing. A status not yet known keeps it.
+pub(crate) fn live_permission(t: &Transcript) -> Option<&Item> {
+    (t.status.is_empty() || turn_open_status(&t.status)).then(|| t.pending_permission()).flatten()
 }
 
 #[cfg(test)]
@@ -1168,12 +1188,15 @@ pub(crate) mod interaction_tests {
         app.sessions = vec![json!({"sessionId":"test-session","harness":"fake","cwd":root})];
         app.selected = 0;
         let mut transcript = Transcript::default();
-        transcript.available_commands = vec!["compact".into()];
+        transcript.available_commands = vec!["compact".into(), "review".into()];
+        transcript.command_descriptions.insert("compact".into(), "Summarize the chat".into());
         app.transcripts.insert("test-session".into(), transcript);
         app.open_palette();
-        assert!(
-            matches!(app.overlay,Overlay::Picker(ref p) if p.rows.iter().any(|r|r.value=="agent:/compact"))
-        );
+        // Each / row says what its command does when the harness says (#50541).
+        let Overlay::Picker(ref p) = app.overlay else { panic!("palette") };
+        let note = |v: &str| p.rows.iter().find(|r| r.value == v).map(|r| r.note.clone());
+        assert_eq!(note("agent:/compact").as_deref(), Some("Summarize the chat"));
+        assert_eq!(note("agent:/review").as_deref(), Some("provided by the selected harness"));
         app.overlay = Overlay::None;
         app.apply_pick(PickTarget::Action, "agent:/compact".into(), String::new());
         let msg = tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv())
@@ -1199,5 +1222,33 @@ pub(crate) mod interaction_tests {
         assert_eq!(blocks[1]["mimeType"], "image/png");
         assert!(!blocks[1]["data"].as_str().unwrap().is_empty());
         std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod live_permission_tests {
+    use super::*;
+
+    fn asking(status: &str) -> Transcript {
+        let mut t = Transcript::default();
+        t.items.push(Item::Permission {
+            id: "p1".into(),
+            title: "Run rm -rf build".into(),
+            options: vec![("a".into(), "Allow".into(), "allow_once".into())],
+            decided: None,
+            question: None,
+        });
+        t.status = status.into();
+        t
+    }
+
+    /// cmux#41497: an ask is drawn only while acpmux reports the chat running or waiting.
+    #[test]
+    fn an_ask_left_by_an_ended_turn_is_not_offered() {
+        assert!(live_permission(&asking("waiting")).is_some());
+        assert!(live_permission(&asking("running")).is_some());
+        assert!(live_permission(&asking("")).is_some());
+        assert!(live_permission(&asking("idle")).is_none());
+        assert!(live_permission(&asking("error")).is_none());
     }
 }

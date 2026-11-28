@@ -65,7 +65,7 @@ pub struct ChiefSettings {
     pub trust_agents: bool,
     /// The acpmux sessions whose messages the owner trusts
     /// (`relay.trustedAgents`): exact names or one `*` glob each. Default
-    /// [`DEFAULT_TRUSTED_AGENTS`]; the `contact` session is trusted too.
+    /// none ([`DEFAULT_TRUSTED_AGENTS`]); the `contact` session is trusted too.
     pub trusted_agents: Vec<String>,
     /// The MCP servers whose tools a trusted agent's turn may call through
     /// `mcp` (`relay.mcpServers`, action `call` only). Default none.
@@ -126,8 +126,11 @@ impl Default for ChiefSettings {
     }
 }
 
-/// The owner's coordinator sessions, by the fleet's naming (`<name>-coord`).
-pub const DEFAULT_TRUSTED_AGENTS: [&str; 1] = ["*-coord"];
+/// No agent session is trusted until the owner names it (or sets `contact`):
+/// a session's name is not a credential, so no naming scheme is trusted by
+/// default (Leo 2026-11-26: "identify all the weird opinoinated fleet things
+/// we shipped into the app and remove them"; it was the fleet's `*-coord`).
+pub const DEFAULT_TRUSTED_AGENTS: [&str; 0] = [];
 
 fn default_trusted_agents() -> Vec<String> {
     DEFAULT_TRUSTED_AGENTS
@@ -444,10 +447,10 @@ mod trusted_agent_tests {
     use super::*;
 
     #[test]
-    fn coordinator_sessions_are_trusted_by_default_and_others_are_not() {
+    fn no_session_is_trusted_by_default() {
         let s = ChiefSettings::default();
-        assert!(s.trusts_agent("claude-sr2-coord"));
-        assert!(s.trusts_agent("big-red/claude-sr2-coord"));
+        assert!(!s.trusts_agent("claude-sr2-coord"));
+        assert!(!s.trusts_agent("peer/claude-sr2-coord"));
         assert!(!s.trusts_agent("lane-a"));
         assert!(!s.trusts_agent("coord-lane"));
         assert!(!s.trusts_agent(""));

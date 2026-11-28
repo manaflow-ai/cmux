@@ -53,34 +53,32 @@ def inputs_text(revision: str) -> str:
     return INPUTS.read_text(encoding="utf-8")
 
 
-def tree_objects(revision: str) -> dict[str, tuple[str, str, str]] | None:
-    """Resolve all regular input paths with one tree walk.
+def tree_objects(revision: str, paths: list[str]) -> dict[str, tuple[str, str, str]] | None:
+    """Resolve the input paths with two listings limited to them.
 
     The key input list is read for every tree-key lookup, and callers invoke
     this script repeatedly while routing a build. Resolving each path with a
     separate ``git rev-parse`` made that cost grow linearly with the list. A
-    recursive tree listing gives the same object ids in one process. The
-    root listing retains top-level gitlinks, which ``ls-tree -r`` omits.
-    ``None`` keeps the per-path fallback for partial checkouts whose tree
+    listing restricted to the input paths gives the same object ids in one
+    process; ``-d`` names a directory input itself where the plain listing
+    shows its children. A whole-tree ``ls-tree -r`` (82k entries, twice) was
+    0.21 s of each 0.27 s key, and the nightly's fallback search keys up to 300
+    commits three ways on the path to the signer (run 45941175424: 217 s). A
+    path neither listing names (a directory input beside one of its own
+    children in the list) takes the per-path ``rev-parse`` in tree_key.
+    ``None`` keeps that per-path fallback for partial checkouts whose tree
     cannot be listed in one pass.
     """
+    wanted = set(paths)
+    env = {**GIT_ENV, "GIT_LITERAL_PATHSPECS": "1"}
     try:
         listings = [
             subprocess.check_output(
-                ["git", "-C", str(ROOT), "ls-tree", "-z", "--full-tree", revision],
-                env=GIT_ENV,
+                ["git", "-C", str(ROOT), "ls-tree", "-z", *flags, "--full-tree", revision, "--", *sorted(wanted)],
+                env=env,
                 timeout=GIT_TIMEOUT_SECONDS,
-            ),
-            subprocess.check_output(
-                ["git", "-C", str(ROOT), "ls-tree", "-z", "-r", "--full-tree", revision],
-                env=GIT_ENV,
-                timeout=GIT_TIMEOUT_SECONDS,
-            ),
-            subprocess.check_output(
-                ["git", "-C", str(ROOT), "ls-tree", "-z", "-d", "-r", "--full-tree", revision],
-                env=GIT_ENV,
-                timeout=GIT_TIMEOUT_SECONDS,
-            ),
+            )
+            for flags in ((), ("-d",))
         ]
     except subprocess.SubprocessError:
         return None
@@ -90,9 +88,12 @@ def tree_objects(revision: str) -> dict[str, tuple[str, str, str]] | None:
         for record in listing.split(b"\0"):
             if not record:
                 continue
-            header, path = record.split(b"\t", 1)
+            header, raw_path = record.split(b"\t", 1)
+            path = raw_path.decode("utf-8")
+            if path not in wanted:
+                continue
             mode, object_type, object_id = header.decode("ascii").split()
-            resolved[path.decode("utf-8")] = (mode, object_type, object_id)
+            resolved[path] = (mode, object_type, object_id)
     return resolved
 
 
@@ -104,12 +105,10 @@ def tree_key(revision: str, version: str = "v2") -> str:
     except subprocess.CalledProcessError:
         raise RuntimeError(f"{revision} is not a commit in this checkout; fetch it first") from None
     entries: dict[tuple[str, ...], tuple[str, str, str]] = {}
-    resolved_objects = tree_objects(revision)
-    for raw in inputs_text(revision).splitlines():
-        raw = raw.strip()
-        if not raw or raw.startswith("#"):
-            continue
-        kind, path = raw.split(maxsplit=1)
+    inputs = [tuple(line.split(maxsplit=1)) for line in (raw.strip() for raw in inputs_text(revision).splitlines())
+              if line and not line.startswith("#")]
+    resolved_objects = tree_objects(revision, [path for _, path in inputs])
+    for kind, path in inputs:
         if version != "v1" and (kind, path) in V1_ONLY_INPUTS:
             continue
         parts = tuple(path.split("/"))

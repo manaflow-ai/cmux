@@ -17,9 +17,16 @@ The CmuxMobileKit tests are also the `ios-kit` step of ci/steps.toml on a feat-c
 `inputs` are held to the same set (its `ignore` drops notes and cmux-next-ios/verify/ evidence, as the workflow's
 negations do).
 
+The Rust side is held the same way: the kit links CmuxMobileLinkFFI, built from cmux-mobile-link-ffi and every
+crate it compiles, read from the Cargo graph by scripts/ci/ios_link_ffi_key.py (its `closure`). Each of those
+outside cmux-next-ios/ (the cmux-tui crates and vendored crates, their workspace manifests and locks, the pinned
+toolchain) must be a `ios-kit` input, and no cmux-tui crate the FFI does not compile may be one, so a crate an iOS
+PR shares with cmux-tui starts the iOS checks (cmux#55399: a cmux-tui crate change broke the iOS build, nothing iOS
+ran) and a new shared crate is named here the day the FFI links it.
+
 Usage:
   scripts/ci/ios_app_package_paths.py           print the `<package>/**` lines
-  scripts/ci/ios_app_package_paths.py --resources  print the kit push resource re-includes
+  scripts/ci/ios_app_package_paths.py --rust    also print the ios-kit Rust input lines (toml form)
   scripts/ci/ios_app_package_paths.py --check   exit 1 and list each drift
 """
 
@@ -33,15 +40,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ci_steps  # noqa: E402
+import ios_link_ffi_key  # noqa: E402
 
 # The app's manifests: the XcodeGen project and the kit package.
 APP_MANIFESTS = ("cmux-next-ios/project.yml", "cmux-next-ios/CmuxMobileKit/Package.swift")
 
-# Workflows whose pull_request and push filters must name exactly the app's packages.
-WORKFLOWS = (".github/workflows/ios-review-gate.yml", ".github/workflows/cmux-next-ios-kit.yml")
-# The triggers each workflow filters. The kit workflow keeps only its push: a feat-cmux-next pull request runs
-# the kit as TABLE_STEP (pr-pipeline.yml's ios job).
-WORKFLOW_EVENTS = {".github/workflows/cmux-next-ios-kit.yml": ("push",)}
+# Workflows whose pull_request and push filters must name exactly the app's packages. cmux-next-ios-kit.yml has
+# no path filter left: a feat-cmux-next pull request runs the kit as TABLE_STEP (pr-pipeline.yml's ios job) and the
+# push runs it in the post-merge batch (suite pr-pipeline-ios, gated on the same step inputs).
+WORKFLOWS = (".github/workflows/ios-review-gate.yml",)
+# The triggers each workflow filters (default: both).
+WORKFLOW_EVENTS: dict[str, tuple[str, ...]] = {}
 # The step table and its step whose `inputs` must name exactly the app's packages.
 TABLE = "ci/steps.toml"
 TABLE_STEP = "ios-kit"
@@ -92,11 +101,6 @@ def app_packages(root: Path = ROOT) -> list[str]:
     return sorted(found)
 
 
-def kit_resource_paths(packages: list[str]) -> list[str]:
-    """Re-include bundled Markdown after the kit push filter excludes general notes."""
-    return [pkg + "/**/Resources/**" for pkg in packages if pkg.startswith(("Packages/Shared/", "Packages/iOS/"))]
-
-
 def workflow_filters(text: str) -> dict[str, list[str]]:
     """The `paths:` list of each pull_request and push trigger in a workflow's `on:` block."""
     out: dict[str, list[str]] = {}
@@ -125,33 +129,68 @@ def workflow_filters(text: str) -> dict[str, list[str]]:
     return out
 
 
-def check(root: Path = ROOT) -> list[str]:
+# Rust package directories the filter may only name when the FFI compiles them.
+RUST_ROOTS = ("cmux-tui/crates/", "cmux-tui/vendor/")
+
+
+def rust_inputs(packages: list[str], roots: list[str]) -> list[str]:
+    """The ios-kit input patterns the FFI's Cargo closure needs outside cmux-next-ios/ (which `cmux-next-ios/**`
+    covers): each package's tree, each workspace root's manifest and lock, the fixed files the build reads."""
+    want = {f"{pkg}/**" for pkg in packages}
+    for root in roots:
+        want |= {f"{root}/Cargo.toml", f"{root}/Cargo.lock"}
+    want |= set(ios_link_ffi_key.FIXED)
+    return sorted(p for p in want if not p.startswith("cmux-next-ios/"))
+
+
+def ffi_closure(root: Path) -> tuple[list[str], list[str]]:
+    """ios_link_ffi_key.closure at HEAD, read in ROOT's repository."""
+    cwd = Path.cwd()
+    try:
+        import os
+        os.chdir(root)
+        return ios_link_ffi_key.closure("HEAD")
+    finally:
+        os.chdir(cwd)
+
+
+def check(root: Path = ROOT, rust: tuple[list[str], list[str]] | None = None) -> list[str]:
+    """Drift in each filter. RUST is the FFI's (packages, roots); None reads it from ROOT's git HEAD when ROOT is a
+    checkout with the FFI (a test's bare tree skips the Rust half)."""
     pkgs = app_packages(root)
     want = {p + "/**" for p in pkgs}
     problems: list[str] = []
     if not pkgs:
         return [f"no local packages found in {', '.join(APP_MANIFESTS)}"]
-    filters: list[tuple[str, list[str] | None, set[str]]] = []
+    filters: list[tuple[str, list[str] | None]] = []
     for wf in WORKFLOWS:
         found = workflow_filters((root / wf).read_text())
         for event in WORKFLOW_EVENTS.get(wf, ("pull_request", "push")):
-            expected = want
-            if wf == ".github/workflows/cmux-next-ios-kit.yml":
-                expected = want.union(kit_resource_paths(pkgs))
-            filters.append((f"{wf}: {event}", found.get(event), expected))
+            filters.append((f"{wf}: {event}", found.get(event)))
+    step = None
     if (root / TABLE).is_file():
         step = ci_steps.load(root / TABLE).steps.get(TABLE_STEP)
-        filters.append((f"{TABLE}: step {TABLE_STEP}", list(step.inputs) if step else None, want))
-    for where, lines, expected in filters:
+        filters.append((f"{TABLE}: step {TABLE_STEP}", list(step.inputs) if step else None))
+    if rust is None and (root / ".git").exists() and (root / ios_link_ffi_key.FFI / "Cargo.toml").is_file():
+        rust = ffi_closure(root)
+    if rust is not None and step is not None:
+        lines = set(step.inputs)
+        rust_want = set(rust_inputs(*rust))
+        for pattern in sorted(rust_want - lines):
+            problems.append(f"{TABLE}: step {TABLE_STEP} misses {pattern} (CmuxMobileLinkFFI compiles it)")
+        for line in sorted(lines):
+            if line.startswith(RUST_ROOTS) and line not in rust_want:
+                problems.append(f"{TABLE}: step {TABLE_STEP} names {line}, which CmuxMobileLinkFFI does not compile")
+    for where, lines in filters:
         if lines is None:
             problems.append(f"{where} has no paths filter")
             continue
-        for pattern in sorted(expected - set(lines)):
+        for pattern in sorted(want - set(lines)):
             problems.append(f"{where} misses {pattern} (the app links it)")
         for line in lines:
             if line.startswith("!") or not line.startswith(PACKAGE_ROOTS):
                 continue
-            if line not in expected:
+            if line not in want:
                 problems.append(f"{where} names {line}, which the app does not link")
     return problems
 
@@ -162,12 +201,13 @@ def main(argv: list[str]) -> int:
         for p in problems:
             print(p)
         if problems:
-            print(f"fix: generate package paths with {sys.argv[0]} and kit resource paths with --resources", file=sys.stderr)
+            print(f"fix: paste the lines `{sys.argv[0]}` prints into each filter", file=sys.stderr)
         return 1 if problems else 0
-    packages = app_packages()
-    patterns = kit_resource_paths(packages) if "--resources" in argv else [p + "/**" for p in packages]
-    for pattern in patterns:
-        print(f'      - "{pattern}"')
+    for pkg in app_packages():
+        print(f'      - "{pkg}/**"')
+    if "--rust" in argv:
+        for line in rust_inputs(*ffi_closure(ROOT)):
+            print(f'  "{line}",')
     return 0
 
 

@@ -54,7 +54,7 @@ jobs:
       actions: write
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next
@@ -123,7 +123,7 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next
@@ -131,9 +131,28 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
+      # The stack branch is created at the feat-cmux-next head, whose .github/workflows differ from main's, so
+      # GitHub refuses the job token without the workflows permission, which GITHUB_TOKEN cannot hold (run
+      # 46080212141, 2026-11-27: the ref create failed). The release App token holds contents + workflows write,
+      # as app-ffi-repin.yml mints it, for the branch create and push only; minting fails: the job token, as before.
+      - name: Mint the stack-push App token
+        id: push-token
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
       - name: Stack the PRs and dispatch the build
         env:
           GH_TOKEN: ${{ github.token }}
+          # Only the stack branch's create and push take it; reads, the dispatch and comments stay on the job token.
+          YOLO_PUSH_TOKEN: ${{ steps.push-token.outputs.token }}
           YOLO: ${{ inputs.yolo }}
         run: |
           set -euo pipefail

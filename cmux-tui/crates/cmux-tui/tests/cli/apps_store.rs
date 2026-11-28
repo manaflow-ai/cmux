@@ -61,6 +61,7 @@ impl Apps {
             .arg(&self.socket)
             .env("CMUX_TUI_STATE_DIR", self.dir.join("state"))
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
+            .env("CMUX_NEXT_CONFIG_FILE", self.dir.join("next-config.json"))
             .env("CMUX_APP_HOST_BIN", self.dir.join("app-host"))
             .env("CMUX_APP_SERVER_DIR", self.dir.join("servers"))
             .env("CMUX_APPS_FIRST_PARTY_DIR", self.dir.join("first-party"))
@@ -1708,6 +1709,7 @@ fn copy_shipped_first_party(root: &Path) -> Vec<String> {
 /// a build does, into the folder the daemon reads as `CMUX_APPS_DIRS`; returns
 /// the package folder names.
 fn build_store_folder(apps: &Apps) -> Vec<String> {
+    // affected-reads: samples/apps first-party-apps scripts/cmux-next docs/cmux-next/sidebar-customization
     // affected-reads: samples/apps first-party-apps scripts/cmux-next/sync-app-runtime.sh scripts/cmux-next/store-package-sign.py Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let platform = apps.dir.join("platform");
@@ -1735,7 +1737,7 @@ fn build_store_folder(apps: &Apps) -> Vec<String> {
 /// web app. A pane cmux draws itself (`native`) opens only through its show
 /// action (`native_pane_show_action`, the table the sidebar item and
 /// `app.open` share); a native pane with none opens nothing. `None` is an app
-/// with nothing to open: installing it adds nothing the person can use.
+/// with nothing to open. Setting-backed entries are verified separately.
 fn open_target(entry: &Value, placed: &Value) -> Option<String> {
     let manifest = &entry["manifest"];
     let id = entry["id"].as_str().unwrap_or_default();
@@ -1749,6 +1751,11 @@ fn open_target(entry: &Value, placed: &Value) -> Option<String> {
                 .find(|tile| tile["app"] == id)
                 .map(|tile| format!("widget tile {} in {place}", tile["size"]))
         });
+    }
+    // A first-party setting-backed entry (#46903's Auto cleanup, `worktrees.autoCleanup`): its
+    // Install turns that cmux setting on, and the listing's switch shows it; there is no pane.
+    if let Some(key) = manifest["setting"]["key"].as_str() {
+        return Some(format!("setting {key}"));
     }
     let pane = &manifest["implements"]["cmux.pane/1"];
     if let Some(native) = pane["native"].as_str() {
@@ -1774,9 +1781,30 @@ fn open_target(entry: &Value, placed: &Value) -> Option<String> {
         .map(|url| format!("web app {url}"))
 }
 
+/// A setting entry has no open target: verify its switch against the daemon's settings owner.
+fn verify_setting_switch(app: &mut Client, entry: &Value) -> Option<String> {
+    if entry["tier"] != "first-party" {
+        return None;
+    }
+    let key = entry["manifest"].pointer("/setting/key")?.as_str()?;
+    let id = entry["id"].as_str().unwrap();
+    for enabled in [false, true] {
+        let reply = app.store(
+            "cmux.apps.set",
+            json!({ "app": id, "enabled": enabled,
+                    "idempotency_key": format!("setting-{id}-{enabled}") }),
+            "user",
+        );
+        assert_eq!(ok(&reply)["app"]["state"]["enabled"], enabled, "{id}: {reply}");
+        let read = app.v2("settings.get", json!({ "key": key }), json!({}));
+        assert_eq!(v2_ok(&read)["value"], enabled, "{key}: {read}");
+    }
+    Some(format!("verified setting switch {key}"))
+}
+
 /// Installs, as the person, every app the App Store lists (on `shelf`, every
 /// shelf when `None`), with exactly the params the page's Install click sends,
-/// and returns each listing with what it shows after (`None`: nothing).
+/// and returns each listing's open target or verified setting switch (`None`: neither).
 fn install_every_listing(apps: &Apps, shelf: Option<&str>) -> Vec<(String, Option<String>)> {
     let mut agent = apps.agent();
     let reply = agent.rpc(json!({ "cmd": "apps-logs", "app": "cmux/supervisor" }));
@@ -1821,7 +1849,8 @@ fn install_every_listing(apps: &Apps, shelf: Option<&str>) -> Vec<(String, Optio
                 (json!(true), json!(true), json!(true)),
                 "{id} is installed and on: {entry}"
             );
-            let target = open_target(entry, &placed);
+            let target =
+                verify_setting_switch(&mut app, entry).or_else(|| open_target(entry, &placed));
             (id, target)
         })
         .collect()
@@ -1830,8 +1859,8 @@ fn install_every_listing(apps: &Apps, shelf: Option<&str>) -> Vec<(String, Optio
 /// Leo, 2026-11-16: "if i click install it means it works / these dont do
 /// anythin / stop shipping these into the app store if they're fucking busted".
 /// Every app the shipped App Store lists (the first-party directory as the Mac
-/// app hands it to its daemon, with no other app directory, as after #44290) installs for the
-/// person and then has something to open: a pane or a web page. A
+/// app hands it to its daemon, with no other app directory, as after #44290) provides
+/// an open target after installation, or a setting switch that changes the daemon's value. A
 /// command-only package (the old Standup sample) fails here.
 ///
 /// The shelf is built the way a build builds it: the BUNDLED first-party apps,
@@ -1841,7 +1870,7 @@ fn install_every_listing(apps: &Apps, shelf: Option<&str>) -> Vec<(String, Optio
 /// nothing fails here before it ships: a widget counts only once its Install
 /// placed its tile.
 #[test]
-fn every_shipped_store_listing_installs_and_has_something_to_open() {
+fn every_shipped_store_listing_has_an_open_target_or_working_setting_switch() {
     let apps = Apps::new("every-listing");
     let shipped = copy_shipped_first_party(&apps.dir.join("first-party"));
     assert!(shipped.contains(&"cmux/cloud".to_string()), "{shipped:?}");
@@ -1854,7 +1883,7 @@ fn every_shipped_store_listing_installs_and_has_something_to_open() {
         results.iter().filter(|(_, target)| target.is_none()).map(|(id, _)| id).collect();
     assert!(
         nothing.is_empty(),
-        "listed apps with nothing to open after install: {nothing:?}; all: {results:?}"
+        "listed apps without an open target or working setting switch: {nothing:?}; all: {results:?}"
     );
     assert!(
         results.iter().any(|(listed, _)| listed == "cmux/cloud"),

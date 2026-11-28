@@ -12,15 +12,35 @@ A changed path maps to:
                                                  the kit's test bundle (build-for-testing, no test run)
   cmux-next-ios/CmuxMobileKit/Tests/<T>/...     the kit test target <T> (not the Linux-only and benchmark targets,
                                                  which the simulator run never takes)
-  cmux-next-ios/{App,NotificationContent,       the app: xcodegen, then a Debug build of CmuxMobileApp for the
-    NotificationService,UITests}/, project.yml   iOS Simulator (no UI tests: the full matrix runs them)
-  any other path the ios-kit step routes         a build of the kit's test bundle (Package.swift, the Rust FFI, a
-    (the shared packages, the FFI, the toolchain)  shared package the kit links: compile verdict, tests after)
+  cmux-next-ios/{App,NotificationContent,       the app: xcodegen, then build-for-testing of the CmuxMobileApp
+    NotificationService,UITests}/, project.yml   scheme for the iOS Simulator (the app and CmuxMobileAppUITests
+                                                 compiled, no UI test run: the full matrix runs them)
+  any other path the ios-kit step routes         a build of the kit's test bundle (Package.swift, the Rust FFI and
+    (the shared packages, the FFI, the toolchain,  the cmux-tui crates it compiles, a shared package the kit links:
+    the Rust crates the FFI compiles)              compile verdict, tests after)
+
+Every routed path but a kit test file also builds the app: a kit or shared-package API change that compiles in the
+kit but not in the app or its UI tests is the break that reached feat-cmux-next (cmux#55399, cmux#55664: each PR
+compiled on its own branch, the merged tree did not). The Rust crates are ios-kit's inputs, derived from the FFI's
+Cargo graph (scripts/ci/ios_app_package_paths.py --check), so a new shared crate routes here once it is linked.
+
+The `cmux/ios-fast` commit status (scripts/ci/pr_router.py posts it from the route, this script's `status` from
+the jobs): success at once for a head that touches nothing iOS builds, pending until this check runs on an
+iOS-affecting head handed to land, then this check's own verdict, so a ruleset can require it.
 
 A path the ios-kit step does not route (notes, verify/ evidence, agent scripts) plans nothing, as it takes no Mac in
 the full matrix either.
 
+A Rust file the ios-kit step routes (a .rs, a Cargo.toml, the Cargo.lock, under cmux-tui/ or cmux-next-ios/rust/)
+plans nothing unless it can change what Swift sees: the FFI reaches Swift only through its uniffi bindings and its C
+exports, so a .rs or Cargo.toml that names neither (`uniffi`, `extern "C"`, `no_mangle`) nor an Apple target
+(`target_os = "ios"`/`"macos"`, `target_vendor = "apple"`) at the head or the base compiles the same Swift surface;
+the Linux Rust steps compile and test it, and the full matrix after merge builds it for the phone. A build.rs, a
+file it cannot read, and any other file there still build. Before: 7 of 10 sampled Mac runs (11-27 22:00-23:30Z,
+693 Mac min in 1.5 h) were a Cargo.lock bump, a crate's internals or its tests.
+
     python3 scripts/ci/ios_fast_verdict.py plan [--paths-file FILE] [--root DIR]
+    python3 scripts/ci/ios_fast_verdict.py status STATE DESCRIPTION   (env REPO, SHA, TOKENS; never fails the job)
 
 prints the plan as JSON and, under GitHub Actions, writes `run`, `plan` and `summary` to $GITHUB_OUTPUT. With no
 --paths-file it diffs HEAD^1..HEAD (the merge commit); no merge commit plans nothing, since the full matrix runs.
@@ -31,14 +51,18 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
+import time
+import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 import ci_steps  # noqa: E402
+import gh_http  # noqa: E402
 
 KIT = "cmux-next-ios/CmuxMobileKit/"
 APP_PATHS = (
@@ -55,6 +79,58 @@ SELF = ("scripts/ci/ios_fast_verdict.py", "scripts/ci/ios_fast_verdict.sh")
 # Past this many test targets the run is most of the kit: build the bundle and leave the tests to the full matrix.
 MAX_TEST_TARGETS = 6
 MAX_WHY = 20
+# The commit status a ruleset can require (pr-router.yml posts the route's state, pr-pipeline.yml the verdict).
+STATUS_CONTEXT = "cmux/ios-fast"
+
+
+# Data only kit tests read (ConnectivityMatrixTests, TickHarnessCellsTests): their test target, no build of the app.
+TEST_DATA = {"cmux-next-ios/reliability-matrix/": "CmuxMobileLiveTests"}
+# The Rust trees the FFI compiles. A file there reaches Swift only through what RUST_SWIFT_MARK names.
+RUST_ROOTS = ("cmux-tui/", "cmux-next-ios/rust/")
+RUST_SWIFT_MARK = re.compile(r'uniffi|extern\s+"C"|no_mangle|target_os\s*=\s*"(?:ios|macos)"|target_vendor\s*=\s*"apple"')
+# The same pattern for `git grep -E` (POSIX ERE: no \s, no non-capturing group).
+RUST_SWIFT_MARK_ERE = 'uniffi|extern[[:space:]]+"C"|no_mangle|target_os[[:space:]]*=[[:space:]]*"(ios|macos)"|target_vendor[[:space:]]*=[[:space:]]*"apple"'
+
+
+def rust_inner(path: str) -> bool:
+    """Whether PATH is Rust the Swift surface can only see through RUST_SWIFT_MARK: a .rs (not a build.rs), a
+    Cargo.toml or a Cargo.lock under RUST_ROOTS."""
+    if not path.startswith(RUST_ROOTS):
+        return False
+    name = path.rsplit("/", 1)[-1]
+    return name in ("Cargo.toml", "Cargo.lock") or (path.endswith(".rs") and name != "build.rs")
+
+
+def swift_facing(path: str, root: Path, base_marked: set[str] | frozenset[str] = frozenset()) -> bool:
+    """Whether rust_inner PATH can change the Swift surface: it names RUST_SWIFT_MARK at the head (ROOT) or the base
+    (BASE_MARKED, the paths whose base text does), or the head file is unreadable. A Cargo.lock never does: a uniffi
+    or target change comes with a Cargo.toml or a .rs that names it."""
+    if path.rsplit("/", 1)[-1] == "Cargo.lock":
+        return False
+    if path in base_marked:
+        return True
+    try:
+        text = (root / path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return True
+    return bool(RUST_SWIFT_MARK.search(text))
+
+
+def base_marked_paths(paths: list[str], base: str = "HEAD^1") -> set[str]:
+    """The rust_inner PATHS whose BASE text names RUST_SWIFT_MARK (one `git grep`): a removed uniffi export changes
+    the bindings though the head no longer names it. Unreadable is every one of them."""
+    rust = [p for p in paths if rust_inner(p) and not p.endswith("Cargo.lock")]
+    if not rust:
+        return set()
+    try:
+        out = subprocess.run(["git", "grep", "-l", "-z", "-E", RUST_SWIFT_MARK_ERE, base, "--", *rust],
+                             capture_output=True, text=True)
+    except OSError:
+        return set(rust)
+    if out.returncode not in (0, 1):
+        return set(rust)
+    prefix = base + ":"
+    return {p[len(prefix):] if p.startswith(prefix) else p for p in out.stdout.split("\0") if p}
 
 
 def kit_step(table: ci_steps.Table | None = None) -> ci_steps.Step:
@@ -71,17 +147,27 @@ def routes_ios(step: ci_steps.Step, path: str) -> bool:
     return True
 
 
+def affects(paths: list[str], step: ci_steps.Step | None = None, root: Path = ROOT) -> bool:
+    """Whether any of PATHS is one this check builds (the router's instant-success test; plan()'s `run` without the
+    kit's test-target listing, which the router's sparse checkout does not have). A Rust file it cannot read affects."""
+    step = step or kit_step()
+    return any(path in SELF or (routes_ios(step, path) and (not rust_inner(path) or swift_facing(path, root)))
+               for path in paths)
+
+
 def test_targets(root: Path) -> set[str]:
     tests = root / KIT / "Tests"
     return {p.name for p in tests.iterdir() if p.is_dir()} if tests.is_dir() else set()
 
 
-def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None) -> dict:
+def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None,
+         base_marked: set[str] | frozenset[str] = frozenset()) -> dict:
     step = step or kit_step()
     have = test_targets(root)
     tests: set[str] = set()
     build = False
     app = False
+    proof = False
     why: list[str] = []
     for path in paths:
         if path in SELF:
@@ -90,11 +176,22 @@ def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None)
             continue
         if not routes_ios(step, path):
             continue
+        if rust_inner(path) and not swift_facing(path, root, base_marked):
+            continue
+        proof = True
+        data = next((t for prefix, t in TEST_DATA.items() if path.startswith(prefix)), None)
+        if data and data in have:
+            tests.add(data)
+            why.append(f"{path}: {data} reads it")
+            continue
         if path.startswith(APP_PATHS):
             app = True
             why.append(f"{path}: app build")
             continue
         parts = path[len(KIT):].split("/") if path.startswith(KIT) else []
+        if not (len(parts) >= 3 and parts[0] == "Tests"):
+            # The app and its UI tests link the kit and the shared packages: their compile is the merged-tree break.
+            app = True
         if len(parts) >= 3 and parts[0] == "Sources":
             target = parts[1] + "Tests"
             if target in have and target not in SKIPPED_TESTS:
@@ -122,6 +219,10 @@ def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None)
         # A test run builds the kit's bundle anyway; `build` alone is a build-for-testing with no test run.
         "build": build and not tests,
         "app": app,
+        # Whether the gate needs an ios-flows proof: some path besides this check's own files changed. A head that
+        # changes only SELF builds the kit to test this check, and no flow reads it, so `cmux ios verify` selects
+        # nothing and posts no record (a pass needs a run): requiring one held cmux#62950 pending with no way out.
+        "proof": proof,
         # The first reasons only: the plan rides one $GITHUB_OUTPUT line.
         "why": why[:MAX_WHY] + ([f"... {len(why) - MAX_WHY} more"] if len(why) > MAX_WHY else []),
     }
@@ -140,6 +241,30 @@ def summary(p: dict) -> str:
     return "; ".join(parts)
 
 
+def post_status(state: str, description: str, repo: str, sha: str, tokens: list[str], target_url: str = "",
+                rounds: int = 3, pause: float = 10.0) -> bool:
+    """POST the STATUS_CONTEXT commit status, each token in turn, ROUNDS times (a spent budget or a 5xx on one is
+    retried on the next). GitHub refuses a description over 140 characters."""
+    body = json.dumps({"state": state, "context": STATUS_CONTEXT, "description": description[:140],
+                       **({"target_url": target_url} if target_url else {})}).encode()
+    for attempt in range(rounds):
+        for token in tokens:
+            req = urllib.request.Request(f"https://api.github.com/repos/{repo}/statuses/{sha}", data=body, method="POST",
+                                         headers={"Accept": "application/vnd.github+json",
+                                                  "Authorization": f"Bearer {token}",
+                                                  "X-GitHub-Api-Version": "2022-11-28"})
+            try:
+                status, answer, _ = gh_http.request(req, 20)
+                if status == 201:
+                    return True
+                print(f"{STATUS_CONTEXT}: post refused (HTTP {status}: {answer[:200]!r})", file=sys.stderr)
+            except Exception as e:  # noqa: BLE001 - the next token, then the next round
+                print(f"{STATUS_CONTEXT}: post refused ({type(e).__name__}: {e})", file=sys.stderr)
+        if attempt + 1 < rounds:
+            time.sleep(pause * (attempt + 1))
+    return False
+
+
 def diff_paths() -> list[str] | None:
     try:
         subprocess.run(["git", "rev-parse", "-q", "--verify", "HEAD^2"], check=True, capture_output=True)
@@ -156,18 +281,32 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("plan")
     p.add_argument("--paths-file")
     p.add_argument("--root", default=str(ROOT))
+    st = sub.add_parser("status")
+    st.add_argument("state", choices=("pending", "success", "failure", "error"))
+    st.add_argument("description")
     args = parser.parse_args(argv)
+    if args.cmd == "status":
+        repo, sha = os.environ.get("REPO", ""), os.environ.get("SHA", "")
+        tokens = [t for t in os.environ.get("TOKENS", "").split() if t]
+        if not (repo and sha and tokens):
+            print(f"::warning::{STATUS_CONTEXT} not posted: REPO, SHA and TOKENS are needed")
+            return 0
+        if not post_status(args.state, args.description, repo, sha, tokens, os.environ.get("RUN_URL", "")):
+            print(f"::warning::{STATUS_CONTEXT} ({args.state}) was not posted at {sha}: its land waits on the last state")
+        return 0
     paths = ci_steps.read_paths(args.paths_file) if args.paths_file else diff_paths()
     if paths is None:
-        result = {"run": False, "tests": [], "build": False, "app": False,
+        result = {"run": False, "tests": [], "build": False, "app": False, "proof": False,
                   "why": ["no merge commit to diff: the full matrix runs"]}
     else:
-        result = plan(paths, Path(args.root))
+        result = plan(paths, Path(args.root), base_marked=base_marked_paths(paths) if not args.paths_file else set())
     print(json.dumps(result, indent=2))
     out = os.environ.get("GITHUB_OUTPUT")
     if out:
         with open(out, "a", encoding="utf-8") as f:
-            f.write(f"run={'true' if result['run'] else 'false'}\n")
+            # unknown (no merge commit to diff): the job skips, and cmux/ios-fast reads no verdict (error), not success.
+            f.write(f"run={'unknown' if paths is None else 'true' if result['run'] else 'false'}\n")
+            f.write(f"proof={'true' if result['proof'] else 'false'}\n")
             f.write(f"plan={json.dumps(result, separators=(',', ':'))}\n")
             f.write(f"summary={summary(result)}\n")
     return 0

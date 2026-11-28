@@ -259,6 +259,30 @@ fn a_source_machines_checkout_reads_as_this_machines_does() {
 }
 
 #[test]
+fn a_repository_with_no_origin_and_no_commit_moves_as_a_plain_folder() {
+    // Every lane VM's home is `git init`ed and never committed: a chat there has nothing to
+    // bundle, so both reads say no checkout and plan_folder makes it Folder::Plain.
+    let dir = tempfile::tempdir().unwrap();
+    let ok =
+        StdCommand::new("git").arg("-C").arg(dir.path()).args(["init", "-q"]).output().unwrap();
+    assert!(ok.status.success());
+    std::fs::write(dir.path().join("loose.txt"), "x").unwrap();
+    let out = run_here(CHECKOUT_SCRIPT, format!("{}\n", dir.path().display()).as_bytes()).unwrap();
+    assert!(out.ok, "{}", out.stderr);
+    assert_eq!(parse_checkout(&out.stdout).unwrap(), None);
+    assert_eq!(checkout_of(dir.path()).unwrap(), None);
+    // With an origin it is still a checkout (its branch is pushed, or refused, as before).
+    let ok = StdCommand::new("git")
+        .arg("-C")
+        .arg(dir.path())
+        .args(["remote", "add", "origin", "git@github.com:manaflow-ai/cmux.git"])
+        .output()
+        .unwrap();
+    assert!(ok.status.success());
+    assert!(checkout_of(dir.path()).unwrap().is_some());
+}
+
+#[test]
 fn a_checkout_answer_without_a_plain_top_folder_is_refused() {
     assert!(parse_checkout("branch\tmain\n").is_err());
     assert!(parse_checkout("top\t/a/../b\nbranch\tmain\n").is_err());
@@ -930,6 +954,7 @@ fn auto_never_picks_a_personal_last_resort_or_reserved_machine_and_ranks_a_stale
 /// it says why instead of waiting on. F3: the chats of one move are waited on together, one
 /// request for all still waited on, not one bounded wait per chat.
 #[tokio::test(start_paused = true)]
+#[cfg(unix)] // a daemon on a Unix socket
 #[cfg(unix)]
 async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
     use crate::rpc::Message;
@@ -1019,6 +1044,7 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
 /// it, and the wait cost every such move the whole 5 s (the published move bench's floor).
 /// A chat on a local key or a peer on its way back is still waited on.
 #[tokio::test(start_paused = true)]
+#[cfg(unix)] // a daemon on a Unix socket
 #[cfg(unix)]
 async fn a_move_to_an_offline_peer_does_not_wait_out_the_arrival_bound() {
     use crate::rpc::Message;
@@ -1080,6 +1106,7 @@ fn outcome(name: &str, error: Option<&str>) -> Outcome {
         error: error.map(str::to_owned),
         error_code: None,
         preflight: preflight::Preflight::default(),
+        interrupts: None,
         arrival_key: None,
         reachable: None,
     }
@@ -1178,4 +1205,31 @@ fn a_repo_with_no_remote_moves_as_a_bundle_with_its_changes_and_no_remote() {
     assert_ne!(Path::new(&again), new.as_path());
     assert!(again.starts_with(&format!("{top}.moved.")), "{again}");
     assert_eq!(std::fs::read_to_string(new.join("sub/a.txt")).unwrap(), "a2", "untouched");
+}
+
+/// Leo: "any chat moves Mac↔Cloud and back in one action, keeping its live state". The way
+/// back from a machine reached only through the team hub, `--from MACHINE --machine local`,
+/// asks that machine as `MACHINE/ID` does instead of needing an ssh peer.
+#[test]
+fn from_a_hub_machine_names_its_chats_on_that_machine() {
+    let mut args = MoveArgs {
+        sessions: vec!["01a21a8f".into(), "other-host/abc".into()],
+        host: "local".into(),
+        all_idle: false,
+        interrupt: false,
+        after_turn: false,
+        turn_timeout: std::time::Duration::from_secs(1),
+        slow_ok: false,
+        leave_dirty: false,
+        carry_changes: false,
+        cwd: None,
+        dry_run: false,
+        resume_there: false,
+        from: Some("vm-b".into()),
+        from_snapshot: false,
+        as_harness: None,
+    };
+    from_hub_machine(&mut args, "vm-b");
+    assert_eq!(args.sessions, vec!["vm-b/01a21a8f", "other-host/abc"]);
+    assert_eq!(args.from, None);
 }
