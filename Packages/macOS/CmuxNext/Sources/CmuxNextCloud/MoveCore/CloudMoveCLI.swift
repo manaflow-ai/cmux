@@ -45,6 +45,9 @@ public nonisolated struct CloudMoveCLI: Sendable {
         /// outage; cmux-platform#1192), as Rust read it: the start card offers Retry. A rate limit's window in seconds.
         public var retryable = false
         public var retryAfterS: Int?
+        /// Where the run's time went, flat, in ms, as Rust read its line (`cli::phases`): the place view keeps it with the
+        /// step the run was (``CloudPlaceFlows/phases(_:_:_:)``), so the move probe can say which part of a slow step was slow.
+        public var phases: [String: Int]?
 
         public init(ok: Bool, errorCode: String? = nil, error: String? = nil, sessionID: String? = nil, transferID: String? = nil,
                     conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false,

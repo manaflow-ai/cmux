@@ -897,6 +897,10 @@ def launch_seconds(env=None) -> float:
 
 LAUNCH_LOG_LINES = 80
 LAUNCH_LINE_CHARS = 240
+# The line of a copy's own output that says why it ended: a Swift trap, an assertion, dyld, an uncaught
+# exception or a signal.
+CRASH_LINE = re.compile(r"Fatal error:|Assertion failed|Precondition failed|dyld(?:\[\d+\])?:|Terminating app due to|"
+                        r"uncaught exception|EXC_[A-Z_]+|SIG(?:ABRT|SEGV|BUS|ILL|TRAP|KILL)\b")
 
 
 def error_chars(error: object) -> int:
@@ -927,14 +931,21 @@ def launch_failure(pid: int, logs: list[str], most: int = LAUNCH_LOG_LINES) -> s
     except OSError:
         alive = True
     said = [f"app launch: running {alive}"]
+    crash = None
     for path in logs:
         try:
             lines = Path(path).read_text(errors="replace").splitlines()
         except OSError:
             continue
         lines = [line[:LAUNCH_LINE_CHARS] for line in lines if line.strip()][-most:]
+        crash = next((line for line in reversed(lines) if CRASH_LINE.search(line)), crash)
         if lines:
             said.append(f"{Path(path).name} (last {len(lines)} lines):\n" + redact_log("\n".join(lines)))
+    if crash:
+        # First, so the console line and the proof record's note (both cut near 500 characters) keep the why:
+        # cmux#64397's look said only "running False" and the head of a 2 KB ignored-env line, while its
+        # stderr ended "HostedChiefRules.swift:15: Fatal error: ... unknownOp".
+        said.insert(1, "crash: " + redact_log(crash.strip()))
     if len(said) == 1:
         said.append("no output from the copy")
     return "\n".join(said)

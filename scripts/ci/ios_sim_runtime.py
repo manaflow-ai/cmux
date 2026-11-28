@@ -55,6 +55,8 @@ PREFER_ENV = "CMUX_CI_IOS_SIM_RUNTIME_PREFER"
 PIN_FILE = pathlib.Path(__file__).resolve().parent / "ios-sim-runtime-pin.txt"
 BUILD = re.compile(r"^[0-9]{2}[A-Z][0-9]{1,5}[a-z]?$")
 PHONES = ("iPhone 17 Pro", "iPhone 17", "iPhone 16 Pro")
+# iPhone device types with two displays: never the default.
+TWO_DISPLAY = ("iPhone Duo",)
 # App Store Connect's 6.9" iPhone display: 1320x2868 (17 Pro Max) or 1290x2796 (16 Pro Max).
 APPSTORE_69 = ("iPhone 17 Pro Max", "iPhone 16 Pro Max")
 
@@ -128,6 +130,10 @@ def select(listing, declared, device=None, prefer=(), phones=PHONES, exact=False
             f"cmux-next-ios-sim.sh: iOS runtime {runtime.get('buildversion')} supports none of {', '.join(phones)}"
         )
     phones = [k for k in names if k.startswith("iPhone")]
+    # The fallback is a one-screen phone: a newer runtime lists a two-display foldable (iPhone Duo)
+    # last, whose screenshots and recordings need --display and whose layout is its own leg
+    # (device=iPhone,Duo). It is the fallback only when the runtime has no other iPhone.
+    phones = [k for k in phones if k not in TWO_DISPLAY] or phones
     if not phones:
         raise SystemExit(f"cmux-next-ios-sim.sh: iOS runtime {runtime.get('buildversion')} supports no iPhone device type")
     return runtime["identifier"], names[phones[-1]], phones[-1]
