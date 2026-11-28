@@ -1308,9 +1308,12 @@ test("a thumbnail whose first read failed is read again, not left blank", async 
   await settle();
   const slot = () => container.querySelector(".acpmux-queued-image-slot");
   expect(slot()?.getAttribute("data-thumbnail")).toBe("missing");
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-  });
+  // The slot reads again after its one-second retry: wait for that second read (capped at 5 s), not a fixed time.
+  for (const deadline = Date.now() + 5_000; reads < 2 && Date.now() < deadline;)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  await settle();
   expect(reads).toBe(2);
   expect(slot()?.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,QQ==");
 });

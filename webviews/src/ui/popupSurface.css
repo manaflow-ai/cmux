@@ -802,3 +802,21 @@
 .ui-popup-resize[data-dragging]::after { opacity: 1; }
 /* A menu made taller than its rows keeps them at its top; its scroller takes the room. */
 .ui-popup.ui-popup-scroll-shell[data-resized-height] > .ui-popup-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+
+/* A dialog backdrop that blurs the page behind it (Dialog backdropClassName="ui-backdrop-lens"), clear under Reduce transparency. */
+.ui-backdrop-lens {
+  -webkit-backdrop-filter: var(--ds-glass-lens-blur);
+  backdrop-filter: var(--ds-glass-lens-blur);
+}
+
+:root[data-reduce-transparency] .ui-backdrop-lens {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .ui-backdrop-lens {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}

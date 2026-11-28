@@ -75,6 +75,7 @@ import { CloudServedContext, cloudPickerState, cloudPickerFamily, cloudPickerRea
 import { pickerHeightBounds, cloudPickerFloor, rememberLocalPickerHeight } from "./modelPickerLayout";
 import { focusRoute } from "../../ui/focusRoute";
 import { intl } from "../../ui/intl";
+import { Button } from "../../ui/Button";
 type ModelChoice = {
   id: string;
   name: string;
@@ -485,7 +486,8 @@ const ModelRow = memo(function ModelRow({
       </PickerOption>
       {update}
       <span className="pointer-events-none absolute right-1.5 flex items-center">
-        <button
+        <Button
+          bare
           type="button"
           className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-default place-items-center rounded-control border-0 bg-transparent p-0 text-muted hover:text-fg ${favorite ? "" : "invisible group-hover:visible focus-visible:visible"}`}
           aria-label={starLabel}
@@ -494,7 +496,7 @@ const ModelRow = memo(function ModelRow({
           onClick={() => onStar(modelId)}
         >
           <StarGlyph filled={favorite} size={14} />
-        </button>
+        </Button>
         {checked && (
           <span className="grid size-6 place-items-center text-muted">
             <CheckIcon />
@@ -2165,14 +2167,14 @@ export function ModelPicker(props: ModelPickerProps) {
               <output className="acpmux-mp-auth flex flex-none items-center gap-2 border-b-[0.5px] border-edge px-3 py-2 text-detail text-muted">
                 <span className="min-w-0 flex-1">{sessionAuthText}</span>
                 {canSessionLogin(props.sessionAuth) && props.onSessionLogin && (
-                  <button type="button" className="acpmux-mp-auth-action" onClick={() => props.onSessionLogin?.()}>
+                  <Button bare type="button" className="acpmux-mp-auth-action" onClick={() => props.onSessionLogin?.()}>
                     {authLoginText(props.sessionAuth, t)}
-                  </button>
+                  </Button>
                 )}
                 {props.onSessionAuthRefresh && (
-                  <button type="button" className="acpmux-mp-auth-action" onClick={props.onSessionAuthRefresh}>
+                  <Button bare type="button" className="acpmux-mp-auth-action" onClick={props.onSessionAuthRefresh}>
                     {t("harnesses.checkAgain")}
-                  </button>
+                  </Button>
                 )}
               </output>
             )}
@@ -2205,7 +2207,8 @@ export function ModelPicker(props: ModelPickerProps) {
                 keyboard={keyDown}
               />
               {catalogRefresh && (
-                <button
+                <Button
+                  bare
                   type="button"
                   className="grid size-7 flex-none cursor-default place-items-center rounded-control border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg"
                   data-refresh-status={refreshStatus}
@@ -2219,7 +2222,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   ) : (
                     <Icon name="action.reload" size={14} />
                   )}
-                </button>
+                </Button>
               )}
             </div>
             <ScrollArea fade className="min-h-0 flex-1" viewportClassName={MODELS_VIEWPORT}>
@@ -2235,7 +2238,8 @@ export function ModelPicker(props: ModelPickerProps) {
                   <div className="acpmux-mp-folder-profiles mb-1 border-b-[0.5px] border-edge pb-1">
                     <div className="px-2 py-1 text-detail text-muted">{t("picker.thisFolder")}</div>
                     {folderProfiles.map((entry) => (
-                      <button
+                      <Button
+                        bare
                         type="button"
                         key={`folder-profile:${entry.id}`}
                         className={`acpmux-mp-row ${modelRow} ${rowFill(selectedHarness === entry.id)}`}
@@ -2247,7 +2251,7 @@ export function ModelPicker(props: ModelPickerProps) {
                       >
                         <span className="acpmux-menu-label flex-1 truncate">{entry.name}</span>
                         {folderNote(entry) && <span className="acpmux-quick-value">{folderNote(entry)}</span>}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 )}
@@ -2272,7 +2276,8 @@ export function ModelPicker(props: ModelPickerProps) {
                   !starredView &&
                   (cloudDisconnected(selected) || (!signInNote && offersLinkedClaudeConnect(selected))) &&
                   signInAction && (
-                    <button
+                    <Button
+                      bare
                       type="button"
                       className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)} !h-auto py-1`}
                       data-cloud-connect=""
@@ -2287,19 +2292,20 @@ export function ModelPicker(props: ModelPickerProps) {
                         </span>
                         {signInNote && <span className="text-detail text-muted">{signInNote}</span>}
                       </span>
-                    </button>
+                    </Button>
                   )}
                 {selected && !searching && !starredView && missingHere(selected) ? (
                   <>
                     <div className={emptyNote}>{t("harnesses.notInstalledNamed", { agent: selected.name })}</div>
                     {onAddAgent && (
-                      <button
+                      <Button
+                        bare
                         type="button"
                         className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
                         onClick={addHarness}
                       >
                         <span className="acpmux-menu-label flex-1 truncate">{t("harnesses.install")}</span>
-                      </button>
+                      </Button>
                     )}
                   </>
                 ) : selected && !searching && !starredView && signInNote && !cloudDisconnected(selected) ? (
@@ -2311,7 +2317,8 @@ export function ModelPicker(props: ModelPickerProps) {
                     )}
                     {signInAction && pickerState(selected) === "unsupported" ? (
                       // Cloud cannot run it yet: the Connect row's second line says so, spaced as "Not connected".
-                      <button
+                      <Button
+                        bare
                         type="button"
                         className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)} !h-auto py-1`}
                         data-cloud-connect=""
@@ -2329,10 +2336,11 @@ export function ModelPicker(props: ModelPickerProps) {
                             {t("picker.cloud.comingSoon")}
                           </span>
                         </span>
-                      </button>
+                      </Button>
                     ) : (
                       signInAction && (
-                        <button
+                        <Button
+                          bare
                           type="button"
                           className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
                           onClick={() => {
@@ -2343,7 +2351,7 @@ export function ModelPicker(props: ModelPickerProps) {
                           <span className="acpmux-menu-label flex-1 truncate">
                             {signInAction.label ?? t("harness.logIn")}
                           </span>
-                        </button>
+                        </Button>
                       )
                     )}
                     {pickerState(selected) === "unsupported" && !signInAction && (
@@ -2359,15 +2367,17 @@ export function ModelPicker(props: ModelPickerProps) {
                       : (selected.folder?.diagnostic ?? unavailableText)}
                   </div>
                 ) : selectedOther && selected.folder?.state === "needs-enable" ? (
-                  <button
+                  <Button
+                    bare
                     type="button"
                     className={`acpmux-mp-row ${modelRow} ${rowFill(false)}`}
                     onClick={() => enableProfile(selected)}
                   >
                     <span className="acpmux-menu-label flex-1 truncate">{t("harness.enable")}</span>
-                  </button>
+                  </Button>
                 ) : selectedOther && selected.folder && visible.length === 0 && !query ? (
-                  <button
+                  <Button
+                    bare
                     type="button"
                     className={`acpmux-mp-row ${modelRow} ${rowFill(false)}`}
                     onClick={() => {
@@ -2376,7 +2386,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     }}
                   >
                     <span className="acpmux-menu-label flex-1 truncate">{t("picker.newChat")}</span>
-                  </button>
+                  </Button>
                 ) : visible.length === 0 ? (
                   <div className={emptyNote}>
                     {starredView && !query
@@ -2453,7 +2463,8 @@ export function ModelPicker(props: ModelPickerProps) {
                   />
                 )}
                 {olderCount > 0 && !(selectedOther && selected?.folder && visible.length === 0) && (
-                  <button
+                  <Button
+                    bare
                     type="button"
                     className={`acpmux-mp-older ${modelRow} ${rowFill(false)} text-muted`}
                     aria-expanded={olderOpen}
@@ -2464,7 +2475,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     <span className={`flex-none ${olderOpen ? "rotate-180" : ""}`} aria-hidden="true">
                       <ChevronIcon />
                     </span>
-                  </button>
+                  </Button>
                 )}
               </PickerOptionList>
             </ScrollArea>
@@ -2475,7 +2486,8 @@ export function ModelPicker(props: ModelPickerProps) {
               update && (
                 <div className="acpmux-mp-update flex flex-none items-center gap-1 border-t-[0.5px] border-edge p-1.5 pl-2.5">
                   <span className="min-w-0 flex-1 truncate text-detail text-muted">{updateText}</span>
-                  <button
+                  <Button
+                    bare
                     type="button"
                     className={`acpmux-mp-update-run ${updateButton} ${rowFill(false)}`}
                     onClick={() => {
@@ -2484,14 +2496,15 @@ export function ModelPicker(props: ModelPickerProps) {
                     }}
                   >
                     {t("harness.update")}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    bare
                     type="button"
                     className={`acpmux-mp-update-skip ${updateButton} ${rowFill(false)}`}
                     onClick={update.skip}
                   >
                     {t("harness.skipVersion")}
-                  </button>
+                  </Button>
                 </div>
               )
             )}
@@ -2509,7 +2522,8 @@ export function ModelPicker(props: ModelPickerProps) {
               fastMode &&
               (!reasoningMenu || fastLocked) && (
                 <div className="flex-none border-t-[0.5px] border-edge p-1.5">
-                  <button
+                  <Button
+                    bare
                     type="button"
                     className={`acpmux-mp-fast ${modelRow} ${rowFill(false)} justify-between`}
                     aria-pressed={fastModeIsOn(fastMode)}
@@ -2520,7 +2534,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     <span className="text-detail text-dim">
                       {fastModeIsOn(fastMode) ? fastMode.onLabel : fastMode.offLabel}
                     </span>
-                  </button>
+                  </Button>
                 </div>
               )
             )}

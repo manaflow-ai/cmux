@@ -11,6 +11,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/SettingsHistoryPage.swift": {
   "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 3
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/SettingsModels.swift": {
+  "JSON / property-list encode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/SettingsTailnet.swift": {
   "JSON / property-list encode": 1
  },
@@ -146,9 +149,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+QuestionKeys.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+RelayedAllow.swift": {
-  "JSON / property-list decode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+Trust.swift": {
   "JSON / property-list encode": 1
  },
@@ -262,9 +262,6 @@
   "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Updates.swift": {
-  "JSON / property-list encode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+VMAgentKey.swift": {
   "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift": {
@@ -548,7 +545,9 @@
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace/CloudPlaceFlows.swift": {
-  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 21
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1,
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 24
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudEnvironmentsSettings.swift": {
   "JSON / property-list decode": 1,
@@ -594,6 +593,9 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tooltip/TooltipContentView.swift": {
   "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/PageWindowKeyLook.swift": {
+  "string scan inside a loop": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDiff/DiffPageProvider.swift": {
   "line split of a whole input": 1
@@ -791,6 +793,9 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateDropBack.swift": {
   "process launch": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdaterService+SettingsStatus.swift": {
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdaterService+SurfaceHighlights.swift": {
   "JSON / property-list encode": 1

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import QuartzCore
 
 /// Window frame sync (fork API 32, `cmux_browser_resize_fence`; plans/cmux-next/cef-layer-hosting-DESIGN.md, FRAME OWNER
@@ -126,18 +127,17 @@ final class CEFResizeFence {
 
 /// The app's send right on one fence, freed once by whichever comes first: every page reported (main actor) or the
 /// fence's deadline (off the main actor, ``CEFResizeFences/join(window:layer:timeoutMs:refreshMs:ask:)``).
-nonisolated final class CEFFenceRight: @unchecked Sendable {
-    private let lock = NSLock()
-    private var name: mach_port_t
+nonisolated final class CEFFenceRight: Sendable {
+    private let name: Mutex<mach_port_t>
 
-    init(port: mach_port_t) { name = port }
+    init(port: mach_port_t) { name = Mutex(port) }
 
     /// The port while the right is held; `MACH_PORT_NULL` once freed.
-    var port: mach_port_t { lock.withLock { name } }
+    var port: mach_port_t { name.withLock { $0 } }
 
     /// Frees the right; false when it was freed already.
     func drop() -> Bool {
-        let taken: mach_port_t = lock.withLock {
+        let taken: mach_port_t = name.withLock { name in
             defer { name = mach_port_t(MACH_PORT_NULL) }
             return name
         }

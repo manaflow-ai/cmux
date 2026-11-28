@@ -3523,23 +3523,6 @@ button.menu-disclosure {
   visibility: hidden;
 }
 
-.models-dialog-backdrop {
-  -webkit-backdrop-filter: var(--ds-glass-lens-blur);
-  backdrop-filter: var(--ds-glass-lens-blur);
-}
-
-:root[data-reduce-transparency] .models-dialog-backdrop {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .models-dialog-backdrop {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-
 .models-dialog-content,
 .models-form {
   display: grid;
@@ -3579,7 +3562,7 @@ button.menu-disclosure {
   );
   position: absolute;
   /* Set by eye from the concentric point (Lucas): 11 px from the top, 16 px from the right. */
-  inset-block-start: calc(var(--models-dialog-close-inset) - 9px);
+  inset-block-start: calc(var(--models-dialog-close-inset) - var(--ds-space-2) - var(--cmux-hairline-ring));
   inset-inline-end: calc(var(--models-dialog-close-inset) - 4px);
   border-radius: 50%; /* radius-allow: circular dialog close control */ /* concentric-allow: reviewed optical inset from the dialog corner */
 }

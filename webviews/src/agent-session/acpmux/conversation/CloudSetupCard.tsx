@@ -5,6 +5,7 @@ import type { ConnectProgress } from "../claudeConnect";
 import { ConnectCard, type ConnectCardLook } from "../ConnectCard";
 import { CloudSetupSteps, type CloudSetupStepsLook } from "./CloudSetupSteps";
 import { Spinner } from "./icons";
+import { Button } from "../../../ui/Button";
 
 export function CloudSetupCard({
   need,
@@ -78,7 +79,8 @@ export function CloudSetupCard({
       ) : null}
       <span className="acpmux-cloud-ask__actions acpmux-cloud-setup__actions">
         {!family && !onApiKey && !pending && (
-          <button
+          <Button
+            bare
             type="button"
             className="acpmux-cloud-ask__button"
             data-role="default"
@@ -87,22 +89,22 @@ export function CloudSetupCard({
             onClick={() => onSetUp?.(action)}
           >
             {t("picker.cloud.connectFamily", { name })}
-          </button>
+          </Button>
         )}
         {!family && !onApiKey && pending && onCancel && (
-          <button type="button" className="acpmux-cloud-ask__button" data-action="cancel" onClick={onCancel}>
+          <Button bare type="button" className="acpmux-cloud-ask__button" data-action="cancel" onClick={onCancel}>
             {t("picker.setup.cancel")}
-          </button>
+          </Button>
         )}
         {!pending && onRunHere && (
-          <button type="button" className="acpmux-cloud-ask__button" data-action="run-here" onClick={onRunHere}>
+          <Button bare type="button" className="acpmux-cloud-ask__button" data-action="run-here" onClick={onRunHere}>
             {runHereLabel}
-          </button>
+          </Button>
         )}
         {!pending && onDismiss && (
-          <button type="button" className="acpmux-cloud-ask__button" data-action="dismiss" onClick={onDismiss}>
+          <Button bare type="button" className="acpmux-cloud-ask__button" data-action="dismiss" onClick={onDismiss}>
             {t("harness.notNow")}
-          </button>
+          </Button>
         )}
       </span>
     </section>

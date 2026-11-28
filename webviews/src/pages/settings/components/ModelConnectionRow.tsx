@@ -4,6 +4,7 @@ import { Button } from "../../../ui/Button";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
 import { useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
+import { Tooltip } from "../../../ui/Tooltip";
 import { DeviceSignInCard } from "../../shared/signIn/DeviceSignInCard";
 import { parseAccountRow } from "../../shared/signIn/accountSignIn";
 import { useSettingsSignIn } from "./useSettingsSignIn";
@@ -431,15 +432,16 @@ export function ModelRow({
         )}
       </div>
       <div className="row-control">
-        <span
-          className="models-status-slot"
-          data-warning={!loading && warning ? "" : undefined}
-          role={iconLabel ? "img" : undefined}
-          aria-label={iconLabel}
-          title={iconLabel}
-        >
-          {loading ? <Spinner size={16} loading /> : warning ? <Icon name="warning" /> : null}
-        </span>
+        <Tooltip label={iconLabel} disabled={!iconLabel}>
+          <span
+            className="models-status-slot"
+            data-warning={!loading && warning ? "" : undefined}
+            role={iconLabel ? "img" : undefined}
+            aria-label={iconLabel}
+          >
+            {loading ? <Spinner size={16} loading /> : warning ? <Icon name="warning" /> : null}
+          </span>
+        </Tooltip>
         {children}
       </div>
     </div>
