@@ -920,6 +920,45 @@ import Testing
         ) == false)
     }
 
+    /// A markerless capture whose argv names Subrouter is rerouted to the fixed `sr codex resume`,
+    /// which is just as much an owned route: a declared external launcher must not wrap it.
+    @Test func markerlessSubrouterCodexRerouteIsNotWrapped() throws {
+        let teamcodex = AgentExternalLauncher(
+            id: "teamcodex",
+            kinds: ["codex"],
+            argvExecutables: ["teamcodex"],
+            resumeArgvPrefix: ["teamcodex", "run", "--"]
+        )
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                externalLauncher: "teamcodex",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                source: "environment"
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(
+                isExecutableFile: { _ in false },
+                externalLaunchers: registry(teamcodex)
+            ).invocation(for: request, ambientEnvironment: ["PATH": "/usr/bin:/bin"])
+        )
+
+        #expect(Array(invocation.arguments.prefix(4)) == ["sr", "codex", "resume", sessionID])
+        #expect(invocation.arguments.contains("teamcodex") == false)
+    }
+
     /// The working-directory sanitizer and the provider rewrites target the agent's own argv, so the
     /// launcher prefix is applied after them: a prefix may legitimately carry the same path the
     /// capture recorded as its working directory, and stripping it would break the wrapper's own

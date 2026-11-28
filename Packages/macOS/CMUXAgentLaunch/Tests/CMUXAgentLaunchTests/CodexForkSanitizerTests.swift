@@ -168,6 +168,24 @@ struct CodexForkSanitizerTests {
         )
     }
 
+    @Test("Markerless Subrouter resume drops stale provider argv and re-enters through sr")
+    func markerlessSubrouterResumeUsesFreshRoute() throws {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SESSION",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "codex",
+                    "-c", "model_provider=subrouter",
+                    "-c", "model_providers.subrouter.base_url=http://127.0.0.1:60760/dead/v1",
+                    "-c", "model_providers.subrouter.wire_api=responses",
+                    "--yolo",
+                ]
+            ) == ["sr", "codex", "resume", "SESSION", "-c", "check_for_update_on_startup=false", "--yolo"]
+        )
+    }
+
     private func capturedForkLaunchArguments() -> [String]? {
         AgentLaunchSanitizer.sanitizedLaunchArguments(
             [

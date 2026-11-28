@@ -1,8 +1,26 @@
 import Foundation
 
+/// The trust result for provider declarations captured from a Codex launch.
+///
+/// Restore code may route a session only for ``provider(_:)`` with the
+/// expected value. Missing declarations remain ordinary Codex launches, and
+/// conflicting declarations are deliberately rejected as ambiguous.
+public enum SubrouterCodexProviderEvidence: Equatable, Sendable {
+    /// No provider declaration was present in the captured invocation.
+    case absent
+
+    /// Exactly one provider declaration was present.
+    case provider(String)
+
+    /// More than one provider declaration, or a non-Codex invocation, was
+    /// observed and cannot safely be used for routing.
+    case ambiguous
+}
+
 /// Recognizes the bounded launch evidence emitted by `sr codex` and builds its
 /// explicit resume argv without trusting environment-provided shell text.
 public struct SubrouterCodexResumeRouting: Sendable, Equatable {
+    private static let maxConfigTomlBytes = 64 * 1024
     /// The metadata marker emitted by Subrouter for routed Codex children.
     public static let environmentKey = "SUBROUTER_CODEX_RESUME_COMMAND"
 
@@ -17,7 +35,11 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
 
     private static let routingEnvironmentLimits = [
         "SUBROUTER_CODEX_ACCOUNT_ID": 256,
-        "SUBROUTER_CODEX_BASE_URL": 2048,
+        // The data-plane URL is deliberately not persisted. Subrouter may
+        // allocate a per-process localhost proxy (and hosted routes can be
+        // rotated); replaying it after quit/reopen strands the restored
+        // session on a dead endpoint. The resume command resolves a fresh
+        // route from the durable account/server identity instead.
         "SUBROUTER_CODEX_BIN": 4096,
         "SUBROUTER_CODEX_SERVER": 256,
         "SUBROUTER_CODEX_USER_EMAIL": 320,
@@ -27,6 +49,9 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
     /// routed launch record during restore.
     public static let restoreOwnedEnvironmentKeys: Set<String> = Set(routingEnvironmentLimits.keys)
         .union([
+            // Clear any inherited or request-side endpoint before launching;
+            // it is intentionally never restored from the snapshot.
+            "SUBROUTER_CODEX_BASE_URL",
             environmentKey,
             launchBoundEnvironmentKey,
             "CMUX_CUSTOM_CODEX_PATH",
@@ -56,8 +81,11 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return tokens.joined(separator: " ")
     }
 
-    /// Returns bounded, non-secret Subrouter routing inputs that may accompany
-    /// a trusted resume marker through structured restore metadata.
+    /// Returns bounded, non-secret Subrouter routing identity that may accompany
+    /// a trusted resume marker through structured restore metadata. The
+    /// data-plane URL is intentionally excluded: it can be a per-process
+    /// localhost proxy or a rotated hosted endpoint and must be resolved fresh
+    /// by Subrouter when the resume command runs.
     public func capturedRoutingEnvironment(in environment: [String: String]?) -> [String: String] {
         guard let environment else { return [:] }
         var selected: [String: String] = [:]
@@ -107,12 +135,359 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         let normalizedLauncher = launcher?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        guard normalizedLauncher == nil || normalizedLauncher == "codex",
-              let marker = capturedLaunchBoundMarker(in: environment),
-              launchArgumentsContainSubrouterProvider(launchArguments) else {
+        guard normalizedLauncher == nil || normalizedLauncher == "codex" else {
             return nil
         }
-        return marker.split(separator: " ").map(String.init) + [sessionID]
+        let argvProvider = providerEvidence(in: launchArguments, launcher: normalizedLauncher)
+        let capturedProvider = providerEvidenceWithCapturedConfig(
+            in: launchArguments,
+            launcher: normalizedLauncher,
+            environment: environment
+        )
+        guard capturedProvider == .provider("subrouter") else { return nil }
+
+        if let marker = capturedLaunchBoundMarker(in: environment) {
+            return marker.split(separator: " ").map(String.init) + [sessionID]
+        }
+        // Argv that names the provider was written by a launch cmux saw, so
+        // it routes only with the wrapper-bound marker. Older captures that
+        // name no provider can still prove the route through their CODEX_HOME
+        // config; those use the stable Subrouter launcher.
+        guard argvProvider == .absent else { return nil }
+        return ["sr", "codex", "resume", sessionID]
+    }
+
+    /// Returns whether captured Codex arguments explicitly select Subrouter.
+    ///
+    /// Older cmux bindings can retain the provider configuration without the
+    /// wrapper's resume marker. They still need the dummy credential exported
+    /// before Codex starts; this check is limited to the non-secret provider
+    /// selection in the captured argv.
+    public func usesSubrouterProvider(in launchArguments: [String]) -> Bool {
+        providerEvidence(in: launchArguments) == .provider("subrouter")
+    }
+
+    /// Returns the provider evidence in a captured argv. `ambiguous` means
+    /// that the record explicitly names more than one provider and must never
+    /// be upgraded into a routed restore.
+    public func providerEvidence(in launchArguments: [String]) -> SubrouterCodexProviderEvidence {
+        guard isCodexInvocation(launchArguments) else { return .ambiguous }
+        return providerEvidenceFromAssignments(in: launchArguments)
+    }
+
+    /// Returns provider evidence using a captured managed launcher kind.
+    ///
+    /// A managed Codex launch may retain a custom executable path (for example
+    /// `/opt/company/codex`) whose basename is not `codex`. The launcher kind
+    /// is durable identity evidence for that case, while all provider
+    /// assignments still have to pass the same ambiguity checks.
+    public func providerEvidence(
+        in launchArguments: [String],
+        launcher: String?
+    ) -> SubrouterCodexProviderEvidence {
+        let normalizedLauncher = launcher?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalizedLauncher == nil || normalizedLauncher == "codex" else {
+            return .ambiguous
+        }
+        if normalizedLauncher == "codex" {
+            return providerEvidenceFromAssignments(in: launchArguments)
+        }
+        return providerEvidence(in: launchArguments)
+    }
+
+    /// Resolves provider identity from structured launch evidence and, for
+    /// older captures, the bounded Codex config selected by `CODEX_HOME`.
+    /// Explicit argv evidence always wins; a conflicting config is rejected.
+    public func providerEvidenceWithCapturedConfig(
+        in launchArguments: [String],
+        launcher: String?,
+        environment: [String: String]?,
+        verificationHome: String? = nil
+    ) -> SubrouterCodexProviderEvidence {
+        let argvEvidence = providerEvidence(in: launchArguments, launcher: launcher)
+        guard argvEvidence == .absent else { return argvEvidence }
+        if selectsCodexProfile(launchArguments) { return .ambiguous }
+        let config = Self.readCapturedConfigToml(
+            environment: environment,
+            verificationHome: verificationHome
+        )
+        return providerEvidence(inConfigToml: config)
+    }
+
+    /// Largest legacy shell command read as provider evidence.
+    static let maxShellCommandBytes = 16 * 1024
+    /// Largest number of words in a legacy shell command read as evidence.
+    static let maxShellCommandTokens = 256
+
+    /// Returns provider evidence from the shell command an older snapshot
+    /// persisted in its hook binding. The command is evidence only and is
+    /// never run: the caller resumes through the fixed `sr codex resume`
+    /// route. Only a plain Codex invocation (`codex …`, `sr codex …` or
+    /// `subrouter codex …`) made of literal words counts. Any shell operator,
+    /// expansion, substitution, glob, comment, unterminated quote, line break,
+    /// control character, prefix (including `cd … &&` or `VAR=value`), or an
+    /// oversized command makes the evidence `ambiguous`, which never routes.
+    public func providerEvidence(inShellCommand shellCommand: String?) -> SubrouterCodexProviderEvidence {
+        guard let shellCommand,
+              !shellCommand.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return .absent
+        }
+        guard shellCommand.utf8.count <= Self.maxShellCommandBytes,
+              let tokens = Self.shellCommandTokens(shellCommand),
+              !tokens.isEmpty,
+              tokens.count <= Self.maxShellCommandTokens,
+              isCodexInvocation(tokens) else {
+            // A non-empty command that cannot be read as a plain Codex
+            // invocation is damaged evidence, not proof of no provider.
+            return .ambiguous
+        }
+        return providerEvidenceFromAssignments(in: tokens)
+    }
+
+    /// What a legacy Codex restore does with its persisted shell command.
+    public enum LegacyRestoreDecision: Equatable, Sendable {
+        /// The command proves Subrouter: resume from this canonical capture,
+        /// which the planner turns into the fixed `sr codex resume <id>`.
+        case route(AgentLaunchCommand)
+        /// The command names a Subrouter provider in a form that can't be read
+        /// safely; it must be neither routed nor replayed.
+        case refuse
+        /// The command doesn't prove Subrouter; keep the existing legacy path.
+        case fallThrough
+    }
+
+    /// Decides how a legacy Codex restore treats its persisted command.
+    ///
+    /// Evidence comes from `CodexLegacyRestoreCommand` when the command is a
+    /// literal resume of this session, and otherwise from the bounded
+    /// shell-command reader, which also requires a UUID session and rejects a
+    /// `resume` naming another session. Only `.provider("subrouter")` routes.
+    /// Absent or other-provider evidence falls through, so an ordinary command
+    /// that merely mentions subrouter (in a path, say) restores as before.
+    /// Ambiguous evidence refuses only when the command names a Subrouter
+    /// provider assignment; other unreadable commands fall through.
+    ///
+    /// A routed capture is `codex -c model_provider=subrouter`, carrying the
+    /// captured launch environment, then `savedEnvironment` (the record's
+    /// saved environment), then any inline `CODEX_HOME`/`HOME` from the legacy
+    /// command, which wins, plus the captured verification home. The
+    /// legacy command's own words, including any captured per-process
+    /// `model_providers.subrouter.*` endpoint and other options, are never
+    /// carried into the resume.
+    public func legacyRestoreDecision(
+        legacyCommand: String,
+        sessionID: String,
+        workingDirectory: String?,
+        capturedLaunch: AgentLaunchCommand? = nil,
+        savedEnvironment: [String: String] = [:]
+    ) -> LegacyRestoreDecision {
+        let evidence: SubrouterCodexProviderEvidence
+        var inlineEnvironment: [String: String] = [:]
+        if let parsed = CodexLegacyRestoreCommand(command: legacyCommand, sessionID: sessionID) {
+            evidence = providerEvidence(in: parsed.arguments)
+            inlineEnvironment = parsed.environment
+        } else {
+            evidence = shellCommandEvidence(legacyCommand, sessionID: sessionID)
+        }
+        switch evidence {
+        case .provider("subrouter"):
+            // Captured launch, then the record's saved environment, then the
+            // command's own inline assignments, which name the account it ran.
+            var environment = capturedLaunch?.environment ?? [:]
+            environment.merge(savedEnvironment) { _, saved in saved }
+            environment.merge(inlineEnvironment) { _, inline in inline }
+            return .route(AgentLaunchCommand(
+                launcher: "codex",
+                arguments: ["codex", "-c", "model_provider=subrouter"],
+                workingDirectory: workingDirectory,
+                environment: environment.isEmpty ? nil : environment,
+                verificationHome: capturedLaunch?.verificationHome,
+                source: "legacy-command"
+            ))
+        case .ambiguous:
+            return namesSubrouterProvider(legacyCommand) ? .refuse : .fallThrough
+        case .absent, .provider:
+            return .fallThrough
+        }
+    }
+
+    /// Shell-command evidence for a legacy resume of `sessionID`: ambiguous
+    /// unless the session is a UUID and any `resume` names that session.
+    private func shellCommandEvidence(_ command: String, sessionID: String) -> SubrouterCodexProviderEvidence {
+        let evidence = providerEvidence(inShellCommand: command)
+        guard evidence != .absent else { return .absent }
+        guard UUID(uuidString: sessionID) != nil,
+              let tokens = Self.shellCommandTokens(command) else {
+            return .ambiguous
+        }
+        let positionalEnd = tokens.firstIndex(of: "--") ?? tokens.endIndex
+        let words = tokens[..<positionalEnd]
+        if let resume = words.firstIndex(of: "resume"),
+           words.index(after: resume) < words.endIndex,
+           words[words.index(after: resume)] != sessionID {
+            return .ambiguous
+        }
+        return evidence
+    }
+
+    /// Whether a command names a Subrouter provider assignment
+    /// (`model_provider=subrouter` or `model_providers.subrouter.*`), read
+    /// loosely so unreadable text is still recognized.
+    private func namesSubrouterProvider(_ command: String) -> Bool {
+        let lowered = command.lowercased()
+        return lowered.range(of: #"model_provider\s*=\s*["']?subrouter"#, options: .regularExpression) != nil
+            || lowered.contains("model_providers.subrouter.")
+    }
+
+    /// Splits a legacy persisted command into words the way a POSIX shell
+    /// would for literal text, or returns nil for anything that is not
+    /// literal: operators `; & | < > ( )`, `$` and backquote expansion, globs
+    /// `* ? [ ] { }`, a leading `~`, `!`, `#`, an unterminated quote, a
+    /// trailing backslash, or any control character other than space and
+    /// tab between words.
+    static func shellCommandTokens(_ command: String) -> [String]? {
+        var tokens: [String] = []
+        var token = String.UnicodeScalarView()
+        var inToken = false
+        var quote: Unicode.Scalar?
+        var escaped = false
+        var escapedInDoubleQuotes = false
+        // A shell reads bytes, not grapheme clusters: as a Character, a quote
+        // followed by a combining mark is not a quote. Scalars agree with it.
+        for character in command.unicodeScalars {
+            if CharacterSet.controlCharacters.contains(character) && character != "\t" {
+                return nil
+            }
+            if escaped {
+                // Outside quotes a backslash makes the next character literal.
+                token.append(character)
+                escaped = false
+                continue
+            }
+            switch quote {
+            case "'":
+                if character == "'" { quote = nil } else { token.append(character) }
+                continue
+            case "\"":
+                if escapedInDoubleQuotes {
+                    // Inside double quotes a backslash escapes only these;
+                    // before anything else it stays literal.
+                    if !"\"\\$`".unicodeScalars.contains(character) { token.append("\\") }
+                    token.append(character)
+                    escapedInDoubleQuotes = false
+                } else if character == "\\" {
+                    escapedInDoubleQuotes = true
+                } else if character == "\"" {
+                    quote = nil
+                } else if character == "$" || character == "`" {
+                    return nil
+                } else {
+                    token.append(character)
+                }
+                continue
+            default:
+                break
+            }
+            if character == "\\" {
+                escaped = true
+                inToken = true
+            } else if character == "'" || character == "\"" {
+                quote = character
+                inToken = true
+            } else if character == " " || character == "\t" {
+                if inToken {
+                    tokens.append(String(token))
+                    token = String.UnicodeScalarView()
+                    inToken = false
+                }
+            } else if ";&|<>()$`*?[]{}!#".unicodeScalars.contains(character) || (character == "~" && !inToken) {
+                return nil
+            } else {
+                token.append(character)
+                inToken = true
+            }
+        }
+        guard !escaped, quote == nil else { return nil }
+        if inToken { tokens.append(String(token)) }
+        return tokens
+    }
+
+    /// Parses only top-level `model_provider` assignments from a bounded TOML
+    /// document. A malformed provider assignment is ambiguous and never
+    /// upgrades a restore into a routed launch.
+    public func providerEvidence(inConfigToml configToml: String?) -> SubrouterCodexProviderEvidence {
+        guard let configToml,
+              configToml.utf8.count <= Self.maxConfigTomlBytes else {
+            return .absent
+        }
+        var providers: Set<String> = []
+        var multilineDelimiter: String?
+        for rawLine in configToml.split(whereSeparator: \Character.isNewline) {
+            let raw = String(rawLine)
+            // Text inside a multi-line string is opaque: it is neither a key
+            // nor a table header.
+            if let delimiter = multilineDelimiter {
+                if Self.occurrences(of: delimiter, in: raw) % 2 == 1 { multilineDelimiter = nil }
+                continue
+            }
+            let line = stripTomlComment(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, !line.hasPrefix("#") else { continue }
+            // Top-level keys end at the first table header (`[t]` or `[[t]]`).
+            if line.hasPrefix("[") { break }
+            for delimiter in ["\"\"\"", "\'\'\'"] where Self.occurrences(of: delimiter, in: line) % 2 == 1 {
+                multilineDelimiter = delimiter
+            }
+            let key = line.split(separator: "=", maxSplits: 1).first
+                .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+            let bareKey = key.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            // A selected profile can override the top-level provider.
+            if bareKey == "profile" { return .ambiguous }
+            guard bareKey == "model_provider" else { continue }
+            // In the file the value must be a plain quoted TOML string: an
+            // unquoted value, a quoted key or an escape is never proof.
+            let value = line.split(separator: "=", maxSplits: 1).last
+                .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+            let quoted = value.count >= 2
+                && ((value.first == "\"" && value.last == "\"") || (value.first == "'" && value.last == "'"))
+            guard key == "model_provider", quoted, !value.dropFirst().dropLast().contains("\\"),
+                  let provider = modelProviderAssignment(in: line) else {
+                return .ambiguous
+            }
+            providers.insert(provider)
+        }
+        guard providers.count == 1, let provider = providers.first else {
+            return providers.isEmpty ? .absent : .ambiguous
+        }
+        return .provider(provider)
+    }
+
+    private static func occurrences(of needle: String, in text: String) -> Int {
+        text.components(separatedBy: needle).count - 1
+    }
+
+    /// Whether captured argv selects a Codex profile (`--profile`, `-p`,
+    /// `--profile=`, or `-c profile=`), whose own provider can override the
+    /// top-level one in the config.
+    private func selectsCodexProfile(_ arguments: [String]) -> Bool {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" { return false }
+            if argument == "--profile" || argument == "-p" || argument.hasPrefix("--profile=") {
+                return true
+            }
+            if (argument == "-c" || argument == "--config"), index + 1 < arguments.count,
+               arguments[index + 1].trimmingCharacters(in: .whitespaces).hasPrefix("profile=") {
+                return true
+            }
+            if argument.hasPrefix("-c=profile=") || argument.hasPrefix("--config=profile=") {
+                return true
+            }
+            index += 1
+        }
+        return false
     }
 
     /// Retains a canonical, non-secret routing proof when prompt sanitization
@@ -131,7 +506,7 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         ) != nil else {
             return sanitizedArguments
         }
-        if launchArgumentsContainSubrouterProvider(sanitizedArguments) {
+        if launchArgumentsContainSubrouterProvider(sanitizedArguments, launcher: launcher) {
             return sanitizedArguments
         }
 
@@ -199,8 +574,23 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return selected
     }
 
-    private func launchArgumentsContainSubrouterProvider(_ arguments: [String]) -> Bool {
-        var effectiveProvider: String?
+    private func launchArgumentsContainSubrouterProvider(
+        _ arguments: [String],
+        launcher: String?
+    ) -> Bool {
+        providerEvidence(in: arguments, launcher: launcher) == .provider("subrouter")
+    }
+
+    private func isCodexInvocation(_ arguments: [String]) -> Bool {
+        guard let first = arguments.first else { return false }
+        let executable = URL(fileURLWithPath: first).lastPathComponent.lowercased()
+        return executable == "codex" ||
+            (executable == "sr" && arguments.dropFirst().first == "codex") ||
+            (executable == "subrouter" && arguments.dropFirst().first == "codex")
+    }
+
+    private func providerEvidenceFromAssignments(in arguments: [String]) -> SubrouterCodexProviderEvidence {
+        var observedProviders: Set<String> = []
         var index = 0
         while index < arguments.count {
             let argument = arguments[index]
@@ -208,20 +598,40 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
                 break
             }
             if (argument == "-c" || argument == "--config"),
-               index + 1 < arguments.count,
-               let provider = modelProviderAssignment(in: arguments[index + 1]) {
-                effectiveProvider = provider
+               index + 1 < arguments.count {
+                let value = arguments[index + 1]
+                if let provider = modelProviderAssignment(in: value) {
+                    observedProviders.insert(provider)
+                } else if looksLikeModelProviderAssignment(value) {
+                    return .ambiguous
+                }
                 index += 2
                 continue
             }
             for prefix in ["-c=", "--config="] where argument.hasPrefix(prefix) {
-                if let provider = modelProviderAssignment(in: String(argument.dropFirst(prefix.count))) {
-                    effectiveProvider = provider
+                let value = String(argument.dropFirst(prefix.count))
+                if let provider = modelProviderAssignment(in: value) {
+                    observedProviders.insert(provider)
+                } else if looksLikeModelProviderAssignment(value) {
+                    return .ambiguous
                 }
             }
             index += 1
         }
-        return effectiveProvider == "subrouter"
+        // Multiple provider declarations are only safe when they agree. A
+        // stale or hand-edited record that mixes Subrouter with another
+        // provider must not be upgraded into routed restore evidence.
+        guard !observedProviders.isEmpty else { return .absent }
+        guard observedProviders.count == 1, let provider = observedProviders.first else {
+            return .ambiguous
+        }
+        return .provider(provider)
+    }
+
+    private func looksLikeModelProviderAssignment(_ rawValue: String) -> Bool {
+        let parts = rawValue.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+        return parts.count == 2 &&
+            parts[0].trimmingCharacters(in: .whitespacesAndNewlines) == "model_provider"
     }
 
     private func modelProviderAssignment(in rawValue: String) -> String? {
@@ -237,8 +647,70 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
            (first == "\"" && last == "\"") || (first == "'" && last == "'") {
             value.removeFirst()
             value.removeLast()
+        } else if value.first == "\"" || value.first == "'" ||
+                    value.last == "\"" || value.last == "'" {
+            return nil
         }
         return value
+    }
+
+    /// Reads the captured `CODEX_HOME/config.toml` when the restore is
+    /// planned, not when the session was captured, so its contents can have
+    /// changed since. That is why config evidence only fills in for captures
+    /// whose argv names no provider, and only upgrades to the fixed
+    /// `sr codex resume` launcher. The read is one bounded (64 KiB),
+    /// non-blocking open of a regular file.
+    private static func readCapturedConfigToml(
+        environment: [String: String]?,
+        verificationHome: String?
+    ) -> String? {
+        let rawHome = environment?["CODEX_HOME"] ?? verificationHome
+        guard let rawHome,
+              !rawHome.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        let home = (rawHome as NSString).expandingTildeInPath
+        guard home.hasPrefix("/") else { return nil }
+        let path = (home as NSString).appendingPathComponent("config.toml")
+        // Open first (following a symlink), then check the opened file, so
+        // what is checked is what is read. O_NONBLOCK keeps a FIFO from
+        // blocking the open; it must be a regular file to be read at all.
+        let descriptor = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return nil }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        var info = stat()
+        guard fstat(descriptor, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFREG,
+              info.st_size <= off_t(maxConfigTomlBytes),
+              let data = try? handle.read(upToCount: maxConfigTomlBytes + 1),
+              data.count <= maxConfigTomlBytes else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func stripTomlComment(_ rawLine: String) -> String {
+        var quote: Character?
+        var escaped = false
+        for (offset, character) in rawLine.enumerated() {
+            if escaped {
+                escaped = false
+                continue
+            }
+            if character == "\\", quote == "\"" {
+                escaped = true
+                continue
+            }
+            if character == "\"" || character == "'" {
+                if quote == character { quote = nil }
+                else if quote == nil { quote = character }
+                continue
+            }
+            if character == "#", quote == nil {
+                return String(rawLine.prefix(offset))
+            }
+        }
+        return rawLine
     }
 
     private func isSubrouterRoutingAssignment(_ rawValue: String) -> Bool {
