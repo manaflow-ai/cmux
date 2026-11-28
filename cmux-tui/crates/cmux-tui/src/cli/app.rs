@@ -217,6 +217,11 @@ pub(super) enum AppCommand {
         params: Value,
         seconds: u64,
     },
+    /// `app chat perf --page-source`: `agent.chat.perf {"page_source": true}`, how the chat pages
+    /// made since launch got their page; no tab, no capture (app/chat_perf.rs).
+    ChatPageSource {
+        params: Value,
+    },
     /// Local settings completion/schema/validation (`app/settings.rs`).
     Settings(settings::Command),
     /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
@@ -1125,6 +1130,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
         AppCommand::ChatPerf { params, seconds } => {
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
+        }
+        AppCommand::ChatPageSource { params } => {
+            return Ran::Done(chat_perf::run_page_source(global, stream, params));
         }
         AppCommand::Record(request) => return Ran::Done(record::run(global, request)),
         AppCommand::Settings(command) => return Ran::Done(command.run(global)),
