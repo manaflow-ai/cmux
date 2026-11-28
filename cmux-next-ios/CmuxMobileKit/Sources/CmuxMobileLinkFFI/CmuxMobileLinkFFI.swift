@@ -8370,6 +8370,217 @@ public func FfiConverterTypeRowLayoutMemory_lower(_ value: RowLayoutMemory) -> U
 
 
 /**
+ * One list's spill on one directory. Calls do plain file I/O under one lock: the app makes
+ * them off the main thread.
+ */
+public protocol RowSpillPagesProtocol: AnyObject, Sendable {
+    
+    /**
+     * Takes the newest page off (newest first): the rows in memory, else the top page file.
+     * Empty when the spill is.
+     */
+    func pop()  -> [Data]
+    
+    /**
+     * Keeps `rows` (newest first, all older than what the list still holds) above every row
+     * held. Whole pages go to disk, oldest first; fewer than a page stay in memory.
+     */
+    func push(rows: [Data]) 
+    
+    /**
+     * Deletes every spilled row and the directory.
+     */
+    func reset() 
+    
+    /**
+     * The rows short of a page that wait in memory, newest first (tests and measurements).
+     */
+    func rowsInMemory()  -> [Data]
+    
+    /**
+     * How many rows are held (tests and measurements; reads every page).
+     */
+    func storedCount()  -> UInt32
+    
+}
+/**
+ * One list's spill on one directory. Calls do plain file I/O under one lock: the app makes
+ * them off the main thread.
+ */
+open class RowSpillPages: RowSpillPagesProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_rowspillpages(self.handle, $0) }
+    }
+    /**
+     * The spill on `directory` (made when the first page fills), `page_size` rows a page, at
+     * most `max_rows` rows (at least one page).
+     */
+public convenience init(directory: String, pageSize: UInt32, maxRows: UInt32) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_rowspillpages_new(
+        FfiConverterString.lower(directory),
+        FfiConverterUInt32.lower(pageSize),
+        FfiConverterUInt32.lower(maxRows),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_rowspillpages(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Takes the newest page off (newest first): the rows in memory, else the top page file.
+     * Empty when the spill is.
+     */
+open func pop() -> [Data]  {
+    return try!  FfiConverterSequenceData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowspillpages_pop(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Keeps `rows` (newest first, all older than what the list still holds) above every row
+     * held. Whole pages go to disk, oldest first; fewer than a page stay in memory.
+     */
+open func push(rows: [Data])  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowspillpages_push(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceData.lower(rows),$0
+    )
+}
+}
+    
+    /**
+     * Deletes every spilled row and the directory.
+     */
+open func reset()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowspillpages_reset(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * The rows short of a page that wait in memory, newest first (tests and measurements).
+     */
+open func rowsInMemory() -> [Data]  {
+    return try!  FfiConverterSequenceData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowspillpages_rows_in_memory(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * How many rows are held (tests and measurements; reads every page).
+     */
+open func storedCount() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowspillpages_stored_count(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRowSpillPages: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RowSpillPages
+
+    public static func lift(_ handle: UInt64) throws -> RowSpillPages {
+        return RowSpillPages(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RowSpillPages) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RowSpillPages {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RowSpillPages, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowSpillPages_lift(_ handle: UInt64) throws -> RowSpillPages {
+    return try FfiConverterTypeRowSpillPages.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowSpillPages_lower(_ value: RowSpillPages) -> UInt64 {
+    return FfiConverterTypeRowSpillPages.lower(value)
+}
+
+
+
+
+
+
+/**
  * The phone's copy of the Mac's tab list for one link. Make one per Mac; it lives across
  * reconnects so a reconnect resumes from its rev instead of reading the manifest again.
  */
@@ -27257,6 +27468,17 @@ public func setLanMemoryDir(dir: String?)  {try! rustCall() {
 }
 }
 /**
+ * This phone's `transport.tailnetCarrier` (`off`, `direct-only`, `on`; anything else is off).
+ * Not `off`: [`race`] adds the Mac's reported tailnet addresses as direct candidates beside
+ * the LAN ones and the relay. Call at launch and whenever the setting changes.
+ */
+public func setTailnetCarrier(mode: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_tailnet_carrier(
+        FfiConverterString.lower(mode),$0
+    )
+}
+}
+/**
  * Keys held for a detached terminal, typed `typed_ages_ms` ago: why they go now, or none while
  * they wait. `offline_age_ms`: how long the Mac has been called offline, while it is;
  * `progress_age_ms`: how long since the link's last progress (`LinkProgressClock`), if it made
@@ -27681,6 +27903,28 @@ public func rowLayoutFingerprint(text: String) -> UInt64  {
         FfiConverterString.lower(text),$0
     )
 })
+}
+/**
+ * `scope` (an account or a chat id) as one folder name: letters, digits and `-` stay, every
+ * other character is `_`; nothing left is `default`.
+ */
+public func rowSpillFolderName(scope: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_row_spill_folder_name(
+        FfiConverterString.lower(scope),$0
+    )
+})
+}
+/**
+ * Deletes every folder under `parent` but `keep`: the spills earlier runs of the app left (a
+ * killed app never deleted its spills).
+ */
+public func rowSpillPurgeRuns(parent: String, keep: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_row_spill_purge_runs(
+        FfiConverterString.lower(parent),
+        FfiConverterString.lower(keep),$0
+    )
+}
 }
 /**
  * Answers one `screen_*` op: `request` and the answer are the op's JSON.
@@ -28574,6 +28818,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_lan_memory_dir() != 45946) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_tailnet_carrier() != 33287) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_held_keys_expiry() != 25051) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -28683,6 +28930,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_row_layout_fingerprint() != 59393) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_row_spill_folder_name() != 50651) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_row_spill_purge_runs() != 11957) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_screen_json() != 9471) {
@@ -29432,6 +29685,21 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_rowlayoutmemory_stats() != 34123) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowspillpages_pop() != 21658) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowspillpages_push() != 40061) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowspillpages_reset() != 27453) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowspillpages_rows_in_memory() != 3851) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowspillpages_stored_count() != 64160) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_link_up() != 53128) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -29670,6 +29938,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_rowlayoutmemory_new() != 34891) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_rowspillpages_new() != 5551) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_tabsmirror_new() != 62444) {

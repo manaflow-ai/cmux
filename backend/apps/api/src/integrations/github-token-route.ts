@@ -1,7 +1,7 @@
 import type { Principal } from "@cmux/ownership"
 import { GitHubMachineTokenRequest, GitHubTokenRequest, GitHubTokenRevokeRequest, TeamId } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
-import { authenticate } from "../auth.ts"
+import { authenticate, mintAccessToken } from "../auth.ts"
 import { roleHas } from "../domains/team-roles.ts"
 import { personalTeamIdFor } from "../domains/user.ts"
 import type { Env } from "../env.ts"
@@ -72,7 +72,7 @@ const teamPolicy = (env: Env, team: string) => connections(env, team).githubPoli
 export const MACHINE_TOKEN_ENVIRONMENTS: ReadonlySet<string> = new Set(["development", "staging", "production"])
 
 /** The caller, in `team` (a vm install: its machine's team), with grant classes, or why not. */
-const caller = async (request: Request, env: Env, team: string | undefined): Promise<{ p: Principal; team: string; machine?: string; edgeOnly?: true } | Fail> => {
+const caller = async (request: Request, env: Env, team: string | undefined): Promise<{ p: Principal; team: string; machine?: string; edgeOnly?: true; platformEdge?: true } | Fail> => {
   const authorization = request.headers.get("authorization") ?? ""
   const token = await authenticate(env, /^Bearer (.+)$/.exec(authorization)?.[1])
   if (!token?.user || !token.team) return no(401, "auth.required", "a cmux bearer token is required")
@@ -100,8 +100,9 @@ const caller = async (request: Request, env: Env, team: string | undefined): Pro
   const self = await platformRead(env.PLATFORM, request.url, authorization, "cloud.vm.self.get", { machine: p.bound_machine ?? "" })
   // An edge machine (cmux-platform PlatformEdge carries it: its git reaches GitHub through platform.cmux.internal)
   // says so on this same read; then only the platform egress's own bearer (claim `edge`) mints, never the guest's.
-  const edgeOnly = self.ok && (self.value as { platform_edge?: unknown } | null)?.platform_edge === true && p.edge !== true
-  return self.ok ? { p, team: p.team!, machine: p.bound_machine!, ...(edgeOnly ? { edgeOnly: true as const } : {}) } : self.retryable ? unreachable("the VM's machine") : no(403, "auth.forbidden", "a VM install speaks only for its own live machine")
+  const platformEdge = self.ok && (self.value as { platform_edge?: unknown } | null)?.platform_edge === true
+  const edgeOnly = platformEdge && p.edge !== true
+  return self.ok ? { p, team: p.team!, machine: p.bound_machine!, ...(edgeOnly ? { edgeOnly: true as const } : {}), ...(platformEdge ? { platformEdge: true as const } : {}) } : self.retryable ? unreachable("the VM's machine") : no(403, "auth.forbidden", "a VM install speaks only for its own live machine")
 }
 
 const decode = <A>(schema: Schema.Codec<A, unknown>, body: unknown): A | Fail => {
@@ -117,7 +118,10 @@ const teamAdmin = async (env: Env, p: Principal, team: string): Promise<boolean 
   return stub.memberRole(team, p.user!).then((role) => roleHas(role ?? undefined, "team.manage"), () => null)
 }
 
-export const handleGithubToken = async (request: Request, env: Env, sub: string): Promise<Response> => {
+/** How a request reached the route: `edgeService` only from edgeGithubToken (the platform's named entrypoint), never HTTP. */
+type RouteCall = { readonly edgeService?: true }
+
+export const handleGithubToken = async (request: Request, env: Env, sub: string, call: RouteCall = {}): Promise<Response> => {
   // The machine-only seam answers in MACHINE_TOKEN_ENVIRONMENTS (not the test runner's own `test`). Repository
   // enumeration answers in every environment: a signed-in person (a session or their own install), and a
   // `vm` install for its own team under exactly the gate POST /token applies to it (caller: its machine's
@@ -198,6 +202,10 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     if (isFail(who)) return failed(who)
     // No secret through a request the guest can make: on an edge machine its git needs no token (T15).
     if (who.edgeOnly) return failed(no(403, "github.edge_only", "this machine's git reaches GitHub through its platform edge; the machine may not ask for a GitHub token"))
+    // The platform's service mint (edgeGithubToken) serves only a machine its edge carries, as that machine's own install.
+    if (call.edgeService && (!who.platformEdge || sub !== "token" || who.p.kind !== "install" || who.p.install_kind !== "vm" || who.p.edge !== true)) {
+      return failed(no(403, "auth.forbidden", "the platform's edge mint serves only a machine its platform edge carries"))
+    }
     if (sub === "machine-token" && (who.p.kind !== "install" || who.p.install_kind !== "vm" || !who.machine)) return failed(no(403, "auth.forbidden", "a machine install is required"))
     if (who.p.kind === "install" && who.p.install_kind !== "vm" && !who.p.grant_classes?.includes("read")) {
       return failed(no(403, "auth.forbidden", "this install's grant does not cover read"))
@@ -264,4 +272,59 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     revoked = total
   }
   return revoked === null ? failed(unreachable("the team's GitHub tokens")) : Response.json({ revoked }, { headers: NO_STORE })
+}
+
+/**
+ * What cmux-platform's git and GitHub API egress send (CloudDO machineRepoToken) when it holds no install token signer
+ * (no JWT_PRIVATE_JWK, as in production): the machine's own record, never the guest's request. `creator` is the user
+ * whose vm install it is; `sso_team` is the platform's copy, and the install's own record in UserDO is what is used.
+ */
+export interface EdgeGithubTokenRequest {
+  readonly team: string
+  readonly machine: string
+  readonly install: string
+  readonly grant: string
+  readonly creator: string
+  readonly sso_team?: string | null
+  readonly repo: string
+  readonly permissions: Record<string, "read" | "write">
+}
+
+/** The /token route's answer, as data: its HTTP status and JSON body (a token reply, or `{error}`). */
+export type EdgeGithubTokenReply = { readonly status: number; readonly body: unknown; readonly retry_after?: string }
+
+const EDGE_ID = /^[A-Za-z0-9_.:-]{1,128}$/
+const EDGE_TEAM = /^team_[0-9a-f]{20}$/
+const reply = async (res: Response): Promise<EdgeGithubTokenReply> => {
+  const after = res.headers.get("retry-after")
+  return { status: res.status, body: (await res.json().catch(() => null)) as unknown, ...(after === null ? {} : { retry_after: after }) }
+}
+
+/**
+ * The platform edge's GitHub token mint without a platform-held signing key (named entrypoint MachineEdgeSignin
+ * githubToken, account-local, never an HTTP route). Every gate of the vmSelf edge path applies, because it is that
+ * path: the install must be live, a `vm` install bound to this team and machine under a live vm-self grant (UserDO
+ * edgeRedeem, as edge sign-in); its bearer, with the `edge` claim and only in this Worker's memory, then goes through
+ * POST /token, so the SSO gate, the install's grant, vmGate's live machine, the team's GitHub policy and allowlist apply
+ * unchanged. One more: the platform's own cloud.vm.self.get must say the edge carries this machine, or nothing is
+ * minted. The guest's own bearer never gets here and never carries `edge` (machine-edge-signin.ts strips it).
+ */
+export const edgeGithubToken = async (env: Env, input: EdgeGithubTokenRequest): Promise<EdgeGithubTokenReply> => {
+  const refuse = (f: Fail): EdgeGithubTokenReply => ({ status: f.status, body: { error: { code: f.code, message: f.message, ...githubNext(f.code, f.reason) } } })
+  if (!input || typeof input !== "object" || !EDGE_TEAM.test(input.team ?? "") || ![input.machine, input.install, input.grant, input.creator].every((v) => typeof v === "string" && EDGE_ID.test(v))) {
+    return refuse(no(400, "request.invalid", "invalid edge token request"))
+  }
+  if (input.sso_team !== undefined && input.sso_team !== null && (typeof input.sso_team !== "string" || !EDGE_ID.test(input.sso_team))) return refuse(no(400, "request.invalid", "invalid edge token request"))
+  const r = await env.USER_DO.get(env.USER_DO.idFromName(input.creator)).edgeRedeem(input.creator, input.install, input.grant, input.team, input.machine).catch(() => null)
+  if (!r) return refuse(unreachable("the machine's install"))
+  if (!r.ok) return refuse(no(403, "auth.forbidden", r.message))
+  // The install's own SSO team decides; a platform copy naming another team is refused rather than trusted.
+  if (r.sso_team && (input.sso_team ?? null) !== r.sso_team) return refuse(no(403, "auth.forbidden", "the machine's SSO team does not match its install"))
+  const { token } = await mintAccessToken(env, { user: r.user, team: r.team, install: r.install, grant: r.grant, ...(r.sso_team ? { sso_team: r.sso_team } : {}), ...(r.email_domain ? { email_domain: r.email_domain } : {}), vm: true, edge: true })
+  const request = new Request("https://cmux-api.internal/v1/integrations/github/token", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ team: input.team, repo: input.repo, permissions: input.permissions })
+  })
+  return reply(await handleGithubToken(request, env, "token", { edgeService: true }))
 }

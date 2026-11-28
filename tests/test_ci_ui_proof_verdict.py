@@ -74,7 +74,7 @@ class PathsTest(unittest.TestCase):
                      "Packages/macOS/Tests/CmuxNextTests/RowTests.swift", "Packages/macOS/Sources/X/Localizable.xcstrings",
                      "scripts/ci/pr_router.py", ".github/workflows/pr-router.yml", "cmux-tui/crates/x/src/lib.rs",
                      "cmux-next-ios/App/Root.swift", "Packages/iOS/Kit/Sources/A.swift", "webviews/bench/a.bench.ts",
-                     "release-notes/next/x.md", "Resources/Info.plist"):
+                     "release-notes/next/x.md", "Resources/Info.plist", "Packages/macOS/CmuxNext/app-ffi-pin.json"):
             with self.subTest(path=path):
                 self.assertEqual(u.affects([path]), "")
 
@@ -197,6 +197,14 @@ class RecordTest(unittest.TestCase):
             self.assertFalse(rec["visual"]["diffed"])
 
 
+    def test_a_look_that_built_the_swift_app_records_mac_flows_the_app_gate_reads(self) -> None:
+        plan = {"layers": ["web"], "needs_build": True, "build": {"Swift": ["Packages/macOS/A/Sources/B/C.swift"]}}
+        self.assertEqual(u.suite_of(plan), "mac-flows")
+        self.assertIn(u.suite_of(plan), u.suites_for("app"))
+        self.assertEqual(u.suite_of({"layers": ["web", "rust"], "build": {"Swift": ["x.swift"]}}), "gui-flows")
+        self.assertEqual(u.suite_of({"layers": ["web"]}), "web-flows")
+
+
 class SwiftDrawsTest(unittest.TestCase):
     """cmux#61522 marked two statics `nonisolated` in CmuxNextActions/ActionArgument.swift and needed a hand-added
     `Visual: none`. Leo: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff" and "i
@@ -206,6 +214,12 @@ class SwiftDrawsTest(unittest.TestCase):
     def affects(self, text, base=None):
         texts = [text] + ([base] if base is not None else [])
         return u.affects([self.P], read=lambda p: texts)
+
+    def test_ffi_pin_roll_is_not_visual(self) -> None:
+        # The release bot's pin PR (cmux#60965): the pin JSON and a Package.swift that imports only PackageDescription.
+        files = {"Packages/macOS/CmuxNext/Package.swift": ["// swift-tools-version: 6.0\nimport PackageDescription\n"]}
+        self.assertEqual(u.affects(["Packages/macOS/CmuxNext/app-ffi-pin.json", "Packages/macOS/CmuxNext/Package.swift"],
+                                   read=lambda p: files[p]), "")
 
     def test_stdlib_only_imports_are_not_visual(self) -> None:
         self.assertEqual(self.affects("import Foundation\nimport os\npublic struct A { nonisolated static let x = 1 }"), "")
@@ -300,7 +314,9 @@ class ReadFailureTest(unittest.TestCase):
                                                       "GH_TOKEN": "secret"}), \
                             mock.patch.object(module, target, side_effect=error), \
                             contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                        self.assertEqual(module.main(argv), 0)
+                        # proof_record's gate exits UNREAD so its job fails rerunnable (pr-router.yml); ui proof posts.
+                        want = proof_record.UNREAD if module is proof_record else 0
+                        self.assertEqual(module.main(argv), want)
                     self.assertTrue(stdout.getvalue().startswith("error\t"))
                     self.assertIn(f"HTTPError {code}", stdout.getvalue())
                     self.assertIn("see job log", stdout.getvalue())
