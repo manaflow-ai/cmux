@@ -18,27 +18,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak, mpsc};
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
+use cmux_process::job::CREATE_SUSPENDED;
 use regex::bytes::{Regex, RegexBuilder};
 use serde_json::json;
 #[cfg(windows)]
 use wait_timeout::ChildExt;
-#[cfg(windows)]
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
-#[cfg(windows)]
-use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
-};
-#[cfg(windows)]
-use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-    SetInformationJobObject, TerminateJobObject,
-};
-#[cfg(windows)]
-use windows_sys::Win32::System::Threading::{
-    CREATE_SUSPENDED, OpenProcess, OpenThread, PROCESS_SET_QUOTA, PROCESS_TERMINATE, ResumeThread,
-    THREAD_SUSPEND_RESUME,
-};
 
 use crate::journal_kernel::{JournalDocument, SharedJournalRead};
 #[cfg(unix)]
@@ -120,54 +105,19 @@ impl Drop for JournalHookRuntimeGuard {
     }
 }
 
+/// A hook's process tree: a kill-on-close job (`cmux_process::job`), so the
+/// hook and what it starts end with the delivery, or with the daemon.
 #[cfg(windows)]
-struct WindowsHookJob {
-    handle: HANDLE,
-}
+struct WindowsHookJob(cmux_process::job::Job);
 
 #[cfg(windows)]
 impl WindowsHookJob {
     fn assign(child: &std::process::Child) -> std::io::Result<Self> {
-        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
-        if handle.is_null() {
-            return Err(std::io::Error::last_os_error());
-        }
-        let job = Self { handle };
-        let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        let information_size = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
-            .expect("Windows job information fits in u32");
-        if unsafe {
-            SetInformationJobObject(
-                job.handle,
-                JobObjectExtendedLimitInformation,
-                std::ptr::from_ref(&information).cast(),
-                information_size,
-            )
-        } == 0
-        {
-            return Err(std::io::Error::last_os_error());
-        }
-
-        let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
-        if process.is_null() {
-            return Err(std::io::Error::last_os_error());
-        }
-        let assigned = unsafe { AssignProcessToJobObject(job.handle, process) };
-        let assign_error = (assigned == 0).then(std::io::Error::last_os_error);
-        unsafe {
-            CloseHandle(process);
-        }
-        if let Some(error) = assign_error {
-            return Err(error);
-        }
-        Ok(job)
+        cmux_process::job::Job::owned(child).map(Self)
     }
 
     fn terminate_descendants(&self) {
-        unsafe {
-            TerminateJobObject(self.handle, 1);
-        }
+        let _ = self.0.terminate();
     }
 
     fn terminate_and_wait(&self, child: &mut std::process::Child) {
@@ -179,54 +129,7 @@ impl WindowsHookJob {
 
 #[cfg(windows)]
 fn resume_suspended_hook_child(child: &std::process::Child) -> std::io::Result<()> {
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
-    if snapshot == INVALID_HANDLE_VALUE {
-        return Err(std::io::Error::last_os_error());
-    }
-    let result = (|| {
-        let mut thread_entry = THREADENTRY32 {
-            dwSize: u32::try_from(size_of::<THREADENTRY32>())
-                .expect("Windows thread entry size fits in u32"),
-            ..THREADENTRY32::default()
-        };
-        if unsafe { Thread32First(snapshot, &mut thread_entry) } == 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        loop {
-            if thread_entry.th32OwnerProcessID == child.id() {
-                let thread =
-                    unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, thread_entry.th32ThreadID) };
-                if thread.is_null() {
-                    return Err(std::io::Error::last_os_error());
-                }
-                let resume_result = unsafe { ResumeThread(thread) };
-                let resume_error = (resume_result == u32::MAX).then(std::io::Error::last_os_error);
-                unsafe {
-                    CloseHandle(thread);
-                }
-                return resume_error.map_or(Ok(()), Err);
-            }
-            if unsafe { Thread32Next(snapshot, &mut thread_entry) } == 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "suspended hook process has no thread to resume",
-                ));
-            }
-        }
-    })();
-    unsafe {
-        CloseHandle(snapshot);
-    }
-    result
-}
-
-#[cfg(windows)]
-impl Drop for WindowsHookJob {
-    fn drop(&mut self) {
-        unsafe {
-            CloseHandle(self.handle);
-        }
-    }
+    cmux_process::job::resume(child.id())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

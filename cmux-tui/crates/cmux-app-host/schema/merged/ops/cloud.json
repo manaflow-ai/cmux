@@ -547,6 +547,11 @@
       "risk": "read",
       "digest": "06cef7c508952184"
     },
+    "cloud.vm.agent_key_create": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2e5265af3111daba"
+    },
     "cloud.vm.attention.emit": {
       "source": "cloud",
       "owner": "cloud:CloudDO",

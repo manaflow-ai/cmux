@@ -282,5 +282,51 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(runs, [], "every run of the second walk came from the cache")
 
 
+    def test_a_cache_kept_for_another_measurement_is_refused_not_read(self):
+        # hq docs/findings/2026-11-22-auto-bisect-bench.md: the same two commits, a changed measurement and a reused
+        # cache named a culprit with zero runs of the new measurement. Only the identity changes here.
+        import tempfile
+        cs = commits(6)
+        bad = {c: (1.0 if i < 3 else 3.0) for i, c in enumerate(cs)}
+        a = {"row": "r", "measure": "bench {sha}", "host": "h1 / cpu"}
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "cache.json")
+            self.assertEqual(pb.replay(cs, pb.cached(lambda s: bad[s], path, a), floor=0.5)["verdict"], "culprit")
+            for other in ({**a, "row": "r2"}, {**a, "measure": "bench2 {sha}"}, {**a, "host": "h2 / other cpu"}):
+                with self.assertRaises(pb.CacheMismatch):
+                    pb.cached(lambda s: 1.0, path, other)
+            runs = []
+
+            def flat(sha):
+                runs.append(sha)
+                return 1.0
+            fresh = pb.replay(cs, pb.cached(flat, os.path.join(d, "fresh.json"), {**a, "row": "r2"}), floor=0.5)
+            self.assertEqual(fresh["verdict"], "within noise")
+            self.assertTrue(runs, "the new measurement actually ran")
+
+    def test_a_cache_from_before_identities_is_read_only_without_one(self):
+        import json, tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "cache.json")
+            with open(path, "w") as f:
+                json.dump({"a": [2.5]}, f)
+            self.assertEqual(pb.cached(lambda s: 9.0, path)("a"), 2.5)
+            with self.assertRaises(pb.CacheMismatch):
+                pb.cached(lambda s: 9.0, path, {"row": "r"})
+
+    def test_the_cli_refuses_a_cache_of_another_row(self):
+        import json, subprocess, tempfile
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run(["git", "init", "-q", d], check=True)
+            for i in range(3):
+                subprocess.run(["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
+                                "--allow-empty", "-m", f"c{i}"], check=True)
+            path = os.path.join(d, "cache.json")
+            with open(path, "w") as f:
+                json.dump({"identity": {"row": "other"}, "runs": {"x": [1.0]}}, f)
+            rc = pb.main(["replay", "--repo", d, "--good", "HEAD~2", "--bad", "HEAD", "--row", "r",
+                          "--measure", "echo VALUE 1", "--cache", path])
+        self.assertEqual(rc, 2)
+
 if __name__ == "__main__":
     unittest.main()

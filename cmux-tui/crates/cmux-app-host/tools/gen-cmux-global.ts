@@ -105,6 +105,7 @@ const CLOUD_API_CALLS = [
   "cloud.vm.publication_api_keys",
   "cloud.vm.publications",
   "cloud.vm.revoke_publication_api_key",
+  "cloud.vm.agent_key_create",
   "cloud.vm.scp_endpoint",
   "cloud.vm.tunnel_attach",
   "cloud.vm.tunnel_detach",
