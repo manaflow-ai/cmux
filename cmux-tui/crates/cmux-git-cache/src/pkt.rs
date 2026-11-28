@@ -24,7 +24,7 @@ pub fn parse(mut buf: &[u8]) -> Option<Vec<Pkt<'_>>> {
             3 => return None,
             n => out.push(Pkt::Data(buf.get(4..n)?)),
         }
-        buf = &buf[len.max(4)..];
+        buf = buf.get(len.max(4)..)?;
     }
     Some(out)
 }
@@ -44,7 +44,7 @@ fn line(data: &[u8]) -> &[u8] {
 
 fn oid(rest: &[u8]) -> Option<String> {
     let end = rest.iter().position(|b| *b == b' ' || *b == 0).unwrap_or(rest.len());
-    let id = &rest[..end];
+    let id = rest.get(..end)?;
     ((id.len() == 40 || id.len() == 64) && id.iter().all(u8::is_ascii_hexdigit))
         .then(|| String::from_utf8_lossy(id).to_ascii_lowercase())
 }
@@ -216,6 +216,19 @@ mod tests {
 
     const A: &str = "0123456789abcdef0123456789abcdef01234567";
     const B: &str = "89abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn truncated_pkt_lines_are_rejected() {
+        let packet = encode("want 0123456789abcdef0123456789abcdef01234567\n");
+        for end in 1..packet.len() {
+            assert!(parse(packet.as_bytes().get(..end).unwrap()).is_none(), "cut at {end}");
+        }
+        assert!(parse(packet.as_bytes()).is_some());
+        for invalid in [b"0003".as_slice(), b"ffffx", b"xxxx"] {
+            assert!(parse(invalid).is_none());
+        }
+        assert_eq!(parse(b"000000010002"), Some(vec![Pkt::Flush, Pkt::Delim, Pkt::End]));
+    }
 
     #[test]
     fn v2_fetch_wants() {

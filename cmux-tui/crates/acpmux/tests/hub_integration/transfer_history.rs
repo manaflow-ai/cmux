@@ -114,6 +114,10 @@ async fn a_50_mb_chat_starts_on_a_second_daemon_from_its_tail_and_its_history_fo
     let refused = dst.request("_acpmux/transfer_prepare", json!({"sessionId": id})).await;
     let refused = refused.unwrap_err();
     assert!(refused.contains("transfer.history_pending"), "{refused:?}");
+    // Usable, not yet fully here: Session Info says what it still awaits.
+    let info = dst.request("_acpmux/info", json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["historyFollowing"]["throughSeq"], through, "{info}");
+    assert!(info["historyFollowing"]["sinceMs"].is_u64(), "{info}");
 
     // The history follows, packed.
     let follow_started = std::time::Instant::now();
@@ -122,6 +126,8 @@ async fn a_50_mb_chat_starts_on_a_second_daemon_from_its_tail_and_its_history_fo
     let arrived = dst.request("_acpmux/transfer_history", ask).await.unwrap();
     let follow_ms = follow_started.elapsed().as_millis();
     assert_eq!(arrived["throughSeq"], through, "{arrived}");
+    let info = dst.request("_acpmux/info", json!({"sessionId": id})).await.unwrap();
+    assert!(info.get("historyFollowing").is_none(), "fully here: {info}");
     let packed = &export["packed"];
     let raw = packed["rawBytes"].as_u64().unwrap();
     let bundle = packed["bundleBytes"].as_u64().unwrap();
