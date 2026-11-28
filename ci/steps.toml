@@ -470,6 +470,8 @@ inputs = [
   "tests/test_ci_check_repo_variables.py",
   "tests/test_ci_ios_fast_verdict.py",
   "tests/test_ci_ios_fast_dispatch.py",
+  "scripts/ci/ios_app_build_agreement.py",
+  "tests/test_ios_app_build_agreement.py",
   "tests/test_ci_routed_jobs_check_needs.py",
   "scripts/ci/cmux_next_pair_e2e.py",
   "tests/test_cmux_next_pair_e2e_guards.py",
@@ -480,6 +482,7 @@ python3 tests/test_ci_timing_readout.py || status=1
 python3 tests/test_ci_check_repo_variables.py || status=1
 python3 tests/test_ci_ios_fast_verdict.py || status=1
 python3 tests/test_ci_ios_fast_dispatch.py || status=1
+python3 tests/test_ios_app_build_agreement.py || status=1
 python3 -I tests/test_ci_proof_record.py || status=1
 python3 -I tests/test_ci_ui_proof_verdict.py || status=1
 python3 tests/test_ci_routed_jobs_check_needs.py || status=1
