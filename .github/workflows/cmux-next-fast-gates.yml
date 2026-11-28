@@ -560,12 +560,17 @@ jobs:
           PR: ${{ inputs.pr }}
           HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
           BASE: ${{ needs.resolve.outputs.base }}
+          # The pull request tier: the gates under 30 s. The slow ones (crash-class rules 71 s, web lint, the webviews
+          # checks) run on the push (their own workflows) and on a dispatch. `full-ci` or vars.CI_FAST_GATES_PR_TIER=full
+          # runs them here too (docs/ci/cmux-next-workflow-notes.md).
+          TIER: ${{ github.event_name == 'pull_request' && (vars.CI_FAST_GATES_PR_TIER || 'pr') != 'full' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && 'pr' || 'full' }}
         run: |
           set -euo pipefail
+          echo "TIER=$TIER" >> "$GITHUB_ENV"
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
-            python3 scripts/ci/cmux_next_fast_gates.py prepare --event workflow_dispatch --pr "$PR" --head "$HEAD_SHA" --base "$BASE" --output "$GITHUB_OUTPUT"
+            python3 scripts/ci/cmux_next_fast_gates.py prepare --event workflow_dispatch --pr "$PR" --head "$HEAD_SHA" --base "$BASE" --tier "$TIER" --output "$GITHUB_OUTPUT"
           else
-            python3 scripts/ci/cmux_next_fast_gates.py prepare --event pull_request --head "$HEAD_SHA" --base "$BASE" --output "$GITHUB_OUTPUT"
+            python3 scripts/ci/cmux_next_fast_gates.py prepare --event pull_request --head "$HEAD_SHA" --base "$BASE" --tier "$TIER" --output "$GITHUB_OUTPUT"
           fi
 
       # Web lint installs node_modules only in the web folders the diff touches
@@ -706,14 +711,16 @@ jobs:
           BUN_CONFIG_HTTP_RETRY_COUNT: "5"
           # The webviews type check runs inside fixit-compile (fast_gate_webviews_checks.py): its patch names the PR
           # head, not the merge commit or the dispatch's branch tip, so the hq fixit-compile reconciler pushes it there.
+          # A red web lint runs fixit-lint after the gates (scripts/ci/oops/fixit_lint.py) under the same head.
           FIXIT_COMPILE_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
         # --budget-seconds: a gate still running 21 min in is stopped and named as stalled, so the job ends with that
         # reason inside its 25-minute limit instead of being cancelled with none.
-        run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --budget-seconds 1260 --summary "$GITHUB_STEP_SUMMARY"
+        run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --tier "$TIER" --budget-seconds 1260 --summary "$GITHUB_STEP_SUMMARY"
 
       # A type check whose every error had one safe language-service fix, and passed with them: the patch, for the
       # cmuxterm-hq fixit-compile reconciler to push onto a lane/* branch as a fixup commit (ci-oops 0a), as
       # ci-web.yml uploads its own. Without it the patch fast_gate_webviews_checks.py wrote was thrown away.
+      # A red web lint whose tools' own safe fixes clear it writes web-lint.patch here too (fixit_lint.py).
       - name: Upload the fixit-compile patch
         if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
