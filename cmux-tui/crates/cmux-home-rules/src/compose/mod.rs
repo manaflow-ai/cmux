@@ -7,6 +7,7 @@ pub mod directory;
 pub mod draft;
 pub mod field;
 pub mod group;
+pub mod mcp_connect;
 pub mod routing;
 pub mod text;
 pub mod types;
@@ -73,6 +74,7 @@ pub const OPS: &[&str] = &[
     "team.inviteEmail",
     "team.inviteOutcome",
     "team.inviteAnswer",
+    "mcpConnect.step",
 ];
 
 const SUGGESTION_LIMIT: usize = 8;
@@ -343,6 +345,10 @@ fn call_more(name: &str, request: &Value) -> Result<Value, OpError> {
         "team.inviteAnswer" => {
             let r: directory::AnswerRequest = parse(request)?;
             Ok(directory::invite_answer(r.sent.as_deref(), r.by_person, &r.team))
+        }
+        "mcpConnect.step" => {
+            let r: mcp_connect::StepRequest = parse(request)?;
+            reply(&mcp_connect::step(r.phase, r.scope, r.auth, r.event))
         }
         _ => Err(OpError::Unknown),
     }
