@@ -1351,7 +1351,7 @@
       "comment": "The machine list read itself failed, so the start stopped before any create; %4$@ is that failure. %1$@ machine name, %2$@ agent, %3$@ the command (keep it in backticks), %4$@ the list error.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Couldn't read your Cloud machines, so %2$@ didn't start on %1$@: %4$@. Check `cmux cloud list-machines`, then run `%3$@` again."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't read your Cloud machines; %2$@ didn't start on %1$@: %4$@. Check `cmux cloud list-machines`, then run `%3$@` again."}},
         "ja": {"stringUnit": {"state": "translated", "value": "Cloud マシンの一覧を読み込めなかったため、%2$@ は %1$@ で開始されませんでした: %4$@。`cmux cloud list-machines` で確認してから、`%3$@` をもう一度実行してください。"}},
         "de": {"stringUnit": {"state": "needs_review", "value": "Deine Cloud-Maschinen konnten nicht gelesen werden, daher wurde %2$@ auf %1$@ nicht gestartet: %4$@. Prüfe `cmux cloud list-machines` und führe dann `%3$@` erneut aus."}},
         "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible de lire vos machines Cloud : %2$@ n'a pas démarré sur %1$@ : %4$@. Vérifiez `cmux cloud list-machines`, puis relancez `%3$@`."}},

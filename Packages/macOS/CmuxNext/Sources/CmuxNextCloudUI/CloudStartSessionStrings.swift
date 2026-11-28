@@ -284,7 +284,7 @@ public struct CloudStartSessionStrings {
     /// The list read itself failed (`reason`), so the start stopped before any create: name that failure, not a guess
     /// that a machine by the name exists.
     public static func listFailed(_ asked: Asked, reason: String) -> String {
-        String(format: String(localized: "cloud.startSession.listFailed", defaultValue: "Couldn't read your Cloud machines, so %2$@ didn't start on %1$@: %4$@. Check `cmux cloud list-machines`, then run `%3$@` again.", table: "CloudSessions", bundle: .localizedModule), asked.machine, asked.agent, asked.command, reason)
+        String(format: String(localized: "cloud.startSession.listFailed", defaultValue: "Couldn't read your Cloud machines; %2$@ didn't start on %1$@: %4$@. Check `cmux cloud list-machines`, then run `%3$@` again.", table: "CloudSessions", bundle: .localizedModule), asked.machine, asked.agent, asked.command, reason)
     }
 
     public static func listUnread(_ asked: Asked) -> String {
