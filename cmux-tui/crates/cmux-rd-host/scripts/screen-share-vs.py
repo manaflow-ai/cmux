@@ -237,6 +237,20 @@ def child_exit(code):
     return f"exit {code}"
 
 
+def marker_refresh(line):
+    """mac-marker's `refresh-hz N [mode-hz M]` line -> {"refresh_hz": N, "mode_hz": M}: the screen's
+    top rate and its current mode's. The composite waits one refresh, so a 30 Hz mode doubles the
+    Screen stage; a row without them cannot tell a slow host display from a slow pipeline."""
+    words, out = line.split(), {}
+    for name, key in (("refresh-hz", "refresh_hz"), ("mode-hz", "mode_hz")):
+        if name in words and words.index(name) + 1 < len(words):
+            try:
+                out[key] = float(words[words.index(name) + 1])
+            except ValueError:
+                pass
+    return out
+
+
 def wait_marker(proc, log, seconds=10.0, step=0.05):
     """The rig's `marker` reply from the marker app PROC writing LOG: its origin, click point and
     geometry once it prints `marker-origin` and `stream width`, or why not. It stops as soon as the
@@ -266,6 +280,8 @@ def wait_marker(proc, log, seconds=10.0, step=0.05):
                 reply["at"] = at
         if "stream width" in line:
             reply["geometry"] = line
+        if line.startswith("refresh-hz "):
+            reply.update(marker_refresh(line))
     if "origin" not in reply:
         how = child_exit(proc.poll())
         if how == "still running":
@@ -2553,6 +2569,7 @@ class Orchestrator:
         self.app_ledger = None  # the app viewer's own stage ledger (--app-viewer), or {"null"}
         self.app_timings = None  # the pane's own frame timings (mac_screen.state), or {"null"}
         self.geometry = None  # the marker's motion-geometry, read from the shared Mac
+        self.host_display = {}  # the marker's refresh_hz and mode_hz on the shared Mac
         self.quality_null = None
         self.apple_g2g = None
         self.apple_presented = None  # cmux-rd observe through a visible Screen Sharing.app window
@@ -2606,7 +2623,10 @@ class Orchestrator:
         pct = getattr(self, "host_test_loss", None)
         loss = {"host_test_loss_pct": float(pct)} if pct else {}
         env = {"host_env": self.host_env} if getattr(self, "host_env", None) else {}
-        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args, **loss, **env})
+        hz = getattr(self, "host_display", None) or {}
+        display = {f"host_{k}": v for k, v in hz.items()}
+        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args, **loss, **env,
+                           **display})
         print(line, flush=True)
         if self.out:
             self.out.write(line + "\n")
@@ -3052,6 +3072,8 @@ class Orchestrator:
         # click and scroll must land on the marker or it never counts them (the bench's own --at
         # default, 960,600, misses it): the marker's click-at, else its pad from the origin.
         self.marker_at = reply.get("at") or [origin[0] + 32 * (CELLS + 2), origin[1] + 16]
+        # The shared Mac's display rate, recorded on every row (log()).
+        self.host_display = {k: reply[k] for k in ("refresh_hz", "mode_hz") if k in reply} or self.host_display
         time.sleep(0.5)
         return origin
 

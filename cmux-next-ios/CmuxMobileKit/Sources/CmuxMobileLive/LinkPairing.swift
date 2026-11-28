@@ -328,14 +328,17 @@ public struct LinkPairing: Sendable {
     /// "Remove This iPhone from My Macs": asks the Mac to forget this phone (best effort, over a live link).
     public func unpair(link: any MacLink, macID: String) async {
         let deadline = clockNow() + handshakeTimeout
-        guard let (identity, approval) = try? keys.publicKeys(),
-              let channel = try? await LinkDeadline.run(
-                timeout: handshakeTimeout,
-                operation: { try await link.openChannel(service: "auth", args: [
-                    "identityKey": identity, "approvalKey": approval, "name": "", "action": "unpair",
-                ]) },
-                onDiscard: { await $0.close(code: "eof", reason: "unpair expired") }
-              ) else { return }
+        guard let (identity, approval) = try? keys.publicKeys() else { return }
+        var args = ["identityKey": identity, "approvalKey": approval, "name": "", "action": "unpair"]
+        // The Mac logs which app each auth came from; without these it said `unknown`.
+        if let bundleID, !bundleID.isEmpty { args["bundleId"] = bundleID }
+        if let appBuild, !appBuild.isEmpty { args["appBuild"] = appBuild }
+        let unpairArgs = args
+        guard let channel = try? await LinkDeadline.run(
+            timeout: handshakeTimeout,
+            operation: { try await link.openChannel(service: "auth", args: unpairArgs) },
+            onDiscard: { await $0.close(code: "eof", reason: "unpair expired") }
+        ) else { return }
         defer { Task { await channel.close(code: "eof", reason: "") } }
         guard let frame = try? await exchange(channel, until: deadline, operation: { try await channel.receive() }), let value = try? JSONDecoder().decode(JSONValue.self, from: frame),
               let nonce = value["challenge"]?.stringValue, value["mac"]?.stringValue == macID else { return }
