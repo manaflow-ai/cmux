@@ -359,6 +359,10 @@ fn sample_sets() -> &'static Value {
 
 /// How another validator checks a row (Swift `SettingsSchema.validationByKey`, then
 /// `validationByKind`, then `defaultValidation`).
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub fn validation(key: &str, kind: &str) -> &'static str {
     let table = &row_facts()["validation"];
     table["keys"][key]
@@ -457,6 +461,10 @@ pub fn samples(row: &Map<String, Value>) -> (Vec<Value>, Vec<Value>) {
 /// `surfaces` (from `palette_hidden`, which the export does not keep), `validation`,
 /// `kept_on_reset_all`, `pattern` for an app id row, and the samples the row's validator
 /// ([`accepts`], Swift `SettingDescriptor.accepts`) accepts and refuses.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub fn export_row(mut row: Map<String, Value>) -> Result<Value, OpError> {
     let facts = Value::Object(row.clone());
     let surfaces = surfaces(&SurfaceFacts::of(&facts)?);
