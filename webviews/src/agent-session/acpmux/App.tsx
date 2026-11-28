@@ -3268,10 +3268,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     forgetInsideTurn(closedTurn.session, turnInsideIds(closedTurn.rows, closedTurn.key, edits), edits);
   }, [closedTurn]);
   // Another chat begins at its own state, in the render that shows it (useChatState).
-  const [workingSeen, setWorkingSeen] = useChatState<{ session?: string; working: boolean }>(shownSessionId, (chat) => ({
-    session: chat,
-    working: snapshot.isWorking,
-  }));
+  const [workingSeen, setWorkingSeen] = useChatState<{ session?: string; working: boolean }>(
+    shownSessionId,
+    (chat) => ({
+      session: chat,
+      working: snapshot.isWorking,
+    }),
+  );
   if (workingSeen.working !== snapshot.isWorking) {
     const ended = workingSeen.working && !snapshot.isWorking;
     setWorkingSeen({ session: shownSessionId, working: snapshot.isWorking });
