@@ -30,6 +30,8 @@ const COMMANDS: &[&str] = &[
     // The owner's refreshed model credential: owner-Cloud only in its handler.
     "agent-session-credentials",
     "agent-session-trust",
+    "agent-session-login",
+    "agent-session-login-settings",
     "agent-session-attach",
     "agent-session-events",
     "agent-session-prompt",
@@ -151,8 +153,20 @@ const CAPABILITIES: &[&str] = &[
     SCREEN_DEVICE_IDENTITY_CAPABILITY,
     AGENT_PRESENCE_REPLAY_CAPABILITY,
     AGENT_SESSION_ATTACH_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_LOGIN_MACHINE_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_LOGIN_SETTINGS_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY,
     AGENT_SESSION_START_CAPABILITY,
+    agent_session_attach::agent_session_start::AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
+    agent_session_attach::agent_session_start::AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
+    agent_session_attach::agent_session_start::AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY,
+    agent_session_attach::agent_session_start::AGENT_SESSION_START_SUBSCRIPTION_CREDENTIALS_CAPABILITY,
+    agent_session_attach::agent_session_start::CREDENTIAL_REATTACH_CAPABILITY,
+    agent_session_attach::agent_session_start::BOUND_CREDENTIALS_CAPABILITY,
+    agent_session_attach::CREDENTIAL_WITHDRAWAL_CAPABILITY,
+    agent_session_attach::agent_session_start::CLAUDE_MACHINE_LOGIN_CAPABILITY,
+    agent_session_attach::agent_session_start::CLAUDE_TEAM_ROUTE_CAPABILITY,
     // A start with no folder (`agent-session-start`, already admitted): the machine makes
     // `~/chats/<id>`. Without it here the app refuses a no-folder start before sending it.
     AGENT_SESSION_START_NO_CWD_CAPABILITY,
@@ -316,7 +330,8 @@ fn handshake(mux: &Arc<Mux>, client: u64, command: &str, fields: Value) -> anyho
         identity["capabilities"] = json!(
             identify_capabilities(mux)
                 .into_iter()
-                .filter(|cap| CAPABILITIES.contains(cap))
+                .filter(|cap| CAPABILITIES.contains(cap)
+                    || mux.endpoint_start_harnesses().contains(cap))
                 .collect::<Vec<_>>()
         );
         return Ok(identity);

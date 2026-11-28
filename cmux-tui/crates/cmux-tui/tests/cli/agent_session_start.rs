@@ -342,6 +342,12 @@ impl Drop for Daemon {
             .env("HOME", self.dir.join("home"))
             .env("ACPMUX_HOME", self.dir.join("acpmux"))
             .output();
+        // A stop that failed (a binary relinked mid-run refuses `--end-terminals`)
+        // left the server, its acp daemon and that daemon's `codex app-server`
+        // model probes running; once the home is gone nothing can reach them.
+        // gcp-agent-lane-2, 2026-11-22: 46 such trees lived 126 h under
+        // `systemd --user` (hq docs/findings/2026-11-24-test-daemon-probe-orphans.md).
+        end_processes_of_home(&self.dir);
         let _ = fs::remove_dir_all(&self.dir);
     }
 }
@@ -659,6 +665,7 @@ fn agent_session_start_starts_codex_on_the_callers_own_cloud_vm_only() {
     assert!(capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
     // A Codex credential's provider reaches app-server here (cmux#45774): the app updates a machine without it.
     assert!(capabilities.contains("agent-session-start-codex-credentials-v1"), "{identity}");
+    assert!(capabilities.contains("agent-session-start-endpoint-credentials-v1"), "{identity}");
     let surface = owner.own_agent_tab();
     let refused = start(&owner, surface, "fcx", None);
     assert_eq!(refused["error_code"], "agent_session.host_unverified", "{refused}");
@@ -680,6 +687,7 @@ fn agent_session_start_starts_codex_on_the_callers_own_cloud_vm_only() {
     let capabilities = identity["data"]["capabilities"].to_string();
     assert!(!capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
     assert!(!capabilities.contains("agent-session-start-codex-credentials-v1"), "{identity}");
+    assert!(!capabilities.contains("agent-session-start-endpoint-credentials-v1"), "{identity}");
     let surface = ssh.own_agent_tab();
     let refused = start(&ssh, surface, "fcx", Some("owner"));
     assert_eq!(refused["error_code"], "agent_session.not_asking", "{refused}");

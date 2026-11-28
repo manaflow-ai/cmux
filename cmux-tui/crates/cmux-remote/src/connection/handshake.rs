@@ -193,6 +193,7 @@ async fn authenticate_one(
             crate::provider::DisplaySeconds(timeout)
         ))))
     })??;
+    crate::phase_timing::mark(&format!("link-open:{primary}"));
     let setup = initiate_secure_link(
         physical,
         ClientHandshake {
@@ -218,6 +219,7 @@ async fn authenticate_one(
         let deadline = started + timeout;
         (tokio::time::timeout_at(deadline, setup).await.map_err(|_| timed_out())??, deadline)
     };
+    crate::phase_timing::mark(&format!("noise-done:{primary}"));
     let answer =
         tokio::time::timeout_at(deadline, receive_control::<LinkHandshakeResponse>(&secure))
             .await
@@ -242,6 +244,7 @@ async fn authenticate_one(
             "daemon link-ready metadata does not match the requested session".into(),
         ));
     }
+    crate::phase_timing::mark(&format!("link-ready:{primary}"));
     Ok((lanes, secure, ready.daemon_resume))
 }
 
