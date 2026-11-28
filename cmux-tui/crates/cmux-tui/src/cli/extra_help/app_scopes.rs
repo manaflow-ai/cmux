@@ -101,6 +101,9 @@ fn scope_text(args: &[String]) -> Option<String> {
         ["app", "web-pieces", ..] => {
             return Some(format!("{}\n", super::super::app::WEB_PIECES_USAGE));
         }
+        ["app", "web-cas", ..] => {
+            return Some(format!("{}\n", super::super::app::WEB_CAS_USAGE));
+        }
         ["app", "share", ..] => return Some(format!("{}\n", messages.app_share.usage)),
         [scope, ..] if super::super::app::APP_SCOPES.contains(scope) => app_usage(scope, messages)?,
         _ => return None,
@@ -145,6 +148,7 @@ usage: cmux app ping | identify | capabilities
        cmux app renderers [--interval-ms <n>]   (Chromium renderer pids, their pages and tabs)
        cmux app renderers profile --browser <id> [--seconds <n>]  (one cmux page's heap and CPU profile; needs defaults key CMUXPageProfiler)
        cmux app chat perf --tab <tab> [--seconds <1-60>]  (a chat's frames and record-to-paint times)
+       cmux app chat perf --page-source         (how each chat page was made: warm spare, kept, cold and why)
        cmux app remote-views [--tab <tab>]      (Cloud desktop tabs: viewer, connected, who has control)
        cmux app mac-screens [--tab <tab>]       (Mac Screen tabs: state, error, frame size, first frame ms, fps, round trip, drops; --tab takes a tab id)
        cmux app clicks [--limit <n>]            (your last clicks: the window each reached, what took it, the page's focus)

@@ -68,6 +68,8 @@ webpki-roots = "1"
 webrtc.workspace = true
 x25519-dalek.workspace = true
 zeroize.workspace = true
+# One zstd stream per acpmux channel on the phone link (src/zstd_stream.rs).
+zstd.workspace = true
 
 [dev-dependencies]
 cmux-fault.workspace = true
@@ -76,6 +78,7 @@ cmux-egress = { workspace = true, features = ["capture"] }
 # The Mac's relay publisher for the pair matrix's `relay-cache` path (tests/pair_matrix_mac_asleep.rs). A
 # dev-dependency cycle: cmux-mobile-host depends on this crate, which Cargo allows for tests.
 cmux-mobile-host = { path = "../cmux-mobile-host" }
+cmux-hop-relay = { path = "../../../../cmux-tui/crates/cmux-hop-relay" }
 cmux-mobile-link = { path = ".", features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
