@@ -1815,6 +1815,56 @@ probe_cache_put() { # <key> good <commit> | <key> absent
   printf '%s\t%s\t%s\t%s\n' "$1" "$2" "${3:-}" "$(date +%s)" >> "$file" 2>/dev/null || true
 }
 
+# resolve_channel_tree <tip> <tip_time> <tip_key> <max_age_hours> <temp_dir>: the last look after a
+# window miss (CMUX_TUI_TREE_CHANNEL_LOOK=1). The commit window counts commits, not hours: at about
+# 60 merges an hour, 300 commits are 5 h. Nightly 46157002388 (2026-11-28, tip 1708b0ea) found no
+# fallback when cmux-tui-artifacts builds had failed for 8 h: the newest published tree, c6cd14b5's,
+# was 384 commits back, under the 24 h bound, and the nightly failed at "Bundle the cmux-tui client"
+# after its 45 min wait. The channel pointer (channels/$CMUX_TUI_TREE_CHANNEL.json, default
+# feat-cmux-next, moved by scripts/ci/cmux_tui_channel_keeper.py only to a published, daemon-tested
+# tree) names one such tree at one read. It is used when its commit is in the tip's history (when the
+# checkout has that history), within the age bound, and its tree verifies against the commit's
+# manifest like every other candidate. Prints the same lines as the window search.
+resolve_channel_tree() {
+  local tip="$1" tip_time="$2" tip_key="$3" max_age="$4" dir="$5" channel commit key rev_time behind_hours behind
+  channel="${CMUX_TUI_TREE_CHANNEL:-feat-cmux-next}"
+  download "$BASE/channels/$channel.json?t=$(date +%s)" "$dir/channel.json" 2>/dev/null \
+    || { echo "channel $channel: unreadable; no channel fallback" >&2; return 1; }
+  read -r commit key < <(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("commit") or "-", d.get("key") or "-")' "$dir/channel.json" 2>/dev/null) || true
+  [[ "${commit:-}" =~ ^[0-9a-f]{40}$ && "${key:-}" =~ ^[0-9a-f]{40}$ ]] \
+    || { echo "channel $channel: no commit and key; no channel fallback" >&2; return 1; }
+  if ! git cat-file -e "$commit^{commit}" 2>/dev/null; then
+    git fetch -q --no-tags --depth=1 origin "$commit" 2>/dev/null || true
+  fi
+  rev_time="$(git log -1 --format=%ct "$commit" 2>/dev/null)" \
+    || { echo "channel $channel: commit ${commit:0:12} is not readable here; no channel fallback" >&2; return 1; }
+  if [[ "$(git rev-parse --is-shallow-repository)" != true ]] && ! git merge-base --is-ancestor "$commit" "$tip" 2>/dev/null; then
+    echo "channel $channel: commit ${commit:0:12} is not in the history of the tip ${tip:0:12}; no channel fallback" >&2
+    return 1
+  fi
+  behind_hours=$(( (tip_time - rev_time) / 3600 ))
+  (( behind_hours < 0 )) && behind_hours=0
+  if (( tip_time - rev_time > max_age * 3600 )); then
+    echo "channel $channel: tree $key of ${commit:0:12} is ${behind_hours} h behind the tip (bound ${max_age} h); no channel fallback" >&2
+    return 1
+  fi
+  if ! verify_published_key "$key" "$dir"; then
+    echo "channel $channel: tree $key does not verify (manifest of ${verified_commit:-none}); no channel fallback" >&2
+    return 1
+  fi
+  behind="$(git rev-list --count "$commit..$tip" 2>/dev/null || echo 0)"
+  echo "resolved cmux-tui tree $key from the $channel channel (${commit:0:12}, $behind commits and $behind_hours h behind the tip ${tip:0:12}, tip tree ${tip_key:-unknown}); published by $verified_commit" >&2
+  printf 'commit=%s\nkey=%s\nsource_commit=%s\ntip_key=%s\nbehind=%s\nbehind_hours=%s\n' "$verified_commit" "$key" "$commit" "$tip_key" "$behind" "$behind_hours"
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    {
+      echo "### cmux-tui client"
+      echo "- tree: \`$key\` from the \`$channel\` channel (tip tree \`${tip_key:-unknown}\`)"
+      echo "- build commit (app and daemon): \`$commit\` ($behind commits and $behind_hours h behind the tip \`$tip\`)"
+      echo "- publishing commit (manifest sha256 verified): \`$verified_commit\`"
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
+}
+
 resolve_newest_published_tree() {
   local limit max_age temp_dir rev rev_time tip_time behind_hours key candidate commit vrc tip tip_key behind=0 checked=0 distinct=0
   local bad_keys=" " good_keys=" " skips=""
@@ -1934,6 +1984,9 @@ resolve_newest_published_tree() {
     fi
     return 0
   done < <(git rev-list --date-order --max-count="$limit" HEAD)
+  if [[ "${CMUX_TUI_TREE_CHANNEL_LOOK:-}" == 1 ]] && resolve_channel_tree "$tip" "$tip_time" "$tip_key" "$max_age" "$temp_dir"; then
+    return 0
+  fi
   echo "error: no published cmux-tui tree in the last $limit commits of ${tip:0:12} ($checked checked, $distinct distinct trees, $skipped_skew skipped because ${CMUX_TUI_TREE_SAME_PATHS:-no path} differs from the tip): no commit there has a tree under $BASE/tree/<key>/ whose publishing commit's manifest sha256 matches. Publish one (pin-cmux-tui.sh --help) or raise CMUX_TUI_TREE_SEARCH_COMMITS." >&2
   [[ -z "$skips" ]] || printf 'skipped commits, newest first:\n%s' "$skips" >&2
   exit 1

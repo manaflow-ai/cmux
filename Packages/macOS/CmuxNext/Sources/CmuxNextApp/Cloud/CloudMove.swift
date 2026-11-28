@@ -259,7 +259,7 @@ struct CloudMove {
             throw Failure(message: CloudMoveStrings.unresolved, retry: again)
         }
         guard moved.ok, let movedSession = moved.sessionID else { throw CloudMoveFailure.moving(moved, machine: name, retry: again) }
-        place.step(session, "commit")
+        place.step(session, "commit", kept: ("carry", moved.phases))
         if credential?.kind == "claude-token" || credential?.kind == "api-key" { credentials?.credentialConnectionsChanged() }
         if let host = AgentTabStore.registryHost(of: machine.daemon) {
             let local = folder.subpath.isEmpty ? folder.root : folder.root + "/" + folder.subpath

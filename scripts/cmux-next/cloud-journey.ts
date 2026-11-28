@@ -4446,6 +4446,14 @@ while True:
                 sid = ((r or {}).get('session') or {}).get('sessionId')
                 if sid is None:
                     raise
+                # acpmux holds a launch credential in memory only (agent_credentials.rs "Left open"): the daemon
+                # that cut this start and restarted keeps none of it, so the session taken by name runs its agent
+                # on no login, "Not logged in" (runs 46154019193, 46161132759). The start delivers it again, as the
+                # app does after a daemon handoff; acpmux answers restart "none" when the agent already carries it.
+                cred = params['_meta']['acpmux'].get('credentials')
+                if cred:
+                    call(f, s, 4, 'agent/credentials.update', {'sessionId': sid, 'env': cred['env']})
+                    mark('credential_redelivered')
                 print('@@adopted ' + str(sid), flush=True)
             print('@@session ' + str(sid), flush=True)
             used = path
