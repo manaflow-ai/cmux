@@ -33,7 +33,7 @@ import UIKit
     }
 
     static func waitUntil(_ condition: () -> Bool) async -> Bool {
-        try? await TerminalTestWait.until(condition)
+        try? await TerminalTestWait.until(TerminalTestWait.loadFloor, condition)
         return condition()
     }
 
