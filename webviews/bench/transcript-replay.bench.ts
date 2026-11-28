@@ -124,6 +124,22 @@ if (GOD_TURNS !== undefined && (!Number.isInteger(GOD_TURNS) || GOD_TURNS < 10))
 /// `TAIL=1` opens the live page at the last checkpoint (`tailStart`) and plays only its records live.
 const TAIL = process.env.TAIL === "1";
 const godOf = () => godLog("god", GOD_TURNS === undefined ? {} : { turns: GOD_TURNS });
+/// With PAIRED=1 the small page plays the god session's own mix at the long log's length (600 turns, each rare kind
+/// at the god rate: subagent chains, image Reads, the four MB outputs), named `long`, so the god / small ratio
+/// compares length alone and not also the kinds only the god session has (those kinds alone cost the god page about
+/// 6 MB of extra optimized code, a fixed offset). `SMALL=long` plays the plain long log instead, as before.
+const SMALL_MIX = process.env.SMALL !== "long";
+const mixSmall = (): ReplayLog => {
+  const god = 7000;
+  const turns = TURNS;
+  const log = godLog("god", {
+    turns,
+    days: Math.max(1, Math.round((120 * turns) / god)),
+    chainEvery: Math.max(2, Math.round((800 * turns) / god)),
+    imageEvery: Math.max(2, Math.round((250 * turns) / god)),
+  });
+  return JSON.parse(JSON.stringify({ ...log, name: "long" }).replaceAll('"replay-god"', '"replay-long"'));
+};
 if (!Number.isInteger(TURNS) || TURNS < 8 || ONLY.some((name) => !["long", "recorded", "mock"].includes(name))) {
   console.error("usage: bun bench/transcript-replay.bench.ts [--turns 600] [--only long,recorded,mock] [--strict]");
   process.exit(2);
@@ -1426,7 +1442,7 @@ if (import.meta.main) {
         `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${encodeURIComponent(log.sessionId)}`,
     };
     if (PAIRED) {
-      const small = logs.find((log) => log.name === "long");
+      const small = SMALL_MIX ? mixSmall() : logs.find((log) => log.name === "long");
       if (!small) throw new Error("PAIRED=1 plays the long log beside the god session: run it with --only long");
       const god = godOf();
       checkSeq(god);

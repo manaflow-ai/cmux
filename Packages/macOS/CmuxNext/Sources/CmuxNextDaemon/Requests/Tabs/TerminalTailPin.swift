@@ -5,11 +5,7 @@ import Foundation
 /// tab showing it) or `terminal` (its public `term_` id), exactly one; a pinned terminal with no
 /// tab left still unpins by its id.
 public struct SetTerminalTailPinRequest: DaemonRequest {
-    public struct Response: Decodable, Sendable, Equatable {
-        /// The terminal's public id (`term_…`).
-        public var terminal: String
-        public var pinned: Bool
-    }
+    public typealias Response = SetTerminalTailPinResult
 
     public enum Target: Sendable, Hashable {
         case surface(SurfaceID)
