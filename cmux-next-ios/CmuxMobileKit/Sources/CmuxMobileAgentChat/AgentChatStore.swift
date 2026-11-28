@@ -2280,8 +2280,11 @@ private final class EarlierHistorySource: AgentSessionSource {
 extension AgentChatStore {
     /// What the chat's loading state says. Never the link: a chat waiting on its Mac loads like any other (Leo, 2026-11-22: "i dont
     /// wanna see connecting to cosmic-gray... with the spinner").
+    /// A start whose first send is over while its Mac can't be reached is not starting any more
+    /// (live run 12: it said "Starting Claude…" for good); it loads like any other chat.
     public var loadingText: String {
-        isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
+        if awaitsFirstPrompt { return Self.startingText(summary) }
+        return isStarting && !isOffline ? Self.startingText(summary) : "Loading chat…"
     }
 
     /// The loading state's words show. A start says so at once (the person just asked for

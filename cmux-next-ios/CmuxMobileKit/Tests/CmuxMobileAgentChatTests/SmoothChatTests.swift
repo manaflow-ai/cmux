@@ -381,10 +381,13 @@ import UIKit
         list.readsAhead = false
         list.collectionView.frame = CGRect(x: 0, y: 0, width: 390, height: 800)
         list.boundsMayHaveChanged()
-        list.collectionView.layoutIfNeeded()
-
+        // Counted before the first layout: four turns are shorter than the screen, so laying them
+        // out already displays `session-start`, and that display is the request (#58647 counted
+        // after it, so its own `willDisplay` found a read already in flight).
         let before = source.earlierHistoryRequests
-        // `session-start` is the first stable row in the transcript snapshot.
+        list.collectionView.layoutIfNeeded()
+        // `session-start` is the first stable row in the transcript snapshot; showing it again
+        // while the page is on its way asks for nothing more.
         list.collectionView(list.collectionView, willDisplay: UICollectionViewCell(),
                             forItemAt: IndexPath(item: 0, section: 0))
 
@@ -412,17 +415,21 @@ import UIKit
         scroll.layoutIfNeeded()
         let visibleTop = scroll.contentOffset.y + scroll.adjustedContentInset.top
         guard let anchor = list.layout.firstRow(below: visibleTop),
-              let anchorBefore = list.layout.top(of: anchor.id) else {
+              let anchorTop = list.layout.top(of: anchor.id) else {
             Issue.record("the reader did not have an anchor below the transcript header")
             return
         }
+        // Where the reader sees the row: its top in the content less the scroll. Rows put in or
+        // taken out above it (the older page, `session-start` moving into that page's first turn)
+        // move its content top by design; `reload()` moves the scroll by as much.
+        let shownBefore = anchorTop - scroll.contentOffset.y
 
         store.apply(.earlierPage((0..<10).flatMap { SmoothChatTests.turn($0) }, hasEarlier: false))
         list.reload()
         scroll.layoutIfNeeded()
 
-        #expect(abs((list.layout.top(of: anchor.id) ?? .greatestFiniteMagnitude) - anchorBefore) < 1,
-                "loading older history moved the row under the reader")
+        let shownAfter = (list.layout.top(of: anchor.id) ?? .greatestFiniteMagnitude) - scroll.contentOffset.y
+        #expect(abs(shownAfter - shownBefore) < 1, "loading older history moved the row under the reader")
     }
 
     @Test func anOlderPageHeldForLayoutTakesSessionStartWithoutATrap() {
