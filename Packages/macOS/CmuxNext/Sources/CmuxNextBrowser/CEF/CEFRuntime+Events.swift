@@ -281,7 +281,10 @@ extension CEFRuntime {
         windowRequests.linkClicks.onPersonInput = { [weak self] browser in self?.tabsByBrowser[browser]?.allowWebAuthnForPerson() }
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
         tabsByBrowser[browser] = tab
-        drawOnInput.addressChanged(browser: browser, url: tab.pendingURL ?? tab.loadAfterAttach ?? tab.state.url)
+        let url = tab.pendingURL ?? tab.loadAfterAttach ?? tab.state.url
+        drawOnInput.addressChanged(browser: browser, url: url)
+        // A cmux page's boot leaves garbage in its shared renderer: collected once pages settle (CEFPageRendererGC).
+        if CEFPageRendererGC.isCmuxPage(url), shutdownSequence == nil { pageRendererGC.pageOpened() }
         tab.attach(browser: browser)
         accessibility.attached(browser)
         signInCallbacks.attached(tab)

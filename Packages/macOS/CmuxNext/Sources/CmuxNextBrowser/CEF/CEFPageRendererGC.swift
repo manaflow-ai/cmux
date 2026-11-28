@@ -25,6 +25,13 @@ import Foundation
 /// each renderer is checked once more against the lower ``quietBound(afterLastCollection:)``: a collection then
 /// costs one pause proportional to what is live (two pages), once, and no churn pays it.
 ///
+/// A launch leaves the same kind of garbage with no close at all: the chat pages and their prewarmed spares boot
+/// their JavaScript, and what that boot allocated stays in the heap until something collects. The same Release
+/// build launched 8 times idled with this renderer at 122 to 216 MB footprint (goal ram-baseline, fleet step
+/// 117f8329, cmux9s): one launch held ~95 MB another did not, with the same pages. So a cmux page opening arms
+/// the same quiet check (``pageOpened()``): ``quietDelay`` after the newest open or close, once the launch or a
+/// burst of opens settles. No page is closed, hidden or reloaded; the spare and prewarmed pages stay as they are.
+///
 /// The quiet check collects twice. One collection left the renderer at 655 MB resident on the same bench, and a
 /// second `HeapProfiler.collectGarbage` right after took it to 543 MB: the first frees the JavaScript wrappers,
 /// and the DOM they kept goes with the next. The second costs the same small pause, once per quiet period.
@@ -77,6 +84,13 @@ final class CEFPageRendererGC {
     func pageClosed() {
         count("closes")
         timer.scheduleIfIdle(after: Self.delay) { @MainActor [weak self] in await self?.check() }
+        scheduleQuietCheck()
+    }
+
+    /// A cmux page opened (a chat, a prewarmed spare, the launch's pages): the quiet check runs ``quietDelay``
+    /// after the newest open or close, so what the pages' boot left in the heap goes once they settle.
+    func pageOpened() {
+        count("opens")
         scheduleQuietCheck()
     }
 

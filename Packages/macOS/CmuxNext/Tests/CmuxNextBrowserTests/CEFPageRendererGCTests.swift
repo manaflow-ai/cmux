@@ -86,6 +86,25 @@ import Testing
         #expect(renderers.collected == [4, 4, 4])
     }
 
+    @Test func anOpenedPageArmsTheQuietCheckWithNoClose() async {
+        let renderers = Renderers()
+        renderers.used = [4: 180 * Self.mb]
+        let gc = CEFPageRendererGC(
+            pages: { [Page(browser: 4, isCmuxPage: true, rendererClients: [6])] },
+            heapUsed: { renderers.used[$0] },
+            collect: { browser in
+                renderers.collected.append(browser)
+                renderers.used[browser] = 60 * Self.mb
+            })
+        gc.pageOpened()
+        #expect(gc.stats["opens"] == 1)
+        #expect(gc.stats["closes"] == nil)
+        // What the quiet timer runs: the launch's boot garbage goes, twice, with no close.
+        await gc.check(quiet: true)
+        #expect(renderers.collected == [4, 4])
+        #expect(gc.stats["quiet_collections"] == 1)
+    }
+
     @Test func readsUsedSizeAndTheScheme() async {
         #expect(await CEFPageRendererGC.usedSize(#"{"usedSize":142032280,"totalSize":181190656}"#) == 142_032_280)
         #expect(await CEFPageRendererGC.usedSize("{}") == nil)
