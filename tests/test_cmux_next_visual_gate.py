@@ -1348,6 +1348,12 @@ class WiringTests(unittest.TestCase):
     def test_the_gate_is_placed_only_on_an_idle_runner_and_judges_every_state(self):
         route = self.job("route-visual-gate-nightly")
         self.assertIn("cmux_next_media_runner.py --same-repo true --idle-now", route)
+        # The token's `with:` may be an alias of the shared routing-token block (nightly.yml's size cap).
+        alias = re.search(r"with: \*([a-z0-9-]+)\n", route)
+        if alias:
+            block = re.search(rf"with: &{alias.group(1)}\n((?:          .*\n)+)", self.nightly)
+            self.assertIsNotNone(block, f"anchor &{alias.group(1)} not found")
+            route = route + block.group(1)
         self.assertIn("permission-organization-self-hosted-runners: read", route)
         self.assertIn("verdict=unavailable", route)
         self.assertIn("GITHUB_STEP_SUMMARY", route)
