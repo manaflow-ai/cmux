@@ -84,12 +84,17 @@ private struct SceneNodeContent: View {
         // A child of type "contextMenu" is the node's right-click menu, not
         // inline content; everything else renders in place.
         if let menuId = contextMenuChildId {
-            styled(content)
-                .contextMenu {
-                    SceneNodeView(nodeId: menuId)
-                }
+            // Keep the row tap outside the context-menu wrapper. On macOS the
+            // wrapper owns hit testing for dynamic ForEach content and can
+            // otherwise prevent the row's gesture from recognizing.
+            tappable(
+                styled(content)
+                    .contextMenu {
+                        SceneNodeView(nodeId: menuId)
+                    }
+            )
         } else {
-            styled(content)
+            tappable(styled(content))
         }
     }
 
@@ -201,7 +206,7 @@ private struct SceneNodeContent: View {
 
     /// Applies the node's style props in one fixed, documented order:
     /// font → color → lineLimit/truncation → fixedSize → padding →
-    /// background → cornerRadius → border → frame → opacity → cursor → tap.
+    /// background → cornerRadius → border → frame → opacity → cursor.
     @ViewBuilder
     private func styled(_ view: some View) -> some View {
         // Hover-revealed children (a row's close button): present only while
@@ -227,10 +232,15 @@ private struct SceneNodeContent: View {
             )
             .opacity(hoverVisible ? 1 : 0)
             .allowsHitTesting(hoverVisible)
+        base
+    }
+
+    @ViewBuilder
+    private func tappable<Content: View>(_ view: Content) -> some View {
         let doubleTappable = node.bool("doubleTappable")
         let tappable = node.bool("tappable")
         if doubleTappable || tappable {
-            base
+            view
                 .contentShape(Rectangle())
                 // One plain tap recognizer, zero latency: a count:2 recognizer
                 // (even simultaneous) makes SwiftUI hold single taps for the
@@ -263,7 +273,7 @@ private struct SceneNodeContent: View {
                     lastTapAt = hasModifiers ? nil : now
                 }
         } else {
-            base
+            view
         }
     }
 
