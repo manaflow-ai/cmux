@@ -175,6 +175,24 @@ pub(crate) fn bulk_parity_from(value: Option<&str>) -> u8 {
         .unwrap_or(BULK_PARITY)
 }
 
+/// Benches only: `class` makes remote desktop media (`Priority::Media`) follow
+/// its Braid class's repair rule (class 1, state: copies or parity only above
+/// 1 % measured loss) instead of being repaired at any loss, so the two can be
+/// measured against each other (RFD 0164 B6; numbers at [`UltraUnderlay::repairs`]).
+/// Anything else, or unset, keeps media repaired at any loss.
+pub const MEDIA_REPAIR_ENV: &str = "CMUX_WG_ULTRA_MEDIA_REPAIR";
+
+/// Whether media follows its class's repair rule ([`MEDIA_REPAIR_ENV`]). Read
+/// once per process.
+fn media_follows_class() -> bool {
+    static CLASS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CLASS.get_or_init(|| media_follows_class_from(std::env::var(MEDIA_REPAIR_ENV).ok().as_deref()))
+}
+
+pub(crate) fn media_follows_class_from(value: Option<&str>) -> bool {
+    value.is_some_and(|value| value.trim() == "class")
+}
+
 /// Whether `datagram` is an ultra-mode parity datagram. A carrier that
 /// classifies datagrams by shape should give parity the class the tunnel's
 /// pacer sent it in, not treat it as control.
@@ -921,9 +939,13 @@ impl UltraUnderlay {
     /// (handshakes, the tunnel's own) keep the mode's repair too.
     fn repairs(&mut self, priority: Option<Priority>) -> bool {
         match priority {
-            // Remote desktop media keeps its repair at any loss: its loss behaviour under
-            // the 1 % rule has not been measured (RFD 0164 B6).
-            None | Some(Priority::Media) => true,
+            // Remote desktop media keeps its repair at any loss. Measured under the 1 %
+            // rule (RFD 0164 B6, MEDIA_REPAIR_ENV=class; 50 ms, 10 s, 60 fps): the rule
+            // never turns repair on, since the window reads loss on the way in after
+            // repair, not the media direction's; 5 % loss then lost 101 of 596 frames
+            // (49.5 on-time fps) against 2 (59.4) for 1.8x to 2x parity bytes.
+            None => true,
+            Some(Priority::Media) if !media_follows_class() => true,
             Some(priority) => priority.braid_class().repairs_at(|| {
                 self.fold_loss();
                 self.window.above_one_percent()

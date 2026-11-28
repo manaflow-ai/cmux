@@ -116,6 +116,7 @@ pub async fn harness() -> Harness {
         upstream_tls: cmux_vault_egress::upstream_tls_with_roots(roots(upstream_ca.clone()))
             .unwrap(),
         resolver: Resolver::Fixed(fixed),
+        hold: None,
     });
     let listener = cmux_vault_egress::bind().await.unwrap();
     let proxy = listener.local_addr().unwrap();
