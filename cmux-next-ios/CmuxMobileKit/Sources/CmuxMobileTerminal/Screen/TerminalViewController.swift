@@ -1771,8 +1771,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         composerHost.view.isHidden = !dock.showsComposer
         updateBottomBacking()
         view.setNeedsLayout()
+        // Out of a window (viewDidLoad, a warm tab behind another): nothing shows, so no layout
+        // is forced now. The first layout in a window applies the dock (`viewDidLayoutSubviews`
+        // places the rows). Forcing it here laid the whole page out once more on every terminal
+        // open: 9% of row tap to terminal ready (LaunchProfile, run 46108643638).
+        guard view.window != nil else {
+            keyBarClip.alpha = 1
+            return
+        }
         // motion: allow UIKit dock reflow, one bounded 0.25 s pass like classic's band; Reduce Motion applies it at once.
-        let animate = view.window != nil && !UIAccessibility.isReduceMotionEnabled
+        let animate = !UIAccessibility.isReduceMotionEnabled
         if animate {
             dockReflow += 1
             let reflow = dockReflow
