@@ -958,16 +958,20 @@ export function ComposerPickers({
   const effortValue = effort && (effortDefaulted ? defaultEffort : effort.currentValue);
   const effortChoice = efforts.find((choice) => choice.id === effortValue);
   const ultracodeOn = ultracode !== undefined && ultracode.current === ultracode.on;
-  // Another chat's chips are no guess for an opened chat that ran before (opensListed).
-  const lastChips = awaiting && chipHarness && !opensListed ? loadLastChips()[chipHarness] : undefined;
+  // The owning daemon carries the resolved start effort across the attach gap. It clears
+  // the answer when options arrive; the pane does not infer it from origin or catalog state.
+  const effortAwaited = awaiting || summary?.pendingEffort !== undefined;
+  const lastChips = awaiting && !opensListed && chipHarness ? loadLastChips()[chipHarness] : undefined;
   // A harness no chat has shown here yet (a fresh profile, the New Tab's first chat) names the
   // level acpmux starts it on (`_acpmux/harnesses` start).
   // An opened chat that ran before names the level its listed row reports, never a start level.
-  const startEffort = !awaiting
-    ? undefined
-    : opensListed
-      ? openingEntry?.effort
-      : snapshot.catalog.find((entry) => entry.id === chipHarness)?.start?.effort;
+  const startEffort =
+    summary?.pendingEffort ??
+    (!effortAwaited
+      ? undefined
+      : opensListed
+        ? openingEntry?.effort
+        : snapshot.catalog.find((entry) => entry.id === chipHarness)?.start?.effort);
   const startEffortKey = startEffort ? LEVEL_KEYS[startEffort] : undefined;
   const pendingEffort = lastChips?.effort ?? (startEffortKey ? t(startEffortKey) : undefined);
   // The button names a level, never the word Reasoning (Leo 2026-10-20): the listed level, else the
@@ -989,13 +993,13 @@ export function ComposerPickers({
   // pane holds it for the session the pick starts (harnessSwitch.ts pickConfig).
   const [heldPick, setHeldPick] = useState<{ harness: string; value: string }>();
   useEffect(() => {
-    if (!awaiting) setHeldPick(undefined);
-  }, [awaiting]);
+    if (!effortAwaited) setHeldPick(undefined);
+  }, [effortAwaited]);
   const reported = effort !== undefined && efforts.length > 1;
   const heldOption =
-    !reported && awaiting ? harnessProfiles.get(chipHarness)?.configOptions?.find(isEffortOption) : undefined;
+    !reported && effortAwaited ? harnessProfiles.get(chipHarness)?.configOptions?.find(isEffortOption) : undefined;
   const heldModel =
-    !reported && awaiting
+    !reported && effortAwaited
       ? (catalogModel ??
         catalogRow(
           pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness)?.models,
@@ -1003,7 +1007,7 @@ export function ComposerPickers({
         ))
       : undefined;
   const heldLevels =
-    !reported && awaiting
+    !reported && effortAwaited
       ? reasoningChoices(heldOption?.options ?? (heldModel?.efforts ?? []).map((value) => ({ value })), heldModel, t)
       : [];
   // With nothing kept or answered yet (the launch's first page), the chip model's own default level:
@@ -1355,8 +1359,8 @@ export function ComposerPickers({
   const studioEffort = studio && !held ? quickEffort : undefined;
   const quickDetail = studioEffort
     ? undefined
-    : (effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined));
-  const quickShort = studioEffort ? undefined : effortLabel ? effortShort : awaiting ? heldShort : undefined;
+    : (effortLabel ?? (effortAwaited ? (heldChoice?.name ?? pendingEffort) : undefined));
+  const quickShort = studioEffort ? undefined : effortLabel ? effortShort : effortAwaited ? heldShort : undefined;
   const usageNote =
     showContextUsage && contextPercent !== undefined
       ? t(PICKER_LABELS.context, { percent: contextPercent })

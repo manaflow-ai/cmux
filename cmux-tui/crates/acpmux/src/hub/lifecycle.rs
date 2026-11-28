@@ -476,6 +476,11 @@ impl Hub {
             meta.create_key = create_key;
             meta.placed_by = placed_by;
             let session = self.make_session(meta);
+            if adopt.is_none()
+                && let Some(effort) = effort.as_ref()
+            {
+                let _ = session.pending_start_effort.set(effort.clone());
+            }
             *session.codex_answer_asked.lock().unwrap_or_else(|e| e.into_inner()) = asked;
             session.person.store(person, Ordering::SeqCst);
             // A chat that records no creator (an adopt, a move's target) is the person's only

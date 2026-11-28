@@ -994,6 +994,7 @@ impl Hub {
                 .unwrap_or(Value::Null),
             model: current_model(&m),
             effort: current_effort(&m).or_else(|| current_option(&m, "reasoning_effort")),
+            pending_effort: super::start_defaults::pending_effort(session, &m),
             policy: m.permission_policy.clone(),
             enforcement: self.session_enforcement(&m),
             rules: m.permission_rules.is_some(),

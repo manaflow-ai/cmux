@@ -1526,6 +1526,8 @@ export type AcpmuxSnapshot = {
       availableModes: { id: string; name?: string; description?: string }[];
       currentModeId?: string;
     };
+    /** Owning daemon's resolved effort while this new session awaits its options. */
+    pendingEffort?: string;
     configOptions?: {
       id: string;
       name?: string;
