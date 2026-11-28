@@ -496,6 +496,7 @@ pub(crate) mod turn_cap;
 mod turn_checkpoint;
 pub(crate) mod turn_cost;
 pub(crate) mod turn_frames;
+pub(crate) mod turn_frames_native;
 mod turn_git;
 mod turn_retry;
 mod turn_rules;
