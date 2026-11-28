@@ -135,6 +135,10 @@ const CPU_WINDOWS = Number(flag("--cpu-windows") ?? (PROFILE ? 3 : 9));
 // collection yet and is never counted. Cycles run 8-30 s at x10 and 20-100 s at x50 and x100 (x100 traced 35 s, then
 // 89 s with none before a 170 s cap), so the cap is 300 s. Under MIN_CYCLES closed cycles a rung's rate stands with no
 // error (the ladder prints its interval as "?" and the cycle counts beside it).
+// The three chats rungs share 3 x CYCLE_CAP_MS of tracing: a rung may take what the ones before it left over, but
+// never what the ones after it are still owed (CYCLE_CAP_MS each). A steady cycle at x10 lasts about 20 s and the
+// rung ends in about 70 s, while at x100 one lasts 160-205 s, so a 300 s cap of its own closed a single cycle in each of
+// 3 runs (its rate with no error, and the ratio's top marginal one cycle's phase).
 // The bound: three chats rungs at most 3 x (CYCLE_CAP_MS + SETTLE_MS) of measuring, 16 min at the defaults; with the
 // tabs axis and the loads, under the suite's 1,700 s (web-ui-suite.ts).
 const GC_CYCLES = Number(flag("--gc-cycles") ?? 3);
@@ -317,8 +321,15 @@ async function launchChrome(): Promise<{
   const exe = chrome || shell;
   if (!exe) throw new Error("sim-ladder: no Chrome (set CMUX_CHROME_HEADLESS_SHELL or install google-chrome)");
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "sim-ladder-"));
+  // Chrome dies with this process. An abort (SIGABRT, an OOM kill, `timeout -s KILL`) skips close() below, and Chrome
+  // lived on: a tabs 50/200/500 run aborted at its x200 rung left 348 Chrome processes holding 26 GB and the session's
+  // pids cap, so the next run and every shell in that session failed to fork. setpriv's death signal reaches the
+  // browser process; its renderers exit when the browser's IPC closes. Bun.spawn forks from the main thread, which
+  // lives as long as the process, so the signal fires only when the bench is gone.
+  const setpriv = Bun.which("setpriv");
   const proc = Bun.spawn(
     [
+      ...(setpriv ? [setpriv, "--pdeathsig", "KILL"] : []),
       exe,
       ...(shell ? [] : ["--headless=new"]),
       "--remote-debugging-port=0",
@@ -524,6 +535,8 @@ let lastLoadMs = 0;
 let lastSe: Partial<Record<Metric, number>> = {};
 /// The last measure()'s whole collection cycles (null: a fixed-window rung).
 let lastCycles: number | null = null;
+/// How long the last measure() traced collections, ms (0: a fixed-window rung).
+let lastTraceMs = 0;
 
 const libc = dlopen("libc.so.6", {
   clock_gettime: { args: [FFIType.i32, FFIType.ptr], returns: FFIType.i32 },
@@ -573,6 +586,7 @@ async function measure(
   focused: Page,
   browserCdp: CDPSession,
   cycles = false,
+  capMs = CYCLE_CAP_MS,
 ): Promise<Sample> {
   // Loading a rung leaves garbage (the seeded chats' parse and render temporaries: x50 held 1.8-2.2 GB live against 855 MB
   // after a collection) that V8 collects at a moment of its own: one major collection of 4-6 s of ThreadPoolForeground CPU
@@ -701,7 +715,8 @@ async function measure(
   // run CPU_WINDOWS windows.
   let gc: { pid: number | null; ends: number[]; heaps: number[] } = { pid: null, ends: [], heaps: [] };
   if (cycles) {
-    gc = await traceMajorGcs(browserCdp, t0 + CYCLE_CAP_MS);
+    gc = await traceMajorGcs(browserCdp, t0 + capMs);
+    lastTraceMs = performance.now() - t0;
     const from = steadyStart(gc.ends);
     if (from > 0)
       console.log(
@@ -777,7 +792,7 @@ async function measure(
         ...(enough && scr.se !== null ? { script_ms_per_s: scr.se * 1e6 } : {}),
       };
       console.log(
-        `SIM-LADDER   whole gc cycles ${cpu.cycles} over ${(cpu.span / 1e6).toFixed(1)} s (renderer ${gc.pid}, major gc ends at ${gc.ends.map((t) => ((t - start) / 1e6).toFixed(1)).join(", ")} s): cpu ${cpuRate.toFixed(1)} +- ${lastSe.cpu_window_ms_per_s === undefined ? "?" : lastSe.cpu_window_ms_per_s.toFixed(1)} ms/s (per cycle ${cpu.perCycle.map((r) => Math.round(r * 1e6)).join(", ")}), script ${scriptRate.toFixed(1)} +- ${lastSe.script_ms_per_s === undefined ? "?" : lastSe.script_ms_per_s.toFixed(1)} ms/s`,
+        `SIM-LADDER   whole gc cycles ${cpu.cycles} over ${(cpu.span / 1e6).toFixed(1)} s (renderer ${gc.pid}, major gc ends at ${gc.ends.map((t) => ((t - start) / 1e6).toFixed(1)).join(", ")} s): cpu ${cpuRate.toFixed(1)} +- ${lastSe.cpu_window_ms_per_s === undefined ? "?" : lastSe.cpu_window_ms_per_s.toFixed(1)} ms/s (per cycle ${cpu.perCycle.map((r) => Math.round(r * 1e6)).join(", ")}), script ${scriptRate.toFixed(1)} +- ${lastSe.script_ms_per_s === undefined ? "?" : lastSe.script_ms_per_s.toFixed(1)} ms/s, cap ${(capMs / 1000).toFixed(0)} s`,
       );
       // Each closed cycle's CPU against the heap its closing collection started from: a cost per cycle that grows faster
       // than the heap is the collector's own superlinearity, not the measure's.
@@ -788,7 +803,7 @@ async function measure(
       );
     } else
       console.log(
-        `SIM-LADDER   whole gc cycles 0: ${gc.ends.length} major gc end(s) in ${secs.toFixed(0)} s (cap ${CYCLE_CAP_MS / 1000} s); the run's mean stands`,
+        `SIM-LADDER   whole gc cycles 0: ${gc.ends.length} major gc end(s) in ${secs.toFixed(0)} s (cap ${capMs / 1000} s); the run's mean stands`,
       );
   }
   // Memory after a full collection: what the pages keep, not how far each heap has grown since its last GC (chats x100
@@ -804,7 +819,8 @@ async function measure(
         ]),
       ),
   );
-  // The heap after the collection, one reading per renderer (its isolate), summed.
+  // The heap after the collection, one reading per renderer (its isolate), summed. A read that failed or timed out is
+  // NaN, not 0: chats x200 under load1 74 read 0 MB of a 2.3 GB heap and published a -1.03 heap ratio from it.
   const heaps = await Promise.all(
     items
       .filter((item, index) => index === 0 || item.page.url() !== items[0]!.page.url())
@@ -812,12 +828,16 @@ async function measure(
         Promise.race([
           item.cdp
             .send("Performance.getMetrics")
-            .then((m) => m.metrics.find((x) => x.name === "JSHeapUsedSize")?.value ?? 0)
-            .catch(() => 0),
-          new Promise<number>((resolve) => setTimeout(() => resolve(0), 3000)),
+            .then((m) => m.metrics.find((x) => x.name === "JSHeapUsedSize")?.value ?? Number.NaN)
+            .catch(() => Number.NaN),
+          new Promise<number>((resolve) => setTimeout(() => resolve(Number.NaN), 3000)),
         ]),
       ),
   );
+  if (heaps.some((bytes) => !Number.isFinite(bytes)))
+    console.log(
+      `SIM-LADDER   heap unread: ${heaps.filter((bytes) => !Number.isFinite(bytes)).length} of ${heaps.length} renderer(s) did not answer`,
+    );
   console.log(`SIM-LADDER   pss split MB ${pssSplit(pids)}`);
   return {
     cpu_ms_per_s: Math.round(CPU_WINDOWS > 3 || cycles ? Math.min(...windows) : Math.min(...thirds)),
@@ -863,7 +883,9 @@ function rssMB(pid: number): number {
 /// A profile's scene: its pages, sessions and load. `mix` set, runAxis builds this one scene and measures it once.
 /// `visible` of the chats are shown (each in a window of its own) and stream a reply a delta every `streamMs`.
 type Mix = { chats: number; visible: number; tabs: number; hogs: number; streamMs: number | null };
-type Scene = { sample: Sample; agentRssMB: number; churn: boolean };
+// mainBusyPct: the focused chat's renderer main thread, its task time over the window's wall time (CDP TaskDuration), %:
+// the reading replay-under-load.bench.ts publishes as renderer_main_busy_pct (NOW's renderer-main-busy goal).
+type Scene = { sample: Sample; agentRssMB: number; mainBusyPct: number | null; churn: boolean };
 
 async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undefined> {
   const chrome = await launchChrome();
@@ -879,10 +901,13 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     // The default context: with noDefaults it is the one Playwright adds no focus emulation to.
     const context = browser.contexts()[0]!;
     // The fidelity mode lists the sessions as a fleet Mac's rows (long titles, previews, peers, PRs; mockFixture.ts
-    // `fleetListedSession`), as the profiled app's 3,761-row list is; the ladder keeps its light rows.
+    // `fleetListedSession`), as the profiled app's 3,761-row list is; the ladder keeps its light rows. Each page holds
+    // the list's first page (sessionPages.ts SESSION_PAGE) and reads the rest only when asked, as the app's pages do
+    // against acpmux (`cmuxAcpmuxMockPaged`): a mock that answered the whole list held SESSIONS rows in every chat.
     await context.addInitScript(
       ([size, shape]) => {
         (globalThis as any).cmuxAcpmuxMockListSize = size;
+        (globalThis as any).cmuxAcpmuxMockPaged = true;
         if (shape) (globalThis as any).cmuxAcpmuxMockListShape = shape;
       },
       [SESSIONS, PROFILE !== undefined ? "fleet" : null] as const,
@@ -1032,10 +1057,25 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
                 .catch((error: unknown) => ({ error: String(error) })),
             );
       try {
+        const taskSeconds = async () => {
+          const { metrics } = (await items[0]!.cdp.send("Performance.getMetrics")) as {
+            metrics: { name: string; value: number }[];
+          };
+          return metrics.find((m) => m.name === "TaskDuration")?.value ?? null;
+        };
+        const taskBefore = await taskSeconds();
+        const wallBefore = performance.now();
         const sample = await measure(rootPid, items, focused, browserCdp);
+        const taskAfter = await taskSeconds();
+        const wallMs = performance.now() - wallBefore;
+        const mainBusyPct =
+          taskBefore !== null && taskAfter !== null && wallMs > 0
+            ? Math.round(((taskAfter - taskBefore) * 1000 * 1000) / wallMs) / 10
+            : null;
         return {
           sample,
           agentRssMB: Math.round(rssMB(agentPid)),
+          mainBusyPct,
           churn: hasChurn,
         };
       } finally {
@@ -1046,11 +1086,30 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     }
     // The chats axis counts the focused chat as the first; the tabs axis counts tabs beside it.
     let count = axis === "chats" ? 1 : 0;
-    for (const rung of RUNGS) {
-      while (count < rung) await add(count++);
+    let cycleBudgetMs = RUNGS.length * CYCLE_CAP_MS;
+    for (const [i, rung] of RUNGS.entries()) {
+      while (count < rung) {
+        const startedMs = Date.now();
+        try {
+          await add(count);
+        } catch (error) {
+          // Where a ladder breaks is a result: name the item it broke on and what the browser held then.
+          const pids = renderers(rootPid);
+          const pss = pids.map((pid) => Math.round(rssMB(pid)));
+          console.log(
+            `SIM-LADDER broke ${axis} #${count} on the way to x${rung} after ${Date.now() - startedMs} ms | renderers ${pids.length}, largest ${Math.max(...pss)} MB`,
+          );
+          throw error;
+        }
+        if (count % 10 === 0) console.log(`SIM-LADDER   added ${axis} #${count} in ${Date.now() - startedMs} ms`);
+        count += 1;
+      }
       await focused.bringToFront();
       startChurn(RATE);
-      samples[rung] = await measure(rootPid, items, focused, browserCdp, axis === "chats");
+      const capMs = cycleBudgetMs - (RUNGS.length - 1 - i) * CYCLE_CAP_MS;
+      lastTraceMs = 0;
+      samples[rung] = await measure(rootPid, items, focused, browserCdp, axis === "chats", capMs);
+      cycleBudgetMs -= Math.min(lastTraceMs, capMs);
       loadMs[`${axis}.${rung}`] = lastLoadMs;
       ses[rung] = lastSe;
       cycleCounts[rung] = lastCycles;
@@ -1084,6 +1143,13 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
   report[`${axis}_gc_cycles`] = Object.fromEntries(RUNGS.map((rung) => [rung, cycleCounts[rung] ?? null]));
   for (const metric of [...Object.keys(FLOOR), "frame_p95_ms"] as Metric[]) {
     const values = RUNGS.map((rung) => samples[rung]![metric]);
+    // A rung that could not read the metric gives it no ratio: "?" here, and no row a reader would take as measured.
+    if (values.some((value) => !Number.isFinite(value))) {
+      console.log(
+        `SIM-LADDER ${axis} ${metric} ${values.map((v) => (Number.isFinite(v) ? v : "?")).join(" / ")} | ratio ? (unread at a rung)`,
+      );
+      continue;
+    }
     // The CPU and script readings carry their standard error (whole cycles, or a rung's windows) where the run had one
     // at every rung; the rest are one reading after a collection.
     const se = RUNGS.every((rung) => ses[rung]?.[metric] !== undefined)
@@ -1127,13 +1193,20 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
 async function runProfile() {
   const chats = Math.max(1, fromProfile("agent_total", "agent_pages") ?? 1);
   const visible = Math.min(chats, Math.max(1, fromProfile("agent_visible") ?? 1));
-  // The app's events spread over its running chats; a shown chat streams its share: a delta every running/events s.
+  // A shown chat streams at the rate the app's measured chat took records in over its capture (perf_sensor.py
+  // `shown_chat_events_per_s`, records.all.count over the window): a delta every 1/rate s, none when it was idle.
+  // Without that read, the app's events spread over its running chats: a delta every running/events s.
+  const shownRate = fromProfile("shown_chat_events_per_s");
   const events = fromProfile("events_per_s");
   const running = fromProfile("running_sessions", "running");
   const streamMs =
-    events !== null && events > 0
-      ? Math.min(1000, Math.max(4, Math.round((1000 * Math.max(1, running ?? 1)) / events)))
-      : null;
+    shownRate !== null
+      ? shownRate > 0
+        ? Math.min(1000, Math.max(4, Math.round(1000 / shownRate)))
+        : null
+      : events !== null && events > 0
+        ? Math.min(1000, Math.max(4, Math.round((1000 * Math.max(1, running ?? 1)) / events)))
+        : null;
   const tabs = fromProfile("browser_tabs") ?? 0;
   const load = fromProfile("load_1m", "load1");
   const appCores = fromProfile("cores", "ncpu");
@@ -1187,6 +1260,14 @@ async function runProfile() {
     renderer_cpu_ms_per_s: {
       sim: scene.sample.cpu_ms_per_s,
       app: appCpu === null ? null : Math.round(appCpu * 10),
+      extra: true,
+    },
+    // NOW's renderer-main-busy goal reads this off replay-under-load (perf_sensor.vm_replay) and, from the app,
+    // perf_sensor.leo_nightly.renderer_main_busy_pct; a profile without it leaves the pair the sim's alone.
+    renderer_main_busy_pct: {
+      sim: scene.mainBusyPct,
+      app: fromProfile("renderer_main_busy_pct"),
+      why: "UNMEASURED: the app's profile gives no renderer main-thread busy %",
       extra: true,
     },
   };

@@ -88,6 +88,9 @@
     "cloud.owner.handoff_wait",
     "cloud.owner.handoffs",
     "cloud.owner.harness_login_copy",
+    "cloud.owner.op",
+    "cloud.owner.slack",
+    "cloud.owner.slack_awake",
     "cloud.owner.turn_checkpoint",
     "cloud.owner.turn_rewind",
     "cloud.owner.turns",
@@ -99,6 +102,7 @@
     "cloud.runs.sandbox",
     "cloud.runs.start",
     "cloud.runs.wait",
+    "cloud.vm.agent_key_create",
     "cloud.vm.domains",
     "cloud.vm.firewall_create",
     "cloud.vm.firewall_delete",
@@ -649,6 +653,7 @@
       "shutdown-daemon",
       "pairing-response",
       "url-open",
+      "offer-link-to-phone",
       "conversation-list",
       "conversation-create",
       "conversation-snapshot",
@@ -805,6 +810,12 @@
       "name": "client-detached",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "client-disconnected-by",
+      "streams": [
+        "control"
       ]
     },
     {
@@ -1188,6 +1199,12 @@
     },
     {
       "name": "url-open",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "phone-open-link",
       "streams": [
         "control"
       ]

@@ -4,6 +4,14 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes usage.summary declares.
+    UsageSummaryError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
 wire_op! {
     /// Create or refresh the caller's user record from the Stack session.
     UserEnsureOp {

@@ -21,7 +21,7 @@ declare global {
   interface Window {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
-    benchChangeOne(): Promise<void>;
+    benchChangeOne(index?: number): void | Promise<void>;
   }
 }
 

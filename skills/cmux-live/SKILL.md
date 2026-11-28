@@ -1,19 +1,20 @@
 ---
 name: cmux-live
-description: "Try a change to cmux's web UI or daemon live in the running app, with no build or relaunch: point cmux at a checkout's webviews dev server, or `cmux live start --rust` for cmux-tui and acpmux. Use when changing webviews/ (agent chat pane, Settings, Home, new tab, Markdown viewer), when asked for hot or live reload, or before asking for a dev build to try a change or pull request."
+description: "Try a cmux webviews/ or daemon change live, no build or relaunch: `cmux app try .` runs a copy of the nightly beside the person's app (`cmux live start --rust` for the daemon). Use for hot reload or before asking for a dev build."
 ---
 
 # cmux live
 
 ## Try it live before you ask for a dev build
 
-Most cmux changes can be tried in the app that already runs (a nightly, a release or a DEV
-build) with no app build and no relaunch. Before you request a dev build, or tell the person they
+Most cmux changes can be tried with no app build and no relaunch. Try them in a copy of the
+person's app (`cmux app try .`), not in the app they are using: pointing their app at a dev
+server, or back, reloads every page and agent chat they have open. Before you request a dev build, or tell the person they
 need one, take the first row that covers the change:
 
 | The change | Try it with |
 |---|---|
-| Your edits under `webviews/` | `cmux live start --worktree <checkout>` (below) |
+| Your edits under `webviews/` (and the daemon's Rust beside them) | `cmux app try .` from the checkout: a fresh copy of the installed nightly runs beside it, with this checkout's web UI (a dev server, so saves show live) and daemon Rust put in; `cmux app try . --stop` when done |
 | Your edits to the daemon's Rust (`cmux-tui/`, acpmux) | `cmux live start --rust --build-host HOST` |
 | Someone's pull request | `scripts/cmux-next/try-pr.sh N`: its web UI is served and a daemon PR's daemon is swapped in, in a side copy of the app (`--here` for the person's own app); it requests a dev build only when the PR needs one, and says why |
 | A merged commit, before the nightly | `scripts/cmux-next/hot-apply.py apply SHA` (its web and daemon parts) |
@@ -24,8 +25,10 @@ manifest, Rust the app links through FFI) needs the dev build. `scripts/cmux-nex
 BASE HEAD` sorts a change the same way try-pr does. Of the last 1,000 NEXT pull requests that touch
 the app, about 42% went into a nightly this way with no build; of the newest 300 merged (2026-11-15), 70% of the Mac-app ones.
 
-`cmux live start` runs a cmux checkout's webviews dev server (Vite) and points the running
-cmux at it. From then on, a saved edit under `webviews/` shows in every open page and agent
+`cmux app try .` is the default: the person's own app is not touched. `cmux live start` runs a
+cmux checkout's webviews dev server (Vite) and points the running cmux itself at it; use it only
+in a copy (`cmux --app-socket SOCKET live start`, the socket `cmux app try` prints) or when the
+person asks for their own app, because each start or stop reloads every page they have open. From then on, a saved edit under `webviews/` shows in every open page and agent
 chat, in WebKit and Chromium tabs alike, with no app build and no relaunch. Chats keep their
 state; React components hot reload in place.
 
@@ -41,13 +44,14 @@ checkout), **Stop Editing cmux Live**, or the same buttons at the end of Setting
 
 ## How to work with it
 
-1. Make or pick a worktree for the change and run `cmux live start --worktree <it>`. One dev
-   server runs at a time; starting another checkout replaces the first.
+1. Make or pick a worktree for the change and run `cmux app try .` in it. Work in the copy it
+   prints; leave the person's app alone. In a copy, one dev server runs at a time; starting
+   another checkout replaces the first.
 2. Edit files under `webviews/`. Do not build the app or relaunch cmux to see the change; tell the
    person to look at the page or chat that changed.
 3. Serve a tree close to the running app's commit (`cmux version` shows it): a much newer tree may
    call page bridge ops the app does not have yet.
-4. When you are done, `cmux live stop`, unless the person wants to keep looking.
+4. When you are done, `cmux app try . --stop`, unless the person wants to keep looking.
 
 ## The daemon's Rust
 

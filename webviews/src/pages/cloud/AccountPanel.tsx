@@ -17,7 +17,7 @@ import { PoolPanel } from "./PoolPanel";
 import { AccountOps, CloudOps, type CloudRetention, type RetentionOverrides } from "./ops";
 import { RETENTION_FIELDS, retentionLimit, type RetentionField } from "./retention";
 import { clockTime, usd } from "./spendCap";
-import { cardBrand, hasGaps, meterAmount, monthTotal, quantity, testMode, type UsageMeter } from "./usage";
+import { cardBrand, hasGaps, meterAmount, monthTotal, quantity, testMode, type UsageMeter, ratePrice } from "./usage";
 import type { CloudState, CloudStore } from "./store";
 import { format, L } from "./strings";
 import { intl } from "../../ui/intl";
@@ -46,6 +46,7 @@ function finite(value: number | string | null | undefined): number | undefined {
 /** The failed-payment line with Manage Billing (the app's `billing.openPortal`). */
 function PaymentPastDue({ store, t }: { store: CloudStore; t: (key: string) => string }) {
   return (
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a live notice with a button, not a computed output.
     <div className="cloud-past-due" role="status">
       <span className="cloud-past-due-text">{t(L.planPastDue)}</span>
       <button type="button" className="cloud-button cloud-manage-billing" onClick={() => void store.manageBilling()}>
@@ -55,10 +56,10 @@ function PaymentPastDue({ store, t }: { store: CloudStore; t: (key: string) => s
   );
 }
 
-const METERS: { meter: UsageMeter; label: string; unit: string }[] = [
-  { meter: "vcpu", label: L.usageVcpu, unit: L.usageVcpuHours },
-  { meter: "memory", label: L.usageMemory, unit: L.usageGibHours },
-  { meter: "stored", label: L.usageStored, unit: L.usageGibMonths },
+const METERS: { meter: UsageMeter; label: string; unit: string; rate: string }[] = [
+  { meter: "vcpu", label: L.usageVcpu, unit: L.usageVcpuHours, rate: L.usageRateVcpu },
+  { meter: "memory", label: L.usageMemory, unit: L.usageGibHours, rate: L.usageRateGibHour },
+  { meter: "stored", label: L.usageStored, unit: L.usageGibMonths, rate: L.usageRateGibMonth },
 ];
 
 /** This month's usage and its cost, and the payment method on file. */
@@ -99,12 +100,20 @@ function MonthUsage({ store, state, strings }: { store: CloudStore; state: Cloud
         <span className="cloud-month-total">{usd(monthTotal(usage), language)}</span>
       </div>
       <dl className="cloud-month-lines">
-        {METERS.map(({ meter, label, unit }) => {
-          const { amount, usd: dollars } = meterAmount(usage, meter);
+        {METERS.map(({ meter, label, unit, rate: rateLabel }) => {
+          const { amount, usd: dollars, rate } = meterAmount(usage, meter);
           return (
             <div key={meter} className={`cloud-month-line cloud-month-${meter}`}>
               <dt>{t(label)}</dt>
-              <dd className="cloud-month-amount">{format(t(unit), { value: quantity(amount, language) })}</dd>
+              <dd className="cloud-month-amount">
+                {format(t(unit), { value: quantity(amount, language) })}
+                {rate !== undefined && (
+                  <span className="cloud-month-rate">
+                    {" × "}
+                    {format(t(rateLabel), { price: ratePrice(rate, language) })}
+                  </span>
+                )}
+              </dd>
               <dd className="cloud-month-usd">{usd(dollars, language)}</dd>
             </div>
           );

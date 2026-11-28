@@ -1,0 +1,239 @@
+name: iOS link FFI cache seed
+
+# Seeds the Actions cache entry every iOS Mac job restores CmuxMobileLinkFFI.xcframework from, once per FFI input
+# change, on the feat-cmux-next push (a pull request's run reads the entries its base branch saved).
+#
+# Why: no entry under either kit key existed on 2026-11-26 (`actions/caches?key=cmux-next-ios-link-ffi-xcf`: 0), so
+# every hosted iOS leg rebuilt the FFI (about 5.6 min each). The savers that exist run inside cmux-next-ios-kit.yml's
+# push run, and that run is in a group where a newer push cancels the pending one: of six push runs in 35 minutes,
+# four were cancelled and two still sat queued behind the runner job, so neither link-ffi-fleet's nor kit-tests' save
+# ever ran. This workflow is its own small group, asks only whether the key is there, and builds on a miss.
+#
+# The key and the path are cmux-next-ios-kit.yml's fleet entry, byte for byte (kit-tests' and
+# swift-linux-packages.yml's "Restore the fleet-built CmuxMobileLinkFFI.xcframework", with enableCrossOsArchive, which
+# the cache version hashes): `cmux-next-ios-link-ffi-xcf-fleet-v1-<scripts/ci/ios_link_ffi_key.py>`. The Mac fallback
+# also saves the per-Xcode entry (first-user-journey-ios.yml, ios-reliability-matrix.yml, kit-tests' first restore).
+# tests/test_ios_link_ffi_cache_seed.py holds the keys and paths equal. Every restoring job still builds on a miss.
+
+on:
+  push:
+    branches: [feat-cmux-next]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The R2 copy (the r2 job below): NEXT's bucket, the one name every reader and this seed use.
+env:
+  CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+  CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+  CI_CACHE_R2_NAMESPACE: any
+
+concurrency:
+  # One at a time, never cancelled while running. A pending run is replaced by a newer push, whose inputs are the
+  # newest, so the entry the next pull request reads is still the one seeded.
+  group: ios-link-ffi-cache-seed-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Cheap on every push: a blobless sparse checkout, the key (git objects only) and a lookup. The FFI inputs changed
+  # 5 times over 150 feat-cmux-next commits (2026-11-24), so almost every run ends here.
+  key:
+    name: CmuxMobileLinkFFI.xcframework key
+    if: ${{ github.repository == 'manaflow-ai/cmux' }}
+    runs-on: cmux-linux
+    timeout-minutes: 10
+    outputs:
+      inputs: ${{ steps.key.outputs.inputs }}
+      key: ${{ steps.key.outputs.key }}
+      hit: ${{ steps.lookup.outputs.cache-hit }}
+      r2_hit: ${{ steps.r2-lookup.outputs.hit }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          filter: blob:none
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
+      - name: Key
+        id: key
+        run: |
+          set -euo pipefail
+          inputs="$(python3 scripts/ci/ios_link_ffi_key.py)"
+          echo "inputs=${inputs}" >> "$GITHUB_OUTPUT"
+          echo "key=cmux-next-ios-link-ffi-xcf-fleet-v1-${inputs}" >> "$GITHUB_OUTPUT"
+
+      - name: Is it cached
+        id: lookup
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          enableCrossOsArchive: true
+          key: ${{ steps.key.outputs.key }}
+          lookup-only: true
+
+      # The r2 job's copy, read as a Blacksmith Mac reads it (the public URL, no credentials). One HEAD per archive kind.
+      - name: Is it in R2
+        id: r2-lookup
+        continue-on-error: true
+        env:
+          KEY: ${{ steps.key.outputs.key }}
+        run: |
+          set -uo pipefail
+          hit=false
+          for ext in tar.zst tar.gz; do
+            if curl --fail --silent --head --max-time 20 -o /dev/null \
+                "${CI_CACHE_R2_PUBLIC_URL%/}/v1/${CI_CACHE_R2_NAMESPACE}/objects/${KEY}.${ext}"; then
+              hit=true
+            fi
+          done
+          echo "hit=${hit}" >> "$GITHUB_OUTPUT"
+          echo "R2 copy of ${KEY}: ${hit}"
+
+  # A miss: the build fleet builds it (scripts/ci/fleet_ios_build.py, as link-ffi-fleet does), so no Mac waits for it.
+  # Exit 0 means its bindings matched the checked-in ones; anything else leaves it to the Mac below.
+  fleet:
+    name: CmuxMobileLinkFFI.xcframework (build fleet, seed)
+    needs: key
+    if: ${{ needs.key.outputs.key != '' && needs.key.outputs.hit != 'true' && (vars.CI_IOS_FFI_FLEET || '1') != '0' }}
+    runs-on: cmux-linux
+    timeout-minutes: 40  # the reader waits up to 600 s queued plus 1500 s running
+    permissions:
+      contents: read
+      id-token: write  # the route reads the repository and the commit from this job's OIDC token
+    outputs:
+      saved: ${{ steps.save.outcome == 'success' && 'true' || '' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          filter: blob:none
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
+      - name: Build CmuxMobileLinkFFI.xcframework on the build fleet
+        id: build
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/link-ffi"
+          status=0
+          python3 scripts/ci/fleet_ios_build.py --what ffi --out "$out" --timeout 1500 --queue-timeout 600 || status=$?
+          if [[ "$status" != 0 || ! -f "$out/CmuxMobileLinkFFI.xcframework/Info.plist" ]]; then
+            echo "::warning title=build fleet::no xcframework from the build fleet (exit $status); a Mac builds it"
+            exit 0
+          fi
+          dest=cmux-next-ios/CmuxMobileKit/Frameworks
+          mkdir -p "$dest"
+          rm -rf "$dest/CmuxMobileLinkFFI.xcframework"
+          cp -R "$out/CmuxMobileLinkFFI.xcframework" "$dest/"
+          echo "built=true" >> "$GITHUB_OUTPUT"
+
+      - name: Save CmuxMobileLinkFFI.xcframework
+        id: save
+        if: steps.build.outputs.built == 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          enableCrossOsArchive: true
+          key: ${{ needs.key.outputs.key }}
+
+  # The fleet gave none (no route, a red, a save that failed): build it on a Mac as kit-tests does, and save it only
+  # when the build left the checked-in bindings and Cargo.lock as they were (kit-tests' drift check).
+  mac:
+    name: CmuxMobileLinkFFI.xcframework (Mac, seed)
+    needs: [key, fleet]
+    if: ${{ !cancelled() && needs.key.outputs.key != '' && needs.key.outputs.hit != 'true' && needs.fleet.outputs.saved != 'true' }}
+    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Key
+        id: key
+        env:
+          SEED_INPUTS: ${{ needs.key.outputs.inputs }}
+        run: |
+          set -euo pipefail
+          inputs="$(python3 scripts/ci/ios_link_ffi_key.py)"
+          if [[ "$inputs" != "$SEED_INPUTS" ]]; then
+            echo "::error::the inputs key differs on this Mac ($inputs) from the key job's ($SEED_INPUTS)"
+            exit 1
+          fi
+          xcode="$(xcodebuild -version | tr -cs 'A-Za-z0-9.' '-')"
+          echo "key=cmux-next-ios-link-ffi-xcf-${RUNNER_OS}-${RUNNER_ARCH}-${xcode}-${inputs}" >> "$GITHUB_OUTPUT"
+          echo "fleet_key=cmux-next-ios-link-ffi-xcf-fleet-v1-${inputs}" >> "$GITHUB_OUTPUT"
+
+      # cmux-next-ios/rust pins the same toolchain as cmux-tui.
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Build CmuxMobileLinkFFI.xcframework
+        env:
+          JOBS: "8"
+        run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
+
+      - name: Checked-in bindings match the generated ones
+        run: |
+          set -euo pipefail
+          if ! git diff --exit-code -- cmux-next-ios/; then
+            echo "::error::build-xcframework.sh changed tracked files (CmuxMobileLinkFFI.swift or Cargo.lock); nothing saved"
+            exit 1
+          fi
+
+      - name: Save CmuxMobileLinkFFI.xcframework (fleet entry)
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          enableCrossOsArchive: true
+          key: ${{ steps.key.outputs.fleet_key }}
+
+      - name: Save CmuxMobileLinkFFI.xcframework (this Xcode's entry)
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.key.outputs.key }}
+
+  # The same entry in R2, for the Blacksmith Macs. Their actions/cache reads a store of its own, not the one this
+  # workflow's cmux-linux jobs write: the key job above hit e141ff51 at 21:21Z (run 46069736597) while every hosted
+  # ios fast verdict missed it (jobs 140732828652 at 20:52Z, 140739674555 at 21:13Z) and built the FFI itself, 381 s
+  # of a 16 min job; 155 of 160 verdicts ran on Blacksmith (2026-11-27, 16-20Z). R2 is the one store every runner
+  # reads (scripts/ci/r2-cache.sh, the fast tier's precedent). This job copies whatever the store above holds, so it
+  # runs once per input key, after the fleet or the Mac saved it, or now for a key saved before this job existed.
+  r2:
+    name: CmuxMobileLinkFFI.xcframework (R2 copy, seed)
+    needs: [key, fleet, mac]
+    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && needs.key.outputs.key != '' && needs.key.outputs.r2_hit != 'true' }}
+    runs-on: cmux-linux
+    timeout-minutes: 15
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          filter: blob:none
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
+      - name: Restore CmuxMobileLinkFFI.xcframework
+        id: restore
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          enableCrossOsArchive: true
+          key: ${{ needs.key.outputs.key }}
+
+      - name: Save CmuxMobileLinkFFI.xcframework to R2
+        if: steps.restore.outputs.cache-hit == 'true'
+        # A failed copy is only a miss for the readers, which build as before.
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          KEY: ${{ needs.key.outputs.key }}
+        run: bash scripts/ci/r2-cache.sh save cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework "$KEY"

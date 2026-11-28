@@ -67,7 +67,7 @@ jobs:
       - name: Checkout the tip and its parent
         # Steps written for a pull request's merge commit read `HEAD^1` as the base (web-complexity,
         # submodule-forward-only, chromium-currency). Here that is the tip before the newest landing.
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -128,6 +128,11 @@ jobs:
       - name: Run the routed ${{ matrix.job }} steps (ci/steps.toml)
         env:
           TABLE_JOB: ${{ matrix.job }}
+          # The base has no re-run that fixes a red, so an `alone` step (ios-matrix-protocol and the other long
+          # ones) runs here even after a blocking step failed. Without it, a base red since 11-26 14:51Z on
+          # unrelated steps (vendored-agent-cursor first) skipped ios-matrix-protocol on every run, and the
+          # E0063 break from cmux#54233 + cmux#54390 stayed unseen for 8 h 49 min until the nightly.
+          CI_RUN_ALONE_ON_RED: "1"
         run: |
           set +e
           ci/run run --job "$TABLE_JOB" ${PATHS_FILE:+--paths-file "$PATHS_FILE"} 2>&1 | tee "$RUNNER_TEMP/linux-first.log"

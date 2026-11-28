@@ -30,7 +30,9 @@
 //!   to answer (it says to do nothing when the subagent already runs).
 //! - Once its prompt's turn ends with the subagent still failed (the agent did not resume it),
 //!   or it fails again, the next attempt waits; after the configured attempts it is given up
-//!   (`exhausted`). A person's retry (`_acpmux/retry {sessionId, subagentId}`) fires a waiting
+//!   (`exhausted`). An outage (capacity, a refused connection) is waited out instead, as a cut
+//!   turn's is: capped, jittered waits until `outage::OUTAGE_HORIZON_MS` after the failure
+//!   (`subagent_retry_outage.rs`). A person's retry (`_acpmux/retry {sessionId, subagentId}`) fires a waiting
 //!   attempt now, or sends one more (`subagent_retry/manual.rs`).
 //! - While a retry waits, the subagent's entry in `_meta.acpmux.subagents` carries
 //!   `retry: {attempt, of, reason, nextAt}` (`nextAt` in Unix ms). `retryable` says whether a
@@ -97,6 +99,11 @@ const MAX_ERROR_CHARS: usize = 300;
 
 /// Most failed subagents a chat keeps with no retry waiting; the oldest failure goes first.
 const MAX_FAILED: usize = 32;
+
+/// An outage's waits: until [`outage::OUTAGE_HORIZON_MS`] after the failure.
+#[path = "subagent_retry_outage.rs"]
+mod outage;
+use outage::{attempt_delay, waits_out};
 
 /// The retries, and `steps`: held through each change that logs a record together with that
 /// record (a failure observed, a Stop or close, a wait planned, given up, fired or skipped), so
@@ -298,9 +305,20 @@ const MAX_HINTED_WAIT_MS: u64 = 3_600_000;
 /// failure's own `retry after Ss` when later (jittered as a turn's capacity continuation, at
 /// most [`MAX_HINTED_WAIT_MS`]).
 fn retry_wait(delay: u64, failure: &Failure, session_id: &str, attempts: usize) -> u64 {
-    use crate::protocol::session::RetryReason;
     let base = super::auto_resume::staggered(delay, session_id);
-    let now = crate::store::now_ms();
+    with_reset_hint(base, failure, session_id, attempts, crate::store::now_ms())
+}
+
+/// `base` (an attempt's staggered wait), or longer when `failure`'s error names when the
+/// upstream is back (a retry-after or reset time), capped at `MAX_HINTED_WAIT_MS`.
+fn with_reset_hint(
+    base: u64,
+    failure: &Failure,
+    session_id: &str,
+    attempts: usize,
+    now: u64,
+) -> u64 {
+    use crate::protocol::session::RetryReason;
     let reset = super::auto_resume::reset_hint::reset_at(&failure.error, None, now);
     let reason =
         if failure.reason == "capacity" { RetryReason::Capacity } else { RetryReason::Transport };
@@ -821,9 +839,17 @@ impl Hub {
             let sub = all.subs.get_mut(&session.id)?.get_mut(id)?;
             let attempts = sub.attempts;
             let failure = sub.failed.as_mut().filter(|f| f.wait.is_none() && !f.idle)?;
-            let of = delays.len();
-            let delay = match delays.get(attempts) {
-                Some(&delay) => retry_wait(delay, failure, &session.id, attempts),
+            let now = crate::store::now_ms();
+            // An outage's attempts count on past the configured ones (as a cut turn's do).
+            let of = if waits_out(failure, delays) {
+                delays.len().max(attempts + 1)
+            } else {
+                delays.len()
+            };
+            let delay = match attempt_delay(failure, attempts, delays, &session.id, now)
+                .map(|delay| with_reset_hint(delay, failure, &session.id, attempts, now))
+            {
+                Some(delay) => delay,
                 None => {
                     failure.idle = true;
                     let failure = failure.clone();
@@ -848,7 +874,7 @@ impl Hub {
                     return None;
                 }
             };
-            let next_at = crate::store::now_ms() + delay;
+            let next_at = now + delay;
             let tool = id.rsplit('/').next().unwrap_or(id);
             let wait = Wait {
                 attempt: attempts + 1,

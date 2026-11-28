@@ -100,7 +100,9 @@ fn held_error_draws_calm_with_a_countdown_footer() {
             .join("\n")
     };
     let red = text(&t);
-    assert!(red.contains("✗ API Error"), "{red}");
+    // A red capacity error leads with the GUI's plain sentence (failure_copy), raw text under it.
+    assert!(red.contains("✗ The agent is rate limited or out of capacity."), "{red}");
+    assert!(red.contains("API Error: Repeated 529"), "{red}");
 
     sync(&mut t, Some(serde_json::json!({"reason": "capacity", "resumesAt": 0})));
     let calm = text(&t);

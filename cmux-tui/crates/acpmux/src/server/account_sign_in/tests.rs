@@ -79,7 +79,7 @@ async fn a_shared_machine_refuses_the_owners_sign_in_too() {
     let m = Machine { root: root.clone(), home: root.join("home") };
     let cli = Cli { program: root.join("no-such-gh").display().to_string(), ..Cli::default() };
     for agent in [Agent::Github, Agent::Codex, Agent::Claude] {
-        let e = login::start_in(&m, &cli, agent, None).await.unwrap_err();
+        let e = login::start_in(&m, &cli, agent, None, None).await.unwrap_err();
         assert_eq!(e.reason, reason::SHARED_MACHINE, "{agent:?}");
     }
     let _ = std::fs::remove_dir_all(&root);
@@ -114,6 +114,25 @@ fn an_unknown_account_is_refused() {
         resolve("github:octo-cat", &accounts).unwrap(),
         Target::Github { login: "octo-cat".into() }
     );
+}
+
+#[test]
+fn models_connections_cannot_be_targets_of_cli_account_actions() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("routes");
+    let state = root.path().join("state");
+    let file: RouteFile =
+        serde_json::from_value(json!({"kind": "chatgpt-plan", "families": ["codex"]})).unwrap();
+    routes::add(Some(&dir), "chatgpt", &file, false).unwrap();
+    let claude = routes::add_claude_token(Some(&dir), "env:FIXTURE_SETUP_TOKEN", None).unwrap();
+    let accounts = super::super::accounts::list(Some(&dir), &state, &routes::Bindings::default());
+    for id in ["chatgpt", claude.id.as_str()] {
+        assert!(routes::find(Some(&dir), id).is_ok());
+        assert_eq!(resolve(id, &accounts).unwrap_err().reason, reason::UNKNOWN_ACCOUNT);
+    }
+    for id in [routes::CODEX_LOGIN_ROUTE_ID, "claude-login"] {
+        assert!(matches!(resolve(id, &accounts), Ok(Target::Listed { builtin: true, .. })));
+    }
 }
 
 #[test]
@@ -184,7 +203,11 @@ async fn a_cancelled_add_lists_nothing_and_removes_only_its_home() {
     .unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
 
-    let before = super::super::accounts::list(Some(&routes_dir), &routes::Bindings::default());
+    let before = super::super::accounts::list(
+        Some(&routes_dir),
+        &root.join("state"),
+        &routes::Bindings::default(),
+    );
     let (id, name) = new_account("claude", &before, None, |id| account_home(&root, id).exists());
     let home = account_home(&root, &id);
     let file = add_file("claude", &name, &home).expect("a route file");
@@ -194,7 +217,8 @@ async fn a_cancelled_add_lists_nothing_and_removes_only_its_home() {
     let m = Machine { root: root.clone(), home: root.clone() };
     let mut cli = Cli { program: program.display().to_string(), ..Cli::default() };
     cli.env.insert("HOME".into(), root.display().to_string());
-    let started = login::start_in(&m, &cli, Agent::Claude, Some(&home)).await.expect("started");
+    let started =
+        login::start_in(&m, &cli, Agent::Claude, Some(&home), None).await.expect("started");
     assert!(started.needs_code);
     lock_pending().insert(
         started.login_id.clone(),
@@ -211,7 +235,11 @@ async fn a_cancelled_add_lists_nothing_and_removes_only_its_home() {
     assert!(!login::running(&started.login_id) && !adding(&id));
     assert!(!home.exists(), "the add's home stayed");
     assert!(neighbour.join("keep").is_file(), "a folder the add did not make went");
-    let after = super::super::accounts::list(Some(&routes_dir), &routes::Bindings::default());
+    let after = super::super::accounts::list(
+        Some(&routes_dir),
+        &root.join("state"),
+        &routes::Bindings::default(),
+    );
     assert_eq!(after.len(), before.len(), "the cancelled add was listed");
     assert!(!after.iter().any(|a| a["id"] == id.as_str()));
     // A home that was there before the add is never removed.

@@ -144,6 +144,11 @@ export type ClientDetachedEvent = { event: "client-detached" } & {
   "client": bigint;
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type ClientDisconnectedByEvent = { event: "client-disconnected-by" } & {
+  "by"?: T.SizeDetachActor;
+};
+
 /** Protocol v9; emission: serialized-never-emitted; streams: subscribe. */
 export type ClientListInvalidatedEvent = { event: "client-list-invalidated" } & {
 };
@@ -479,6 +484,12 @@ export type ParticipantAvatarChangedEvent = { event: "participant-avatar-changed
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type PersonalChangedEvent = { event: "personal-changed" } & {
   "personal_revision": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type PhoneOpenLinkEvent = { event: "phone-open-link" } & {
+  "terminal_id": string;
+  "url": string;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -835,6 +846,7 @@ export type KnownCmuxEvent =
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
+  | ClientDisconnectedByEvent
   | CloudConversationChangedEvent
   | CloudConversationLiveEvent
   | CloudConversationPresenceEvent
@@ -879,6 +891,7 @@ export type KnownCmuxEvent =
   | PaneClosedEvent
   | ParticipantAvatarChangedEvent
   | PersonalChangedEvent
+  | PhoneOpenLinkEvent
   | ProgramStatusChangedEvent
   | RenderDeltaEvent
   | RenderStateEvent

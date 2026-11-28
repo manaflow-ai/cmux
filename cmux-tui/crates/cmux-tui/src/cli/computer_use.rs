@@ -252,6 +252,17 @@ impl Daemon for CliDaemon {
             json!({}),
         )
     }
+    /// No socket file where this CLI would connect: no app runs the daemon (cmux19 with
+    /// NIGHTLY installed but not open, 2026-11-27: `status` waited out the 30 s budget, then
+    /// said Computer Use "restarts by itself").
+    fn not_running(&self) -> Option<String> {
+        let (socket, _) = super::wire::resolve_socket_with_origin(&self.global).ok()?;
+        let app = std::env::current_exe()
+            .ok()
+            .map(|exe| exe.canonicalize().unwrap_or(exe))
+            .and_then(|exe| acpmux::computer_use::daemon_socket::bundle_name(&exe));
+        acpmux::computer_use::client::not_running_message(app.as_deref(), &[socket.as_path()])
+    }
 }
 
 /// `cmux computer-use upgrade`'s view of this machine: the daemon's own staging of the

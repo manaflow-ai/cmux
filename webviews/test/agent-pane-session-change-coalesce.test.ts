@@ -11,9 +11,14 @@
 // change to the pane's own chat still reaches a hidden pane, so its tab row stays right.
 import { afterAll, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { settleReact } from "./support/domTeardown";
-import { keptTail, rememberTail, resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
+import { importWithDom } from "./support/importWithDom";
+
+type AcpmuxDirectClient = import("../src/agent-session/acpmux/direct").AcpmuxDirectClient;
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
+const { keptTail, rememberTail, resetKeptTailsForTests } = await importWithDom(
+  () => import("../src/agent-session/acpmux/tailCache"),
+);
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -613,7 +618,7 @@ test("hidden checkpoints see a delayed idle summary and ignore a late result", a
       seq: 401,
     });
     record(socket, 402, "turn_result");
-    expect(states.at(-1)).toMatchObject({ isWorking: true, completedSeq: 402 });
+    expect(states.at(-1)?.isWorking).toBe(false);
     socket.notify("_acpmux/session_changed", {
       sessionId: SELECTED,
       session: summary(1, "idle"),

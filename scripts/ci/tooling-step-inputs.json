@@ -87,6 +87,14 @@
         ],
         "why": "traced: the fast-gates tests read scripts/ci, the workflows, the CI notes, the sidebar-owner plan, the parity notes, webviews' tsconfig and package.json, and `git ls-files -- webviews` filtered to *.test.*/*.spec.*; every git history read is in fixture repos",
         "traced": true
+      },
+      "tt-cli-path-folder-access": {
+        "inputs": [
+          "scripts/cmux-next/tests/cli-path-folder-access.test.sh",
+          "Resources/cmux-cli-path/zsh/**",
+          "scripts/ci/apt-ensure.sh"
+        ],
+        "why": "the run text installs zsh first, so the walker reads no test from it; the test runs the app's zsh layer"
       }
     }
   }

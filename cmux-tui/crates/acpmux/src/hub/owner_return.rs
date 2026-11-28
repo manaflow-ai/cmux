@@ -8,11 +8,14 @@
 //!
 //! Every [`TICK`] the timer reads the owner's HID idle time and asks
 //! `cmux_host_budget::owner_return::owner_return_plan` what to do to the sessions AutoCloud
-//! placed here (`placedBy: "autoCloud"` in their meta). A placed session with no running turn
-//! moves off through `session move --host auto`'s own steps (the same [`SessionMove`] automatic
-//! evacuation uses, so no second authority over moves), with a note in its history first. One
-//! mid-turn is paused: its harness's process group gets SIGSTOP, and SIGCONT once the owner is
-//! away again or its turn ended so it can move. Nothing is killed or dropped.
+//! placed here (`placedBy: "autoCloud"` in their meta). Every move goes through
+//! [`Hub::move_off_by_authority`] (`move_authority.rs`), with a note in its history first: an Auto
+//! chat this machine holds for the Cloud store moves as a holder change in that store (RFD 0172,
+//! "one authority for moves"), at once and also mid-turn, since its give stops the turn and the
+//! new holder continues it. Any other placed chat with no running turn moves through
+//! `session move --host auto`'s own steps ([`SessionMove`]); one mid-turn is paused: its
+//! harness's process group gets SIGSTOP, and SIGCONT once the owner is away again or its turn
+//! ended so it can move. Nothing is killed or dropped.
 //!
 //! The measurement: one log line when the owner's return is detected (`owner_back_at_ms`) and
 //! one when the machine is free of placed work (`freed_at_ms`, `elapsed_ms`), for p50/p95.
@@ -23,6 +26,17 @@ use cmux_host_budget::owner_return::{
     Action, Placed, ReturnPlan, ReturnSetting, ReturnState, owner_return_plan,
 };
 use std::collections::{HashMap, HashSet};
+
+/// The signal that pauses a placed agent's process group, and the one that continues it.
+/// Unix only; elsewhere `signal_placed` sends nothing, so the values are never used.
+#[cfg(unix)]
+const PAUSE: i32 = libc::SIGSTOP;
+#[cfg(unix)]
+const CONTINUE: i32 = libc::SIGCONT;
+#[cfg(not(unix))]
+const PAUSE: i32 = 0;
+#[cfg(not(unix))]
+const CONTINUE: i32 = 0;
 
 /// How often the timer looks: the owner's return should free the machine within seconds.
 pub(crate) const TICK: std::time::Duration = std::time::Duration::from_secs(2);
@@ -80,13 +94,13 @@ impl Returner {
         for action in &plan.actions {
             match action {
                 Action::Pause { id } => {
-                    if hub.signal_placed(id, libc::SIGSTOP).await {
+                    if hub.signal_placed(id, PAUSE).await {
                         self.paused.insert(id.clone());
                         tracing::info!(session = %id, "autoCloud: paused a placed turn for the owner");
                     }
                 }
                 Action::Resume { id } => {
-                    hub.signal_placed(id, libc::SIGCONT).await;
+                    hub.signal_placed(id, CONTINUE).await;
                     self.paused.remove(id);
                     tracing::info!(session = %id, "autoCloud: resumed a paused placed session");
                 }
@@ -127,7 +141,7 @@ impl Hub {
         // A daemon restart may have left a placed agent stopped: continue each one.
         for s in self.live_session_handles() {
             if s.read_meta(|m| m.placed_by.is_some()) {
-                self.signal_placed(&s.id, libc::SIGCONT).await;
+                self.signal_placed(&s.id, CONTINUE).await;
             }
         }
         let weak = Arc::downgrade(self);
@@ -151,12 +165,20 @@ impl Hub {
                 if !placed || gone {
                     return None;
                 }
+                // An Auto chat the store has another holder running is not here to move; one
+                // held here is never paused: its give stops the turn (`move_authority.rs`).
+                let by_store = match self.move_authority(s) {
+                    move_authority::Authority::Store { here: false } => return None,
+                    move_authority::Authority::Store { here: true } => true,
+                    move_authority::Authority::ThisDaemon => false,
+                };
+                let running = s.turn().is_some() || s.turn_claimed() || s.queued() > 0;
                 Some(Placed {
                     id: s.id.clone(),
                     name,
-                    running: s.turn().is_some() || s.turn_claimed() || s.queued() > 0,
+                    running: running && !by_store,
                     paused: paused.contains(&s.id),
-                    moving: s.moving().is_some(),
+                    moving: s.moving().is_some() || self.store_moving(s),
                     tried_at_ms: tried.get(&s.id).copied(),
                 })
             })
@@ -164,6 +186,7 @@ impl Hub {
     }
 
     /// Sends `signal` to a session's agent's process group; false when it has no live agent.
+    #[cfg(unix)]
     async fn signal_placed(&self, id: &str, signal: i32) -> bool {
         let Some(session) = self.session_get(id) else { return false };
         let child = session.child.lock().await.clone();
@@ -171,6 +194,12 @@ impl Hub {
             Some(agent) => agent.signal_harness_group(signal).await,
             None => false,
         }
+    }
+
+    /// No process groups to stop off Unix: a placed session is never paused there, only moved.
+    #[cfg(not(unix))]
+    async fn signal_placed(&self, _id: &str, _signal: i32) -> bool {
+        false
     }
 
     /// The note, the move and the log line for one placed session leaving for its owner.
@@ -182,7 +211,7 @@ impl Hub {
             plan.why
         );
         self.append(&session, "mux", NOTE_KIND, json!({"text": text, "why": plan.why}));
-        match mover.move_off(id).await {
+        match self.move_off_by_authority(id, mover).await {
             Ok(host) => tracing::info!(
                 session = %id, name = %name, to = %host,
                 "autoCloud: moved a placed chat off for the returning owner"

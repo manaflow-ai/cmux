@@ -40,6 +40,7 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
     /// A start whose agent's model route cannot serve it on the machine (cmux-tui `StartRefused::naming`: the
     /// cmux router on a Cloud machine with no signed-in local router), `data {reason, harness}` (hq#11225).
     public static let routeUnavailableCode = "agent_session.route_unavailable"
+    public static let connectionKeyRefusedCode = "agent_session.connection_key_refused"
     /// The cmux router's harness id: its route refusal names the router.
     public static let cmuxRouterHarness = "cmux"
 
@@ -105,7 +106,8 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
     /// It also holds ``AgentSessionAttachClient/codexCredentialsUnsupported``: a Codex start carrying the owner's credential
     /// to a machine whose acpmux would drop its provider (cmux#45774), refused here before it is sent.
     public static let olderDaemonCodes: Set<String> = [AgentSessionAttachError.teamMachine, "agent_session.host_unverified", appFolderNeeded,
-                                                       AgentSessionAttachClient.codexCredentialsUnsupported]
+                                                       AgentSessionAttachClient.codexCredentialsUnsupported,
+                                                       AgentSessionAttachClient.endpointCredentialsUnsupported]
     public static func startUnsupported(machine: String) -> Self { Self(code: AgentSessionAttachClient.startUnsupported, machine: machine) }
 
     public var userMessage: String { errorDescription ?? code }
@@ -114,6 +116,10 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
 
     public var errorDescription: String? {
         switch code {
+        case "app.model_connection", Self.connectionKeyRefusedCode:
+            detail
+        case "agent_session.personal_connection_on_team_vm":
+            RefusalStrings.text("handlers.refusal.agentRemoteStart.personalConnectionOnTeamVm", "Personal connections run only on your own Cloud machine.")
         case "agent_session.untrusted_folder":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.untrustedFolder",
                                   "%1$@ is not a trusted folder on %2$@. Trust it on that machine, then start the chat again.",
@@ -131,6 +137,9 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
         case "agent_session.host_unverified":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.hostUnverified",
                                   "%@ could not confirm what kind of Cloud machine it is, so no agent chat starts there.", machine)
+        case AgentSessionAttachClient.endpointCredentialsUnsupported:
+            detail ?? RefusalStrings.format("handlers.refusal.agentRemoteStart.updateRemote",
+                                            "cmux on %@ can't start agent chats yet. Update cmux on that machine.", machine)
         case AgentSessionAttachClient.startUnsupported, "agent_session.unsupported", AgentSessionAttachClient.codexCredentialsUnsupported:
             RefusalStrings.format("handlers.refusal.agentRemoteStart.updateRemote",
                                   "cmux on %@ can't start agent chats yet. Update cmux on that machine.", machine)

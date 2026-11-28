@@ -6,9 +6,9 @@
 // - At rest nothing inside the tray has a fill of its own. (The pill in the screenshot was the
 //   line's hover: summary.css's opaque --acpmux-menu-hover at a 7px radius, inside the tray's 2px
 //   padding.)
-// - Hovering a line that opens something fills the whole line, its stop button included, out to
-//   the tray's own edges (one inset, never a pill inside the strip), with the arrow cursor; the
-//   line's button draws no second fill.
+// - Hovering a line that opens something fills the whole line out to the tray's own edges (one
+//   inset, never a pill inside the strip), with the arrow cursor; the line's button draws no second
+//   fill. Hovering its stop button fills that button alone, never the line.
 // - A line with nothing to open has no hover at all.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -95,7 +95,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     }
   });
 
-  test("hover fills the whole line to the tray's edges, its stop button inside, with the arrow", async () => {
+  test("hover fills the whole line to the tray's edges, its stop button alone on its own hover", async () => {
     const page = await open(true);
     try {
       await page.hover(".acpmux-agent-line__button");
@@ -123,9 +123,17 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       expect(geometry.right).toBeCloseTo(0, 1);
       expect(geometry.stopInside).toBe(true);
       expect(geometry.cursor).toBe("default");
-      // On the stop button the line keeps its one fill; the button only brightens.
+      // On the stop button only the button fills, as the header's panel button does: never the line
+      // around it (a highlight covers only its control). The line's wash may fade out first.
       await page.hover(".acpmux-session-info-stop");
-      expect(await filled(page)).toEqual(["acpmux-agent-line"]);
+      await page.waitForFunction(() => {
+        const line = document.querySelector<HTMLElement>(".acpmux-agent-line")!;
+        const color = getComputedStyle(line).backgroundColor;
+        return color === "rgba(0, 0, 0, 0)" || color === "transparent";
+      });
+      const lit = await filled(page);
+      expect(lit).toHaveLength(1);
+      expect(lit[0]).toContain("acpmux-session-info-stop");
     } finally {
       await page.close();
     }
@@ -200,11 +208,11 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       await page.waitForSelector(".acpmux-running-tray");
       await openRunningTray(page);
       await page.click(".acpmux-running-tray .acpmux-agent-line__button");
-      await page.waitForSelector(".acpmux-running-tray__tail button");
+      await page.waitForSelector(".acpmux-running-tray__terminal");
       await page.waitForSelector(".acpmux-running-tray__tail a");
       const fit = await page.evaluate(() => {
         const tail = document.querySelector<HTMLElement>(".acpmux-running-tray__tail")!.getBoundingClientRect();
-        return [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray__tail :is(a, button)")].map(
+        return [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray__tail-foot :is(a, button)")].map(
           (control) => {
             const box = control.getBoundingClientRect();
             return { left: box.left - tail.left, right: tail.right - box.right };
@@ -221,7 +229,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     }
   });
 
-  test("an open command's time, state and Open in terminal share one line on the command's left edge", async () => {
+  test("an open command's time and Open in terminal share one line, Open in terminal shown on hover", async () => {
     // Leo, 2026-11-07, on the open command's last line ("33s", "No output yet", "Open in terminal" each at
     // their own height): "also for the hat wow this is wildly misaligned at the bottom".
     const page = await browser!.newPage({ viewport: { width: 760, height: 400 } });
@@ -233,7 +241,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       await page.waitForSelector(".acpmux-running-tray");
       await openRunningTray(page);
       await page.click(".acpmux-running-tray .acpmux-agent-line__button");
-      await page.waitForSelector(".acpmux-running-tray__tail button");
+      await page.waitForSelector(".acpmux-running-tray__terminal");
       await page.mouse.move(0, 0);
       const line = await page.evaluate(() => {
         const tail = document.querySelector<HTMLElement>(".acpmux-running-tray__tail")!;
@@ -245,14 +253,9 @@ await requireBrowserLane("running-strip.test.ts", async () => {
           const bottom = Math.max(...rects.map((rect) => rect.bottom));
           return { left: rects[0]!.left, middle: (top + bottom) / 2 };
         };
-        const leaf = (text: string) =>
-          [...tail.querySelectorAll<HTMLElement>("*")].find(
-            (element) => element.childElementCount === 0 && element.textContent?.trim() === text,
-          ) ?? [...tail.querySelectorAll<HTMLElement>("*")].find((element) => element.textContent?.trim() === text)!;
-        const command = tail.querySelector(".acpmux-bg-card__command")!;
+        const command = tail.querySelector(".cv-shell")!;
         const time = tail.querySelector(".acpmux-running-tray__meta")!;
-        const state = leaf("No output yet");
-        const button = tail.querySelector("button")!;
+        const button = tail.querySelector(".acpmux-running-tray__terminal")!;
         const label = [...button.childNodes].find((node) => node.nodeType === Node.TEXT_NODE)!;
         const labelRange = document.createRange();
         labelRange.selectNodeContents(label);
@@ -260,18 +263,13 @@ await requireBrowserLane("running-strip.test.ts", async () => {
         const icon = button.querySelector("svg")!.getBoundingClientRect();
         const size = (element: Element) => getComputedStyle(element).fontSize;
         return {
-          commandLeft: textBox(command).left,
+          commandLeft: command.getBoundingClientRect().left,
           timeLeft: textBox(time).left,
-          middles: [
-            textBox(time).middle,
-            textBox(state).middle,
-            labelRect.top + labelRect.height / 2,
-            icon.top + icon.height / 2,
-          ],
-          sizes: [size(time), size(state), size(button)],
+          middles: [textBox(time).middle, labelRect.top + labelRect.height / 2, icon.top + icon.height / 2],
+          sizes: [size(time), size(button)],
         };
       });
-      expect(Math.abs(line.timeLeft - line.commandLeft)).toBeLessThan(1);
+      expect(line.timeLeft).toBeGreaterThanOrEqual(line.commandLeft - 0.5);
       const [first, ...rest] = line.middles;
       for (const middle of rest) expect(Math.abs(middle - first!)).toBeLessThan(1);
       expect(new Set(line.sizes).size).toBe(1);
@@ -416,8 +414,12 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       await page.click(command);
       await settle(page);
       expect(await opened()).toEqual([]);
-      await page.waitForSelector(".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail button");
-      await page.click(".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail button");
+      await page.waitForSelector(
+        ".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail .acpmux-running-tray__terminal",
+      );
+      await page.click(
+        ".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail .acpmux-running-tray__terminal",
+      );
       expect(await opened()).toEqual(["command:w/1"]);
     } finally {
       await page.close();
