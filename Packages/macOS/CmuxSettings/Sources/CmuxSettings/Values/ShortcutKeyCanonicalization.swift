@@ -43,6 +43,7 @@ private func physicalBaseShortcutKey(for keyCode: UInt16) -> String? {
     case 36, 76: return "\r"
     case 48: return "\t"
     case 49: return "space"
+    case 53: return "escape"
     case 18: return "1"
     case 19: return "2"
     case 20: return "3"

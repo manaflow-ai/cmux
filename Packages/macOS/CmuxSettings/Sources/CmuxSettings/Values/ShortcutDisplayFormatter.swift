@@ -117,6 +117,8 @@ public struct ShortcutDisplayFormatter: Sendable {
         switch key {
         case "\t", "tab", "Tab":
             return String(localized: "shortcut.key.tab", defaultValue: "Tab")
+        case "escape":
+            return String(localized: "shortcut.key.escape", defaultValue: "Esc")
         case "space":
             return String(localized: "shortcut.key.space", defaultValue: "Space")
         case "\r":

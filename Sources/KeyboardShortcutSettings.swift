@@ -1660,8 +1660,11 @@ struct ShortcutStroke: Equatable, Hashable {
     static func isEscapeCancelEvent(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown || event.type == .keyUp else { return false }
 
+        // Bare Esc cancels recording; Esc with a modifier (Ctrl+Esc) is a valid key.
+        let bareFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.capsLock, .function, .numericPad])
         if event.keyCode == 53 {
-            return true
+            return bareFlags.isEmpty
         }
 
         let escapeScalar = UnicodeScalar(0x1B)!
@@ -2114,6 +2117,7 @@ struct ShortcutStroke: Equatable, Hashable {
         case "m": return 46
         case ".": return 47
         case "\t": return 48
+        case "escape": return 53
         case "`": return 50
         case "\r": return 36
         case "←": return 123
@@ -2126,7 +2130,7 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
-        key == "\t" || key == "space" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
+        key == "\t" || key == "space" || key == "escape" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
     }
 
     /// Arrow glyphs are persisted by name in hand-written config, but AppKit
@@ -2497,6 +2501,7 @@ extension ShortcutStroke {
         }
         if key == "\r" { return "return" }
         if key == "\t" { return "tab" }
+        if key == "escape" { return "escape" }
         return key
     }
 
@@ -2518,6 +2523,8 @@ extension ShortcutStroke {
             return "↓"
         case "tab":
             return "\t"
+        case "escape", "esc", "⎋":
+            return "escape"
         case "return", "enter", "↩":
             return "\r"
         case "space", "spacebar", "<space>":

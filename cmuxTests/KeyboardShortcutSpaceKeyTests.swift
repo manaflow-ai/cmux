@@ -34,6 +34,45 @@ import Testing
         )
     }
 
+    @Test func shortcutConfigParsingAcceptsModifiedEscapeForGlobalHotkey() throws {
+        let escapeKeyCode = UInt16(53)
+        let shortcut = try #require(StoredShortcut.parseConfig("ctrl+escape"))
+
+        #expect(shortcut.key == "escape")
+        #expect(shortcut.control)
+        #expect(shortcut.configIdentifier == "ctrl+escape")
+        #expect(StoredShortcut.parseConfig("ctrl+esc") == shortcut)
+        #expect(shortcut.firstStroke.resolvedKeyCode() == escapeKeyCode)
+        #expect(shortcut.matches(keyCode: escapeKeyCode, modifierFlags: [.control], eventCharacter: "\u{1b}"))
+        #expect(StoredShortcut.parseConfig("escape") == nil)
+        #expect(StoredShortcut.parseConfig("escape", allowBareFirstStroke: true)?.key == "escape")
+    }
+
+    @Test func recorderAcceptsEscapeWithModifierButBareEscapeStillCancels() throws {
+        func escapeEvent(_ flags: NSEvent.ModifierFlags) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: flags,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false,
+                keyCode: 53
+            ))
+        }
+
+        #expect(ShortcutStroke.isEscapeCancelEvent(try escapeEvent([])))
+        let ctrlEscape = try escapeEvent([.control])
+        #expect(!ShortcutStroke.isEscapeCancelEvent(ctrlEscape))
+        #expect(
+            ShortcutStroke.recordingResult(from: ctrlEscape, requireModifier: true) ==
+            .accepted(ShortcutStroke(key: "escape", command: false, shift: false, option: false, control: true, keyCode: 53))
+        )
+    }
+
     @Test func shortcutConfigParsingRoundTripsSpaceKey() throws {
         let spaceKeyCode = UInt16(0x31)
         let shortcut = try #require(StoredShortcut.parseConfig("cmd+shift+space"))
