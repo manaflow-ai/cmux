@@ -1242,7 +1242,7 @@ fn git_in(dir: &Path, args: &[&str]) -> String {
 
 /// A repository holding a built extension in `widgets/hello` (its `dist/main.js` committed), on
 /// `main`, with a branch `feature/x` one commit ahead.
-fn extension_repo(root: &Path) -> PathBuf {
+pub(super) fn extension_repo(root: &Path) -> PathBuf {
     let repo = root.join("upstream");
     std::fs::create_dir_all(&repo).unwrap();
     git_in(&repo, &["init", "--quiet", "-b", "main"]);
