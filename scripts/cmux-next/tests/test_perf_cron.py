@@ -6145,6 +6145,209 @@ class BatchTests(unittest.TestCase):
         self.assertIn('for part in $RESULT_PARTS; do results+=(--result "$part=$RUNNER_TEMP/perf-cron-result/$part"); done', text)
 
 
+class SideLinuxRequestTests(unittest.TestCase):
+    """A goal's Linux part is asked of the controller at the newer tip while the tip in flight has only Mac parts left
+    (side_linux_pick, store_side). The 2026-11-28 state (perf cron state artifact of that evening): tip cdf458ee picked
+    08:16:14Z, 32 parts done, 19 Mac parts still to do on cmux20-bench and yielding since 16:28Z, its Linux parts
+    stored at 10:25:59Z; the newer tip had cmux#62516 (73dd2afd, goal chats-flat-at-any-length), unread."""
+    CDF = "cdf458eef3cd8a7361b844e5154e705b6f3be821"
+    TIP = "73dd2afd" + "e" * 32  # a tip with 73dd2afd
+    MAC_TODO = ["launch", "launch-dock", "launch-cold", "sidebar", "workspace-scaling", "home-idle", "idle-budget",
+                "chat-anim", "tabs", "memory-agents", "throughput", "cef-resize", "typing", "power", "wake",
+                "power-user-native", "typing-load", "chat-size", "chat-snappy"]
+    STORED_AT = "2026-11-28T10:25:59Z"
+    NOW = datetime.datetime(2026, 11, 28, 19, 0, tzinfo=datetime.timezone.utc)
+
+    class Answer(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def state(self):
+        state = cron.empty_state(self.NOW)
+        state["persisted"] = True
+        cur = cron.new_measurement(self.CDF, "tip", list(self.MAC_TODO), datetime.datetime(2026, 11, 28, 8, 16, 14,
+                                                                                         tzinfo=datetime.timezone.utc))
+        cur.update(host="cmux20-bench", yield_since="2026-11-28T16:28:10Z", measure_version=5, linux_requests={})
+        state["current"] = cur
+        for name in ("web-ui-god", "web-ui-flat", "web-ui-flat-grown", "web-ui-ladder", "web-ui-memory"):
+            cur["parts"][name] = {"state": "done", "worker": cron.LINUX_FLEET_CLASS}
+            state.setdefault("part_stored", {})[name] = {"sha": self.CDF, "at": self.STORED_AT, "rows": 10}
+        return state
+
+    def test_the_11_28_state_before_and_after(self):
+        state = self.state()
+        cur = state["current"]
+        self.assertTrue(all(not cron.is_linux_part(p) for p in cur["parts_todo"]))
+        # Before: a Linux part runs only for the measurement in flight, which has none left: no request, no runner.
+        self.assertEqual(cron.linux_picks(cur, [], self.NOW, True, True), ([], "", []))
+        # After: the goal parts with 9 h old rows are asked at the newer tip, one at a time, oldest first, the shortest
+        # job on a tie (all five were stored at 10:25:59Z).
+        asked, t = [], self.NOW
+        while True:
+            part = cron.side_linux_pick(state, self.TIP, t, True, True)
+            if not part:
+                break
+            cron.side_ask(state, part, self.TIP, t)
+            self.assertEqual(cron.side_linux_pick(state, self.TIP, t + datetime.timedelta(minutes=30), True, True), "",
+                             "one side ask in its answer window at a time")
+            state["side_asks"][part]["answered_at"] = cron.iso(t)
+            state["part_stored"][part] = {"sha": self.TIP, "at": cron.iso(t), "rows": 1}
+            asked.append(part)
+        self.assertEqual(asked, ["web-ui-ladder", "web-ui-flat", "web-ui-flat-grown", "web-ui-god", "web-ui-fidelity"],
+                         "73dd2afd's goal part second, not behind web-ui-god's 145-minute job")
+        self.assertEqual(cur["parts_todo"], self.MAC_TODO, "the Mac pass keeps its parts")
+        self.assertEqual(cur["host"], "cmux20-bench", "...and its host")
+
+    def test_a_tie_goes_to_the_shortest_job(self):
+        state = self.state()
+        minutes = {n: cron.linux_job_minutes(n) for n in ("web-ui-god", "web-ui-flat", "web-ui-flat-grown", "web-ui-ladder")}
+        self.assertLess(minutes["web-ui-flat"], minutes["web-ui-god"])
+        for name in ("web-ui-ladder", "web-ui-fidelity"):
+            state["part_stored"].pop(name, None)
+        state["part_stored"]["web-ui-fidelity"] = {"sha": self.TIP, "at": self.STORED_AT, "rows": 1}
+        state["part_stored"]["web-ui-ladder"] = {"sha": self.TIP, "at": self.STORED_AT, "rows": 1}
+        self.assertEqual(cron.side_linux_pick(state, self.TIP, self.NOW, True, True), "web-ui-flat",
+                         "same age: the 55-minute job before web-ui-god's 145")
+        state["part_stored"]["web-ui-god"]["at"] = "2026-11-28T09:00:00Z"
+        self.assertEqual(cron.side_linux_pick(state, self.TIP, self.NOW, True, True), "web-ui-god",
+                         "older rows still go first")
+
+    def test_no_side_ask_without_its_conditions(self):
+        state = self.state()
+        self.assertEqual(cron.side_linux_pick(state, self.TIP, self.NOW, False, True), "", "no controller route")
+        self.assertEqual(cron.side_linux_pick(state, self.TIP, self.NOW, True, False), "", "no LINUX_SCRIPT at the tip")
+        self.assertEqual(cron.side_linux_pick(state, self.CDF, self.NOW, True, True), "", "no newer tip")
+        self.assertEqual(cron.side_linux_pick(state, self.TIP, self.NOW, True, True, supported={"web-ui-memory"}), "",
+                         "no goal part the tip supports")
+        fresh = self.state()
+        fresh["part_stored"]["web-ui-fidelity"] = {"sha": self.CDF, "at": self.STORED_AT, "rows": 2}
+        fresh["part_stored"] = {n: {**e, "at": cron.iso(self.NOW - datetime.timedelta(hours=cron.SIDE_STALE_HOURS - 1))}
+                                for n, e in fresh["part_stored"].items()}
+        self.assertEqual(cron.side_linux_pick(fresh, self.TIP, self.NOW, True, True), "", "rows under SIDE_STALE_HOURS")
+        linux_left = self.state()
+        linux_left["current"]["parts_todo"].append("web-ui-flat")
+        self.assertEqual(cron.side_linux_pick(linux_left, self.TIP, self.NOW, True, True), "",
+                         "the measurement in flight runs its own Linux parts")
+
+    def test_a_part_is_asked_at_most_linux_requests_max_times_per_tip(self):
+        state = self.state()
+        t, asked = self.NOW, []
+        for _ in range(cron.LINUX_REQUESTS_MAX * 5 + 5):
+            part = cron.side_linux_pick(state, self.TIP, t, True, True)
+            if part:
+                cron.side_ask(state, part, self.TIP, t)
+                asked.append(part)
+            t += datetime.timedelta(minutes=cron.linux_answer_minutes("web-ui-god") + 1)
+        goal = [p["name"] for p in cron.PARTS if p.get("where") == "linux" and cron.side_goal(p["name"])]
+        self.assertIn("web-ui-flat", goal)
+        self.assertIn("web-ui-flat-grown", goal)
+        self.assertEqual(sorted(set(asked)), sorted(goal))
+        self.assertTrue(all(asked.count(p) == cron.LINUX_REQUESTS_MAX for p in goal), asked)
+        self.assertNotIn("web-ui-memory", asked, "not a goal part: waits for the next tip measurement")
+        self.assertEqual(cron.side_linux_pick(state, "f" * 40, t, True, True), "web-ui-ladder", "a newer tip asks again")
+
+    def test_the_answer_stores_rows_at_the_tip_and_leaves_the_mac_pass_alone(self):
+        state = self.state()
+        cron.side_ask(state, "web-ui-flat", self.TIP, self.NOW)
+        before = json.loads(json.dumps(state["current"]))
+        value = {"run": 5, "attempt": 1, "sha": self.TIP, "part": "web-ui-flat", "step_id": "side-1", "state": "done",
+                 "worker": "linux-pool-1", "artifact_url": "https://store.example/web-ui-flat"}
+        later = self.NOW + datetime.timedelta(hours=1)
+        self.assertIsNone(cron.result_refusal(state, value))
+        self.assertIn("not for the measurement in flight", cron.result_refusal(state, {**value, "sha": "a" * 40}))
+        raw = json.dumps(value)
+        artifact = {"result": {"state": "done", "seconds": 1300}, "report": {"summary": []}}
+        stored_with = []
+        real_store = cron.store_part_rows
+
+        def store(state_, cur_, name, p, report_, mod, budgets, run_url, t):
+            stored_with.append((cur_["sha"], cur_["kind"], name, p.get("worker")))
+            return real_store(state_, cur_, name, p, report_, mod, budgets, run_url, t)
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            out = os.path.join(d, "plan.out")
+            with contextlib.redirect_stdout(io.StringIO()):
+                cron.result_plan(argparse.Namespace(dir=d, output=out, perf_result=raw), state, later)
+            with open(out) as f:
+                plan = dict(line.split("=", 1) for line in f.read().splitlines())
+            self.assertEqual((plan["action"], plan["result_parts"]), ("result", "web-ui-flat"))
+            parts = os.path.join(d, "result")
+            body = json.dumps(artifact).encode()
+            with mock.patch.object(cron.urllib.request, "urlopen", lambda req, timeout=0: self.Answer(body)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                cron.cmd_fetch_result(argparse.Namespace(result=raw, out=parts, each=True))
+            specs = [f"web-ui-flat={os.path.join(parts, 'web-ui-flat')}"]
+            with mock.patch.object(cron, "store_part_rows", store), contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                cron.report(argparse.Namespace(repo="", dir=d, result=specs, run_url="u", finish=False, issues=False,
+                                               output=os.path.join(d, "report.out")), t=later)
+            with open(os.path.join(d, "state.json")) as f:
+                after = json.load(f)
+        self.assertEqual(stored_with, [(self.TIP, "tip", "web-ui-flat", cron.LINUX_FLEET_CLASS)])
+        self.assertEqual(after["part_stored"]["web-ui-flat"]["sha"], self.TIP)
+        self.assertEqual(after["part_stored"]["web-ui-flat"]["at"], cron.iso(later))
+        self.assertEqual(after["part_stored"]["web-ui-god"]["sha"], self.CDF, "other parts' rows untouched")
+        self.assertEqual(after["current"], before, "the Mac pass's state is not touched")
+        self.assertEqual(after["side_asks"]["web-ui-flat"]["step_id"], "side-1")
+        self.assertIn("stored already", cron.result_refusal(after, value), "a replayed answer is dropped")
+
+    def test_a_yielded_answer_is_asked_again(self):
+        state = self.state()
+        cron.side_ask(state, "web-ui-ladder", self.TIP, self.NOW)
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "result.json"), "w") as f:
+                json.dump({"state": "yielded", "sha": self.TIP, "step_id": "y"}, f)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertTrue(cron.store_side(state, "web-ui-ladder", d, "u", self.NOW))
+        self.assertEqual(state["part_stored"]["web-ui-ladder"]["sha"], self.CDF)
+        self.assertEqual(cron.side_linux_pick(state, self.TIP, self.NOW, True, True), "web-ui-ladder")
+
+    def test_each_side_answer_notes_its_outcome_at_the_side_sha(self):
+        def answer(state, result, report=None):
+            with tempfile.TemporaryDirectory() as d:
+                with open(os.path.join(d, "result.json"), "w") as f:
+                    json.dump(result, f)
+                if report is not None:
+                    with open(os.path.join(d, "report.json"), "w") as f:
+                        json.dump(report, f)
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    self.assertTrue(cron.store_side(state, "web-ui-flat", d, "u", self.NOW))
+            return (state.get("part_outcomes") or {}).get("web-ui-flat")
+        state = self.state()
+        state["part_outcomes"] = {"web-ui-flat": {"state": "done", "sha": self.CDF, "why": None}}
+        cron.side_ask(state, "web-ui-flat", self.TIP, self.NOW)
+        got = answer(state, {"state": "failed", "sha": self.TIP, "step_id": "f1", "worker": "linux-pool-2",
+                             "tail": ["bench", "Traceback: web-ui-suite.ts exited 1"]})
+        self.assertEqual((got["state"], got["sha"], got["step_id"], got["worker"]),
+                         ("failed", self.TIP, "f1", "linux-pool-2"), "a failed side answer replaces the older outcome")
+        self.assertIn("web-ui-suite.ts exited 1", got["why"])
+        cron.side_ask(state, "web-ui-flat", self.TIP, self.NOW)
+        got = answer(state, {"state": "yielded", "sha": self.TIP, "step_id": "y1"})
+        self.assertEqual(got["step_id"], "f1", "a yield is no outcome")
+        cron.side_ask(state, "web-ui-flat", self.TIP, self.NOW)
+        got = answer(state, {"state": "done", "sha": self.TIP, "step_id": "d1", "worker": "linux-pool-2"})
+        self.assertEqual((got["state"], got["why"]), ("failed", "no report artifact"))
+        cron.side_ask(state, "web-ui-flat", self.TIP, self.NOW)
+        got = answer(state, {"state": "done", "sha": self.TIP, "step_id": "d2", "worker": "linux-pool-2"},
+                     {"rows": [], "incomplete": ["flat-grown bench exited 1"]})
+        self.assertEqual((got["state"], got["sha"], got["step_id"]), ("incomplete", self.TIP, "d2"))
+        self.assertIn("flat-grown bench exited 1", got["why"])
+        self.assertEqual(state["current"]["parts_todo"], self.MAC_TODO, "the Mac pass is not touched")
+
+    def test_the_workflow_asks_the_controller_at_the_side_sha(self):
+        with open(os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-perf-budgets.yml")) as f:
+            text = f.read()
+        self.assertIn("name: perf cron request ${{ needs.plan.outputs.side_sha }} ${{ needs.plan.outputs.side_request }}", text)
+        self.assertIn("side_sha: ${{ steps.plan.outputs.side_sha }}", text)
+        self.assertIn("side_request: ${{ steps.plan.outputs.side_request }}", text)
+        # The controller's job-name pattern (cmuxterm-hq build-fleet/cmd/controller/perf_cron.go perfCronJobName).
+        name = f"perf cron request {self.TIP} web-ui-flat"
+        self.assertRegex(name, r"^perf cron request ([0-9a-f]{40}) ([a-z][a-z-]{0,31})(?: on (.+))?$")
+
 
 class PartOutcomes(unittest.TestCase):
     """note_part_outcomes: every finished part says how it ended and why, also when it stored no row (goal
