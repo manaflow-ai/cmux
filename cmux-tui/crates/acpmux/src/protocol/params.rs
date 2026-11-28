@@ -225,6 +225,7 @@ keyed! {
     PromptCoachParams: ["sessionId", "coachId"];
     /// `_acpmux/status_line`.
     StatusLineParams: ["sessionId"];
+    PullRequestActionParams: ["sessionId", "url", "headSha", "action"];
     /// `_acpmux/btw`.
     BtwParams: ["sessionId", "question", "model", "inline", "targetHarness"];
     /// `_acpmux/chat/route.set`.

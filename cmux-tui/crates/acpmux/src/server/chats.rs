@@ -254,6 +254,10 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::status_line::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    if let Some(reply) = heap(|| super::pull_request_actions::dispatch(hub, conn, m, &params)).await
+    {
+        return reply;
+    }
     if let Some(reply) = heap(|| super::workflow_runs::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
