@@ -58,6 +58,8 @@ class SidebarItemRowView: NSView {
     var isPinned: (() -> Bool?)?
     var onUnpin: (() -> Void)?
     var hoverUnpin: SidebarIconButton?
+    /// A pinned workspace's filled pin at rest, in its Unpin's slot (`layoutRestingPin`).
+    let restingPin = DecorativeImageView()
     /// A double-click on a pinned workspace's row renames it in place (`SidebarItemRowView+Rename`).
     var onRename: (() -> Void)?
     /// The inline rename's editor draws over the title, which stays hidden until it ends.

@@ -59,6 +59,7 @@ extension SidebarItemRowView {
             hoverUnpin = button
         }
         hoverUnpin?.isHidden = !unpins
+        layoutRestingPin(in: b, hovering: shown)
         guard shown, let hoverMore else { return }
         // As a workspace row: the ✕ takes the trailing column, where the dot or spinner it hides sat; the ⋮ one slot
         // in from it, the Unpin one more (the row's Pin slot). A row with no close puts the ⋮ on the column.
@@ -82,5 +83,27 @@ extension SidebarItemRowView {
     /// Pin's place), for a workspace tile; the item's menu for any other item.
     func moreMenuTarget(item id: LayoutItemID) -> SidebarContextTarget {
         info.workspace.map { .workspaces([$0]) } ?? .layoutItem(id)
+    }
+
+    /// A pinned workspace's filled pin at rest, in the slot its hover Unpin takes (Lawrence 2026-11-28: "i dont see
+    /// pinned icon for pinned workspaces anymore"; Leo: "put it in the same spot as the unpin button"). Trailing, so
+    /// the title starts where every row's does; on hover the Unpin replaces it in place, so nothing moves.
+    func layoutRestingPin(in b: NSRect, hovering: Bool) {
+        let pinned = info.workspace != nil && !style.isIconOnly && style != .favorite && style != .chip && isPinned?() == true
+        let shows = pinned && !hovering && !isEditing
+        if shows, restingPin.image?.size.width != SidebarStyle.indicatorSize {
+            restingPin.image = NSImage.icon(.statePinned, size: SidebarStyle.indicatorSize, style: .solid)
+            restingPin.contentTintColor = Palette.textTertiary
+        }
+        restingPin.isHidden = !shows
+        guard shows else { return }
+        if restingPin.superview == nil { addSubview(restingPin) }
+        let closable = info.workspaceRow?.isClosable ?? true
+        let column = SidebarStyle.trailingColumnFrame(rowWidth: b.width - SidebarStyle.horizontalInset, centerY: b.midY,
+                                                       side: SidebarStyle.controlSize)
+        let slot = column.offsetBy(dx: -SidebarStyle.trailingSlotPitch * (closable ? 2 : 1), dy: 0)
+        let side = SidebarStyle.indicatorSize
+        restingPin.frame = NSRect(x: slot.midX - side / 2, y: slot.midY - side / 2, width: side, height: side)
+        title.frame.size.width = max(0, min(title.frame.width, slot.minX - Metrics.space2 - title.frame.minX))
     }
 }
