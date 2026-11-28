@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::io;
 use std::mem::size_of;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -163,8 +163,10 @@ impl FrontendJournalEvent {
 #[derive(Debug)]
 pub(crate) enum JournalIngressEvent {
     /// Terminal-lane ordering fence. It appends no record, but its durable
-    /// completion proves every earlier terminal output or resize committed
-    /// before an exit transaction can remove that terminal's topology.
+    /// completion proves every earlier terminal output or resize was handled
+    /// before an exit transaction can remove that terminal's topology:
+    /// committed, or dropped as best effort and reported (a full lane, or a
+    /// batch that missed its deadline; see expire_batch_after_retry_deadline).
     TerminalBarrier,
     TerminalOutput {
         terminal_id: Arc<TerminalPublicId>,
@@ -1134,13 +1136,19 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     return;
                 };
                 if Instant::now() >= retry_deadline {
-                    stop_writer_after_retry_deadline(
+                    let detail = "the batch deadline expired before commit";
+                    if receivers.state.closed.load(Ordering::Acquire) {
+                        stop_writer_after_retry_deadline(&receivers, &batch, pending, detail);
+                        return;
+                    }
+                    expire_batch_after_retry_deadline(
+                        &mux,
                         &receivers,
-                        &batch,
-                        pending,
-                        "the batch deadline expired before commit",
+                        std::mem::take(&mut batch),
+                        &mut pending,
+                        detail,
                     );
-                    return;
+                    break;
                 }
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
                 match mux.commit_session_journal_events(
@@ -1168,13 +1176,21 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                         }
                         let remaining = retry_deadline.saturating_duration_since(Instant::now());
                         if remaining.is_zero() {
-                            stop_writer_after_retry_deadline(
+                            let detail = format!("journal commit: {summary}");
+                            if receivers.state.closed.load(Ordering::Acquire) {
+                                stop_writer_after_retry_deadline(
+                                    &receivers, &batch, pending, &detail,
+                                );
+                                return;
+                            }
+                            expire_batch_after_retry_deadline(
+                                &mux,
                                 &receivers,
-                                &batch,
-                                pending,
-                                &format!("journal commit: {summary}"),
+                                std::mem::take(&mut batch),
+                                &mut pending,
+                                &detail,
                             );
-                            return;
+                            break;
                         }
                         if retryable_sqlite_error(&error) {
                             wait_for_journal_retry(mux, delay.min(remaining));
@@ -1269,6 +1285,69 @@ fn admit_batch_commit(
         completion.commit_fence().store(COMMIT_ADMITTED, Ordering::Release);
     }
     Ok(())
+}
+
+/// A batch that could not commit before its deadline (a registry or disk
+/// stall) fails only what is stale, and the writer keeps serving. A Cloud
+/// VM's disk once held the workspace registry past this deadline; a writer
+/// that stopped for good there failed every later journal write, exit detach
+/// and gap marker for hours after the stall had ended.
+///
+/// Stale: a receipt whose own deadline passed or whose caller already gave
+/// up (canceled fence), and every record without a receipt (a resize, a gap
+/// marker), which is best effort like a record a full terminal lane refuses:
+/// it is reported and its terminal is noted for the coalesced checkpoint
+/// (mux/journal_retention.rs). Receipts that can still make their own
+/// deadline go back to the front of `pending`, in order, as one batch.
+/// Nothing was committed, so no receipt reports a commit that did not happen.
+fn expire_batch_after_retry_deadline(
+    mux: &Arc<Mux>,
+    receivers: &JournalIngressReceivers,
+    batch: Vec<QueuedJournalEvent>,
+    pending: &mut VecDeque<Vec<QueuedJournalEvent>>,
+    detail: &str,
+) {
+    receivers.state.stats.deadline_expired();
+    let error = format!(
+        "session journal writer timed out after {} ms: {detail}",
+        journal_durable_wait().as_millis()
+    );
+    #[cfg(test)]
+    receivers.state.notify_failure_for_test(&error);
+    let now = Instant::now();
+    let mut live = Vec::new();
+    let mut expired = Vec::new();
+    for queued in batch.into_iter().chain(pending.drain(..).flatten()) {
+        let keep = queued.completion.as_ref().is_some_and(|completion| {
+            completion.deadline() > now
+                && completion.commit_fence().load(Ordering::Acquire) != COMMIT_CANCELED
+        });
+        if keep {
+            live.push(queued);
+        } else {
+            expired.push(queued);
+        }
+    }
+    let mut noted = HashSet::new();
+    for queued in expired.iter().filter(|queued| queued.completion.is_none()) {
+        if let JournalIngressEvent::TerminalOutput { terminal_id, .. }
+        | JournalIngressEvent::TerminalResize { terminal_id, .. }
+        | JournalIngressEvent::TerminalOutputGap { terminal_id, .. } = &queued.event
+            && noted.insert(terminal_id.clone())
+        {
+            mux.note_journal_gap_for_retention(terminal_id);
+        }
+    }
+    eprintln!(
+        "cmux-tui: dropped {} session journal record(s), {} kept; the writer keeps serving: \
+         {error}",
+        expired.len(),
+        live.len()
+    );
+    complete_batch_error(&expired, error);
+    if !live.is_empty() {
+        pending.push_front(live);
+    }
 }
 
 fn stop_writer_after_retry_deadline(
@@ -1767,9 +1846,13 @@ mod tests {
             "explicit shutdown must request daemon shutdown even when journal flush times out"
         );
         blocker.execute_batch("ROLLBACK;").unwrap();
+        // A batch that missed its deadline fails alone (the writer keeps
+        // serving), so the later write is refused by the closed admission,
+        // or by the timeout when the deadline passed after shutdown began.
+        let later = mux.flush_terminal_journal().unwrap_err().to_string();
         assert!(
-            mux.flush_terminal_journal().unwrap_err().to_string().contains("timed out"),
-            "later writes must observe the terminal journal failure"
+            later.contains("timed out") || later.contains("admission is closed"),
+            "later writes after shutdown must be refused: {later}"
         );
         drop(blocker);
         drop(mux);
@@ -1891,6 +1974,52 @@ mod tests {
             }),
             "a producer event must not commit after its mutex admission deadline"
         );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A stalled disk kept the workspace registry held past the writer's
+    /// deadline on a Cloud VM ("waiting for the workspace registry journal
+    /// writer: mutex deadline expired"). The writer then stopped for good:
+    /// for hours every later journal write failed with the same timeout,
+    /// though the registry was free again. A stall fails only the batch that
+    /// waited through it.
+    #[test]
+    fn a_registry_stall_past_the_deadline_fails_only_the_batch_that_waited() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-registry-stall-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux =
+            Mux::open_persistent("journal-registry-stall", crate::SurfaceOptions::default(), &root)
+                .unwrap();
+        let locked_mux = mux.clone();
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        let blocker = std::thread::spawn(move || {
+            locked_mux.hold_workspace_registry_for_test(entered, release_receiver);
+        });
+        entered_receiver.recv().unwrap();
+
+        let error = mux.flush_terminal_journal().unwrap_err();
+        assert!(format!("{error:#}").contains("timed out"), "{error:#}");
+        release.send(()).unwrap();
+        blocker.join().unwrap();
+
+        mux.flush_terminal_journal()
+            .expect("a terminal journal fence after the registry stall must commit");
+        mux.journal_local_frontend_event(FrontendJournalEvent::Resize {
+            event_id: "event_registry_stall_after".into(),
+            frontend_projection_id: public_id("projection", 7, FrontendProjectionPublicId::parse),
+            generation: "frontend_generation_1".into(),
+            cols: 100,
+            rows: 30,
+            cell_width: 8,
+            cell_height: 16,
+        })
+        .expect("a durable journal event after the registry stall must commit");
+        assert!(!mux.daemon_shutdown_requested());
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
