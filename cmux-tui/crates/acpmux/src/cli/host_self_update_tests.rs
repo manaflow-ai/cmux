@@ -1060,6 +1060,7 @@ async fn a_host_update_and_a_self_update_of_one_host_never_run_at_once() {
         allow_downgrade: false,
         caller: None,
         now: true,
+        same_build_installed: false,
     };
 
     // The timer holds it: an update from another machine changes nothing.
@@ -1174,6 +1175,7 @@ fn host_update(peer: &FakePeer, build: &str, now: bool) -> PeerUpdate {
         allow_downgrade: false,
         caller: None,
         now,
+        same_build_installed: false,
     };
     once_free(|| {
         let up = update_locked(peer, &opts);
