@@ -58,6 +58,73 @@ class MatrixScript(unittest.TestCase):
         self.assertIn('"no-redeclare": "error"', text)
 
 
+class Prelude(unittest.TestCase):
+    """The serial prelude: a runner hiccup is no verdict (exit 3, no failure record, so no commit status);
+    a lockfile or FILE:LINE error is the tree's red. 2026-11-27 c9bbf76cd5 went red "in prelude" on an empty log."""
+
+    def run_matrix(self, bun_body: str) -> tuple[subprocess.CompletedProcess, Path]:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", "--", str(tmp)]))
+        bin_dir = tmp / "bin"; bin_dir.mkdir()
+        bun = bin_dir / "bun"
+        bun.write_text("#!/bin/sh\n" + bun_body.replace("STATE", str(tmp / "calls")))
+        bun.chmod(bun.stat().st_mode | stat.S_IXUSR)
+        out = tmp / "out"
+        names = subprocess.run(["bash", str(MATRIX), "--list"], capture_output=True, text=True, check=True).stdout
+        skips = [a for n in names.splitlines() for a in ("--skip", n.split("\t")[0])]
+        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+        done = subprocess.run(["bash", str(MATRIX), "--no-install", "--out", str(out), *skips],
+                              capture_output=True, text=True, env=env)
+        return done, out / "failure.tsv"
+
+    def test_an_empty_log_is_no_verdict(self) -> None:
+        done, failure = self.run_matrix("exit 1\n")
+        self.assertEqual(done.returncode, 3, done.stderr)
+        self.assertFalse(failure.exists())
+
+    def test_a_hiccup_the_retry_clears_is_green(self) -> None:
+        # The first call fails; every later one passes.
+        done, failure = self.run_matrix('[ -f STATE ] && exit 0\n: > STATE\nexit 1\n')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertFalse(failure.exists())
+
+    def test_a_file_line_error_is_the_trees_red(self) -> None:
+        done, failure = self.run_matrix('echo "src/strings/en.ts:12:3: error: unterminated string"; exit 1\n')
+        self.assertEqual(done.returncode, 1, done.stderr)
+        job, file, line, message = failure.read_text(encoding="utf-8").rstrip("\n").split("\t")
+        self.assertEqual((job, file, line), ("prelude", "src/strings/en.ts", "12"))
+        self.assertIn("unterminated string", message)
+
+    def test_a_frozen_lockfile_refusal_is_red_on_the_lockfile(self) -> None:
+        done, failure = self.run_matrix('echo "error: lockfile had changes, but lockfile is frozen"; exit 1\n')
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertEqual(failure.read_text(encoding="utf-8").split("\t")[:2], ["prelude", "webviews/bun.lock"])
+
+
+class FailureRecord(unittest.TestCase):
+    """The push workflow reads failure.tsv by tab: `IFS='|'` put the whole record in JOB (the culprit then had no
+    FILE:LINE and no revert ever opened), and `IFS=$'\\t' read` folds an empty FILE's tabs."""
+
+    def parse(self, record: str) -> dict[str, str]:
+        workflow = (ROOT / ".github/workflows/web-bundle-matrix.yml").read_text(encoding="utf-8")
+        block = re.search(r'^( *)f="\$MATRIX_OUT/failure\.tsv"\n(?:\1.*\n){2}', workflow, re.M)
+        self.assertIsNotNone(block, "the workflow no longer reads failure.tsv with cut")
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "failure.tsv").write_text(record, encoding="utf-8")
+            script = block.group(0) + 'printf "%s|%s|%s|%s" "$job" "$file" "$line" "$message"\n'
+            out = subprocess.run(["bash", "-c", script], env={**os.environ, "MATRIX_OUT": tmp},
+                                 capture_output=True, text=True, check=True).stdout
+        return dict(zip(("job", "file", "line", "message"), out.split("|", 3)))
+
+    def test_every_field_lands_in_its_own_output(self) -> None:
+        got = self.parse("bundle:pages\tV.tsx\t4\tx Identifier `a` has already been declared\n")
+        self.assertEqual(got, {"job": "bundle:pages", "file": "V.tsx", "line": "4",
+                               "message": "x Identifier `a` has already been declared"})
+
+    def test_an_empty_file_keeps_the_message_in_place(self) -> None:
+        self.assertEqual(self.parse("typecheck\t\t\tboom\n"), {"job": "typecheck", "file": "", "line": "", "message": "boom"})
+
+
 class CulpritBlame(unittest.TestCase):
     def test_two_pull_requests_importing_the_same_name_blame_the_later_one(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

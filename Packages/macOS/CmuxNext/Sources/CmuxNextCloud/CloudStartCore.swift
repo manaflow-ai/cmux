@@ -36,6 +36,13 @@ public nonisolated struct CloudStartCore: Sendable {
         return nil
     }
 
+    public func matchesEnvironment(_ selected: String?, machine: CloudMachine, ensured: String? = nil) -> Bool {
+        guard let selected else { return true }
+        guard let actual = machine.environmentId ?? ensured else { return false }
+        return actual == selected
+            || (ensured == selected && selected.hasPrefix("env_") && actual.hasPrefix("denv_"))
+    }
+
     // MARK: The start's own checks (`start`)
 
     /// Whether a send asks the platform for its project's set-up machine (dependencies installed once, then warm): a
