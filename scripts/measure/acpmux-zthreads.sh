@@ -13,6 +13,8 @@ shift 2
 [[ $# -gt 0 ]] || set -- 1 4 8
 root=$(git rev-parse --show-toplevel)
 work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/acpmux-zthreads.XXXXXX")
+# The worktree and its target dir (tens of GiB of build state) go with the run; the logs stay when they are under it.
+trap 'git -C "$root" worktree remove --force "$work/wt" 2>/dev/null; if [[ $out == "$work"/* ]]; then rm -rf "$work/wt" "$work/target"; echo "logs: $out"; else rm -rf "$work"; fi' EXIT
 out=${FAST_CHECKS_OUT:-$work/out}
 mkdir -p "$out"
 jobs=${J:-16}
