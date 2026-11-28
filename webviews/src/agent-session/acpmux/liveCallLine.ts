@@ -188,13 +188,13 @@ export function drewLiveLine(rows: readonly AcpmuxRow[] | undefined): void {
               .map((r) => r.kind)
               .join(
                 ",",
-              )}/shape=${shape ? shape.shaped.at(-1)?.kind : "-"}/same=${shape ? (rows ?? []).findLastIndex((r) => r.kind === "user" && r.id === shape.user.id) >= 0 : "-"}/sn=${shape?.shaped.length}`
+              )}/shape=${shape ? shape.shaped.at(-1)?.kind : "-"}/same=${shape ? (rows ?? []).findLastIndex((r) => r.kind === "user" && r.id === shape.user.id) >= 0 : "-"}/sn=${shape?.shaped.length}/idle=${shape?.idle}`
           : !basis
             ? "nobasis"
             : !shape
               ? "noshape"
               : !drewShaped(shape.shaped, open)
-                ? `drewShaped/${shapedMiss(shape.shaped, open)}/via=${shape.via}/fin=${shape.final}/age=${stamp - shape.stamp}/assist=${[
+                ? `drewShaped/${shapedMiss(shape.shaped, open)}/via=${shape.via}/idle=${shape.idle}/fin=${shape.final}/age=${stamp - shape.stamp}/assist=${[
                     ...open.values(),
                   ]
                     .filter((r) => r.kind === "assistant")

@@ -914,6 +914,7 @@ export function turnViewFrom(
     // Only the last turn can still be running.
     const last = at === starts.length - 1;
     const live = working && last;
+    if (last && !live && liveShape) liveShape.idle = (liveShape.idle ?? 0) + 1; // DEBUG
     dated[at] = showsTimestamp(times[at]!, visible === undefined ? undefined : times[visible], now, fromStart);
     // A quiet background turn that draws work keeps its answer in sight (`foldedWithoutWork`).
     const turnFolded = foldedWithoutWork(rows, start + 1, end, foldedBackground);
@@ -3608,6 +3609,7 @@ export type LiveTurnShape = {
   readonly stamp: number;
   readonly via?: string; // DEBUG
   readonly final?: number; // DEBUG
+  idle?: number; // DEBUG
 };
 
 let liveShape: LiveTurnShape | undefined;
@@ -3657,6 +3659,7 @@ function notedLiveShape(
     stamp: liveStamp,
     via,
     final: turn.filter(isFinalAnswer).length,
+    idle: 0,
   };
   return shaped;
 }
