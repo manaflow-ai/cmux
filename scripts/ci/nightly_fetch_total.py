@@ -14,13 +14,13 @@ scripts/ci/nightly-source.sh printed. The last line is the one grep:
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_pages  # noqa: E402
 import glaeda_log  # noqa: E402
 
 FROM_GITHUB = re.compile(r"^\S*\s*From https://github\.com/", re.M)
@@ -37,10 +37,7 @@ def gh(*args: str) -> str:
 
 
 def run_logs(repo: str, run: str):
-    pages = gh("api", "--paginate", f"repos/{repo}/actions/runs/{run}/jobs?filter=latest&per_page=100",
-               "--jq", ".jobs[] | {id, name, conclusion}")
-    for line in pages.splitlines():
-        job = json.loads(line)
+    for job in gh_pages.items(gh_pages.gh_json, f"repos/{repo}/actions/runs/{run}/jobs?filter=latest"):
         if job.get("conclusion") in (None, "skipped"):
             continue
         # this host's glaeda-gh keeps job logs: no API read for one its daemon saw
