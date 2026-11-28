@@ -178,6 +178,11 @@ extension CMUXCLI {
             if agentHookMappedSessionHasDurableTargetEvidence(kind: kind, mapped: mapped) {
                 return nil
             }
+            if kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp" {
+                // Never persist a PATH-dependent OMP capture when neither the
+                // current hook nor the mapped durable record pins its executable.
+                return nil
+            }
             return current ?? mapped?.launchCommand
         }()
         guard kind == "codex" else { return selected }
