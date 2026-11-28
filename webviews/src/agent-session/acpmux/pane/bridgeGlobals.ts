@@ -72,6 +72,8 @@ declare global {
       applyReadAloud?(state: unknown): void;
       /// The tabs agents marked as needing the person, for Needs you (needsYou/attentionTabs.ts).
       applyAttentionTabs?(tabs: unknown): void;
+      /// A chat's shares changed; its open Share dialog reads them again (share/shareChanges.ts).
+      applyShareChanged?(session: unknown): void;
       /// The workspaces, panes and tabs a pasted cmux link names (chips/cmuxLinkPlaces.ts).
       applyLinkPlaces?(places: unknown): void;
       applyLinkPlacesChanged?(places: unknown): void;

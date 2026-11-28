@@ -439,6 +439,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onShareMachineWithMe: (@MainActor () async -> AgentPaneMachineShare)?
     /// The Share dialog's ops on this pane's chat; the app answers for the tab it shows (``AgentPaneShareOp``).
     @ObservationIgnored public var onShareOp: (@MainActor (AgentPaneShareOp, _ session: String?) async -> AgentPaneShareReply?)?
+    /// The page read its chat's shares (`share.op {op:"state"}`): its view hears that chat's changes
+    /// from now on (``AgentPaneShareChanges``), so an open Share dialog stays current.
+    @ObservationIgnored var onSharesRead: (@MainActor () -> Void)?
     /// A native notice's button (`pane.noticeAction`): the pane runs the action of the notice `id`;
     /// false when it shows no such notice with an enabled button.
     @ObservationIgnored var onPaneNoticeAction: (@MainActor (_ id: String) -> Bool)?
