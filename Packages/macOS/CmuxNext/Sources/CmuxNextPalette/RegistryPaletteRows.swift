@@ -61,6 +61,10 @@ final class RegistryPaletteRows {
     var rows: [ActionID: (face: Face, item: PaletteItem)] = [:]
     /// The last arrangement, by whether it curated the empty root: the rows it listed and its result.
     var arranged: [Bool: (listed: [Listed], items: [PaletteItem])] = [:]
+    /// What the last full read's arrangement hid on the curated root's empty query (folded family members): a root
+    /// family's page, when its row runs, hides them again (``RegistryPaletteProvider/rootFamilyMembers(_:sections:folded:)``).
+    /// Only a full read sets it: a first frame reads a few of the catalog's actions.
+    var rootFolded: Set<String> = []
 
     init() {}
 

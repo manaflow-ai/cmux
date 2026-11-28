@@ -771,6 +771,8 @@ public final class AcpmuxHub {
         toldSinceWatch.insert(session.id)
         let seq = Int(params["seq"]?.numberValue ?? 0)
         if changed {
+            // A title generated after the chat opened names it in the open chat too.
+            if let name = session.chatName { emitLocal(.update(.sessionInfo(title: name)), sessionID: session.id) }
             onWatchEvent?(.sessionChanged(session, recordKind: kind, seq: seq))
             // The open chat's footer facts (RFD 0130), from the row acpmux decided them on.
             let facts = AgentFooterFacts(composerStatus: value["composerStatus"])
@@ -1091,7 +1093,21 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             let directory = baseDirectory
             let prestaged = prestager.claim(attachments, directory: directory)
             let task = Task { [weak self] in
-                await previous?.value
+                if let previous {
+                    do {
+                        // Stop works while this waits its turn behind an earlier send (that one's
+                        // video may take minutes on LTE): `await previous.value` ignored the cancel.
+                        try await CancellableWait.until(previous)
+                    } catch {
+                        for entry in prestaged.values { entry.cancel() }
+                        self?.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
+                                                  reason: "Not sent: you stopped it."))
+                        self?.sendTasks[promptID] = nil
+                        // Messages after this one still wait for the earlier one: their order holds.
+                        await previous.value
+                        return
+                    }
+                }
                 guard let self else { return }
                 defer { self.sendTasks[promptID] = nil }
                 let blocks: [JSONValue]
@@ -1828,6 +1844,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             return try await LinkUpload.upload(payload, name: name, cwd: LinkUpload.folder(cwd), over: link)
         } catch let failure as LinkUpload.Failure where failure.code == "forbidden" || failure.code == "not_found" {
             return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link)
+        } catch let failure as LinkUpload.Failure where failure.code == "cancelled" {
+            // Stop cancelled the engine's upload: the message comes back as stopped, not failed.
+            throw CancellationError()
         } catch let failure as LinkUpload.Failure {
             throw AgentFeatureUnavailable("Couldn't send \(name) to \(macName): \(failure.message)")
         }
@@ -3120,6 +3139,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if let detail = result["session"], let session = AcpmuxSession(detail) {
             summary.status = session.summaryStatus
             if let name = session.shownName { summary.name = name }
+            // The chat's real name (never its prompt) for the header and the composer.
+            if let name = session.chatName { emit(.update(.sessionInfo(title: name))) }
         }
         // The replay boundary is the attach reply: its page (and the session state it
         // carries) is history, applied as one change, so the chat opens on the whole

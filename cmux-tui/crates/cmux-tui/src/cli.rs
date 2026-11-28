@@ -99,6 +99,7 @@ mod cloud_environment;
 #[cfg(unix)]
 mod cloud_hands;
 mod cloud_help;
+mod cloud_install_post;
 #[cfg(unix)]
 mod cloud_journey;
 #[cfg(unix)]
@@ -143,6 +144,8 @@ mod key_broker;
 mod mac_screen_view;
 #[cfg(unix)]
 mod notification_banners;
+#[cfg(unix)]
+mod vault;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
 mod autocloud;
@@ -297,6 +300,8 @@ mod machine_doctor;
 mod machine_join;
 #[cfg(unix)]
 mod machine_link;
+#[cfg(unix)]
+mod machine_list_reads;
 #[cfg(unix)]
 mod machine_request;
 #[cfg(unix)]
@@ -1184,6 +1189,7 @@ fn run_unbounded(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| vault::run_if_requested(args))
         .or_else(|| env_command::run_if_requested(args))
         .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
@@ -1204,6 +1210,7 @@ fn run_unbounded(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_apps_relay::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
         .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
+        .or_else(|| cloud_install_post::run_if_requested(args))
         .or_else(|| machine_request::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| mobile_pair_requests::run_if_requested(args))
