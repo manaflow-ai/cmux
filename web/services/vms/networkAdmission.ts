@@ -21,8 +21,8 @@ import { reportError } from "../observability/report";
  * whose recorded IPv4 sits inside the network's CIDR, plus in-flight creates
  * that have no address yet. Paused machines count: a paused provider VM keeps
  * its network attachment. Mac tunnels hold addresses too; they are read from
- * the provider only once machines alone pass half the network, so a create on
- * a mostly empty network pays one indexed count and nothing else.
+ * the provider on every admission, alongside the row count (bounded at 1.5 s),
+ * since a tunnel-heavy network can be full while its machines are few.
  */
 
 /** Usable members of an IPv4 CIDR the way the provider counts them (a /24 holds 254). */
@@ -36,8 +36,6 @@ export function ipv4CidrCapacity(cidr: string | null | undefined): number | null
 
 /** Share of a network's addresses at which operators are alerted. */
 export const NETWORK_ADDRESS_ALERT_RATIO = 0.8;
-/** Machines alone past this share make the admission also count tunnel attachments. */
-const NETWORK_TUNNEL_COUNT_RATIO = 0.5;
 const NETWORK_TUNNEL_COUNT_TIMEOUT_MS = 1_500;
 const NETWORK_ALERT_INTERVAL_MS = 60 * 60 * 1000;
 const lastAlertAt = new Map<string, number>();
@@ -62,7 +60,8 @@ export type NetworkAdmissionInput = {
   readonly vmId: string;
 };
 
-type AdmissionRepo = Pick<VmRepositoryShape, "countNetworkAddressHolders">;
+type AdmissionRepo = Pick<VmRepositoryShape, "countNetworkAddressHolders" | "countPausedNetworkAddressHolders">;
+const NETWORK_PAUSED_COUNT_TIMEOUT_MS = 1_000;
 type AdmissionProviders = {
   readonly listNetworkTunnelIds?: (provider: ProviderId, networkId: string) => Effect.Effect<string[], unknown>;
 };
@@ -90,26 +89,31 @@ export function admitNetworkAddress(
     const capacity = ipv4CidrCapacity(input.network.cidr);
     const countHolders = repo.countNetworkAddressHolders;
     if (capacity === null || !countHolders || !input.network.cidr) return null;
-    const machines = yield* countHolders({
-      provider: input.provider,
-      userId: input.userId,
-      billingTeamId: input.billingTeamId ?? null,
-      scope: input.network.scope,
-      cidr: input.network.cidr,
-    }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+    const listTunnels = providers.listNetworkTunnelIds;
+    const [machines, tunnels] = yield* Effect.all([
+      countHolders({
+        provider: input.provider,
+        userId: input.userId,
+        billingTeamId: input.billingTeamId ?? null,
+        scope: input.network.scope,
+        cidr: input.network.cidr,
+      }).pipe(Effect.catchAll(() => Effect.succeed(null))),
+      listTunnels
+        ? listTunnels(input.provider, input.network.providerNetworkId).pipe(
+          Effect.map((ids) => ids.length as number | null),
+          Effect.timeoutTo({ duration: NETWORK_TUNNEL_COUNT_TIMEOUT_MS, onSuccess: (n) => n, onTimeout: () => null }),
+          Effect.catchAll(() => Effect.succeed(null)),
+        )
+        : Effect.succeed(null),
+    ], { concurrency: 2 });
     if (machines === null) return null;
 
-    let tunnels: number | null = null;
-    if (machines >= capacity * NETWORK_TUNNEL_COUNT_RATIO && providers.listNetworkTunnelIds) {
-      tunnels = yield* providers.listNetworkTunnelIds(input.provider, input.network.providerNetworkId).pipe(
-        Effect.map((ids) => ids.length),
-        Effect.timeoutTo({ duration: NETWORK_TUNNEL_COUNT_TIMEOUT_MS, onSuccess: (n) => n as number | null, onTimeout: () => null }),
-        Effect.catchAll(() => Effect.succeed(null)),
-      );
-    }
     const usage: NetworkAddressUsage = { held: machines + (tunnels ?? 0), capacity, machines, tunnels };
     const verdict = networkAdmissionVerdict(usage);
-    if (verdict !== "admit") alertNetworkAddressUsage(input, usage, verdict);
+    if (verdict !== "admit" && shouldAlert(input, verdict)) {
+      const paused = yield* pausedHolders(repo, input);
+      alertNetworkAddressUsage(input, usage, verdict, paused);
+    }
     if (verdict === "full") {
       return yield* Effect.fail(new VmProviderOperationError({
         provider: input.provider,
@@ -124,12 +128,50 @@ export function admitNetworkAddress(
   });
 }
 
-function alertNetworkAddressUsage(input: NetworkAdmissionInput, usage: NetworkAddressUsage, verdict: "alert" | "full"): void {
+/** At most one alert per network and verdict an hour; claims the slot when it answers true. */
+function shouldAlert(input: NetworkAdmissionInput, verdict: "alert" | "full"): boolean {
   const now = Date.now();
   const key = `${input.provider}:${input.network.providerNetworkId}:${verdict}`;
   const last = lastAlertAt.get(key);
-  if (last !== undefined && now - last < NETWORK_ALERT_INTERVAL_MS) return;
+  if (last !== undefined && now - last < NETWORK_ALERT_INTERVAL_MS) return false;
   lastAlertAt.set(key, now);
+  return true;
+}
+
+export type PausedAddressHolders = { readonly paused: number; readonly oldestPausedHours: number | null };
+
+/**
+ * How many of the held addresses belong to paused machines, and how long the
+ * oldest has sat (Leo's item 4: "Paused sandboxes must release addresses or
+ * have bounded expiry"). The provider keeps a paused machine's address and
+ * cannot detach it, so the alert names this share for an operator to reclaim.
+ * Read only when an alert fires; a failed or slow read reports null.
+ */
+export function pausedHolders(repo: AdmissionRepo, input: NetworkAdmissionInput): Effect.Effect<PausedAddressHolders | null> {
+  const read = repo.countPausedNetworkAddressHolders;
+  if (!read || !input.network.cidr) return Effect.succeed(null);
+  return read({
+    provider: input.provider,
+    userId: input.userId,
+    billingTeamId: input.billingTeamId ?? null,
+    scope: input.network.scope,
+    cidr: input.network.cidr,
+  }).pipe(
+    Effect.map((row): PausedAddressHolders | null => ({
+      paused: row.paused,
+      oldestPausedHours: row.oldestPausedWriteAt === null ? null : Math.floor((Date.now() - row.oldestPausedWriteAt) / 3_600_000),
+    })),
+    Effect.timeoutTo({ duration: NETWORK_PAUSED_COUNT_TIMEOUT_MS, onSuccess: (v) => v, onTimeout: () => null }),
+    Effect.catchAll(() => Effect.succeed(null)),
+  );
+}
+
+function alertNetworkAddressUsage(
+  input: NetworkAdmissionInput,
+  usage: NetworkAddressUsage,
+  verdict: "alert" | "full",
+  paused: PausedAddressHolders | null,
+): void {
   reportError(new Error(verdict === "full" ? "Cloud VM private network full at admission" : "Cloud VM private network past 80% of its addresses"), {
     subsystem: "cloud_vm_alerts",
     code: verdict === "full" ? "private_network_full" : "private_network_addresses_high",
@@ -141,6 +183,8 @@ function alertNetworkAddressUsage(input: NetworkAdmissionInput, usage: NetworkAd
     capacity: usage.capacity,
     machines: usage.machines,
     tunnels: usage.tunnels,
+    pausedMachines: paused?.paused ?? null,
+    oldestPausedHours: paused?.oldestPausedHours ?? null,
   });
 }
 

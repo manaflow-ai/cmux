@@ -57,8 +57,10 @@ pub struct RequestInfo<'a> {
     pub kind: RequestKind,
 }
 
-/// What kind of request it is. It changes only how a refusal is logged,
-/// never whether the request is allowed.
+/// What kind of request it is. It changes how a refusal is logged, and
+/// whether a browser grant's lease applies (an [`RequestKind::Asset`]
+/// follows its page; everything else needs a lease while the session holds
+/// grants).
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestKind {
@@ -68,7 +70,10 @@ pub enum RequestKind {
     Document,
     /// A sub-frame (iframe) document, each redirect hop included.
     SubframeDocument,
-    /// Everything else (scripts, fetch, WebSocket, ping, prefetch, unknown).
+    /// A passive page asset the engine named (CDP resourceType Image,
+    /// Font, Stylesheet, Script or Media).
+    Asset,
+    /// Everything else (fetch, XHR, WebSocket, ping, prefetch, unknown).
     Subresource,
 }
 
