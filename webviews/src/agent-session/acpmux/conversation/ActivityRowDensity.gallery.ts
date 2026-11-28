@@ -217,7 +217,14 @@ const density =
   (metric: RowMetric): Play =>
   async (ctx) => {
     const style = ctx.document.createElement("style");
-    style.textContent = `:root { --cv-tool-row-height: ${metric.height}px; --cv-row-font-size: ${metric.font}px; --cv-row-chip-height: ${metric.chip}px; --cv-row-glyph: ${metric.glyph}px; }`;
+    style.textContent = `:root {
+      --cv-tool-row-height: ${metric.height}px;
+      --cv-row-font-size: ${metric.font}px;
+      --cv-row-chip-height: ${metric.chip}px;
+      --cv-row-glyph: ${metric.glyph}px;
+      --cv-worked-rule-above: ${metric.ruleAbove}px;
+      --cv-worked-rule-below: ${metric.ruleBelow}px;
+    }`;
     ctx.document.head.append(style);
     await openRuns(ctx);
   };
@@ -236,20 +243,17 @@ export default agentPaneEntry({
   widths: { narrow: 520, normal: 760, wide: 900 },
   covers: ["agent-session/acpmux/rowMetric.ts", "agent-session/acpmux/conversation/conversation.css"],
   variants: {
-    expanded: variant(
-      "Leo's capture, every Worked for opened: each activity row one line of the shared row metric.",
-      openWorked,
-    ),
+    expanded: variant("The coordinator chat with its Worked for sections open and tool runs folded.", openWorked),
     folded: variant("The same chat with the Worked for lines folded."),
     "runs-open": variant(
-      "Every Worked for and every run in it opened: each received line, the script and Sent to on its own row of the metric.",
+      "The same chat with its Worked for sections and tool runs open, showing the received messages, script and sent message.",
       openRuns,
     ),
     ...Object.fromEntries(
       Object.entries(ROW_METRIC_VARIANTS).map(([name, metric]) => [
         `density-${name}`,
         variant(
-          `${metric.note} Rows ${metric.height}px, text ${metric.font}px, chips ${metric.chip}px, glyphs ${metric.glyph}px.`,
+          `${metric.note} Rows ${metric.height}px, text ${metric.font}px, chips ${metric.chip}px, glyphs ${metric.glyph}px. The Worked for divider has ${metric.ruleAbove}px above and ${metric.ruleBelow}px below.`,
           density(metric),
         ),
       ]),

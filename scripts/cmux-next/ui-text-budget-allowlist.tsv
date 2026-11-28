@@ -110,7 +110,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextCookieImport/Resources/CookieImport.xcst
 Packages/macOS/CmuxNext/Sources/CmuxNextCookieImport/Resources/CookieImport.xcstrings	cookieImport.error.nothingMatched	11	10
 Packages/macOS/CmuxNext/Sources/CmuxNextCookieImport/Resources/CookieImport.xcstrings	cookieImport.error.reasonRequired	25	20
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/Resources/AgentShare.xcstrings	agentShare.consent.detail	29	25
-Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/Resources/AgentShare.xcstrings	agentShare.invite.consent.detail	27	25
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/Resources/Cloud.xcstrings	cloud.cli.execUnavailable	38	30
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/Resources/Cloud.xcstrings	cloud.cli.machineWorkspaceHasNoPane	32	30
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/Resources/Cloud.xcstrings	cloud.cli.machineWorkspacesNotLoaded	34	30

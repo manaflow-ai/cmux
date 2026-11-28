@@ -9,11 +9,35 @@
 import { Effect, Redacted } from "effect";
 import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamError } from "./client.ts";
+import { awaitBackground, BACKGROUND_AFTER_HEADER, BACKGROUND_AFTER_SECS, DEFAULT_BACKGROUND_POLL_MS } from "./live-background.ts";
 import { jsonItemsScanner } from "./json-items.ts";
 import type { UpstreamConfig } from "./live.ts";
 import { timedUpstream } from "./timing.ts";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+const MAX_FAILURE_PREFIX_CHARS = 8 * 1024;
+
+/** Read only enough of a failed create response to classify known transient provider overloads. */
+const capacityOverloaded = async (response: Response): Promise<boolean> => {
+  if (response.body === null) return false;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let prefix = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      prefix += decoder.decode(value, { stream: true });
+      if (prefix.length >= MAX_FAILURE_PREFIX_CHARS) break;
+    }
+  } catch {
+    return false;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+  return /infrastructure\s+overloaded|capacity\s+queue\s+wait\s+expired/i.test(prefix);
+};
 
 export interface UpstreamHttp {
   /** A JSON request. Resolves with the parsed body, or `null` for an empty (204) response. */
@@ -22,7 +46,16 @@ export interface UpstreamHttp {
     method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
     path: string,
     body?: unknown,
-    options?: { readonly timeoutMs?: number },
+    options?: {
+      readonly timeoutMs?: number;
+      /**
+       * Sends x-freestyle-background-after-secs: a request the provider is still working on after
+       * BACKGROUND_AFTER_SECS answers 202, and its stored response is polled until this epoch ms
+       * (live-background.ts). Without it, a request held past the provider's edge cut (about 120 s)
+       * or `timeoutMs` loses its answer while the provider carries on.
+       */
+      readonly backgroundUntil?: number;
+    },
   ) => Effect.Effect<unknown, UpstreamError>;
   /**
    * A GET of a JSON object whose `field` is an array of objects, read as it streams in (src/upstream/json-items.ts):
@@ -49,40 +82,75 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
   const timeoutMs = config.timeoutMs ?? 10_000;
   const authorization = () => `Bearer ${Redacted.value(config.apiKey)}`;
 
-  const json: UpstreamHttp["json"] = (operation, method, path, body, options) =>
+  /** A 2xx response (body unread); any other status, or no answer, is an UpstreamError. */
+  const request = (
+    operation: string,
+    method: string,
+    path: string,
+    init: { readonly body?: unknown; readonly timeoutMs: number; readonly headers?: Record<string, string> },
+  ): Effect.Effect<Response, UpstreamError> =>
     Effect.tryPromise({
       try: async () => {
         const headers: Record<string, string> = {
+          ...init.headers,
           authorization: authorization(),
           accept: "application/json",
         };
-        if (body !== undefined) headers["content-type"] = "application/json";
+        if (init.body !== undefined) headers["content-type"] = "application/json";
         const response = await send(
           new Request(new URL(path, base), {
             method,
             headers,
-            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+            ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
             redirect: "manual",
-            signal: AbortSignal.timeout(options?.timeoutMs ?? timeoutMs),
+            signal: AbortSignal.timeout(init.timeoutMs),
           }),
         );
         if (!response.ok) {
+          const kind = operation === "createVm" && response.status === 429 && (await capacityOverloaded(response))
+            ? "capacity_overloaded" as const
+            : undefined;
+          if (kind !== undefined) return { ok: false as const, status: response.status, kind };
           await response.body?.cancel();
           return { ok: false as const, status: response.status };
         }
+        return { ok: true as const, response };
+      },
+      catch: () => new UpstreamError({ operation, status: null }),
+    }).pipe(
+      Effect.flatMap((result) =>
+        result.ok ? Effect.succeed(result.response) : Effect.fail(new UpstreamError({ operation, status: result.status, ...(result.kind === undefined ? {} : { kind: result.kind }) })),
+      ),
+    );
+
+  const parse = (operation: string, response: Response): Effect.Effect<unknown, UpstreamError> =>
+    Effect.tryPromise({
+      try: async () => {
         const bytes = new Uint8Array(await response.arrayBuffer());
         if (bytes.byteLength > MAX_RESPONSE_BYTES) return { ok: false as const, status: response.status };
         if (bytes.byteLength === 0) return { ok: true as const, body: null };
         const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
         return { ok: true as const, body: parsed };
       },
-      catch: () => new UpstreamError({ operation, status: null }),
+      catch: () => new UpstreamError({ operation, status: response.status }),
     }).pipe(
-      timedUpstream,
       Effect.flatMap((result) =>
         result.ok ? Effect.succeed(result.body) : Effect.fail(new UpstreamError({ operation, status: result.status })),
       ),
     );
+
+  const json: UpstreamHttp["json"] = (operation, method, path, body, options) => {
+    const until = options?.backgroundUntil;
+    const sent = request(operation, method, path, {
+      body,
+      timeoutMs: options?.timeoutMs ?? timeoutMs,
+      ...(until === undefined ? {} : { headers: { [BACKGROUND_AFTER_HEADER]: String(BACKGROUND_AFTER_SECS) } }),
+    });
+    const settled = until === undefined ? sent : sent.pipe(Effect.flatMap((response) => response.status === 202
+      ? awaitBackground((op, at, init) => request(op, init.method, at, { timeoutMs: init.timeoutMs }), operation, response, base.origin, until, config.backgroundPollMs ?? DEFAULT_BACKGROUND_POLL_MS, config.backgroundOutageMs)
+      : Effect.succeed(response)));
+    return settled.pipe(Effect.flatMap((response) => parse(operation, response)), timedUpstream);
+  };
 
   const items: UpstreamHttp["items"] = (operation, path, field, keep, options) =>
     Effect.tryPromise({

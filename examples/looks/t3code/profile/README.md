@@ -98,7 +98,7 @@ Shift-Command-F (find) are cmux's defaults already.
 | Inline approval card with keys; subagent approvals in parent thread | matched | The permission card with Option-Command-1 to 4; subagent approvals show in the parent chat. |
 | Managed policy that caps allowed access modes | missing | Gap: no admin policy limits which access modes a person can pick. |
 | Thread status indicators (working, needs approval, unread, done) | matched | `sidebar.workspaceRow.agent.agentStatus`; the chat's status line. |
-| Running tool label shimmer and work-log steps | partial | `agentPane.display.thinking.shimmer` `continuous`. Gap: cmux's own shimmer, not the app's stepped shine; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
+| Running tool label shimmer and work-log steps | partial | `agentPane.display.thinking.shimmer` `continuous`, `shimmerPeriod` 2200 and `shimmerBand` 72: the app's 4.5rem band every 2.2 s. Gap: cmux's band moves smoothly; the app's steps 30 times a pass. |
 | Context-window meter | matched | The context ring in the composer; Command-U opens it here. |
 | Usage and limits page (mod+U) | partial | Command-U shows context usage (`agentPane.composer.showContextUsage`). Gap: no standalone usage page. |
 | Timeline minimap | matched | `agentPane.display.minimap` `compact`. |
@@ -113,7 +113,7 @@ Shift-Command-F (find) are cmux's defaults already.
 
 ## Motion checklist
 
-23 motions: 10 matched, 1 partial, 12 gap.
+23 motions: 15 matched, 2 partial, 6 gap.
 
 | Motion | The app | Status | How, or the gap |
 | --- | --- | --- | --- |
@@ -128,15 +128,15 @@ Shift-Command-F (find) are cmux's defaults already.
 | Row and button hover (background) | 0 ms | matched | `ui.animations.feedback` false: hover backgrounds change at once. |
 | Button press | 150 ms | gap | cmux: 0 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
 | Switch toggle thumb | 150 ms | gap | cmux: unmeasured; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
-| Streaming assistant text appearance | 0 ms | gap | cmux: 120 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
+| Streaming assistant text appearance | 0 ms | matched | `agentPane.display.streaming` `instant`: text shows as it arrives, no fade. |
 | Work-log / step row enter | 180 ms | gap | cmux: 120 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
-| Thread list reorder (row moves) | 150 ms | gap | cmux: 180 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
-| Thread list insert (new row) | 150 ms | gap | cmux: 135 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
-| Thread list remove (row leaves) | 150 ms | gap | cmux: 110 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
+| Thread list reorder (row moves) | 0 ms | matched | `ui.animations.sidebar` false. The app's list has no row motion (source, 2026-11-27); the 150 ms here before was Tailwind's default transition, which its rows do not use for moves. |
+| Thread list insert (new row) | 0 ms | matched | `ui.animations.sidebar` false. |
+| Thread list remove (row leaves) | 0 ms | matched | `ui.animations.sidebar` false. |
 | Composer growth while typing | 0 ms | gap | cmux: unmeasured; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
 | Composer resting / draft-hero to docked transition | 0 ms | matched | `agentPane.emptyChatComposerPosition` `center`; instant, as the app's default. |
 | Send message | unmeasured | gap | cmux: 0 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
 | Collapsible height fold (tool groups, details) | 200 ms | matched | The look's `--cmux-motion-settle: 200ms` (cmux's default is 180 ms). |
-| Working status pulse / spinner | 2000 ms | gap | cmux: 2000 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
-| Running tool label shimmer | 2200 ms | gap | cmux: unmeasured; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
+| Working status pulse / spinner | 2000 ms | partial | `appearance.statusIndicator.style` `dot`: a pulsing dot, as the app's. Gap: cmux's dot dims to 0.35 smoothly; the app's to 0.5 in 6 steps. |
+| Running tool label shimmer | 2200 ms | matched | `agentPane.display.thinking.shimmerPeriod` 2200, `shimmerBand` 72. |
 | Sidebar update pill | 180 ms | gap | cmux: unmeasured; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |

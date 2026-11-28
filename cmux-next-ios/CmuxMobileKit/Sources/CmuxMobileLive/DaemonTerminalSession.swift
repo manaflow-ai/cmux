@@ -2718,7 +2718,13 @@ public final class DaemonTerminalSession: TerminalSession {
     /// After the retries ran out, a fresh round starts on its own this long later (as well as on
     /// a keystroke, Retry or a new link), so a terminal never waits for the person to ask
     /// (Leo, 2026-11-22: "vacuous decisions like that should be just done").
-    var gaveUpRetryDelay: Duration = .seconds(30)
+    /// It was 30 s: a terminal whose round failed under a live link then sat dark that long, the
+    /// size of "intermittent 30s lag/disconnects on ios app on terminal" (Leo, 2026-11-21). Now
+    /// it is the backoff's own last step, so a terminal keeps retrying at the pace it already had.
+    var gaveUpRetryDelay: Duration = DaemonTerminalSession.defaultGaveUpRetryDelay
+    /// The backoff's longest step (8 s).
+    static let defaultGaveUpRetryDelay: Duration =
+        .milliseconds(Int64((defaultReattachBackoff.last ?? 8) * 1000))
     private var gaveUpRetry: Task<Void, Never>?
 
     private func scheduleGaveUpRetry() {

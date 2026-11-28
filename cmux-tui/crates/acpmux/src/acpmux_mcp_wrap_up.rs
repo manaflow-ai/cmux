@@ -274,6 +274,12 @@ pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
     Ok((Value::Object(shown), notes))
 }
 
+/// The box the call draws, from the call's own input: what `code_mode.rs` records as a folded
+/// call's `shown`, because the answer below does not echo it back (RFD 0087, 2026-11-24).
+pub fn box_of(args: &Value) -> Option<Value> {
+    check(args).ok().map(|(shown, _)| shown)
+}
+
 pub(super) fn call(args: &Value) -> Value {
     let (_, said) = canonical(args);
     match check(args) {
@@ -289,7 +295,20 @@ pub(super) fn call(args: &Value) -> Value {
             } else {
                 format!("{text}\n{}.", notes.join("; "))
             };
-            ok(text, shown)
+            // The answer carries no copy of the recap, ask, actions or facts: every drawer of the
+            // box reads the call's own input (webviews `conversation/wrapUp.ts`,
+            // `wrap_up_suggestion.rs`, `code_mode.rs` through `box_of`), so echoing them back
+            // only spends the agent's context on what it just sent. 91% of a wrap-up answer's
+            // bytes were that echo (RFD 0087, cmuxterm-hq#22593). What is left is what the agent
+            // cannot see from its own call: that the box was drawn, and with what in it; the
+            // trims are named in the text above.
+            let receipt = json!({
+                "drawn": true,
+                "question": shown["ask"].is_string(),
+                "answers": shown["actions"].as_array().map_or(0, Vec::len),
+                "facts": shown.get("learned").and_then(Value::as_array).map_or(0, Vec::len),
+            });
+            ok(text, receipt)
         }
         Err(e) => error_result(e),
     }

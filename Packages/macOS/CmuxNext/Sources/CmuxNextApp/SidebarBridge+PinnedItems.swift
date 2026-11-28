@@ -18,18 +18,6 @@ extension SidebarBridge {
         reveal(tab, in: pane, workspace: workspace, state: state)
     }
 
-    /// A chat's subagent line under its sidebar row (`SidebarSubagentsView`): shows the chat's tab, then opens the
-    /// subagent's pane beside it as the chat's own subagent cards do (``AgentTabStore/openSubagentFromSidebar``).
-    /// No subagent ("N more", the stacked line): the chat only.
-    func wireSubagentOpen() {
-        model.openSubagent = { [weak self] _, tab, subagent in
-            guard let self else { return }
-            revealPinnedTab(tab.rawValue)
-            guard let subagent, let (chat, _) = pinnedTab(tab.rawValue) else { return }
-            services.agentTabs.openSubagentFromSidebar(subagent.id, title: subagent.title, chat: chat)
-        }
-    }
-
     /// Focuses a tab of this window's current space showing `text` (an
     /// http or https page; anything else does nothing), else
     /// opens it in a new browser tab of the focused pane, on the profile

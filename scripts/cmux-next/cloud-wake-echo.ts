@@ -30,6 +30,9 @@ export const PROBE_SOURCE = () => readFileSync(new URL("./wake-echo-probe.py", i
 
 export type Exec = (command: string, timeoutMs?: number) => Promise<{ code: number; stdout: string; stderr: string }>;
 
+export type PauseAnswer = { status: number; body: any };
+export type PauseResult = number | { pausedMs: number; warnings?: string[] };
+
 export type GuestMarks = {
   prev_wall?: number; resumed_wall?: number; wall_gap?: number; mono_gap?: number;
   net_up_at?: number; dns_at?: number; conn_at?: number; pty_attach_at?: number; input_at?: number; echo_at?: number; echo_any_at?: number;
@@ -37,6 +40,8 @@ export type GuestMarks = {
   daemon?: { pid: number | null; start: number | null };
   surface_lost?: Record<string, unknown>;
 };
+
+type StartAttempt = { sent_at_ms: number; answered_at_ms: number; http_status: number; machine_status: string | null; timing_ms: Record<string, number> };
 
 export type WakeCycle = {
   i: number;
@@ -57,6 +62,7 @@ export type WakeCycle = {
   state_json: boolean;
   state_wake: unknown;
   start_retries?: string[];
+  start_attempts?: StartAttempt[];
 };
 
 /** Phases from marks already on the runner clock, as ms after wake_at (null: not marked). */
@@ -200,10 +206,10 @@ export type WakeEchoDeps = {
   netHost: string;
   netPort: number;
   /** pause call, then resolves once the machine reads paused (ms from the call to the read). */
-  pause: () => Promise<number>;
+  pause: () => Promise<PauseResult>;
   /** cloud.machine.start, answered; resolves with a note per retry it took (startWithRetry). */
-  wake: () => Promise<void | string[]>;
-  status: () => Promise<string>;
+  wake: (recordAttempt?: (attempt: StartAttempt) => void) => Promise<void | string[]>;
+  status: (timeoutMs?: number) => Promise<string>;
   holdMs: number;
   deadlineAt?: number;
   failStreak?: number;
@@ -217,6 +223,41 @@ export type WakeEchoDeps = {
 
 const sleepMs = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const short = (s: string) => s.replace(/\s+/g, " ").slice(0, 300);
+
+/**
+ * Reconcile a pause whose accepted request has no terminal answer by reading the same machine until it is paused.
+ * A non-200 answer, including an HTTP 503, remains a failed pause because acceptance was not established.
+ */
+export async function pauseWithReconciliation(
+  request: () => Promise<PauseAnswer>,
+  status: () => Promise<string>,
+  startedAt: number,
+  deadlineMs: number,
+  now: () => number = Date.now,
+  wait: (ms: number) => Promise<void> = sleepMs,
+): Promise<{ pausedMs: number; warnings?: string[] }> {
+  const answer = await request();
+  const accepted = answer.status === 200 && answer.body?.ok === true;
+  const indeterminate = answer.status === 200 && answer.body?.ok !== true
+    && answer.body?.error?.code === "mutation.indeterminate"
+    && answer.body?.error?.retryable === true;
+  if (!accepted && !indeterminate) {
+    const detail = short(JSON.stringify(answer.body?.error ?? answer.body));
+    throw new Error(`cloud.machine.pause: HTTP ${answer.status} ${detail}`);
+  }
+  let pausedMs: number;
+  try {
+    pausedMs = await awaitPaused(status, startedAt, deadlineMs, now, wait);
+  } catch (e) {
+    if (indeterminate) {
+      throw new Error(`${(e as Error).message} (pause response mutation.indeterminate; status reconciliation failed)`);
+    }
+    throw e;
+  }
+  return indeterminate
+    ? { pausedMs, warnings: ["pause response mutation.indeterminate; reconciled by machine status"] }
+    : { pausedMs };
+}
 
 /** Writes the probe to the guest and runs its setup (daemon socket, terminal, dry run). Returns the setup JSON. */
 export async function setupProbe(d: Pick<WakeEchoDeps, "exec" | "guest" | "netHost" | "netPort" | "log">): Promise<Record<string, any>> {
@@ -290,14 +331,15 @@ async function execAnswered(d: WakeEchoDeps, command: string, deadlineMs: number
 }
 
 /** Polls the machine's status until it reads running or paused (out of pausing, starting, ...), by a deadline. */
-export async function settle(status: () => Promise<string>, deadlineMs: number, sleep: (ms: number) => Promise<void>, now: () => number = Date.now): Promise<string> {
+export async function settle(status: (timeoutMs?: number) => Promise<string>, deadlineMs: number, sleep: (ms: number) => Promise<void>, now: () => number = Date.now): Promise<string> {
   const end = now() + deadlineMs;
   let last = "unread";
   for (;;) {
-    last = await status().catch((e: Error) => `unread (${e.message})`);
+    last = await status(Math.max(1, end - now())).catch((e: Error) => `unread (${e.message})`);
     if (STEADY.has(last)) return last;
-    if (now() >= end) throw new Error(`machine did not settle: read ${last} ${Math.round(deadlineMs / 1000)} s on`);
-    await sleep(500);
+    const remaining = end - now();
+    if (remaining <= 0) throw new Error(`machine did not settle: read ${last} ${Math.round(deadlineMs / 1000)} s on`);
+    await sleep(Math.min(500, remaining));
   }
 }
 
@@ -325,10 +367,15 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
       const arm = await execAnswered(d, `${d.guest}rm -f ${WAKE_DIR}/result.${i}.json; echo '{"seq":${i},"marker":"${marker(i)}","min_gap_ms":${Math.max(0, d.holdMs - 500)}}' > ${WAKE_DIR}/arm; ${ENSURE_PROBE}`, 120_000, sleep);
       if (!arm.stdout.includes("@@probe")) throw new Error(`arm: ${short(arm.stderr || arm.stdout)}`);
       c.offset_pre_ms = (await clockOffset(d.exec, 2))?.offset ?? null;
-      c.paused_ms = await d.pause();
+      const pause = await d.pause();
+      if (typeof pause === "number") c.paused_ms = pause;
+      else {
+        c.paused_ms = pause.pausedMs;
+        c.warnings.push(...(pause.warnings ?? []));
+      }
       await sleep(d.holdMs);
       const wakeAt = Date.now();
-      const retries = await d.wake();
+      const retries = await d.wake((attempt) => (c.start_attempts ??= []).push(attempt));
       c.answered_ms = Date.now() - wakeAt;
       if (retries && retries.length) { c.start_retries = retries; c.warnings.push(`start retried: ${retries.join("; ")}`); }
       // Read the result back: exec polls (the guest may not answer yet) until the probe's file is there.

@@ -56,6 +56,21 @@ pub(crate) fn requested(meta: Option<&Value>) -> Result<Option<String>, RpcError
     Ok(Some(text.to_owned()))
 }
 
+/// Whether chat `m` runs Codex.
+pub(crate) fn is_codex(m: &SessionMeta) -> bool {
+    m.family.as_deref().map(crate::goal::GoalProvider::from_name)
+        == Some(crate::goal::GoalProvider::Codex)
+}
+
+/// Whether Codex chat `m`'s stop condition, its goal, still waits to be met: it has one, and the
+/// goal Codex reports (none yet: open) is not done, paused or stalled (`blocked`). Codex only: a
+/// Claude Code chat's Stop hook keeps its turn going, and it reports no goal.
+pub(crate) fn goal_open(m: &SessionMeta) -> bool {
+    is_codex(m)
+        && m.stop_condition.is_some()
+        && m.goal.as_ref().is_none_or(|g| g.lifecycle() == "running")
+}
+
 /// codex-acp's goal control request (1.10.0; `_codex/session/goal_control` before).
 pub(crate) const CODEX_GOAL_METHOD: &str = "_session/goal";
 

@@ -9,9 +9,12 @@
 //! the relay dropped it) is opened again by [`super::HubCarrier::keep_reopening`] as any kept
 //! circuit is; one that could not open at all is tried again here, backing off to a minute.
 //!
-//! Off by default: `ACPMUX_HUB_HOLD_CIRCUITS` names the machines (`daemonId`s, comma or space
-//! separated) whose circuits this carrier holds, both lanes each. An idle held circuit costs one
-//! keepalive PING every [`super::Timings::keepalive`] on each lane.
+//! Off by default: `ACPMUX_HUB_HOLD_CIRCUITS` names the machines (comma or space separated) whose
+//! circuits this carrier holds, both lanes each. An idle held circuit costs one keepalive PING
+//! every [`super::Timings::keepalive`] on each lane. A machine is named by its hub `daemonId` (its
+//! node key) or by its host name, as `acpmux status` lists it (`build-box`): a name is looked up in
+//! the hub's address book once it is read ([`resolve_held`]), so a drop-in can name the machines
+//! without reading their keys, and a machine whose key changes is still held after a restart.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -32,6 +35,45 @@ pub fn held_machines(value: Option<&str>) -> Vec<String> {
         }
     }
     machines
+}
+
+/// How long a carrier waits for the hub's first address-book read before it resolves the
+/// machine names [`HOLD_CIRCUITS_ENV`] lists (the read comes within seconds of a start).
+pub const HOLD_BOOK_WAIT: Duration = Duration::from_secs(60);
+
+/// Whether `entry` is a hub `daemonId` (a node key: 32 bytes of base64) rather than a host name.
+pub fn is_daemon_id(entry: &str) -> bool {
+    super::key_bytes(entry).is_some()
+}
+
+/// The `daemonId`s `entries` (an [`held_machines`] list) name, in order and each once: a key as
+/// it is, a host name as every `(daemonId, host)` row of `book` with that host lists it. The
+/// second list is the names `book` does not list: nothing can dial them.
+pub fn resolve_held(entries: &[String], book: &[(String, String)]) -> (Vec<String>, Vec<String>) {
+    let mut keys: Vec<String> = Vec::new();
+    let mut unlisted = Vec::new();
+    let mut add = |key: &str| {
+        if !keys.iter().any(|k| k == key) {
+            keys.push(key.to_owned());
+        }
+    };
+    for entry in entries {
+        if is_daemon_id(entry) {
+            add(entry);
+            continue;
+        }
+        let mut found = false;
+        for (key, host) in book {
+            if host == entry {
+                add(key);
+                found = true;
+            }
+        }
+        if !found {
+            unlisted.push(entry.clone());
+        }
+    }
+    (keys, unlisted)
 }
 
 impl HubCarrier {
@@ -65,6 +107,7 @@ impl HubCarrier {
                 circuit.hold();
                 self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
                 kept.live = Some(circuit);
+                kept.saved_since = None;
                 kept.path = Some(Path::Relay);
                 kept.reopen_at = None;
                 kept.reopen_wait = Duration::ZERO;
@@ -91,9 +134,40 @@ impl HubCarrier {
     }
 
     /// Hold both lanes' circuits to each machine [`HOLD_CIRCUITS_ENV`] names, in the background
-    /// until each opened (then [`Self::keep_reopening`] keeps it) or the carrier is gone.
-    pub fn hold_configured(self: &Arc<Self>) {
-        self.hold_machines(held_machines(std::env::var(HOLD_CIRCUITS_ENV).ok().as_deref()));
+    /// until each opened (then [`Self::keep_reopening`] keeps it) or the carrier is gone. Keys
+    /// are held at once; host names once `hub`'s address book is read ([`resolve_held`]).
+    pub fn hold_configured(self: &Arc<Self>, hub: &Arc<crate::hub::Hub>) {
+        let entries = held_machines(std::env::var(HOLD_CIRCUITS_ENV).ok().as_deref());
+        let (keys, names): (Vec<String>, Vec<String>) =
+            entries.into_iter().partition(|entry| is_daemon_id(entry));
+        self.hold_machines(keys);
+        if names.is_empty() {
+            return;
+        }
+        let carrier = Arc::downgrade(self);
+        let hub = Arc::downgrade(hub);
+        mux::spawn_reopening(async move {
+            let Some(book) = (match hub.upgrade() {
+                Some(hub) => hub.mesh_book_machines_once_read(HOLD_BOOK_WAIT).await,
+                None => return,
+            }) else {
+                tracing::warn!(
+                    ?names,
+                    "hub carrier: the address book was not read in {HOLD_BOOK_WAIT:?}; these held machines are not held"
+                );
+                return;
+            };
+            let (keys, unlisted) = resolve_held(&names, &book);
+            if !unlisted.is_empty() {
+                tracing::warn!(
+                    ?unlisted,
+                    "hub carrier: the address book lists no machine by these held names"
+                );
+            }
+            let Some(carrier) = carrier.upgrade() else { return };
+            tracing::info!(?names, held = keys.len(), "hub carrier: holding circuits by name");
+            carrier.hold_machines(keys);
+        });
     }
 
     /// [`Self::hold_configured`] for `machines`.

@@ -971,6 +971,7 @@ export const SubagentTray = memo(function SubagentTray({
                   size={ROW_ICON}
                   fallback={mark.icon}
                   plain
+                  blankUnknown={mark.tone !== undefined}
                 />
               ))}
             </span>
@@ -1754,6 +1755,7 @@ function HeadKind({
           size={ROW_ICON}
           fallback={part.icon}
           plain
+          blankUnknown
         />
       ) : (
         <Icon name={part.icon} size={ROW_ICON} row />
@@ -1763,8 +1765,10 @@ function HeadKind({
   );
 }
 
-/// A kind's mark in the `summary` header: a subagent kind its harness's logo in its first subagent's
-/// tone, as its line draws it; any other kind its own icon.
+/// A kind's mark in the `summary` header: a subagent kind its harness's logo, plain like every hat
+/// mark (no session badge: Leo, 2026-11-27, "there was a really dumb looking symbol in the top left
+/// of the composer hat"); its first subagent's tone still colors a fallback glyph. Any other kind
+/// draws its own icon.
 function KindMark({ part, chatHarness }: { part: TrayHeadPart; chatHarness: string | undefined }) {
   const lead = part.items[0];
   const agent = part.key.startsWith("agents") && lead?.kind === "agent" ? lead.agent : undefined;
@@ -1775,6 +1779,8 @@ function KindMark({ part, chatHarness }: { part: TrayHeadPart; chatHarness: stri
       tone={agentTone(agent.id)}
       size={ROW_ICON}
       fallback={part.icon}
+      plain
+      blankUnknown
     />
   ) : (
     <Icon name={part.icon} size={ROW_ICON} row />

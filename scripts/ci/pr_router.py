@@ -37,12 +37,20 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              full tier or not, skips it;
   land_affected
              true to consider the callee's paths on the affected landing tier as well as the full tier;
+  land_ask_only
+             with land_affected: on the affected landing tier it starts only on the land handoff (the `labeled`
+             event adding ready-to-land or full-ci, which land-judge pulses at the head it lands) and the merge
+             train's tip, not on each push or base merge of a labelled PR. $CI_NIGHTLY_PR_BUILD_AT_LAND=0 starts
+             it on every landing head again (land_ask_only_on);
+  trunk_only true for a callee that runs on the feat-cmux-next tip instead (its own coalesced push trigger): it
+             starts on no pull request unless $CI_NIGHTLY_PR_BUILD_PER_PR=1 (per_pr_on);
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
              for review, so every callee must listen to `ready_for_review` (`check` says so).
 A `full-ci` label makes the head full tier (as ready-to-land does) and beats fast-track; its callees still
 start only when a changed file reaches them, or when the changed files are unknown. A lane VM's land handoff
-adds full-ci to every PR, and starting every callee for it repeated the base's push run (cmux#58044).
+adds full-ci to every PR, and starting every callee for it repeated the base's push run (cmux#58044). Into feat-cmux-next
+`full-ci` applies only on its own `labeled` event (head_tier.full_ci_applies; CI_FULL_CI_ONE_SHOT=0 makes it sticky).
 
 Whatever the router cannot read (no merge commit, a git error) starts every callee the event's type allows:
 it routes more, never less. Stdlib only, plus workflow_paths_cover_inputs (the one GitHub paths-glob
@@ -88,6 +96,8 @@ FULL_CI_ONLY_JOBS = ("web-browser",)
 def full_ci_only_jobs() -> tuple[str, ...]:
     """FULL_CI_ONLY_JOBS, or none when $CI_PR_BROWSER_FULL_CI_ONLY is 0."""
     return () if os.environ.get("CI_PR_BROWSER_FULL_CI_ONLY", "1").strip() == "0" else FULL_CI_ONLY_JOBS
+
+
 # A land_handoff_only callee (the machine channel PR head build) skips the label handoff itself and builds only
 # the merge train's tip and land's update-branch head. 13-17Z 2026-11-26: 72 of 112 PR head builds (1,769 of
 # 3,002 runner-min) came from a ready-to-land or full-ci label being added, 66 of the 102 PRs built had not merged
@@ -100,6 +110,45 @@ def full_ci_only_jobs() -> tuple[str, ...]:
 def handoff_label_skip() -> bool:
     """Whether a land_handoff_only callee skips the label handoff ($CI_MC_HANDOFF_LABEL_SKIP, on unless 0)."""
     return os.environ.get("CI_MC_HANDOFF_LABEL_SKIP", "1").strip() != "0"
+
+
+# A land_ask_only callee (nightly-pr-build.yml, the two "nightly app compile" Mac stubs) runs on the affected
+# landing tier only when land asks: the handoff label and the merge train's tip. 15-21Z 2026-11-27 they were the
+# 2nd and 3rd largest jobs (arm64 17.9, x86_64 17.5 runner-min per merged PR); 80% of their 11,896 runner-min was on
+# PRs that had not merged by 21Z, 56% on base-merge heads of labelled PRs, 25% on pushes after the label, and 31%
+# repeated an input key already compiled. Leo, 2026-11-27: "whatever we need to cut, we cut. whatever we can
+# reuse, we reuse." The repository variable CI_NIGHTLY_PR_BUILD_AT_LAND=0 turns this off (passed in by pr-router.yml).
+
+
+# A trunk_only callee (nightly-pr-build.yml) runs once per 30-minute window on the feat-cmux-next tip, coalesced by
+# base-coalesce.yml, and base-red-watch bisects a red to name the PR. At 00Z 2026-11-28, after the land-ask cut above,
+# it still took ~690 runner-min/h (~16.5k/day) on ~28 PR heads an hour, while the Nightly compiles the same
+# configuration on the tip every 15 minutes. Leo: "de facto, im asking for 99% fewer minutes of ci time, period."
+# The repository variable CI_NIGHTLY_PR_BUILD_PER_PR=1 starts it on pull requests again (passed in by pr-router.yml).
+
+
+def per_pr_on() -> bool:
+    """Whether a trunk_only callee also starts on pull requests ($CI_NIGHTLY_PR_BUILD_PER_PR, off unless 1)."""
+    return os.environ.get("CI_NIGHTLY_PR_BUILD_PER_PR", "0").strip() == "1"
+
+
+def land_ask_only_on() -> bool:
+    """Whether a land_ask_only callee waits for land's ask ($CI_NIGHTLY_PR_BUILD_AT_LAND, on unless 0)."""
+    return os.environ.get("CI_NIGHTLY_PR_BUILD_AT_LAND", "1").strip() != "0"
+
+
+def full_ci_kept(event: dict) -> bool:
+    """Whether the PR asks for FULL_CI_ONLY_JOBS: `full-ci` in the payload's own label list, the label as it stands
+    when GitHub sends the event. land-judge's lane-VM pulse (label_lane_pulse: full-ci added and taken off 2 s later)
+    is the land handoff, as ready-to-land is (head_tier.labels_of keeps it for the tier), not a request for the
+    browser suites: its `labeled` payload no longer lists full-ci, so it routes the land tier without them. After
+    #58223 (2026-11-26 12:28Z) the pulse was most of what web-browser still ran: 5 of 8 sampled runs 15-17Z, about
+    4-6k runner-min a day. A full-ci someone keeps on the PR is in the list and still routes them; a pulse GitHub
+    sends before the take-off lands routes them too (more, never less). Leo, 2026-11-21: "de facto, im asking for
+    99% fewer minutes of ci time, period."
+    """
+    pr = event.get("pull_request") or {}
+    return FULL_CI in {str(label.get("name") or "") for label in pr.get("labels") or []}
 
 
 MANIFEST = HERE / "pr_router.json"
@@ -144,14 +193,14 @@ def affects(config: dict, files: list[str]) -> bool:
 
 
 def table_steps(config: dict, files: list[str], table: Path | None = None, full: bool = True,
-                full_ci: bool = True) -> list[str] | None:
+                full_ci: bool = True, tier: str = "full") -> list[str] | None:
     """The steps of the callee's `table_jobs` this change routes; None when the table cannot be read. FULL: the head
     is in the full tier (else FULL_TIER_JOBS route nothing). FULL_CI: the PR carries `full-ci` (else
-    full_ci_only_jobs() route nothing)."""
+    full_ci_only_jobs() route nothing). TIER: the step table's tier ("pr" leaves its `tier = "push"` steps to the push run)."""
     # Any failure to read the table (a missing file, bad TOML, a wrong shape, a runner that does not import)
     # starts the pipeline, whose own run reports it: the router routes more, never less, and never fails on it.
     try:
-        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
+        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files, tier=tier)
     except Exception:  # noqa: BLE001
         return None
     held = () if full_ci else full_ci_only_jobs()
@@ -159,14 +208,15 @@ def table_steps(config: dict, files: list[str], table: Path | None = None, full:
              for step in routed.get(job, [])]
     # A step whose inputs are `["**"]` replaced a job that ran on every change its workflow's shared docs-only
     # filter let through (scripts/ci/docs_only_paths.py): a docs-only change alone does not start the pipeline for it.
+    # `**` next to named inputs (tooling-tests-5's, which route it under --pr-scope) is still that whole-tree route.
     if files and docs_only_paths.docs_only(files):
         table = ci_steps.load(table or ci_steps.TABLE).steps
-        steps = [step for step in steps if table[step].inputs != ("**",)]
+        steps = [step for step in steps if "**" not in table[step].inputs]
     return steps
 
 
 def table_jobs_routed(callees: dict, files: list[str] | None, table: Path | None = None,
-                      full: bool = True, full_ci: bool = True) -> list[str]:
+                      full: bool = True, full_ci: bool = True, tier: str = "full") -> list[str]:
     """Which of the step table's jobs the change routes, for pr-pipeline.yml's job `if:`s: every `table_jobs` job
     when the change or the table is unknown (the router routes more, never less). FULL: the head is in the full
     tier; else no job of FULL_TIER_JOBS. FULL_CI: the PR carries `full-ci`; else no job of full_ci_only_jobs()."""
@@ -176,10 +226,16 @@ def table_jobs_routed(callees: dict, files: list[str] | None, table: Path | None
     if files is None:
         return jobs
     try:
-        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
+        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files, tier=tier)
     except Exception:  # noqa: BLE001
         return jobs
     return [job for job in jobs if routed.get(job)]
+
+
+def pipeline_tier(labels: set[str]) -> str:
+    """"pr": a pull request's step table leaves the `tier = "push"` steps to the push tier. "full": the `full-ci`
+    label, or vars.CI_PR_PIPELINE_TIER=full (the workflow sets CI_PR_PIPELINE_TIER), runs every routed step."""
+    return "full" if FULL_CI in labels or os.environ.get("CI_PR_PIPELINE_TIER") == "full" else "pr"
 
 
 def route(event: dict, callees: dict, files: list[str] | None,
@@ -193,11 +249,11 @@ def route(event: dict, callees: dict, files: list[str] | None,
     cheap = tier == "cheap"
     landing_affected = head_tier.land_affected((tier, tier_reason))
     pr = event.get("pull_request") or {}
-    labels = head_tier.labels_of(event)
     # Fast-track (scripts/ci/fast_track.py): a docs, plans, skills, copy or tests-only change gets the cheap tier.
     # full-ci asks for the full tier, so it beats fast-track.
     fast = False
-    if not cheap and tier != "none" and files is not None and fast_track.enabled() and FULL_CI not in labels:
+    if (not cheap and tier != "none" and files is not None and fast_track.enabled()
+            and not head_tier.full_ci_applies(event)):
         fast, fast_reason = fast_track.classify(files)
         cheap = fast
     action = str(event.get("action") or "")
@@ -216,6 +272,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if action not in config["types"]:
             why[name] = f"does not listen to '{action}'"
             continue
+        if config.get("trunk_only") and not per_pr_on():
+            why[name] = ("trunk only: runs once per 30-minute window on the feat-cmux-next tip (base-red-watch bisects a "
+                         "red); $CI_NIGHTLY_PR_BUILD_PER_PR=1 starts it on pull requests too")
+            continue
         if config.get("land_handoff_only") and train_tip and action in ("opened", "reopened", "synchronize"):
             # The merge train's combined tip is the tree its last member squashes to: the one head whose build a
             # merge can take when every member's own head is behind the base (cmux_machine_channel_pr_head.py).
@@ -232,6 +292,12 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if config.get("land_handoff_only") and handoff and not land_update and handoff_label_skip():
             why[name] = (f"label handoff: the merge train's tip ({TRAIN_TIP}) and land's update-branch head build the "
                          f"tree a merge takes; $CI_MC_HANDOFF_LABEL_SKIP=0 builds here too")
+            continue
+        if (config.get("land_ask_only") and landing_affected and not handoff and not train_tip
+                and land_ask_only_on()):
+            why[name] = (f"{head_tier.LAND_AFFECTED_REASON}: starts when land asks ({head_tier.LAND_LABEL} or "
+                         f"{FULL_CI} added at this head) or on the merge train's tip ({TRAIN_TIP}), not on each push; "
+                         f"$CI_NIGHTLY_PR_BUILD_AT_LAND=0 starts it here too")
             continue
         if added and added in config.get("labels", []):
             start.append(name)
@@ -251,6 +317,17 @@ def route(event: dict, callees: dict, files: list[str] | None,
             start.append(name)
             why[name] = (f"{head_tier.LAND_AFFECTED_REASON}, iOS-affecting: the ios fast verdict alone (no table job) "
                          f"compiles the changed iOS targets before the merge")
+            gates = nightly_gates(config, files) if nightly_gate_on() else []
+            why[name] += f"; nightly gate: runs only {', '.join(gates)}" if gates else ""
+            continue
+        gates = nightly_gates(config, files) if landing_affected and nightly_gate_on() else []
+        if gates:
+            # A landing head on the affected tier starts no full-tier job, so a check the nightly also runs first ran
+            # at the nightly, hours after the merge (NIGHTLY_GATE_JOBS). Only those steps run (main's `only`).
+            start.append(name)
+            why[name] = (f"{head_tier.LAND_AFFECTED_REASON}, nightly gate: runs only "
+                         f"{', '.join(gates)} (steps the nightly also runs or a base red put on the land gate, "
+                         f"ci/steps.toml `nightly`, `land_gate`)")
             continue
         if cheap and fast and not config.get("draft"):
             why[name] = "fast-track: runs after the merge (post-merge batch and push runs)"
@@ -261,7 +338,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
             continue
         # A callee whose every table job is full-tier-only starts on no cheap head (a fast-track head is full tier).
         if tier != "full" and config.get("table_jobs") and set(config["table_jobs"]) <= set(FULL_TIER_JOBS):
-            why[name] = "cheap tier: starts when ready-to-land or full-ci is added (or the draft is marked ready)"
+            # The tier's own reason says what gives this head the full tier (a draft marked ready, full-ci, or the
+            # land label when CI_LAND_FULL_PER_PR is on): a fixed "ready-to-land or marked ready" here sent a ready
+            # pull request looking for a run its own marking could not start.
+            why[name] = f"cheap tier: its jobs ({', '.join(config['table_jobs'])}) run only on the full tier: {tier_reason}"
             continue
         if files is None:
             start.append(name)
@@ -274,8 +354,9 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = "no changed file is one of its inputs"
             continue
         if "table_jobs" in config:
-            steps = table_steps(config, files, full=tier == "full" or FULL_CI in labels,
-                                full_ci=FULL_CI in labels or added == FULL_CI)
+            full_ci = head_tier.full_ci_applies(event) and full_ci_kept(event)
+            steps = table_steps(config, files, full=tier == "full" or full_ci, full_ci=full_ci,
+                                tier=pipeline_tier(head_tier.labels_of(event)))
             if steps == []:
                 why[name] = "the change routes no step of " + ", ".join(config["table_jobs"])
                 continue
@@ -287,6 +368,49 @@ def route(event: dict, callees: dict, files: list[str] | None,
     return start, why
 
 
+# The compile preflight (cmux-next-compile-preflight.yml) has no tier rule and no `start` gate: pr-router.yml calls it on
+# every head the route job runs for. Its job still took a runner on every head to learn, after a checkout and a merge
+# onto the live base, that most changed no web bundle input: 1,237 such no-op runs in the 6 h to 2026-11-27 10Z, about
+# 780 runner-min (scripts/measure/ci140-head-minutes). Leo, 2026-11-21: "whatever we need to cut, we cut. whatever we
+# can reuse, we reuse." Its pr_router.json `paths-ignore` (GitHub's filter semantics, matches_filter) names paths no web
+# bundle reads; a head whose every changed path it ignores passes `web: false` and the callee's job skips. The full-ci
+# label, an unknown change and any other path keep it on; the callee's never-web-check holds the list to the bundles'
+# routed inputs on every head that builds.
+PREFLIGHT_CALLEE = "cmux-next-compile-preflight.yml"
+
+
+def preflight_web(event: dict, callees: dict, files: list[str] | None, start: list[str] | None = None,
+                  exact=None) -> tuple[bool, str]:
+    """(whether the compile preflight's web job runs at this head, why). START: the callees this head starts (None:
+    assume the preflight does). EXACT: compile_preflight.router_web (tests pass a fake)."""
+    config = callees.get(PREFLIGHT_CALLEE)
+    if config is None:
+        return True, "no compile preflight in pr_router.json: runs"
+    if FULL_CI in head_tier.labels_of(event):
+        return True, f"{FULL_CI}: runs"
+    if files is None:
+        return True, "changed files unknown: runs"
+    if not files:
+        return True, "no changed file listed: runs"
+    if "paths-ignore" in config and not matches_filter({"paths-ignore": config["paths-ignore"]}, files):
+        return False, "every changed file is one no web bundle reads (pr_router.json paths-ignore): skips"
+    if start is not None and PREFLIGHT_CALLEE not in start:
+        return True, "the compile preflight does not start at this head"
+    if os.environ.get("CI_ROUTER_WEB_EXACT", "1") == "0":
+        return True, "a changed file may reach a web bundle: runs (CI_ROUTER_WEB_EXACT=0; its first step decides)"
+    # The job's own first step (compile_preflight.py web-touched), answered here; anything unread runs the job.
+    try:
+        if exact is None:
+            import compile_preflight
+            exact = compile_preflight.router_web
+        web, why = exact(ROOT, files)
+    except Exception as e:  # noqa: BLE001 - the router routes more, never less, and never fails on it
+        return True, f"the web-touched check failed here ({type(e).__name__}: {e}): runs (its first step decides)"
+    if web is None:
+        return True, f"{why}: runs (its first step decides)"
+    return (True, f"{why}: runs") if web else (False, f"{why}: skips")
+
+
 # The callee whose ios fast verdict (pr-pipeline.yml ios-fast-runner, ios-fast) a landing head on the affected tier
 # (head_tier.land_affected) still starts when it touches iOS: its table jobs are full-tier-only, so the hourly full
 # tier rule started nothing there and `cmux/ios-fast` posted a carried success with no iOS build behind it. 11-23 to
@@ -295,6 +419,32 @@ def route(event: dict, callees: dict, files: list[str] | None,
 # just kept getting bottled on random stuff that we can juts fix fundamentally in terms of decisions and/or just
 # setting up more capacity and stuff". vars.CI_IOS_FAST_VERDICT=0 turns the verdict, and this start, off.
 IOS_VERDICT_CALLEE = "pr-pipeline.yml"
+
+
+# The step table's steps that mirror a nightly step (ci/steps.toml `nightly`: the notices generation) run on a landing
+# head of the affected tier when the change routes them, with every input kept (ci_steps.nightly_gate_steps). 11-26 to
+# 11-27: 8 nightly failures in a row from 4 causes, each found only at the nightly (#59540's IJG-licensed jpeg-encoder;
+# #51044's duplicate import and #46903's shelf red, now caught by the compile preflight and app-store-shelf-pr).
+# Leo, 2026-11-27: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff".
+# vars.CI_NIGHTLY_GATE_ON_LAND=0
+# turns this start off.
+NIGHTLY_GATE_JOBS = ("linux",)
+
+
+def nightly_gate_on() -> bool:
+    return os.environ.get("CI_NIGHTLY_GATE_ON_LAND", "").strip() != "0"
+
+
+def nightly_gates(config: dict, files: list[str] | None, table: Path | None = None) -> list[str]:
+    """The nightly-mirroring steps of CONFIG's table jobs FILES route. Unknown files route every such step; an
+    unreadable table routes none here (the full tier and the post-merge batch still run it)."""
+    jobs = [job for job in config.get("table_jobs", []) if job in NIGHTLY_GATE_JOBS]
+    if not jobs:
+        return []
+    try:
+        return ci_steps.nightly_gate_steps(ci_steps.load(table or ci_steps.TABLE), files, jobs)
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def ios_verdict_on() -> bool:
@@ -328,8 +478,8 @@ RERUN_SHORT_SECONDS = 60
 GREEN_JOB = frozenset({"success", "skipped"})
 
 
-def caller_names(text: str) -> dict[str, str]:
-    """{callee file: its caller job's `name:`} from pr-router.yml: the prefix of the callee's job names in a run."""
+def caller_names(text: str) -> dict[str, list[str]]:
+    """All caller prefixes per callee; split invocations must not overwrite one another's receipts."""
     names, current, name = {}, None, ""
     for line in text.splitlines():
         if m := re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line):
@@ -337,7 +487,7 @@ def caller_names(text: str) -> dict[str, str]:
         elif current and (m := re.match(r"^    name:\s*(.+?)\s*$", line)):
             name = m.group(1).strip("'\"")
         elif current and name and (m := re.match(r"^    uses: \./\.github/workflows/([^\s@]+)\s*$", line)):
-            names[m.group(1)] = name
+            names.setdefault(m.group(1), []).append(name)
     return names
 
 
@@ -364,7 +514,7 @@ def proved(jobs: list) -> bool:
     return all(t is not None for t in took) and sum(took) >= RERUN_SHORT_SECONDS
 
 
-def rerun_plan(jobs: list | None, names: dict[str, str], table: list[str]) -> tuple[set[str], set[str]]:
+def rerun_plan(jobs: list | None, names: dict[str, list[str]], table: list[str]) -> tuple[set[str], set[str]]:
     """(callee files, table jobs) the red-head base merge rule keeps off: those whose every job passed at the
     previous head's router run (proved). JOBS: that run's jobs (the jobs API); None (unread) keeps nothing off."""
     if not isinstance(jobs, list):
@@ -375,9 +525,11 @@ def rerun_plan(jobs: list | None, names: dict[str, str], table: list[str]) -> tu
                 or str(j.get("name") or "").startswith(prefix + " / ")
                 or str(j.get("name") or "").startswith(prefix + " ("))]
 
-    carried = {callee for callee, name in names.items() if proved(under(name))}
-    pipeline = names.get("pr-pipeline.yml", "")
-    rows = {job for job in table if pipeline and proved(under(f"{pipeline} / {job}"))}
+    carried = {callee for callee, prefixes in names.items()
+               if proved([job for prefix in prefixes for job in under(prefix)])}
+    pipeline = names.get("pr-pipeline.yml", [])
+    rows = {job for job in table if pipeline
+            and proved([row for prefix in pipeline for row in under(f"{prefix} / {job}")])}
     return carried, rows
 
 
@@ -467,11 +619,12 @@ def land_status(event: dict, decided: tuple[str, str]) -> str:
     """The `cmux/land-tier` commit status for EVENT's head (pr-router.yml posts it): `pending` while the land rule holds
     it on the cheap tier (or idle), `success` once it runs the full tier, lands on the affected tier (the hourly
     full tier rule), or the land carry rule or the full-ci base merge carry rule carries its previous head's run
-    (head_tier.carried, head_tier.full_carried), empty where the land rule does not apply."""
+    (head_tier.carried, head_tier.full_carried) or the same-head land carry rule its own head's
+    (head_tier.same_head_carried), empty where the land rule does not apply."""
     if (os.environ.get("CI_LAND_TIER", "1").strip() in ("0", "")) or not head_tier.land_rule_applies(event):
         return ""
     return ("success" if decided[0] == "full" or head_tier.carried(decided) or head_tier.land_affected(decided)
-            or head_tier.full_carried(decided) else "pending")
+            or head_tier.full_carried(decided) or head_tier.same_head_carried(decided) else "pending")
 
 
 def ios_status(event: dict, files: list[str] | None, start: list[str], land: str) -> tuple[str, str]:
@@ -494,6 +647,26 @@ def ios_status(event: dict, files: list[str] | None, start: list[str], land: str
     return "pending", "iOS-affecting: the fast verdict runs when ready-to-land or full-ci is added"
 
 
+def ui_status(event: dict, files: list[str] | None) -> tuple[str, str]:
+    """The `cmux/ui-proof` commit status for EVENT's head (pr-router.yml posts it; its ui-proof-status job replaces a
+    `pending` one with the proof record's verdict, scripts/ci/ui_proof_verdict.py): ("", "") where the land rule does
+    not apply. `success` at once for a head that changes nothing a desktop user sees, so a ruleset can require it;
+    `pending` for a visual head until a look at that head is on the PR. Leo, 2026-11-27: "obviously for visuals
+    we'll need to do better before getting them in but you know"."""
+    if not head_tier.land_rule_applies(event):
+        return "", ""
+    if os.environ.get("CI_UI_PROOF", "").strip() == "0":
+        return "success", "UI proof is off (vars.CI_UI_PROOF=0)"
+    try:
+        import ui_proof_verdict
+        need = "app" if files is None else ui_proof_verdict.affects(files)
+    except Exception:  # noqa: BLE001 - unreadable routes more, never less
+        need = "app"
+    if not need:
+        return "success", "Touches nothing a user sees (docs, copy, tests, CI, iOS has cmux/ios-fast)"
+    return "pending", f"Visual change ({need}): waiting for a look at this head (hot-verify.py look --record)"
+
+
 def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tuple[set[str], set[str]]:
     """rerun_plan for this head when the red-head base merge rule reached the router: the head only merges the base
     onto a previous head where some run was not green and the router's own run there was not green either (a green
@@ -508,17 +681,37 @@ def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tup
     return {c for c in carried if c in callees}, rows
 
 
+def nightly_gate_table(callees: dict, files: list[str] | None, decided: tuple[str, str], start: list[str],
+                       table: list[str]) -> tuple[list[str], list[str]]:
+    """(the table jobs pr-pipeline.yml starts, the steps its jobs run only): on a landing head of the affected tier
+    whose change routes a nightly-mirroring step (nightly_gates), that step's job joins TABLE and runs only those
+    steps. Any other head: (TABLE, []), its jobs run their whole route."""
+    if not head_tier.land_affected(decided) or not nightly_gate_on():
+        return table, []
+    only = [step for name, config in sorted(callees.items()) if name in start
+            for step in nightly_gates(config, files)]
+    jobs = [job for job in NIGHTLY_GATE_JOBS if only and job not in table]
+    return (table + jobs, only) if jobs else (table, [])
+
+
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
-                  table: list[str] | None = None, status: str = "", ios: tuple[str, str] = ("", "")) -> None:
+                  table: list[str] | None = None, status: str = "", ios: tuple[str, str] = ("", ""),
+                  ui: tuple[str, str] = ("", ""), only: list[str] | None = None,
+                  preflight: tuple[bool, str] = (True, "")) -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
         out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
+        out.write(f"only={' '.join(only or [])}\n")
         out.write(f"land_status={status}\n")
         out.write(f"ios_status={ios[0]}\n")
         out.write(f"ios_status_description={ios[1]}\n")
+        out.write(f"ui_status={ui[0]}\n")
+        out.write(f"ui_status_description={ui[1]}\n")
+        out.write(f"preflight_web={'true' if preflight[0] else 'false'}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = ["### pr router", "",
              f"changed files: {len(files) if files is not None else 'unknown'}", "",
+             f"compile preflight web job: {'runs' if preflight[0] else 'skips'} ({preflight[1]})", "",
              "| workflow | starts | why |", "|---|---|---|"]
     lines += [f"| `{name}` | {'yes' if name in start else 'no'} | {reason} |" for name, reason in sorted(why.items())]
     text = "\n".join(lines) + "\n"
@@ -540,9 +733,10 @@ def main(argv: list[str]) -> int:
                            carried=carried)
         labels = head_tier.labels_of(event)
         full = decided[0] == "full" or FULL_CI in labels
-        added = str((event.get("label") or {}).get("name") or "") if event.get("action") == "labeled" else ""
         table = [job for job in table_jobs_routed(callees, files, full=full,
-                                                  full_ci=FULL_CI in labels or added == FULL_CI) if job not in rows]
+                                                  full_ci=full_ci_kept(event),
+                                                  tier=pipeline_tier(labels)) if job not in rows]
+        table, only = nightly_gate_table(callees, files, decided, start, table)
         if rows:
             why["pr-pipeline.yml"] = why.get("pr-pipeline.yml", "") + (
                 f" (table jobs that ran green at the previous head stay off: {', '.join(sorted(rows))})")
@@ -551,7 +745,8 @@ def main(argv: list[str]) -> int:
         # rule's rerun is the land tier itself, on the label land pulsed, so it keeps success (else land pulses again).
         held = (carried or rows) and not head_tier.full_rerun(decided)
         status = "pending" if status and held else status
-        write_outputs(start, why, files, table, status, ios_status(event, files, start, status))
+        write_outputs(start, why, files, table, status, ios_status(event, files, start, status),
+                      ui_status(event, files), only, preflight_web(event, callees, files, start))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)

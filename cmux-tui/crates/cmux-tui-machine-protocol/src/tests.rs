@@ -881,7 +881,7 @@ fn future_error_codes_round_trip_without_weakening_known_codes() {
         "id": "19",
         "error": {
             "code": "provider_rate_limited",
-            "message": "Try again later",
+            "message": "Rate limited",
             "retryable": true
         }
     });
@@ -891,7 +891,7 @@ fn future_error_codes_round_trip_without_weakening_known_codes() {
         decoded.response,
         ProviderResponse::Failure(ProviderError {
             code: ProviderErrorCode::Other("provider_rate_limited".into()),
-            message: "Try again later".into(),
+            message: "Rate limited".into(),
             retryable: true,
         })
     );

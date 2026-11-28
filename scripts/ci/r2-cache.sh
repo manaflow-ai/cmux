@@ -77,18 +77,18 @@ fetch() { # <relative object path> <destination file>
     --connect-timeout 15 --max-time 900 -o "$2" "${CI_CACHE_R2_PUBLIC_URL%/}/$1"
 }
 
-unpack() { # <extension> <archive>
+unpack() { # <extension> <archive> <into>
   if [[ "$1" == "tar.zst" ]]; then
     # Consume padding through EOF, otherwise bsdtar exits early and zstd
     # receives SIGPIPE, turning a valid restore into a miss under pipefail.
     zstd -dc "$2" | {
       local tar_status=0
-      tar -xf - -C "$dir" || tar_status=$?
+      tar -xf - -C "$3" || tar_status=$?
       cat > /dev/null
       return "$tar_status"
     }
   else
-    tar -xzf "$2" -C "$dir"
+    tar -xzf "$2" -C "$3"
   fi
 }
 
@@ -116,14 +116,23 @@ PY2
       continue
     fi
     if fetch "$namespace/objects/$candidate.$extension" "$work/archive" 2>/dev/null; then
-      rm -rf "$dir"
-      mkdir -p "$dir"
-      if unpack "$extension" "$work/archive"; then
+      # Unpack beside the directory and rename it into place only once whole. A step killed mid-unpack
+      # (timeout-minutes on a slow runner) never reaches any cleanup here, and half a cargo target left in
+      # place failed the build on missing .rmeta files (machine channel run 46003645716, aarch64 leg); now
+      # such a kill leaves the directory as it was and only the staging directory behind.
+      local staging stale
+      mkdir -p "$(dirname "$dir")"
+      # An earlier killed restore's staging directory: a persistent runner workspace would keep it for good.
+      for stale in "${dir%/}".r2-restoring.*; do [[ -d "$stale" ]] && rm -rf "$stale"; done
+      staging="$(mktemp -d "${dir%/}.r2-restoring.XXXXXX")"
+      if unpack "$extension" "$work/archive" "$staging"; then
+        rm -rf "$dir"
+        mv "$staging" "$dir"
         rm -rf "$work"
         return 0
       fi
       # A truncated or corrupt archive must not leave half a cache behind.
-      rm -rf "$dir"
+      rm -rf "$staging"
       echo "r2-cache: could not unpack $candidate.$extension"
     fi
   done
@@ -178,6 +187,99 @@ header() {
 }
 
 valid_generation() { [[ "$1" =~ ^[0-9]{1,12}$ ]]; }
+
+# request with the response body written to <file> instead of discarded.
+request_to() { # <body file> <curl args...>
+  local out="$1"
+  shift
+  printf 'user = "%s:%s"\n' "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" \
+    | curl --config - --silent --show-error --retry 3 --retry-delay 2 \
+        --connect-timeout 15 --max-time 1800 \
+        --aws-sigv4 "aws:amz:auto:s3" \
+        -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" \
+        -o "$out" -w '%{http_code}' "$@"
+}
+
+# One PUT takes at most 5 GiB (R2 answers a larger one HTTP 400, EntityTooLarge): the machine channel's
+# cargo workspace delta with rustc's incremental state packed 15 GB into a 5140 MiB archive, and both
+# legs of seed run 45982767555 (2026-11-27) published nothing. An archive above this many bytes goes up
+# as a multipart upload instead; the object, its key and every restore stay the same. Parts go up
+# CI_CACHE_R2_PART_JOBS at a time: one stream moved the 5853 MB delta in 3 min 18 s (machine channel run
+# 45998862249, x86_64, 2026-11-27), all of it before the channel could point at the new build.
+multipart_bytes="${CI_CACHE_R2_MULTIPART_BYTES:-4294967296}"
+part_bytes="${CI_CACHE_R2_PART_BYTES:-536870912}"
+part_jobs="${CI_CACHE_R2_PART_JOBS:-6}"
+[[ "$multipart_bytes" =~ ^[0-9]+$ ]] || multipart_bytes=4294967296
+[[ "$part_bytes" =~ ^[0-9]+$ ]] && ((part_bytes >= 5242880)) || part_bytes=536870912
+[[ "$part_jobs" =~ ^[0-9]+$ ]] && ((part_jobs >= 1)) || part_jobs=6
+
+# Uploads one part and writes "<status> <etag>" to <work>/part.<n>.result.
+upload_part() { # <archive> <url> <query> <work> <part number> <offset>
+  local archive="$1" url="$2" query="$3" work="$4" n="$5" offset="$6" status attempt
+  tail -c "+$((offset + 1))" "$archive" | head -c "$part_bytes" > "$work/part.$n"
+  for attempt in 1 2 3; do
+    status="$(request --dump-header "$work/part.$n.headers" -T "$work/part.$n" \
+      "$url?partNumber=$n&$query")" || status=000
+    [[ "$status" == 000 || "$status" == 5?? ]] && ((attempt < 3)) || break
+    echo "r2-cache: part $n attempt $attempt got HTTP $status; retrying" >&2
+    sleep "$((attempt * 5))"
+  done
+  rm -f "$work/part.$n"
+  printf '%s %s\n' "$status" "$(header etag "$work/part.$n.headers")" > "$work/part.$n.result"
+}
+
+# Prints the HTTP status: 200 once the object exists, anything else when it does not. No If-None-Match
+# on the completion (R2 does not document it there); the caller reads the stored generation back from a
+# HEAD, as after a lost conditional PUT, so a concurrent writer of the same key is handled the same way.
+multipart_upload() { # <archive> <url> <generation> <work dir>
+  local archive="$1" url="$2" generation="$3" work="$4" size upload_id status number=1 offset=0 etag
+  size="$(wc -c < "$archive" | tr -d ' ')"
+  status="$(request_to "$work/create.xml" -X POST -H "x-amz-meta-generation: $generation" \
+    -H 'content-type: application/octet-stream' --data-binary '' "$url?uploads=")" || status=000
+  upload_id="$(sed -n 's:.*<UploadId>\([^<]*\)</UploadId>.*:\1:p' "$work/create.xml" 2>/dev/null | head -1)"
+  if [[ "$status" != 200 || -z "$upload_id" ]]; then
+    echo "r2-cache: multipart create got HTTP $status" >&2
+    echo "$status"
+    return 0
+  fi
+  # The id is opaque and may hold base64's + / =, which a query string must escape.
+  local query
+  query="uploadId=$(printf '%s' "$upload_id" | sed -e 's/%/%25/g' -e 's/+/%2B/g' -e 's:/:%2F:g' -e 's/=/%3D/g')"
+  local parts=$(((size + part_bytes - 1) / part_bytes)) result
+  # Batches of part_jobs, each waited on whole: plain wait, so macOS's bash 3.2 runs it too.
+  while ((number <= parts)); do
+    for ((offset = 0; offset < part_jobs && number <= parts; offset++, number++)); do
+      upload_part "$archive" "$url" "$query" "$work" "$number" "$(((number - 1) * part_bytes))" &
+    done
+    wait
+  done
+  printf '<CompleteMultipartUpload>' > "$work/complete.xml"
+  for ((number = 1; number <= parts; number++)); do
+    result="$(cat "$work/part.$number.result" 2>/dev/null || echo 000)"
+    status="${result%% *}" etag="${result#* }"
+    [[ "$result" == *' '* ]] || etag=""
+    if [[ "$status" != 200 || -z "$etag" ]]; then
+      echo "r2-cache: part $number got HTTP $status; aborting the upload" >&2
+      request -X DELETE "$url?$query" >/dev/null 2>&1 || true
+      echo "$status"
+      return 0
+    fi
+    printf '<Part><PartNumber>%d</PartNumber><ETag>%s</ETag></Part>' "$number" "$etag" >> "$work/complete.xml"
+  done
+  printf '</CompleteMultipartUpload>' >> "$work/complete.xml"
+  status="$(request_to "$work/completed.xml" -X POST -H 'content-type: application/xml' \
+    --data-binary "@$work/complete.xml" "$url?$query")" || status=000
+  # S3 can answer a failed completion with 200 and an <Error> body.
+  if [[ "$status" == 200 ]] && grep -q '<Error>' "$work/completed.xml" 2>/dev/null; then status=500; fi
+  if [[ "$status" != 200 ]]; then
+    echo "r2-cache: multipart complete got HTTP $status; aborting the upload" >&2
+    request -X DELETE "$url?$query" >/dev/null 2>&1 || true
+    echo "$status"
+    return 0
+  fi
+  echo "r2-cache: uploaded $parts parts, $part_jobs at a time" >&2
+  echo 200
+}
 
 publish_pointer() { # <prefix> <work dir> <archive generation>
   local prefix="$1" work="$2" generation="$3" attempt status etag current condition
@@ -285,13 +387,19 @@ save() {
     # published nothing (job 140187794318, 2026-11-26). An upload the bucket kept before the drop
     # answers the retry with 412, read back below like a concurrent writer's.
     local attempt
-    for attempt in 1 2 3; do
-      status="$(request -H 'If-None-Match: *' -H "x-amz-meta-generation: $generation" \
-        -H 'content-type: application/octet-stream' -T "$work/archive" "$url")" || status=000
-      [[ "$status" == 000 || "$status" == 5?? ]] && ((attempt < 3)) || break
-      echo "r2-cache: archive upload attempt $attempt got HTTP $status; retrying"
-      sleep "$((attempt * 5))"
-    done
+    if (($(wc -c < "$work/archive" | tr -d ' ') > multipart_bytes)); then
+      status="$(multipart_upload "$work/archive" "$url" "$generation" "$work")"
+      # Read the stored generation back, as after a 412: another writer may have completed first.
+      [[ "$status" != 200 ]] || status=412
+    else
+      for attempt in 1 2 3; do
+        status="$(request -H 'If-None-Match: *' -H "x-amz-meta-generation: $generation" \
+          -H 'content-type: application/octet-stream' -T "$work/archive" "$url")" || status=000
+        [[ "$status" == 000 || "$status" == 5?? ]] && ((attempt < 3)) || break
+        echo "r2-cache: archive upload attempt $attempt got HTTP $status; retrying"
+        sleep "$((attempt * 5))"
+      done
+    fi
     if [[ "$status" == 412 ]]; then
       status="$(request --head --dump-header "$work/headers" "$url")" || status=000
     elif [[ "$status" == 200 ]]; then

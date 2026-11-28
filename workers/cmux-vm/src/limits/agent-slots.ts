@@ -13,9 +13,12 @@
  *   VM id its intent holds and bound to the creation key, until the VM is deleted, a retry records it, or
  *   `HELD_TTL_MS` passes;
  * - a create that failed before any send gives its slot back, and a deleted VM forgets the slot that names it.
+ *   2026-11-27 22:49Z: two production smoke creates failed 503 vm-provider.createQueueFull, refused by the create queue
+ *   before any send, yet were held as "may exist" for 25 h; the smoke key sat at its maxVms cap of 2 with no VM, and
+ *   every cmux-vm production deploy after it went red at smoke-production (429 agent_vms), rolling the image back.
  */
 import { Schema } from "effect";
-import type { LedgerStorage } from "./storage.ts";
+import { deleteMany, type LedgerStorage } from "./storage.ts";
 
 /** A create in flight: longer than the idempotency lease (10 minutes), so a slow create never loses its slot. */
 export const ADMIT_TTL_MS = 15 * 60_000;
@@ -40,14 +43,20 @@ export type AgentSlotOutcome =
   | { readonly held: string; readonly vmId: string }
   | "released";
 
-/** Takes `slotId` when the key's VMs and creates in flight stay under `limit`; false at the budget. */
-export const admitAgentSlot = (storage: LedgerStorage, agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean> =>
+/**
+ * Takes `slotId` when the key's VMs and creates in flight stay under `limit`; false at the budget. `neverSent` answers,
+ * inside the same transaction, whether a held slot's creation provably sent nothing (its intent never reached the
+ * provider, or the provider rejected it): such a slot holds no VM and is dropped, not counted for HELD_TTL_MS.
+ */
+export const admitAgentSlot = (storage: LedgerStorage, agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string, neverSent?: (tx: LedgerStorage, creationKey: string) => Promise<boolean>): Promise<boolean> =>
   storage.transaction(async (tx) => {
-    const held = new Set(ownedVmIds);
+    const held = new Set(ownedVmIds), expired: string[] = [];
     for (const [key, value] of await tx.list({ prefix: prefixOf(agent) })) {
-      if (!isAgentSlot(value) || value.expiresMs <= nowMs) await tx.delete(key);
+      if (!isAgentSlot(value) || value.expiresMs <= nowMs) expired.push(key);
+      else if (value.creationKey !== undefined && neverSent !== undefined && await neverSent(tx, value.creationKey)) expired.push(key);
       else held.add(value.vmId ?? key);
     }
+    await deleteMany(tx, expired);
     if (held.size >= limit) return false;
     await tx.put(`${prefixOf(agent)}${slotId}`, { expiresMs: nowMs + ADMIT_TTL_MS });
     return true;
@@ -73,7 +82,9 @@ export const bindAgentCreation = (storage: LedgerStorage, agent: string, creatio
 /** A deleted VM (or its cancelled creation) no longer counts against any agent key's budget. */
 export const forgetAgentVm = (storage: LedgerStorage, vmId: string, creationKey: string | null): Promise<void> =>
   storage.transaction(async (tx) => {
+    const gone: string[] = [];
     for (const [key, value] of await tx.list({ prefix: PREFIX })) {
-      if (isAgentSlot(value) && (value.vmId === vmId || (creationKey !== null && value.creationKey === creationKey))) await tx.delete(key);
+      if (isAgentSlot(value) && (value.vmId === vmId || (creationKey !== null && value.creationKey === creationKey))) gone.push(key);
     }
+    await deleteMany(tx, gone);
   });

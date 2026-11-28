@@ -23,7 +23,7 @@ import Testing
     }
 
     @Test func aFailedOrNullReadIsTheSameRefusal() async {
-        for get: @MainActor () async throws -> Data in [{ throw Off() }, { Data("null".utf8) }] {
+        for get: @MainActor @Sendable () async throws -> Data in [{ throw Off() }, { Data("null".utf8) }] {
             let page = CloudAllotmentPage(available: { true }, get: get)
             await #expect(throws: PageError(code: "cmux.page.unavailable", message: "team compute is unavailable")) { _ = try await page.read() }
         }
