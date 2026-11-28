@@ -158,7 +158,7 @@ async fn a_chat_a_failover_left_on_a_fallback_that_cannot_start_goes_back() {
 
     // Then the route goes down (a local router that is not running), and the primary works
     // again. The fallback's process ends, so the next turn starts an agent.
-    std::fs::write(&route, "kind = \"local-coderouter\"\n").unwrap();
+    std::fs::write(&route, "kind = \"cmux-router\"\n").unwrap();
     std::fs::remove_file(&die).unwrap();
     hub.detach_child(&session).await;
     let own_session = hub.resolve(&own).unwrap();

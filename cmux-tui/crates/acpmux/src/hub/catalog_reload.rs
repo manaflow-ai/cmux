@@ -79,7 +79,6 @@ impl Hub {
                 discovered,
                 auto_fallback,
                 auto_default,
-                auto_prefer,
                 unavailable,
                 profile_meta,
                 profile_diagnostics,
@@ -116,7 +115,6 @@ impl Hub {
                 capacity_fallback_after,
                 auto_resume_disk_free_bytes,
                 login_env_allow,
-                coderouter_claude_route,
                 machine_wake,
                 peer_wake,
                 btw,
@@ -176,7 +174,6 @@ impl Hub {
             current.discovered = discovered;
             current.auto_fallback = auto_fallback;
             current.auto_default = auto_default;
-            current.auto_prefer = auto_prefer;
             current.unavailable = unavailable;
             current.profile_meta = profile_meta;
             current.profile_diagnostics = profile_diagnostics;
@@ -234,7 +231,6 @@ impl Hub {
             current.capacity_fallback_after = capacity_fallback_after;
             // The disk waiter reads it at each re-check (`auto_resume/disk_wait.rs`).
             current.auto_resume_disk_free_bytes = auto_resume_disk_free_bytes;
-            current.coderouter_claude_route = coderouter_claude_route;
             current.machine_wake = machine_wake;
             // The next wake of any peer runs the new command (`Peer::wake`).
             *self.peer_wake.lock().unwrap_or_else(|e| e.into_inner()) =

@@ -4,8 +4,7 @@ use super::*;
 
 /// Drop discovered launcher profiles whose binary cannot actually run the
 /// harness: an older subrouter without `claude proxy`, one whose proxy
-/// setup fails before Claude starts, or a configured CodeRouter route
-/// (`claude-cr`) the installed CLI does not have. Runs once at daemon start, so a
+/// setup fails before Claude starts. Runs once at daemon start, so a
 /// `claude` session never fails over into a launcher that dies at once.
 pub fn verify_launchers(cfg: &mut Config) {
     // A capture fixture's harnesses name no installed program, and nothing
@@ -111,11 +110,7 @@ fn verify_launchers_checked(
     let candidates: Vec<(String, Vec<String>)> = cfg
         .harnesses
         .iter()
-        .filter(|(n, p)| {
-            is_subrouter_proxy(&p.argv)
-                || (n.as_str() == super::CODEROUTER_CLAUDE_PROFILE
-                    && p.kind == HarnessKind::ClaudeStdio)
-        })
+        .filter(|(_, p)| is_subrouter_proxy(&p.argv))
         .map(|(n, p)| (n.clone(), p.argv.clone()))
         .collect();
     let checked: Vec<_> = std::thread::scope(|scope| {
