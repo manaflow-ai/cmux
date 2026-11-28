@@ -1200,6 +1200,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::DaemonHeapDump { start, stop, top } => {
+            crate::cli::daemon_heap::run(start, stop, top, json_out).await
+        }
         Command::DaemonFelt => crate::cli::daemon_felt::run(json_out).await,
         Command::DaemonWatchdogHold => crate::cli::watchdog_hold::run().await,
         Command::DaemonPlacement { message } => crate::cli::daemon_placement::run(&message).await,

@@ -14,9 +14,17 @@
 // A gnu build keeps glibc's malloc: at n=1,000 chats with the resident cap, mimalloc v3 held
 // about 2.5x the live heap resident where glibc held 164 MB against mimalloc's 234 (cmux#57621),
 // and malloc_quiet_trim.rs and malloc_arenas.rs tune glibc for the daemon.
+// Each is wrapped in the sampled heap profile (acpmux's `heap_sample.rs`), off until
+// `acpmux daemon heap-dump --start`: one relaxed load per call.
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 #[global_allocator]
-static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+static ALLOC: acpmux::heap_sample::Sampled<mimalloc::MiMalloc> =
+    acpmux::heap_sample::Sampled(mimalloc::MiMalloc);
+
+#[cfg(not(all(target_os = "linux", target_env = "musl")))]
+#[global_allocator]
+static ALLOC: acpmux::heap_sample::Sampled<std::alloc::System> =
+    acpmux::heap_sample::Sampled(std::alloc::System);
 
 /// mimalloc's options for a long-lived daemon, as measured (RFD 0156): freed pages go back at
 /// once (`purge_delay` 0, its default 10 ms kept 176 MB where musl kept 79 MB on the replay), and

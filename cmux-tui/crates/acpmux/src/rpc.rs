@@ -894,8 +894,10 @@ pub mod method {
     /// Hold this daemon's systemd watchdog until the machine resumes: the platform asks it just
     /// before it pauses the VM (`daemon/watchdog.rs`). This machine's own clients only.
     pub const MUX_WATCHDOG_HOLD: &str = "_acpmux/watchdog_hold";
-    /// A `dhat-heap` build writes its heap profile now and answers its bytes (`heap_profile.rs`);
-    /// bench only, `available: false` in every other build.
+    /// A `dhat-heap` build writes its heap profile now and answers its bytes (`heap_profile.rs`;
+    /// `available: false` in every other build). With `sample` in the params, any build starts,
+    /// stops or reports its sampled profile by allocation site (`heap_sample.rs`,
+    /// `acpmux daemon heap-dump`). This machine's own clients only.
     pub const MUX_HEAP_PROFILE: &str = "_acpmux/heap_profile";
     /// Fork a session through its latest completed turn (`server/fork_through.rs`).
     pub const ACP_SESSION_FORK: &str = "acp.session.fork";

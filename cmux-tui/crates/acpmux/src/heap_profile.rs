@@ -13,6 +13,8 @@ static PROFILER: std::sync::Mutex<Option<dhat::Profiler>> = std::sync::Mutex::ne
 /// The variable is removed, so a process this one starts (an agent host) writes no profile over
 /// it.
 pub fn start() {
+    // SAFETY: as below, first in `main` while no other thread runs.
+    unsafe { crate::heap_sample::start_from_env() };
     #[cfg(feature = "dhat-heap")]
     if let Some(out) = std::env::var_os(OUT_ENV) {
         // SAFETY: called first in `main`, while no other thread runs.
@@ -33,6 +35,29 @@ pub fn finish() {
 /// heap's bytes and blocks then and at its peak. A bench asks it after its last sample: a daemon
 /// stopped by a signal can be killed before it reaches [`finish`]. Recording ends with the write;
 /// a second ask answers `written: false`. In a build without `dhat-heap`, `available: false`.
+///
+/// With `sample` in the params it is the sampled profile instead, in any build
+/// ([`crate::heap_sample::request`]): `{"sample": {"start": BYTES}}`, `{"sample": {"stop": true}}`,
+/// `{"sample": {"top": N}}`; the answer is `{"available": true, "sample": REPORT}`.
+pub fn request(params: &serde_json::Value) -> serde_json::Value {
+    match params.get("sample") {
+        Some(sample) => serde_json::json!({
+            "available": true,
+            "sample": crate::heap_sample::request(sample),
+        }),
+        None => dump(),
+    }
+}
+
+/// `_acpmux/heap_profile` for the server: [`request`] off the runtime's threads, as symbolizing
+/// the sampled stacks reads the binary's debug info.
+pub async fn serve(params: serde_json::Value) -> Result<serde_json::Value, crate::rpc::RpcError> {
+    tokio::task::spawn_blocking(move || request(&params))
+        .await
+        .map_err(|e| crate::rpc::RpcError::internal(e.to_string()))
+}
+
+/// The dhat write (or glibc's counts) of [`request`] without `sample`.
 pub fn dump() -> serde_json::Value {
     #[cfg(feature = "dhat-heap")]
     {

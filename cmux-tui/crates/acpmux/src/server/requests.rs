@@ -2941,12 +2941,12 @@ async fn dispatch_method(
             Ok(hub.list_counts())
         }
         method::MUX_STATUS => Ok(hub.status().await),
-        // A dhat-heap build's profile, written now (`heap_profile.rs`); the local socket only.
+        // A heap profile (`heap_profile.rs`); the local socket only.
         method::MUX_HEAP_PROFILE => {
             if conn.origin != Origin::Local {
                 return Err(RpcError::method_not_found(m));
             }
-            Ok(crate::heap_profile::dump())
+            crate::heap_profile::serve(params.clone()).await
         }
         // The felt-latency histograms (`cmux-felt`): names and numbers only, but this machine's
         // own clients only, like the perf watch beside it.

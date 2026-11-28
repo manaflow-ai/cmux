@@ -167,25 +167,21 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             "acpmux daemon history-offload --dry-run",
         )],
     ),
-    (
-        "daemon transcript-offload",
-        &[
-            (
-                "List the transcripts a pass would copy to cloud history",
-                "acpmux daemon transcript-offload --dry-run",
-            ),
-            (
-                "Bring back every transcript a pass removed",
-                "acpmux daemon transcript-offload --restore-all",
-            ),
-        ],
-    ),
     ("daemon schema", &[("Print the RPC schema as JSON", "acpmux daemon schema")]),
     (
         "daemon models",
         &[
             ("List the model ids each harness offers", "acpmux daemon models"),
             ("Probe every harness for its models again", "acpmux daemon models --refresh"),
+        ],
+    ),
+    (
+        "daemon heap-dump",
+        &[
+            ("Start sampling the heap, one sample per 512 KiB", "acpmux daemon heap-dump --start"),
+            ("The stacks holding the most bytes now", "acpmux daemon heap-dump --top 30"),
+            ("The profile as JSON", "acpmux --json daemon heap-dump"),
+            ("Stop sampling", "acpmux daemon heap-dump --stop"),
         ],
     ),
     (
