@@ -5,43 +5,9 @@ import type { CSSProperties } from "react";
 import { AgentMark } from "../../shared/AgentMark";
 import { CommandGlyph } from "../icons/CommandGlyph";
 import { Icon } from "../icons/Icon";
-import type { TabKind } from "../newTabModel";
+import { NAMES, type GlyphKind } from "./rowGlyphNames";
 import { useFaviconInk } from "./faviconInk";
-import type { ClosedItem } from "./recentlyClosed";
 import type { ScreenRow } from "./screenModel";
-
-type GlyphKind = ScreenRow["type"] | TabKind | ClosedItem["kind"];
-
-const NAMES: Record<GlyphKind, string> = {
-  // A suggestion row's type.
-  tab: "omnibar.switchtab",
-  history: "history",
-  open: "link.open.newtab",
-  search: "search",
-  ask: "agent.chat",
-  action: "composer.command",
-  create: "action.add",
-  inProfile: "browser.toolbar.profile",
-  profile: "browserprofile.badge",
-  newProfile: "action.add",
-  launch: "folder",
-  run: "terminal",
-  resume: "action.resume",
-  // A tab's or closed item's kind.
-  terminal: "terminal",
-  browser: "browser",
-  agent: "agent.chat",
-  screen: "tunable.panes",
-  workspace: "workspace",
-};
-
-/// The cmux pack icon a suggestion row draws (a create row's by its kind), for Send's glyph when
-/// Return takes that row.
-export function rowGlyphName(row: ScreenRow): string {
-  if (row.type === "create") return NAMES[row.kind === "chat" ? "agent" : row.kind];
-  if (row.type === "action") return NAMES.action;
-  return NAMES[row.type];
-}
 
 /// `src` as a CSS `url()` that loads what `<img src>` loads: tabs and line breaks dropped, as the URL parser drops
 /// them, and a quote or backslash percent-encoded (a data URL decodes them back), so it stays one CSS token.

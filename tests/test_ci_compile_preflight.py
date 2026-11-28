@@ -405,6 +405,12 @@ class SharedWebArtifact(unittest.TestCase):
         self.assertNotIn("ref", checkouts[0]["with"])
         self.assertEqual(checkouts[1]["with"]["path"], "web-source")
         self.assertEqual(checkouts[1]["with"]["ref"], "${{ inputs.source_ref }}")
+        self.assertIn("inputs.source_ref != github.sha", checkouts[1]["if"])
+        worktree = next(step for step in steps if step.get("name", "").startswith("The requested bundle source is the root checkout"))
+        self.assertIn("inputs.source_ref == github.sha", worktree["if"])
+        self.assertIn('git worktree add --force --detach web-source "$SOURCE_REF"', worktree["run"])
+        names = [step.get("name") for step in steps]
+        self.assertLess(names.index(worktree["name"]), names.index("Merge the head onto the live base"))
         build = next(step for step in steps if step.get("name") == "Build the web bundles (the build NIGHTLY runs)")
         self.assertIn('scripts/ci/compile_preflight.py web-build "$WEB_SOURCE_ROOT"', build["run"])
 
