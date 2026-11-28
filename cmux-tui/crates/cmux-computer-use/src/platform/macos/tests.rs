@@ -3527,3 +3527,72 @@ fn no_app_no_cursor_and_the_work_still_runs() {
     let sink = crate::platform::cursor_overlay();
     sink.show(crate::cursor::CursorEvent::Hide { session: "s".into() });
 }
+
+/// TextEdit's Format item reads "Make Rich Text" before validation and "Make
+/// Plain Text" once the window is key (the cu-suite textedit-plain-text
+/// trials): a retitle to a title that names no app is pressed, on the chord
+/// path and the click path, with the default deny list; a retitle onto a
+/// denied app's name, or an unreadable title, stays refused.
+#[test]
+fn a_menu_item_retitled_to_a_plain_title_is_pressed_a_denied_one_is_not() {
+    let guard = PolicyGuard(crate::policy::PolicyConfig::default());
+    assert!(guard.denies_any());
+    // Format menu, depth 1: not a launch list.
+    let check = |title: &str| {
+        let ctx = roles::MenuItemContext {
+            title,
+            top_index: Some(4),
+            depth: 1,
+            siblings: &[],
+            launch: None,
+        };
+        roles::menu_item_check(&guard, &ctx, &resolve)
+    };
+    let m0 = roles::ShortcutMatch {
+        title: "Make Rich Text".into(),
+        enabled: false,
+        blocked: false,
+        checked: true,
+        unknown: false,
+        unplaced: false,
+    };
+    // Chord path.
+    let m = roles::retitled_match(&m0, Some("Make Plain Text"), check);
+    assert!(!m.blocked && m.title == "Make Plain Text" && !m.unplaced && !m.unknown);
+    let same = roles::retitled_match(&m0, Some("Make Rich Text"), |_| unreachable!());
+    assert_eq!(same, m0);
+    let denied = roles::retitled_match(&m0, Some("Keychain Access"), check);
+    assert!(denied.blocked && !denied.unplaced && denied.title == "Keychain Access");
+    let unreadable = roles::retitled_match(&m0, None, |_| unreachable!());
+    assert!(unreadable.blocked && unreadable.unplaced);
+    // A retitle never unblocks.
+    let was_blocked = roles::ShortcutMatch { blocked: true, ..m0.clone() };
+    assert!(roles::retitled_match(&was_blocked, Some("Make Plain Text"), check).blocked);
+    // Names still loading keep their own refusal.
+    let loading = roles::retitled_match(&m0, Some("Ghost"), |_| roles::ItemCheck::Unknown);
+    assert!(loading.blocked && loading.unknown);
+    // The chord rule presses the retitled, enabled item.
+    let enabled = roles::ShortcutMatch { enabled: true, ..m };
+    assert!(!roles::needs_menu_validation(&[enabled]));
+
+    // Click path.
+    assert_eq!(
+        roles::same_or_allowed(Some("Make Rich Text"), Some("Make Plain Text"), check),
+        Ok(())
+    );
+    assert_eq!(roles::same_or_allowed(Some("Save"), Some("Save"), |_| unreachable!()), Ok(()));
+    assert_eq!(
+        roles::same_or_allowed(Some("Make Rich Text"), Some("Keychain Access"), check),
+        Err(roles::REFUSE_RETITLED_BLOCKED)
+    );
+    assert_eq!(
+        roles::same_or_allowed(Some("A"), Some("B"), |_| roles::ItemCheck::Unplaced),
+        Err(crate::menus::UNREADABLE_ITEM_REFUSAL)
+    );
+    assert_eq!(
+        roles::same_or_allowed(Some("A"), Some("B"), |_| roles::ItemCheck::Unknown),
+        Err(crate::menus::APP_NAMES_LOADING)
+    );
+    assert!(roles::same_or_allowed(Some("Save"), None, |_| unreachable!()).is_err());
+    assert!(roles::same_or_allowed(None, Some("Save"), |_| unreachable!()).is_err());
+}
