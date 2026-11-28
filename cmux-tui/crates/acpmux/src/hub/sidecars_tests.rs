@@ -1,211 +1,184 @@
 use super::*;
 use serde_json::json;
 
-const A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-const B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-const C: &str = "cccccccccccccccccccccccccccccccccccccccc";
-
-fn call(key: &str, id: &str, kind: &str, command: Option<&str>) {
-    let mut update =
-        json!({"sessionUpdate": "tool_call", "toolCallId": id, "kind": kind, "title": kind});
-    if let Some(c) = command {
-        update["rawInput"] = json!({"command": c});
-    }
-    note_tool(key, &update);
+fn bash(id: &str, cmd: &str) -> Value {
+    json!({"sessionUpdate": "tool_call", "toolCallId": id, "kind": "execute",
+           "rawInput": {"command": cmd}})
 }
 
-fn reads(key: &str, n: usize) {
-    for i in 0..n {
-        call(key, &format!("r{i}"), "read", None);
+fn edit(id: &str) -> Value {
+    json!({"sessionUpdate": "tool_call", "toolCallId": id, "kind": "edit",
+           "rawInput": {"file_path": "/x/a.rs", "old_string": "a", "new_string": "b"},
+           "locations": [{"path": "/x/a.rs"}]})
+}
+
+#[test]
+fn normalize_blanks_numbers_and_spaces() {
+    assert_eq!(normalize("gh  pr checks 58319"), normalize("gh pr checks 58320"));
+    assert_eq!(normalize("sleep 30"), "sleep #");
+    assert!(normalize(&"x".repeat(900)).len() <= MAX_KEY);
+}
+
+#[test]
+fn three_same_status_checks_fire_once() {
+    let mut r = Rules::default();
+    assert!(r.observe("t", &bash("1", "gh pr checks 1")).is_none());
+    assert!(r.observe("t", &bash("2", "gh pr checks 1")).is_none());
+    let text = r.observe("t", &bash("3", "gh  pr checks 1")).unwrap();
+    assert!(text.starts_with("[sidecar] polling: `gh pr checks 1` ran 3 times"));
+    assert!(r.observe("t", &bash("4", "gh pr checks 1")).is_none(), "once per turn");
+}
+
+#[test]
+fn an_update_of_a_seen_call_is_not_a_new_run() {
+    let mut r = Rules::default();
+    for _ in 0..5 {
+        assert!(r.observe("t", &bash("1", "git fetch origin")).is_none());
     }
 }
 
-fn end(key: &str, head: &str, draft: &str, pushed: Option<bool>) -> (Vec<Fired>, Value) {
-    let mut msg = json!({});
-    let e = End {
-        completed: true,
-        head: Some(head),
-        branch: Some("lane/x"),
-        initial_head: Some(A),
-        head_pushed: pushed,
-        draft,
+#[test]
+fn an_edit_between_resets_the_count() {
+    let mut r = Rules::default();
+    r.observe("t", &bash("1", "cargo check; git status"));
+    r.observe("t", &bash("2", "cargo check; git status"));
+    assert!(r.observe("t", &edit("e")).is_none());
+    assert!(r.observe("t", &bash("3", "cargo check; git status")).is_none());
+}
+
+#[test]
+fn the_same_sleep_poll_fires_but_different_sleeps_do_not() {
+    let mut r = Rules::default();
+    r.observe("t", &bash("1", "sleep 30; gh run view 9"));
+    r.observe("t", &bash("2", "sleep 60; curl -s localhost:8080/health"));
+    assert!(r.observe("t", &bash("3", "sleep 10; git push origin HEAD")).is_none());
+    r.observe("t", &bash("4", "sleep 30; gh run view 9"));
+    assert!(r.observe("t", &bash("5", "sleep 45; gh run view 10")).is_some());
+}
+
+#[test]
+fn a_shared_waiter_is_the_fix_not_a_poll() {
+    let mut r = Rules::default();
+    for i in 0..5 {
+        let cmd = "glaeda-gh wait run o/r/1 --timeout 900";
+        assert!(r.observe("t", &bash(&i.to_string(), cmd)).is_none());
+    }
+}
+
+#[test]
+fn a_background_task_command_counts_too() {
+    let mut r = Rules::default();
+    let bg = |id: &str| {
+        json!({"sessionUpdate": "tool_call", "toolCallId": id,
+        "title": "mcp__acpmux__bg_start", "rawInput": {"command": "sleep 480; gh api repos/o/r/actions/runs"}})
     };
-    let fired = end_with(key, &e, &mut msg);
-    (fired, msg)
-}
-
-fn rules(fired: &[Fired]) -> Vec<&'static str> {
-    fired.iter().map(|f| f.rule).collect()
+    r.observe("t", &bg("1"));
+    r.observe("t", &bg("2"));
+    assert!(r.observe("t", &bg("3")).is_some());
 }
 
 #[test]
-fn three_read_only_turns_spin_once_until_a_change() {
-    let k = "sc-spin";
-    for turn in 1..=SPIN_TURNS {
-        reads(k, SPIN_MIN_TOOLS as usize);
-        let (fired, msg) = end(k, A, "looking", None);
-        assert_eq!(msg["harnessMagic"]["sidecars"]["observed"], 1);
-        assert_eq!(rules(&fired), if turn == SPIN_TURNS { vec!["spin"] } else { vec![] });
-    }
-    // Said once, at the next prompt, and counted on that turn's result.
-    let said = start_with(k).unwrap();
-    assert!(said.starts_with("[sidecar spin] Your last 3 turns ran 12 tool calls"), "{said}");
-    assert_eq!(start_with(k), None);
-    // A fourth spinning turn says nothing again.
-    reads(k, SPIN_MIN_TOOLS as usize);
-    let (fired, msg) = end(k, A, "", None);
-    assert!(fired.is_empty());
-    assert_eq!(msg["harnessMagic"]["sidecars"]["said"], 1);
-    // An edit resets it: three more read-only turns fire again.
-    call(k, "e", "edit", None);
-    assert!(end(k, A, "", None).0.is_empty());
-    for _ in 1..SPIN_TURNS {
-        reads(k, SPIN_MIN_TOOLS as usize);
-        assert!(end(k, A, "", None).0.is_empty());
-    }
-    reads(k, SPIN_MIN_TOOLS as usize);
-    assert_eq!(rules(&end(k, A, "", None).0), vec!["spin"]);
-}
-
-#[test]
-fn a_moved_head_a_writing_command_or_a_short_turn_is_no_spin() {
-    let k = "sc-nospin";
-    // A commit between turns is a change.
-    for head in [A, B, C] {
-        reads(k, 5);
-        assert!(end(k, head, "", None).0.is_empty());
-    }
-    // A command the allowlist does not pass may write.
-    for _ in 0..SPIN_TURNS {
-        reads(k, 4);
-        call(k, "w", "execute", Some("cargo test -p acpmux"));
-        assert!(end(k, C, "", None).0.is_empty());
-    }
-    // Short turns neither count nor break: two long turns, a short one, then a third long one.
-    let k = "sc-short";
-    for (n, fires) in [(5, false), (5, false), (1, false), (5, true)] {
-        reads(k, n);
-        assert_eq!(!end(k, A, "", None).0.is_empty(), fires, "{n}");
+fn work_commands_never_fire() {
+    let mut r = Rules::default();
+    for i in 0..10 {
+        assert!(r.observe("t", &bash(&i.to_string(), "cargo test -p acpmux")).is_none());
     }
 }
 
 #[test]
-fn a_read_only_command_reads_and_a_command_that_arrives_late_is_classified() {
-    let k = "sc-late";
-    let mut last = Vec::new();
-    for _ in 0..SPIN_TURNS {
-        call(k, "g", "execute", Some("git status"));
-        call(k, "rg", "execute", Some("rg foo src"));
-        note_tool(
-            k,
-            &json!({"sessionUpdate": "tool_call", "toolCallId": "late", "kind": "execute"}),
-        );
-        note_tool(
-            k,
-            &json!({"sessionUpdate": "tool_call_update", "toolCallId": "late",
-                "rawInput": {"command": "ls -la"}}),
-        );
-        call(k, "s", "search", None);
-        last = end(k, A, "", None).0;
-    }
-    assert_eq!(rules(&last), vec!["spin"]);
+fn a_new_turn_starts_clean() {
+    let mut r = Rules::default();
+    r.observe("t1", &bash("1", "gh pr checks 1"));
+    r.observe("t1", &bash("2", "gh pr checks 1"));
+    assert!(r.observe("t2", &bash("3", "gh pr checks 1")).is_none());
 }
 
 #[test]
-fn done_on_an_unpushed_commit_steers_once_per_head() {
-    let k = "sc-unpushed";
-    call(k, "e", "edit", None);
-    let (fired, msg) = end(k, B, "All done: the fix is in.", Some(false));
-    assert_eq!(rules(&fired), vec!["unpushed"]);
-    assert_eq!(msg["harnessMagic"]["sidecars"]["unpushedFired"], 1);
-    assert!(fired[0].text.contains("commit bbbbbbbbbbbb"), "{}", fired[0].text);
-    assert!(start_with(k).unwrap().starts_with("[sidecar unpushed] "));
-    // The same HEAD again: said already.
-    assert!(end(k, B, "Done.", Some(false)).0.is_empty());
-    // A new commit, still unpushed: once more.
-    assert_eq!(rules(&end(k, C, "Done.", Some(false)).0), vec!["unpushed"]);
+fn stamp_puts_counters_only_after_a_fire() {
+    let id = "sidecar-test-session";
+    let mut msg = json!({});
+    stamp(id, &mut msg);
+    assert!(msg.get("harnessMagic").is_none());
+    with(id, |r| {
+        for i in 0..3 {
+            r.observe("t", &bash(&i.to_string(), "gh pr checks 7"));
+        }
+        r.polling += 1;
+    });
+    stamp(id, &mut msg);
+    assert_eq!(msg["harnessMagic"]["sidecars"], json!({"polling": 1, "steered": 0}));
+    forget(id);
 }
 
 #[test]
-fn no_unpushed_steer_when_pushed_unclaimed_unchanged_or_unread() {
-    let k = "sc-pushed";
-    // HEAD is a remote tip.
-    assert!(end(k, B, "Done.", Some(true)).0.is_empty());
-    // The reply does not say done, or hedges it.
-    assert!(end(k, C, "Still working on the tests.", Some(false)).0.is_empty());
-    assert!(end(k, C, "It is not done yet.", Some(false)).0.is_empty());
-    assert!(end(k, C, "I'll push once it's done.", Some(false)).0.is_empty());
-    // The session's own starting HEAD.
-    assert!(end(k, A, "Done.", Some(false)).0.is_empty());
-    // Not read (feature off at the turn's end, or no git): fails open.
-    assert!(end(k, C, "Done.", None).0.is_empty());
-    // A push call ran at this HEAD (a broker push leaves no remote-tracking ref).
-    let k = "sc-pushcall";
-    call(k, "p", "execute", Some("git push -u origin HEAD:lane/x"));
-    assert!(end(k, B, "Done, pushed.", Some(false)).0.is_empty());
+fn off_by_default() {
+    let none = |_: &str| None;
+    assert!(!super::super::harness_magic::enabled_in(FEATURE, None, &none));
+    let on = json!({"agents": {"harnessMagic": {"sidecars": {"enabled": true}}}});
+    assert!(super::super::harness_magic::enabled_in(FEATURE, Some(&on), &none));
+    let kill = |k: &str| (k == "ACPMUX_HM_SIDECARS").then(|| "0".to_owned());
+    assert!(!super::super::harness_magic::enabled_in(FEATURE, Some(&on), &kill));
 }
 
 #[test]
-fn claims_done_reads_claims_not_plans() {
-    for yes in
-        ["Done.", "All set, PR #12 is open.", "Implemented and pushed.", "The task is complete"]
-    {
-        assert!(claims_done(yes), "{yes}");
-    }
-    for no in
-        ["Not done yet.", "It isn't finished.", "I will be done soon", "Running the tests now."]
-    {
-        assert!(!claims_done(no), "{no}");
-    }
+fn the_wait_pattern_compiles() {
+    assert!(super::WAIT_SHAPED.is_some());
 }
 
-#[test]
-fn pushes_and_edits_classify() {
-    let c = |v: Value| classify(&v);
-    assert_eq!(
-        c(json!({"kind": "execute", "rawInput": {"command": "git -C x push origin y"}})),
-        Class::Push
-    );
-    assert_eq!(c(json!({"kind": "other", "title": "mcp__github__push"})), Class::Push);
-    assert_eq!(
-        c(
-            json!({"kind": "execute", "rawInput": {"command": ["bash", "-lc", "gh pr create -t x"]}})
-        ),
-        Class::Push
-    );
-    assert_eq!(c(json!({"kind": "edit", "title": "Edit"})), Class::Change);
-    assert_eq!(c(json!({"kind": "other", "title": "TodoWrite"})), Class::Change);
-    assert_eq!(c(json!({"kind": "read", "title": "Read"})), Class::Read);
-    assert_eq!(
-        c(json!({"kind": "execute", "rawInput": {"command": ["bash", "-lc", "git log -3"]}})),
-        Class::Read
-    );
-    assert_eq!(c(json!({"kind": "execute"})), Class::Pending);
+fn stall_hub() -> Arc<Hub> {
+    let mut cfg: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    Hub::new(cfg, Box::new(crate::store::MemoryStore::default()))
 }
 
-#[test]
-fn a_remote_tip_is_read_from_loose_and_packed_refs() {
-    let dir = tempfile::tempdir().unwrap();
-    let git = dir.path().join(".git");
-    std::fs::create_dir_all(git.join("refs/remotes/origin/lane")).unwrap();
-    std::fs::create_dir_all(git.join("refs/heads")).unwrap();
-    std::fs::write(git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
-    std::fs::write(git.join("refs/remotes/origin/lane/x"), format!("{B}\n")).unwrap();
-    std::fs::write(
-        git.join("packed-refs"),
-        format!("{C} refs/remotes/origin/main\n{A} refs/heads/main\n"),
+fn stall_session(hub: &Hub, id: &str) -> Arc<Session> {
+    hub.insert_test_session(
+        serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": id, "harness": "claude",
+            "family": "claude", "cwd": "/tmp", "status": "waiting", "createdAt": 1, "updatedAt": 1,
+        }))
+        .unwrap(),
     )
-    .unwrap();
-    let tip = |h: &str| crate::git_state::is_remote_tip(dir.path(), h);
-    assert_eq!(tip(B), Some(true));
-    assert_eq!(tip(C), Some(true));
-    // A local branch's commit is not a remote tip.
-    assert_eq!(tip(A), Some(false));
-    assert_eq!(crate::git_state::is_remote_tip(&dir.path().join("nope"), B), None);
+}
+
+fn hold(session: &Session, id: &str, request: Value) -> tokio::sync::oneshot::Receiver<Value> {
+    let (reply, rx) = tokio::sync::oneshot::channel();
+    session.permissions.lock().unwrap().pending.insert(
+        id.to_owned(),
+        PendingPermission {
+            request,
+            reply,
+            decision_nonce: super::super::person::new_nonce(),
+            ancestor_may_answer: false,
+            prev_status: SessionStatus::Ready,
+            agent_request: None,
+            agent_host_incarnation: None,
+        },
+    );
+    rx
+}
+
+#[tokio::test]
+async fn a_stall_is_raised_only_for_an_ask_still_waiting() {
+    let hub = stall_hub();
+    let s = stall_session(&hub, "stall-1");
+    let request = json!({"toolCall": {"title": "Run tests", "kind": "execute"}});
+    let _rx = hold(&s, "p1", request.clone());
+    let rec = stall_record(&s, "p1", STALL).unwrap();
+    assert_eq!(rec, json!({"permissionId": "p1", "request": request, "waitedS": 600}));
+    assert!(stall_record(&s, "p2", STALL).is_none(), "another ask");
+    s.permissions.lock().unwrap().pending.remove("p1");
+    assert!(stall_record(&s, "p1", STALL).is_none(), "answered before the bound");
 }
 
 #[test]
-fn the_feature_is_listed_with_its_switches() {
-    assert!(super::super::harness_magic::FEATURES.iter().any(|f| f.name == FEATURE));
-    assert_eq!(super::super::harness_magic::env_key(FEATURE), "ACPMUX_HM_SIDECARS");
+fn stamp_counts_stalls_without_polling() {
+    let id = "sidecar-stall-stamp";
+    with(id, |r| r.stalls += 1);
+    // A new turn's first tool call keeps the stall counted for the turn that waited.
+    with(id, |r| r.observe("t2", &bash("1", "ls")));
+    let mut msg = json!({});
+    stamp(id, &mut msg);
+    assert_eq!(msg["harnessMagic"]["sidecars"], json!({"permissionStalls": 1}));
+    forget(id);
 }

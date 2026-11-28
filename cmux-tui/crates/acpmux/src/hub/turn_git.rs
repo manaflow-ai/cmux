@@ -24,7 +24,7 @@ pub(super) async fn turn_git(session: &Session) -> Map<String, Value> {
     let (cwd, initial) = session.read_meta(|m| (m.cwd.clone(), m.git_head.clone()));
     // Whether HEAD is on a remote, for the unpushed sidecar rule: read only for a reply that
     // says done, and only for a HEAD this session moved (`sidecars.rs`).
-    let check_push = super::sidecars::wants_push_check(session);
+    let check_push = super::sidecars_turn::wants_push_check(session);
     let read = tokio::task::spawn_blocking(move || {
         let git = GitState::read(&cwd);
         let worktree = super::worktree_care::revive::origin_of(&cwd, &git);
@@ -89,11 +89,14 @@ impl Hub {
         // turn's end (goal sessions-2000-attached).
         msg.set("pendingPermissions", json!(session.pending_permission_count()));
         // Which harness-magic features ran this turn, for the scorecard's like-with-like split.
+        super::sidecars::stamp(&session.id, &mut msg);
         super::harness_magic::stamp(&mut msg);
         super::turn_checkpoint::count(&mut msg);
         self.cache_alarm(session, &mut msg);
         self.turn_rules_end(session, &mut msg);
         self.sidecars_end(session, &mut msg);
+        // The turn's edits, tests and PRs as one card (`turn_artifacts.rs`).
+        super::turn_artifacts::stamp(&session.id, &mut msg);
         self.record_last_turn(session, &msg);
         // The chat's page after the turn (`turn_shots.rs`), taken once the result is written.
         let turn = msg.get("turnId").and_then(Value::as_str).map(str::to_owned);

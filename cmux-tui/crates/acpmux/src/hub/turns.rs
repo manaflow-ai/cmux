@@ -648,6 +648,12 @@ impl Hub {
         // drain). Checked again as the steer is written (`steer_end.rs`).
         let prompt_held =
             from_agent && running.is_some() && super::inbox::persons_prompt_waits(session);
+        // Nor before a Codex turn's model answered its prompt: codex-acp takes that steer as a new
+        // prompt and cancels the running one (`inbox_admit.rs` `codex_unanswered`). It queues
+        // behind the turn; the person's own steer still goes in.
+        let codex_held = from_agent
+            && running.is_some()
+            && session.read_meta(|m| super::inbox::codex_unanswered(session, m));
         // Other agents wait until the person's own turn ends; family replies, and the reports
         // of the chat's own lanes (`lane_reports.rs`), still enter it.
         let persons_held = from_agent
@@ -675,6 +681,7 @@ impl Hub {
             && !notice_held
             && !review_held
             && !prompt_held
+            && !codex_held
             && !persons_held;
         if steer && opts.steer_only && !steer_now {
             if review_held && running.is_some() {
@@ -905,6 +912,22 @@ impl Hub {
         if !no_queue {
             self.hold_retry_start(session, &prompt_id).await;
         }
+        if (session.read_meta(super::credentials::claude_login_needs_restart)
+            || (session.route_switch.load(Ordering::SeqCst) && self.route_child_is_idle(session)))
+            && let Err(e) = Box::pin(self.restart_on_route(session)).await
+        {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
+        if let Err(e) = Box::pin(self.refresh_disconnected_subscription_before_turn(session)).await
+        {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
+        self.refresh_local_chatgpt_between_turns(session).await;
+        self.refresh_local_kimi_between_turns(session).await;
         if session.cancels.load(Ordering::SeqCst) != cancels {
             // A continuation or retry of a cut turn is refused as one Stop overtook
             // (`auto_resume.stopped`): its callers answer `retry.stopped` and record the skip.
@@ -1210,11 +1233,15 @@ impl Hub {
         // Only this turn's start resumes the cut turn, never a later one.
         session.resume_cut_ask.store(false, Ordering::SeqCst);
         let started = match started {
-            Ok(child) => session
-                .meta()
-                .agent_session_id
-                .map(|sid| (child, sid))
-                .ok_or_else(|| RpcError::internal("no agent session")),
+            Ok(child) => match Box::pin(self.check_local_subscription_child(session, &child)).await
+            {
+                Ok(()) => session
+                    .meta()
+                    .agent_session_id
+                    .map(|sid| (child, sid))
+                    .ok_or_else(|| RpcError::internal("no agent session")),
+                Err(e) => Err(e),
+            },
             Err(e) => Err(e),
         };
         let (mut child, agent_sid) = match started {
@@ -1612,7 +1639,12 @@ impl Hub {
                 }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
-                let fallback = Box::pin(self.child_for_since(session, stops)).await;
+                let fallback = match Box::pin(self.child_for_since(session, stops)).await {
+                    Ok(child) => Box::pin(self.check_local_subscription_child(session, &child))
+                        .await
+                        .map(|()| child),
+                    Err(e) => Err(e),
+                };
                 let refusal = match &fallback {
                     Ok(_) => match self
                         .check_dispatch(

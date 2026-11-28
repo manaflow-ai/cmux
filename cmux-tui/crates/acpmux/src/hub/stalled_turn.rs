@@ -48,6 +48,14 @@ const OPEN_TOOL_PERIODS: u64 = 4;
 /// forever.
 const HELD_PERIODS: u64 = 4;
 
+/// The longest period of a chat whose stop condition's goal is still open
+/// (`stop_condition::goal_open`): its owner is waiting for the result, and its turn goes on by
+/// itself once ended (`auto_resume.rs`), so a model that died mid-turn costs 20 minutes, not
+/// `stalledTurnEndMs` (acp-chief-issues 2026-11-27 08:25: a Codex chat read `running` for 4.5 h
+/// after its model went quiet behind a completed tool call). Four times that inside a tool call
+/// that has not ended, as for any turn.
+pub(super) const GOAL_PERIOD: std::time::Duration = std::time::Duration::from_secs(20 * 60);
+
 /// Who holds a running turn past its stalled deadline.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Hold {
@@ -202,6 +210,9 @@ impl Hub {
             self.reset_claim_runs(session);
         }
         session.heard_at.store(at, Ordering::Relaxed);
+        // The model has not answered this prompt until its next sign (`inbox_admit.rs`
+        // `codex_unanswered`).
+        session.prompt_heard.store(session.heard.load(Ordering::SeqCst), Ordering::SeqCst);
         session.stalled_recheck.store(0, Ordering::Relaxed);
         *session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()) =
             session.turn().map(|t| t.turn_id);
@@ -246,8 +257,13 @@ impl Hub {
     }
 
     /// `session`'s own period: `OPEN_TOOL_PERIODS` of `period` inside a tool call that has not
-    /// ended, else `period`.
+    /// ended, else `period`; `period` is at most [`GOAL_PERIOD`] for a chat whose goal is open.
     fn own_period(session: &Session, period: u64) -> u64 {
+        let period = if session.read_meta(super::stop_condition::goal_open) {
+            period.min(u64::try_from(GOAL_PERIOD.as_nanos()).unwrap_or(u64::MAX))
+        } else {
+            period
+        };
         let in_tool = !session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
         if in_tool { period.saturating_mul(OPEN_TOOL_PERIODS) } else { period }
     }
@@ -338,6 +354,11 @@ impl Hub {
         {
             return Some(Hold::Person);
         }
+        // A chat whose goal is open goes on by itself once its turn ends (`auto_resume.rs`): a
+        // viewer or a busy owner (a Chief waiting for its result) is no reason to wait.
+        if session.read_meta(super::stop_condition::goal_open) {
+            return None;
+        }
         let shown = session.attached.load(Ordering::SeqCst) > session.hidden.load(Ordering::SeqCst);
         (shown || self.owner_busy(session)).then_some(Hold::Watched)
     }
@@ -358,16 +379,22 @@ impl Hub {
         owner.is_some_and(|o| matches!(o.status(), SessionStatus::Running | SessionStatus::Waiting))
     }
 
+    /// Whether `error` is the one a stalled turn failed with ([`Hub::stalled_error`]).
+    pub(super) fn is_stalled_error(error: &str) -> bool {
+        error.contains(STALLED_MARK)
+    }
+
     /// The error a stalled turn fails with (`finish_turn`), from its forced answer.
     pub(super) fn stalled_error(answer: &Value) -> Option<RpcError> {
         let ms = answer.pointer("/_meta/acpmux/stalledMs").and_then(Value::as_u64)?;
-        let text = format!(
-            "the agent showed no sign of work for {}; acpmux ended the turn (stalledTurnEndMs)",
-            quiet_for(ms)
-        );
+        let text =
+            format!("the agent showed no sign of work for {}; {STALLED_MARK}", quiet_for(ms));
         Some(RpcError::new(-32000, text).with_data(json!({"detail": "stalled", "stalledMs": ms})))
     }
 }
+
+/// The end of a stalled turn's error text ([`Hub::is_stalled_error`]).
+const STALLED_MARK: &str = "acpmux ended the turn (stalledTurnEndMs)";
 
 /// `ms` as a person says it: `6h 0m`, `12m`, `40s`.
 fn quiet_for(ms: u64) -> String {
@@ -382,3 +409,7 @@ fn quiet_for(ms: u64) -> String {
 #[cfg(test)]
 #[path = "stalled_turn_loop_episode_tests.rs"]
 mod loop_episode_tests;
+
+#[cfg(test)]
+#[path = "stalled_turn_goal_tests.rs"]
+mod goal_tests;

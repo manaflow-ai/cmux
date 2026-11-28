@@ -125,7 +125,11 @@ class SupersededGateTest(unittest.TestCase):
             # supersede-feat-runs is a gate of the same kind for feat-cmux-next pushes: it runs beside the
             # preflight on the one-minute control pool and only cancels older never-started runs
             # (tests/test_cmux_tui_feat_latest_wins.py). coalesce (base-coalesce.yml) is the other upfront gate.
-            if name in ("push-gate", "coalesce", "tree-preflight", "reject-untrusted-pin-ref", "supersede-feat-runs"):
+            # keep-feat-channel (#62425) is independent of coalesce on purpose: it advances the feat-cmux-next channel to
+            # an earlier run's tested tree while this window's publisher still builds; its concurrency group keeps
+            # one job running and one pending.
+            if name in ("push-gate", "coalesce", "tree-preflight", "reject-untrusted-pin-ref", "supersede-feat-runs",
+                        "keep-feat-channel"):
                 continue
             with self.subTest(job=name):
                 self.assertIn("needs", job, f"{name} would start beside the gate and take a runner")
