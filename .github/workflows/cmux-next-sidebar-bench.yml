@@ -26,7 +26,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-sidebar-bench-${{ github.event.pull_request.number || github.ref }}
+  group: cmux-next-sidebar-bench-${{ github.event.pull_request.number || github.ref }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
