@@ -359,8 +359,9 @@ fi
 # handoff through the fleet controller's shots form: the controller's MODE list (hq
 # build-fleet/cmd/controller/ios_next_sim_step.go iosNextSimModes) does not name handoff yet, and
 # shots takes name=WORDS scenes, so `shots handoff=TAG` (exactly that one scene) is handoff tag=TAG.
-if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == handoff=* ]]; then
-  set -- handoff "tag=${2#handoff=}"
+# `shots handoff=TAG nightly=BUILD` is handoff tag=TAG nightly=BUILD (the NIGHTLY attach, below).
+if [[ "$mode" == shots && ( $# -eq 2 || ( $# -eq 3 && "${3:-}" == nightly=* ) ) && "${2:-}" == handoff=* ]]; then
+  set -- handoff "tag=${2#handoff=}" ${3:+"$3"}
   mode=handoff
 fi
 # theme-relaunch through the shots form too (shots theme-relaunch=N), until the controller lists it.
@@ -420,10 +421,19 @@ if [[ "$mode" == theme-relaunch ]]; then
     { echo "cmux-next-ios-sim.sh: theme-relaunch wants a count of 1-20, got '$theme_relaunches'" >&2; exit 2; }
 fi
 # handoff's one argument: the task tag (already a slug: lowercase letters, digits, dashes).
-handoff_tag=""
+# With nightly=BUILD (latest or a NIGHTLY build number) it is the NIGHTLY attach instead: the untagged cmux
+# Dev app (dev.cmux.mobile.dev, the default build space a published NIGHTLY Mac is in, as try mode's) on the
+# simulator, signed in from the step's session, attached to a side copy of that NIGHTLY's terminal on this
+# Mac, both screens recorded (scripts/ci/cmux_next_nightly_attach.py). Leo, 2026-11-28 (ask-ef11d55db3):
+# "can't connect to cosmic-gray (NIGHTLY) on my connected iphone". Send it with
+#   cmux-ci run --class simulator --label gui-session-v1 --sign-in agent --script scripts/ci/cmux-next-ios-sim.sh \
+#     --arg=shots --arg=handoff=TAG --arg=nightly=latest
+handoff_tag="" handoff_nightly=""
 if [[ "$mode" == handoff ]]; then
-  [[ $# -eq 2 && "${2:-}" == tag=* ]] || { echo "cmux-next-ios-sim.sh: handoff takes one argument, tag=TAG" >&2; exit 2; }
+  [[ ( $# -eq 2 || ( $# -eq 3 && "${3:-}" =~ ^nightly=(latest|[0-9]{1,16})$ ) ) && "${2:-}" == tag=* ]] ||
+    { echo "cmux-next-ios-sim.sh: handoff takes tag=TAG and optionally nightly=latest|BUILD" >&2; exit 2; }
   handoff_tag="${2#tag=}"
+  [[ $# -eq 3 ]] && handoff_nightly="${3#nightly=}"
   # The one tag rule of every build entry point (reload.sh, review.sh): a canonical tag (its own slug, so
   # no two spellings share the space dev:<tag>), and none of the reserved ones: default, dev (the cmux Dev
   # app, try mode, which shows the person's real data), demo and prod (demo-build.sh's installs).
@@ -1103,7 +1113,10 @@ if [[ "$mode" == release-build ]]; then
   build_settings=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO)
 fi
 build_settings+=(${family_settings[@]+"${family_settings[@]}"})
-if [[ "$mode" == handoff ]]; then
+if [[ "$mode" == handoff && -n "$handoff_nightly" ]]; then
+  # The NIGHTLY attach: the cmux Dev app (try mode's settings), no dev tag, so no build space.
+  build_settings+=("CMUX_MOBILE_TAG=.dev" "CMUX_MOBILE_DISPLAY_NAME=cmux Dev" "CMUX_MOBILE_SOURCE_COMMIT=$(git rev-parse HEAD)")
+elif [[ "$mode" == handoff ]]; then
   # The task's own install beside every other build: its bundle id, home-screen name and commit, and
   # its tag's cloud data space (Info.plist CmuxMobileDevTag, `X-Cmux-Build-Space: dev:<tag>`), the space
   # its same-tag Mac app's hostd registers in. project.yml sets CMUX_MOBILE_DEV_TAG only for Debug: a
@@ -1209,7 +1222,10 @@ note "- build: $((SECONDS - t0)) s (FFI + xcodegen + Demo simulator app), bundle
 
 # --- handoff: the device app ------------------------------------------------
 device_app=""
-if [[ "$mode" == handoff ]]; then
+if [[ "$mode" == handoff && -n "$handoff_nightly" ]]; then
+  [[ "$bundle_id" == dev.cmux.mobile.dev ]] ||
+    { echo "error: the simulator app is $bundle_id, not dev.cmux.mobile.dev" >&2; exit 1; }
+elif [[ "$mode" == handoff ]]; then
   [[ "$bundle_id" == "dev.cmux.mobile.$handoff_tag" ]] ||
     { echo "error: the simulator app is $bundle_id, not dev.cmux.mobile.$handoff_tag" >&2; exit 1; }
   t0=$SECONDS
@@ -1370,6 +1386,19 @@ fi  # the build and the app's launch (skipped with products=JOB)
 # first signed in from the injected account (auto_login), then relaunched with no credentials
 # and signed in from its own Keychain (restored). A check that fails is recorded, not fatal.
 handoff_sim_status="" handoff_sim_reason=""
+if [[ "$mode" == handoff && -n "$handoff_nightly" ]]; then
+  t0=$SECONDS
+  set +e
+  python3 -I scripts/ci/cmux_next_nightly_attach.py --udid "$udid" --sims "$sims" --bundle-id "$bundle_id" \
+    --ios-app "$app" --out "$out" --build "$handoff_nightly" 2>&1 | tee "$work/nightly-attach.log"
+  status=${PIPESTATUS[0]}
+  set -e
+  grep '^NIA ' "$work/nightly-attach.log" | sed 's/^NIA /- nightly attach: /' >>"$summary" || true
+  note "- nightly attach: exit $status in $((SECONDS - t0)) s (nightly-attach.mp4, nightly-attach/, nightly-attach.json)"
+  (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
+  cat "$summary"
+  exit "$status"
+fi
 if [[ "$mode" == handoff ]]; then
   t0=$SECONDS
   handoff_check() {
