@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime as dt
 import importlib.util
 import sys
+import re
 import unittest
 from pathlib import Path
 
@@ -115,10 +116,17 @@ class WiringTests(unittest.TestCase):
         self.assertFalse(publisher.is_daemon_job(None))
 
     def test_the_pool_matches_the_daemon_test_job(self):
+        # Every label the gate's runs-on can name (attempt 1 and a rerun's spill pool, #64136)
+        # is in DAEMON_POOL, so a publisher queued on either still counts as testing.
         runs_on = gate_runs_on(self.WORKFLOW)
-        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}")
-        pools = [line.strip() for line in self.WORKFLOW.splitlines() if line.lstrip().startswith("DAEMON_POOL: ")]
-        self.assertEqual(pools, [f"DAEMON_POOL: {runs_on}"] * 2)
+        labels = set(re.findall(r"'([a-z0-9.-]+)'", runs_on)) - {"manaflow-ai", "refs/heads/nightly-next", "refs/heads/feat-cmux-next", "workflow_dispatch"}
+        self.assertIn("cmux-linux", labels)
+        pools = [line.strip().removeprefix("DAEMON_POOL: ") for line in self.WORKFLOW.splitlines() if line.lstrip().startswith("DAEMON_POOL: ")]
+        self.assertEqual(len(pools), 2)
+        for pool in pools:
+            named = set(re.findall(r"'([a-z0-9.,-]+)'", pool))
+            listed = {label for value in named for label in value.split(",")} - {"manaflow-ai"}
+            self.assertEqual(listed, labels, pool)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

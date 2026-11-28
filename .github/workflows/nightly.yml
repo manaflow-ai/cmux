@@ -6430,10 +6430,8 @@ jobs:
 
       # 2026-11-28 06:29Z (Finish run 46116773791): this job's first gh call died on "API rate limit exceeded for
       # installation" because it had no waiter and no spare pool, while keep-published-dsyms beside it had both.
-      - *gh-app-token-read
-
-      - *gh-app-install-tooling
-
+      # No release App mint here: its key lives in the release environments, and this job runs under none on
+      # nightly-next, so the mint would always fail to github.token (tests/test_publish_app_token_workflow.py).
       - *wait-through-github-api-rate-l-2
 
       - name: Find the attempt that compiled the published build

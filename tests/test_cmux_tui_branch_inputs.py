@@ -184,9 +184,10 @@ class BranchInputsWiringTest(unittest.TestCase):
             self.assertIn(f"scripts/ci/{name}", checkout["sparse-checkout"])
         self.assertEqual(gate["outputs"]["inputs_unchanged"], "${{ steps.inputs.outputs.unchanged }}")
         self.assertEqual(gate.get("continue-on-error"), True)
-        # Trunk refs, feat-cmux-next-* heads and pins never take the gate: since #62923 the
-        # gate exempts feat-cmux-next-* like the build group does.
-        self.assertIn("!startsWith(github.ref, 'refs/heads/feat-cmux-next-')", gate["if"])
+        # Trunk refs and pins never take the gate. feat-cmux-next-* heads do (#62047's design,
+        # restored by #63937 after #62923's exemption broke the batch's branch-build test); the
+        # superseded check never supersedes them (TRUNK_PREFIXES).
+        self.assertNotIn("refs/heads/feat-cmux-next-'", gate["if"])
         for ref in ("refs/heads/main", "refs/heads/feat-cmux-next", "refs/heads/nightly-next", "refs/heads/release-next"):
             self.assertIn(f"github.ref != '{ref}'", gate["if"])
         self.assertIn("!startsWith(github.ref, 'refs/heads/cmux-tui-pin-')", gate["if"])
