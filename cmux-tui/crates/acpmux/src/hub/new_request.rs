@@ -179,7 +179,7 @@ pub struct NewRequest {
     pub create_key: Option<String>,
     /// `_meta.acpmux.placedBy` (`SessionMeta::placed_by`): only `autoCloud` is kept.
     pub placed_by: Option<String>,
-    /// `_meta.acpmux.tags.priority` (`subrouter_priority::asked_tag`): kept on the chat before
+    /// `_meta.acpmux.tags.priority` (`asked_tag`): kept on the chat before
     /// its agent first spawns, so its first process already runs at that class.
     pub priority: Option<String>,
 }

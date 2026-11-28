@@ -477,9 +477,10 @@ impl Hub {
             meta.create_key = create_key;
             meta.placed_by = placed_by;
             // Before the session is published, so its first spawn already runs at the class its
-            // creator asked for (`subrouter_priority::asked_tag`).
+            // creator asked for (`NewRequest::priority`).
             if let Some(value) = priority {
                 let tag = crate::store::Tag { value, expires_at: None };
+                // fleet-only-ok: every user's Cloud chat hits the gateway's class split.
                 meta.tags.insert(crate::subrouter_priority::TAG.to_owned(), tag);
             }
             let session = self.make_session(meta);
