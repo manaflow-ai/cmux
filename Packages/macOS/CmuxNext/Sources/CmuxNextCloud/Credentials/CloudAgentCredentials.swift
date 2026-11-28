@@ -452,13 +452,35 @@ public final class CloudAgentCredentials {
         guard let choice = await setup?.choose(harness: harness, model: model, account: nil),
               let picked = choice.connectionID else { return nil }
         if choice.requiresCredentialInstance {
-            return try await launchCredential(for: choice, harness: harness, model: model)
+            // Gemini and Grok have no other Cloud route, so their pick must be read. Any other family
+            // picked for the person (a Claude token from Settings > Models) falls back to the machine's
+            // own route when the read keeps failing, as a pick with no saved instance does. Since #54956
+            // a failed read here refused the whole start (cloud-chat-999, cmuxterm-hq run 46117963202).
+            guard !choice.hasNoOtherRoute else { return try await launchCredential(for: choice, harness: harness, model: model) }
+            return try? await Self.retryingUnavailable { try await self.launchCredential(for: choice, harness: harness, model: model) }
         }
         let connection = await setup?.launchConnection(picked)
         if connection?.endpointCredentials == true || connection?.kind == CloudAgentCredential.chatGPTPlan {
             return try await credential(forConnection: picked, model: model, harness: harness)
         }
         return try? await credential(forConnection: picked, model: model, harness: harness)
+    }
+
+    /// How many more reads a picked connection gets after one answered `.unavailable` (the person line did
+    /// not open, the daemon was restarting): 250 then 750 ms apart, about a second in all, then the caller's fallback.
+    nonisolated static let unavailableRetries = 2
+
+    /// Runs `read`, again after a backoff each time it throws `.unavailable`, up to ``unavailableRetries`` more
+    /// times; a refusal or the last failure is thrown as is.
+    static func retryingUnavailable<T>(_ read: () async throws -> T) async throws -> T {
+        var backoff = Backoff(initial: .milliseconds(250), maximum: .milliseconds(750), multiplier: 3, jitter: 0.2)
+        for _ in 0..<unavailableRetries {
+            do { return try await read() } catch Failure.unavailable(_) {
+                // concurrency-allow: Backoff.wait is an async sleep after a failed read, not a blocking wait.
+                try await backoff.wait(owner: "cloud-credentials.launch-read")
+            }
+        }
+        return try await read()
     }
 
     /// Reads the launch credential for a choice already made, including when prewarming the agent.

@@ -106,6 +106,18 @@ def test_packaging_scripts_know_the_next_channel():
     assert re.search(r'nightly\)\n\s*EXPECTED_NAME="cmux NIGHTLY"\n\s*EXPECTED_BUNDLE_ID="com.cmuxterm.app.nightly"\n', metadata)
 
 
+def test_next_bundle_policy_is_stamped_without_changing_classic_defaults():
+    source_plist = plistlib.loads((ROOT / "Resources/Info.plist").read_bytes())
+    assert "SUAllowsAutomaticUpdates" not in source_plist
+    signer = (ROOT / "scripts/ci/release-signer/nightly_next_identity.py").read_text()
+    assert 'plist["SUAllowsAutomaticUpdates"] = False' in signer
+    inject = (ROOT / "scripts/ci/nightly-steps/inject-nightly-identities.sh").read_text()
+    block = inject[inject.index('if [ "$TRACK" = "nightly-next" ]'):inject.index("\n  fi", inject.index('if [ "$TRACK" = "nightly-next" ]'))]
+    assert "SUAllowsAutomaticUpdates" in block
+    assert "Set :SUAllowsAutomaticUpdates false" in block
+    assert "Add :SUAllowsAutomaticUpdates bool false" in block
+
+
 def test_a_pending_notarization_keeps_its_recovery_artifact():
     # notarize-nightly-dmg.sh records CMUX_CHANNEL (sign_channel) in the state
     # file; the recovery artifact must compare against that, not the release
