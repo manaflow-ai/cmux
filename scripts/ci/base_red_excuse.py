@@ -6606,6 +6606,8 @@ PACKAGE_JOBS = {
                   "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift",
                   # the kit's Swift tests read the shared specs from the repository root at run time
                   "cmux-tui/spec/full-access-modes.json", "schemas/deeplinks/agent-link.json",
+                  # cmux-mobile-host's phone API contract tests dev-depend on cmux-api-compat (#63569)
+                  "cmux-tui/crates/cmux-api-compat/",
                   # the crates cmux-next-ios/rust reaches since (cargo_crates at feat-cmux-next, 2026-11-26)
                   "cmux-tui/crates/cmux-auto-session/", "cmux-tui/crates/cmux-braid-carrier/",
                   "cmux-tui/crates/cmux-braid-class/", "cmux-tui/crates/cmux-braid-path/",
@@ -10122,10 +10124,11 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
         kind, said = fault
         raise Refused(f"'{name}' was refused at setup by its runner (job {job.get('id')}: a machine fault, "
                       f"[cmux-ci machine: {kind}]: {said[:300]}); it gets re-run, never excused")
-    if (died := checkout_death(repo, base, sha, job, head_log, github)) is not None:
-        raise Refused(f"'{name}' was refused at setup by its runner's {died}; it gets re-run, never excused")
+    # A network checkout red is infra (#57288) unless the change moves a submodule pin, which can fail it on its own.
     if (why := test_reds.checkout_infra(job, head_log)) and pins_unmoved(repo, base, sha, job, github):
         raise infra(name, job, why)
+    if (died := checkout_death(repo, base, sha, job, head_log, github)) is not None:
+        raise Refused(f"'{name}' was refused at setup by its runner's {died}; it gets re-run, never excused")
     if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
         raise JobRateLimited(f"'{name}' reported only its repo installation API quota refusal ({said}); rerun the job "
                              "after that boundary")
