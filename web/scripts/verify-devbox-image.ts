@@ -266,9 +266,10 @@ const AGENT_LAUNCH_CHECKS: readonly string[] = [
 // clean login shell (no PATH help from this verifier) and a daemon pane
 // (non-login, the unit's PATH).
 const FREESTYLE_BASE_CHECKS: readonly string[] = [
-  // One work user, and no trace of the account it was renamed from: a leftover
-  // `ubuntu` would take uid 1000 back from the provider's exec default.
-  `[ "$(getent passwd ${DEVBOX_WORK_UID} | cut -d: -f1)" = ${DEVBOX_WORK_USER} ] && ! id -u ubuntu >/dev/null 2>&1 && test ! -e /home/ubuntu && echo one-work-user`,
+  // One work user with two names: uid 1000 resolves to the work user, and
+  // `ubuntu` (the name the provider's docs and examples use) is the same uid,
+  // home, groups and sudo, so a session opened as either lands in one home.
+  `[ "$(getent passwd ${DEVBOX_WORK_UID} | cut -d: -f1)" = ${DEVBOX_WORK_USER} ] && [ "$(id -u ubuntu)" = ${DEVBOX_WORK_UID} ] && [ "$(getent passwd ubuntu | cut -d: -f6)" = ${DEVBOX_WORK_HOME} ] && [ "$(readlink -f /home/ubuntu)" = ${DEVBOX_WORK_HOME} ] && [ "$(sudo -n -u ubuntu sh -c 'id -un; echo $HOME' | paste -sd' ' -)" = "${DEVBOX_WORK_USER} ${DEVBOX_WORK_HOME}" ] && sudo -n -u ubuntu sudo -n true && sudo -n -u ubuntu docker ps >/dev/null && echo one-work-user`,
   `[ "$(hostname)" = ${DEVBOX_HOSTNAME} ] && [ "$(cat /etc/hostname)" = ${DEVBOX_HOSTNAME} ] && grep -q '^127\\.0\\.1\\.1[[:space:]]\\+${DEVBOX_HOSTNAME}$' /etc/hosts && echo hostname-ok`,
   // The prompt a person reads on every line: \u@\h under a real login shell.
   `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L prompt new-session -d -s p -x 120 -y 30 && sleep 3 && pane="$(tmux -L prompt capture-pane -pt p)"; tmux -L prompt kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -q "${DEVBOX_WORK_USER}@${DEVBOX_HOSTNAME}"' && echo prompt-says-cmux-at-cmux`,
