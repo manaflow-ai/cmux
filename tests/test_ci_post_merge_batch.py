@@ -703,7 +703,10 @@ class WiringTest(unittest.TestCase):
                 # #61885 folded several Swift checks into one workflow); an expression is plan's output of its name.
                 if isinstance(v, str) and "${{" not in v:
                     continue
-                self.assertEqual(v, f"${{{{ needs.plan.outputs.{k} }}}}", f"{key}: {k}")
+                expected = f"${{{{ needs.plan.outputs.{k} }}}}"
+                if (key, k) == (pmb.TIP_COMPILE_SUITE, "base"):
+                    expected = "${{ needs.plan.outputs.tip_compile_base || needs.plan.outputs.base }}"
+                self.assertEqual(v, expected, f"{key}: {k}")
             if key == "gallery-health":
                 self.assertEqual(job["with"]["base"], "${{ needs.plan.outputs.base }}")
             self.assertNotIn("name", job, f"{key}: the caller job's name must be the suite key")
