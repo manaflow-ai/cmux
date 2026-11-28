@@ -12,22 +12,22 @@
     },
     {
       "path": "generated_metadata.go",
-      "sha256": "30e07b6faaf8ea32d9de2f1bd16790c9323026b1ee3dd4e5f326b6bdcf5163d7",
+      "sha256": "576237e6854b44a8a0aa083421bc0d3ababa0accf07c927ec3ed3236631e9a69",
       "size": 140466
     },
     {
       "path": "generated_presence_test.go",
-      "sha256": "a8b86be63bf3e333be61cc818ae4f303e913dda24e4f80abc215c84609b74ae5",
-      "size": 3190981
+      "sha256": "5b050e91971afe81d84353bbfc8aa8a30b19c3397c7102a137db5f3e6fc2c07d",
+      "size": 3197397
     },
     {
       "path": "generated_types.go",
-      "sha256": "05717f0d56248a69579a9be87b4cd83c66b3425cbd4cb4c92de21fad706419f3",
-      "size": 686662
+      "sha256": "a9efc7e117680959ebd569cf09142ac95e1db84693de1e0016bd8e79879c7d48",
+      "size": 692750
     }
   ],
   "format": 1,
-  "ir_sha256": "6990692e07123746bc0ceeb57a498082d2cd368995037c541f43701069c71597",
+  "ir_sha256": "b9f8cb1a7afe86c644b530cf392497ba8e86fc984ee5e2e65e7a9d2ff6d3d2ff",
   "language": "go",
   "mux_protocol": 12,
   "schema_version": 2
