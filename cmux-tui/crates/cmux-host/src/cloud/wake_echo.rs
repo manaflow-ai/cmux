@@ -48,7 +48,7 @@ impl Wake {
     }
 
     fn block(&self, outcome: &str) -> Value {
-        json!({
+        let mut block = json!({
             "v": WAKE_ECHO_VERSION,
             "resumed_at": self.resumed_at,
             "net_up_at": self.net_up_at,
@@ -56,8 +56,12 @@ impl Wake {
             "input_at": self.input_at,
             "echo_at": self.echo_at,
             "outcome": outcome,
-            "sockets": self.sockets,
-        })
+        });
+        // Absent from an old guest's block and from a wake with no table read.
+        if let Some(sockets) = &self.sockets {
+            block["sockets"] = sockets.clone();
+        }
+        block
     }
 }
 
