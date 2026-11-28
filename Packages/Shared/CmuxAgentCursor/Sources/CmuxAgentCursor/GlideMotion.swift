@@ -112,3 +112,29 @@ extension GlideMotion {
         return GlidePlan(samples: samples, arrivedTick: ticks, dt: dt, origin: CGPoint(x: x0, y: y0))
     }
 }
+
+extension GlideMotion {
+    /// Codex (ChatGPT computer use) motion, measured frame by frame from OpenAI's
+    /// "Codex for almost everything" Computer use videos at 60 fps: a straight line,
+    /// no overshoot, a critically damped approach (most of the way in the first
+    /// half, a long soft settle), about 0.15 s for short hops and 0.3 s for long ones.
+    /// `omega` is the spring's natural frequency in rad/s.
+    public func codexPlan(fromX x0: Double, fromY y0: Double, toX x1: Double, toY y1: Double,
+                          endHeading: Double, omega: Double = 22) -> GlidePlan {
+        let distance = hypot(x1 - x0, y1 - y0)
+        var samples: [GlideSample] = []
+        var tick = 0
+        while tick < 2_000 {
+            tick += 1
+            let t = Double(tick) * dt
+            // Critically damped step response: 1 - (1 + wt) e^(-wt).
+            let u = 1 - (1 + omega * t) * exp(-omega * t)
+            if (1 - u) * distance < 0.3 {
+                samples.append(GlideSample(x: x1, y: y1, heading: endHeading))
+                break
+            }
+            samples.append(GlideSample(x: x0 + (x1 - x0) * u, y: y0 + (y1 - y0) * u, heading: endHeading))
+        }
+        return GlidePlan(samples: samples, arrivedTick: samples.count, dt: dt, origin: CGPoint(x: x0, y: y0))
+    }
+}
