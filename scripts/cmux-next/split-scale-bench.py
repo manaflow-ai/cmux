@@ -150,11 +150,13 @@ parser.add_argument("--gate", action="store_true", help="exit 1 when a move fail
 parser.add_argument("--app-env", action="append", default=[], metavar="NAME=VALUE",
                     help="an env var for the launched app, repeatable: an A/B of an app switch on one bench build "
                          "(CMUX_CEF_RESIZE_FENCE=0); the report's app_env lists them")
-parser.add_argument("--diag-arm", action="append", default=[], metavar="NAME:ENV=VALUE[;ENV=VALUE]",
+parser.add_argument("--diag-arm", action="append", default=[], metavar="NAME[@CELL[/T,T]]:ENV=VALUE[;ENV=VALUE]",
                     help="a diagnostic arm, repeatable: after the matrix, the app relaunches with these env vars (and once "
                          "with none, the `control` arm) and measures --diag-cell's --diag-transitions only. Its rows go "
                          "to the report's `diagnostic_arms`, never to cells, verdicts, flatness or worst, so no score "
-                         "reads them (instant-splits: CMUX_CEF_RESIZE_FENCE=0 on the browser close stall)")
+                         "reads them (instant-splits: CMUX_CEF_RESIZE_FENCE=0 on the browser close stall). NAME@CELL/T,T measures "
+                         "that cell's transitions instead (each such scope gets its own `control@CELL` arm), e.g. "
+                         "keepattached@s9-browser-w30/divider_drag:CMUX_CEF_DRAG_KEEP_ATTACHED=1")
 parser.add_argument("--diag-cell", default="s9-browser-w10", help="the one cell the diagnostic arms measure")
 parser.add_argument("--diag-transitions", default="close_right,close_down,bottom_close",
                     help="the transitions the diagnostic arms keep (each close's open runs too, as in the matrix)")
@@ -188,8 +190,13 @@ for name, given, known in (("content", WANTED_CONTENTS, CONTENTS), ("transition"
 if any(s not in (1, 4, 9) for s in SPLITS):
     raise SystemExit("split-scale: --splits takes 1, 4 and 9 (a 1 x 1, 2 x 2 or 3 x 3 grid)")
 DIAG_ARMS = []
+DIAG_SCOPES = {}  # arm name -> (cell, transitions) when the arm names its own; else --diag-cell/--diag-transitions
 for spec in opts.diag_arm:
     arm_name, sep, pairs = spec.partition(":")
+    arm_name, at, scope = arm_name.partition("@")
+    if at:
+        scope_cell, slash, scope_moves = scope.partition("/")
+        DIAG_SCOPES[arm_name] = (scope_cell, [t.strip() for t in scope_moves.split(",") if t.strip()] if slash else None)
     arm_env = {}
     for pair in pairs.split(";") if sep else []:
         name, eq, value = pair.partition("=")
@@ -201,12 +208,36 @@ for spec in opts.diag_arm:
     DIAG_ARMS.append((arm_name, arm_env))
 DIAG_CELL = re.fullmatch(r"s([149])-([a-z]+)-w(\d+)", opts.diag_cell)
 DIAG_TRANSITIONS = [t.strip() for t in opts.diag_transitions.split(",") if t.strip()]
-if DIAG_ARMS:
-    if not DIAG_CELL or DIAG_CELL.group(2) not in CONTENTS or DIAG_CELL.group(2) == "chat":
-        raise SystemExit(f"split-scale: --diag-cell {opts.diag_cell!r}: sN-CONTENT-wN, N of 1/4/9, no chat content")
-    bad = [t for t in DIAG_TRANSITIONS if t not in TRANSITIONS]
-    if bad or not DIAG_TRANSITIONS:
+
+
+def diag_scope_check(cell, transitions, flag):
+    match = re.fullmatch(r"s([149])-([a-z]+)-w(\d+)", cell)
+    if not match or match.group(2) not in CONTENTS or match.group(2) == "chat":
+        raise SystemExit(f"split-scale: {flag} {cell!r}: sN-CONTENT-wN, N of 1/4/9, no chat content")
+    bad = [t for t in transitions if t not in TRANSITIONS]
+    if bad or not transitions:
         raise SystemExit(f"split-scale: unknown diagnostic transition {bad}; use {','.join(TRANSITIONS)}")
+    return match
+
+
+if DIAG_ARMS:
+    diag_scope_check(opts.diag_cell, DIAG_TRANSITIONS, "--diag-cell")
+    for arm_name, (scope_cell, scope_moves) in list(DIAG_SCOPES.items()):
+        DIAG_SCOPES[arm_name] = (scope_cell, scope_moves or list(DIAG_TRANSITIONS))
+        diag_scope_check(scope_cell, DIAG_SCOPES[arm_name][1], f"--diag-arm {arm_name}@")
+
+
+def diag_groups():
+    """(cell, transitions, [(arm name, env)]) per scope, the --diag-cell scope first; each group runs its control first:
+    `control` on --diag-cell's scope (as before), `control@CELL` on an arm's own."""
+    groups = {}
+    for name, env in DIAG_ARMS:
+        cell, moves = DIAG_SCOPES.get(name, (opts.diag_cell, DIAG_TRANSITIONS))
+        groups.setdefault((cell, tuple(moves)), []).append((name, env))
+    default = (opts.diag_cell, tuple(DIAG_TRANSITIONS))
+    order = ([default] if default in groups else []) + [k for k in groups if k != default]
+    return [(cell, list(moves), "control" if (cell, moves) == default else f"control@{cell}", groups[(cell, moves)])
+            for cell, moves in order]
 CONFIG = {"workspaces": {"newPlacement": "bottom"}}
 if WANTED_MOVES:
     CONFIG["shortcuts"] = {"bindings": {
@@ -1071,43 +1102,46 @@ def start_app(run, results):
 
 
 def run_diag_arms(results, base_env):
-    """Each diagnostic arm (the `control` arm, no extra env, first) in a fresh app: --diag-cell's --diag-transitions,
-    --rounds times. Into results["diagnostic_arms"] only: the matrix's cells, verdicts and headline never read them."""
+    """Each diagnostic arm in a fresh app, grouped by scope (diag_groups): a scope's control arm (no extra env) first,
+    then its arms, each on the scope's cell and transitions, --rounds times. Into results["diagnostic_arms"] only:
+    the matrix's cells, verdicts and headline never read them."""
     global WANTED
-    splits, content, count = int(DIAG_CELL.group(1)), DIAG_CELL.group(2), int(DIAG_CELL.group(3))
-    cell = opts.diag_cell
     out = results.setdefault("diagnostic_arms", {
         "about": "not scored: one cell per arm in a fresh app, for an A/B of an app switch inside the nightly step",
-        "cell": cell, "transitions": DIAG_TRANSITIONS, "rounds": opts.rounds, "arms": {}})
+        "cell": opts.diag_cell, "transitions": DIAG_TRANSITIONS, "rounds": opts.rounds, "arms": {}})
     kept = WANTED
-    WANTED = list(DIAG_TRANSITIONS)
     try:
-        for name, extra in [("control", {})] + DIAG_ARMS:
-            arm = {"env": dict(extra), "raw": {}, "errors": {}, "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-            out["arms"][name] = arm
-            say(f"split-scale: diagnostic arm {name} {extra} on {cell}")
-            run = None
-            try:
-                wipe_state(APP)
-                run = Run({**base_env, **extra})
-                start_app(run, arm)
-                workspace = None
+        for cell, moves, control, arms in diag_groups():
+            match = re.fullmatch(r"s([149])-([a-z]+)-w(\d+)", cell)
+            splits, content, count = int(match.group(1)), match.group(2), int(match.group(3))
+            WANTED = list(moves)
+            for name, extra in [(control, {})] + arms:
+                arm = {"env": dict(extra), "cell": cell, "transitions": list(moves), "raw": {}, "errors": {},
+                       "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+                out["arms"][name] = arm
+                say(f"split-scale: diagnostic arm {name} {extra} on {cell}")
+                run = None
                 try:
-                    workspace, columns = build_cell(run, splits, content, [])
-                    background(run, count, workspace)
-                    run_cell(run, workspace, columns, arm, cell, content)
+                    wipe_state(APP)
+                    run = Run({**base_env, **extra})
+                    start_app(run, arm)
+                    workspace = None
+                    try:
+                        workspace, columns = build_cell(run, splits, content, [])
+                        background(run, count, workspace)
+                        run_cell(run, workspace, columns, arm, cell, content)
+                    finally:
+                        if workspace:
+                            left = close_cell(run, workspace)
+                            if left:
+                                arm["errors"]["cleanup"] = left
+                except (Exception, SystemExit) as error:  # noqa: BLE001 - an arm that fails is its record; the next runs
+                    arm["errors"]["arm"] = f"{type(error).__name__}: {str(error)[:500]}"
+                    say(f"split-scale: diagnostic arm {name} did not finish: {arm['errors']['arm']}")
                 finally:
-                    if workspace:
-                        left = close_cell(run, workspace)
-                        if left:
-                            arm["errors"]["cleanup"] = left
-            except (Exception, SystemExit) as error:  # noqa: BLE001 - an arm that fails is its record; the next runs
-                arm["errors"]["arm"] = f"{type(error).__name__}: {str(error)[:500]}"
-                say(f"split-scale: diagnostic arm {name} did not finish: {arm['errors']['arm']}")
-            finally:
-                if run:
-                    run.end()
-            arm["cells"] = {c: {t: ssm.summarize(rows) for t, rows in per.items()} for c, per in arm["raw"].items()}
+                    if run:
+                        run.end()
+                arm["cells"] = {c: {t: ssm.summarize(rows) for t, rows in per.items()} for c, per in arm["raw"].items()}
     finally:
         WANTED = kept
 

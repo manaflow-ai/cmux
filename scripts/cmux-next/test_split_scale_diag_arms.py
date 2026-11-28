@@ -85,6 +85,43 @@ class DiagArms(unittest.TestCase):
         self.assertEqual(results["errors"], {})
         self.assertEqual(bench.WANTED, wanted)
 
+    def test_an_arm_names_its_own_cell(self):
+        bench = load("--diag-arm=fence0:CMUX_CEF_RESIZE_FENCE=0",
+                     "--diag-arm=keep@s9-browser-w30/divider_drag:CMUX_CEF_DRAG_KEEP_ATTACHED=1", "--rounds=1")
+        self.assertEqual(bench.DIAG_ARMS[1], ("keep", {"CMUX_CEF_DRAG_KEEP_ATTACHED": "1"}))
+        groups = bench.diag_groups()
+        self.assertEqual([(cell, moves, control, [n for n, _ in arms]) for cell, moves, control, arms in groups], [
+            ("s9-browser-w10", ["close_right", "close_down", "bottom_close"], "control", ["fence0"]),
+            ("s9-browser-w30", ["divider_drag"], "control@s9-browser-w30", ["keep"])])
+        seen = []
+
+        class FakeRun:
+            def __init__(self, env):
+                self.env = env
+
+            def end(self):
+                pass
+
+        def run_cell(run, workspace, columns, results, cell, content):
+            seen.append((cell, list(bench.WANTED), dict(run.env)))
+
+        bench.Run, bench.start_app, bench.run_cell = FakeRun, lambda run, results: None, run_cell
+        bench.wipe_state = lambda app: None
+        bench.build_cell = lambda run, splits, content, chats: ("w", [["p"]])
+        bench.background = lambda run, count, workspace: None
+        bench.close_cell = lambda run, workspace: None
+        bench.ssm = types.SimpleNamespace(summarize=lambda rows: {"rounds": len(rows)})
+        results = {"raw": {}, "errors": {}}
+        bench.run_diag_arms(results, {})
+        self.assertEqual(list(results["diagnostic_arms"]["arms"]), ["control", "fence0", "control@s9-browser-w30", "keep"])
+        self.assertEqual(seen[3], ("s9-browser-w30", ["divider_drag"], {"CMUX_CEF_DRAG_KEEP_ATTACHED": "1"}))
+        self.assertEqual(results["diagnostic_arms"]["arms"]["keep"]["cell"], "s9-browser-w30")
+
+    def test_a_bad_arm_scope_refuses(self):
+        for spec in ("k@s9-chat-w10:A=1", "k@s9-browser-w10/sideways:A=1", "k@nope:A=1"):
+            with self.assertRaises(SystemExit, msg=spec):
+                load(f"--diag-arm={spec}")
+
 
 if __name__ == "__main__":
     unittest.main()
