@@ -96,6 +96,8 @@ if (REMOTE_TAIL !== undefined && REMOTE_TAIL !== "present" && REMOTE_TAIL !== "a
   throw new Error("REMOTE_TAIL must be present or absent");
 const PEER_CONNECT_MS = REMOTE_TAIL ? Number(process.env.PEER_CONNECT_MS ?? 2000) : 0;
 if (!Number.isFinite(PEER_CONNECT_MS) || PEER_CONNECT_MS < 0) throw new Error("PEER_CONNECT_MS must be non-negative");
+/// PROFILE=1: how many parts (components in a render) each task of the timeline lists (PROFILE_PARTS, default 4).
+const PROFILE_PARTS = Number(process.env.PROFILE_PARTS ?? 4);
 const REVEAL = process.env.REVEAL === "1";
 const COMPOSER = process.env.COMPOSER === "1";
 /// The chat's composer field (composer-typing.bench.ts's PROMPT).
@@ -1108,7 +1110,7 @@ try {
         console.log(`  ${(run.at - from).toFixed(1)}\t${run.ms.toFixed(1)}\t${run.task.slice(0, 140)}`);
         // A long run's largest parts (in a render, the component; otherwise the function with the self time).
         if (run.ms >= 5)
-          for (const [part, ms] of [...run.parts].sort((a, b) => b[1] - a[1]).slice(0, 4))
+          for (const [part, ms] of [...run.parts].sort((a, b) => b[1] - a[1]).slice(0, PROFILE_PARTS))
             if (ms >= 1) console.log(`  \t\t  ${ms.toFixed(1)}\t${part.slice(0, 130)}`);
       }
       console.log(`  idle stretches (ms after the attach + ms): ${gaps.join(", ")}`);

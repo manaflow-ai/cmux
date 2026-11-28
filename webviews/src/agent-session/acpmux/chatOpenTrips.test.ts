@@ -131,6 +131,13 @@ test("a chat's first frame waits on the handshake and one round trip", async () 
   }
 });
 
+/// A read of the chat's records other than the rail's prompt index (direct.ts readPromptIndex) and the
+/// open's backfill of the history under its first page (direct.ts backfillOpen, after first paint).
+const openerRead = (request: { method: string; params?: any }) =>
+  request.method === "_acpmux/events" &&
+  request.params?.promptIndex !== true &&
+  !(Array.isArray(request.params?.kinds) && request.params.kinds.includes("transcript"));
+
 /// A chat whose newest page starts inside a long turn: its prompt, then more records than a page holds.
 function longTurn(socket: unknown, id: string): void {
   const daemon = socket as Daemon;
@@ -152,9 +159,7 @@ test("the turn's opener comes with the attach page, not a read after it", async 
     expect(waves).toBeLessThanOrEqual(2);
     // No `_acpmux/events` read of the turn's prompts: the attach named it.
     // (The rail's one prompt index read, direct.ts readPromptIndex, is not a read of the opener.)
-    expect(
-      sent.filter((request) => request.method === "_acpmux/events" && request.params?.promptIndex !== true),
-    ).toEqual([]);
+    expect(sent.filter(openerRead)).toEqual([]);
   } finally {
     close();
   }
@@ -170,7 +175,7 @@ test("an acpmux that does not name the opener still has it read", async () => {
     if (method === "_acpmux/attach") delete reply.turnOpener;
   });
   try {
-    const reads = sent.filter((request) => request.method === "_acpmux/events" && request.params?.promptIndex !== true);
+    const reads = sent.filter(openerRead);
     expect(reads.length).toBe(1);
     expect(reads[0]!.params).toMatchObject({ kinds: ["user_message"], limit: 16 });
   } finally {
