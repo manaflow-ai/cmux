@@ -6,7 +6,7 @@ import UIKit
 /// Mobile Safari values (iOS 26/27 compact layout, 402 x 874 pt reference
 /// screen) with one accent; override any of them and inject the theme with
 /// `.tabsKitTheme(_:)`.
-public struct TabsKitTheme: Sendable {
+public struct TabsKitTheme: Sendable, Equatable {
     public var colors: Colors
     public var metrics: Metrics
     public var motion: Motion
@@ -18,7 +18,7 @@ public struct TabsKitTheme: Sendable {
     }
 
     /// Safari color tokens.
-    public struct Colors: Sendable {
+    public struct Colors: Sendable, Equatable {
         public var label = Colors.pair(0x000000, 0xFFFFFF)
         public var glyphDisabled = Colors.pair(0xC5C5C7, 0x5B5B5D)
         public var secondaryLabel = Colors.pair(0x3C3C43, 0xEBEBF5, lightAlpha: 0.6, darkAlpha: 0.6)
@@ -52,7 +52,7 @@ public struct TabsKitTheme: Sendable {
 
     /// Toolbar, menu and card metrics (points; 402 pt wide reference screen).
     /// The tab grid's geometry is fixed by the measured layout (OverviewLayout).
-    public struct Metrics: Sendable {
+    public struct Metrics: Sendable, Equatable {
         /// The screen edge the page toolbar (back, address capsule, tabs) sits on.
         /// Safari's default is the bottom; an app whose bottom belongs to a composer
         /// puts it at the top, where it never hides behind the keyboard.
@@ -108,7 +108,7 @@ public struct TabsKitTheme: Sendable {
 
     /// Springs fitted to the Safari reference recordings. The tab zoom's
     /// springs live with its state machine (`ZoomSpring`).
-    public struct Motion: Sendable {
+    public struct Motion: Sendable, Equatable {
         /// Toolbar collapse on scroll down (0.39 / 0.86).
         public var collapse = Animation.spring(response: 0.39, dampingFraction: 0.86)
         /// Expand on scroll up (0.385 / 0.880).

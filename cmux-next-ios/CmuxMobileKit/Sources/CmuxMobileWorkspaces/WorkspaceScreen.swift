@@ -16,7 +16,14 @@ extension TabsKitTheme {
     /// and a neutral accent. Done keeps TabsKit's white checkmark, so the
     /// accent is a near-black in light mode and a mid gray in dark mode
     /// (the mobile white accent would hide the glyph).
-    public static var mobile: TabsKitTheme {
+    ///
+    /// Built once: the theme rides the environment, and a fresh one (new
+    /// dynamic colors) on each host update counted as a changed theme, so
+    /// every update re-ran the whole tab grid and its cards, each frame of a
+    /// zoom included.
+    public static var mobile: TabsKitTheme { mobileTheme }
+
+    private static let mobileTheme: TabsKitTheme = {
         var tabs = TabsKitTheme()
         tabs.colors.label = theme.colors.label.color
         tabs.colors.secondaryLabel = theme.colors.label2.color
@@ -41,7 +48,7 @@ extension TabsKitTheme {
         }
         #endif
         return tabs
-    }
+    }()
 }
 
 /// A workspace: its tabs in the Safari-style TabsKit chrome, opened where

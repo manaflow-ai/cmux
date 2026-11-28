@@ -1,0 +1,101 @@
+name: cmux-next iOS tab grid zoom bench
+
+# The iPhone app's page <-> tab grid zoom on a grid a person has (Leo, 2026-11-25: "the transitioning into
+# and out of the iOS grid is still slow"): TabZoomFrameTimeUITests on one fleet simulator, 27 tabs with 25
+# live terminals (CMUX_MOBILE_MOCK_TABS, CMUX_MOBILE_MOCK_TERMINAL_STREAM), the tabs button and Done 6 times
+# each, then scripts/measure/ios_tab_zoom.py's report.json. Three fixes to this zoom (#50797, #52191,
+# #55420) were measured once, by hand, on the demo's three tabs, and nothing measured it again.
+#
+# What it gates: the views re-run while a zoom moves (TABZOOM_WORK: grid and card bodies), counted by the
+# app, so the same on any host. A grid that re-runs on every zoom frame fails the UI test and the report,
+# and this job goes red on the nightly-next tip. Frame times and the main thread's hitches depend on the
+# host: they go to the run summary as warnings, never red. No pull_request trigger, so no pull request waits
+# on a simulator for it; it measures each nightly-next tip and on demand (workflow_dispatch, any ref). A
+# thin cmux-ci client on the build-fleet gateway runner (vars.CI_EVAL_STEP_GATEWAY), as
+# cmux-next-ios-keyboard-motion.yml; with the variable unset nothing runs.
+
+on:
+  push:
+    branches: [nightly-next]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit or branch to measure (default the dispatched ref)
+        required: false
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-ios-tab-zoom-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    name: Tab grid zoom on a fleet simulator
+    if: ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' }}
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/measure/ios_tab_zoom.py
+          sparse-checkout-cone-mode: false
+
+      - name: Measure
+        env:
+          REF: ${{ inputs.ref || github.sha }}
+        run: |
+          set +e
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::warning title=Tab grid zoom bench::$client is not installed on runner $RUNNER_NAME; no run"
+            exit 0
+          fi
+          if ! [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+            REF="$(git ls-remote origin "$REF" | head -1 | cut -f1)"
+          fi
+          out="${RUNNER_TEMP:?}/ios-tab-zoom"
+          mkdir -p "$out"
+          log="$out/step.log"
+          "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$REF" --timeout 7200 \
+            --arg test --arg ui=TabZoomFrameTimeUITests --artifact artifacts/ios-sim/evidence.zip 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          if [ -z "$step" ]; then
+            echo "::warning title=Tab grid zoom bench::no simulator step started (exit $status); no measurement"
+            exit 0
+          fi
+          "$client" artifact "$step" "$out/evidence.zip" || "$client" artifact --failed "$step" "$out/evidence.zip" \
+            || { echo "::warning title=Tab grid zoom bench::step $step returned no evidence"; exit 0; }
+          unzip -oq "$out/evidence.zip" -d "$out/evidence"
+          console="$(find "$out/evidence" -name 'ui-console*.txt' | head -1)"
+          python3 -I scripts/measure/ios_tab_zoom.py --console "${console:-$out/evidence/ui-console.txt}" \
+            --out "$out/report.json"
+          verdict=$?
+          if [ -s "$out/report.json" ]; then
+            python3 -I -c 'import json, sys
+          r = json.load(open(sys.argv[1]))
+          print(r.get("table_md", ""))
+          for w in r.get("warnings", []): print(f"::warning title=Tab grid zoom (timing, not gated)::{w}")
+          for f in r.get("failures", []): print(f"::error title=Tab grid zoom work budget::{f}")' "$out/report.json" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          # Red only on the host-independent work budget, or on no bench lines at all.
+          exit "$verdict"
+
+      - name: Keep the report
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-ios-tab-zoom
+          path: |
+            ${{ runner.temp }}/ios-tab-zoom/report.json
+            ${{ runner.temp }}/ios-tab-zoom/step.log
+          if-no-files-found: ignore
+          retention-days: 14

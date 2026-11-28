@@ -72,8 +72,9 @@ public protocol TabsDataSource: AnyObject, Observable {
     /// The grid became visible (true) or was covered by a page (false):
     /// stop any card rendering while it is hidden. Default: nothing.
     func overviewVisibilityChanged(_ visible: Bool)
-    /// The grid started (true) or stopped (false) scrolling: hold card
-    /// updates until it stops, so none lands in a scroll frame.
+    /// The grid started (true) or stopped (false) moving under its cards: it
+    /// scrolls, or a zoom into or out of it runs. Hold card updates until it
+    /// stops, so none lands in a scroll or zoom frame.
     func overviewScrollingChanged(_ scrolling: Bool)
     /// The grid settled and is not scrolling (true), or a zoom, a scroll or
     /// the page took over (false): deferred card work (rendering a card's
