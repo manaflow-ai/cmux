@@ -67,6 +67,7 @@ public struct RegistryKeyBindings {
             invocation.arguments[schema?.name ?? "value"] = schema?.parse(argument) ?? .string(argument)
         }
         invocation.keyContext = keyContext
+        invocation.byShortcut = true
         return registry.perform(binding.command, invocation: invocation)
     }
 
