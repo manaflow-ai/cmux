@@ -245,29 +245,60 @@ on run argv
   tell application "System Events"
     set selected_pid to (item 2 of argv) as integer
     tell (first application process whose unix id is selected_pid)
-      repeat 50 times
+      -- Bounded to ~60 s: the quality items stay disabled until the connection is live, which on
+      -- a two-Mac run (login, first frame) takes longer than the old 5 s. Each failed attempt
+      -- closes any menu it opened (a left-open View menu made the next click close it instead),
+      -- and the last failure plus the View menu's items are reported, never swallowed.
+      set item_name to item 1 of argv
+      set last_error to "no attempt ran"
+      repeat 300 times
         try
-          if (count of windows) is not 1 then error "ambiguous Screen Sharing windows"
+          if (count of windows) is not 1 then error "ambiguous Screen Sharing windows: " & (count of windows)
           set selected_window to window 1
           set frontmost to true
           perform action "AXRaise" of selected_window
           if (value of attribute "AXMain" of selected_window) is not true then error "selected window is not main"
+          set target_item to my quality_item_of(menu 1 of menu bar item "View" of menu bar 1, item_name)
+          if target_item is missing value then error "View menu has no item " & item_name
+          if (enabled of target_item) is not true then error item_name & " is disabled"
           click menu bar item "View" of menu bar 1
-          set item_name to item 1 of argv
-          click menu item item_name of menu 1 of menu bar item "View" of menu bar 1
+          click my quality_item_of(menu 1 of menu bar item "View" of menu bar 1, item_name)
           delay 0.1
-          click menu bar item "View" of menu bar 1
-          set mark to value of attribute "AXMenuItemMarkChar" of menu item item_name of menu 1 of menu bar item "View" of menu bar 1
+          set mark to value of attribute "AXMenuItemMarkChar" of my quality_item_of(menu 1 of menu bar item "View" of menu bar 1, item_name)
           if (mark is "✓" or mark is "checkmark") and (count of windows) is 1 and (value of attribute "AXMain" of selected_window) is true then
-            key code 53
             return
           end if
+          error item_name & " clicked but its mark is " & (mark as text)
+        on error message
+          set last_error to message
+          try
+            key code 53
+          end try
         end try
-        delay 0.1
+        delay 0.2
       end repeat
+      set listing to ""
+      try
+        repeat with entry in (menu items of menu 1 of menu bar item "View" of menu bar 1)
+          set listing to listing & (name of entry as text) & "[" & (enabled of entry as text) & "] "
+        end repeat
+      end try
     end tell
   end tell
-  error "Screen Sharing quality menu is unavailable or the requested item is not selected"
+  error "Screen Sharing quality menu: " & item_name & " not selected after 60 s; last: " & last_error & "; View menu: " & listing
+end run
+
+-- The item directly in View (Apple's documented layout), else inside one of View's submenus.
+on quality_item_of(view_menu, item_name)
+  tell application "System Events"
+    if exists menu item item_name of view_menu then return menu item item_name of view_menu
+    repeat with entry in (menu items of view_menu)
+      try
+        if exists menu item item_name of menu 1 of entry then return menu item item_name of menu 1 of entry
+      end try
+    end repeat
+  end tell
+  return missing value
 end run
 OSA
   # Recheck the native window identity after the app-wide menu action.
