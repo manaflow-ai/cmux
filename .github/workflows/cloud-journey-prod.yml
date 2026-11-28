@@ -166,6 +166,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          MACHINE_ROUTE_MODEL: ${{ vars.CMUX_JOURNEY_MACHINE_ROUTE_MODEL }}
         run: |
           set -uo pipefail
           verdict=""
@@ -202,7 +203,17 @@ jobs:
           echo "newest real run on the login: ${verdict:-none found}"
           case "$verdict" in *"reply spent"*)
             echo "route=machine" >> "$GITHUB_OUTPUT"
-            echo "Hourly real tick on the machine's own model route: the newest real run on the login hit the usage limit (${verdict})." >> "$GITHUB_STEP_SUMMARY"
+            # The machine route answers only once the test team has a model there (a gateway or the house route): until
+            # then every machine-route tick took a machine for 25 min and failed at the reply with no model (runs
+            # 46059370159 and every hourly tick 11-26 to 11-28: model-plane.env team=none, gateway off, "Not logged in").
+            # While the repository variable CMUX_JOURNEY_MACHINE_ROUTE_MODEL is not 1 the tick ends here as a skip
+            # (no machine, no probe row, not judged), the way a spent login's tick was a skip before #58192.
+            if [ "${MACHINE_ROUTE_MODEL:-}" != 1 ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "Hourly real tick skipped: no model: the login is spent (${verdict}) and the machine route has no model (CMUX_JOURNEY_MACHINE_ROUTE_MODEL is not 1)." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "Hourly real tick on the machine's own model route: the newest real run on the login hit the usage limit (${verdict})." >> "$GITHUB_STEP_SUMMARY"
+            fi
             ;; *)
             echo "route=login" >> "$GITHUB_OUTPUT"
             ;;
@@ -237,23 +248,23 @@ jobs:
       # The shipped Linux cmux-tui, for the app's part on a warm spare (--preclaim-login: warm-spare, ready, installed
       # and the login receipt), built as the staging preclaim job below builds it.
       - name: Install Linux cmux-tui build dependencies
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config
       - name: Set up cmux-tui Rust
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         env:
           GHOSTTY_ZIG_SOURCE: ghostty-next
         run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
       - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
           save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           workspaces: cmux-tui
@@ -261,7 +272,7 @@ jobs:
           cache-bin: false
       - name: Build the shipped Linux cmux-tui
         id: build-cmux-tui
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         working-directory: cmux-tui
         env:
           CARGO_NET_RETRY: "10"
@@ -273,7 +284,7 @@ jobs:
           test -x target/debug/cmux-tui
           echo "path=$PWD/target/debug/cmux-tui" >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
           bun-version: "1.4.4"
       - name: Cloud journey (prod, ${{ matrix.agent == 'codex' && 'codex, ' || '' }}${{ matrix.model }} model)
@@ -288,6 +299,7 @@ jobs:
           # The hourly tick's gate picks route=machine when the login is spent: no login, the machine's own model route.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.agent == 'claude' && matrix.model == 'real' && steps.gate.outputs.route != 'machine' && (secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN) || '' }}
           REAL_ROUTE: ${{ steps.gate.outputs.route || 'login' }}
+          NO_MODEL: ${{ steps.gate.outputs.skip }}
           CODEX_AUTH_JSON: ${{ matrix.agent == 'codex' && matrix.model == 'real' && secrets.CODEX_AUTH_JSON || '' }}
           AGENT: ${{ matrix.agent }}
           MODEL: ${{ matrix.model }}
@@ -312,6 +324,10 @@ jobs:
           if [ "$AGENT" = claude ] && [ "$MODEL" = real ]; then
             echo "$REAL_ROUTE" > "$out/route.txt"
             echo "Real model route: $REAL_ROUTE" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${NO_MODEL:-}" = true ]; then
+            printf '%s\n' '| result | step | ms | detail |' '|---|---|---:|---|' '| skip | real model route | 0 | no model: the login is spent and the machine route has no model; no production machine was created |' > "$out/summary.md"
+            exit 0
           fi
           probe=cloud-chat-replies-production
           if [ "$AGENT" = codex ] && [ "$MODEL" = stub ]; then probe=cloud-chat-replies-production-codex-stub; elif [ "$AGENT" = codex ]; then probe=cloud-chat-replies-production-codex; elif [ "$MODEL" = real ]; then probe=cloud-chat-replies-production-real-model; fi
@@ -367,7 +383,7 @@ jobs:
           route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           route-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       - name: Open, update or close the red-journey issue
-        if: always() && env.SELECTED == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: always() && env.SELECTED == 'true' && steps.gate.outputs.skip != 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         env:
           GH_SPARE_TOKENS: ${{ steps.spare.outputs.cmux-bot }} ${{ steps.spare.outputs.glaeda-route }}
           GH_SPARE_WAIT_SECONDS: "600"  # after the journey, inside the job's 75 min
