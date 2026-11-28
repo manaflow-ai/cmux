@@ -70,6 +70,17 @@ const SPLIT = process.env.SPLIT === "1";
 /// RESTYLE=1 (Chromium): a timeline trace of the run, and the elements each frame restyled (UpdateLayoutTree's
 /// elementCount, summed per painted frame), unminified so each forced pass names its forcer. Its own runs: the trace slows the page, so read no frame times there.
 const RESTYLE = process.env.RESTYLE === "1";
+type SelectorTiming = {
+  selector?: string;
+  elapsed?: number;
+  "elapsed (us)"?: number;
+  match_attempts?: number;
+  match_count?: number;
+  fast_reject_count?: number;
+};
+/// SELECTORS=1 with RESTYLE=1: the selectors that cost the run's style passes most, by match time, attempts and
+/// matches (Chromium's selector stats), so a restyle's cost per element names the rules it goes to.
+const SELECTORS = process.env.SELECTORS === "1";
 const PROFILE = process.env.PROFILE === "1" || SPLIT;
 
 // The chat: the generated ordinary log at TURNS turns, its records as the stand-in daemon's lead steps; the
@@ -329,7 +340,12 @@ async function run(name: string, engine: BrowserType) {
         transferMode: "ReturnAsStream",
         traceConfig: {
           recordMode: "recordAsMuchAsPossible",
-          includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.stack"],
+          includedCategories: [
+            "devtools.timeline",
+            "disabled-by-default-devtools.timeline.stack",
+            // SELECTORS=1: each style pass's per-selector match time (DevTools' "selector stats").
+            ...(SELECTORS ? ["disabled-by-default-blink.debug"] : []),
+          ],
         },
       });
     if (tracer)
@@ -719,6 +735,27 @@ async function run(name: string, engine: BrowserType) {
       }
       for (const [key, count] of [...forcers].sort((a, b) => b[1] - a[1]).slice(0, 20))
         console.log(`transcript-scroll-up ${name} forced ${count} ${key}`);
+      const selectors = new Map<string, { us: number; attempts: number; matches: number; rejects: number }>();
+      for (const event of events as { args?: { selector_stats?: { selector_timings?: SelectorTiming[] } } }[]) {
+        for (const timing of event.args?.selector_stats?.selector_timings ?? []) {
+          const key = timing.selector ?? "";
+          const sum = selectors.get(key) ?? { us: 0, attempts: 0, matches: 0, rejects: 0 };
+          sum.us += timing.elapsed ?? timing["elapsed (us)"] ?? 0;
+          sum.attempts += timing.match_attempts ?? 0;
+          sum.matches += timing.match_count ?? 0;
+          sum.rejects += timing.fast_reject_count ?? 0;
+          selectors.set(key, sum);
+        }
+      }
+      const selectorUs = [...selectors.values()].reduce((total, each) => total + each.us, 0);
+      if (selectors.size)
+        console.log(
+          `transcript-scroll-up ${name} selectors ${selectors.size} ${Math.round(selectorUs / 1000)} ms matching`,
+        );
+      for (const [key, sum] of [...selectors].sort((a, b) => b[1].us - a[1].us).slice(0, 40))
+        console.log(
+          `transcript-scroll-up ${name} selector ${Math.round(sum.us / 1000)} ms ${sum.attempts} tried ${sum.matches} matched ${sum.rejects} rejected ${key.slice(0, 160)}`,
+        );
       const styleEvents = events.filter((event) => event.name === "UpdateLayoutTree" && event.ph === "X");
       const passes = events
         .filter((event) => event.name === "UpdateLayoutTree" && (event.ph === "X" || event.ph === "E"))
