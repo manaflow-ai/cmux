@@ -4,9 +4,14 @@ import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, user } from "../../../gallery/fixtures/acpmux";
 
 const TEXT = "Use the cache directory for the next run";
+// A finished turn before the running one: its prompt is the sent row the waiting steers measure
+// against. The running turn's prompt sits right over the live "Working for" clock, so its action row
+// is centred in the block gap (conversation.css `.acpmux-row--before-indicator`), not a sent row's gap.
+const earlierTurn = () => [user("Run the tests", 8), assistant("All 42 tests pass.", 7)];
 const snapshot = (steer: "waiting" | "landed" = "waiting") => {
   const state = chat(
     [
+      ...earlierTurn(),
       user("Check the cache", 4),
       assistant("Checking the cache.", 3, { streaming: true }),
       user(TEXT, 1, { steer, steerPromptId: "p-footer-gallery" }),
@@ -19,10 +24,12 @@ const snapshot = (steer: "waiting" | "landed" = "waiting") => {
   };
 };
 // Three waiting steers, oldest first: only the newest offers Send now (#31419), the earlier ones keep
-// Copy, Retry and × on hover; each row's last control ends on its own bubble's right edge.
+// Copy, Retry and × on hover. The three stick together as one group (#61546): the newest's last control
+// ends on its bubble's right edge, the upper ones' controls sit beside their bubbles.
 const stack = () => {
   const state = chat(
     [
+      ...earlierTurn(),
       user("Check the cache", 4),
       assistant("Checking the cache.", 3, { streaming: true }),
       user("Use the cache dir, not tmp", 1.5, { id: "user-steer-1", steer: "waiting", steerPromptId: "p-steer-1" }),
@@ -54,16 +61,35 @@ const checkAligned = (ctx: PlayContext) => {
     }
     return { right: right - bubble.right, top: copy.top - bubble.bottom };
   };
+  // Rows in a group of the person's own messages (#61546): an upper one's actions sit beside its
+  // bubble, bottom-aligned (conversation.css `.acpmux-row--before-own-message`), not under it.
+  const grouped = (row: Element) => row.closest(".acpmux-row--before-own-message") !== null;
   const rows = [...ctx.document.querySelectorAll(".cv-user")].filter((row) => row.querySelector(".cv-user__bubble"));
-  const sent = rows.find((row) => !row.querySelector(".cv-user__pending"));
+  const sent = rows.find(
+    (row) => !row.querySelector(".cv-user__pending") && !grouped(row) && !row.closest(".acpmux-row--before-indicator"),
+  );
   const waiting = rows.filter((row) => row.querySelector(".cv-user__pending"));
   if (!sent || waiting.length === 0) throw new Error("no sent prompt or waiting steer to compare");
   const reference = copyGlyph(sent);
   for (const row of waiting) {
+    if (grouped(row)) {
+      const bubble = row.querySelector(".cv-user__bubble")!.getBoundingClientRect();
+      const actions = row.querySelector(".cv-user__actions")!.getBoundingClientRect();
+      if (actions.right > bubble.left || actions.bottom > bubble.bottom + 1 || actions.top < bubble.top - 1)
+        throw new Error(
+          `a grouped waiting steer's controls are not beside its bubble (controls ${actions.left.toFixed(1)}-${actions.right.toFixed(1)} x ${actions.top.toFixed(1)}-${actions.bottom.toFixed(1)}, bubble ${bubble.left.toFixed(1)} x ${bubble.top.toFixed(1)}-${bubble.bottom.toFixed(1)})`,
+        );
+      continue;
+    }
     const box = copyGlyph(row);
-    if (Math.abs(box.right) > 1) throw new Error("a waiting steer's last control is not on its bubble's right edge");
+    if (Math.abs(box.right) > 1)
+      throw new Error(
+        `a waiting steer's last control is not on its bubble's right edge (${box.right.toFixed(1)} px off)`,
+      );
     if (Math.abs(box.top - reference.top) > 1)
-      throw new Error("a waiting steer's controls are not the sent row's gap under the bubble");
+      throw new Error(
+        `a waiting steer's controls are not the sent row's gap under the bubble (${box.top.toFixed(1)} px, sent ${reference.top.toFixed(1)} px)`,
+      );
   }
 };
 const preview = (gap?: string) => async (ctx: PlayContext) => {
@@ -180,7 +206,7 @@ export default agentPaneEntry({
       play: checkRest,
     },
     stack: {
-      note: "Three waiting steers, oldest first, hovering the newest: Copy, Retry, × then Send now; only the newest offers Send now, and every row ends on its bubble's right edge, the sent row's gap under it.",
+      note: "Three waiting steers, oldest first, hovering the newest: Copy, Retry, × then Send now; only the newest offers Send now and ends on its bubble's right edge, the sent row's gap under it; the upper steers, stuck to it as one group, keep their controls beside their bubbles.",
       snapshot: stack(),
       play: async (ctx) => {
         await ctx.hover({ text: TEXT });

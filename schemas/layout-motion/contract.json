@@ -63,7 +63,7 @@
       "platform": "web",
       "selector": "[role='tab']",
       "size": "reserved",
-      "moves": ["resize", "reorder"]
+      "moves": ["resize", "expand", "reorder"]
     },
     {
       "id": "tracked",
