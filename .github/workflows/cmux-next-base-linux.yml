@@ -133,8 +133,15 @@ jobs:
           # unrelated steps (vendored-agent-cursor first) skipped ios-matrix-protocol on every run, and the
           # E0063 break from cmux#54233 + cmux#54390 stayed unseen for 8 h 49 min until the nightly.
           CI_RUN_ALONE_ON_RED: "1"
+          # Those alone steps (28 of 15 to 65 minutes) fill no 85-minute job: after cmux#64297 every run was
+          # cancelled at the timeout and showed no verdict. On a red job they run, one turn of the order a run,
+          # until a deadline: 55 minutes into this step for the first pass, 78 for the re-run (CI_ALONE_DEADLINE,
+          # scripts/ci/ci_steps.py), which leaves the job's last minutes to the steps after it.
+          CI_ALONE_TURN: ${{ github.run_number }}
         run: |
+          start="$(date +%s)"
           set +e
+          export CI_ALONE_DEADLINE=$(( start + 55 * 60 ))
           ci/run run --job "$TABLE_JOB" ${PATHS_FILE:+--paths-file "$PATHS_FILE"} 2>&1 | tee "$RUNNER_TEMP/linux-first.log"
           first="${PIPESTATUS[0]}"
           set -e
@@ -151,6 +158,7 @@ jobs:
             only=()
           fi
           echo "::notice::Failed once, running once more: $again"
+          export CI_ALONE_DEADLINE=$(( start + 78 * 60 ))
           if ci/run run --job "$TABLE_JOB" ${PATHS_FILE:+--paths-file "$PATHS_FILE"} "${only[@]}"; then
             echo "::warning title=Flaky on the base::Failed once and passed when run again, so the base is not red: $again"
             echo "Failed once and passed when run again (flaky, the base is not red): $again" >> "$GITHUB_STEP_SUMMARY"
