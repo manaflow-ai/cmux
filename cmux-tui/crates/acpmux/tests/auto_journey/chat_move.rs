@@ -116,3 +116,21 @@ async fn a_chat_kept_in_the_cloud_that_still_runs_here_is_moved_when_asked() {
     let there = chat_move(&laptop, &id, "cloud").await;
     assert_eq!(outcome(&there), ("already", "cloud", "cloud"), "{there}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn probe_machine_side_chat_move() {
+    let _hermetic = &crate::HERMETIC;
+    let world = World::new().await;
+    let laptop = world.start_laptop();
+    let machine = &world.machine;
+    let id = auto_chat(&world, &laptop, None).await;
+    let moved = chat_move(&laptop, &id, "cloud").await;
+    eprintln!("PROBE laptop->cloud: {moved}");
+    world.until_view(&id, "on vm", |view| view.holder == vm() && view.epoch == 2).await;
+    world.machine_at_rest(&id).await;
+    for on in ["cloud", "auto", "local"] {
+        let a = machine.request("_acpmux/chat_move", json!({"sessionId": id, "on": on})).await;
+        eprintln!("PROBE machine --on {on}: {a:?}");
+        eprintln!("PROBE machine row: {}  laptop row: {}", machine.row(&id), laptop.row(&id));
+    }
+}

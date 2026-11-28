@@ -428,7 +428,7 @@ describe("auto sessions: who may reach a chat, and the owner's list", { timeout:
     await runIn(stub, async (instance, state) => {
       const real = instance.env
       instance.env = { ...real, AUTO_SESSION_INDEX_DO: { idFromName: () => "x", get: () => ({ put: async () => Promise.reject(new Error("reset")) }) } }
-      await instance.keep(a.user, true)
+      await instance.keep({ kind: "owner", owner: a.user, install: null }, true)
       instance.env = real
       expect(await state.storage.getAlarm()).not.toBeNull()
     })
