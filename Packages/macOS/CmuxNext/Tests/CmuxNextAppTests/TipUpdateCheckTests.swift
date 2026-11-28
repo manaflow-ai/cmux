@@ -154,11 +154,18 @@ import CmuxNextWakeupsTestSupport
 
     // MARK: Release push, no delta wait
 
+    /// The network monitor's first path, a free link: automatic downloads wait for it (#39852), and in a test
+    /// nothing else delivers it before the test reads `downloadsFoundUpdates`.
+    static func firstNetworkPath(_ h: Harness) {
+        h.updater.networkChanged(constrained: false, expensive: false)
+    }
+
     /// A pushed NIGHTLY build whose deltas are not listed yet is checked for at once and downloads in
     /// the background at once: no Download prompt waits for deltas that list 40 to 70 minutes later
     /// (Leo 2026-11-27: "background + incremental should be on by default").
     @Test func aPushedBuildWithoutDeltasDownloadsAtOnce() async throws {
         let h = Self.make(Self.nightly, xml: Self.nightlyFeed(minutesAgo: 1, deltas: false))
+        Self.firstNetworkPath(h)
         #expect(h.updater.downloadsFoundUpdates)
         h.updater.tipCheck.readNow(h.updater)
         try #require(await eventually { h.checks.count == 1 }, "the pushed build was not checked for at once")
@@ -169,6 +176,7 @@ import CmuxNextWakeupsTestSupport
     /// A pushed build whose deltas are listed downloads at once the same way.
     @Test func aPushedBuildWithDeltasDownloadsAtOnce() async throws {
         let h = Self.make(Self.nightly, xml: Self.nightlyFeed(minutesAgo: 1, deltas: true))
+        Self.firstNetworkPath(h)
         h.updater.tipCheck.readNow(h.updater)
         try #require(await eventually { h.checks.count == 1 })
         #expect(h.updater.downloadsFoundUpdates)
