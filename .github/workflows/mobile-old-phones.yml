@@ -76,8 +76,8 @@ jobs:
   phones:
     name: The last 3 TestFlight phone builds
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    # resolve may wait up to 20 min for the token quota to reset (RESET_WAIT_MAX_S in mobile_old_phones.py).
-    timeout-minutes: 30
+    # resolve may wait out a whole hour's quota window for the reset (RESET_WAIT_MAX_S in mobile_old_phones.py).
+    timeout-minutes: 75
     permissions:
       contents: read
       actions: read
@@ -95,12 +95,14 @@ jobs:
       # The repo token's hourly quota is shared by every workflow and runs out (46116606886, 46125947911):
       # resolve then answers with the last list it read, carried here between runs. The repo's caches sit at GitHub's
       # 10 GB limit, so a list this small is evicted within the hour (46137212890's was gone for 46141489174);
-      # without one it waits for the reset.
+      # without one it waits for the reset. The entry is keyed by the newest build's commit (the list only moves
+      # forward) and saved from feat-cmux-next alone: a cache saved on a lane branch or pull request is read only by
+      # that ref again (tests/test_ci_no_run_scoped_cache_keys.py). Each restore counts as a use, which keeps it.
       - name: The last phone list read
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .old-phones-list
-          key: mobile-old-phones-list-${{ github.run_id }}-${{ github.run_attempt }}
+          key: mobile-old-phones-list-
           restore-keys: mobile-old-phones-list-
       # The bot App's token has its own quota, as in ios-internal-nightly-trigger.yml: resolve reads with it first and
       # switches to the workflow token at once when one is spent. Run 46185856595 died on the workflow token's spent
@@ -132,11 +134,11 @@ jobs:
             *) echo 'apis=["staging","prod"]' >> "$GITHUB_OUTPUT" ;;
           esac
       - name: Keep this phone list for the next run
-        if: ${{ steps.resolve.outputs.fresh == 'true' }}
+        if: ${{ steps.resolve.outputs.fresh == 'true' && steps.resolve.outputs.sha1 != '' && github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .old-phones-list
-          key: mobile-old-phones-list-${{ github.run_id }}-${{ github.run_attempt }}
+          key: mobile-old-phones-list-${{ steps.resolve.outputs.sha1 }}
 
   dial:
     name: Shipped iPhones vs ${{ matrix.api }} API
@@ -236,3 +238,4 @@ jobs:
           name: old-phones-${{ matrix.api }}
           path: ${{ runner.temp }}/old-phones
           if-no-files-found: ignore
+          retention-days: 3

@@ -69,9 +69,12 @@ def runs_request(repo: str, token: str) -> urllib.request.Request:
 RETRY_CODES = {403, 429, 500, 502, 503, 504}
 
 
-# The longest wait for GitHub's quota reset when no earlier list can answer instead. The job's 30 min timeout
-# covers it plus the retries.
-RESET_WAIT_MAX_S = 20 * 60
+# The longest wait for GitHub's quota reset when no earlier list can answer instead. GitHub's rate limit window
+# is one hour, so x-ratelimit-reset is never further than that: waiting the whole window means a spent quota
+# delays the run instead of failing it. Run 46188049903 (feat-cmux-next 52f104fdd8) hit a spent quota with its
+# reset over the old 20 min bound and no cached list, and went red on a read, not on a phone. The job's
+# 75 min timeout covers this wait plus the retries.
+RESET_WAIT_MAX_S = 60 * 60 + 60
 
 
 def fetch_runs(repo: str, token: str, *, opener=urllib.request.urlopen, sleep=time.sleep, now=time.time,
