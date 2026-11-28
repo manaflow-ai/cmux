@@ -418,7 +418,7 @@ struct CloudStartSession {
                 let kept = CloudStartSessionStrings.newMachineKept(name, id: id), failure = ended as? ActionFailure
                 throw ActionFailure(message: (failure?.message ?? CloudStrings.errorText(ended)) + " " + kept, isNotFound: failure?.isNotFound ?? false, isQuiet: failure?.isQuiet ?? false)
             }
-            throw ended
+            throw (ended as? ActionFailure).flatMap { f in CloudStartSessionStrings.newMachineDeleted(name, id: id, after: f.message).map { ActionFailure(message: $0, isNotFound: f.isNotFound, isQuiet: f.isQuiet) as Error } } ?? ended
         }
     }
 
