@@ -1978,6 +1978,7 @@
       "targets": [
         "CCmuxAppFFI",
         "CmuxNextCompat",
+        "CmuxNextControl",
         "CmuxNextDesign",
         "CmuxNextSettings",
         "CmuxNextWakeups"

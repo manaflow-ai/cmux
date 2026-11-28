@@ -165,7 +165,7 @@ final class AppControl {
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
-        service.router.register([services.chiefPetMini.debugMethod(), services.personInput.actAsMe.debugMethod()])  // debug.chief_pet, debug.act_as_me: captures
+        service.router.register([services.chiefPetMini.debugMethod(), services.personInput.actAsMe.debugMethod(), services.nativeTranscript.debugMethod()])  // debug.chief_pet, debug.act_as_me: captures; debug.native_transcript: RFD 0121 fling
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         terminalDisplayProbe.terminals = { [weak services] in services?.cache.terminals.map { ($0.key, $0.value.session) } ?? [] }
         service.router.register([
@@ -517,10 +517,6 @@ final class AppControl {
             }.withDeadline(.fixed(.seconds(15))), DebugNewTerminalTrace.method(services),
             // Agent chat open: stages and the pane's surface per frame (Leo 2026-10-22, the black gap).
             DebugChatOpenTrace.method(services),
-            // RFD 0121: the native transcript window (read-only fixture) for transcript_fling.py.
-            .async("debug.native_transcript") { [weak services] call in
-                await services?.nativeTranscript.handle(call.params) ?? .null
-            }.withDeadline(.fixed(.seconds(60))),
             // R131: hover card retarget timing across the focused strip's tabs.
             .async("debug.hover_sweep") { [weak services] call in
                 guard let services else { return .null }
