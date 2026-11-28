@@ -196,6 +196,7 @@ mod tests {
             },
             transcript: Some("t-1".into()),
             harness: "claude".into(),
+            taint: String::new(),
         }
     }
 

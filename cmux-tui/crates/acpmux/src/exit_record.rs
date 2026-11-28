@@ -107,6 +107,9 @@ pub struct ExitRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transcript: Option<String>,
     pub harness: String,
+    /// Its taint letters (`SessionMeta::taint`, RFD 0179 idea 11), sorted; empty for none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub taint: String,
 }
 
 /// The goal a session holds unfinished: its harness goal not done, else its `goal` tag.
@@ -135,6 +138,7 @@ impl ExitRecord {
             close,
             transcript: meta.agent_session_id.clone(),
             harness: meta.harness.clone(),
+            taint: meta.taint.keys().map(String::as_str).collect(),
         }
     }
 
@@ -172,6 +176,9 @@ impl ExitRecord {
             }
             out.push_str(&format!(" It owned: {}; that work is yours now.", owned.join("; ")));
         }
+        if !self.taint.is_empty() {
+            out.push_str(&format!(" Tainted `{}`: {}.", self.taint, taint_words(&self.taint)));
+        }
         out.push_str(&format!(" Folder: `{}`.", o.folder));
         if let Some(t) = &self.transcript {
             out.push_str(&format!(" Checkpoint: {} transcript `{t}`;", self.harness));
@@ -181,6 +188,20 @@ impl ExitRecord {
         out.push_str(&format!(" read it with `acpmux session tail {}`.", self.name));
         out
     }
+}
+
+/// What each of `letters` (`hub/taint.rs`) means, in a parent's words: "it overrode a guard".
+fn taint_words(letters: &str) -> String {
+    let words: Vec<&str> = letters
+        .chars()
+        .map(|c| match c {
+            'A' => "it ran an admin merge",
+            'O' => "it overrode a guard",
+            'R' => "it forced a rerun",
+            _ => "it ran something unusual",
+        })
+        .collect();
+    words.join(", ")
 }
 
 /// `s` cut to `n` characters, with `…` when cut.
@@ -257,6 +278,22 @@ lane-a`."
         assert_eq!(v["class"], "killed");
         assert_eq!(v["owned"]["goal"], "ship exit records");
         assert_eq!(v["transcript"], "t-1");
+        assert!(v.get("taint").is_none(), "an untainted record has no taint: {v}");
+    }
+
+    #[test]
+    fn a_tainted_session_s_record_says_so() {
+        let mut m = meta(json!({}));
+        m.taint = [("O".to_owned(), 3), ("R".to_owned(), 4)].into();
+        let close = CloseRecord::new(CloseWhy::by("cli", "x").outcome("done"), &m, 9);
+        let r = ExitRecord::new(&m, close, vec![]);
+        assert_eq!(r.taint, "OR");
+        let text = r.text(&[]);
+        assert!(
+            text.contains(" Tainted `OR`: it overrode a guard, it forced a rerun. Folder:"),
+            "{text}"
+        );
+        assert_eq!(serde_json::to_value(&r).unwrap()["taint"], "OR");
     }
 
     #[test]

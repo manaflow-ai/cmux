@@ -449,6 +449,7 @@ pub(crate) mod surgery;
 mod surgery_codex;
 pub mod synced;
 mod tags;
+mod taint;
 mod tailnet_controller;
 mod tap;
 mod task_names;

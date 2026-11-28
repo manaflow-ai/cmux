@@ -191,6 +191,14 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub pull_requests: Vec<String>,
+    /// Its taint letters, sorted (RFD 0179 idea 11, `hub/taint.rs`): `A` it ran an admin merge
+    /// (`gh pr merge --admin`), `O` it overrode a guard (`GUARD_OVERRIDE=`, `LAND_JUDGE_OVERRIDE=`),
+    /// `R` it forced a rerun (`gh run rerun --force`). Kept for the session's life, so a report
+    /// about it says it ran something unusual; empty, and absent from a peer on an older acpmux,
+    /// when it did none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[schemars(default)]
+    pub taint: String,
     /// The session whose agent started this one with its `start_session`
     /// tool (`hub/subsessions.rs`); null for a session a person or client
     /// started. Kept when the parent is closed or gone, so a client draws

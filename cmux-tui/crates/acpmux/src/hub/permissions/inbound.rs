@@ -466,6 +466,7 @@ impl Hub {
                     }
                 }
                 super::touched::absorb(session, update, &mut m, replayed);
+                super::taint::absorb(update, &mut m, at);
                 super::lineage::note_tool_call(session, update);
             }
             "usage_update" => m.usage = Some(update.clone()),
