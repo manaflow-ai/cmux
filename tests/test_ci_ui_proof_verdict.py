@@ -198,6 +198,22 @@ class RecordTest(unittest.TestCase):
             self.assertEqual((rec["suite"], rec["verdict"]), ("web-flows", "fail"))
             self.assertFalse(rec["visual"]["diffed"])
 
+    def test_a_look_without_after_light_names_the_missing_file_and_the_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            (out / "after").mkdir()
+            (out / "after" / "split-open.png").write_bytes(png(2, 2))
+            rec = u.build_record(out, repo="o/r", pr=7, head=HEAD, suite="mac-flows")
+            look = rec["runs"][0]
+            self.assertEqual((look["name"], look["result"], rec["verdict"]), ("look", "fail", "fail"))
+            self.assertIn("missing after/light.png", look["note"])
+            self.assertIn("split-open.png", look["note"])
+            self.assertIn("after/{light,dark}.png", look["note"])
+            (out / "after" / "light.png").write_bytes(png(2, 2))
+            rec = u.build_record(out, repo="o/r", pr=7, head=HEAD, suite="mac-flows")
+            self.assertEqual(rec["runs"][0]["result"], "pass")
+            self.assertNotIn("note", rec["runs"][0])
+
 
     def test_a_look_that_built_the_swift_app_records_mac_flows_the_app_gate_reads(self) -> None:
         plan = {"layers": ["web"], "needs_build": True, "build": {"Swift": ["Packages/macOS/A/Sources/B/C.swift"]}}

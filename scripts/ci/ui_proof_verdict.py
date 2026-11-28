@@ -332,8 +332,13 @@ def build_record(out: Path, *, repo: str, pr: int, head: str, suite: str | None 
         elif before is not None:
             cap["verdict"] = "new"
         captures.append(cap)
-    errors = receipt.get("errors") or []
-    looked = bool(shots) and (out / "after" / "light.png").is_file() and not errors
+    errors = list(receipt.get("errors") or [])
+    if not (out / "after" / "light.png").is_file():
+        # Name the file and the layout the gate reads: a fail with no note sends the reader into the CI log.
+        found = ", ".join(sorted(p.name for p in (out / "after").glob("*.png"))) or "none"
+        errors.insert(0, f"missing after/light.png (after/ has: {found}); expected layout: before/{{light,dark}}.png, "
+                         "after/{light,dark}.png, optional steps/*.png, video.mp4, receipt.json")
+    looked = bool(shots) and not errors
     runs = [{"name": "look", "result": "pass" if looked else "fail", "mode": ",".join(plan.get("layers") or []),
              "seconds": (receipt.get("phases") or {}).get("total"),
              **({"note": "; ".join(errors)[:300]} if errors else {})}]
