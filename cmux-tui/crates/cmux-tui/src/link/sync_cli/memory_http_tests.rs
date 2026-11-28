@@ -19,6 +19,7 @@ use super::*;
 
 const PERSON: &str = "person-token";
 const MACHINE: &str = "machine-token";
+const INSTALL: &str = "vm-install-token";
 const CAPABILITY: &str = "ahc_test-capability-0123456789";
 const PROJECT: &str = "local:-home-leo-proj";
 const MEMORY: &str = ".claude/projects/-home-leo-proj/memory/MEMORY.md";
@@ -70,11 +71,16 @@ impl Fake {
     }
 
     fn person(&self) -> HttpHead {
-        HttpHead::new(&self.origin, PERSON, None).unwrap()
+        HttpHead::new(&self.origin, PERSON, false, None).unwrap()
     }
 
     fn machine(&self) -> HttpHead {
-        HttpHead::new(&self.origin, MACHINE, Some(CAPABILITY)).unwrap()
+        HttpHead::new(&self.origin, MACHINE, true, Some(CAPABILITY)).unwrap()
+    }
+
+    /// A solo Cloud machine's own install token, no capability.
+    fn install(&self) -> HttpHead {
+        HttpHead::new(&self.origin, INSTALL, true, None).unwrap()
     }
 
     /// The person turns it off: a new generation, no head, no tokens.
@@ -113,10 +119,19 @@ fn answer(
     let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).unwrap_or_default();
     let person = match header("authorization") {
         value if value == format!("Bearer {PERSON}") => true,
-        value if value == format!("Bearer {MACHINE}") => false,
+        value if value == format!("Bearer {MACHINE}") || value == format!("Bearer {INSTALL}") => {
+            false
+        }
         _ => return refuse(401, "agent_home.unauthorized"),
     };
-    if !person && header("x-agent-home-capability") != CAPABILITY {
+    // A solo machine's install token reads user-wide only without a
+    // capability; any other machine credential needs one.
+    let install = header("authorization") == format!("Bearer {INSTALL}")
+        && header("x-agent-home-capability").is_empty();
+    if !person && !install && header("x-agent-home-capability") != CAPABILITY {
+        return refuse(403, "agent_home.capability_required");
+    }
+    if install && method != AxMethod::GET && path != "/v1/agent-home/grants" {
         return refuse(403, "agent_home.capability_required");
     }
     let body: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
@@ -128,7 +143,9 @@ fn answer(
             let entries: Vec<Value> = s
                 .entries
                 .iter()
-                .filter(|((project, _), _)| person || project.is_empty() || project == PROJECT)
+                .filter(|((project, _), _)| {
+                    person || project.is_empty() || (!install && project == PROJECT)
+                })
                 .map(|((project, path), sha)| json!({"project": project, "path": path, "sha256": sha}))
                 .collect();
             let revision = if s.follow { s.revision } else { 0 };
@@ -219,7 +236,13 @@ fn answer(
             }
             s.serial += 1;
             let token = format!("ahg_{:032x}", s.serial);
-            let project = if person { "*" } else { PROJECT };
+            let project = if person {
+                "*"
+            } else if install {
+                ""
+            } else {
+                PROJECT
+            };
             s.grants.insert(token.clone(), project.to_string());
             ok(201, json!({"token": token, "generation": s.generation}))
         }
@@ -228,7 +251,8 @@ fn answer(
                 return refuse(403, "agent_home.grant_required");
             };
             let readable = s.entries.iter().any(|((p, _), held)| {
-                held == sha && (project == "*" || p.is_empty() || *p == project)
+                held == sha
+                    && (project == "*" || p.is_empty() || (!project.is_empty() && *p == project))
             });
             match s.blobs.get(*sha).filter(|_| readable) {
                 Some(bytes) => (AxStatus::OK, bytes.clone()).into_response(),
@@ -413,7 +437,7 @@ fn seeded_secrets_beside_the_carried_files_never_reach_the_wire() {
     put(&mac.home, ".claude/projects/-home-leo-proj/memory/.env", "K=SEEDprojectEnv0123\n");
     put(&mac.home, ".claude/skills/a/secret.txt", "SEEDskillSecret0123\n");
     let host = "cmux-platform-staging.debussy.workers.dev";
-    let head = HttpHead::new(&format!("https://{host}"), "seed-person-token", None).unwrap();
+    let head = HttpHead::new(&format!("https://{host}"), "seed-person-token", false, None).unwrap();
     // The capture server answers `200 {}`: the head reads empty, and the
     // proposal answer has no id, so the push stops after sending it.
     let _ = push(&ctx(&mac, &head, false));
@@ -429,4 +453,31 @@ fn seeded_secrets_beside_the_carried_files_never_reach_the_wire() {
         let leaks = cmux_egress::capture::leaks(marker);
         assert!(leaks.is_empty(), "{marker} left: {leaks:?}");
     }
+}
+
+/// A solo Cloud machine pulls with its own install token, no capability: the
+/// user-wide CLAUDE.md lands, the project's memory does not, it proposes
+/// nothing and never accepts.
+#[test]
+fn a_machine_without_a_capability_pulls_the_user_wide_files() {
+    let fake = Fake::start();
+    let mac = device();
+    put(&mac.home, ".claude/CLAUDE.md", "codeword: blue-heron\n");
+    put(&mac.home, MEMORY, "- the probe remembers\n");
+    let out = push(&ctx(&mac, &fake.person(), false)).unwrap();
+    assert_eq!(out.accepted_revision, Some(1));
+
+    let vm = device();
+    let install = fake.install();
+    let pulled = pull(&ctx(&vm, &install, true)).unwrap();
+    assert_eq!(pulled.revision, Some(1));
+    assert_eq!(read(&vm.home, ".claude/CLAUDE.md").as_deref(), Some("codeword: blue-heron\n"));
+    assert_eq!(read(&vm.home, MEMORY), None);
+
+    put(&vm.home, ".claude/CLAUDE.md", "edited on the machine\n");
+    put(&vm.home, MEMORY, "- learned on the machine\n");
+    let pushed = push(&ctx(&vm, &install, true)).unwrap();
+    assert_eq!(pushed.proposal, None);
+    assert_eq!(pushed.accepted_revision, None);
+    assert_eq!(fake.state.lock().unwrap().revision, 1);
 }

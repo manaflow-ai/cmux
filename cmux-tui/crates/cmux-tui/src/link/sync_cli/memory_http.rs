@@ -152,6 +152,9 @@ struct WireEntry {
 pub(crate) struct HttpHead {
     origin: String,
     token: String,
+    /// A Cloud machine (root, or one holding a capability): never accepts,
+    /// never proposes instructions.
+    machine: bool,
     capability: Option<String>,
     http: reqwest::Client,
     runtime: tokio::runtime::Runtime,
@@ -161,8 +164,17 @@ pub(crate) struct HttpHead {
 }
 
 impl HttpHead {
-    /// `origin` from [`origin_of`]; `capability` makes this a machine.
-    pub(crate) fn new(origin: &str, token: &str, capability: Option<&str>) -> anyhow::Result<Self> {
+    /// `origin` from [`origin_of`]. `machine` (or a `capability`, which only
+    /// a machine holds) makes this a machine. A machine without a capability
+    /// (a solo Cloud machine's own install token) reads the user-wide files
+    /// only and proposes nothing; with one it also reads and proposes that
+    /// capability's project memory.
+    pub(crate) fn new(
+        origin: &str,
+        token: &str,
+        machine: bool,
+        capability: Option<&str>,
+    ) -> anyhow::Result<Self> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
         let http = cmux_egress::client_builder("cmux_tui::link::sync_cli::memory_http")
@@ -179,6 +191,7 @@ impl HttpHead {
         Ok(Self {
             origin: origin.trim_end_matches('/').to_string(),
             token: token.to_string(),
+            machine: machine || capability.is_some(),
             capability: capability.map(str::to_string),
             http,
             runtime,
@@ -188,7 +201,13 @@ impl HttpHead {
     }
 
     fn machine(&self) -> bool {
-        self.capability.is_some()
+        self.machine
+    }
+
+    /// Whether this caller reads `project`'s entries: a machine without a
+    /// capability reads the user-wide files only.
+    fn reads(&self, project: &str) -> bool {
+        !self.machine || self.capability.is_some() || project.is_empty()
     }
 
     /// One request: its status and body.
@@ -285,6 +304,7 @@ impl Head for HttpHead {
                 entry.sha256.len() == 64 && entry.sha256.bytes().all(|b| b.is_ascii_hexdigit());
             if let Some(key) = from_service(&entry.project, &entry.path)
                 && hash_ok
+                && self.reads(&entry.project)
             {
                 manifest
                     .insert(key, Item { sha256: entry.sha256.to_ascii_lowercase(), mode: 0o644 });
@@ -371,7 +391,10 @@ impl Head for HttpHead {
     fn takes(&self, key: &str) -> bool {
         // A machine proposes memory only; an instruction file from it would
         // refuse the whole proposal (`agent_home.instructions_from_machine`).
-        to_service(key).is_some_and(|(project, _)| !(self.machine() && project.is_empty()))
+        // Without a capability it has no project to propose into.
+        to_service(key).is_some_and(|(project, _)| {
+            !self.machine() || (self.capability.is_some() && !project.is_empty())
+        })
     }
 
     fn accept_own(&self, id: &str, base_revision: u64) -> anyhow::Result<Option<u64>> {

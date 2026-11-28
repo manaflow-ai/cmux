@@ -1048,7 +1048,10 @@ fn run_inner(args: &[String]) -> anyhow::Result<serde_json::Value> {
         cmux_egress::allow_named(&origin);
         let capability =
             std::env::var("CMUX_AGENT_HOME_CAPABILITY").ok().filter(|value| !value.is_empty());
-        http_head = http::HttpHead::new(&origin, &agent_home_token()?, capability.as_deref())?;
+        // Root is a Cloud machine: with no capability (its own install
+        // token) it pulls the user-wide files only.
+        http_head =
+            http::HttpHead::new(&origin, &agent_home_token()?, root, capability.as_deref())?;
         &http_head
     } else {
         dir_head = DirHead { root: PathBuf::from(&head_arg) };
