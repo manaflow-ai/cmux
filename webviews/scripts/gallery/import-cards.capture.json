@@ -1,0 +1,38 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["light", "light"],
+    ["light", "dark"],
+    ["light", "busy"],
+    ["dark", "none"],
+    ["dark", "light"],
+    ["dark", "dark"],
+    ["dark", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "import-cards-settings",
+      "entry": "ui.import-cards",
+      "variant": "settings",
+      "width": 760,
+      "height": 820,
+      "deviceScaleFactor": 1,
+      "arms": {
+        "now": "",
+        "material": ":root:root{--cmux-text:#1d1b20;--agent-text:#1d1b20;--cmux-accent:#6750a4;--agent-accent:#6750a4;--cmux-on-accent:#ffffff;--cmux-elevated-background:#f3edf7;--cmux-button-radius:20px}@media (prefers-color-scheme: dark){:root:root{--cmux-text:#e6e0e9;--agent-text:#e6e0e9;--cmux-accent:#d0bcff;--agent-accent:#d0bcff;--cmux-on-accent:#381e72;--cmux-elevated-background:#211f26;--cmux-button-radius:20px}}"
+      }
+    },
+    {
+      "name": "import-cards-running",
+      "entry": "ui.import-cards",
+      "variant": "settings-running",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 1,
+      "arms": {
+        "now": "",
+        "material": ":root:root{--cmux-text:#1d1b20;--agent-text:#1d1b20;--cmux-accent:#6750a4;--agent-accent:#6750a4;--cmux-on-accent:#ffffff;--cmux-elevated-background:#f3edf7;--cmux-button-radius:20px}@media (prefers-color-scheme: dark){:root:root{--cmux-text:#e6e0e9;--agent-text:#e6e0e9;--cmux-accent:#d0bcff;--agent-accent:#d0bcff;--cmux-on-accent:#381e72;--cmux-elevated-background:#211f26;--cmux-button-radius:20px}}"
+      }
+    }
+  ]
+}
