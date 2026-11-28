@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "githubConnect.notInstalled" : {
+      "comment" : "Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): the card's line when the cmux GitHub App is not installed on the repository's owner for this team, so the team's GitHub grant does not cover it",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This chat's GitHub grant doesn't cover this repository's owner: the cmux GitHub App isn't installed there"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

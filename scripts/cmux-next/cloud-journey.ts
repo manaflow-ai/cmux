@@ -3885,6 +3885,49 @@ export const hopSpans = (out: string): Record<string, number> | null => {
   };
 };
 
+/**
+ * A provider's own credential in the form its vendor issues it: an Anthropic API, OAuth (`claude setup-token`) or admin
+ * key, an OpenAI key (every form carries `T3BlbkFJ`, base64 of "OpenAI"), a Google, xAI, OpenRouter or Groq key, or an
+ * OAuth refresh token as a JSON field (a Codex ChatGPT sign-in's auth.json). Lengths are the issued ones, so the short
+ * examples in a harness's docs do not match. A cmux-issued token (the model plane's, a machine's) is none of these.
+ */
+export const PROVIDER_KEY_PATTERN =
+  'sk-ant-(api|oat|admin)[0-9]{2}-[A-Za-z0-9_-]{80,}|sk-[A-Za-z0-9_-]*T3BlbkFJ[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{35}|xai-[A-Za-z0-9]{70,}|sk-or-v1-[0-9a-f]{64}|gsk_[A-Za-z0-9]{52}|"refresh_token" *: *"[^"]{20,}';
+
+/**
+ * Plan "API keys no longer ever land in the VM" (cmuxterm-hq plans/feat-regatta-cloud-agents/regatta-prototype.md, M2):
+ * whether a provider credential is anywhere on the machine while its agent runs. Every process's environment and command
+ * line, and every text file under 4 MiB in the folders a login or an env file could be in, are matched against
+ * PROVIDER_KEY_PATTERN on the guest; only the place and the kind come back (`@@hit`), never a value, and no value is
+ * sent to the guest to look for. As root when `sudo -n` works (`@@root yes`), else only what the work user can read.
+ */
+/** The folders the scan reads: a login, an env file or a harness's settings is in one of them. */
+export const PROVIDER_KEY_FOLDERS = ["/home", "/root", "/etc", "/tmp", "/var/tmp", "/opt", "/srv", "/run", "/var/lib"];
+export const providerKeysProgram = (folders: readonly string[] = PROVIDER_KEY_FOLDERS) => [
+  `P='${PROVIDER_KEY_PATTERN.replace(/'/g, `'\\''`)}'`,
+  "R=; sudo -n true 2>/dev/null && R='sudo -n'; echo \"@@root ${R:+yes}${R:-no}\"",
+  "kind() { sed -E 's/^sk-ant-(api|oat|admin).*/anthropic-\\1/; s/^sk-.*T3BlbkFJ.*/openai/; s/^AIza.*/google/; s/^xai-.*/xai/; s/^sk-or-v1-.*/openrouter/; s/^gsk_.*/groq/; s/^\"refresh_token\".*/oauth-refresh-token/' | sort -u | tr '\\n' ' '; }",
+  // One grep over every process's env and command line (NUL-separated, so a match never spans two variables).
+  "echo \"@@procs $(ls -d /proc/[0-9]* | wc -l)\"",
+  "$R grep -aoE \"$P\" /proc/[0-9]*/environ /proc/[0-9]*/cmdline 2>/dev/null | while IFS= read -r l; do p=${l#/proc/}; p=${p%%/*}; echo \"$p $(printf '%s\\n' \"${l#*:}\" | kind)\"; done" +
+    " | sort -u | while read -r p k; do echo \"@@hit env pid $p ($($R cat /proc/$p/comm 2>/dev/null)): $k\"; done",
+  `$R timeout 80 find ${folders.join(" ")} -xdev` + " \\( -name node_modules -o -name site-packages -o -name dist-packages -o -name .git \\) -prune -o -type f -size -4M -print0 2>/dev/null" +
+    " | $R xargs -0 -r grep -IlsE \"$P\" 2>/dev/null | while IFS= read -r f; do echo \"@@hit file $f: $($R grep -ohIsE \"$P\" \"$f\" | kind)\"; done",
+  "echo @@done",
+].join("\n");
+export const PROVIDER_KEYS_ON_MACHINE_PROGRAM = providerKeysProgram();
+
+/** The verdict on PROVIDER_KEYS_ON_MACHINE_PROGRAM's output: the places a provider credential is, or a clean read. */
+export function providerKeysVerdict(stdout: string): { hits: string[]; root: boolean; procs: number; done: boolean } {
+  const lines = stdout.split("\n");
+  return {
+    hits: lines.filter((l) => l.startsWith("@@hit ")).map((l) => l.slice(6).trim()),
+    root: lines.includes("@@root yes"),
+    procs: Number(/^@@procs (\d+)$/m.exec(stdout)?.[1] ?? 0),
+    done: lines.includes("@@done"),
+  };
+}
+
 /** The model plane every Cloud machine's agents read (web/services/coderouter/vmGuestEnv.ts). */
 const VM_MODEL_PLANE_ENV = "/etc/cmux/model-plane.env";
 /** Calls timed each way by the gateway hop cost. */
@@ -4078,8 +4121,13 @@ export async function startAfterOwnerKind(exec: Exec, command: string, timeoutMs
     return r;
   }
   await waitKind();
-  return exec(guestTimed(command), timeoutMs);
+  // The first exec may have run the start with its answer lost (run 46100347935: no vm-kind line read back, then the
+  // resend's session/new found the name taken). The start run again takes a session of its own name as its own.
+  return exec(guestTimed(`export ${START_RESENT_ENV}=1; ${command}`), timeoutMs);
 }
+
+/** Set on a start the journey runs a second time (launchCredentialStartProgram reads it as a cut start). */
+export const START_RESENT_ENV = "CMUX_JOURNEY_START_RESENT";
 
 /** What the journey accepts as a login to install, per provider. */
 export function validLogin(provider: "claude" | "codex", value: string): boolean {
@@ -4302,8 +4350,10 @@ class Retryable(RuntimeError):
 # (run 45885585817): the resend's "name is taken" then names that session, which the start takes by name.
 RETRY_S = float(os.environ.get('CMUX_JOURNEY_START_RETRY_S') or 45)
 deadline = time.monotonic() + RETRY_S
-# Whether a session/new was cut after it was sent (a retryable answer or a closed link), so may have made it.
-cut = False
+# Whether a session/new was cut after it was sent (a retryable answer or a closed link), so may have made it. A start
+# the journey runs again after an exec whose answer it could not read (startAfterOwnerKind, run 46100347935: the
+# first exec made the session, the resend's session/new read "is taken") starts cut: that name is this run's own.
+cut = os.environ.get('CMUX_JOURNEY_START_RESENT') == '1'
 while True:
     errors = []
     sid = None
@@ -4358,7 +4408,8 @@ if sid is not None:
     # The session exists now: a failed prompt never starts a second session on another socket. A prompt cut by
     # acpmux's restart (retryable, a closed or refused connection) is sent again on the same socket with the same
     # promptId, which acpmux runs at most once ("a send with the same --prompt-id never runs twice").
-    pid = str(uuid.uuid4())
+    # One promptId per session name, so a start run again after a lost answer never sends its first prompt twice.
+    pid = str(uuid.uuid5(uuid.NAMESPACE_URL, 'cmux-journey-first-prompt:' + params['_meta']['acpmux']['name']))
     meta = {'acpmux': {'steer': False, 'promptId': pid, 'resend': False}}
     if trace:
         meta['traceId'] = trace
@@ -4650,7 +4701,7 @@ export function journeyMachineTtl(long: boolean, env: Record<string, string | un
     return { ttl_seconds: n };
   }
   if (env.GITHUB_ACTIONS !== "true") return {};
-  return { ttl_seconds: Math.round((long ? LONG_JOURNEY_MS : STALE_JOURNEY_MS / 2) / 1000) };
+  return { ttl_seconds: Math.round((long ? LONG_JOURNEY_MS : SHORT_JOURNEY_MS) / 1000) };
 }
 /**
  * The live machines on ROWS that carry one of TAG's own names (autoMachineName either length, its gateway and its cold create cell), minus
@@ -4665,6 +4716,15 @@ export function ownNamedMachines(rows: any[], tag: string, opts: { kept?: boolea
   const exclude = new Set([...(opts.exclude ?? [])].filter((id): id is string => typeof id === "string" && id !== ""));
   return rows.filter((r) => names.has(r?.name) && r.status !== "deleted" && r.status !== "deleting" && !exclude.has(String(r.id ?? r.machine_id ?? "")));
 }
+/**
+ * How old a short run's own machine (`cloud journey auto jr-<tag>`, no ` long`) is when the sweep takes it, in any state
+ * (paused and failed included), idle: half of STALE_JOURNEY_MS, the same bound as its ttl. Every workflow job that runs
+ * a journey is at most this long (the age-bound test checks every timeout-minutes), so no run that named the machine is
+ * still going. The 3 h bound kept every paused leftover under 3 h old: run 46115218791 (2026-11-28 07:20Z) swept 4 of
+ * the staging test team's 86 machines (paused 64, running 14, failed 8) while its owner object answered
+ * cloud.machine.list "Durable Object exceeded its CPU time limit" and every exec 503 vm_unavailable (overloaded).
+ */
+export const SHORT_JOURNEY_MS = STALE_JOURNEY_MS / 2;
 /** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
 export const IDLE_JOURNEY_MS = 60 * 60_000;
 /**
@@ -4733,14 +4793,18 @@ export function gatewayModeAction(body: unknown, gatewayOnly: boolean): "keep" |
   return strandedGatewayMode(body) ? "off" : "keep";
 }
 
-export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS, longMs = LONG_JOURNEY_MS): StaleMachine[] {
+export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS, longMs = LONG_JOURNEY_MS, shortMs = SHORT_JOURNEY_MS): StaleMachine[] {
   const out: StaleMachine[] = [];
   for (const r of rows) {
     if (!r || r.status === "deleted" || r.status === "deleting") continue;
     const name = typeof r.name === "string" ? r.name : "";
     // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
     // So are the Auto mode journey's (auto-journey.ts `auto journey aj-<tag>`): it always deletes its machine.
-    const auto = /^cloud journey auto jr-([0-9a-z]+)( long)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name) ?? /^auto journey aj-([0-9a-z]+)$/.exec(name);
+    // A short journey run's own name (no ` long`) gets SHORT_JOURNEY_MS: every job that runs one is pinned under it.
+    const short = /^cloud journey auto jr-([0-9a-z]+)(?: (?!long(?: |$))\S.*)?$/.exec(name);
+    // `cmux repro run --cloud`'s capsule machine (cmux-tui cloud_journey/sweep.rs owned_tag_ms): only that run, which
+    // deletes it at its end, gives the name, so a leaked one goes by the same rule as a journey's.
+    const auto = short ?? /^cloud journey auto jr-([0-9a-z]+)( long)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name) ?? /^auto journey aj-([0-9a-z]+)$/.exec(name) ?? /^repro capsule \S+ jr-([0-9a-z]+)$/.exec(name);
     // A --keep run's own name (ownNamedMachines' `kept`): only the journey gives it, so it is the sweep's past KEPT_JOURNEY_MS.
     const kept = auto ? null : /^cloud journey jr-([0-9a-z]+)(?: \S.*)?$/.exec(name);
     const m = auto ?? kept;
@@ -4748,7 +4812,7 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
-    const bound = kept ? (r.status === "failed" ? longMs : KEPT_JOURNEY_MS) : r.status === "failed" ? FAILED_JOURNEY_MS : m[2] ? longMs : maxAgeMs;
+    const bound = kept ? (r.status === "failed" ? longMs : KEPT_JOURNEY_MS) : r.status === "failed" ? FAILED_JOURNEY_MS : short ? shortMs : m[2] ? longMs : maxAgeMs;
     if (nowMs - started <= bound) continue;
     if (r.status !== "failed" && typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
     const id = String(r.id ?? r.machine_id ?? "");
@@ -7357,6 +7421,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           });
         }
       }
+      // While the agent's session is live: no provider credential anywhere on the machine (plan M2, "API keys no
+      // longer ever land in the VM"). A login the journey passed (a subscription row, Codex's auth.json) is one.
+      await J.step("no provider key on the machine", async () => {
+        const r = await exec(PROVIDER_KEYS_ON_MACHINE_PROGRAM, 120_000);
+        const v = providerKeysVerdict(r.stdout);
+        if (!v.done) throw new Error(`the scan did not finish: exit ${r.code} ${r.stderr.slice(-200)}`);
+        if (v.hits.length) throw new Error(`${v.hits.length} provider credential place(s) on the machine: ${v.hits.slice(0, 12).join("; ")}`);
+        return { value: v.hits.length, detail: `0 provider keys in ${v.procs} processes' env and the disk${v.root ? "" : " (as the work user only: no sudo)"}` };
+      });
       if (!lifecycle) {
         J.skip("turn 2 (same session)", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
         J.skip("daemon restart keeps the session", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
