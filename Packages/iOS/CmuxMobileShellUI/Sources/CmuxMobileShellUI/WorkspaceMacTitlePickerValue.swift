@@ -15,4 +15,8 @@ struct WorkspaceMacTitlePickerValue: Equatable {
     /// / "Not Connected"). `nil` while healthy or while other chrome owns the
     /// connection story.
     var statusLine: WorkspaceConnectionStatusLine?
+    /// Draws the picker as a single ellipsis control. A phone's portrait split
+    /// sidebar has room for one more icon in its leading group but not for a
+    /// titled picker, which would push the whole group into the overflow menu.
+    var usesIconLabel = false
 }
