@@ -63,11 +63,32 @@ commit="$(plutil -extract CMUXCommit raw -o - "$app/Contents/Info.plist")"
 echo "UPL nightly $nightly commit=$commit"
 
 # The plan against NIGHTLY: what the look will do, and whether a swap carries its build.
-for sha in "$commit" "$head"; do
-  git -C "$root" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$root" fetch -q --no-tags origin "$sha" \
-    || git -C "$root" fetch -q --no-tags https://github.com/manaflow-ai/cmux.git "$sha" || { echo "UPL cannot fetch $sha"; exit 3; }
-done
-git -C "$root" merge-base "$commit" "$head" >/dev/null 2>&1 || git -C "$root" fetch -q --no-tags --unshallow origin 2>/dev/null || true
+# Fleet source archives may have no origin, and CMUXCommit may be abbreviated. A short
+# object name is not a remote ref: fetch the branch history before resolving it locally.
+source_repo="$(git -C "$root" remote get-url origin 2>/dev/null)" || source_repo=https://github.com/manaflow-ai/cmux.git
+fetch_history() {
+  local depth_args=()
+  if [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]]; then
+    depth_args=(--unshallow)
+  fi
+  git -C "$root" fetch -q --no-tags "${depth_args[@]}" "$source_repo" feat-cmux-next "$head"
+}
+[[ "$commit" =~ ^[0-9a-f]{7,40}$ ]] || { echo "UPL invalid nightly commit $commit"; exit 3; }
+if ! git -C "$root" cat-file -e "$commit^{commit}" 2>/dev/null; then
+  if [[ ${#commit} -lt 40 ]]; then
+    fetch_history || { echo "UPL cannot fetch nightly history for $commit"; exit 3; }
+  else
+    git -C "$root" fetch -q --no-tags "$source_repo" "$commit" || { echo "UPL cannot fetch $commit"; exit 3; }
+  fi
+fi
+commit="$(git -C "$root" rev-parse --verify "$commit^{commit}")" || { echo "UPL cannot resolve nightly commit"; exit 3; }
+git -C "$root" cat-file -e "$head^{commit}" 2>/dev/null \
+  || git -C "$root" fetch -q --no-tags "$source_repo" "$head" || { echo "UPL cannot fetch $head"; exit 3; }
+if ! git -C "$root" merge-base "$commit" "$head" >/dev/null 2>&1; then
+  fetch_history || { echo "UPL cannot fetch comparison history"; exit 3; }
+  git -C "$root" merge-base "$commit" "$head" >/dev/null \
+    || { echo "UPL no merge base of $commit and $head"; exit 3; }
+fi
 python3 "$hv" plan --source "sha:$head" --app "$app" --json >"$out/plan.json" 2>"$out/plan.err" || { cat "$out/plan.err"; exit 3; }
 read -r carried onto rust <<<"$(python3 -I - "$out/plan.json" "$head" <<'PY'
 import json, sys
