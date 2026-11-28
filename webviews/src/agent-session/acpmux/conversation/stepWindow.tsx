@@ -11,6 +11,7 @@ import { flushSync } from "react-dom";
 import type { AcpmuxActivity } from "../model";
 import { FindReveal, revealsItem } from "./chatFind";
 import { markHeightFold } from "./fold";
+import { writeScrollBy } from "./scrollController";
 
 /// A step's height before it is measured, in px: the transcript's one-line row (model.ts
 /// `toolRowHeight`), until the first drawn steps give the usual one.
@@ -95,6 +96,20 @@ function readView(node: HTMLElement): View & { clip?: HTMLElement } {
   // Out of the window: the clip's own view, so the window waits by the edge nearest it.
   if (bottom <= top) return { top: clipTop - listTop, height: clipBottom - clipTop || window.innerHeight, clip };
   return { top: top - listTop, height: bottom - top, clip };
+}
+
+/// The transcript row a list is drawn in (the list itself outside a transcript).
+const rowOf = (node: HTMLElement) => node.closest<HTMLElement>(".acpmux-row") ?? node;
+
+/// Whether a list whose view's top is `top` px into it (past its start) is this view's to hold: in the
+/// run's own box, always; in the transcript's scroller, when its row, `drawn` px high as its last
+/// draw left it, reached below the view's top. That is the row the transcript holds in place
+/// (`useStepWindow` measure), picked from the layout before the change: a row that shrinks off the
+/// view's top is still the list's to correct, and a row that grows onto it is still the transcript's.
+/// Reads two boxes after the steps' own reads and before any write, so it lays nothing out.
+function heldByView(node: HTMLElement, top: number, clip: HTMLElement | undefined, drawn: number): boolean {
+  if (clip?.classList.contains("cv-run-scroll")) return true;
+  return rowOf(node).getBoundingClientRect().top + drawn > node.getBoundingClientRect().top + top;
 }
 
 /// The first and last step a view mounts: itself and a view's height over and under it.
@@ -196,16 +211,29 @@ export function useStepWindow({
   const drawn = useRef({ first, last, pieces });
   drawn.current = { first, last, pieces };
 
-  /// Reads the drawn steps' heights; a change above the view moves its offset the same distance, so
-  /// what the reader sees stays where it is. Returns whether a height changed.
+  /// The list's row height as the last draw that changed no step left it (the row the transcript
+  /// placed), undefined before the list has drawn: its first draw shows the steps at their real
+  /// heights, never at the guess (STEP_PX), so what that measure corrects moved nothing on screen.
+  const rowDrawn = useRef<number | undefined>(undefined);
+
+  /// Reads the drawn steps' heights; a change above the view's top moves its offset the same distance,
+  /// so what the reader sees stays where it is. Returns whether a height changed.
+  /// In the transcript's scroller, only a list whose row the view's top cuts through moves the offset:
+  /// the transcript keeps the row at the top of its view, and the offset into it, as rows above it
+  /// change height (preserveScrollAnchorTop), so a row wholly above the view is the transcript's to
+  /// correct. Corrected here too, each tool row mounting above a reader scrolling up pushed the view
+  /// down by its steps' guess (22 px a step against 32 drawn): the scroll fought the reader.
   const measure = useRef<() => boolean>(() => false);
   measure.current = () => {
     const node = list.current;
     if (!node || !node.getClientRects().length) return false;
     const now = built.current!;
     const { top, clip } = readView(node);
-    const anchor = top > 0 ? now.heights.at(top) : -1;
+    // The step at the view's top and the list's height, as the last paint drew them.
+    const drawnRow = rowDrawn.current;
+    const anchor = drawnRow !== undefined && top > 0 ? now.heights.at(top) : -1;
     const was = anchor >= 0 ? now.heights.before(anchor) : 0;
+    const total = now.heights.total();
     let changed = false;
     const seen = new Set<number>();
     for (const element of node.querySelectorAll<HTMLElement>(":scope > [data-step]")) {
@@ -236,9 +264,19 @@ export function useStepWindow({
         changed = true;
       }
     }
-    if (!changed) return false;
-    const moved = anchor >= 0 ? built.current!.heights.before(anchor) - was : 0;
-    if (clip && Math.abs(moved) >= 0.5) clip.scrollTop += moved;
+    if (!changed) {
+      rowDrawn.current = rowOf(node).getBoundingClientRect().height;
+      return false;
+    }
+    const heights = built.current!.heights;
+    // A view's top past the list's end is under every step: the whole change is above it.
+    const moved =
+      anchor < 0 || !heldByView(node, top, clip, drawnRow!)
+        ? 0
+        : top >= total
+          ? heights.total() - total
+          : heights.before(anchor) - was;
+    if (clip && Math.abs(moved) >= 0.5) writeScrollBy(clip, moved, "steps");
     // The transcript places the rows under this one before paint while its height settles.
     markHeightFold(node, SETTLE_MS);
     return true;

@@ -6,6 +6,7 @@ import { APP_LANGUAGE_KEY, LanguageRelaunchRow } from "./LanguageRelaunchRow";
 import { SettingRow } from "./SettingRow";
 import { MoreOptions } from "./MoreOptions";
 import type { ArrangedGroup } from "../rowLevels";
+import { GroupHeader } from "./GroupHeader";
 
 /** Rows a category draws in its first frame: more than a tall window shows. */
 const FIRST_FRAME_ROWS = 24;
@@ -52,6 +53,7 @@ export function GroupList({
   shown,
   mounted,
   pageTitle,
+  groupHelp,
 }: {
   groups: (CategoryGroup | ArrangedGroup)[];
   query?: string;
@@ -61,6 +63,7 @@ export function GroupList({
   mounted?: ReadonlySet<string>;
   /** The category page's own title; its groups' titles leave it out (shownGroupTitle). */
   pageTitle?: string;
+  groupHelp?: Readonly<Record<string, string>>;
 }) {
   // Opening a category draws the rows a window can show (and the focused one) at once and the
   // rest in a transition after that frame, so a 123-row category opens at the cost of 24 rows.
@@ -80,6 +83,7 @@ export function GroupList({
     const open = !shown || group.rows.some((row) => shown.has(row.key));
     const proposed = group as ArrangedGroup;
     const title = proposed.untitled ? "" : shownGroupTitle(text(group.title), pageTitle);
+    const help = groupHelp?.[group.key];
     return (
       <section
         className={shown ? "group collapse" : "group"}
@@ -88,7 +92,7 @@ export function GroupList({
         data-open={shown && open ? "" : undefined}
       >
         <div className={shown ? "collapse-body" : undefined}>
-          {title && <h3 className="group-title">{title}</h3>}
+          {title && (help ? <GroupHeader title={title} help={help} /> : <h3 className="group-title">{title}</h3>)}
           <div className="rows">
             {rows.map((row) =>
               shown ? (
