@@ -2001,8 +2001,12 @@ function TranscriptView({
         return;
       }
       const before = rows.getBoundingClientRect().top;
+      const trayBefore = dockTrayRef.current;
       const cardBefore = dockCardRef.current;
       take();
+      // The tray coming, going or taking a line makes room at once, as it always has (`trayHold`
+      // below): the frame the tray first draws in places the rows above it in that same frame.
+      if (Math.abs(dockTrayRef.current - trayBefore) >= 0.5) return;
       const delta = before - rows.getBoundingClientRect().top;
       // A send clearing a tall prompt gives its room back in the send's own frame (the field's height
       // changes at once, fieldGrowth.ts), and on the product's 0 send clock the send's rows land in

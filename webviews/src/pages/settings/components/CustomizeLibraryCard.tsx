@@ -36,7 +36,7 @@ import {
 import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
 import type { LibraryEntry, LibraryListing, LibraryRun, LibraryCode } from "../ops";
-import { LIBRARY_KEY, libraryQuery, type LibraryRead, STANDUP_KEY } from "../sectionQueries";
+import { LIBRARY_KEY, libraryQuery, STANDUP_KEY, type LibraryRead } from "../sectionQueries";
 import { t } from "../strings";
 import { focusRoute } from "../../../ui/focusRoute";
 import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
@@ -201,11 +201,15 @@ export function CustomizeLibraryView({
       >
         {drawn && listing === null ? (
           <div className="row" data-library-unavailable="">
-            <span className="row-help">{readRefusal ?? t("settingsPage.customizeLibrary.unavailable")}</span>
+            <div className="row-label">
+              <span className="row-help">{readRefusal ?? t("settingsPage.customizeLibrary.unavailable")}</span>
+            </div>
           </div>
         ) : drawn && entries.length === 0 ? (
           <div className="row" data-library-empty="">
-            <span className="row-help">{t("settingsPage.customizeLibrary.empty")}</span>
+            <div className="row-label">
+              <span className="row-help">{t("settingsPage.customizeLibrary.empty")}</span>
+            </div>
           </div>
         ) : listing ? (
           <>
