@@ -9122,9 +9122,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let size = ghostty_surface_size(surface)
         let rows = max(Int(size.rows), 1)
         let cols = max(Int(size.columns), 1)
-        let resolvedCellWidth = cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)
-        let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
-        guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
+        // The pointer is in view points. `cellSize` and `ghostty_surface_size`
+        // hold backing pixels, so map with the grid metrics, which are points.
+        guard let grid = keyboardCopyModeGridMetrics(surface: surface) else { return nil }
 
         let visibleText = TerminalController.shared.readTerminalTextForSnapshot(
             terminalPanel: panel,
@@ -9132,15 +9132,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ) ?? ""
         let visibleLines = visibleText.visibleLines(rows: rows)
         let rowOffset = max(0, rows - visibleLines.count)
-        let xInset = max(0, (bounds.width - (CGFloat(cols) * resolvedCellWidth)) / 2)
-        let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
 
         let yFromTop = bounds.height - point.y
-        let rowFromTop = max(0, min(rows - 1, Int((yFromTop - yInset) / resolvedCellHeight)))
+        let rowFromTop = max(0, min(rows - 1, Int((yFromTop - grid.yInset) / grid.cellHeight)))
         let visibleRow = rowFromTop - rowOffset
         guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
 
-        let column = max(0, min(cols - 1, Int((point.x - xInset) / resolvedCellWidth)))
+        let column = max(0, min(cols - 1, Int((point.x - grid.xInset) / grid.cellWidth)))
         return (visibleLines[visibleRow], column)
     }
 
@@ -10987,10 +10985,6 @@ final class GhosttySurfaceScrollView: NSView {
 
     var debugSurfaceId: UUID? {
         surfaceView.terminalSurface?.id
-    }
-
-    var debugCellSize: CGSize {
-        surfaceView.cellSize
     }
 
     private func debugPointInSurface(_ point: NSPoint) -> NSPoint {
