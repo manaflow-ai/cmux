@@ -86,13 +86,19 @@ blob schemas/theme/slots.json
 blob Resources/theme-files/charcoal.json
 blob Resources/theme-files/classic-desktop.json
 blob Resources/theme-files/claude-desktop.json
+blob Resources/theme-files/earthly-delights.json
+blob Resources/theme-files/frutiger-aero-2027.json
 blob Resources/theme-files/harbor.json
 blob Resources/theme-files/lily-pond.json
 blob Resources/theme-files/meadow.json
 blob Resources/theme-files/miku.json
 blob Resources/theme-files/minimal-sessions.json
 blob Resources/theme-files/moss.json
+blob Resources/theme-files/one-bit.json
 blob Resources/theme-files/phosphor.json
+blob Resources/theme-files/sakura.json
+blob Resources/theme-files/sakura-yoru.json
+blob Resources/theme-files/sumi.json
 blob Resources/theme-files/teal.json
 # cmux-config checks a theme file's `slots` against the shipped slots
 # (theme_file::slots, theme.slots.resolve).
