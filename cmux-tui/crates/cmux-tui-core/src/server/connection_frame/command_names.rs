@@ -190,6 +190,7 @@ impl Command {
             Self::ReopenSavedTabGroup { .. } => "reopen-saved-tab-group",
             Self::AckTabNotifications { .. } => "ack-tab-notifications",
             Self::ListNotifications { .. } => "list-notifications",
+            Self::RecordNotificationDelivery { .. } => "record-notification-delivery",
             Self::SetTabPinned { .. } => "set-tab-pinned",
             Self::MoveTabToWorkspace { .. } => "move-tab-to-workspace",
             Self::MoveTabToSplit { .. } => "move-tab-to-split",

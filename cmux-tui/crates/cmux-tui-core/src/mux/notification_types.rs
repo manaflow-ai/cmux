@@ -156,7 +156,59 @@ pub struct NotificationPost {
     /// The `notification` field of the `notification` event.
     pub notification: u64,
     pub poster: Option<NotificationPoster>,
+    /// What the app did with the row's banner, as it last reported it
+    /// (`record-notification-delivery`); `None` until it reports.
+    pub delivery: Option<NotificationDelivery>,
 }
+
+/// The app's report of one notification's desktop banner: shown, or not and why.
+/// The banner decision is the app's (focus, quiet hours, muted workspaces, the
+/// desktop mode, macOS permission); the daemon only keeps it so the poster and
+/// `list-notifications` can read whether the notice reached anyone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotificationDelivery {
+    pub desktop: NotificationDesktopOutcome,
+    /// Why there was no banner (or why it was a digest), from [`DELIVERY_REASONS`].
+    pub reason: Option<&'static str>,
+    pub at_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotificationDesktopOutcome {
+    Shown,
+    Suppressed,
+}
+
+impl NotificationDesktopOutcome {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "shown" => Some(Self::Shown),
+            "suppressed" => Some(Self::Suppressed),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Shown => "shown",
+            Self::Suppressed => "suppressed",
+        }
+    }
+}
+
+/// Every reason the app may give, so a row never carries free text from a client.
+pub const DELIVERY_REASONS: &[&str] = &[
+    "viewed",
+    "typing",
+    "muted",
+    "quiet-hours",
+    "desktop-never",
+    "app-active",
+    "poster-no-banner",
+    "permission-denied",
+    "incognito",
+    "digest",
+];
 
 #[derive(Debug, Clone, Copy)]
 pub struct SurfaceNotification {
