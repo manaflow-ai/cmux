@@ -33,7 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_nightly_never_blacksmith import JOBS, evaluate, parse_expression, sample  # noqa: E402
 from test_nightly_owned_minis_only import (HOSTED_DISPATCH_JOBS, HOSTED_LOOP_JOBS, HOSTED_PREFLIGHT_JOBS,  # noqa: E402
-                                           HOSTED_TAIL_JOBS,
+                                           HOSTED_RESTORE_JOBS, HOSTED_TAIL_JOBS,
                                            JIT_LABEL, NIGHTLY_NEXT_ONLY_OWNED, NIGHTLY_PINNED_JOBS, hosted_route)
 import workflow_jobs  # noqa: E402
 
@@ -50,9 +50,10 @@ SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-night
            # carries both it and glaeda-nightly-mini, so the two as one array would never start.
            "nightly-next-deltas"}
 VISUAL_GATE = {"route-visual-gate-nightly"}
-LINUX_POOL_JOBS = {"resolve-nightly-cmux-tui-client",
-                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
-                   "check-nightly-app-store-shelf", "published-build",
+# resolve-nightly-cmux-tui-client and published-build hold the CI pool tokens as GH_TOKEN_SPARES (c-bedbdb1917),
+# so off their pinned first attempt they take the one mini, never cmux-linux, which pull request jobs share.
+LINUX_POOL_JOBS = {"prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
+                   "check-nightly-app-store-shelf",
                    "check-nightly-webviews", "early-nightly-webviews"}
 # report-nightly-shelf-red holds issues: write, so it takes the nightly mini like the other nightly report jobs.
 # RFD 0021: the essential ones (test_nightly_owned_minis_only.NIGHTLY_PINNED_JOBS) take the nightly's reserved Linux
@@ -73,6 +74,8 @@ def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2, f
         return EPHEMERAL  # classic and RC: their rate-limit waits must not hold the mini
     if name in SIGNING:
         return SIGN
+    if name in HOSTED_RESTORE_JOBS:
+        return JIT_LABEL  # #62726: a manual note restore takes the literal one-job JIT VM in this mode too
     if name == "build-nightly-app":
         return BUILDER
     if name in NIGHTLY_PINNED_JOBS and first:

@@ -6285,7 +6285,9 @@ jobs:
       contents: read
       actions: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
-    timeout-minutes: 75
+    # At most 60 min off the build path (tests/test_nightly_background_steps.py): the parallel download's
+    # 45-min budget, with the spare pool tokens tried first, leaves room for the fallback and the upload.
+    timeout-minutes: 60
     env:
       BUILD: ${{ needs.published-build.outputs.publish_build }}
       BUILD_SHA: ${{ needs.published-build.outputs.publish_build_sha }}
@@ -6315,11 +6317,11 @@ jobs:
       - name: Download the build's dSYMs (parallel, waits through a rate limit)
         id: dsyms-parallel
         continue-on-error: true
-        timeout-minutes: 65
+        timeout-minutes: 48
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
-          CMUX_ARTIFACT_RETRY_BUDGET_SECONDS: "3600"
+          CMUX_ARTIFACT_RETRY_BUDGET_SECONDS: "2700"
           DSYMS_ARTIFACTS: ${{ steps.producer.outputs.artifacts }}
           DSYMS_RUN: ${{ steps.producer.outputs.run }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --artifact-id "$DSYMS_ARTIFACTS" --run-id "$DSYMS_RUN" --out "$RUNNER_TEMP/dsyms" --connections 32

@@ -53,9 +53,8 @@ HOSTED = 'ubuntu-24.04'
 OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 # The light jobs that hold no routing key run on our Linux pool, one label for every own-branch Linux job.
 CMUX_LINUX = 'cmux-linux'
-CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client',
-                   'prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker',
-                   'published-build', 'check-nightly-app-store-shelf', 'check-nightly-webviews',
+CMUX_LINUX_JOBS = ('prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker',
+                   'check-nightly-app-store-shelf', 'check-nightly-webviews',
                    'early-nightly-webviews')
 # The tail's secret jobs that take the ephemeral JIT nightly label, outside the push group, never Blacksmith
 # (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
@@ -114,6 +113,10 @@ OWNED_SECRET_JOBS = {
                                   "its runs-on input is the nightly-only Mac pool",
     'resolve-nightly-ghostty-cli-helper': "reads NIGHTLY_HELPER_LOOKUP_TOKEN (#60803) in ci-routing-agent; decide's "
                                           "nightly-only route, so the token never reaches cmux-linux",
+    'resolve-nightly-cmux-tui-client': "the CI pool tokens as GH_TOKEN_SPARES (c-bedbdb1917) in ci-routing-agent; "
+                                       "attempt 1 the reserved nightly label, a rerun decide's nightly-only route",
+    'published-build': "the CI pool tokens as GH_TOKEN_SPARES (c-bedbdb1917) in ci-routing-agent; attempt 1 the "
+                       "reserved nightly label, a rerun decide's nightly-only route",
     'build-nightly-deltas': "the CI pool tokens (ci-routing-agent) for its artifact reads; the nightly-only Mac pool",
     'visual-gate-nightly': "ci-cache-writer on main only, for the GhosttyKit R2 read; route-visual-gate-nightly's "
                            "pick, an owned visual-gate mini",
