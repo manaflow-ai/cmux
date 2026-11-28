@@ -707,7 +707,7 @@ import Testing
         #expect(SettingsCloudClaudeLogin.pickMachine([shared, inside], owner: owner, personal: false, name: shared.record.id) == .unavailable)
     }
 
-    @Observable private final class CloudAccount {
+    @Observable fileprivate final class CloudAccount {
         var scope: [String?]? = ["user", "first-team"]
     }
 

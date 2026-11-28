@@ -55,6 +55,8 @@ mod command;
 #[cfg(unix)]
 mod exec;
 mod group;
+#[cfg(windows)]
+pub mod job;
 #[cfg(target_vendor = "apple")]
 mod spawn_apple;
 mod stdio;
