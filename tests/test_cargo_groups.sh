@@ -39,6 +39,11 @@ for b in "${bins[@]}"; do echo "$b from $CARGO_TARGET_DIR" > "$CARGO_TARGET_DIR/
 FAKE
 chmod +x "$work/bin/cargo"
 export PATH="$work/bin:$PATH" FAKE_LOG="$work/log"
+# The job split below counts the cores this host has. cargo-groups.sh also caps them by the runner's cgroup
+# memory.max (a 16 GiB slot holds 5 cores at 3 GiB each), which this test does not set up; on a capped runner
+# group 1 got 5 jobs, not the host's 96, and the tree build failed here (cmux-tui job 140944131931). No cgroup
+# file means no cap; scripts/ci/tests/cargo-groups-memory.test.sh covers the cap itself.
+export CARGO_GROUPS_PROC_CGROUP="$work/no-cgroup"
 t=x86_64-unknown-linux-musl
 td="$work/target"
 

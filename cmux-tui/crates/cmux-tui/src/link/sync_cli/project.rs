@@ -31,6 +31,7 @@
 //!     cmux link project pin | unpin --socket S --at REMOTE FOLDER PATH   (available offline)
 //!     cmux link project pins --socket S --at REMOTE FOLDER
 //!     cmux link project enable | disable | status
+//!     cmux link project sync-back off | on | status FOLDER   (RFD 0211, [`super::sync_back`])
 
 use std::collections::BTreeMap;
 use std::io::{BufRead as _, BufReader, Write as _};
@@ -193,7 +194,7 @@ const USAGE: &str = "usage: cmux link project serve --socket S --at REMOTE [--na
                      REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
                      archived|deleted] | detach --socket S --at REMOTE [--name NAME] [--chat ID] FOLDER | pin --socket S --at REMOTE FOLDER PATH | unpin --socket S --at \
                      REMOTE FOLDER PATH | pins --socket S --at REMOTE FOLDER | enable | disable | status | \
-                     moves on|off";
+                     moves on|off | sync-back off|on|status FOLDER";
 
 /// `cmux link project ...`: one JSON line on stdout, exit 0 on success.
 pub(crate) fn run(args: &[String]) -> i32 {
@@ -213,6 +214,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
             _ => Err(anyhow::anyhow!("usage: cmux link project moves on|off")),
         },
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
+        Some("sync-back") => super::sync_back::command(args.get(1..).unwrap_or_default()),
         Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
         Some("release") => super::project_back::release_command(args.get(1..).unwrap_or_default()),
         Some("detach") => super::project_back::detach_command(args.get(1..).unwrap_or_default()),
