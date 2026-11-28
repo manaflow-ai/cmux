@@ -103,15 +103,19 @@ fn rust_menus_match_the_swift_export() {
             continue;
         }
         let name = export_name(menu.context);
-        rust_names.push(name.to_owned());
-        let old = without(
-            &exported(
-                &swift.get(name).unwrap_or_else(|| panic!("{name} missing from the Swift export"))
-                    ["entries"],
-            ),
-            &hidden,
-        );
         let new = without(&context_menus::entries_json(&menu.entries), &hidden);
+        // A menu new in this crate whose every row awaits the re-pin (sidebarNew, #50116): the
+        // pinned app FFI that wrote the export has no such menu yet, so there is nothing to
+        // compare. A row not marked fails here, as a changed row in a listed menu does.
+        let Some(exported_menu) = swift.get(name) else {
+            assert!(
+                new.is_empty(),
+                "{name} missing from the Swift export, and these rows are not marked awaiting the re-pin: {new:?}"
+            );
+            continue;
+        };
+        rust_names.push(name.to_owned());
+        let old = without(&exported(&exported_menu["entries"]), &hidden);
         assert_eq!(new, old, "menu {name} differs from the Swift export");
     }
     let mut swift_names: Vec<String> = swift.keys().cloned().collect();
