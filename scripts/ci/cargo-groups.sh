@@ -124,6 +124,15 @@ if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
     echo "cargo groups: $source ${budget} GiB holds fewer than two giants at ${giant_gib} GiB: ${rest} GiB for everything else"
     budget=$rest
   fi
+  # GIANTS_UNDER_A_CAP: a memory.max that holds one giant but not two (16-31 GiB) and enough cores not to cap them
+  # (budget / 3 >= cores) still ran the cmux-tui group's acpmux beside acpmux-standalone's: on pool slot
+  # cmux-runner-pool-e5c-0211-2 (8 cores, memory.max 25 GiB, 10 groups) the kernel SIGKILLed group 2's acpmux, and
+  # OOM_RERUN_ALONE lost it again (cmux-tui-artifacts run 46194335494, job 141132188677, 2026-11-28 22:23Z and
+  # 22:49Z), so no tree published. The giants compile one at a time there too; no reserve, every core kept.
+  if [[ "$source" == memory.max && -n "$budget" && -z "${CARGO_GROUPS_HEAVY:-}" && -z "${CARGO_GROUPS_NO_GIANT_LOCK:-}" ]] &&
+    ((budget >= giant_gib && budget < 2 * giant_gib)); then
+    giants_tight=1
+  fi
   if [[ -n "$budget" ]]; then
     per=${CARGO_GROUPS_GIB_PER_CORE:-3}
     fit=$((budget / per)); ((fit >= 1)) || fit=1
