@@ -5,9 +5,9 @@ import os
 /// prototype; the default is unchanged). Leo: "we cannot trade off instant loads. instant > memory": a
 /// variant other than `.painted` becomes a default only with Cmd-, numbers from the bench of its RAM.
 public enum PageSpareVariant: String, Sendable, CaseIterable {
-    /// The Settings document loaded, React rendered and painted once, then hidden (the default).
+    /// The Settings document loaded, React rendered and painted once, then hidden.
     case painted
-    /// The Settings bundle loaded and parsed, but no React root until the claim (the claim mounts it).
+    /// The Settings bundle loaded and parsed, but no React root until the claim (the claim mounts it; the default).
     case unmounted
     // Measured and dropped (cmux#48756): a spare hidden from its park (-12 MB) queued a first-paint
     // report the claim then took for its own, and a blank document (-64 MB) opened Settings cold in 278 ms.
@@ -16,7 +16,7 @@ public enum PageSpareVariant: String, Sendable, CaseIterable {
     public static let current = variant(ProcessInfo.processInfo.environment["CMUX_NEXT_SETTINGS_SPARE"])
 
     /// The variant with no environment value.
-    public static let defaultVariant: PageSpareVariant = .painted
+    public static let defaultVariant: PageSpareVariant = .unmounted
 
     static func variant(_ value: String?) -> PageSpareVariant {
         guard let value, !value.isEmpty else { return defaultVariant }
