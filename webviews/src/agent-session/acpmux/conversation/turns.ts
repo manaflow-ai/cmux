@@ -94,6 +94,7 @@ import { MEMORY_OFFER } from "./memoryInbox";
 import { PROMPT_COACH } from "./promptCoach";
 import { PRESET_APPROVAL } from "./presetApproval";
 import { githubConnectNeed } from "./githubConnect";
+import { acpmuxPerf } from "../perf"; // DEBUG
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
