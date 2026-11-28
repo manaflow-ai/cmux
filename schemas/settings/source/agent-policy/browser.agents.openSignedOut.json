@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "Off, an agent tab uses the person's signed-in profile: an agent must not widen what it can sign in to."
+}
