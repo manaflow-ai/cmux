@@ -471,9 +471,10 @@ def test_next_decide_checks_out_only_its_executable_dependencies() -> None:
     # /.gitmodules: actions/checkout's submodule foreach reads it (test_sparse_checkout_keeps_gitmodules.py).
     # The shadow app-input digest step runs decide-shadow-app-input-digest.sh, which bounds
     # scripts/ci/app_input_digest.py (stdlib only) through scripts/ci/timeout.sh.
+    # The "Read the Node pins" step reads the Node pins (.node-version*) the build jobs install.
     assert paths == ["/scripts/ci/nightly-publication-marker.py", "/scripts/ci/app_input_digest.py",
                      "/scripts/ci/nightly-steps/decide-shadow-app-input-digest.sh", "/scripts/ci/timeout.sh",
-                     "/.gitmodules"]
+                     "/.node-version", "/.node-version-22", "/.gitmodules"]
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         for path in paths:

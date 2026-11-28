@@ -729,12 +729,12 @@ jobs:
         run: rm -rf ~/.bun/install/cache
 
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
-      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+      - name: Restore pinned Node from the CI cache bucket
         if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
         shell: bash
         continue-on-error: true
         timeout-minutes: 2
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node "$([ -f .node-version ] && tr -d '[:space:]' < .node-version || echo 24.22.1)" || true
 
       # Node comes from the runner's tool cache, else nodejs.org (scripts/ci/ensure-setup-node.sh: sha256 checked, curl
       # bounded), not actions/setup-node: on a Freestyle VM its download from GitHub's node-versions releases took
@@ -742,7 +742,7 @@ jobs:
       - name: Setup Node
         if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
         timeout-minutes: 3
-        run: scripts/ci/ensure-setup-node.sh 24.22.1
+        run: scripts/ci/ensure-setup-node.sh "$([ -f .node-version ] && tr -d '[:space:]' < .node-version || echo 24.22.1)"
 
       # prepush-gate.py downloads its pinned tools (sha256 checked) when they are missing. Restore only, from R2
       # (cmux-next-web-lint.yml's web-lint job saves this key on each feat-cmux-next push); never the GitHub store:

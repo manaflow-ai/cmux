@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import importlib.util
+import fnmatch
 import json
 import os
 import re
@@ -3438,10 +3439,11 @@ def test_react_doctor_scan_lives_in_its_own_workflow() -> None:
     assert "  pull_request:\n" in ratchet and "react_doctor_gate.py --changed-from" in ratchet
 
 
-def test_every_setup_bun_step_declares_a_version() -> None:
+def test_every_setup_bun_and_setup_node_step_follows_its_one_pin() -> None:
     # webviews/package.json devEngines is the one bun version; every setup-bun
     # step in every workflow installs exactly it, so a bump is one edit there
-    # plus these copies, and a copy left behind fails here.
+    # plus these copies, and a copy left behind fails here. Node has no copies
+    # at all: every setup-node step reads a pin file (_assert_setup_node_reads_a_pin_file).
     package = json.loads((ROOT / "webviews" / "package.json").read_text(encoding="utf-8"))
     pin = package["devEngines"]["packageManager"]["version"]
     workflows = ROOT / ".github" / "workflows"
@@ -3501,7 +3503,242 @@ def test_every_setup_bun_step_declares_a_version() -> None:
             )
 
     assert found >= 20, "setup-bun inventory unexpectedly disappeared"
+    _assert_setup_node_reads_a_pin_file(workflows)
 
+
+# The Node pins, one file per Node line (repo root, so every cone sparse checkout has them):
+# .node-version is the default line; .node-version-22 the 22 line the Oct 2026 security pin
+# kept (8b2e0183c6); .node-version-sdk-floor the oldest Node the TypeScript SDK supports
+# (cmux-tui/bindings/typescript engines >=20), which cmux-tui-sdks.yml tests on.
+NODE_PIN_FILES = (".node-version", ".node-version-22", ".node-version-sdk-floor")
+# A job whose workspace root is another commit (or none) checks out its own commit's pins here.
+NODE_PIN_CHECKOUT = ".build/node-pin"
+# The Node a tree from before .node-version keys and builds its web bundles on.
+PRE_NODE = re.search(r'^PRE_NODE_VERSION_FILE_NODE = "([^"]+)"$', (
+    ROOT / "scripts" / "cmux-next" / "web-bundle-key.py").read_text(encoding="utf-8"), re.M).group(1)
+
+
+def _pins_a_checkout_has(with_: dict) -> tuple[set[str], str]:
+    # The pin files an actions/checkout step leaves at its path, and why. A cone-mode sparse
+    # checkout always has the repository root's files (git sparse-checkout's cone mode), so it has
+    # them; a no-cone one has those its patterns match, the last matching pattern winning.
+    repository = str(with_.get("repository") or "").strip()
+    if repository not in ("", "${{ github.repository }}", "manaflow-ai/cmux"):
+        return set(), f"a checkout of {repository}"
+    patterns = [line.strip() for line in str(with_.get("sparse-checkout") or "").splitlines() if line.strip()]
+    cone = str(with_.get("sparse-checkout-cone-mode", "true")).strip().lower() != "false"
+    if not patterns or cone:
+        return set(NODE_PIN_FILES), "a full or cone-mode checkout"
+    present = set()
+    for name in NODE_PIN_FILES:
+        matched = False
+        for pattern in patterns:
+            negated = pattern.startswith("!")
+            body = pattern[1:] if negated else pattern
+            if body.endswith("/"):
+                continue  # a directory pattern: no root file
+            if fnmatch.fnmatchcase(name, body.lstrip("/").removeprefix("**/")):
+                matched = not negated
+        if matched:
+            present.add(name)
+    return present, f"a no-cone sparse checkout of {patterns}"
+
+
+def _assert_setup_node_reads_a_pin_file(workflows: Path, minimum: int = 100) -> None:
+    for name in NODE_PIN_FILES:
+        value = (ROOT / name).read_text(encoding="utf-8").strip()
+        assert re.fullmatch(r"\d+\.\d+\.\d+", value), f"{name} must hold one exact Node version, not {value!r}"
+    allowed = set(NODE_PIN_FILES) | {f"{NODE_PIN_CHECKOUT}/{name}" for name in NODE_PIN_FILES}
+    found = 0
+    for workflow_path in sorted(workflows.glob("*.yml")):
+        rel = workflow_path.relative_to(ROOT) if workflow_path.is_relative_to(ROOT) else workflow_path.name
+        text = workflow_path.read_text(encoding="utf-8")
+        jobs = yaml.safe_load(text).get("jobs") or {}
+        for number, line in enumerate(text.splitlines(), 1):
+            # web-bundle-key.py's toolchain_identity takes CMUX_WEB_NODE_VERSION ahead of .node-version: a
+            # workflow that types it keys bundles on a second copy of the pin, stale after the next bump.
+            assert not re.match(r"^\s+CMUX_WEB_NODE_VERSION:", line), (
+                f"{rel}:{number} sets CMUX_WEB_NODE_VERSION; web-bundle-key.py reads the tree's .node-version, "
+                "so drop the override"
+            )
+            literal = re.match(r"^\s+node-version:\s*(.*)$", line)
+            if not literal:
+                continue
+            value = literal.group(1).strip()
+            # A job that checks out another commit (the nightly build commit) or nothing (a token
+            # job) takes the pin from a job that read it at this workflow's commit.
+            # A job that switches to the PR base reads the head's pin first, in that step.
+            relayed = re.fullmatch(
+                r"\$\{\{ (needs|steps)\.([A-Za-z0-9_-]+)\.outputs\.(node_version(?:_22)?) \}\}", value)
+            if relayed:
+                kind, source_job, output = relayed.groups()
+                if kind == "steps":
+                    steps = [step for job in jobs.values() for step in (job.get("steps") or [])
+                             if step.get("id") == source_job]
+                else:
+                    steps = (jobs.get(source_job) or {}).get("steps") or []
+                source = "\n".join(str(step.get("run", "")) for step in steps)
+                pin = ".node-version-22" if output.endswith("_22") else ".node-version"
+                assert f"{output}=$(tr -d '[:space:]' < {pin})" in source, (
+                    f"{rel}:{number}: job {source_job} must read output {output} from {pin}"
+                )
+                continue
+            raise AssertionError(
+                f"{rel}:{number}: setup-node pins Node {value} by hand; use "
+                "node-version-file: .node-version (the one Node pin; .node-version-22 or "
+                ".node-version-sdk-floor for those lines) and bump the version there"
+            )
+        for job_name, job in jobs.items():
+            pinned = False
+            # The workspace tree the job switched to, when it is not this workflow's commit: a checkout
+            # into the workspace root of another ref (cmux-next.yml's inputs.same_tree_sha, a release
+            # sha), or a step that detaches onto another commit (a layer applied onto an older base).
+            # That tree may predate the pin files, and setup-node fails on a missing file (#44131).
+            alternate = ""
+            read_here = set()  # steps that read a pin before the job left the workflow's tree
+            # Checkout path -> (the pin files it holds, why). A checkout clears its directory, a
+            # checkout nested in it included, so a workspace-root checkout after the pins checkout
+            # leaves no pins there (#44131: a sparse checkout without the pin setup-node reads).
+            trees: dict[str, tuple[set[str], str]] = {}
+
+            def has_pin(read: str, where: str) -> None:
+                tree, _, name = read.rpartition("/")
+                tree = os.path.normpath(tree or ".")
+                present, why = trees.get(tree, (set(), "no checkout there"))
+                assert name in present, (
+                    f"{rel} job {job_name}: {where} reads {read}, but the job's checkouts cannot "
+                    f"contain it ({tree}: {why}); add /.node-version* to that sparse checkout or "
+                    f"read {NODE_PIN_CHECKOUT}/{name} from a checkout of the pins"
+                )
+
+            for step in job.get("steps") or []:
+                uses = str(step.get("uses", ""))
+                with_ = step.get("with") or {}
+                run = str(step.get("run", ""))
+                if step.get("id") and not alternate:
+                    read_here.add(step["id"])
+                if uses.startswith("actions/checkout@") and with_.get("path") == NODE_PIN_CHECKOUT:
+                    pinned = True
+                if uses.startswith("actions/checkout@"):
+                    path = os.path.normpath(str(with_.get("path") or "."))
+                    for tree in list(trees):
+                        if path == "." or tree == path or tree.startswith(path + "/"):
+                            del trees[tree]
+                    trees[path] = _pins_a_checkout_has(with_)
+                # A run step that reads a pin unguarded (a job that relays it as an output).
+                directory = str(step.get("working-directory")
+                                or ((job.get("defaults") or {}).get("run") or {}).get("working-directory") or ".")
+                for read in re.findall(r"(?:<|\bcat)\s*[\"']?(\S*?\.node-version(?:-22|-sdk-floor)?)\b", run):
+                    if f"[ -f {read} ]" in run or f"test -f {read}" in run:
+                        continue  # guarded: a tree without the file takes a fallback
+                    where = f"step {step.get('name') or step.get('id')!r}"
+                    assert not alternate or read.startswith(NODE_PIN_CHECKOUT), (
+                        f"{rel} job {job_name}: {where} reads {read} unguarded from a tree that may "
+                        f"predate it ({alternate}); guard it with [ -f {read} ] and fall back to "
+                        f"web-bundle-key.py's PRE_NODE_VERSION_FILE_NODE ({PRE_NODE})"
+                    )
+                    has_pin(os.path.normpath(os.path.join(directory, read)), where)
+                if uses.startswith("actions/checkout@") and str(with_.get("path") or ".") in (".", "./"):
+                    ref = str(with_.get("ref") or "").strip()
+                    if ref not in ("", "${{ github.sha }}"):
+                        alternate = f"checkout ref {ref}"
+                if re.search(r"\bgit\b[^\n]*\bcheckout\b[^\n]*--detach", run):
+                    alternate = alternate or f"step {step.get('name') or step.get('id')!r} detaches"
+                if not uses.startswith("actions/setup-node@"):
+                    continue
+                found += 1
+                if "node-version" in with_:
+                    relayed = re.fullmatch(r"\$\{\{ steps\.([A-Za-z0-9_-]+)\.outputs\.node_version(?:_22)? \}\}",
+                                           str(with_["node-version"]).strip())
+                    if alternate and relayed and relayed.group(1) not in read_here:
+                        # Read from the switched tree: it must key a tree without the file the way
+                        # web-bundle-key.py does, not fail on it.
+                        source = "\n".join(str(s.get("run", "")) for s in job.get("steps") or []
+                                           if s.get("id") == relayed.group(1))
+                        assert "if [ -f .node-version ]" in source and f"node_version={PRE_NODE}" in source, (
+                            f"{rel} job {job_name}: step {relayed.group(1)} reads .node-version from the "
+                            f"tree it switched to ({alternate}) with no fallback for a tree without the "
+                            f"file; fall back to web-bundle-key.py's PRE_NODE_VERSION_FILE_NODE ({PRE_NODE})"
+                        )
+                    continue  # a relayed pin, checked above
+                source = with_.get("node-version-file")
+                assert source in allowed, (
+                    f"{rel} job {job_name}: setup-node must read node-version-file: .node-version "
+                    f"(or another file of {NODE_PIN_FILES}), not {source!r}"
+                )
+                assert not source.startswith(NODE_PIN_CHECKOUT) or pinned, (
+                    f"{rel} job {job_name}: setup-node reads {source} but no earlier step checks out "
+                    f"the pins into {NODE_PIN_CHECKOUT}"
+                )
+                assert not alternate or source.startswith(NODE_PIN_CHECKOUT), (
+                    f"{rel} job {job_name}: setup-node reads {source} from a tree that may predate it "
+                    f"({alternate}); read {NODE_PIN_CHECKOUT}/{source} (a checkout of the pins at "
+                    f"github.sha) or the tree's pin with web-bundle-key.py's fallback"
+                )
+                has_pin(source, "setup-node")
+    assert found >= minimum, "setup-node inventory unexpectedly disappeared"
+
+
+def test_setup_node_fails_on_a_pin_its_checkouts_cannot_have() -> None:
+    # #44131 review: a job whose sparse checkout leaves out the pin setup-node reads fails before it
+    # runs. Cone mode keeps the root's files (the pins too); no-cone keeps what its patterns name;
+    # a workspace-root checkout clears a pins checkout made before it.
+    checkout = "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+    setup = "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e"
+    pins = {"uses": checkout, "with": {"ref": "${{ github.sha }}", "path": NODE_PIN_CHECKOUT,
+                                       "sparse-checkout": "/.node-version*", "sparse-checkout-cone-mode": False}}
+
+    def job(*steps: dict) -> dict:
+        return {"jobs": {"job": {"runs-on": "ubuntu-24.04", "steps": list(steps)}}}
+
+    def sparse(patterns: str, cone: bool) -> dict:
+        return {"uses": checkout, "with": {"sparse-checkout": patterns, "sparse-checkout-cone-mode": cone}}
+
+    def node(path: str) -> dict:
+        return {"uses": setup, "with": {"node-version-file": path}}
+
+    cases = {
+        "cone": (True, job(sparse("workers/iroh-v2\nscripts/e2e\n", True), node(".node-version-22"))),
+        "no-cone-without-pin": (False, job(sparse("/scripts/ci/\n", False), node(".node-version"))),
+        "no-cone-with-pin": (True, job(sparse("/scripts/ci/\n/.node-version*\n", False), node(".node-version"))),
+        "no-cone-other-pin": (False, job(sparse("/.node-version\n", False), node(".node-version-22"))),
+        "no-cone-negated": (False, job(sparse("/*\n!/.node-version*\n", False), node(".node-version"))),
+        "pins-checkout": (True, job(sparse("/scripts/ci/\n", False), pins, node(f"{NODE_PIN_CHECKOUT}/.node-version"))),
+        "root-checkout-clears-pins": (False, job(pins, sparse("/scripts/ci/\n", False),
+                                                 node(f"{NODE_PIN_CHECKOUT}/.node-version"))),
+        "other-repository": (False, job({"uses": checkout, "with": {"repository": "manaflow-ai/cmux-platform"}},
+                                        node(".node-version"))),
+        "no-checkout": (False, job(node(".node-version"))),
+        "no-cone-any-depth": (True, job(sparse("/scripts/ci/\n**/.node-version\n", False), node(".node-version"))),
+        "run-step-read-after-switch": (False, job(sparse("/*\n", False), {"run": "git checkout --detach HEAD^1"},
+                                                  {"id": "pin", "run": "v=$(cat .node-version)"})),
+        "run-step-read": (False, job(sparse("/scripts/ci/\n", False),
+                                     {"id": "pin", "run": "echo \"v=$(tr -d '[:space:]' < .node-version)\""})),
+    }
+    for name, (ok, workflow) in cases.items():
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, f"{name}.yml").write_text(yaml.safe_dump(workflow), encoding="utf-8")
+            try:
+                _assert_setup_node_reads_a_pin_file(Path(tmp), minimum=0)
+                passed = True
+            except AssertionError as error:
+                passed = False
+                assert "cannot contain it" in str(error) or "may predate it" in str(error), (name, str(error))
+            assert passed == ok, f"{name}: the pin check {'failed' if ok else 'passed'}"
+
+
+
+def test_pin_check_rejects_a_typed_web_node_version() -> None:
+    workflow = {"on": "push", "env": {"CMUX_WEB_NODE_VERSION": "24.22.1"},
+                "jobs": {"j": {"runs-on": "ubuntu-latest", "steps": [{"run": "true"}]}}}
+    with tempfile.TemporaryDirectory() as tmp:
+        Path(tmp, "typed.yml").write_text(yaml.safe_dump(workflow), encoding="utf-8")
+        try:
+            _assert_setup_node_reads_a_pin_file(Path(tmp), minimum=0)
+        except AssertionError as error:
+            assert "sets CMUX_WEB_NODE_VERSION" in str(error), str(error)
+        else:
+            raise AssertionError("a hand-typed CMUX_WEB_NODE_VERSION passed the pin check")
 
 def test_web_typecheck_retries_native_tsgo_abort() -> None:
     script = workflow_job_step_script("web-typecheck", "Typecheck", WEB_WORKFLOW)

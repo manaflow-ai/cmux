@@ -19,8 +19,8 @@ if ! command -v timeout >/dev/null; then
   fi
 fi
 # Why: docs/ci/cmux-next-workflow-notes.md#note-503
-command -v node >/dev/null || scripts/ci/ensure-setup-node.sh 24.22.1 \
-  || echo "::warning title=checks preflight::ensure-setup-node.sh could not install node 24.22.1"
+command -v node >/dev/null || scripts/ci/ensure-setup-node.sh "$(tr -d '[:space:]' < .node-version)" \
+  || echo "::warning title=checks preflight::ensure-setup-node.sh could not install node $(tr -d '[:space:]' < .node-version)"
 echo "$bin" >> "$GITHUB_PATH"
 # Why: docs/ci/cmux-next-workflow-notes.md#note-504
 PATH="$(awk '{ line[NR] = $0 } END { for (i = NR; i > 0; i--) printf "%s:", line[i] }' "$GITHUB_PATH")$PATH"

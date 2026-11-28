@@ -316,6 +316,10 @@ jobs:
       feed_base: ${{ steps.decide.outputs.feed_base }}
       entitlements: ${{ steps.decide.outputs.entitlements }}
       icon_name: ${{ steps.decide.outputs.icon_name }}
+      # The Node pins (.node-version, .node-version-22) of this workflow's commit: the build
+      # jobs check out the resolved build commit, which may predate a pin change.
+      node_version: ${{ steps.node-pins.outputs.node_version }}
+      node_version_22: ${{ steps.node-pins.outputs.node_version_22 }}
       app_input_digest: ${{ steps.app-input-digest.outputs.app_input_digest }}
       app_input_digest_sha: ${{ steps.app-input-digest.outputs.app_input_digest_sha }}
       would_reuse: ${{ steps.app-input-digest.outputs.would_reuse }}
@@ -342,8 +346,17 @@ jobs:
             /scripts/ci/app_input_digest.py
             /scripts/ci/nightly-steps/decide-shadow-app-input-digest.sh
             /scripts/ci/timeout.sh
+            /.node-version
+            /.node-version-22
             /.gitmodules
           sparse-checkout-cone-mode: false
+
+      - name: Read the Node pins
+        id: node-pins
+        run: |
+          set -euo pipefail
+          echo "node_version=$(tr -d '[:space:]' < .node-version)" >> "$GITHUB_OUTPUT"
+          echo "node_version_22=$(tr -d '[:space:]' < .node-version-22)" >> "$GITHUB_OUTPUT"
 
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-decide-1.md
       - name: Mint a spare read token for decide
@@ -1568,17 +1581,17 @@ jobs:
         name: Give this job its own bun
         run: scripts/cmux-next/private-bun.sh
 
-      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+      - name: Restore pinned Node from the CI cache bucket
         shell: bash
         continue-on-error: true
         env:
           TOOLCHAIN_R2_ALL: "1"
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node "${{ needs.decide.outputs.node_version }}" || true
 
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.22.1"
+          node-version: ${{ needs.decide.outputs.node_version }}
 
       - name: Source key of the web bundles
         id: web-bundle-key
@@ -2401,28 +2414,46 @@ jobs:
         with:
           bun-version: "1.4.4"
 
+      # The build tree's own pin: the nightly product key hashes that tree, and
+      # web-bundle-key.py keys the bundles on the same file. A build tree from before
+      # .node-version has no file; web-bundle-key.py keys such a tree on
+      # PRE_NODE_VERSION_FILE_NODE, so it is built with that Node too.
+      - &x26node
+        name: Read the build tree's Node pin (cmux-next web bundles)
+        id: web-node-pin
+        if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
+        run: |
+          set -euo pipefail
+          if [ -f .node-version ]; then
+            echo "node_version=$(tr -d '[:space:]' < .node-version)" >> "$GITHUB_OUTPUT"
+          else
+            echo "node_version=24.22.1" >> "$GITHUB_OUTPUT"  # web-bundle-key.py PRE_NODE_VERSION_FILE_NODE
+          fi
+
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-app-restore-pinned-node-24-22-1-from-the-ci-ca-2.md
       - &restore-node-web-bundles
-        name: Restore pinned Node 24.22.1 from the CI cache bucket
+        name: Restore pinned Node from the CI cache bucket
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         shell: bash
         continue-on-error: true
         env:
           TOOLCHAIN_R2_ALL: "1"
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node "${{ steps.web-node-pin.outputs.node_version }}" || true
 
+      # The webviews app's `vp build` must run on node: on bun it emits
+      # different bytes (build-web-bundles.sh).
       - &x27
         name: Setup Node (cmux-next web bundles)
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.22.1"
+          node-version: ${{ steps.web-node-pin.outputs.node_version }}
 
       - &x28
         name: Check node is on PATH (cmux-next web bundles)
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         timeout-minutes: 12
-        run: scripts/ci/ensure-setup-node.sh 24.22.1
+        run: scripts/ci/ensure-setup-node.sh "${{ steps.web-node-pin.outputs.node_version }}"
 
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-app-restore-pinned-node-24-22-1-from-the-ci-ca.md
       - &x29
@@ -2866,7 +2897,7 @@ jobs:
 
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-attest-nightly-remote-daemon-put-the-pinned-node-on-path.md
       - name: Put the pinned Node on PATH
-        run: bash scripts/ci/ensure-setup-node.sh 24.22.1
+        run: bash scripts/ci/ensure-setup-node.sh "$(tr -d '[:space:]' < .node-version)"
 
       - name: Sign the SSH daemon provenance offline
         id: sign_daemon
@@ -3151,16 +3182,16 @@ jobs:
         with:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.4.4"
-      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+      - name: Restore pinned Node from the CI cache bucket
         shell: bash
         continue-on-error: true
         env:
           TOOLCHAIN_R2_ALL: "1"
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node "${{ needs.decide.outputs.node_version }}" || true
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.22.1"
+          node-version: ${{ needs.decide.outputs.node_version }}
       - name: Webview checks on the build commit
         id: checks
         run: python3 scripts/ci/fast_gate_webviews_checks.py --repo . --advisory-out "$RUNNER_TEMP/webview-lint.json"
@@ -3270,16 +3301,16 @@ jobs:
         with:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.4.4"
-      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+      - name: Restore pinned Node from the CI cache bucket
         shell: bash
         continue-on-error: true
         env:
           TOOLCHAIN_R2_ALL: "1"
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node "${{ needs.decide.outputs.node_version }}" || true
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.22.1"
+          node-version: ${{ needs.decide.outputs.node_version }}
       - name: Webview checks on the tip commit
         id: checks
         continue-on-error: ${{ vars.NIGHTLY_COMPONENT_GATES != 'block' }}
@@ -3917,20 +3948,20 @@ jobs:
         run: s=scripts/ci/nightly-steps/sign-refuse-superseded-resume.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"
 
       # Why: docs/ci/nightly-workflow-notes.md#note-7
-      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+      - name: Restore pinned Node from the CI cache bucket
         if: ${{ !env.LEFT_SLOT }}
         shell: bash
         continue-on-error: true
         env:
           TOOLCHAIN_R2_ALL: "1"
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node "${{ needs.decide.outputs.node_version_22 }}" || true
 
       - &set-up-node
         name: Set up Node
         if: ${{ !env.LEFT_SLOT }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "22.23.4"
+          node-version: ${{ needs.decide.outputs.node_version_22 }}
 
 
       - &x56
@@ -5111,17 +5142,17 @@ jobs:
           bun-version: "1.4.4"
 
       - *legacy-route-shared-6
-      - name: Restore pinned Node 24.11.1 from the CI cache bucket
+      - name: Restore pinned Node from the CI cache bucket
         shell: bash
         continue-on-error: true
         env:
           TOOLCHAIN_R2_ALL: "1"
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.11.1 || true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node "${{ needs.decide.outputs.node_version }}" || true
 
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: ${{ needs.decide.outputs.node_version }}
 
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-visual-gate-nightly-claim-a-tour-slot-on-this-mac.md
       - name: Claim a tour slot on this Mac
@@ -6951,6 +6982,7 @@ jobs:
       - *x25
       - *restore-bun-web-bundles
       - *x26
+      - *x26node
       - *restore-node-web-bundles
       - *x27
       - *x28

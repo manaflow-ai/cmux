@@ -13,9 +13,10 @@ fields only: the Xcode verify phase runs with a PATH that may lack bun.
 `--inputs` prints the pathspecs the source key hashes, one per line. `--routed` prints the
 pathspecs a change to which runs the web CI checks (routed_inputs below).
 
-The source key includes the pinned Bun and Node toolchain identity. Set CMUX_WEB_BUN_VERSION or
-CMUX_WEB_NODE_VERSION when a workflow computes the key so a toolchain change cannot reuse a
-published manifest for the same sources.
+The source key includes the pinned Bun and Node toolchain identity: the bun
+webviews/package.json declares and the node ROOT/.node-version declares (CMUX_WEB_BUN_VERSION
+or CMUX_WEB_NODE_VERSION override them), so a toolchain change cannot reuse a published
+manifest for the same sources.
 
 Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs | --inputs | --routed]
 """
@@ -36,7 +37,8 @@ import sys
 # scales feed gen-design-scale.mjs (its Tailwind theme and token list, build output gen-strings.mjs
 # makes: motion-scale.json is imported by no source, so a change to it left this key unchanged, and a
 # sparse checkout given these inputs had no file for it, 2026-11-22); the acpmux protocol IR is what
-# webviews' postinstall and gen-strings.mjs generate the pane's protocol types from (#50853).
+# webviews' postinstall and gen-strings.mjs generate the pane's protocol types from (#50853);
+# .node-version is the Node the builds run on (toolchain_identity keys its value too; listing it routes a pin-only bump).
 INPUTS = [
     "webviews",
     "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
@@ -55,6 +57,7 @@ INPUTS = [
     "scripts/cmux-next/build-optchat-inspector-web.sh",
     "scripts/cmux-next/build-web-bundles.sh",
     "scripts/cmux-next/web-bundle-key.py",
+    ".node-version",
     ":(glob)Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
 ]
 # The key hashes every CmuxNext catalog (a superset is safe for a cache key); the web CI routing
@@ -341,11 +344,30 @@ def declared_bun_version(root):
         sys.exit(f"web-bundle-key: {error}")
 
 
+# The Node every tree from before .node-version existed was keyed and built with (the old
+# CMUX_WEB_NODE_VERSION default). A tree without the file keeps the key it always had; it is
+# history, not a pin: a tree that has .node-version is keyed on that file only.
+PRE_NODE_VERSION_FILE_NODE = "24.22.1"
+
+
+def declared_node_version(root):
+    # .node-version at ROOT is the one Node pin (every setup-node step reads it with
+    # node-version-file). A tree from before that file (a web bisect candidate, a fixture repo)
+    # keys as it did then.
+    try:
+        with open(os.path.join(root, ".node-version"), encoding="utf-8") as handle:
+            value = handle.read().strip()
+    except FileNotFoundError:
+        return PRE_NODE_VERSION_FILE_NODE
+    if not value:
+        sys.exit(f"web-bundle-key: {os.path.join(root, '.node-version')} is empty; it must hold one Node version")
+    return value
+
 def toolchain_identity(root):
-    # Keep these defaults in one place: workflows export the same values before computing keys.
-    # CMUX_WEB_BUN_VERSION, when set, is used without reading the pin.
+    # The pins are webviews/package.json devEngines (bun) and .node-version (node).
+    # CMUX_WEB_BUN_VERSION / CMUX_WEB_NODE_VERSION, when set, are used without reading the pins.
     bun = normalize_toolchain_version(os.environ.get("CMUX_WEB_BUN_VERSION") or declared_bun_version(root))
-    node = normalize_toolchain_version(os.environ.get("CMUX_WEB_NODE_VERSION", "24.22.1"))
+    node = normalize_toolchain_version(os.environ.get("CMUX_WEB_NODE_VERSION") or declared_node_version(root))
     return f"bun={bun}\nnode={node}\n"
 
 
