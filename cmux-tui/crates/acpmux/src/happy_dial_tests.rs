@@ -353,4 +353,19 @@ async fn seeded_keys_ride_only_in_the_providers_auth_header() {
             "api.anthropic.com GET /seeded-byo/v1/models: header x-api-key",
         ],
     );
+
+    // Cloudflare AI Gateway's connection check: the key rides only in cf-aig-authorization.
+    let cloudflare = "SEEDhappyDialCloudflareKey-4b9e";
+    let _ = crate::byo_endpoint::check_cloudflare(
+        "https://gateway.ai.cloudflare.com/v1/seededacct/seededgw/compat",
+        "seeded-model",
+        cloudflare,
+    )
+    .await;
+    assert_eq!(
+        cmux_egress::capture::leaks(cloudflare),
+        [
+            "gateway.ai.cloudflare.com POST /v1/seededacct/seededgw/compat/chat/completions: header cf-aig-authorization"
+        ],
+    );
 }

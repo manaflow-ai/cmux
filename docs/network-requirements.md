@@ -43,6 +43,7 @@ Allow outbound connections to the hosts below. Where a host's addresses are not 
 
 | Host | Kind | Ports | Addresses | What for |
 | --- | --- | --- | --- | --- |
+| `stun1.l.google.com` | stun | `udp/19302` STUN: the NAT-traversal measurement's third server | not fixed: allow the host name (2026-11-28 DNS: ) | the cmux-nat-probe measurement tool's third STUN server: it learns only the probe's public address |
 | `cmux-device-hub-dev.debussy.workers.dev` | signaling | `tcp/443` HTTPS and WSS (TLS) | Cloudflare's ranges (below) | device hub in development builds |
 | `cmux-mobile-api-dev.debussy.workers.dev` | signaling | `tcp/443` HTTPS and WSS (TLS) | Cloudflare's ranges (below) | iPhone pairing API and signaling in development builds |
 | `*.*.wdev.cmux.dev` | backend | `tcp/443` HTTPS and WSS (TLS) | not fixed: allow the host name | a cmux developer's preview stack, only when the iPhone app's backend override names one |

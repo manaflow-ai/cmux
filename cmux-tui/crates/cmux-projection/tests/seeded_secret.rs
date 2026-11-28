@@ -1,5 +1,5 @@
 //! Seeded secrets through the projection's blob chain (tests/egress_seeded.json, sites
-//! `cmux_projection::peers` and `cmux_projection::s3`): a seed's bearer rides only in
+//! `cmux_projection::peers`, `cmux_projection::s3` and `cmux_projection::repo_archive`): a seed's bearer rides only in
 //! `authorization`, and an S3 secret key never leaves the process (only its signature does).
 
 use cmux_egress::capture;
@@ -100,4 +100,33 @@ fn the_s3_secret_key_never_leaves_only_its_signature_does() {
             format!("{host} HEAD /objects/t1/{oid}: header x-amz-security-token"),
         ]
     );
+}
+
+#[test]
+fn the_archive_secret_key_never_leaves_only_its_signature_does() {
+    install();
+    let secret = "SEEDrepoArchiveSecretKey-41c9/AsDfGh";
+    let session = "SEEDrepoArchiveSession-7b20";
+    let lookup = |name: &str| match name {
+        "CMUX_PROJECTION_S3_ACCESS_KEY_ID" => Some("AKIASEEDREPOARCHIVE01".to_owned()),
+        "CMUX_PROJECTION_S3_SECRET_ACCESS_KEY" => Some(secret.to_owned()),
+        "CMUX_PROJECTION_S3_SESSION_TOKEN" => Some(session.to_owned()),
+        "CMUX_PROJECTION_S3_TENANT" => Some("t1".to_owned()),
+        _ => None,
+    };
+    let store = cmux_projection::repo_archive::open(
+        "https://s3.us-west-2.amazonaws.com/seededarchive",
+        &lookup,
+    )
+    .unwrap();
+    let _ = store.get("SEEDrepoArchiveKey.tar");
+    let _ = store.put_bytes("SEEDrepoArchiveKey.tar", b"SEEDrepoArchiveBytes-0d1e");
+    assert!(!capture::requests_to("s3.us-west-2.amazonaws.com").is_empty());
+    assert!(capture::leaks(secret).is_empty(), "{:?}", capture::leaks(secret));
+    let session_at = capture::leaks(session);
+    assert!(!session_at.is_empty());
+    for place in &session_at {
+        assert!(place.starts_with("s3.us-west-2.amazonaws.com "), "{place}");
+        assert!(place.ends_with(": header x-amz-security-token"), "{place}");
+    }
 }

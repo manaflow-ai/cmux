@@ -317,6 +317,27 @@
    }
   },
   {
+   "host": "stun1.l.google.com",
+   "category": "stun",
+   "builds": [
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "udp/19302",
+     "use": "STUN: the NAT-traversal measurement's third server"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "the cmux-nat-probe measurement tool's third STUN server: it learns only the probe's public address",
+   "observed": {
+    "date": "2026-11-28",
+    "addresses": [],
+    "note": "not resolved here; not a reserved address, allow the host name"
+   }
+  },
+  {
    "host": "mobile-api.cmux.dev",
    "category": "signaling",
    "builds": [

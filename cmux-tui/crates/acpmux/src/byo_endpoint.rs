@@ -830,8 +830,8 @@ fn certificate_error(error: &reqwest::Error) -> bool {
 /// Cloudflare's compatible gateway has no model list. Probe the selected model
 /// using the same authorization header and a one-token hello.
 pub(crate) async fn check_cloudflare(base: &str, model: &str, key: &str) -> Result<(), String> {
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = reqwest::Client::builder()
+    // The same gated client as the model-list fetch (`acpmux::happy_dial::http_client`).
+    let client = crate::happy_dial::http_client()
         .timeout(FETCH_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
         .build()

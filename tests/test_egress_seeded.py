@@ -36,7 +36,7 @@ GATE = "cmux-tui/crates/cmux-egress/"
 # cmux-mobile-link's `egress::http_client_builder(site)` wraps the gate's builder with the system proxy.
 CALL = re.compile(r"\b(?:cmux_egress::(?:client_builder_with|client_builder|blocking_client_builder|client|get|"
                   r"ws::(?:connect_async_tls_with_config|connect_async_with_config|connect_async|checked))"
-                  r"|(?:crate|cmux_mobile_link)::egress::http_client_builder)\s*\(")
+                  r"|(?:crate|cmux_mobile_link)::egress::http_client_builder(?:_with)?)\s*\(")
 LITERAL = re.compile(r'"((?:[^"\\]|\\.)*)"')
 SITE = re.compile(r"^[A-Za-z_][\w-]*(?:::[\w-]+)*$")
 

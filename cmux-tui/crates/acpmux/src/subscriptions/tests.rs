@@ -690,3 +690,40 @@ async fn kimi_refresh_only_discards_grant_on_unauthorized_or_invalid_grant() {
         provider.write(&places.home, id, &record).unwrap();
     }
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): a refresh token rides only in the token
+/// request's form body to the provider's issuer, a Copilot token only in the entitlement request's
+/// authorization header, and a revoked Grok refresh token only in the revoke body.
+#[tokio::test]
+async fn seeded_tokens_ride_only_to_their_issuer() {
+    cmux_egress::capture::install().unwrap();
+    let oauth = super::oauth::OAuth::new(Endpoints::default());
+    let record = |refresh: &str, region| super::Record {
+        access_token: "SEEDsubsAccessUnused-61d0".into(),
+        refresh_token: refresh.into(),
+        expires_at: 1,
+        region,
+        device_id: None,
+        sub: None,
+        login: None,
+        email: None,
+    };
+    // The capture server answers `200 {}`: each call ends at its reply.
+    let grok = "SEEDsubsGrokRefresh-2a7f";
+    let _ = oauth.refresh(Provider::Grok, &record(grok, None)).await;
+    let kimi = "SEEDsubsKimiRefresh-9c13";
+    let _ = oauth.refresh(Provider::Kimi, &record(kimi, Some(KimiRegion::Global))).await;
+    let copilot = "SEEDsubsCopilotToken-4e58";
+    let _ = oauth.copilot_endpoint(copilot).await;
+    let revoked = "SEEDsubsGrokRevoked-b706";
+    oauth.revoke_grok(&record(revoked, None)).await;
+
+    assert_eq!(cmux_egress::capture::leaks(grok), ["auth.x.ai POST /oauth2/token: body"]);
+    assert_eq!(cmux_egress::capture::leaks(kimi), ["auth.kimi.ai POST /api/oauth/token: body"]);
+    assert_eq!(
+        cmux_egress::capture::leaks(copilot),
+        ["api.github.com GET /copilot_internal/user: header authorization"],
+    );
+    assert_eq!(cmux_egress::capture::leaks(revoked), ["auth.x.ai POST /oauth2/revoke: body"]);
+    assert!(cmux_egress::capture::leaks("SEEDsubsAccessUnused-61d0").is_empty());
+}
