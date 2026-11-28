@@ -1,0 +1,427 @@
+name: ui shot loop
+run-name: >-
+  ${{ github.event_name == 'workflow_dispatch'
+  && format('ui shot loop post PR {0} {1}', inputs.pr, inputs.head)
+  || github.event.pull_request.title || github.workflow }}
+
+# Every pull request that changes what a webview draws gets before/after screenshots of the states it touches,
+# judged pixel by pixel (cmux-shotdiff, the one comparator: .github/actions/shotdiff), with the images on the PR and a
+# `cmux/ui-shot` status. Leo, 2026-11-27: "i think even y'all didnt even look at sceenshots for those / do we have that
+# kinda loop? i think aziz said there was stuff in hq for that but idk i feel like some of those ought to be in the
+# monorepo so it's just fire and forget".
+#
+# Two halves, hot-verify's shape (the pr-media environment admits only protected branches):
+#   - capture (the pull request run, no secret): renders the gallery states the change touches at the merge base and at
+#     the head (the tools gallery-advisory.yml uses: webviews/scripts/gallery/touched.ts, scripts/ci/gallery_select.py,
+#     scripts/gallery-matrix), blesses the base renders into a golden store, runs `shotdiff batch` on the head renders,
+#     posts `cmux/ui-shot` and starts the post half with the artifact's run id.
+#   - post (a dispatch on feat-cmux-next, this file and its scripts from the protected branch): downloads the artifact as
+#     data, puts the base, head and diff PNGs of every moved state on pr-media through .github/actions/pr-media-publish
+#     (its privacy check), and writes the one comment (marker `<!-- cmux-ui-shot-loop -->`, edited in place).
+#
+# The gate: `cmux/ui-shot` is failure when a state moves past shotdiff's threshold (16/255 per channel, 1% of pixels,
+# SSIM 0.98) and the PR neither carries the label `ui-shot-intended` nor a `Visual-change: STATE: WHY` body line (the
+# line gallery-advisory.yml already reads). A new push renders again; a label or body edit re-judges from the artifact.
+# Still to come on the same status: the Mac app (a gui-light render) and the iOS simulator legs.
+# Switch: vars.CI_UI_SHOT=0 posts success everywhere.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]
+    paths:
+      - "webviews/src/**"
+      - "webviews/index.html"
+      - "scripts/gallery-matrix/**"
+      - "scripts/ci/ui_shot_loop.py"
+      - ".github/workflows/ui-shot-loop.yml"
+      - "!**/*.md"
+      - "!**/*.test.*"
+      - "!**/*.xcstrings"
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to post for
+        required: true
+      head:
+        description: Its head sha
+        required: true
+      run_id:
+        description: The capture run whose ui-shot-loop artifact to post
+        required: true
+
+permissions:
+  contents: read
+
+# A body or label edit judges again from the artifact and never cancels a render in flight.
+concurrency:
+  group: ui-shot-loop-${{ github.event_name == 'workflow_dispatch' && inputs.pr || github.event.pull_request.number }}-${{ github.event_name == 'pull_request' && contains(fromJSON('["labeled","unlabeled","edited"]'), github.event.action) && 'judge' || 'render' }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    name: render base and head, judge
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(fromJSON('["labeled","unlabeled","edited"]'), github.event.action) && vars.CI_UI_SHOT != '0' }}
+    runs-on: cmux-linux
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      statuses: write
+      actions: write
+    env:
+      PR: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
+      CMUX_GALLERY_IN_VM: "1"
+    steps:
+      - name: Checkout the PR head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /webviews/
+            /cmux-tui/
+            /examples/gallery/
+            /examples/looks/
+            /examples/setups/
+            /scripts/
+            /.github/
+            /config/vite-plus/
+            /schemas/
+            /design/icons/neko-candidates/
+            /first-party-apps/*/preview/**
+            /Resources/ghostty/themes/
+            /Resources/cmux-themes/
+            /Resources/markdown-viewer/
+            /Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/
+            /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+            /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift
+            /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
+            /web/data/model-catalog/
+            /release-notes/next/highlights/
+            /.gitmodules
+          persist-credentials: false
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: true
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Cache Playwright's apt packages
+        continue-on-error: true
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
+      - name: Render the touched states at the merge base and at the head
+        id: render
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/ui-shot"
+          mkdir -p "$out/render"
+          # Commits only for the merge base, then the base's own tree in one pack (gallery-advisory.yml's way).
+          origin_url=$(git remote get-url origin)
+          git init -q --bare "$RUNNER_TEMP/history"
+          git -C "$RUNNER_TEMP/history" fetch -q --no-tags --filter=tree:0 "$origin_url" \
+            "$HEAD_SHA" "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+          base_sha=$(git -C "$RUNNER_TEMP/history" merge-base "origin/$BASE_REF" "$HEAD_SHA")
+          echo "$base_sha" > "$out/base_sha"
+          git fetch -q --no-tags --depth=1 --filter=blob:none origin "$base_sha"
+          git diff --name-only "$base_sha" HEAD > "$RUNNER_TEMP/changed.txt"
+
+          cd webviews
+          bun install --frozen-lockfile
+          bun scripts/gallery/touched.ts --changed "$RUNNER_TEMP/changed.txt" --out "$RUNNER_TEMP/touched.json"
+          select="$GITHUB_WORKSPACE/scripts/ci/gallery_select.py"
+          ids=$(python3 "$select" entries --touched "$RUNNER_TEMP/touched.json")
+          if [ -z "$ids" ]; then
+            echo "No gallery state is touched; nothing to render." | tee "$out/summary.txt" >> "$GITHUB_STEP_SUMMARY"
+            echo "rendered=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          bun scripts/gallery/manifest.ts --entries "$ids" --themes pair --widths narrow \
+            --frame component --out "$RUNNER_TEMP/head-all.json"
+
+          head_build() {
+            cd "$GITHUB_WORKSPACE/webviews"
+            CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-head" bun run gallery:build
+          }
+          base_build() {
+            git worktree add -f -f -q --no-checkout --detach "$RUNNER_TEMP/base" "$base_sha"
+            git -C "$RUNNER_TEMP/base" sparse-checkout set --no-cone --stdin < "$(git rev-parse --git-path info/sparse-checkout)"
+            git -C "$RUNNER_TEMP/base" checkout -q --detach "$base_sha"
+            if [ -f "$RUNNER_TEMP/base/webviews/vite.config.gallery.ts" ] && [ -f "$RUNNER_TEMP/base/webviews/scripts/gallery/manifest.ts" ]; then
+              cd "$RUNNER_TEMP/base/webviews"
+              bun install --frozen-lockfile
+              bun scripts/gallery/manifest.ts --entries "$ids" --themes pair --widths narrow \
+                --frame component --out "$RUNNER_TEMP/base-all.json"
+              CMUX_STRINGS_BEST_EFFORT=1 CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build
+            else
+              echo '[]' > "$RUNNER_TEMP/base-all.json"
+            fi
+          }
+          browser_setup() {
+            cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
+            bun install --frozen-lockfile
+            "$GITHUB_WORKSPACE/scripts/ci/ensure-system-chrome.sh"
+            "$GITHUB_WORKSPACE/scripts/ci/pin-browser-test-font.sh"
+          }
+          for part in head_build base_build browser_setup; do
+            ( set -euo pipefail; "$part" ) > "$RUNNER_TEMP/$part.log" 2>&1 &
+            eval "pid_$part=\$!"
+          done
+          failed=
+          for part in head_build base_build browser_setup; do
+            rc=0; pid_var="pid_$part"; wait "${!pid_var}" || rc=$?
+            echo "::group::$part (exit $rc)"; cat "$RUNNER_TEMP/$part.log"; echo "::endgroup::"
+            [ "$rc" = 0 ] || failed="$failed $part"
+          done
+          [ -z "$failed" ] || { echo "::error::ui shot loop:$failed failed; see its group above" >&2; exit 1; }
+
+          python3 "$select" select --touched "$RUNNER_TEMP/touched.json" \
+            --head-all "$RUNNER_TEMP/head-all.json" --base-all "$RUNNER_TEMP/base-all.json" \
+            --cap 16 --out-dir "$RUNNER_TEMP"
+
+          cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
+          render_stage() {
+            local stage=$1 gallery="$RUNNER_TEMP/gallery-$1" out="$RUNNER_TEMP/ui-shot/render/$1"
+            mkdir -p "$out"
+            if [ "$(jq length "$RUNNER_TEMP/$stage.json")" = 0 ]; then echo '[]' > "$out/results.json"; return 0; fi
+            [ -d "$gallery" ] || { echo "Missing $stage gallery build" >&2; return 1; }
+            bun runner.ts --manifest "$RUNNER_TEMP/$stage.json" --gallery-dir "$gallery" \
+              --output-dir "$out" --engines chromium --shard-count 1 --shard-index 0 --concurrency 4 \
+              || echo "::warning::the $stage render exited $? (a failed play check or an unready state)"
+          }
+          for stage in base head; do
+            ( set -euo pipefail; render_stage "$stage" ) > "$RUNNER_TEMP/render-$stage.log" 2>&1 &
+            eval "pid_$stage=\$!"
+          done
+          failed=
+          for stage in base head; do
+            rc=0; pid_var="pid_$stage"; wait "${!pid_var}" || rc=$?
+            echo "::group::render $stage (exit $rc)"; cat "$RUNNER_TEMP/render-$stage.log"; echo "::endgroup::"
+            [ "$rc" = 0 ] || failed="$failed $stage"
+          done
+          [ -z "$failed" ] || { echo "::error::ui shot loop: the$failed render failed" >&2; exit 1; }
+
+          python3 "$GITHUB_WORKSPACE/scripts/ci/ui_shot_loop.py" stage --surface web \
+            --base "$out/render/base" --head "$out/render/head" --out "$out/stage"
+          echo "rendered=true" >> "$GITHUB_OUTPUT"
+
+      - name: Judge with cmux-shotdiff
+        id: shotdiff
+        if: ${{ steps.render.outputs.rendered == 'true' }}
+        shell: bash
+        working-directory: cmux-tui
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/ui-shot/stage"
+          if [ ! -s "$stage/states.json" ] || [ "$(jq length "$stage/states.json")" = 0 ]; then
+            echo "pass=true" >> "$GITHUB_OUTPUT"; echo "judged=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          timeout 900 cargo build --locked --release -p cmux-shotdiff --bin cmux-shotdiff
+          bin="$PWD/target/release/cmux-shotdiff"
+          store="$RUNNER_TEMP/ui-shot/goldens"
+          out="$RUNNER_TEMP/ui-shot/shotdiff"
+          if [ -d "$stage/base" ]; then "$bin" bless --store "$store" --dir "$stage/base"; fi
+          status=0
+          # A state the PR adds has no golden (new) and passes; one it removes has no head (missing) and passes:
+          # the receipt names both, the gate judges only a render that moved.
+          timeout 600 "$bin" batch --store "$store" --heads "$stage/heads" --out "$out" \
+            --title "UI screenshots, base vs head" --summary "$GITHUB_STEP_SUMMARY" --allow-new || status=$?
+          echo "judged=true" >> "$GITHUB_OUTPUT"
+          [ "$status" -le 1 ] || { echo "::error::cmux-shotdiff failed to run (exit $status)"; exit "$status"; }
+
+      - name: Gate and post cmux/ui-shot
+        if: ${{ always() && !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          BODY: ${{ github.event.pull_request.body }}
+          RENDERED: ${{ steps.render.outputs.rendered }}
+          JUDGED: ${{ steps.shotdiff.outputs.judged }}
+          RENDER_OUTCOME: ${{ steps.render.outcome }}
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/ui-shot"
+          printf '%s' "$BODY" > "$RUNNER_TEMP/body.txt"
+          if [ "$RENDER_OUTCOME" != success ]; then
+            state=failure; desc="the render failed (see the run); no screenshot was judged"
+          elif [ "$RENDERED" != true ] || [ "$JUDGED" != true ]; then
+            state=success; desc="no visual state rendered for this head"
+          else
+            IFS=$'\t' read -r state desc < <(python3 scripts/ci/ui_shot_loop.py gate \
+              --report "$out/shotdiff/report.json" --states "$out/stage/states.json" \
+              --labels "$LABELS" --body "$RUNNER_TEMP/body.txt")
+          fi
+          python3 scripts/ci/ui_shot_loop.py status "${state:-failure}" "${desc:-ui shot not read}"
+          echo "state=$state" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() && !cancelled() && steps.render.outputs.rendered == 'true' }}
+        with:
+          name: ui-shot-loop
+          path: |
+            ${{ runner.temp }}/ui-shot/stage
+            ${{ runner.temp }}/ui-shot/shotdiff
+          retention-days: 14
+
+      # The post half runs on feat-cmux-next (the pr-media environment admits only protected branches).
+      - name: Start the post half
+        if: ${{ steps.render.outputs.rendered == 'true' && steps.shotdiff.outputs.judged == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run ui-shot-loop.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
+            -f pr="$PR" -f head="$HEAD_SHA" -f run_id="$GITHUB_RUN_ID"
+
+  # A label or body edit: judge again from the head's artifact, post the status, no render.
+  rejudge:
+    name: judge again after a label or body edit
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["labeled","unlabeled","edited"]'), github.event.action) && vars.CI_UI_SHOT != '0' }}
+    runs-on: cmux-linux
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      statuses: write
+      actions: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: |
+            scripts/ci/ui_shot_loop.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Judge the head's artifact again
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -uo pipefail
+          run_id=$(gh run list --repo "$REPO" --workflow ui-shot-loop.yml --commit "$SHA" --json databaseId,conclusion \
+            --jq '[.[] | select(.conclusion != "cancelled")][0].databaseId // empty')
+          [ -n "$run_id" ] || { echo "no capture run at $SHA yet; the render posts its own status"; exit 0; }
+          mkdir -p "$RUNNER_TEMP/art"
+          if ! gh run download "$run_id" --repo "$REPO" -n ui-shot-loop -D "$RUNNER_TEMP/art" 2>/dev/null; then
+            echo "no artifact at $SHA: nothing rendered, nothing to re-judge"; exit 0
+          fi
+          printf '%s' "$BODY" > "$RUNNER_TEMP/body.txt"
+          IFS=$'\t' read -r state desc < <(python3 scripts/ci/ui_shot_loop.py gate \
+            --report "$RUNNER_TEMP/art/shotdiff/report.json" --states "$RUNNER_TEMP/art/stage/states.json" \
+            --labels "$LABELS" --body "$RUNNER_TEMP/body.txt")
+          RUN_URL="$GITHUB_SERVER_URL/$REPO/actions/runs/$run_id" python3 scripts/ci/ui_shot_loop.py status "${state:-failure}" "${desc:-ui shot not read}"
+
+  post:
+    name: post the screenshots
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    runs-on: cmux-linux
+    timeout-minutes: 20
+    environment: pr-media
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    env:
+      PR: ${{ inputs.pr }}
+      HEAD_SHA: ${{ inputs.head }}
+      RUN_ID: ${{ inputs.run_id }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/pr-media-publish
+            scripts/pr-media.py
+            scripts/ci/pr_media_privacy.py
+            scripts/ci/pr_media_gate.py
+            scripts/ci/pr_media_ocr_tesseract.py
+            scripts/ci/pr_media_ocr.swift
+            scripts/ci/ui_shot_loop.py
+            .gitmodules
+          sparse-checkout-cone-mode: false
+      - name: Is this still the PR's head
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          now=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json headRefOid,labels,body \
+            --jq '[.headRefOid, ([.labels[].name] | join(","))] | @tsv')
+          IFS=$'\t' read -r head labels <<<"$now"
+          if [ "$head" != "$HEAD_SHA" ]; then echo "current=false" >> "$GITHUB_OUTPUT"; echo "head moved to $head; a newer run posts"; exit 0; fi
+          echo "current=true" >> "$GITHUB_OUTPUT"
+          echo "labels=$labels" >> "$GITHUB_OUTPUT"
+      - name: Download the capture's artifact as data
+        if: ${{ steps.current.outputs.current == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/art"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" -n ui-shot-loop -D "$RUNNER_TEMP/art"
+      - name: Pick the images of every moved state
+        if: ${{ steps.current.outputs.current == 'true' }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/ui_shot_loop.py media --report "$RUNNER_TEMP/art/shotdiff/report.json" \
+            --base "$RUNNER_TEMP/art/stage/base" --heads "$RUNNER_TEMP/art/stage/heads" \
+            --shotdiff-out "$RUNNER_TEMP/art/shotdiff" --out "$RUNNER_TEMP/media"
+      - name: Put the images on pr-media
+        if: ${{ steps.current.outputs.current == 'true' }}
+        uses: ./.github/actions/pr-media-publish
+        with:
+          private-terms: ${{ secrets.PR_MEDIA_PRIVATE_TERMS }}
+          agent-authors: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
+          github-token: ${{ github.token }}
+          command: |
+            shopt -s nullglob
+            files=("$RUNNER_TEMP"/media/*.png)
+            if [ "${#files[@]}" -gt 0 ]; then
+              python3 scripts/pr-media.py --pr "$PR" --force --no-gif "${files[@]}" > /dev/null
+            fi
+      - name: Write the comment
+        if: ${{ steps.current.outputs.current == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LABELS: ${{ steps.current.outputs.labels }}
+        run: |
+          set -euo pipefail
+          intended=
+          case ",$LABELS," in *,ui-shot-intended,*) intended=--intended;; esac
+          python3 scripts/ci/ui_shot_loop.py comment --report "$RUNNER_TEMP/art/shotdiff/report.json" \
+            --states "$RUNNER_TEMP/art/stage/states.json" --media-dir "$RUNNER_TEMP/media" --pr "$PR" \
+            --sha "$HEAD_SHA" --repo "$GITHUB_REPOSITORY" $intended \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > "$RUNNER_TEMP/comment.md"
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            --jq '[.[] | select(.body | startswith("<!-- cmux-ui-shot-loop -->"))][0].id // empty')
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@"$RUNNER_TEMP/comment.md" > /dev/null
+          else
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@"$RUNNER_TEMP/comment.md" > /dev/null
+          fi
