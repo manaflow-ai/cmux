@@ -477,8 +477,9 @@ async fn a_removed_peer_cannot_be_reinserted_by_a_paused_notice() {
     cfg.store.mode = crate::config::StoreMode::Memory;
     let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg.clone(), store);
-    let (lease, _settled) =
-        hub.lease_peer("builder", "ws://127.0.0.1:9", "token".into(), None, false, &cfg).unwrap();
+    let (lease, _settled) = hub
+        .lease_peer("builder", "ws://127.0.0.1:9", "token".into(), None, false, None, &cfg)
+        .unwrap();
     let peer = hub.peer("builder").unwrap();
     hub.apply_peer_notice(
         "builder",
