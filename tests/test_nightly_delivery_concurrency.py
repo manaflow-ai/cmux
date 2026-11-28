@@ -267,7 +267,7 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
     assert "cancel-in-progress: false" in dev
     cmux_next = (WORKFLOWS / "cmux-next.yml").read_text(encoding="utf-8")
     assert "format('cmux-next-release-compile-{0}', github.run_id) }}" in cmux_next
-    assert "needs.push-head-preflight.outputs.current == 'true'" in cmux_next
+    assert "needs.push-head-preflight.outputs.current != 'false'" in cmux_next
 
 
 # A job that tolerates a need (continue-on-error) can still end `cancelled` when it hits its

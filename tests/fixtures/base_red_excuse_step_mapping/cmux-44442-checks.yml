@@ -281,17 +281,17 @@ jobs:
       run: ./scripts/select-ci-xcode.sh
     - name: Decide the fleet build's REF capture
       id: hybrid-ref
-      if: vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (format('{0}',
+      if: vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current != 'false' && (format('{0}',
         vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' || github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next'
-        && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha
+        && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current != 'false') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha
         && inputs.same_tree_state == 'ready'))))
       continue-on-error: true
       run: set -euo pipefail
     - name: Look up the DEV Release app compiled on the same inputs
       id: dev-product
-      if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' ||
+      if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current != 'false' && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' ||
         github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' &&
-        inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state
+        inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current != 'false') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state
         == 'ready')))
       continue-on-error: true
       run: set -euo pipefail
@@ -358,9 +358,9 @@ jobs:
       uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
     - name: Compile the cmux NEXT DEV Release app
       id: compile-cmux-next-dev-release
-      if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' ||
+      if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current != 'false' && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' ||
         github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' &&
-        inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state
+        inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current != 'false') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state
         == 'ready')))
       run: set -euo pipefail
     - name: Save the DEV compile cache (Blacksmith)
