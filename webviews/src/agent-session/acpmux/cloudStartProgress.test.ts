@@ -520,3 +520,24 @@ test("the host's waking push says Waking machine on the machine step until it en
   expect(cloudStartPushed(waking, { key: "k-1", waking: false })?.waking).toBeUndefined();
   expect(cloudStartPushed(machine, { key: "k-1", waking: "yes" })?.waking).toBeUndefined();
 });
+
+test("a Cloud start says why it failed: the agent out of usage, or the machine not started", () => {
+  const begun = cloudStartBegun("k", "fix the build", "/Users/me/paint");
+  const usage = cloudStartEnded(begun, "k", {
+    ok: false,
+    code: "cloud_start_failed",
+    message: "Claude AI usage limit reached|1795900000",
+  });
+  expect(usage?.message).toBe(translate("cloudStart.agentOutOfUsage"));
+  expect(
+    cloudStartEnded(begun, "k", { ok: false, code: "agent_error", message: "429 rate_limit_error" })?.message,
+  ).toBe(translate("cloudStart.agentOutOfUsage"));
+  expect(cloudStartEnded(begun, "k", { ok: false, code: "cloud_start_failed" })?.message).toBe(
+    translate("cloudStart.machineNotStarted"),
+  );
+  // The host's own sentence (a repository that didn't clone) stays as it is.
+  expect(
+    cloudStartEnded(begun, "k", { ok: false, code: "cloud_start_failed", message: "Couldn't clone acme/paint." })
+      ?.message,
+  ).toBe("Couldn't clone acme/paint.");
+});

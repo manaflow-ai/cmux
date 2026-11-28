@@ -643,7 +643,9 @@ export function cloudStartEnded(
   }
   const message = refusedHere
     ? cloudRefusalText(answer.code, answer.message)
-    : (hostFailureText(answer.code, answer.message) ?? line(answer.message, 240));
+    : agentOutOfUsage(answer.code, answer.message)
+      ? translate("cloudStart.agentOutOfUsage")
+      : (hostFailureText(answer.code, answer.message) ?? line(answer.message, 240));
   // A failed start waits on no sign-in (its card offers the sign in again instead) and asks nothing more.
   const {
     signingIn: _signingIn,
@@ -697,6 +699,8 @@ export function cloudRefusalText(code: string, hostWords?: string): string {
 function hostFailureText(code: string, hostWords?: string): string | undefined {
   const words = line(hostWords, 240);
   if (code === "cloud_disabled" && (!words || words === code)) return translate("cloudStart.cloudDisabled");
+  // A failed start with no words of its own: its machine did not start (never "Cloud is not available").
+  if (code === "cloud_start_failed" && (!words || words === code)) return translate("cloudStart.machineNotStarted");
   if (words === code) return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
   return undefined;
 }
@@ -748,6 +752,15 @@ const SPEND_WORDS = {
   cloud_spend_cap: "cloudStart.spendCap",
   cloud_member_budget: "cloudStart.memberBudget",
 } as const;
+
+/// An agent's own account out of usage on the machine (Claude's "usage limit reached", a 429): said as that, never
+/// as Cloud being unavailable, since another try fails the same way until the limit resets or another account goes.
+const AGENT_USAGE =
+  /\busage[_ ]limit\b|\bout of (?:usage|credits)\b|\brate[_ ]limit(?:ed|_error)?\b|\bquota (?:exceeded|exhausted)\b|\bcredit balance is too low\b/i;
+
+export function agentOutOfUsage(code: string, message?: string): boolean {
+  return AGENT_USAGE.test(`${code} ${message ?? ""}`);
+}
 
 export function spendRefusal(code: string, message?: string): SpendRefusalCode | undefined {
   const words = `${code} ${message ?? ""}`;

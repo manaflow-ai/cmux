@@ -1,0 +1,138 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "cloudStart.agentOutOfUsage": {
+      "comment": "Agent pane: Cloud start card. The Cloud chat's agent (for example Claude) refused the start because its account is out of usage or rate limited; Run on This Mac follows it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent's account is out of usage. Try again later, switch accounts, or run on This Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نفد استخدام حساب الوكيل. حاول مرة أخرى لاحقًا، أو بدّل الحساب، أو شغّله على جهاز Mac هذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Račun agenta je potrošio dozvoljenu upotrebu. Pokušajte ponovo kasnije, promijenite račun ili pokrenite na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentens konto har opbrugt sit forbrug. Prøv igen senere, skift konto, eller kør på denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Nutzungskontingent des Agent-Kontos ist aufgebraucht. Versuche es später erneut, wechsle das Konto oder führe es auf diesem Mac aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cuenta del agente ha agotado su uso. Inténtalo más tarde, cambia de cuenta o ejecútalo en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le compte de l'agent a épuisé son quota d'utilisation. Réessayez plus tard, changez de compte ou exécutez-le sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'account dell'agente ha esaurito l'utilizzo disponibile. Riprova più tardi, cambia account o esegui su questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのアカウントの使用量が上限に達しました。後でもう一度お試しいただくか、アカウントを切り替えるか、このMacで実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គណនីរបស់ភ្នាក់ងារបានប្រើអស់កម្រិតហើយ។ សូមព្យាយាមម្ដងទៀតនៅពេលក្រោយ ប្ដូរគណនី ឬដំណើរការនៅលើ Mac នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 계정의 사용량이 소진되었습니다. 나중에 다시 시도하거나, 계정을 전환하거나, 이 Mac에서 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentens konto har brukt opp kvoten sin. Prøv igjen senere, bytt konto eller kjør på denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto agenta wyczerpało limit użycia. Spróbuj ponownie później, przełącz konto lub uruchom na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A conta do agente atingiu o limite de uso. Tente novamente mais tarde, troque de conta ou execute neste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лимит использования аккаунта агента исчерпан. Повторите попытку позже, смените аккаунт или запустите на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บัญชีของเอเจนต์ใช้งานครบโควตาแล้ว โปรดลองอีกครั้งในภายหลัง สลับบัญชี หรือเรียกใช้บน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanın hesabının kullanım hakkı doldu. Daha sonra tekrar deneyin, hesap değiştirin veya bu Mac'te çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ліміт використання облікового запису агента вичерпано. Спробуйте пізніше, змініть обліковий запис або запустіть на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tài khoản của tác nhân đã hết hạn mức sử dụng. Hãy thử lại sau, chuyển tài khoản hoặc chạy trên máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理的账户用量已用尽。请稍后重试、切换账户，或在此 Mac 上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式的帳號用量已用盡。請稍後再試、切換帳號，或在這台 Mac 上執行。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}
