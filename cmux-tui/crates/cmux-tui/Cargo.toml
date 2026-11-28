@@ -228,6 +228,12 @@ cmux-browser-host = { path = "../cmux-browser-host" }
 # hub carrier here (scripts/ci/acpmux-build-features.sh); cmux-remote is below already.
 acpmux = { path = "../acpmux", default-features = false, features = ["hub-carrier"] }
 cmux-app-host = { workspace = true, features = ["engine"] }
+# The agent screen-detection plugin and the Cloud app server run from it by
+# argv[0] too (`cmux-agent-screen-detection`, `cmux-cloud`; CMUX-570). Each
+# stays its own Cargo workspace with its own binary (npm packages, the Linux
+# tree, their own tests); only the cmux-next bundle links them.
+cmux-agent-screen-detection = { path = "../../bindings/examples/rust-agent-screen-detection" }
+cmux-cloud = { path = "../../../first-party-apps/cloud/server" }
 # `cmux carrier dial --service desktop`: the desktop's datagram link (carrier/rd_link.rs).
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }
 cmux-cloud-api.workspace = true

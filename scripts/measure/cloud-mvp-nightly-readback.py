@@ -13,6 +13,8 @@ methods), as a person sees it:
   2 settings  both keys read back on in the copy (settings.get)
   3 auto      a terminal on the demo folder (action.run newTab cwd), Cmd-N there (the New Tab page inherits the
               folder), the page's Runs On control set to Hybrid, a prompt typed and sent: seconds to the first reply
+  3b toggle   that chat's Place chip (Where this chat runs) set to Local, AutoCloud off, then Auto, on: each face
+              read back (Auto · This Mac / Local) and the seconds it took
   4 move      that chat moved with Only in Cloud: the Moved to Cloud line and its Undo, as they appear
   5 cloud     a second New Tab page set to Only in Cloud: seconds to the first reply, and the control's start states
               (Starting Here, Cloud Ready, Moving to Cloud, In Cloud) with the second each first showed
@@ -385,6 +387,58 @@ def step_move(pid: int, out: Path) -> dict:
     return step
 
 
+PLACE = "Where this chat runs"  # the running chat's Place chip (webviews place/PlaceControl.tsx, look "menu")
+
+
+def place_face(seen: list) -> str | None:
+    """The chip's face: Auto · This Mac / Auto · Cloud while AutoCloud is on, Local or Cloud while it is off."""
+    return has_text(seen, "Auto · ") or has_text(seen, "Local", exact=True) or has_text(seen, "Cloud", exact=True)
+
+
+def pick_place(pid: int, out: Path, name: str, label: str, on: bool) -> dict:
+    """Opens the Place chip, picks LABEL (Local turns AutoCloud off for this chat, Auto turns it back on) and waits
+    for the chip's face to say so: Auto · ... for on, no Auto · and Local for off."""
+    seen = nodes(pid)
+    chip = find(seen, lambda t: t == PLACE, "button") or find(seen, lambda t: t.startswith("Auto · "), "button") \
+        or find(seen, lambda t: t == PLACE)
+    if not chip:
+        dump(pid, out / "toggle", f"{name}-no-chip", seen)
+        raise ProductFailure(f"toggle {name}: no '{PLACE}' chip on the running chat (face {place_face(seen)})")
+    step: dict = {"face_before": place_face(seen), "chip": text_of(chip)[:80], "open": press(pid, chip)}
+    time.sleep(1)
+    seen = nodes(pid)
+    item = find(seen, lambda t: t == label, "menu") or find(seen, lambda t: t == label, "radio") \
+        or find(seen, lambda t: t == label or t.startswith(label + " "))
+    step.update(dump(pid, out / "toggle", f"{name}-menu", seen))
+    if not item:
+        lkr.cua("press_key", {"pid": pid, "key": "escape"})
+        raise ProductFailure(f"toggle {name}: no '{label}' row in the Place menu")
+    t0 = time.monotonic()
+    step["pick"] = press(pid, item)
+    done = (lambda s: has_text(s, "Auto · ")) if on else (lambda s: not has_text(s, "Auto · ") and has_text(s, "Local", exact=True))
+    after = lkr.wait_for(lambda: (lambda s: s if done(s) else None)(nodes(pid)), 60, step=0.5)
+    step["face_s"] = round(time.monotonic() - t0, 1) if after else None
+    seen = after or nodes(pid)
+    step["face_after"] = place_face(seen)
+    step["after"] = dump(pid, out / "toggle", f"{name}-after", seen)
+    blocked = blocked_label(seen)
+    if blocked:
+        raise ProductFailure(f"toggle {name}: the chat shows {blocked}")
+    return step
+
+
+def step_toggle(pid: int, out: Path) -> dict:
+    """Leo: "remember we need to be able to toggle a chat on and off of autocloud". The running auto chat's chip set to
+    Local (AutoCloud off), then back to Auto (on); each face read back."""
+    step: dict = {"step": "toggle"}
+    try:
+        step["off"] = pick_place(pid, out, "off", "Local", on=False)
+        step["on"] = pick_place(pid, out, "on", "Auto", on=True)
+    except ProductFailure as failure:
+        step["failure"] = str(failure)
+    return step
+
+
 def verdict(name: str, ok: bool, detail: str) -> None:
     print(f"CMR {'PASS' if ok else 'FAIL'} {name}: {detail}", flush=True)
 
@@ -445,6 +499,15 @@ def run(args) -> int:
         if not ok:
             raise ProductFailure("auto chat: no reply in 300 s")
 
+        toggle = step_toggle(pid, out)
+        receipt["steps"].append(toggle)
+        for side in ("off", "on"):
+            got = toggle.get(side) or {}
+            verdict(f"autocloud {side}", got.get("face_s") is not None,
+                    f"face {got.get('face_before')} -> {got.get('face_after')} in {got.get('face_s')} s"
+                    + (f"; {toggle['failure']}" if toggle.get("failure") and not got.get("face_s") else ""))
+        toggle_ok = all((toggle.get(side) or {}).get("face_s") is not None for side in ("off", "on"))
+
         move = step_move(pid, out)
         receipt["steps"].append(move)
         ok = bool(move.get("moved_line"))
@@ -473,6 +536,8 @@ def run(args) -> int:
         if cloud.get("reply_s") is None or "In Cloud" not in starts:
             status = 1
         if not (move.get("undo_shown") and move.get("undo_result")):
+            status = 1
+        if not toggle_ok:
             status = 1
     except ProductFailure as failure:
         if UNSIGNED and "Sign In to Use Cloud" in str(failure):
