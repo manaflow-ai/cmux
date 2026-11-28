@@ -15,6 +15,9 @@ public nonisolated struct AgentPaneCloudStarted: Sendable, Equatable {
 
     public init(start: AgentPaneCloudStart, chat: String?, workspace: String?, account: [String?], machineID: String, at: Date = Date()) {
         (self.start, self.chat, self.workspace, self.account, self.machineID, self.at) = (start, chat, workspace, account, machineID, at)
+        // A repick resolves the destination and its login again.
+        self.start.machine = nil
+        self.start.usesMachineLogin = false
     }
 
     /// How soon after its start a Cloud chat that goes counts as one that never got going: its prompt goes
