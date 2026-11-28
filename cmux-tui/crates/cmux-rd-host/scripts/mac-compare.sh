@@ -23,11 +23,16 @@ start() {
     sleep 0.1 # bounded wait for the host's ready line (10 s)
   done
   rm -f "$state/host-flags"
+  # No origin: say what the marker wrote (its refusal, or nothing at all) instead of a bench with no --marker-origin.
+  grep -q click-at "$state/marker.log" 2>/dev/null || {
+    print -u2 -r -- "mac-compare: the marker printed no origin in 10 s; marker.log: $(tail -c 400 "$state/marker.log" 2>/dev/null || echo missing)"
+    return 1
+  }
 }
 
 rd_row() {
   local name=$1 command=$2 flags=$3
-  start "$command" "$flags --loopback 1" "$state/host.log" listening
+  start "$command" "$flags --loopback 1" "$state/host.log" listening || return 1
   local geometry=$(grep -m1 marker-origin "$state/marker.log")
   local origin=${${geometry#marker-origin }%% *} at=${geometry##*click-at }
   "$root/bin/cmux-rd-bench" bench --addr 127.0.0.1:4103 --input click --at "$at" --marker-origin "$origin" \
@@ -36,7 +41,7 @@ rd_row() {
 
 webrtc_row() {
   local name=$1 command=$2
-  start "$command" "" "$state/webrtc.log" "waiting for a viewer"
+  start "$command" "" "$state/webrtc.log" "waiting for a viewer" || return 1
   # The marker reports its geometry in the rd stream's pixels at the display's full width.
   local geometry=$(grep -m1 "stream width" "$state/marker.log")
   local width=${${geometry#*stream width }%% *}
