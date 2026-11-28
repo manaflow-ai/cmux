@@ -48,12 +48,23 @@ fn main() {
         env::var_os("PATH").as_deref(),
         required_zig.as_deref(),
     );
-    let (zig, why) = build_support::select_zig(&zig_candidates, required_zig.as_deref(), |zig| {
+    let version_of = |zig: &str| {
         let output = Command::new(zig).arg("version").output().ok()?;
         output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
-    });
+    };
+    let (zig, why) =
+        build_support::select_zig(&zig_candidates, required_zig.as_deref(), version_of);
     if let Some(why) = why {
         println!("cargo:warning={why}");
+    }
+    // No zig of the pinned series: stop here with what was tried and how to get it, not in
+    // Ghostty's own version check halfway through `zig build`.
+    if let Some(required) = required_zig.as_deref()
+        && !version_of(&zig).is_some_and(|v| build_support::zig_compatible(&v, required))
+    {
+        let tried: Vec<(String, Option<String>)> =
+            zig_candidates.iter().map(|z| (z.clone(), version_of(z))).collect();
+        panic!("{}", build_support::pin_unmet_message(required, &tried));
     }
     // No build fetches from a third-party host: every package this build
     // fetches comes from our mirror first (scripts/ci/zig-packages.lock), and in
