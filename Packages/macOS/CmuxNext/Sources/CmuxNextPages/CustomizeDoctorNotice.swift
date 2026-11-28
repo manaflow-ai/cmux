@@ -14,6 +14,9 @@ public import Foundation
 /// announced seen, so `announce` is non-null only for findings that are new: this type keeps no
 /// memory of its own, and only shows that line as a toast whose Review button opens Settings at
 /// the doctor card. `customize.doctorNotice` off: it runs nothing (so nothing is marked seen).
+/// Off is the default (Leo 2026-11-25: "make it stop showing the customization not
+/// applied/reviewd and shit popup tosts"): the doctor card in Settings shows the findings inline;
+/// the toast pops only for someone who turns Customization notices on.
 /// At most one run is in flight; loads during a run make one more run after it.
 @MainActor
 public final class CustomizeDoctorNotice {

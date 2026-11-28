@@ -14,10 +14,12 @@ export const HOVER_LOOK_ATTRIBUTE = "data-hover-look";
 /// ui/hoverLook.css paints).
 export const HOVER_LOOK_SURFACES = ".ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-card, .cu-tooltip";
 
-/// How tooltips and hover cards look once the switch is on (Leo, ask-68c2ce3e90: "i recall a lot of
-/// our existing hovers and errors and whatnot look like shit"). Every arm is paint only: the
-/// padding, type, rim width and so the size of every tooltip and card are today's, so turning it on
-/// moves nothing. With the switch off no arm draws anything.
+/** How tooltips and hover cards look once the switch is on (Leo, ask-68c2ce3e90: "i recall a lot of
+ * our existing hovers and errors and whatnot look like shit"). Every arm is paint only: the
+ * padding, type, rim width and so the size of every tooltip and card are today's, so turning it on
+ * moves nothing. With the switch off no arm draws anything.
+ * @status experimental
+ */
 export const hoverLook = defineExperiment({
   id: "hover-look",
   title: "Tooltip and hover card look",

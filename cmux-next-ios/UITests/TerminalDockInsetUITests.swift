@@ -139,19 +139,17 @@ final class TerminalDockInsetUITests: XCTestCase {
         XCTAssertFalse(app.otherElements["terminal.connectionLine"].exists, "no connection line by the composer")
         _ = assertNoInset(probe, "reattaching")
 
-        // Reconnect, from the page menu (no layout space while the link is down).
+        // No Reconnect in the page menu: a terminal reattaches on its own (a reattach that gave
+        // up is retried automatically), so there is nothing to decide.
         // A terminal's title pill (its tab title, "zsh") opens its page menu.
         let pill = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "zsh")).firstMatch
         XCTAssertTrue(pill.waitForExistence(timeout: 5), "the title pill\n\(app.debugDescription)")
         pill.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let paste = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Paste")).firstMatch
+        XCTAssertTrue(paste.waitForExistence(timeout: 5), "the page menu\n\(app.debugDescription)")
+        attach(app, "3-page-menu")
         let reconnect = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reconnect")).firstMatch
-        XCTAssertTrue(reconnect.waitForExistence(timeout: 5), "Reconnect in the page menu\n\(app.debugDescription)")
-        attach(app, "3-page-menu-reconnect")
-        reconnect.tap()
-        XCTAssertTrue(reconnect.waitForNonExistence(timeout: 5), "attached again: the menu closes")
-        _ = assertNoInset(probe, "reconnected")
-        assertFieldStayedPut()
-        attach(app, "4-reconnected")
+        XCTAssertFalse(reconnect.exists, "no Reconnect in the page menu\n\(app.debugDescription)")
     }
 
     // MARK: Helpers

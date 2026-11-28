@@ -82,6 +82,20 @@ impl Out {
         copy
     }
 
+    /// Keep a running chat recoverable even while its agent is silent (a long tool call or
+    /// model request). The renewal clock also retries a failed copy. Never pile copies onto
+    /// one still uploading, or repeatedly retry a snapshot over the size limit.
+    pub fn checkpoint(&mut self, now: u64) {
+        let active =
+            self.chat.needs_run && now >= self.chat.copied_at.saturating_add(STREAM_COPY_MS);
+        if !self.chat.too_large
+            && self.chat.copy != CopyState::Sending
+            && (active || self.chat.copy == CopyState::Failed)
+        {
+            self.copy(now);
+        }
+    }
+
     /// The store has the copy numbered `copy`, as its snapshot `snapshot`. Answers whether
     /// that is the newest copy asked for; an older one landing changes nothing about the newer
     /// one still on its way, or that failed as too large.

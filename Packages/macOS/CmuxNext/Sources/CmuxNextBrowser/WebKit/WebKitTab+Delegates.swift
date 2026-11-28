@@ -45,9 +45,16 @@ extension WebKitTab: WKNavigationDelegate {
             if navigationAction.targetFrame?.isMainFrame ?? true {
                 let history = webView.backForwardList, first = (history.backList.first ?? history.currentItem)?.initialURL
                 BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, userGesture: isUserLinkClick, firstPage: first,
-                                                close: { [weak self] in self?.emit(.close) }, ask: enqueuePrompt)
+                                                tab: ObjectIdentifier(self), close: { [weak self] in self?.emit(.close) }, ask: enqueuePrompt)
             }
             return
+        }
+        // GitHub's return to the App's Setup URL for this build's connect: the app finishes it, and no page loads.
+        if navigationAction.targetFrame?.isMainFrame ?? true {
+            let history = webView.backForwardList, first = (history.backList.first ?? history.currentItem)?.initialURL
+            if BrowserExternalApps.shared.handOffReturn(url, firstPage: first, close: { [weak self] in self?.emit(.close) }) {
+                return decisionHandler(.cancel, preferences)
+            }
         }
         // An Open Desktop page is a Cloud machine's screen, reachable only from a Chromium tab over
         // the app's Cloud tunnel; in WebKit it would be this Mac's own loopback.
@@ -145,7 +152,8 @@ extension WebKitTab: WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
-        let failure = BrowserLoadError(error)
+        var failure = BrowserLoadError(error)
+        failure.sentForm = restored.showsFormSubmission
         // The committed document stopped loading: it keeps the page area, so
         // WebKit draws its background again (`pageDidCommit`). A cancellation
         // is a newer navigation taking this one's place, and that one's commit
@@ -159,8 +167,10 @@ extension WebKitTab: WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
         restored.navigationCommitted(url: nil)  // a saved entry that failed to load is no longer loading
+        var failure = BrowserLoadError(error)
+        // Only this navigation's own POST: a retry loads the failed address, not the document still shown.
+        failure.sentForm = formResubmission.pendingPost
         formResubmissionFailed()
-        let failure = BrowserLoadError(error)
         // Nothing is going to commit, so whatever is on screen keeps the page
         // area; without this a document that committed but never finished
         // keeps no background for good (`WebKitTab+LoadingBackground`). A
@@ -251,6 +261,11 @@ extension WebKitTab: WKUIDelegate {
             // A sized popup (OAuth, payment): a floating panel, with opener.
             let features = CGRect(x: windowFeatures.x?.doubleValue ?? 0, y: windowFeatures.y?.doubleValue ?? 0,
                                   width: windowFeatures.width?.doubleValue ?? 0, height: windowFeatures.height?.doubleValue ?? 0)
+            // Its page's intents (a download, `window.close`, a link to a new tab) go where its
+            // opener's go, as a Chromium popup's do (`CEFTab.inheritDelegates`): no host installs
+            // a popup page as a tab, so without this they reached no one.
+            child.delegate = delegate
+            child.keyRouter = keyRouter
             emit(.openPopup(child, BrowserPopupRequest(features: features)))
         } else {
             emit(.adoptTab(child, .foregroundTab))

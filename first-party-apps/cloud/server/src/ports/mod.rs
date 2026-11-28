@@ -36,6 +36,7 @@ pub const MAX_LISTENERS: usize = 64;
 pub(crate) struct Forward {
     pub(crate) listener: Option<Listener>,
     pub(crate) local_port: u16,
+    pub(crate) scheme: String,
     pub(crate) generation: u64,
     pub(crate) down: Option<String>,
     /// Present only for browser proxy routes; never logged or persisted.
@@ -61,6 +62,7 @@ pub struct EdgeDown {
     pub machine: String,
     pub port: Option<u16>,
     pub local_port: u16,
+    pub scheme: String,
     pub generation: u64,
     pub reason: String,
 }
@@ -150,6 +152,7 @@ impl Edge {
                     machine: machine.clone(),
                     port,
                     local_port: forward.local_port,
+                    scheme: forward.scheme.clone(),
                     generation: forward.generation,
                     reason: REASON.to_owned(),
                 });

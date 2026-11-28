@@ -1,58 +1,68 @@
-// A file whose upload failed tries again on its own before its chip shows Retry (Leo,
-// 2026-11-01, after a pasted mp4 failed until he clicked Retry: "i had to retry to get it to
-// load???"). The host starts an upload only on the person's fresh key or click (its begin spends
-// that gesture, AgentPaneModel `uploadStage`), so every try again waits for the person's next key
-// or click in the page, as the chip's Retry click would. One sent on a timer with no gesture was
-// always refused ("The app refused the agent connection."), and that refusal took the place of
-// the upload's own error on its tile (Leo, 2026-10-31: "idk what's going on with video
-// attachments"). Return never starts one: its send keeps that gesture for the prompt.
+// A file whose upload failed is asked again on its own, for as long as its chip is there: its chip
+// keeps loading and offers no Retry (Leo, 2026-11-22: "i dont know what kind of decision a "try
+// again" would be other than "ok i guess ill click this." vacuous decisions like that should be just
+// done"). The same for a staged image's original that was not saved and a chip the host makes
+// (attachLater, a dictation recording). Before, each try again waited for the person's next key or
+// click, at most twice and 15 s each, and then the chip showed Retry: the host started an upload only
+// on a fresh gesture. It no longer asks for one (#45429, Leo 2026-11-17: "go remove this"), so the
+// root of that wait is gone and a timer asks again (autoRetry.ts: jittered backoff, 1 s doubling to
+// 30 s, nothing while the pane is hidden, once at once when it shows). A failure that lasts the house
+// deadline (lasting.ts) gets one quiet "Still trying to upload…" on its tile, never a button; its x
+// takes it out.
+import { AutoRetryLoop, type AutoRetryOptions } from "../autoRetry";
 
-/// How many times a failed upload is tried again on its own before its chip shows Retry.
-export const UPLOAD_AUTO_RETRIES = 2;
-/// How long after the failure a try again goes where there is no page to hear input (a test host).
-export const UPLOAD_RETRY_DELAY_MS = 1_000;
-/// How long a try again waits for the person's next key or click before the chip shows Retry.
-export const UPLOAD_RETRY_INPUT_WAIT_MS = 15_000;
+/// The asks again for a set of chips, by id, with no React. `ask(id)` starts one attempt and answers
+/// true, or answers false when it cannot now (its chat is not the one shown): the next ask is then
+/// already due. While an attempt runs no other starts; `failed(id)` after it failed arms the next,
+/// `end(id)` after it succeeded (or the chip went) stops them.
+export class ChipRetries {
+  private readonly loops = new Map<string, AutoRetryLoop>();
+  private readonly running = new Set<string>();
 
-const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Fn"]);
+  constructor(
+    private readonly ask: (id: string) => boolean,
+    private readonly options: AutoRetryOptions = {},
+  ) {}
 
-/// Runs `again` for try `tries` (0 is the first try again) of a failed upload, or `giveUp` once the
-/// tries are spent or the wait for input ends. Answers what stops a try still waiting (the chip's x).
-export function retryUploadLater(
-  tries: number,
-  again: () => void,
-  giveUp: () => void,
-  doc: Document | undefined = typeof document === "undefined" ? undefined : document,
-): () => void {
-  if (tries >= UPLOAD_AUTO_RETRIES) {
-    giveUp();
-    return () => {};
+  /// Whether chip `id` is being asked again (from its first failure until `end`).
+  has(id: string): boolean {
+    return this.loops.has(id);
   }
-  if (!doc) {
-    const timer = setTimeout(again, UPLOAD_RETRY_DELAY_MS);
-    return () => clearTimeout(timer);
+
+  /// Chip `id`'s attempt failed: ask again after the backoff.
+  failed(id: string): void {
+    this.running.delete(id);
+    let loop = this.loops.get(id);
+    if (!loop) {
+      const made: AutoRetryLoop = new AutoRetryLoop(() => {
+        // An attempt still running: no second one beside it; its own end arms the next.
+        if (this.running.has(id)) return made.pause();
+        if (!this.ask(id)) return;
+        this.running.add(id);
+        made.pause();
+      }, this.options);
+      loop = made;
+      this.loops.set(id, loop);
+    }
+    loop.fail();
   }
-  let done = false;
-  const stop = () => {
-    done = true;
-    clearTimeout(timer);
-    doc.removeEventListener("keydown", input, true);
-    doc.removeEventListener("pointerdown", input, true);
-  };
-  function input(event: Event) {
-    if (done || !event.isTrusted) return;
-    const key = event.type === "keydown" ? (event as KeyboardEvent) : undefined;
-    // A lone modifier reaches AppKit as flagsChanged, not keyDown: the host records no gesture for it.
-    if (key && (key.key === "Enter" || key.repeat || MODIFIER_KEYS.has(key.key))) return;
-    stop();
-    // After the host recorded this key or click: the try begins with it.
-    setTimeout(again, 0);
+
+  /// Chip `id` is made, or gone: no more asks.
+  end(id: string): void {
+    this.running.delete(id);
+    this.loops.get(id)?.dispose();
+    this.loops.delete(id);
   }
-  doc.addEventListener("keydown", input, true);
-  doc.addEventListener("pointerdown", input, true);
-  const timer = setTimeout(() => {
-    stop();
-    giveUp();
-  }, UPLOAD_RETRY_INPUT_WAIT_MS);
-  return stop;
+
+  /// The pane showed again, or its chat changed: each failing chip asks at once (one with an attempt
+  /// running waits for it).
+  wake(): void {
+    for (const loop of this.loops.values()) loop.wake();
+  }
+
+  dispose(): void {
+    for (const loop of this.loops.values()) loop.dispose();
+    this.loops.clear();
+    this.running.clear();
+  }
 }

@@ -5,12 +5,15 @@
  * that row's own service principal: one team, its labels, at most maxVms VMs,
  * and every VM it creates pauses within the run cap and is deleted once stopped.
  */
+import { Effect, Layer } from "effect";
 import { generateKeyPair } from "jose";
 import { afterEach, describe, expect, it } from "vitest";
 import { bearer } from "../support/endpoints.ts";
 import { makeHarness, type HarnessOptions } from "../support/harness.ts";
 import { parseCiTrust } from "../../src/auth/ci-trust.ts";
 import { withCiTeamQuotas } from "../../src/policy.ts";
+import { memoryLimitsLayer, TenantLimits } from "../../src/limits/service.ts";
+import { CREATE_SEND_GRACE_MS } from "../../src/limits/ledger.ts";
 
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
 
@@ -157,6 +160,32 @@ describe("a trusted job", () => {
     expect(withCiTeamQuotas({}, rows)).toEqual({ [TEAM]: 2 });
     expect(withCiTeamQuotas({ [TEAM]: 20, other: 5 }, rows)).toEqual({ [TEAM]: 2, other: 5 });
     expect(withCiTeamQuotas({ [TEAM]: 1 }, rows)).toEqual({ [TEAM]: 1 });
+  });
+
+  it("reclaims the slot of a create whose request died mid-send once the job that made it is past its run cap", async () => {
+    // cmux-vm.yml smoke-production from 2026-11-23: one create timed out after its send, its retained slot never
+    // lapsed, and every later run got 429 "already has its limit" while listing no VM. Age is simulated by moving
+    // the slots' start back; nothing else about the ledger changes.
+    const base = await Effect.runPromise(Effect.provide(TenantLimits, memoryLimitsLayer()));
+    const age = { ms: 0 };
+    const limits = Layer.succeed(TenantLimits, { ...base, retainedCreations: (tenant, createdBy, limit) =>
+      base.retainedCreations(tenant, createdBy, limit).pipe(Effect.map((slots) => slots.map((slot) => ({ ...slot, startedMs: slot.startedMs - age.ms })))) });
+    const t = await harness({ limits });
+    const token = await t.githubToken(CLAIMS);
+    // The ownership write fails after the provider made the VM: the create ends unfinished, holding its slot.
+    t.recordFault.before = 1;
+    expect((await create(t, token, {}, { "idempotency-key": "smoke-product-1" })).status).toBe(503);
+    expect(t.upstream.vms.size).toBe(1);
+    expect(await (await t.request("/v1/vms", bearer(token))).json()).toMatchObject({ items: [] });
+    // While the job could still be running, its create keeps its slot.
+    expect((await create(t, token, {}, { "idempotency-key": "smoke-product-2" })).status).toBe(429);
+    age.ms = ROW.maxRunSeconds * 1000 + CREATE_SEND_GRACE_MS;
+    const next = await create(t, token, {}, { "idempotency-key": "smoke-product-3" });
+    expect(next.status).toBe(201);
+    // The stale create's VM was found at its exact slug and deleted; only the new one lives.
+    expect(t.upstream.vms.size).toBe(1);
+    const status = await t.request("/v1/vm-creations/by-key", { ...bearer(token), "idempotency-key": "smoke-product-1" });
+    expect(await status.json()).toMatchObject({ state: "deleted" });
   });
 
   it("may not act for another team or reach that team's VMs", async () => {

@@ -17,7 +17,7 @@
 // result says it measured nothing instead of returning numbers no person saw.
 
 import { type FrameOwners, startFrameOwners } from "./frameOwners";
-import { percentile, round2, summary } from "./perf";
+import { acpmuxPerf, type AcpmuxPerf, percentile, round2, summary, typingSummary } from "./perf";
 
 /** The record kinds the capture reports apart; any other kind is `other`. */
 export const CAPTURE_KINDS = ["tool_call", "tool_call_update", "agent_message_chunk", "other"] as const;
@@ -214,6 +214,8 @@ export type CaptureEnv = {
   /** Calls `onDraw` after each change to the transcript's DOM (a MutationObserver); without it a record
    *  counts as drawn by the first frame after it arrived. */
   watchDraws?(onDraw: () => void): { disconnect(): void } | undefined;
+  /** The composer's key-to-paint recorder (perf.ts): on for the window, off again after unless it was on. */
+  perf?: AcpmuxPerf;
 };
 
 /** The page's own environment. Its frame and timer functions are the page's as they were before
@@ -257,6 +259,7 @@ export function browserEnv(): CaptureEnv {
     supportedEntryTypes: () =>
       typeof PerformanceObserver === "undefined" ? [] : (PerformanceObserver.supportedEntryTypes ?? []),
     startOwners: () => startFrameOwners(),
+    perf: acpmuxPerf,
     watchDraws(onDraw) {
       if (typeof MutationObserver === "undefined") return undefined;
       const root = document.querySelector(".acpmux-scroll") ?? document.body;
@@ -265,6 +268,12 @@ export function browserEnv(): CaptureEnv {
       return observer;
     },
   };
+}
+
+/** The window's keys as `typingSummary` says them, without the per-key list (`--json` stays short). */
+function typingReport(samples: Parameters<typeof typingSummary>[0]) {
+  const { samples: _samples, ...report } = typingSummary(samples);
+  return report;
 }
 
 type PendingArrival = { kind: CaptureKind; at: number; apply: number };
@@ -306,6 +315,13 @@ export class ChatPerfCapture {
     const cleanups: (() => void)[] = [];
     const start = env.now();
     visibility.push({ at: start, state: env.visibility() });
+    // Keys typed into the composer in the window: keydown to after the frame that drew it (perf.ts).
+    const perf = env.perf;
+    const typedBefore = perf?.typingPushed ?? 0;
+    if (perf && !perf.enabled) {
+      perf.enable();
+      cleanups.push(() => perf.disable());
+    }
     try {
       // A frame's batch is open from its frame callback until its paint: a transcript change made in that frame's
       // callbacks (the pane commits a frame's records there, drawInFrame.ts) is in that frame's paint; one made in a
@@ -327,10 +343,13 @@ export class ChatPerfCapture {
       });
       cleanups.push(() => channel.close());
       let frame = 0;
+      // When the window's first frame callback ran, on the page clock (its rAF timestamp can predate the window).
+      let firstFrameAt: number | undefined;
       const owners = env.startOwners?.();
       if (owners) cleanups.push(() => owners.restore());
       const onFrame = (time: number) => {
         frames.push(time);
+        firstFrameAt ??= env.now();
         owners?.frame();
         if (!draws) {
           drawn = this.pending;
@@ -389,7 +408,8 @@ export class ChatPerfCapture {
         measured: reason === null,
         unmeasured_reason: reason,
         visibility: visible,
-        frames: frameReport,
+        // `first_ms`: from the window's start to its first frame, null when it drew none.
+        frames: { ...frameReport, first_ms: firstFrameAt === undefined ? null : round2(firstFrameAt - start) },
         long_tasks: longTaskSummary(longEntries, longType as "long-animation-frame" | "longtask" | null),
         layout_shift: layoutShiftSummary(shifts),
         // Script time inside long animation frames, per second of the window; null without that entry type.
@@ -397,6 +417,7 @@ export class ChatPerfCapture {
         keydown: eventObserver ? keydownSummary(keys) : null,
         transcript: shown?.() ?? { rows: null, events: null },
         records: { ...arrivalSummary(arrivals), unpainted },
+        typing: perf ? typingReport(perf.typingAfter(typedBefore)) : null,
         owners: ownerReport,
       };
     } finally {

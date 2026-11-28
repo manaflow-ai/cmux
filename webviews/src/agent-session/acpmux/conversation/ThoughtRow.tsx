@@ -1,9 +1,9 @@
 import { memo, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { AcpmuxActivity } from "../model";
 import { useT } from "../i18n";
 import { useFindReveal } from "./chatFind";
 import { Brain } from "./icons";
-import { playResize } from "./fold";
 import { useAnchoredCollapse, type AnchoredCollapse } from "./useAnchoredCollapse";
 import { useTranscriptViewContext } from "./transcriptDisclosureModel";
 import { formatDuration } from "./turns";
@@ -67,14 +67,28 @@ function FoldedThought({
   // A row that opens is a button and one that does not is not: the line is a new node when that
   // flips, so the watch follows it.
   const opens = head.rest !== "" || cut || open;
+  // Read by the ResizeObserver only, never in the commit (Leo, 2026-11-26: "Why should non visible
+  // thing even affect the renderer thread anyways?"): a read here forced style and layout on the
+  // main thread for every folded row the commit mounted, off-screen ones too (208 ms in a traced
+  // replay under load). The observer reports each line once after the frame's own layout, before
+  // its paint, where the read costs nothing more; a change it finds renders at once (flushSync),
+  // so a cut line draws its chevron in that same first frame. A page with no ResizeObserver reads
+  // in the commit, as before.
   useLayoutEffect(() => {
     const node = line.current;
     if (!node || open) return;
-    const read = () => setCut(thoughtLayout.cut(node));
-    read();
     const Observer = node.ownerDocument.defaultView?.ResizeObserver;
-    if (!Observer) return;
-    const observer = new Observer(read);
+    if (!Observer) {
+      setCut(thoughtLayout.cut(node));
+      return;
+    }
+    let was: boolean | undefined;
+    const observer = new Observer(() => {
+      const now = thoughtLayout.cut(node);
+      if (now === was) return;
+      was = now;
+      flushSync(() => setCut(now));
+    });
     observer.observe(node);
     return () => observer.disconnect();
   }, [head.line, open, opens]);
@@ -109,19 +123,8 @@ function FoldedThought({
     observer.observe(row);
     return () => observer.disconnect();
   }, [head.line, open, cut]);
-  // The line's height when the reader clicked, for the morph: only their toggle plays it.
-  const from = useRef<number | undefined>(undefined);
-  useLayoutEffect(() => {
-    const node = line.current;
-    const before = from.current;
-    from.current = undefined;
-    if (!node || before === undefined) return;
-    const after = thoughtLayout.height(node);
-    if (open) return playResize(node, before, after);
-    // Closing: the wrapped words stay until the line is one line tall again, then the ellipsis.
-    node.classList.add("is-closing");
-    playResize(node, before, after, () => node.classList.remove("is-closing"));
-  }, [open]);
+  // The line takes its open or closed height in one frame (no height is animated, cmuxterm-hq
+  // docs/design/transcript-motion-model.md rule 7): the transcript places the rows under it once.
   const words = head.line || t("tools.thought");
   const lineClass = `cv-tool__text cv-thought__preview${head.title ? " is-title" : ""}${open ? " is-open" : ""}`;
   // Find counts the thought's words, not how long it took.
@@ -152,9 +155,7 @@ function FoldedThought({
         aria-controls={open && head.rest ? bodyId : undefined}
         ref={fold.headerRef}
         onClick={(event) => {
-          const node = line.current;
-          const before = node ? thoughtLayout.height(node) : undefined;
-          if (fold.toggle(event)) from.current = before;
+          fold.toggle(event);
         }}
       >
         <span className="cv-tool__icon">

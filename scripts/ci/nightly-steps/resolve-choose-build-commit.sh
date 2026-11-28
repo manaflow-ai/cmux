@@ -21,7 +21,12 @@ fi
 echo "already_published=$already_published" >> "$GITHUB_OUTPUT"
 {
   echo "### Nightly build commit"
-  echo "- build commit (app and cmux-tui daemon): \`$build_sha\`"
+  if [[ -n "${TREE_FROM:-}" ]]; then
+    read -r from from_behind from_hours <<<"$TREE_FROM"
+    echo "- build commit (app): \`$build_sha\`; its cmux-tui tree is not published, so the cmux-tui daemon is the tree of the older commit \`$from\` ($from_behind commits and $from_hours h behind it)"
+  else
+    echo "- build commit (app and cmux-tui daemon): \`$build_sha\`"
+  fi
   echo "- tip: \`$TIP_SHA\` (${BEHIND:-0} commits and ${BEHIND_HOURS:-0} h behind)"
   echo "- already published: $already_published"
 } >> "$GITHUB_STEP_SUMMARY"

@@ -10,7 +10,7 @@ import { ArtifactsPage } from "./ArtifactsPage";
 import { MockArtifactsProvider, type MockArtifactsKind } from "./mockProvider";
 import { ArtifactsStore } from "./store";
 
-type Props = { kind?: MockArtifactsKind; open?: string; signedOut?: boolean };
+type Props = { kind?: MockArtifactsKind; open?: string; signedOut?: boolean; unreachable?: boolean };
 
 /** A host that answers every read as signed out, in the app's words. */
 const signedOutHost: PageClient = {
@@ -21,8 +21,20 @@ const signedOutHost: PageClient = {
   handle: () => () => {},
 };
 
-function ArtifactsGallery({ kind = "synced", open, signedOut = false }: Props) {
-  const [store] = useState(() => new ArtifactsStore(signedOut ? signedOutHost : new MockArtifactsProvider(kind)));
+/** A host whose every read fails as unreachable: the page asks again on its own. */
+const unreachableHost: PageClient = {
+  call: async () => {
+    throw pageError("cmux.artifacts.unavailable", "Artifacts could not be reached.", true);
+  },
+  subscribe: async () => () => {},
+  handle: () => () => {},
+};
+
+function ArtifactsGallery({ kind = "synced", open, signedOut = false, unreachable = false }: Props) {
+  const [store] = useState(
+    () =>
+      new ArtifactsStore(signedOut ? signedOutHost : unreachable ? unreachableHost : new MockArtifactsProvider(kind)),
+  );
   const [strings] = useState(() => createStrings(table));
   useEffect(() => {
     void store.start().then(() => (open ? store.select(open) : undefined));
@@ -53,5 +65,9 @@ export default componentEntry<Props>({
     },
     empty: { note: "Nothing saved yet.", props: { kind: "empty" } },
     "signed-out": { note: "Signed out: the app's own words.", props: { signedOut: true } },
+    "still-trying": {
+      note: "The tree keeps failing to read: the page asks again on its own, and past the deadline says so in one quiet line, with no button.",
+      props: { unreachable: true },
+    },
   },
 });

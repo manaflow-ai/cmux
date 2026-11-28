@@ -58,7 +58,7 @@ class NightlyPublicationMarkerTests(unittest.TestCase):
                 if published_sha:
                     body += f"<!-- cmux-published-sha: {published_sha} -->"
                 output = io.StringIO()
-                with patch("urllib.request.urlopen", return_value=io.StringIO(json.dumps({"body": body}))), \
+                with patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0, json.dumps({"body": body}), "")), \
                         patch.object(sys, "argv", ["-", "test/repo", "nightly", self.SHA, "100"]), \
                         patch.dict(os.environ, {"GH_TOKEN": "fixture"}), contextlib.redirect_stdout(output):
                     exec(compile(lookup, str(WORKFLOW), "exec"), {})

@@ -178,5 +178,30 @@ class ReportAndSheet(unittest.TestCase):
         self.assertEqual(judge.strip_rect((5, 8, 38, 28), 0.2, H), (5, 0, 38, 8))
 
 
+class BlankOnlyGate(unittest.TestCase):
+    """browser-split (ask-08552f8ea0): the pane's layout moves by design, so only a blank frame in the new pane fails."""
+
+    def setUp(self):
+        self.old, self.page, self.moving = textured(1), textured(2), textured(3)
+
+    def judged(self, frames):
+        s = judge.judge_switch(frames, MARK, W, FULL, FRAME_MS, reference=self.page)
+        s["gate"] = "blank-only"
+        return s
+
+    def test_layout_motion_before_the_page_passes(self):
+        s = self.judged([(at(-50), self.old), (at(5), self.moving), (at(20), self.page), (at(40), self.page)])
+        self.assertGreater(s["wrong_frames"], 0)
+        self.assertEqual(judge.budget_fails(s, "x"), [])
+
+    def test_an_empty_frame_in_the_new_pane_fails(self):
+        s = self.judged([(at(-50), self.old), (at(5), flat(40)), (at(30), self.page), (at(50), self.page)])
+        self.assertTrue(any("blank frames in the new pane" in f for f in judge.budget_fails(s, "x")))
+
+    def test_a_pane_that_never_shows_its_page_fails(self):
+        s = self.judged([(at(-50), self.old), (at(5), self.moving), (at(50), self.moving)])
+        self.assertTrue(any("never showed its page" in f for f in judge.budget_fails(s, "x")))
+
+
 if __name__ == "__main__":
     unittest.main()

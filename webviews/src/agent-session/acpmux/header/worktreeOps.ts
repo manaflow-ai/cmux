@@ -162,7 +162,7 @@ export function useWorktreeOps(
   const busy = () => record.applying.step === "applying" || record.removing.step === "removing";
   const removed = () => record.removing.step === "removed";
   const runApply = () => {
-    if (!valid() || !worktree || !onApply || busy() || removed()) return;
+    if (!valid() || !worktree || !onApply || worktree.inProgress || busy() || removed()) return;
     const prior = record.applying;
     const key = (prior.step === "applied" ? undefined : prior.key) ?? crypto.randomUUID();
     record.applying = { step: "applying", key };
@@ -238,7 +238,7 @@ export function useWorktreeOps(
       worktree && onApply && !removed()
         ? {
             label: t(applying.step === "applying" ? "header.worktreeApplying" : "header.worktreeApply"),
-            enabled: !busy(),
+            enabled: !busy() && !worktree.inProgress,
             run: runApply,
           }
         : undefined,

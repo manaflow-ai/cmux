@@ -118,6 +118,8 @@
   .auto-env-board *::before,
   .auto-env-board *::after { animation: none !important; }
 }
-:root:is([data-cmux-motion="reduced"], [data-cmux-motion="off"]) .auto-env-board :is(*, *::before, *::after) {
+:root:is([data-cmux-motion="reduced"], [data-cmux-motion="off"]) .auto-env-board *,
+:root:is([data-cmux-motion="reduced"], [data-cmux-motion="off"]) .auto-env-board *::before,
+:root:is([data-cmux-motion="reduced"], [data-cmux-motion="off"]) .auto-env-board *::after {
   animation: none !important;
 }

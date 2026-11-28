@@ -25,6 +25,10 @@ mod update_step;
 use daemon_step::daemon;
 #[cfg(test)]
 use daemon_step::{Verdict, judge_daemon};
+/// The guarded timer install and its probe, shared with `daemon service install` (a join's).
+pub(crate) use update_step::{
+    guarded_install_script, parse as parse_update_probe, probe_script as update_probe_script,
+};
 
 /// The machine enroll or doctor works on.
 pub(crate) struct Plan {
@@ -84,7 +88,9 @@ const INSTALL_FROM_APP: &str = "Install cmux on {host} from the app (Machines > 
 /// `--harness local`: every profile in this machine's harness folder (what
 /// Add Machine copies, so a remote chat starts with the agents this Mac has).
 pub(crate) const LOCAL_HARNESSES: &str = "local";
-const REMOTE_HARNESS_DIR: &str = "d=${XDG_CONFIG_HOME:-$HOME/.config}/cmux/harnesses";
+/// The remote's harness folder: cmux NEXT's own `cmux-next` on a Mac
+/// (`cmux_config::NEXT_DIR`), `cmux` elsewhere.
+const REMOTE_HARNESS_DIR: &str = "d=${XDG_CONFIG_HOME:-$HOME/.config}/cmux; case $(uname -s) in Darwin) d=$d-next;; esac; d=$d/harnesses";
 
 /// Set by a caller that stops a run by its process group (the app's Add
 /// Machine card, `HostCLI.stop`).

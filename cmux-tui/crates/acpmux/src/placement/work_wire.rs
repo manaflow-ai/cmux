@@ -352,9 +352,9 @@ fn write_row(row: &Row<'_>) {
     }
     let path = rows_path();
     if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        let _ = crate::home_fs::create_dirs(dir);
     }
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut f) = crate::home_fs::OpenOptions::new().create(true).append(true).open(&path) {
         let _ = std::io::Write::write_all(&mut f, format!("{v}\n").as_bytes());
     }
 }

@@ -481,6 +481,14 @@ public final class NativeMarkdownView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// The drawn text a hold can select in place: paragraphs, quotes, code and table cells
+    /// (each label in the view that holds it, so a selection in a code card scrolls with it).
+    public var selectableLabels: [UILabel] {
+        labels.filter { !$0.isHidden }
+            + codes.filter { !$0.isHidden }.map(\.codeLabel)
+            + tables.filter { !$0.isHidden }.flatMap(\.cellLabels)
+    }
+
     /// The link at `point` (in this view), if a label's text has one there.
     public func link(at point: CGPoint) -> URL? {
         for label in labels where !label.isHidden && label.frame.contains(point) {
@@ -596,6 +604,8 @@ final class NativeCodeCardView: UIView, UIScrollViewDelegate {
     private let scroll = UIScrollView()
     private let code = UILabel()
     private let fade = CAGradientLayer()
+    /// The code's label (in the scroll area), for in-place selection.
+    var codeLabel: UILabel { code }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -656,6 +666,8 @@ final class NativeCodeCardView: UIView, UIScrollViewDelegate {
 final class NativeTableView: UIScrollView {
     private var labels: [UILabel] = []
     private var rules: [UIView] = []
+    /// The shown cells' labels, for in-place selection.
+    var cellLabels: [UILabel] { labels.filter { !$0.isHidden } }
 
     override init(frame: CGRect) {
         super.init(frame: frame)

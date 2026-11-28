@@ -406,11 +406,3 @@
   align-items: center;
   gap: 0.5em;
 }
-.ui-keyhint {
-  font: inherit;
-  font-size: var(--text-caption);
-  line-height: 1;
-  color: var(--ui-fg-2);
-  opacity: 0.9;
-  letter-spacing: var(--text-caption--letter-spacing);
-}

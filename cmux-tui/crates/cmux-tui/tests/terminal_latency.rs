@@ -337,6 +337,9 @@ fn open_pty(cols: u16, rows: u16) -> (fs::File, std::os::fd::OwnedFd) {
     let mut size = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
     // SAFETY: `openpty` writes two descriptors into the out params on success. macOS's libc takes `termp` and
     // `winp` as `*mut` (Linux's as `*const`, which a `*mut` coerces to), so both are passed mutable.
+    // Clippy on Linux calls the `&mut` unneeded; its `--fix` once made it `&size`, which does not
+    // compile on macOS (#54592).
+    #[allow(clippy::unnecessary_mut_passed)]
     let opened = unsafe {
         libc::openpty(
             &mut master,

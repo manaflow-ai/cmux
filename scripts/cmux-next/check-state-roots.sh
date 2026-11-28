@@ -130,7 +130,7 @@ BEGIN {
   suf = "([^A-Za-z0-9_-]|$)"
   re = "(\\.config|\\.local/state|Library/Caches|\\.cache|Library/Logs)/cmux" suf \
     "|/tmp/cmux[^\"\047 ]*\\.sock" \
-    "|com\\.cmuxterm\\.app([^.]|$)" \
+    "|com\\.cmuxterm\\.app([^.A-Za-z0-9_-]|$)" \
     "|(appendingPathComponent|appending|push)\\((path: |component: )?\"cmux\"[,)]" \
     "|join\\([^()]*\"cmux\"[,)]"
 }
@@ -143,6 +143,11 @@ FNR == 1 { hash = (FILENAME ~ /\.(sh|py)$/) }
     m = substr(line, RSTART, RLENGTH)
     line = substr(line, RSTART + RLENGTH)
     if (m ~ /^\/tmp\/cmux-next/) continue
+    # The key is the bare text: the character after it (a quote, slash, space,
+    # comma or paren) is context, so rewording a line keeps its baseline row.
+    if (m ~ /^com\.cmuxterm\.app/) m = "com.cmuxterm.app"
+    else if (m ~ /^(\.config|\.local|Library|\.cache)/) sub(/cmux.$/, "cmux", m)
+    else if (m !~ /^\/tmp\//) sub(/[,)]$/, ")", m)
     print FILENAME "\t" m
   }
 }'
@@ -185,7 +190,16 @@ if [[ -f "$ids_baseline" ]]; then
 fi
 ids_report="$( { [[ -f "$ids_baseline" ]] && sed 's/^/B\t/' "$ids_baseline" | grep -vE '^B	(#|$)' || true; ids_found | sed 's/^/F\t/'; } \
   | awk -F'\t' '
-    $1 == "B" { lim[$2 FS $3] = $4; next }
+    # A row written before keys were bare (a trailing quote, slash or comma) reads as its bare key,
+    # so a row the base adds the old way still matches, under this check and the one before it.
+    # A row for an id that only starts with the Classic id (com.cmuxterm.appx) names nothing this check finds;
+    # the installed copy the pre-push hook runs still counts it, so it stays until that copy has this rule.
+    $1 == "B" { t = $3
+      if (t ~ /^com\.cmuxterm\.app[A-Za-z0-9_-]/) next
+      if (t ~ /^com\.cmuxterm\.app([^.]|$)/) t = "com.cmuxterm.app"
+      else if (t ~ /^(\.config|\.local|Library|\.cache)/) sub(/cmux.$/, "cmux", t)
+      else if (t !~ /^\/tmp\//) sub(/[,)]$/, ")", t)
+      lim[$2 FS t] += $4; next }
     $1 == "F" { key = $2 FS $3; seen[key] = 1
       l = (key in lim) ? lim[key] : 0
       if ($4 > l) printf "  %s has %d x %s, baseline %d (names a Classic path or id)\n", $2, $4, $3, l

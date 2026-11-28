@@ -15,6 +15,19 @@ export const HOME_LABELS = {
 /// Each list shows at most this many rows, newest first.
 export const HOME_ROWS = 3;
 
+/// Whether HomeLists draws anything for these inputs (it draws nothing when both lists are empty).
+/// The pane marks it (`data-home-lists`, App.tsx) so the hero keeps its room without a pane-level
+/// `:has()` (styles.css).
+export function homeListsShown(
+  sessions: AcpmuxSessionEntry[],
+  currentId?: string,
+  asks: readonly WatchedAsk[] = [],
+  tabs: readonly AttentionTab[] = [],
+): boolean {
+  const { waiting, review } = homeLists(sessions, currentId, asks, tabs);
+  return waiting.length > 0 || review.length > 0;
+}
+
 /// What a new chat's home offers besides the composer (its welcome screen): every ask waiting on
 /// the person (the inbox, HomeInbox.tsx: each open request of every other chat, newest first, none
 /// capped, so no ask is left to find in its chat), and the open pull requests ready for review. A

@@ -591,6 +591,121 @@ fn terminal_reap_attached_terminal_survives_the_guarded_reap_close() {
     mux.close_surface(placed.id).unwrap();
 }
 
+/// Idle-only park: `park-tabs` ends a shell only when it can tell the shell runs nothing. A test
+/// terminal's process either has a child (the shell under it, where the runner spawns one) or cannot be
+/// read: either way it keeps running, and the reply names it with a child reason. The freeing timer with no
+/// deadline adds no wakeup.
+#[test]
+fn park_tabs_keeps_a_terminal_whose_shell_cannot_be_read() {
+    let mux = Mux::new_for_test("park-tabs-unknown-children", SurfaceOptions::default());
+    let shown = mux.new_workspace(Some("shown".into()), Some((80, 24))).unwrap();
+    let terminal = host_id(&mux, &shown);
+    let public_id = shown.terminal_public_id().cloned().unwrap();
+    let tab = mux
+        .with_state(|state| {
+            state.resource_indexes.content_ids.iter().find_map(|(surface, content)| {
+                (*content == ContentPublicId::Terminal(public_id.clone())).then_some(*surface)
+            })
+        })
+        .expect("setup: a tab shows the terminal");
+
+    let (parked, refused) = mux.park_idle_terminal_tabs(&[tab], mux.park_tabs_rules()).unwrap();
+
+    assert!(parked.is_empty(), "nothing parks on an unknown fact");
+    assert!(
+        matches!(
+            refused.as_slice(),
+            [(t, park_eligibility::ParkRefusal::Children | park_eligibility::ParkRefusal::ChildrenUnknown)]
+                if *t == tab
+        ),
+        "the reply names the tab with a child reason: {refused:?}"
+    );
+    assert_eq!(lifecycle(&mux, &terminal), TerminalLifecycle::Running);
+
+    assert_eq!(
+        mux.free_idle_terminals_until_next(Instant::now()),
+        None,
+        "freeing off: no deadline"
+    );
+    mux.set_freeing_idle_override(Duration::from_secs(60));
+    let now = Instant::now();
+    let next = mux.free_idle_terminals_until_next(now).expect("an unattached terminal is tracked");
+    assert!(next > now && next <= now + Duration::from_secs(61), "one deadline, a period away");
+    assert_eq!(lifecycle(&mux, &terminal), TerminalLifecycle::Running);
+    mux.close_surface(shown.id).unwrap();
+}
+
+/// Pinned and Keep Awake workspaces keep their shells from every park path, the freeing timer
+/// first (the app's planner keeps the same workspaces, `WorkspaceFreeingPlanner.workspaceKept`):
+/// the terminal's facts say so, `park-tabs` names the reason, and unpinning or letting the
+/// workspace sleep again clears it. With freeing off, a kept workspace adds no wakeup.
+#[test]
+fn freeing_keeps_a_pinned_or_kept_awake_workspaces_terminals() {
+    let mux = Mux::new_for_test("freeing-workspace-kept", SurfaceOptions::default());
+    let shown = mux.new_workspace(Some("kept".into()), Some((80, 24))).unwrap();
+    let terminal = host_id(&mux, &shown);
+    let workspace = mux.surface_workspace(shown.id).expect("setup: the terminal has a workspace");
+    let set = |update: crate::workspace_registry::WorkspacePresentationUpdate| {
+        mux.set_workspace_metadata(
+            Some(workspace),
+            None,
+            update,
+            None,
+            None,
+            &WorkspaceMutation::daemon_local("freeing-test"),
+        )
+        .unwrap();
+    };
+    let workspace_kept = || {
+        let candidates = mux.reclaim_candidates(None);
+        let candidate = candidates
+            .iter()
+            .find(|candidate| candidate.host == terminal)
+            .expect("the running terminal is a candidate");
+        candidate.facts.workspace_kept
+    };
+    let pin = |on: bool| crate::workspace_registry::WorkspacePresentationUpdate {
+        pinned: Some(on),
+        ..Default::default()
+    };
+    let keep_awake = |on: bool| crate::workspace_registry::WorkspacePresentationUpdate {
+        keep_awake: Some(on),
+        ..Default::default()
+    };
+    assert!(!workspace_kept(), "an unpinned workspace keeps nothing");
+
+    set(pin(true));
+    assert!(workspace_kept(), "a pinned workspace keeps its terminal");
+    assert_eq!(mux.free_idle_terminals_until_next(Instant::now()), None, "freeing off: no wakeup");
+    let public_id = shown.terminal_public_id().cloned().unwrap();
+    let tab = mux
+        .with_state(|state| {
+            state.resource_indexes.content_ids.iter().find_map(|(surface, content)| {
+                (*content == ContentPublicId::Terminal(public_id.clone())).then_some(*surface)
+            })
+        })
+        .expect("setup: a tab shows the terminal");
+    let (parked, refused) = mux.park_idle_terminal_tabs(&[tab], mux.park_tabs_rules()).unwrap();
+    assert!(parked.is_empty());
+    assert_eq!(refused, [(tab, park_eligibility::ParkRefusal::WorkspaceKept)]);
+    // The timer, due at once: the pinned workspace's terminal stays.
+    mux.set_freeing_idle_override(Duration::ZERO);
+    mux.free_idle_terminals_until_next(Instant::now());
+    assert_eq!(lifecycle(&mux, &terminal), TerminalLifecycle::Running);
+
+    set(pin(false));
+    assert!(!workspace_kept(), "unpinned: the timer may judge it again");
+
+    set(keep_awake(true));
+    assert!(workspace_kept(), "Keep Awake keeps its terminal");
+    let key = mux.with_state(|state| state.workspace_by_id(workspace).unwrap().key.clone());
+    let record = mux.presentation_snapshot().workspace(&key).cloned().unwrap();
+    assert!(record.keep_awake && !record.pinned, "the daemon stores Keep Awake apart from the pin");
+    set(keep_awake(false));
+    assert!(!workspace_kept(), "awake no more: the timer may judge it again");
+    mux.close_surface(shown.id).unwrap();
+}
+
 mod cold_adoption;
 mod detach_cap;
 

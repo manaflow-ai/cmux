@@ -1,3 +1,5 @@
+/** @jsxImportSource ../../../../kit/closed */
+// A closed file (tsconfig.closed.json): no raw element, `style` or `className` compiles here.
 // Session Info for the App to draw (model.ts): the page's sections as plain rows, sent as
 // `pane.sessionInfo` whenever what they list changes, and none of the page's own panel. It takes
 // what ChatSessionInfo takes and derives the same lists the same way; the per-section mappers turn them
@@ -6,7 +8,7 @@
 import type { SessionInfoCloudControl } from "../../hybrid/SessionInfoCloud";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePaneLanguage, useT } from "../../i18n";
-import { useConnectionQuiet } from "../../../../ui/lasting";
+import { useConnectionQuietKeys, useConnectionQuiet } from "../../../../ui/lasting";
 import type { AcpmuxRow } from "../../model";
 import { postNative } from "../../native";
 import { screenSharingKind, useScreenSharing } from "../screenSharing";
@@ -61,6 +63,7 @@ import { copyText } from "../../conversation/clipboard";
 import { useSubagentLimitController } from "../subagentLimitStepperModel";
 import { useIMessage } from "../imessage";
 import { orderSections } from "./nativeSessionInfoModel";
+import { useSessionInfoHiddenSections } from "../../chatDisplay";
 import { useLiveSummary } from "../../liveSummary";
 
 const NO_SCHEDULED: readonly SummaryWakeup[] = [];
@@ -130,6 +133,7 @@ export type NativeSessionInfoProps = {
   onStopProcess?: (id: string) => Promise<unknown>;
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
+  onRemoveFolder?: (path: string) => Promise<unknown> | unknown;
   onOpenUrl?: (url: string) => void;
   onOpenDocument?: (artifact: Artifact) => void;
   onOpenArtifacts?: () => void;
@@ -193,6 +197,8 @@ function usePostSessionInfo(info: NativeSessionInfoModel, actions: NativeInfoAct
 
 export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const t = useT();
+  // A subagent's retry waits out the shared bound before its line says so (retryState.ts ``retryWords``).
+  const connectionQuiet = useConnectionQuietKeys();
   const language = usePaneLanguage();
   const state = useSessionInfoState();
   const { shown, onShowUsage } = props;
@@ -266,6 +272,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const { phases, onPhase } = useNativeWorkflowPhases(shown && state.sections.tasks ? props.workflows : []);
   // Order follows a drag in any pane.
   useSectionOrder();
+  // The sections the person turned off in Settings (shownSections.ts).
+  const hiddenSections = useSessionInfoHiddenSections();
   useEffect(() => {
     if (shown) onShowUsage?.();
   }, [shown, onShowUsage]);
@@ -410,6 +418,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           ...(summary?.additionalDirectories ? { folders: summary.additionalDirectories } : {}),
           cwd: summary?.cwd,
           onOpenFile: sourceFiles.open,
+          onRemoveFolder: props.onRemoveFolder,
           failures: sourceFiles.failures,
           onOpenBeside: props.onOpenUrl,
           expanded: state.sourcesAll,
@@ -467,6 +476,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           }),
           onOpenSession: props.onOpenSession,
           now,
+          connectionQuiet,
           showAll: subagentsAll,
           onShowAll: setSubagentsAll,
           endedOpen,
@@ -550,7 +560,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
     ...(props.title ? { title: props.title } : {}),
     ...(props.onBack ? { back: actions.add("scope.back", props.onBack), backLabel: props.backLabel } : {}),
     ...((props.revealed ?? localReveal) ? { reveal: props.revealed ?? localReveal } : {}),
-    sections: orderSections(sections, t),
+    sections: orderSections(sections, t, hiddenSections),
   };
   // The page's popups over the App's panel: it steps behind them (overlays.ts).
   useNativeOverlayReport(info.open);

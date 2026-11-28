@@ -13,11 +13,20 @@ public struct DeviceKeychain: DeviceIdentityKeychain, Sendable {
     public let dataProtection: Bool
     /// The app's one guard of the Keychain UI switch.
     let loginKeychain: LoginKeychain
+    /// Whether this user has no default keychain (``LoginKeychain/defaultKeychainMissing()``; tests: a fixed answer).
+    let defaultKeychainMissing: @Sendable () -> Bool
 
     public init(service: String, dataProtection: Bool = false, loginKeychain: LoginKeychain) {
+        self.init(service: service, dataProtection: dataProtection, loginKeychain: loginKeychain,
+                  defaultKeychainMissing: { loginKeychain.defaultKeychainMissing() })
+    }
+
+    init(service: String, dataProtection: Bool = false, loginKeychain: LoginKeychain,
+         defaultKeychainMissing: @escaping @Sendable () -> Bool) {
         self.service = service
         self.dataProtection = dataProtection
         self.loginKeychain = loginKeychain
+        self.defaultKeychainMissing = defaultKeychainMissing
     }
 
     public func read(_ account: String) throws -> Data? {
@@ -37,11 +46,7 @@ public struct DeviceKeychain: DeviceIdentityKeychain, Sendable {
         let update = loginKeychain.withoutUI { SecItemUpdate(query(account) as CFDictionary, [kSecValueData as String: data] as CFDictionary) }
         if update == errSecSuccess { return }
         guard update == errSecItemNotFound else { throw DeviceIdentity.Failure.keychain(update) }
-        var add = query(account)
-        add[kSecValueData as String] = data
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(add as CFDictionary, nil)
-        guard status == errSecSuccess else { throw DeviceIdentity.Failure.keychain(status) }
+        try addItem(data, account: account)
     }
 
     /// Every account under this service (empty when none or unreadable).
@@ -86,6 +91,15 @@ public struct DeviceKeychain: DeviceIdentityKeychain, Sendable {
 
     /// Adds the item, never replacing one (another build's item refuses an update too).
     public func add(_ data: Data, account: String) throws {
+        try addItem(data, account: account)
+    }
+
+    /// Every new item, with no UI. A file-keychain add with no default keychain never fails: macOS shows "Keychain
+    /// Not Found" and waits for a person, and the device hub's start waited with it ("Loading your devices…" on a
+    /// Mac nobody sits at). That throws errSecNoDefaultKeychain instead, which the page's startup error names.
+    /// The data-protection keychain needs no default keychain.
+    private func addItem(_ data: Data, account: String) throws {
+        if !dataProtection, defaultKeychainMissing() { throw DeviceIdentity.Failure.keychain(errSecNoDefaultKeychain) }
         var add = query(account)
         add[kSecValueData as String] = data
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly

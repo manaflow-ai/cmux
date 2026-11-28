@@ -9,7 +9,9 @@
  * "sent"), and checks every page frame with one call
  * (cmux_agent_pane_policy_check). Default deny: a frame the policy does not
  * allow is refused. Every function may run on any thread at once. ABI
- * version 3 (2 had no cmux_agent_pane_policy_check_gesture, no "click_only"
+ * version 6 (5 had no new_tab_projects op; 4 had no cmux_agent_pane_policy_json_keys_verdict;
+ * 3 had no "canonical_json" op; 2 had no
+ * cmux_agent_pane_policy_check_gesture, no "click_only"
  * or "click_window_ms" in "policy", no "needs_click" in the facts and no
  * "transport.gesture_required" refuse; 1 had no "is_known_allow", "pick",
  * "own_prompt_id" or "canonical_digest" op, no "path_keys" in "policy" and
@@ -34,6 +36,13 @@ typedef struct {
 } CmuxAgentPaneBytes;
 
 uint32_t cmux_agent_pane_policy_abi_version(void);
+
+/* The strict duplicate-key verdict on one page frame (src/json_keys.rs),
+ * with no handle and no allocation: 0 clean, 1 malformed (also not UTF-8 or
+ * empty), 2 an object holding two keys that are equal strings (after NFC),
+ * -1 text NULL with a nonzero length, -4 a panic. A host refuses the frame
+ * on anything but 0. */
+int32_t cmux_agent_pane_policy_json_keys_verdict(const uint8_t *text, size_t text_len);
 
 CmuxAgentPanePolicy *cmux_agent_pane_policy_new(void);
 /* NULL is ignored. No call may use the handle afterwards. */
@@ -98,9 +107,13 @@ int32_t cmux_agent_pane_policy_filter_reply(const uint8_t *method, size_t method
                                             const uint8_t *page_id, size_t page_id_len,
                                             CmuxAgentPaneBytes *out);
 
-/* One JSON op; request is a JSON object (or empty for {}); *out gets the
+/* new_tab_projects {projects, repos, warm?, cwd?, seed?} returns {rows}:
+ * JSON text of opening-stable project rows, reconciled against seed.
+ *
+ * One JSON op; request is a JSON object (or empty for {}); *out gets the
  * reply object. pane may be NULL for "policy", "refusal_frame", "raw_id",
- * "pick", "own_prompt_id", "canonical_digest" and "service_wait"; the others
+ * "pick", "own_prompt_id", "canonical_digest", "canonical_json" and
+ * "service_wait"; the others
  * need it.
  *   add {session} -> {}               sent {method, id?, handoff?, owned?} -> {}
  *   contains {session} -> {contains}  is_unstarted -> {unstarted}
@@ -116,6 +129,8 @@ int32_t cmux_agent_pane_policy_filter_reply(const uint8_t *method, size_t method
  *     (the pick a gesture ticket is bound to; params null: no match)
  *   own_prompt_id {id} -> {id}
  *   canonical_digest {value} -> {digest: hex|null}
+ *   canonical_json {value} -> {json: text|null}
+ *     (the canonical JSON text canonical_digest hashes; null: none)
  *   service_wait {process_alive, socket_accepts}
  *     -> {state: "busy"|"starting"|"down", restart}
  *     (the pane's line while it waits; Restart only when down) */

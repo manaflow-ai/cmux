@@ -25,6 +25,7 @@ struct Case {
 int main() {
   const uint32_t surface = 1u << 3;  // CEF_PERMISSION_TYPE_CAPTURED_SURFACE_CONTROL, a kind neither asked nor refused
   const uint32_t camera = cmux_shim::kPermissionCamera;
+  const uint32_t clipboard = 1u << 4;  // CEF_PERMISSION_TYPE_CLIPBOARD
   const uint32_t mic = cmux_shim::kPermissionMicrophone;
   const Case cases[] = {
       {"location asks in the host's prompt bar", cmux_shim::kPermissionGeolocation, PermissionPromptRoute::kHost},
@@ -34,6 +35,8 @@ int main() {
        cmux_shim::kPermissionNotifications | cmux_shim::kPermissionGeolocation, PermissionPromptRoute::kChromium},
       {"notifications grouped with another kind stay with Chromium", cmux_shim::kPermissionNotifications | surface,
        PermissionPromptRoute::kChromium},
+      {"clipboard asks in the host's prompt bar", clipboard, PermissionPromptRoute::kHost},
+      {"clipboard grouped with camera stays with Chromium", clipboard | camera, PermissionPromptRoute::kChromium},
       {"another kind keeps Chromium's default", surface, PermissionPromptRoute::kChromium},
       // A video call's getUserMedia() waited for good on Chromium's never-shown bubble.
       {"camera asks in the host's prompt bar", camera, PermissionPromptRoute::kHost},

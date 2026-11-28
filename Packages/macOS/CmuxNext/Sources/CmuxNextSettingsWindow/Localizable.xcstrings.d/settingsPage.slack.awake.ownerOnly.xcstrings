@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.slack.awake.ownerOnly" : {
+      "comment" : "Settings > Accounts > Slack awake time (RFD 0123): the non-owner daily allowance and who spent it",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only you can wake your Chief from Slack."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "أنت وحدك من يمكنه تنشيط Chief من Slack."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Samo vi možete probuditi svog Chiefa iz Slacka."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kun du kan vække din Chief fra Slack."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur du kannst deinen Chief über Slack wecken."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo tú puedes activar a tu Chief desde Slack."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous seul pouvez réveiller votre Chief depuis Slack."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo tu puoi attivare il tuo Chief da Slack."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack から Chief を起こせるのはあなただけです。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មានតែអ្នកទេដែលអាចដាស់ Chief របស់អ្នកពី Slack។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack에서 Chief를 깨울 수 있는 사람은 나뿐입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bare du kan vekke din Chief fra Slack."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tylko Ty możesz wybudzić swojego Chiefa ze Slacka."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Só você pode ativar seu Chief pelo Slack."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Только вы можете разбудить своего Chief из Slack."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "มีเพียงคุณที่ปลุก Chief ของคุณจาก Slack ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief’inizi Slack’ten yalnızca siz uyandırabilirsiniz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лише ви можете розбудити свого Chief зі Slack."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chỉ bạn mới có thể đánh thức Chief từ Slack."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只有你可以从 Slack 唤醒你的 Chief。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只有你可以從 Slack 喚醒你的 Chief。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

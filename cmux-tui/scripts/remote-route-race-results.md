@@ -72,3 +72,21 @@ Where the time goes:
 - The rest, up to p95 about 1.1 s, is loss: a lost packet on a 50 ms path costs a retransmit timeout
   (about 200 ms or more), and the connect has about 20 packets in flight sequences.
 - So the 1 s target is met at p50 (666 ms) but not p95 (1090 ms); what remains is round-trip count and loss, not the race.
+
+## Fast fallback off a dead direct path (`CMUX_BRAID_FAST_FALLBACK`, cmux#56738)
+
+`sudo cmux-tui/scripts/remote-fast-fallback-bench.sh BIN 5` with `ARMS="off on off-nochange on-nochange"`,
+binary at 8490f9d2 (release), a 16-core Linux VM, load 2.2 at start, 16.5 at end. Route 0 (ws, direct) is
+black-holed at T0; the `*-nochange` arms black-hole it with no kernel network change (the ordinary heartbeat
+timeout, the control). `leave` is T0 to the first SYN on route 1; `up` is T0 to the end of the first burst
+there (the link carries again).
+
+| arm | N | moved to route 1 | leave p50 [min-max] ms | up p50 [min-max] ms |
+| --- | --- | --- | --- | --- |
+| off (default), network change | 5 | 5 | 2305 [2304-2306] | 2347 [2347-2352] |
+| `CMUX_BRAID_FAST_FALLBACK=1`, network change | 5 | 5 | 554 [553-556] | 597 [595-600] |
+| off, no network change | 5 | 5 | 4435 [4381-4444] | 4478 [4427-4486] |
+| on, no network change | 5 | 5 | 4443 [4417-4445] | 4486 [4460-4486] |
+
+With the flag, 554 ms = netwatch's 300 ms settle + the 250 ms window. The flag changes nothing without a
+network change (control arms equal), as designed.
