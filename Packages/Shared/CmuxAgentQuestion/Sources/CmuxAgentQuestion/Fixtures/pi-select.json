@@ -1,0 +1,37 @@
+{
+  "id": "perm_pi_1",
+  "source": {
+    "harness": "acp",
+    "session": "sess_pi_1",
+    "permission": "perm_pi_1",
+    "toolCall": "pi-ui-7",
+    "answerOption": "choice-0",
+    "agentName": "pi"
+  },
+  "items": [
+    {
+      "id": "q0",
+      "header": "Deploy target",
+      "prompt": "Where should this build go?",
+      "options": [
+        {
+          "id": "choice-0",
+          "label": "staging"
+        },
+        {
+          "id": "choice-1",
+          "label": "canary"
+        },
+        {
+          "id": "choice-2",
+          "label": "prod"
+        }
+      ],
+      "multiSelect": false,
+      "allowsOther": false
+    }
+  ],
+  "state": {
+    "kind": "pending"
+  }
+}

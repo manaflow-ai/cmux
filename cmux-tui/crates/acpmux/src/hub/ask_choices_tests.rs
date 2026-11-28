@@ -167,3 +167,31 @@ async fn a_choice_the_ask_does_not_offer_is_refused_and_the_ask_stays() {
     assert_eq!(refused.data.unwrap()["reason"], "choice.not_offered");
     assert!(session.permissions.lock().unwrap().pending.contains_key("perm-1"));
 }
+
+#[test]
+fn a_pi_dialog_offers_each_option_answered_by_the_option_itself() {
+    let mut select = json!({
+        "toolCall": {"toolCallId": "pi-ui-1", "title": "Pick",
+            "rawInput": {"method": "select", "title": "Pick", "options": ["a", "b", "c"]}},
+        "options": [
+            {"optionId": "choice-0", "name": "a", "kind": "allow_once"},
+            {"optionId": "choice-1", "name": "b", "kind": "allow_once"},
+            {"optionId": "choice-2", "name": "c", "kind": "allow_once"},
+        ],
+    });
+    super::super::questions::normalize_pi(&mut select, Some("pi"));
+    assert_eq!(
+        ids(&select),
+        (Ask::Question, vec!["option.0".into(), "option.1".into(), "option.2".into()])
+    );
+    assert_eq!(resolve(&select, "option.1").unwrap(), ("choice-1".to_owned(), None));
+
+    let mut confirm = json!({
+        "toolCall": {"toolCallId": "pi-ui-2", "rawInput": {"method": "confirm", "title": "Go?"}},
+        "options": [{"optionId": "yes", "name": "Yes", "kind": "allow_once"},
+                    {"optionId": "no", "name": "No", "kind": "reject_once"}],
+    });
+    super::super::questions::normalize_pi(&mut confirm, Some("pi"));
+    assert_eq!(resolve(&confirm, "option.0").unwrap(), ("yes".to_owned(), None));
+    assert_eq!(resolve(&confirm, "option.1").unwrap(), ("no".to_owned(), None));
+}

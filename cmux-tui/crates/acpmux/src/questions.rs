@@ -84,13 +84,67 @@ pub(crate) fn check_reply(
     match answers {
         Some(_) if !allows => Err(RpcError::invalid_params("answers go only with an allow option")),
         Some(answers) => check_answers(request, answers),
-        None if allows && needs_person(request) && trust_cwd(request).is_none() => {
+        None if allows && needs_person(request) && !answered_by_option(request) => {
             Err(RpcError::invalid_params(
                 "this is a question: answer it with `acpmux answer <session> --answer \"<question or id>=<choice>\"` (one --answer per question), in the agent tab or Home card, or decline it with `acpmux deny <session>`",
             ))
         }
         None => Ok(()),
     }
+}
+
+/// Pi's extension dialogs (`ctx.ui.select` / `ctx.ui.confirm`): pi-acp raises each as a
+/// `session/request_permission` whose tool call id starts `pi-ui-`, `rawInput.method` names
+/// the dialog, and every option is an `allow_once` (a select's choices) or a yes/no pair (a
+/// confirm). Without a question copy, approve-all would pick the first choice for the person.
+/// On a Pi session (`family`), this writes the `acp` question: answered by the picked option
+/// alone, never by a policy (`needs_person`). Pi's `input`/`editor` dialogs never reach acpmux:
+/// pi-acp 0.0.35 cancels them itself.
+pub(crate) fn normalize_pi(request: &mut Value, family: Option<&str>) {
+    if family != Some("pi") || question(request).is_some() {
+        return;
+    }
+    let Some(call) = request.get("toolCall") else { return };
+    if !call["toolCallId"].as_str().is_some_and(|id| id.starts_with("pi-ui-")) {
+        return;
+    }
+    let input = &call["rawInput"];
+    if !matches!(input["method"].as_str(), Some("select" | "confirm")) {
+        return;
+    }
+    let Some(options) = request["options"].as_array() else { return };
+    let options: Vec<Value> = options
+        .iter()
+        .filter_map(|o| Some(json!({"id": o["optionId"].as_str()?, "label": o["name"].as_str()?})))
+        .collect();
+    if options.is_empty() {
+        return;
+    }
+    let text = |v: &Value| v.as_str().map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned);
+    let title = text(&input["title"]).or_else(|| text(&call["title"]));
+    let message = text(&input["message"]);
+    let (header, prompt) = match (message, title) {
+        (Some(message), title) => (title, message),
+        (None, Some(title)) => (None, title),
+        (None, None) => (None, "Pi asks".to_owned()),
+    };
+    let mut item = json!({
+        "id": "q0", "prompt": prompt, "options": options,
+        "multiSelect": false, "allowsOther": false,
+    });
+    if let Some(header) = header {
+        item.set("header", json!(header));
+    }
+    request.set_path(
+        &["toolCall", "_meta", "acpmux", "question"],
+        json!({"harness": "acp", "agent": "pi", "items": [item]}),
+    );
+}
+
+/// True for an `acp` question (the folder-trust card, a Pi dialog): its answer is the picked
+/// permission option alone.
+pub(crate) fn answered_by_option(request: &Value) -> bool {
+    trust_cwd(request).is_some() || question(request).is_some_and(|q| q["harness"] == "acp")
 }
 
 /// The normalized items of Claude-shaped `questions` (`{question, header?,
