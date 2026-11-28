@@ -188,7 +188,7 @@ def check(root: Path = ROOT, rust: tuple[list[str], list[str]] | None = None) ->
         for pattern in sorted(want - set(lines)):
             problems.append(f"{where} misses {pattern} (the app links it)")
         for line in lines:
-            if line.startswith("!") or "/Resources/" in line or not line.startswith(PACKAGE_ROOTS):
+            if line.startswith("!") or not line.startswith(PACKAGE_ROOTS):
                 continue
             if line not in want:
                 problems.append(f"{where} names {line}, which the app does not link")

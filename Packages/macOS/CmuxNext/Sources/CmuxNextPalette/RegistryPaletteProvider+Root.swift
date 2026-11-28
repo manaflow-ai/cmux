@@ -3,7 +3,7 @@ import CmuxNextActions
 extension RegistryPaletteProvider {
     /// A stable empty-query vocabulary. Adding a catalog action never lengthens the root;
     /// the complete catalog remains available to typed search and the Commands scope.
-    private static let rootIntentIDs: Set<ActionID> = [
+    static let rootIntentIDs: Set<ActionID> = [
         "newTab", "newTab.default", "newWindow", "closeTab", "closeWorkspace",
         "closePane", "splitRight", "splitDown", "openBrowser", "palette.newAgentChat",
         "palette.quickAgentChat", "openSettings", "goToWorkspace", "tab.search", "search.chats",
@@ -32,7 +32,7 @@ extension RegistryPaletteProvider {
         "agentPane.git.push", "newCloudMachine", "cloudSSH", "remote.reconnect", "agent.harness.add", "macScreen.open",
     ]
 
-    private static let rootFamilies: [(category: ActionCategory, members: Set<ActionCategory>, symbol: String)] = [
+    static let rootFamilies: [(category: ActionCategory, members: Set<ActionCategory>, symbol: String)] = [
         (.window, [.window, .pane, .screen, .other], "rectangle.split.2x2"),
         (.workspace, [.workspace, .sidebar], "rectangle.stack"),
         (.tab, [.tab], "rectangle.on.rectangle"),
@@ -43,6 +43,18 @@ extension RegistryPaletteProvider {
         (.settings, [.settings, .notifications], "gearshape"),
     ]
 
+    /// Each root family's section ids, in ``rootFamilies``' order: the rows `curatedRootItems` reads for its row.
+    static let rootFamilySectionIDs: [Set<String>] = rootFamilies.map { Set($0.members.map(\.paletteSectionID)) }
+
+    /// The root families (indices into ``rootFamilies``) whose row reads a section id's rows.
+    static let rootFamiliesBySectionID: [String: [Int]] = {
+        var families: [String: [Int]] = [:]
+        for (index, sections) in rootFamilySectionIDs.enumerated() {
+            for section in sections { families[section, default: []].append(index) }
+        }
+        return families
+    }()
+
     /// Changes empty-query visibility without rebuilding action rows, aliases, targets or effects. `eligible`: the
     /// listed actions the root may show (bound or served by the palette, not debug-only). A family's page lists its
     /// members when it opens, not on every open.
@@ -50,7 +62,10 @@ extension RegistryPaletteProvider {
     /// A family's page is made from the root list itself (``rootFamilyMembers(_:sections:folded:)``), which the rows
     /// keep (`RegistryPaletteRows.arranged`), not from `items`: each family row's command captured `items` whole, so
     /// the idle app kept a second copy of every command row (1,162 rows, 2 MB) beside the root's (CMUX-571).
-    func curatedRootItems(_ items: [PaletteItem], eligible: Set<ActionID>) -> [PaletteItem] {
+    ///
+    /// `isFullRead`: `items` are every listed catalog action (``makeItems()``), not a first frame's few
+    /// (``firstFrameItems``). A family's page reads the full read's root list and what it folded when its row runs.
+    func curatedRootItems(_ items: [PaletteItem], eligible: Set<ActionID>, isFullRead: Bool = true) -> [PaletteItem] {
         // The family rows are appended after the action rows: sized for them up front, the list is not copied into a
         // buffer twice its size by the first append (a 4 MB buffer for 1,170 rows, CMUX-571).
         var root: [PaletteItem] = []
@@ -61,11 +76,11 @@ extension RegistryPaletteProvider {
             } ?? true
             root.append(item)
         }
-        // What `items` hid on the empty query (folded family members): a family's page shows them so again.
-        let folded = Set(items.lazy.filter(\.hidesWhenQueryEmpty).map(\.id))
+        // What `items` hid on the empty query (folded family members): a family's page shows them so again. A first
+        // frame's rows lack most members, so only a full read's set is kept for the page.
+        if isFullRead { rows.rootFolded = Set(items.lazy.filter(\.hidesWhenQueryEmpty).map(\.id)) }
         let section = PaletteSection(id: "rootFamilies", title: PaletteStrings.commandsTitle, order: -100)
-        for family in Self.rootFamilies {
-            let sections = Set(family.members.map(\.paletteSectionID))
+        for (family, sections) in zip(Self.rootFamilies, Self.rootFamilySectionIDs) {
             // Retain the existing detailed families and their folded members in the drilldown.
             var listsEligible = false, anyEnabled = false
             for item in items where sections.contains(item.section.id) {
@@ -87,7 +102,8 @@ extension RegistryPaletteProvider {
                                                 id: id, title: family.category.title, placeholder: PaletteStrings.searchPlaceholder,
                                                 symbol: family.symbol,
                                                 providers: [StaticPaletteProvider(id: id, items: Self.rootFamilyMembers(
-                                                    rows?.arranged[true]?.items ?? [], sections: sections, folded: folded))]
+                                                    rows?.arranged[true]?.items ?? [], sections: sections,
+                                                    folded: rows?.rootFolded ?? []))]
                                             ))
                                         })
             )
