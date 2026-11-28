@@ -1973,6 +1973,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_app_ffi_release_workflow.py
 
+      - name: Validate the cmux-mobile-ffi publish-and-pin pipeline
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_mobile_ffi_pin.py
+
       - name: Validate pull request caches are read-only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
