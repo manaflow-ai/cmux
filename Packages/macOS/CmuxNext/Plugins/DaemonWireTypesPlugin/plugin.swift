@@ -12,34 +12,20 @@ struct DaemonWireTypesPlugin: BuildToolPlugin {
         // The package is Packages/macOS/CmuxNext; the generator and the schema are at the repo root.
         let repo = context.package.directoryURL.appending(path: "../../..").standardized
         let script = repo.appending(path: "cmux-tui/bindings/codegen/swift_app/generate.py")
+        let pick = repo.appending(path: "cmux-tui/bindings/codegen/swift_app/pick-python.sh")
         let out = context.pluginWorkDirectoryURL.appending(path: "Requests")
         return [
             .prebuildCommand(
                 displayName: "Generate the CmuxNextDaemon request types from cmux-tui/spec/sdk-schema.json",
-                // The generator shares cmux-tui/bindings/codegen, which needs Python 3.10+ (dataclass slots), and
-                // Xcode runs plugins with PATH=/usr/bin:/bin, whose python3 is macOS's 3.9. Take the first 3.10+
-                // interpreter from Homebrew, python.org or PATH, and fail naming the fix when there is none. A
-                // versioned name counts in each folder: Homebrew's python@3.13 as another formula's dependency
-                // links only python3.13 (aws-m4pro-1 and -3, 2026-11-27).
+                // The interpreter pick is a file beside the generator, not `sh -c TEXT`: SwiftPM echoes a failed
+                // prebuild command's arguments, and inline text put the pick's own "needs Python" line into every
+                // plugin failure's log, so a codegen error read as a missing Python (bb23166636a, 2026-11-28).
+                // pick-python.sh says how it finds a 3.10+ Python with Xcode's PATH=/usr/bin:/bin.
                 executable: URL(filePath: "/bin/sh"),
-                // -B: no __pycache__ beside the generator (a plugin may write only its work directory).
-                arguments: ["-c", Self.pickPython, "sh", script.path(percentEncoded: false), out.path(percentEncoded: false)],
+                arguments: [pick.path(percentEncoded: false), script.path(percentEncoded: false),
+                            out.path(percentEncoded: false)],
                 outputFilesDirectory: out
             ),
         ]
     }
-
-    static let pickPython = #"""
-    names="python3 python3.14 python3.13 python3.12 python3.11 python3.10"
-    for py in $(for dir in /opt/homebrew/bin /usr/local/bin \
-        /Library/Frameworks/Python.framework/Versions/Current/bin; do
-        for name in $names; do echo "$dir/$name"; done; done) \
-        $(for name in $names; do command -v "$name"; done); do
-        [ -n "$py" ] && [ -x "$py" ] || continue
-        "$py" -I -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null || continue
-        exec "$py" -I -B "$1" --out "$2"
-    done
-    echo "error: DaemonWireTypesPlugin needs Python 3.10+ (brew install python)" >&2
-    exit 1
-    """#
 }

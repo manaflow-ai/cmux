@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DaemonWireTypesPlugin's interpreter pick (Packages/macOS/CmuxNext/Plugins/DaemonWireTypesPlugin/plugin.swift).
+"""DaemonWireTypesPlugin's interpreter pick (cmux-tui/bindings/codegen/swift_app/pick-python.sh).
 
 Xcode runs the plugin with PATH=/usr/bin:/bin, so it looks for a 3.10+ Python in fixed folders. Homebrew's
 python@3.13, installed as another formula's dependency, links only `python3.13`, not `python3`: on 2026-11-27
@@ -18,16 +18,13 @@ import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "Packages/macOS/CmuxNext/Plugins/DaemonWireTypesPlugin/plugin.swift"
+PICK = ROOT / "cmux-tui/bindings/codegen/swift_app/pick-python.sh"
 FOLDERS = ("/opt/homebrew/bin", "/usr/local/bin", "/Library/Frameworks/Python.framework/Versions/Current/bin")
 
 
 def pick_script() -> str:
-    match = re.search(r'static let pickPython = #"""\n(.*?)\n\s*"""#', PLUGIN.read_text(), re.S)
-    assert match, "pickPython not found in plugin.swift"
-    lines = match.group(1).split("\n")
-    indent = min(len(l) - len(l.lstrip()) for l in lines if l.strip())
-    return "\n".join(l[indent:] for l in lines)
+    """pick-python.sh less its comments (they name the folders too, and must not be rewritten into the run)."""
+    return "\n".join(l for l in PICK.read_text().split("\n") if not l.lstrip().startswith("#"))
 
 
 FAKE = """#!/bin/sh

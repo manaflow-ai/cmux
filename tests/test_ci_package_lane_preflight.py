@@ -32,6 +32,9 @@ class SuiteOutcomeSignalTests(unittest.TestCase):
             ('compile', 1, '/w/shim.c:3:1: \x1b[0;1;31merror: \x1b[0munknown type name', True),
             # A build plugin that fails on one host (no Python 3.10 on aws-m4pro-1) says nothing about the commit.
             ('compile', 1, 'error: failed: PrebuildCommand(...)\nerror: DaemonWireTypesPlugin needs Python 3.10+\nerror: Build failed', False),
+            # SwiftPM's echo of a failed prebuild command quotes the old inline script, error text and all, mid-line;
+            # the commit's own compile error after it is still the commit's (bb23166636a, 2026-11-28).
+            ('compile', 1, 'error: failed: PrebuildCommand(arguments: ["-c", "...\\necho \\"error: DaemonWireTypesPlugin needs Python 3.10+\\" >&2"])\n/w/Foo.swift:6:15: error: x\nerror: Build failed', True),
             ('compile', 1, '/w/Foo.swift:6:15: error: x\nerror: No space left on device', False),
             ('compile', 124, 'Foo.swift:12:4: error: missing symbol', False),
             ('discovery', 2, 'no discovered test matches MissingSuite', True),

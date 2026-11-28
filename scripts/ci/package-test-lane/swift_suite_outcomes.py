@@ -170,10 +170,12 @@ def check(arguments):
 ANSI = re.compile(r'\x1b\[[0-9;?]*[ -/]*[@-~]')
 # A compiler diagnostic in a source file, or in a macro's expansion (a type-check timeout inside #expect).
 COMPILE_ERROR = re.compile(r'(?m)(?:\.(?:swift|c|h|m|mm|cc|cpp):\d+:\d+|^macro expansion [^\n]*:\d+:\d+): error:')
-# What fails on one host or one run and says nothing about the commit: never a receipt.
+# What fails on one host or one run and says nothing about the commit: never a receipt. The plugin's line counts
+# only at a line start, as the plugin prints it: SwiftPM's echo of a failed prebuild command quotes script text
+# mid-line, and before pick-python.sh was a file that echo matched every codegen failure (bb23166636a, 2026-11-28).
 HOST_FAILURE = re.compile(r'No space left on device|Killed: 9|Terminated: 15|Abort trap|unable to spawn process|'
                           r'Resource temporarily unavailable|Too many open files|Could not resolve host|'
-                          r'Connection (?:reset|refused|timed out)|DaemonWireTypesPlugin needs')
+                          r'Connection (?:reset|refused|timed out)|(?m:^error: DaemonWireTypesPlugin needs)')
 
 
 def eligible_failure(phase, status, output):
