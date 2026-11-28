@@ -762,6 +762,22 @@ public final class TerminalModel {
         controller?.surface.sendText(text, pressReturn: false, fullScreenApp: isTUI)
     }
 
+    /// A prompt from the tab's Chat face: typed into the terminal with Return, as the composer's
+    /// Send types it. False when the terminal cannot take it now: only an attached terminal does,
+    /// since a held send during a reattach comes back only to this page's own composer.
+    public func sendPrompt(_ text: String) -> Bool {
+        guard !text.isEmpty, connectionState == .attached, let controller else { return false }
+        controller.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
+        return true
+    }
+
+    /// Stop on the tab's Chat face: Esc, which interrupts a Claude Code or Codex turn.
+    public func interruptAgent() -> Bool {
+        guard connectionState == .attached, let controller else { return false }
+        controller.surface.sendKey(usage: TerminalHIDUsage.escape)
+        return true
+    }
+
     #if DEBUG
     /// DEBUG: the controller's layout and viewport state, for demo timelines.
     public var debugState: String { controller?.debugState ?? "-" }
@@ -810,6 +826,19 @@ public final class TerminalModel {
     public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
+    /// DEBUG `-cmux-mobile-terminal-text-probe`: the page carries its screen's last rows as the
+    /// label of a clear `debug.terminal.screenText` element, read from Ghostty's grid (what the
+    /// terminal holds, whatever a simulator screenshot of its Metal layer shows). UI tests
+    /// assert on it (TerminalChatFaceRelaunchUITests: a Chat face prompt reaches the terminal).
+    static let debugScreenTextProbe = CommandLine.arguments.contains("-cmux-mobile-terminal-text-probe")
+    /// DEBUG: the screen's last `rows` non-blank rows (the text probe's label).
+    func debugScreenTail(rows: Int = 24) -> String {
+        guard let text = controller?.surface.screenText() else { return "" }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return lines.suffix(rows).joined(separator: "\n")
+    }
     /// DEBUG: the grid the Mac's program ends at, and whether an answer to a
     /// resize is still on its way (the demo's `attach` phase). Set, the page
     /// keeps a ``TerminalAttachTrace`` from its view loading on.
