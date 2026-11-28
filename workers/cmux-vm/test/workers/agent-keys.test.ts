@@ -199,6 +199,42 @@ describe("an agent's sandboxes", () => {
     expect((await keyed("agent-create-c")).status).toBe(429);
   });
 
+  it("gives the slot back when the create queue refuses an agent's create before any send (createQueueFull)", async () => {
+    // Production 2026-11-27 22:49Z: two smoke creates refused 503 vm-provider.createQueueFull were held as "may exist"
+    // for 25 h, and the smoke key (maxVms 2) answered 429 agent_vms with no VM at all; every deploy after went red.
+    let refuse = true;
+    const queue = {
+      admit: async () => refuse
+        ? { admitted: false as const, reason: "queue_full" as const, waitedMs: 0, inFlight: 3, queued: 0, retryAfterMs: 1_000 }
+        : { admitted: true as const, waitedMs: 0, inFlight: 0, queued: 0 },
+      release: async () => {},
+    };
+    const t = await makeHarness({ createAdmission: queue });
+    try {
+      const issuer = await t.addKey(TENANT_A, ["vm:read", "vm:write"]);
+      const response = await t.request("/v1/agent-keys", bearer(issuer), { method: "POST", body: { name: "a426", maxVms: 2 } });
+      const agent = await response.json<AgentKeyBody>();
+      const keyed = (idempotency: string) =>
+        t.request("/v1/vms", { ...bearer(agent.key), "idempotency-key": idempotency }, { method: "POST", body: {} });
+      for (const name of ["queued-a", "queued-b", "queued-c"]) {
+        const refused = await keyed(name);
+        expect(refused.status).toBe(503);
+        expect(await refused.json()).toMatchObject({ message: "The cmux VM service is temporarily unavailable (vm-provider.createQueueFull)" });
+      }
+      expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(0);
+      refuse = false;
+      // Nothing was sent, so nothing counts: both of the budget's VMs fit, and a refused key's retry is admitted again.
+      expect((await keyed("after-a")).status).toBe(201);
+      expect((await keyed("queued-a")).status).toBe(201);
+      const over = await keyed("queued-b");
+      expect(over.status).toBe(429);
+      expect(await over.json()).toMatchObject({ budget: "agent_vms" });
+      expect(t.upstream.vms.size).toBe(2);
+    } finally {
+      await t.dispose();
+    }
+  });
+
   it.each([429, 400])("gives the slot back when the provider definitely rejects an agent's create (%i)", async (status) => {
     const issuer = await h.addKey(TENANT_A, ["vm:read", "vm:write"]);
     const agent = await issue(issuer, { maxVms: 1 });

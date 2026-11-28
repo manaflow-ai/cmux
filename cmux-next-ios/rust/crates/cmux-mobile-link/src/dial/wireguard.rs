@@ -1526,6 +1526,60 @@ impl HybridUnderlay {
         self.sync_paths();
     }
 
+    /// The peer announced a new first endpoint: it moved onto a new socket
+    /// and closed the old one. Addresses learned from its datagrams that the
+    /// announcement does not list were the old socket's, even at the new
+    /// network's address (a socket bound to every interface keeps sending,
+    /// from the new address, until the peer notices the change). Their
+    /// paths may have answered a probe before it closed, and the selector
+    /// would move onto one when the old route's path goes away, and send
+    /// into a closed socket until the silence watch gives up on it (200 to
+    /// 650 ms, plus the tunnel's TCP waiting out its retransmit timer: the
+    /// wificell tail). The new socket's own learned address comes back with
+    /// its next datagram. A route to a dropped address ends too, so the
+    /// replay that follows goes where the peer's datagrams arrive now.
+    fn forget_moved_peer(&mut self) {
+        let candidates = &self.candidates;
+        let before = self.learned.len();
+        self.learned.retain(|addr| candidates.contains(addr));
+        if self.learned.len() != before {
+            tracing::debug!(
+                dropped = before - self.learned.len(),
+                "WireGuard forgets the moved peer's old addresses"
+            );
+        }
+        let gone = |addr: &SocketAddr, this: &Self| {
+            !this.candidates.contains(addr)
+                && !this.learned.contains(addr)
+                && !this.labels.peer_relayed.contains(addr)
+        };
+        let now = Instant::now();
+        if let Some(route) = self.direct
+            && route.carrier == Carrier::Udp
+            && gone(&route.addr, self)
+        {
+            // Where the peer's latest datagram came from, when the
+            // announcement lists it (the new socket); else no route until
+            // its next datagram (the replay waits for it).
+            let next = self
+                .last_udp_from
+                .filter(|addr| self.candidates.contains(addr) && !self.refused.contains(addr))
+                .map(|addr| Route { carrier: Carrier::Udp, addr });
+            self.direct = next;
+            self.route_since = now;
+            self.last_on_route = next.map(|_| now);
+            self.pinned_until = None;
+            self.confirmed = false;
+            self.last_fit = None;
+            self.last_marker = None;
+        }
+        if self.last_udp_from.is_some_and(|addr| gone(&addr, self)) {
+            self.last_udp_from = None;
+        }
+        // Before the replay: the selector must not hold a dropped path.
+        self.sync_paths();
+    }
+
     fn apply_one(&mut self, control: Control) {
         let now = Instant::now();
         match control {
@@ -1643,7 +1697,12 @@ impl HybridUnderlay {
                         self.pinned_until = None;
                         self.demote("the peer replaced the route's relayed address");
                     }
+                    // A new first endpoint: the peer moved onto a new socket.
+                    let moved = self.peer_endpoints.first() != endpoints.first();
                     self.set_peer_endpoints(endpoints);
+                    if moved {
+                        self.forget_moved_peer();
+                    }
                     // A roaming phone announces its new TURN address; an
                     // older peer lists none, and the old ones stay (a stale
                     // entry only matters for a datagram from it).
@@ -4015,6 +4074,107 @@ mod tests {
         });
         underlay.authenticated(udp_from(new));
         assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: new }));
+    }
+
+    /// The phone moves networks: its old socket, bound to every interface,
+    /// sends a few datagrams from the new network's address before the phone
+    /// notices and opens a new socket, so the old socket's address there is
+    /// learned and answers a probe. The phone's announcement (a new first
+    /// endpoint) must drop it: a selector holding it sends into a closed
+    /// socket until the silence watch gives up (the wificell tail).
+    #[tokio::test]
+    async fn a_moved_peer_announcement_forgets_the_old_sockets_learned_address() {
+        let relayed_old: SocketAddr = "203.0.113.7:50000".parse().unwrap();
+        let relayed_new: SocketAddr = "203.0.113.7:50001".parse().unwrap();
+        let wifi_old: SocketAddr = "192.168.1.20:41000".parse().unwrap();
+        let cell_old: SocketAddr = "10.97.0.11:41000".parse().unwrap();
+        let cell_new: SocketAddr = "10.97.0.11:42000".parse().unwrap();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[wifi_old.to_string(), relayed_old.to_string()],
+                peer_relayed: &[relayed_old.to_string()],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
+                control,
+                relay_shared: Default::default(),
+            },
+            &DialOptions::default(),
+        );
+        let answer_all = |underlay: &mut HybridUnderlay, now: Instant| {
+            for (path, probe) in underlay.poll_probes(now).pings {
+                underlay.on_pong(path, probe, now + Duration::from_millis(5));
+            }
+        };
+        let udp_from = |addr| Origin { path: UDP_PATH, addr: Some(addr) };
+        let now = Instant::now();
+        underlay.authenticated(udp_from(wifi_old));
+        answer_all(&mut underlay, now);
+        // The swap: the old socket's datagrams now arrive from cell.
+        underlay.authenticated(udp_from(cell_old));
+        answer_all(&mut underlay, now + Duration::from_millis(10));
+        assert!(underlay.learned.contains(&cell_old), "the old socket's cell address is learned");
+        // The phone's new socket announces itself.
+        underlay.apply(Control::PeerEndpoints {
+            endpoints: vec![cell_new.to_string(), relayed_new.to_string()],
+            relayed: vec![relayed_new.to_string()],
+            relayed_tls: vec![],
+            hop: None,
+        });
+        let stale = |route: Option<Route>| route.is_some_and(|r| r.addr == cell_old || r.addr == wifi_old);
+        assert!(!underlay.learned.contains(&cell_old), "the old socket's learned address is gone");
+        assert!(
+            !stale(underlay.paths.current()),
+            "the selector holds no old-socket path: {:?}",
+            underlay.paths.current()
+        );
+        assert!(!stale(underlay.direct), "the route is not the old socket: {:?}", underlay.direct);
+        // The new socket's first datagram takes the route.
+        underlay.authenticated(udp_from(cell_new));
+        assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: cell_new }));
+    }
+
+    /// A repeated announcement (same first endpoint: the peer did not move)
+    /// keeps what was learned from its datagrams: a NAT-mapped address no
+    /// announcement names must stay a path.
+    #[tokio::test]
+    async fn an_unmoved_peer_announcement_keeps_learned_addresses() {
+        let relayed: SocketAddr = "203.0.113.7:50000".parse().unwrap();
+        let mapped: SocketAddr = "198.51.100.20:41000".parse().unwrap();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[relayed.to_string()],
+                peer_relayed: &[relayed.to_string()],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
+                control,
+                relay_shared: Default::default(),
+            },
+            &DialOptions::default(),
+        );
+        underlay.authenticated(Origin { path: UDP_PATH, addr: Some(mapped) });
+        assert!(underlay.learned.contains(&mapped));
+        underlay.apply(Control::PeerEndpoints {
+            endpoints: vec![relayed.to_string(), "198.51.100.30:9".to_string()],
+            relayed: vec![relayed.to_string()],
+            relayed_tls: vec![],
+            hop: None,
+        });
+        assert!(underlay.learned.contains(&mapped), "an unmoved peer's learned address stays");
+        assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: mapped }));
     }
 
     /// The peer's datagrams come from a direct address no announcement named
