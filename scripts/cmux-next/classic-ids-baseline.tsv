@@ -123,7 +123,6 @@ cmux-tui/crates/cmux-tui/src/cli/app/try_cmd/daemon_updates.rs	join("cmux")	1	mo
 cmux-tui/crates/cmux-tui/src/cli/app/try_cmd/live.rs	join("cmux")	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/app/version.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/chat_start/local_repo.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/cmux-tui/src/cli/inference_setup.rs	.cache/cmux/	7	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/inference_setup.rs	.cache/cmux\	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/inference_setup.rs	.config/cmux/	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/mcp/transport.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
@@ -482,3 +481,8 @@ scripts/cmux-next/update-card-resize-drag.py	/tmp/cmux-debug-{o.tag}.sock	1	keep
 cmux-tui/crates/cmux-config/src/app_ops/section_reads.rs	com.cmuxterm.app	1	keep	computer-use denied-apps default list: names every cmux bundle id (com.cmuxterm.app.* covers NEXT's own) so an agent never drives a cmux window; no read or write under it
 scripts/cmux-next/agent-conn-chaos/linux_daemon.py	join(self.env["XDG_CONFIG_HOME"], "cmux")	1	keep	harness: XDG_CONFIG_HOME is the run's own mkdtemp root, never a person's (scripts ship in no build)
 scripts/cmux-next/auto-journal-nightly-recovery.ts	.config/cmux	1	keep	harness: writes settings under the run's own scratch home (out/home), never a person's (scripts ship in no build)
+cmux-tui/crates/cmux-host/src/cloud/vault.rs	.config/cmux/	1	keep	a Cloud machine's file (cmux host writes the session user's machine-secrets.env there; acpmux, the applier and cmux-remote read the same name), not this Mac's state
+cmux-tui/crates/cmux-host/src/cloud/vault_file.rs	.config/cmux/	1	keep	a Cloud machine's file (cmux host writes the session user's machine-secrets.env there; acpmux, the applier and cmux-remote read the same name), not this Mac's state
+cmux-tui/crates/cmux-tui/src/cli/inference_setup.rs	.cache/cmux/	4	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+scripts/cmux-next/update-e2e.py	/tmp/cmux-nightly--{fnv1a32(STABLE_BUNDLE_ID)}.sock	1	keep	update harness: the Stable build's own control socket, read to drive the installed build (scripts ship in no build)
+scripts/cmux-next/update-e2e.py	/tmp/cmux-nightly.sock	2	keep	update harness: cmux NIGHTLY's own control socket, read to drive the installed build (scripts ship in no build)

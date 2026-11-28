@@ -42,3 +42,19 @@ fn surge_bypasses_people_questions_blocks_and_fire() {
     ));
     assert!(eligible(&opts, &blocks).is_none());
 }
+
+#[test]
+fn surge_never_holds_the_chats_own_background_task_ends() {
+    let blocks = [json!({"type":"text","text":"Background command finished: build"})];
+    let mut provenance = crate::prompt_provenance::notice(&json!({"sender":"acpmux"}), "receiver");
+    assert!(
+        eligible(
+            &PromptOptions { provenance: Some(provenance.clone()), ..Default::default() },
+            &blocks
+        )
+        .is_some()
+    );
+    provenance.set("bgTaskId", json!("bg-1"));
+    let opts = PromptOptions { provenance: Some(provenance), ..Default::default() };
+    assert!(eligible(&opts, &blocks).is_none());
+}
