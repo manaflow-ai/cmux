@@ -146,3 +146,24 @@ test("the allowlist only shrinks: one more allowed blur than the pin fails, one 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a gallery-only design mock takes no allowlist slot, and a live file that loads it fails", () => {
+  const root = mkdtempSync(join(tmpdir(), "one-material-"));
+  try {
+    mkdirSync(join(root, "sidebar"), { recursive: true });
+    writeFileSync(
+      join(root, "sidebar/ProjectCapsDesigns.css"),
+      "/* one-material-allow: a mock's veil */\n.pcd { backdrop-filter: blur(8px); }\n",
+    );
+    writeFileSync(join(root, "sidebar/ProjectCapsDesigns.tsx"), 'import "./ProjectCapsDesigns.css";\n');
+    writeFileSync(join(root, "sidebar/ProjectCaps.gallery.tsx"), 'import { A } from "./ProjectCapsDesigns";\n');
+    const clean = checkOneMaterial(root, { pin: 0, pending: {} });
+    expect(clean.errors).toEqual([]);
+    writeFileSync(join(root, "sidebar/Sidebar.tsx"), 'import { A } from "./ProjectCapsDesigns";\n');
+    expect(checkOneMaterial(root, { pin: 0, pending: {} }).errors).toEqual([
+      "sidebar/Sidebar.tsx: [mock] loads sidebar/ProjectCapsDesigns.css, a gallery-only design mock (DESIGN_MOCK_CSS): a live surface now draws it, so its rules take the one-material check",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

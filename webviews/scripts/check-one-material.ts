@@ -11,7 +11,9 @@
 //               .ui-glass rule whose value is var(--glass-backdrop)). A blur that is not a surface's
 //               material (a scroll edge's masked fade, a scrim, the diff header's glass) says why on its
 //               rule: `/* one-material-allow: <reason> */` inside the rule or on the line before its
-//               selector. The allowed count is pinned (ALLOWED_MAX): it can only shrink.
+//               selector. The allowed count is pinned (ALLOWED_MAX): it can only shrink. A design mock's
+//               stylesheet that only galleries render (DESIGN_MOCK_CSS) is not a live surface and takes no
+//               slot; a non-gallery file that loads it fails the check.
 //  b. material  such a rule also paints a translucent fill (color-mix with transparent, an alpha, a
 //               --*tint* token): a private glass recipe beside .ui-glass, the prompt rail card's bug.
 //  c. surface   a component renders a floating surface class (FLOATING) with no data-host-glass mark
@@ -70,6 +72,39 @@ const EXEMPT: Record<string, string> = {
   "agent-session/acpmux/ManagedBannerDesigns.tsx":
     "design mocks the gallery alone renders (ManagedBannerDesigns.gallery.tsx)",
 };
+
+/** Stylesheets of design mocks that only galleries render: no live surface draws their rules, so their blurs take no
+ * allowlist slot. Each stays one: a non-gallery file that loads it fails the check, and so does an entry for a file
+ * that is gone. */
+export const DESIGN_MOCK_CSS: Record<string, string> = {
+  "sidebar/ProjectCapsDesigns.css":
+    "the project caps design mocks (ProjectCapsDesigns.tsx), rendered only by the ProjectCaps*.gallery.tsx states; " +
+    "the live sidebar draws none of its rules",
+};
+
+/** Every script under `dir`, galleries and tests too (the import scan reads who loads a mock). */
+function* scripts(dir: string): Generator<string> {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name !== "node_modules") yield* scripts(full);
+    } else if (/\.[cm]?[jt]sx?$/.test(entry.name)) yield full;
+  }
+}
+
+/** The files under `root` other than galleries and tests that load the design mock `file` or its module. */
+export function mockLoaders(root: string, file: string): string[] {
+  const stem = file.replace(/\.css$/, "");
+  const name = stem.split("/").at(-1)!;
+  const loads = new RegExp(`(?:from\\s+|import\\s*\\(?\\s*)["'][^"']*/${name}(?:\\.css|\\.tsx?)?["']`);
+  const out: string[] = [];
+  for (const full of scripts(root)) {
+    const at = relative(root, full);
+    if (at.replace(/\.[cm]?[jt]sx?$/, "") === stem || /\.(gallery|test|dom\.test)\.[cm]?[jt]sx?$/.test(at)) continue;
+    if (loads.test(readFileSync(full, "utf8"))) out.push(at);
+  }
+  return out;
+}
 
 function* walk(dir: string, ext: RegExp): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -416,9 +451,18 @@ export interface Report {
 export function checkOneMaterial(root = SRC, options: { pin?: number; pending?: Record<string, string> } = {}): Report {
   const errors: string[] = [];
   const allowed: string[] = [];
+  const mocks = new Set<string>();
   for (const full of walk(root, /\.css$/)) {
     const file = relative(root, full);
     const css = readFileSync(full, "utf8");
+    if (DESIGN_MOCK_CSS[file]) {
+      mocks.add(file);
+      for (const loader of mockLoaders(root, file))
+        errors.push(
+          `${loader}: [mock] loads ${file}, a gallery-only design mock (DESIGN_MOCK_CSS): a live surface now draws it, so its rules take the one-material check`,
+        );
+      continue;
+    }
     const found = backdropRules(css, file);
     errors.push(...found.errors, ...hostFills(css, file));
     allowed.push(...found.allowed);
@@ -457,6 +501,9 @@ export function checkOneMaterial(root = SRC, options: { pin?: number; pending?: 
   for (const file of Object.keys(PENDING))
     if (!unclean.has(file))
       errors.push(`check-one-material.ts PENDING: [surface] ${file} is clean or gone now: remove it`);
+  if (root === SRC)
+    for (const file of Object.keys(DESIGN_MOCK_CSS))
+      if (!mocks.has(file)) errors.push(`check-one-material.ts DESIGN_MOCK_CSS: ${file} is gone: remove it`);
   const pin = options.pin ?? ALLOWED_MAX;
   if (allowed.length > pin)
     errors.push(

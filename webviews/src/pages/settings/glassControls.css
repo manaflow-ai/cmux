@@ -41,6 +41,7 @@
 :root[data-settings-look="refined"] .settings[data-glass-controls] .ui-switch:not([data-checked]) .ui-switch-thumb {
   background: var(--glass-knob-fill);
   box-shadow: var(--glass-knob-edge);
+  /* one-material-allow: the opt-in glass knob's lens over its own track (Glass Controls, off by default), a control's few pixels, not a surface's material */
   -webkit-backdrop-filter: var(--glass-knob-lens);
   backdrop-filter: var(--glass-knob-lens);
   transition:
@@ -52,6 +53,7 @@
 :root[data-settings-look="refined"] .settings[data-glass-controls] input[type="range"]::-webkit-slider-thumb {
   background: var(--glass-knob-fill);
   box-shadow: var(--glass-knob-edge);
+  /* one-material-allow: the opt-in glass slider knob's lens over the filled track (Glass Controls, off by default), not a surface's material */
   -webkit-backdrop-filter: var(--glass-knob-lens);
   backdrop-filter: var(--glass-knob-lens);
   transition: transform var(--cmux-motion-quick) var(--cmux-ease-out);

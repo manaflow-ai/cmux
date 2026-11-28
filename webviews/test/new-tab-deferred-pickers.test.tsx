@@ -625,9 +625,10 @@ test("a New Tab click on Sonnet's row, then on its High level, starts the first 
   expect(wire).toEqual(["new claude", "model claude-sonnet-5-5", "reasoning_effort=high", "prompt hello"]);
 });
 
-// David Beyer 2026-11-20: the model menu closes after a switch, on New Tab as in a chat.
+// A click on a model's row lands it at once and the menu stays open for its level, Fast or account, on New Tab as
+// in a chat (#50998, #51049, which reversed the Nov 20 close-on-pick); the chip closes it, as a second press does.
 for (const startedChat of [false, true])
-  test(`a click on a model's row lands it and closes the model menu (${startedChat ? "started chat" : "New Tab"})`, async () => {
+  test(`a click on a model's row lands it and keeps the model menu open (${startedChat ? "started chat" : "New Tab"})`, async () => {
     const { clickChip } = await mountNewTab({
       model: "claude-fable-5-1",
       opened: [effortOption("reasoning_effort")],
@@ -640,6 +641,9 @@ for (const startedChat of [false, true])
     );
     expect(row).not.toBeUndefined();
     await act(async () => row!.click());
+    expect(menu()).not.toBeNull();
+    expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Sonnet 5.5");
+    await clickChip();
     expect(menu()).toBeNull();
     expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Sonnet 5.5");
   });
