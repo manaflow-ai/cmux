@@ -57,6 +57,25 @@ echo "cmux_next_ test members: ${members[*]}"
 # daemon-tests marker and the feat-cmux-next channel stayed at 02b3b98c from 03:41Z. A caller's CARGO_BUILD_JOBS wins.
 CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash ../scripts/ci/cargo-mem-jobs.sh || true)}"
 if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
+# What held the memory when the kernel SIGKILLed a rustc: this cgroup's peak, its anon, file and shmem split, and
+# its OOM kills. Run 46173475162 (2026-11-28) had the acpmux lib test rustc SIGKILLed at CARGO_BUILD_JOBS=1 under
+# memory.max 14 GiB, where cargo-mem-jobs.sh measures a lone acpmux rustc past 4 GiB: one rustc, or something
+# beside it (a tmpfs, a leftover process), holds the rest, and the log could not say which.
+cgroup_memory_report() {
+  local rel dir k
+  rel=$(awk -F: '$1 == "0" { print $3; exit }' /proc/self/cgroup 2>/dev/null) || return 0
+  dir="/sys/fs/cgroup${rel%/}"
+  [[ -r "$dir/memory.current" ]] || return 0
+  printf 'cmux_next_ daemon tests memory (%s):' "$dir" >&2
+  for k in memory.max memory.peak memory.current; do
+    [[ -r "$dir/$k" ]] && printf ' %s=%s' "${k#memory.}" "$(cat "$dir/$k")" >&2
+  done
+  [[ -r "$dir/memory.stat" ]] && awk '$1 ~ /^(anon|file|shmem|kernel)$/ { printf " %s=%s", $1, $2 }' "$dir/memory.stat" >&2
+  [[ -r "$dir/memory.events" ]] && awk '$1 == "oom_kill" { printf " oom_kill=%s", $2 }' "$dir/memory.events" >&2
+  echo >&2
+  ps -eo rss=,comm= --sort=-rss 2>/dev/null | head -5 | awk '{ printf "  rss %d MiB %s\n", $1 / 1024, $2 }' >&2 || true
+}
+
 status=1
 for attempt in 1 2 3; do
   rm -f "$log"
@@ -86,6 +105,7 @@ for attempt in 1 2 3; do
   if [[ "$attempt" -lt 3 ]]; then
     # A rustc the kernel SIGKILLed (no error[...] line) fails the same way at the same -j: halve the jobs.
     if grep -q 'signal: 9, SIGKILL' "$log"; then
+      cgroup_memory_report
       jobs="${CARGO_BUILD_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
       export CARGO_BUILD_JOBS=$(((jobs + 1) / 2))
       echo "cmux_next_ daemon tests: a rustc was SIGKILLed (out of memory); attempt $((attempt + 1)) runs CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS" >&2
