@@ -124,12 +124,12 @@ impl TypingPark {
     /// on its way, or when it waited the limit (it is dropped then).
     pub fn take(&mut self, page: u64, now_ns: i64, gone: &[u64]) -> Option<String> {
         self.prune(now_ns, gone);
-        let index = self.entries.iter().position(|entry| entry.page == page)?;
-        if self.entries[index].on_its_way {
+        let entry = self.entries.iter_mut().find(|entry| entry.page == page)?;
+        if entry.on_its_way {
             return None;
         }
-        self.entries[index].on_its_way = true;
-        Some(self.entries[index].text.clone())
+        entry.on_its_way = true;
+        Some(entry.text.clone())
     }
 
     /// The text taken for `page` landed in its field (`typed`), or the field
