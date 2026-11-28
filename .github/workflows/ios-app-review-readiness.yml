@@ -200,12 +200,24 @@ jobs:
       # 43622910673). A cancelled run was superseded: the wait follows the
       # newest live gate run this workflow dispatched after it, and carries
       # that run's verdict on the newer feat-cmux-next.
+      #
+      # A gate run can also end cancelled with no newer dispatch: the fleet's
+      # runner rescue cancels a run stuck on a dead runner and reruns it as a
+      # new attempt under the same id (gate run 46143301440: attempt 1
+      # cancelled 12:35Z, attempt 2 started 12:56:22Z and passed; readiness run
+      # 46142606751 read "cancelled" at 12:56:09Z and failed main). So a
+      # cancelled run with nothing newer is watched for CANCEL_GRACE_S for a
+      # rerun or a newer run. If none comes, this run reached no verdict: it
+      # cancels itself rather than fail, because a cancelled gate is no
+      # blocker found (tests/test_ios_readiness_gate_wait.py).
       - name: Wait for the gate's verdict
         env:
           RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+          CANCEL_GRACE_S: "1800"
         run: |
           set -uo pipefail
           run_id="$RUN_ID"
+          cancelled_since=""
           while :; do
             url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run_id"
             state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.status + " " + (.conclusion // "")')" \
@@ -217,9 +229,24 @@ jobs:
               if [[ "$next" =~ ^[0-9]+$ ]]; then
                 echo "Gate run $url was cancelled for a newer dispatch; following run $next"
                 run_id="$next"
+                cancelled_since=""
                 continue
               fi
+              now="$(date +%s)"
+              [[ -n "$cancelled_since" ]] || cancelled_since="$now"
+              if (( now - cancelled_since < ${CANCEL_GRACE_S:-1800} )); then
+                echo "Gate run $url is cancelled and nothing newer runs yet; waiting for a rerun or a newer run"
+                sleep 120
+                continue
+              fi
+              echo "::warning::the App Review gate run $url stayed cancelled for ${CANCEL_GRACE_S:-1800} s with no rerun or newer run: no verdict, so this run cancels itself instead of failing"
+              gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/cancel" >/dev/null \
+                || echo "::warning::could not cancel run $GITHUB_RUN_ID"
+              sleep 300
+              echo "::error::the App Review gate reached no verdict (cancelled): $url"
+              exit 1
             fi
+            cancelled_since=""
             case "$state" in
               "completed success") echo "The App Review gate passed: $url"; exit 0 ;;
               completed*) echo "::error::the App Review gate concluded ${state#completed }: $url"; exit 1 ;;
