@@ -51,7 +51,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from benchlib import compare as cmp  # noqa: E402
 from benchlib.bench import BenchError, Context, parse_build, resolve_nightly  # noqa: E402
-from benchlib.ledger import Ledger, LedgerError  # noqa: E402
+from benchlib.ledger import Ledger, LedgerError, LedgerUnsent  # noqa: E402
 from benchlib.registry import load_all  # noqa: E402
 from benchlib.schema import SchemaError  # noqa: E402
 
@@ -129,6 +129,8 @@ def run_bench(name: str, build_spec: str | None, host: str | None, kv: dict[str,
     for key in ("version", "sha"):
         if kv.get(f"build_{key}"):
             build[key] = kv[f"build_{key}"]
+    if host_name and import_path:
+        kv.setdefault("capture_host", host_name)  # the machine the file came from
     ctx = Context(bench=bench, build=build, host_role=host, args=kv, dry_run=dry_run)
     if host_name:
         ctx.host["name"] = host_name
@@ -164,12 +166,23 @@ def cmd_run(name: str, argv: list[str]) -> int:
         print(f"cmux-bench: {name} produced no rows", file=sys.stderr)
         return 1
     where = None
+    unsent = 0
     if not a.no_ledger:
         try:
             where = Ledger().append(ctx.rows)
+        except LedgerUnsent as err:
+            if err.committed:
+                print(f"cmux-bench: ledger: not pushed ({err.cause}); the run is committed in the local clone at "
+                      f"{err.kept}; `cmux-bench ledger push` retries", file=sys.stderr)
+            else:
+                # Nothing holds the run but this file: exit nonzero so no caller takes it as recorded.
+                print(f"cmux-bench: ledger: NOT RECORDED: no ledger clone ({err.cause}). The run is kept at "
+                      f"{err.kept}; `cmux-bench ledger push` sends it once the ledger is reachable (a lane VM: run "
+                      "it on a fleet host, or set CMUX_BENCH_LEDGER=DIR for a local-only ledger)", file=sys.stderr)
+                unsent = 3
         except LedgerError as err:
-            print(f"cmux-bench: ledger: {err} (the run is kept in the local ledger; `cmux-bench ledger push` retries)",
-                  file=sys.stderr)
+            print(f"cmux-bench: ledger: NOT RECORDED: {err}", file=sys.stderr)
+            unsent = 3
     if a.json:
         print(json.dumps(ctx.rows, indent=2))
     else:
@@ -180,7 +193,7 @@ def cmd_run(name: str, argv: list[str]) -> int:
             print(f"  {r['metric']}{lab}: {cmp._fmt(r['value'])} {r['unit']}{extra}")
         if where:
             print(f"recorded: {where}")
-    return 0
+    return unsent
 
 
 def _ledger_runs(pull: bool = True) -> list[dict]:
@@ -300,11 +313,14 @@ def cmd_ledger(a: argparse.Namespace) -> int:
     led = Ledger()
     if a.action == "path":
         print(led.root)
-    elif a.action == "pull":
-        led.pull()
-    elif a.action == "push":
-        led._ensure_clone()
-        led.push()
+    try:
+        if a.action == "pull":
+            led.pull()
+        elif a.action == "push":
+            led.push()  # also sends the runs kept in the pending folder
+    except LedgerError as err:
+        print(f"cmux-bench: ledger {a.action}: {err}", file=sys.stderr)
+        return 3
     return 0
 
 

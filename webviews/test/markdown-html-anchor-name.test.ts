@@ -3,7 +3,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import "../../Resources/markdown-viewer/markdown-sanitizer.js";
-import { htmlPreview } from "../src/pages/markdown/htmlPreview";
+import { importWithDom } from "./support/importWithDom";
+
+const { htmlPreview } = await importWithDom(() => import("../src/pages/markdown/htmlPreview"));
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>");
 let originalDocument: Document | undefined;
