@@ -509,12 +509,31 @@ async fn the_chats_page_finds_a_chat_by_what_was_said_within_150_ms_a_keystroke(
     }
 
     let (mut times, mut found) = (Vec::new(), 0);
+    let mut by_position: Vec<Vec<f64>> = Vec::new();
     for (phrase, key) in &planted {
         let (t, hit) = type_into_window(&mut conn, &mut generation, phrase, key).await;
         println!("  {phrase:?}: {}", if hit { "found" } else { "not found" });
+        by_position.push(t.clone());
         times.extend(t);
         found += usize::from(hit);
     }
+    // Where the p95 comes from: the slowest keys by their position in the phrase (report-only).
+    for (label, at) in [("key1", 0), ("key2", 1), ("key3", 2), ("key4", 3)] {
+        let mut at_pos: Vec<f64> = by_position.iter().filter_map(|t| t.get(at).copied()).collect();
+        at_pos.sort_by(f64::total_cmp);
+        println!(
+            "  {label}: max {:.1} ms, median {:.1} ms",
+            at_pos[at_pos.len() - 1],
+            at_pos[at_pos.len() / 2]
+        );
+    }
+    let mut later: Vec<f64> = by_position.iter().flat_map(|t| t.iter().skip(4).copied()).collect();
+    later.sort_by(f64::total_cmp);
+    println!(
+        "  key5+: max {:.1} ms, p95 {:.1} ms",
+        later[later.len() - 1],
+        nearest_rank(&later, 0.95)
+    );
     row("chat_search.keystroke", times, found, planted.len());
 
     // The scan, report-only: one phrase, at the scan's longest budget.
