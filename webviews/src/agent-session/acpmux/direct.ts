@@ -1,5 +1,5 @@
 import type { BrowserWorkspaces } from "./browser/workspaces";
-import { noteWireFrame } from "./hiddenRebuild";
+// PROBE import { noteWireFrame } from "./hiddenRebuild";
 import {
   browserDeviceError,
   browserDeviceIsCurrent,
@@ -4155,7 +4155,7 @@ export class AcpmuxDirectClient {
   private receive(raw: string, stale = false, deltas?: ChatDeltas): void {
     if (!stale) this.daemonLastFrameAt = Date.now();
     // HIDDEN-REBUILD: how much this document grew (hiddenRebuild.ts).
-    noteWireFrame();
+    // PROBE: off (revert next commit). noteWireFrame();
     // A frame that is not a JSON object is dropped like one that is not JSON (`null` would throw at `in`).
     // Parsed once: the wire log takes the parsed frame.
     const parsed = parseJsonObjectFrame(raw);
