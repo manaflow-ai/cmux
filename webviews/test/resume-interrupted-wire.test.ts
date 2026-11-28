@@ -1,13 +1,17 @@
 // l10n-allow-file: fake daemon records and test messages, not shipped UI.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
-import { HANDOFF_OPS, type Handoff } from "../src/agent-session/acpmux/handoff/protocol";
-import { translate } from "../src/agent-session/acpmux/i18n";
+import type { Handoff } from "../src/agent-session/acpmux/handoff/protocol";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { setNativeHost } from "../src/agent-session/acpmux/native";
-import { PERMISSION_GROUP_OPS } from "../src/agent-session/acpmux/permissions/protocol";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+type AcpmuxDirectClient = import("../src/agent-session/acpmux/direct").AcpmuxDirectClient;
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
+const { HANDOFF_OPS } = await importWithDom(() => import("../src/agent-session/acpmux/handoff/protocol"));
+const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { setNativeHost } = await importWithDom(() => import("../src/agent-session/acpmux/native"));
+const { PERMISSION_GROUP_OPS } = await importWithDom(() => import("../src/agent-session/acpmux/permissions/protocol"));
 
 const CHAT = "resume-wire-chat";
 const SESSION = {
