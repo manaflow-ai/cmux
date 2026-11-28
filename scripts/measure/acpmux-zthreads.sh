@@ -13,8 +13,9 @@ shift 2
 [[ $# -gt 0 ]] || set -- 1 4 8
 root=$(git rev-parse --show-toplevel)
 work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/acpmux-zthreads.XXXXXX")
-# The worktree and its target dir go when the script ends, on a failed fetch or an interrupt too; $out stays.
-trap 'git -C "$root" worktree remove --force "$work/wt" 2>/dev/null; rm -rf "$work/target"' EXIT
+# The worktree and its multi-GiB target go on every exit, not only the last line (mktemp-trap.test.py); the
+# summary is on stdout, and FAST_CHECKS_OUT (outside $work) keeps it.
+trap 'git -C "$root" worktree remove --force "$work/wt" 2>/dev/null; rm -rf "$work"' EXIT
 out=${FAST_CHECKS_OUT:-$work/out}
 mkdir -p "$out"
 jobs=${J:-16}

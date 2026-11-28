@@ -12,6 +12,10 @@ import PackageDescription
 //   `ScreenSessionView` (full-screen chrome whose parts are picked with
 //   `ScreenFeatures`), plus `MacShortcutsBar`, `ScreenOrientation` and
 //   `PairingScanner`.
+//
+// The rules (gestures, framing, viewport, cursor cache, reconnect policy) are
+// Rust in cmux-rd-core screen_kit, so the tests live in CmuxNext
+// (Tests/CmuxScreenKitTests), which links the library.
 let swiftSettings: [SwiftSetting] = [
     .swiftLanguageMode(.v6),
 ]
@@ -29,16 +33,20 @@ let package = Package(
         .package(path: "../CmuxSpinner"),
     ],
     targets: [
+        // Header-only: the screen viewer core's C ABI (cmux-rd-core
+        // screen_kit). The app links the symbols: the Mac through CCmuxAppFFI,
+        // iOS through CmuxMobileLinkFFI.
+        .target(name: "CCmuxScreenKit"),
         .target(
             name: "CmuxScreenKit",
             dependencies: [
+                "CCmuxScreenKit",
                 .product(name: "CmuxVNC", package: "CmuxVNC"),
                 .product(name: "CmuxVNCDemoServer", package: "CmuxVNC"),
                 .product(name: "CmuxVNCWebRTC", package: "CmuxVNCWebRTC"),
             ],
             swiftSettings: swiftSettings
         ),
-        .target(name: "CmuxScreenKitUI", dependencies: ["CmuxScreenKit", .product(name: "CmuxSpinner", package: "CmuxSpinner")], swiftSettings: swiftSettings),
-        .testTarget(name: "CmuxScreenKitTests", dependencies: ["CmuxScreenKit"], swiftSettings: swiftSettings),
+        .target(name: "CmuxScreenKitUI", dependencies: ["CCmuxScreenKit", "CmuxScreenKit", .product(name: "CmuxSpinner", package: "CmuxSpinner")], swiftSettings: swiftSettings),
     ]
 )
