@@ -46,7 +46,9 @@ function fakeDaemon(
   family: string,
   options: {
     older?: Recorded[];
-    lastReturn?: { since: number; turns: number };
+    /// The person's persisted seen cursor the attach answers with (`readThrough`, hub/seen.rs): the
+    /// "New since you looked" line is drawn after it, since #52780 (was `lastReturn` on the session).
+    readThrough?: number;
   } = {},
 ) {
   let socket: any;
@@ -57,7 +59,6 @@ function fakeDaemon(
     harness,
     family,
     status: "idle",
-    lastReturn: options.lastReturn,
   };
   const lastSeq = () => history.at(-1)?.seq ?? 0;
   const answer = (method: string) => {
@@ -67,7 +68,13 @@ function fakeDaemon(
       case "_acpmux/watch":
         return { sessions: [session] };
       case "_acpmux/attach":
-        return { session, lastSeq: lastSeq(), events: history, hasMore: Boolean(options.older?.length) };
+        return {
+          session,
+          lastSeq: lastSeq(),
+          events: history,
+          hasMore: Boolean(options.older?.length),
+          ...(options.readThrough !== undefined && { readThrough: options.readThrough }),
+        };
       case "_acpmux/events":
         return { events: options.older ?? [], hasMore: false, more: false, lastSeq: lastSeq() };
       default:
@@ -220,10 +227,12 @@ test("recaps attached to the unread divider still replace and dismiss as one sum
         ["mux", "user_message", { text: "fix the login test" }],
         ["mux", "recap", { text: "An older recap.", since: 1 }],
         ["mux", "recap", { text: RECAP, since: 1 }],
+        // A turn after the cursor: the line is drawn only over turns the person has not seen (#52780).
+        ["mux", "turn_result", { status: "completed" }],
       ]),
       "claude",
       "claude",
-      { lastReturn: { since: 1, turns: 2 } },
+      { readThrough: 1 },
     ),
   );
   try {
@@ -343,7 +352,7 @@ for (const attached of [false, true])
       const history = record(steps);
       const nextSeq = history.at(-1)!.seq + 1;
       expect(rebuildCut(history, nextSeq)).toBeGreaterThan(0);
-      const daemon = fakeDaemon(history, "claude", "claude", attached ? { lastReturn: { since: 1, turns: 1 } } : {});
+      const daemon = fakeDaemon(history, "claude", "claude", attached ? { readThrough: 1 } : {});
       const { client, recaps, snapshot } = await connect(daemon);
       try {
         expect(recaps()).toEqual([RECAP]);
