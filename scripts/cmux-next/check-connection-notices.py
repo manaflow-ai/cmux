@@ -186,6 +186,7 @@ class Hit:
     index: int = 0  # the hit's line within its unit's lines
     hops: int = 0  # how many providers it came through
     origin: str = ""  # the file the words are in (the provider's, for a hit passed on)
+    helpers: int = 0  # how many helper functions (not label tables) passed it on
 
 
 @dataclass
@@ -450,6 +451,7 @@ def scan(tree: Tree) -> list[Unit]:
         unit.literal_grace += [m.group(0) + ")" for m in SWIFT_LITERAL_GRACE.finditer(text)
                                if int(m.group(2).replace("_", "")) * (1000 if m.group(1) == "seconds" else 1) < bound]
     drawn_actions(units, imports)
+    spinner_answers(units, imports)
     swift_drawn_actions(units)
     propagate(units, imports)
     attribute_presenters(units, presenter_imports, opaque_modules, unresolved_exports)
@@ -502,6 +504,47 @@ def drawn_actions(units: dict[str, Unit], imports: dict[str, list[tuple[str, str
                 moved = True
         if not moved:
             break
+
+
+# A row's spinner and its label ("Connecting…") while a `loading` prop is set: the caller that passes `loading=` is the
+# one whose connect or check it answers.
+SPINNER = re.compile(r"<Spinner\b")
+LOADING_PROP = re.compile(r"\bloading\s*=")
+
+
+def spinner_answers(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
+    """A web component that says a connection state beside a `<Spinner>` while its caller's `loading` holds
+    (`ModelRow` in ModelConnectionRow.tsx, cmux#54956) answers that caller's own connect: when every caller seen to
+    pass it `loading=` carries the person's action (the Connect button the spinner answers), so does the component.
+    No caller seen passing `loading=`, or one without an action, and it is judged on its own."""
+    stems: dict[str, str] = {}
+    for unit in units.values():
+        if unit.path.endswith(".tsx"):
+            stems.setdefault(unit.path[:-len(".tsx")], unit.path)
+    for unit in units.values():
+        if (unit.acted or not unit.hits or not unit.path.endswith(".tsx") or not re.match(r"[A-Z]", unit.name)
+                or not SPINNER.search("\n".join(unit.lines))):
+            continue
+        tag = re.compile(rf"<{re.escape(unit.name)}\b")
+        callers = []
+        for other in units.values():
+            if other is unit or other.name == "<file>":
+                continue
+            if other.path != unit.path and not any(
+                    local == unit.name and stems.get(target) == unit.path for local, target in imports.get(other.path, [])):
+                continue
+            for i, line in enumerate(other.lines):
+                if not tag.search(line):
+                    continue
+                props = []
+                for rest in other.lines[i:i + 20]:
+                    props.append(rest)
+                    if re.search(r"/?>\s*$", rest) and not rest.rstrip().endswith("=>"):
+                        break
+                if LOADING_PROP.search("\n".join(props)):
+                    callers.append(other)
+        if callers and all(c.acted for c in callers):
+            unit.acted = True
 
 
 # A Swift view composed into the unit (`RetryButton(action: retry)`, `ConnectButton { … }`): a component named for its
@@ -562,8 +605,10 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                 continue  # an outcome helper's words (`deviceFailureText`) stay an outcome wherever drawn
             members = {member_at(unit, h.index) for h in unit.hits}
             # A label table or strings type passes its words on through two hops; a helper function through one,
-            # so a call chain (a host bridge's error key) does not spread to every caller.
-            if min(h.hops for h in unit.hits) >= (1 if None in members else 2):
+            # so a call chain (a host bridge's error key) does not spread to every caller. A helper that reads a
+            # label table (`cloudPickerReason` -> `reasonLabels`) still passes the table's words to its caller.
+            helper = None in members
+            if min(h.hops for h in unit.hits) >= 2 or (helper and min(h.helpers for h in unit.hits) >= 1):
                 continue
             name = re.escape(unit.name)
             if None in members:
@@ -617,7 +662,8 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                 continue
             for other, i, said in consumers:
                 hops = min(h.hops for h in unit.hits) + 1
-                other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, hops, said.origin))
+                other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, hops, said.origin,
+                                      said.helpers + (1 if helper else 0)))
             unit.hits = []
             moved = True
         if not moved:

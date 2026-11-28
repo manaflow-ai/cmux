@@ -189,7 +189,7 @@ export function ChatGPTDeviceForm({
                     : "settingsWindow.models.device.codeExpired",
                 )
               : state?.phase === "failed"
-                ? deviceFailureText(signIn, state)
+                ? deviceFailure(signIn, state)
                 : null)}
         </ConnectionError>
       )}
@@ -205,7 +205,7 @@ export function ChatGPTDeviceForm({
   );
 }
 
-function deviceFailureText(provider: ModelDeviceProvider, state: Extract<ChatGPTDeviceState, { phase: "failed" }>) {
+function deviceFailure(provider: ModelDeviceProvider, state: Extract<ChatGPTDeviceState, { phase: "failed" }>) {
   switch (state.error) {
     case "keychain_locked":
       return t("settingsWindow.models.keychainLocked", providerNames[provider]);

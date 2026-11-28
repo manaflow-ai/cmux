@@ -71,13 +71,7 @@ import { quantizePickerRail } from "./pickerRailGeometry";
 import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
 import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import type { ClaudeConnectRowProps } from "./claudeConnect";
-import {
-  CloudServedContext,
-  cloudPickerState,
-  cloudPickerFamily,
-  cloudPickerReason,
-  cloudReasonLabels,
-} from "./cloudServed";
+import { CloudServedContext, cloudPickerState, cloudPickerFamily, cloudPickerReason } from "./cloudServed";
 import { pickerHeightBounds, cloudPickerFloor, rememberLocalPickerHeight } from "./modelPickerLayout";
 import { focusRoute } from "../../ui/focusRoute";
 import { intl } from "../../ui/intl";
@@ -754,7 +748,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const signInNoteFor = useCallback(
     (entry: HarnessChoice) =>
       cloudNeedsConnection(entry)
-        ? t(cloudReasonLabels[cloudPickerReason(cloudServed, entry.id)])
+        ? t(cloudPickerReason(cloudServed, entry.id))
         : loginFor(entry) !== undefined
           ? t("harnesses.signedOut")
           : undefined,

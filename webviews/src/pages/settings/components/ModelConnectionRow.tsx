@@ -1,6 +1,5 @@
 import { useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
-import { useConnectionQuiet } from "../../../ui/lasting";
 import { Button } from "../../../ui/Button";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
 import { useSettingsState, useStore } from "../context";
@@ -413,15 +412,8 @@ export function ModelRow({
   checking?: boolean;
   children?: ReactNode;
 }) {
-  // The spinner answers the person's connect at once; "Connecting…" is said only once the connect has lasted the
-  // shared quiet bound (connection-state-with-no-action-or-bound.md), so a quick one names no connection state.
-  const connectingSaid = useConnectionQuiet(!!loading && !checking);
   const iconLabel = loading
-    ? checking
-      ? t("settingsWindow.models.status.checking")
-      : connectingSaid
-        ? t("settingsWindow.models.status.connecting")
-        : undefined
+    ? t(checking ? "settingsWindow.models.status.checking" : "settingsWindow.models.status.connecting")
     : warning;
   return (
     <div className="row-main">

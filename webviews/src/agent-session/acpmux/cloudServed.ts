@@ -5,7 +5,7 @@ import { pageIsKey, watchPageKey } from "./pageKey";
 
 export type CloudConnectionReason = "none" | "signedOut" | "off" | "cloudOff";
 
-export const cloudReasonLabels = {
+const reasonLabels = {
   none: "composer.envNotConnected",
   signedOut: "turn.signInAgain",
   off: "picker.cloud.connectionOff",
@@ -44,10 +44,9 @@ export function cloudPickerState(served: CloudServed | undefined, harness: strin
   return ready === undefined ? undefined : ready ? "ready" : "disconnected";
 }
 
-/// Why a Cloud harness is not ready. The picker row that draws `cloudReasonLabels[reason]` carries its Connect action.
-export function cloudPickerReason(served: CloudServed | undefined, harness: string): CloudConnectionReason {
+export function cloudPickerReason(served: CloudServed | undefined, harness: string) {
   const family = cloudPickerFamily(served, harness);
-  return (family && served?.reasons?.[family]) || "none";
+  return reasonLabels[(family && served?.reasons?.[family]) || "none"];
 }
 
 /// No readiness answer (including a host that predates runnableFamilies) leaves the local picker.

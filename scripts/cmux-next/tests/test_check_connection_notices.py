@@ -322,7 +322,7 @@ class WebShapes(unittest.TestCase):
         """`deviceFailureText` (ChatGPTDevicePanel.tsx) says why the person's sign-in failed ("…before reconnecting
         here"); the form that draws it is not a passive connection state for it. A helper named like any other
         still passes its words on."""
-        for helper, code in (("deviceFailureText", 0), ("deviceNote", 1)):
+        for helper, code in (("deviceFailureText", 0), ("deviceFailure", 0), ("deviceNote", 1)):
             with self.subTest(helper=helper):
                 tree = Tree(self)
                 tree.write(f"{WEB}/DeviceForm.tsx", f"""\
@@ -337,6 +337,67 @@ class WebShapes(unittest.TestCase):
                 self.assertEqual(got, code, out)
                 if code:
                     self.assertIn("DeviceForm shows a connection state", out)
+
+    def test_a_helper_reading_a_label_table_passes_its_words_to_the_row(self):
+        """`cloudPickerReason` (cloudServed.ts, cmux#54956) looks its words up in `reasonLabels`; the picker row that
+        draws them carries the Connect action. The table's words go through the helper to that row, which passes,
+        and a row that draws them with no action is still named."""
+        for row, code in (("<button onClick={connect}>{t(cloudPickerReason(x))}</button>", 0),
+                          ("<span>{t(cloudPickerReason(x))}</span>", 1)):
+            with self.subTest(row=row):
+                tree = Tree(self)
+                tree.write(f"{WEB}/served.ts", """\
+    const reasonLabels = {
+      off: "page.disconnected",
+      none: "page.disconnected",
+    } as const;
+    export function cloudPickerReason(reason: "off" | "none") {
+      return reasonLabels[reason || "none"];
+    }
+""")
+                tree.write(f"{WEB}/Picker.tsx", f"""\
+    import {{ cloudPickerReason }} from "./served";
+    export function PickerRow({{ t, x, connect }}) {{
+      return {row};
+    }}
+""")
+                got, out = tree.check()
+                self.assertEqual(got, code, out)
+                self.assertNotIn("cloudPickerReason shows", out)
+                if code:
+                    self.assertIn("PickerRow shows a connection state", out)
+
+    def test_a_spinner_row_answers_the_connect_of_the_caller_that_sets_loading(self):
+        """`ModelRow` (ModelConnectionRow.tsx, cmux#54956) labels its spinner "Not connected…" while `loading` holds;
+        the row that passes `loading=` carries the Connect button the spinner answers. A caller with no action, or
+        a component with no spinner, is still judged."""
+        row = """\
+    export function ModelRow({ t, loading }) {
+      const label = loading ? t("page.disconnected") : undefined;
+      return <div aria-label={label}>{loading ? <Spinner size={16} /> : null}</div>;
+    }
+"""
+        for caller, code in (
+                ("<div><ModelRow t={t} loading={busy} /><button onClick={connect}>Connect</button></div>", 0),
+                ("<div><ModelRow t={t} loading={busy} /></div>", 1)):
+            with self.subTest(caller=caller):
+                tree = Tree(self)
+                tree.write(f"{WEB}/Rows.tsx", row + f"""\
+    export function ConnectionRow({{ t, busy, connect }}) {{
+      return {caller};
+    }}
+""")
+                got, out = tree.check()
+                self.assertEqual(got, code, out)
+        tree = Tree(self)
+        tree.write(f"{WEB}/Rows.tsx", row.replace("<Spinner size={16} />", "<i />") + """\
+    export function ConnectionRow({ t, busy, connect }) {
+      return <div><ModelRow t={t} loading={busy} /><button onClick={connect}>Connect</button></div>;
+    }
+""")
+        got, out = tree.check()
+        self.assertEqual(got, 1, out)
+        self.assertIn("ModelRow shows a connection state", out)
 
     def test_the_words_of_a_nested_failure_type_are_an_outcome(self):
         """`extension CloudAgentCredentials.Failure` (CloudModelConnectionNotice.swift, cmux#54956) says why a
