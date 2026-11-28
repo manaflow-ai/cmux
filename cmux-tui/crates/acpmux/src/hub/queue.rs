@@ -892,6 +892,12 @@ impl Hub {
         turn_id: &str,
         limits: QueueLimits,
     ) -> Result<(Waits, u64), Answer> {
+        // Config, restore and turn-lock waits can overtake the pre-admission cut check.
+        // A continuation that would queue has lost its cut before we write or accept it.
+        if p.after_turn.is_some() {
+            session.queued.fetch_sub(1, Ordering::SeqCst);
+            return Err(Err(super::auto_resume::superseded()));
+        }
         self.enqueue(session, p, turn_id, limits, false, |_, waits| waits).map_err(Err)
     }
 

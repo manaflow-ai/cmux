@@ -141,6 +141,9 @@ PERSON_ACTIONS = re.compile(
     # (`<ConnectButton onConnect={...} />`). A bare `<MarkButton />` is no action by its name alone: one declared
     # or imported here counts only when it acts itself (drawn_actions).
     r"|<[A-Z]\w*Button\b[^>]*?\bon[A-Z]\w*\s*="
+    # A web form the unit draws with its own submit handler: its submit button (Try again in a sign-in form's
+    # footer, ChatGPTDeviceForm) is the person's action for the failure drawn above it.
+    r"|<form\b[^>]*?\bonSubmit\s*="
     r"|\bButton\s*[({]|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
     r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\."
     # A Swift model that names the person's action for its state (`var action: Action?`), drawn by a view.
@@ -329,7 +332,11 @@ def units_of(path: str, source: str) -> list[tuple[str, int, int]]:
         m = top.match(line)
         if m:
             name = next(g for g in m.groups() if g)
-            starts.append((i, name.split(".")[0] if path.endswith(".swift") else name))
+            if path.endswith(".swift"):
+                # `extension Credentials.Failure` is the Failure type, not Credentials: its words answer something
+                # the person did (ERROR_TYPE), so it keeps its own name instead of merging into its outer type.
+                name = name if ERROR_TYPE.search(name) else name.split(".")[0]
+            starts.append((i, name))
     spans = []
     for n, (i, name) in enumerate(starts):
         end = starts[n + 1][0] - 1 if n + 1 < len(starts) else len(lines) - 1
