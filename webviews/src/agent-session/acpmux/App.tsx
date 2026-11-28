@@ -228,8 +228,9 @@ import { trustedLabel } from "./trustAskModel";
 import { ElevationCard } from "./ElevationCard";
 import { SecretCard } from "./SecretCard";
 import { ToolCards } from "./toolCards/ToolCards";
-import { type UploadProgressReport, uploadToMachine } from "./cloudUploads";
+import { type UploadCancelled, type UploadProgressReport, uploadToMachine } from "./cloudUploads";
 import { droppedPaths } from "./composer/intakeFiles";
+import { pushedDropPaths, uploadDropped } from "./composer/dropPush";
 import { useToolCards } from "./toolCards/toolCardStore";
 import {
   COMPUTER_USE_PREVIEW_RESERVE,
@@ -1350,6 +1351,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   // acpmux's verdict on this Mac's load and swap (host_overload.rs): the composer draws it only when over.
   const readOverload = useCallback(
+    // l10n-allow: a bug message for a caller, never shown
     () => directClient.current?.hostOverload() ?? Promise.reject(new Error("no client")),
     [],
   );
@@ -1771,6 +1773,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const showSaid = useRef<(said: SaidReveal) => string | undefined>(() => undefined);
   /// Starts this chat's Ask about this side chat (Needs you's `sideSession`), set where Needs you is.
   const askAboutChat = useRef<(sessionId: string, question: string) => Promise<unknown>>(async () => {
+    // l10n-allow: a bug message for a caller, never shown
     throw new Error("not ready");
   });
   const reveal = (value: string) => {
@@ -2380,13 +2383,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     return taken?.kind === "still" ? taken.file : undefined;
   }, []);
   const uploadFiles = useCallback(
-    (files: File[], cancelled?: (index: number) => boolean, progress?: UploadProgressReport) =>
-      uploadToMachine(files, callNative, cancelled, progress),
+    (files: File[], cancelled?: UploadCancelled, progress?: UploadProgressReport) =>
+      uploadDropped(
+        files,
+        callNative,
+        (rest, restCancelled, restProgress) => uploadToMachine(rest, callNative, restCancelled, restProgress),
+        cancelled,
+        progress,
+      ),
     [],
   );
   // A chat on this Mac links a dropped or pasted folder, or a file no block takes, where it is.
   const localPaths = useCallback(
-    (kind: DroppedKind, files: File[], gestureAt?: number) => droppedPaths(kind, files, callNative, gestureAt),
+    (kind: DroppedKind, files: File[], gestureAt?: number) =>
+      kind === "drop"
+        ? pushedDropPaths(files, () => droppedPaths(kind, files, callNative, gestureAt))
+        : droppedPaths(kind, files, callNative, gestureAt),
     [],
   );
   const searchFiles = useCallback<FileSearchSource>(
@@ -6429,6 +6441,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!signatureSessionId) return;
     return setAgentSignatureSource({
       sessionId: signatureSessionId,
+      // l10n-allow: a bug message for a caller, never shown
       fetch: (ids) => directClient.current?.signatures(ids) ?? Promise.reject(new Error("no client")),
     });
   }, [signatureSessionId]);
