@@ -72,11 +72,14 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   web:
     name: web bundle build
+    # id-token: the CAS upload step mints an OIDC token (ACTIONS_ID_TOKEN_REQUEST_URL below); job-scoped.
+    permissions:
+      contents: read
+      id-token: write
     # The router's answer (pr_router.py preflight_web); a push or a dispatch has no input and builds.
     if: ${{ inputs.web != 'false' || inputs.force_web }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
