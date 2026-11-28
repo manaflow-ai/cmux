@@ -407,6 +407,17 @@
       "title" : "Scroll Sent Prompts to Top",
       "type" : "boolean"
     },
+    "agentPane.display.sessionInfo.layout" : {
+      "default" : "glance",
+      "description" : "Glance draws three blocks with a line between them; Rules titles every section; Groups draws each block as a card.",
+      "enum" : [
+        "glance",
+        "rules",
+        "groups"
+      ],
+      "title" : "Session Info Layout",
+      "type" : "string"
+    },
     "agentPane.display.sessionInfo.placement" : {
       "default" : "overlay",
       "description" : "Push narrows the chat; Overlay covers it.",

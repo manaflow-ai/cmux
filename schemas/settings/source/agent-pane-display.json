@@ -1072,6 +1072,56 @@
           ]
         },
         {
+          "key": "agentPane.display.sessionInfo.layout",
+          "note": "How the chat's Session Info lays out its sections (webviews session-info/sessionInfoModel.ts RailLayout, sessionInfo.css data-layout). Glance, the default: three blocks with a hairline between them. Rules: every section keeps its title. Groups: each block is one hairline card, as the Claude Code app stacks its side panels (customize-app-profiles, ask-aad661801e). A look picks another.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.layout",
+            "text": "Session Info Layout"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.layout.help",
+            "text": "Glance draws three blocks with a line between them; Rules titles every section; Groups draws each block as a card."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "glance",
+              "title": {
+                "key": "settings.choice.sessionInfoLayoutGlance",
+                "text": "Glance"
+              }
+            },
+            {
+              "value": "rules",
+              "title": {
+                "key": "settings.choice.sessionInfoLayoutRules",
+                "text": "Rules"
+              }
+            },
+            {
+              "value": "groups",
+              "title": {
+                "key": "settings.choice.sessionInfoLayoutGroups",
+                "text": "Groups"
+              }
+            }
+          ],
+          "default": "glance",
+          "keywords": [
+            "agent",
+            "chat",
+            "session",
+            "info",
+            "inspector",
+            "panel",
+            "side",
+            "layout",
+            "cards",
+            "groups",
+            "claude"
+          ]
+        },
+        {
           "key": "agentPane.display.sessionInfo.placement",
           "name": "sessionInfoPlacement",
           "note": "Where the chat's Session Info opens (webviews/src/agent-session/acpmux/session-info/SessionInfo.tsx). It was agentPane.display.inspector.placement (RenamedSettingKeys).",

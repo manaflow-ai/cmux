@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.sessionInfo.layout.help" : {
+      "comment" : "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glance draws three blocks with a line between them; Rules titles every section; Groups draws each block as a card."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«لمحة» ترسم ثلاث كتل بينها خط؛ «فواصل» تعنون كل قسم؛ «مجموعات» ترسم كل كتلة كبطاقة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pregled crta tri bloka s linijom između; Linije daju naslov svakom odjeljku; Grupe crtaju svaki blok kao karticu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Overblik tegner tre blokke med en linje imellem; Linjer giver hver sektion en titel; Grupper tegner hver blok som et kort."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Überblick zeigt drei Blöcke mit einer Linie dazwischen; Linien gibt jedem Abschnitt einen Titel; Gruppen zeigt jeden Block als Karte."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vistazo dibuja tres bloques con una línea entre ellos; Reglas titula cada sección; Grupos dibuja cada bloque como una tarjeta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aperçu dessine trois blocs séparés par un trait ; Filets donne un titre à chaque section ; Groupes dessine chaque bloc comme une carte."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Panoramica mostra tre blocchi separati da una linea; Linee dà un titolo a ogni sezione; Gruppi mostra ogni blocco come una scheda."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "概要は3つのブロックを線で区切って表示し、罫線はすべてのセクションに見出しを付け、グループは各ブロックをカードとして表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ក្រឡេកមើល គូរប្លុកបីដែលមានបន្ទាត់នៅចន្លោះ; បន្ទាត់ ដាក់ចំណងជើងគ្រប់ផ្នែក; ក្រុម គូរប្លុកនីមួយៗជាកាត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "한눈에는 세 블록을 선으로 구분하고, 구분선은 모든 섹션에 제목을 붙이며, 그룹은 각 블록을 카드로 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oversikt tegner tre blokker med en linje mellom; Linjer gir hver seksjon en tittel; Grupper tegner hver blokk som et kort."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Podgląd rysuje trzy bloki oddzielone linią; Linie nadają tytuł każdej sekcji; Grupy rysują każdy blok jako kartę."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Visão geral desenha três blocos com uma linha entre eles; Linhas dá título a cada seção; Grupos desenha cada bloco como um cartão."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Обзор» рисует три блока с линией между ними; «Линии» даёт заголовок каждому разделу; «Группы» рисует каждый блок карточкой."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ภาพรวมแสดงสามบล็อกโดยมีเส้นคั่น เส้นแบ่งใส่หัวข้อทุกส่วน กลุ่มแสดงแต่ละบล็อกเป็นการ์ด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Genel bakış üç bloğu aralarında bir çizgiyle çizer; Çizgiler her bölüme başlık verir; Gruplar her bloğu bir kart olarak çizer."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Огляд» малює три блоки з лінією між ними; «Лінії» дає заголовок кожному розділу; «Групи» малює кожен блок карткою."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tổng quan vẽ ba khối với đường kẻ giữa chúng; Đường kẻ đặt tiêu đề cho mọi mục; Nhóm vẽ mỗi khối thành một thẻ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "概览绘制三个以线分隔的区块；分隔线为每个部分加标题；分组将每个区块绘制为卡片。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "概覽繪製三個以線分隔的區塊；分隔線為每個部分加標題；分組將每個區塊繪製為卡片。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

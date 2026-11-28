@@ -107,7 +107,7 @@ const LOOK_PREFIXES: [&str; 8] = [
 /// (`agentPane.display.streaming`)
 /// (docs/cmux-next/transcript-customization.md); and Markdown's reading
 /// face. Keep in step with Swift `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 49] = [
+const LOOK_KEYS: [&str; 50] = [
     "terminal.fontFamily",
     "agentPane.display.code.family",
     "terminal.fontSize",
@@ -145,6 +145,7 @@ const LOOK_KEYS: [&str; 49] = [
     "layout.cornerPadding",
     "layout.paneBorderWidth",
     "agentPane.display.sessionInfo.placement",
+    "agentPane.display.sessionInfo.layout",
     "agentPane.display.font.preset",
     "agentPane.display.font.ui",
     "agentPane.display.font.size",

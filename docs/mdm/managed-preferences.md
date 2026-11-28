@@ -444,6 +444,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.font.lineHeight` | real | `1.625` | 1.2 to 2.4 | Chat Line Height |
 | `agentPane.display.code.family` | string |  |  | Chat Code Font. Empty uses the Markdown viewer's code font. |
 | `agentPane.display.code.scale` | real |  | 0.6 to 1.25 | Chat Code Size. Code as a share of the chat's text size. Empty uses the Markdown viewer's. |
+| `agentPane.display.sessionInfo.layout` | string | `"glance"` | `glance`, `rules`, `groups` | Session Info Layout. Glance draws three blocks with a line between them; Rules titles every section; Groups draws each block as a card. |
 | `agentPane.display.sessionInfo.placement` | string | `"overlay"` | `push`, `overlay`, `inline` | Session Info. Push narrows the chat; Overlay covers it. |
 | `agentPane.display.sessionInfo.sections.environment` | boolean | `true` |  | Session Info: Environment. Where the chat runs: this Mac or Cloud, its folder and branch. |
 | `agentPane.display.sessionInfo.sections.context` | boolean | `true` |  | Session Info: Context. How full the context window is, and what fills it. |

@@ -66,6 +66,10 @@
     "agentPane.display.harnessPlacement": "compact",
     // The app's model picker is a short menu (models, then effort), not a searchable list.
     "agentPane.display.modelPickerStyle": "menu",
+    // The app's side panels stack as cards (Preview, Diff, Terminal, Tasks, Plan): Session Info pushes the chat
+    // aside and draws each block as its own card.
+    "agentPane.display.sessionInfo.placement": "push",
+    "agentPane.display.sessionInfo.layout": "groups",
     // The app's model menu offers only Claude Code's own update, never another agent's (Codex).
     "agentPane.display.ownHarnessUpdatesOnly": true,
     "agentPane.showContextUsage": true,
