@@ -199,7 +199,7 @@
       [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
     )
     .acpmux-dock
-    > .acpmux-running-tray[data-card]:not(.acpmux-goal[data-look="head"] + *):has(
+    > .acpmux-running-tray[data-card]:not([data-crown]):not(.acpmux-goal[data-look="head"] + *):has(
       + .acpmux-composer > .acpmux-composer-box.ui-glass-material
     ) {
     --acpmux-tray-glint: var(--acpmux-composer-glint, 0.5);

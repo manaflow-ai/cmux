@@ -149,7 +149,10 @@ import { deckOf, hatHeaderLook, hideOf } from "./hatHeader.experiment";
 import { type HatLineArm, hatLineLook } from "./hatLine.experiment";
 import { HatHeadDeck } from "./HatHeadDeck";
 import "./hatHeader.css";
-import { DoneMark } from "./DoneMark";
+import { DoneCheck, DoneMark } from "./DoneMark";
+import { Spinner } from "../conversation/icons";
+import { crownGroups, formatCrownBadge } from "./crownModel";
+import "./crownHat.css";
 import { Tick, useGlide, GlideRow } from "./trayMotion";
 import { useCountedRender } from "../perfRender";
 import { useTrayMotion } from "./trayMotionModel";
@@ -393,8 +396,11 @@ export const SubagentTray = memo(function SubagentTray({
   // expands the hat in place, and the line inside opens it. The first click never navigates.
   const lone = items.length + finished.length === 1 ? (items[0] ?? finished[0]) : undefined;
   const headed = items.length + finished.length > 0;
-  // A header that opens the panel never expands in place.
-  const open = !headed || (opened === true && opensPanel !== "header");
+  // A header that opens the panel never expands in place. A single-item crown navigates directly.
+  const open =
+    foldHead === "crown" && items.length + finished.length === 1
+      ? false
+      : !headed || (opened === true && opensPanel !== "header");
   // The `hide` arm (hatOpen.experiment.ts): a headed hat hides from a button in its header, not the top edge.
   const hidesInHead = Boolean(onTuck) && headed && openLook === "hide";
   // The `eye`, `pill` and `bar` arms (hatHeader.experiment.ts): the hide control's own place in the top
@@ -600,9 +606,14 @@ export const SubagentTray = memo(function SubagentTray({
           : NO_PARTS,
     [groupsHead, foldHead, t, items, finished, waiting, chatHarness],
   );
-  // The `line` arm (the default): one plain sentence, "10 subagents working, 2 background commands
+  // The `line` arm: one plain sentence, "10 subagents working, 2 background commands
   // running", as Claude Code's (trayHeadKinds.ts `trayHeadLine`).
   const lineHead = foldHead === "line";
+  // The `crown` arm (the default): opaque recessed Leading Pair crown with monochrome 9+ corner
+  // sub-badges for subagents and commands, direct-click single-item crown, and flat direct-click rows.
+  const crownHead = foldHead === "crown";
+  const crown = useMemo(() => (crownHead ? crownGroups(ordered) : undefined), [crownHead, ordered]);
+  const crownSingle = crownHead && Boolean(crown?.isSingle);
   const lineText = useMemo(
     () => (lineHead ? trayHeadLine(t, { items, finished, waiting }) : ""),
     [lineHead, t, items, finished, waiting],
@@ -617,6 +628,8 @@ export const SubagentTray = memo(function SubagentTray({
   // nothing rather than an empty line over the composer (chat-flow-shift-budget's compaction-steer:
   // the compaction's silent turn put a bare hat in at its end and pushed the transcript 75px).
   if (lineHead && lineText === "") return null;
+  // The `crown` arm likewise draws nothing for a tray holding only finished silent turns.
+  if (crownHead && !crown?.hasVisibleWork) return null;
   // The counts, split by kind, then what ended and failed (trayHeadKinds.ts; Leo, 2026-11-03: "the
   // top bit aka what the collapsed area shows i think can show much more interesting stuf fthan it
   // does now").
@@ -686,7 +699,7 @@ export const SubagentTray = memo(function SubagentTray({
   // elements on each header clock tick; keep them while a close animation still plays.
   // What waits on the person or failed leads (trayAttention.ts), so the list's cap never hides it.
   // The lines leaving stay where they were drawn until their fold ends.
-  const drawn = fold.present ? withLeaving(ordered, leaving) : NO_DRAWN;
+  const drawn = fold.present ? withLeaving(crownHead && crown ? crown.flatList : ordered, leaving) : NO_DRAWN;
   drawnCards.current = drawn;
   let firstFinished = true;
   const cards = drawn.map(({ key, card: { item, finished: ended }, leaving: going }) => {
@@ -703,7 +716,7 @@ export const SubagentTray = memo(function SubagentTray({
         finished={ended}
         first={first}
       >
-        {line(item)}
+        {crownHead ? crownRow(item) : line(item)}
       </TrayRow>
     );
   });
@@ -743,7 +756,7 @@ export const SubagentTray = memo(function SubagentTray({
   // The top rim drags the list taller or shorter (trayResize.ts): it stays under the cursor, settles
   // on each line's edge, lands on a whole line, and folds below half the first. A press that never
   // moves does nothing; a double-click goes back to the default five lines.
-  const resizes = !(headed && opensPanel === "header");
+  const resizes = !(headed && opensPanel === "header") && !crownSingle;
   const onRimDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const listNode = () => trayNode.current?.querySelector<HTMLElement>(".acpmux-running-tray__list") ?? null;
@@ -821,10 +834,10 @@ export const SubagentTray = memo(function SubagentTray({
   // A card (the tray's glass, joined to the composer), the one line's too: folded it is the line on its
   // own opaque backing, at the composer's row height (Leo, 2026-11-27: "add the opaque backing to it
   // again with proper size"). #56287 had dropped it for a bare line.
-  const carded = items.length > 0 || surface !== "none";
-  // The `line` arm: Esc tucks the open list back to its line, focus back on the line.
+  const carded = crownHead || items.length > 0 || surface !== "none";
+  // The `line` and `crown` arms: Esc tucks the open list back to its header, focus back on the header.
   const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (!lineHead || !open || !headed || event.key !== "Escape" || event.defaultPrevented) return;
+    if ((!lineHead && !crownHead) || !open || !headed || event.key !== "Escape" || event.defaultPrevented) return;
     event.preventDefault();
     event.stopPropagation();
     toggle();
@@ -834,7 +847,7 @@ export const SubagentTray = memo(function SubagentTray({
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape tucks the open list from anywhere inside it.
     <section
       ref={setTrayRef}
-      className={`acpmux-running-tray${carded ? " ui-glass ui-glass-floats acpmux-stack-material" : ""}`}
+      className={`acpmux-running-tray${carded && !crownHead ? " ui-glass ui-glass-floats acpmux-stack-material" : ""}`}
       // It holds still while the chat streams, ticks and scrolls: only its times tick, in their own
       // text (Elapsed.tsx). The dev budgets warn otherwise (devkit/perfBudgets.ts `still-surface`).
       data-perf-still="hat"
@@ -859,6 +872,8 @@ export const SubagentTray = memo(function SubagentTray({
       data-card={carded || undefined}
       // The `line` arm: the hat is one plain sentence on its card, at the chat's text size.
       data-line={lineHead || undefined}
+      // The `crown` arm: opaque recessed Leading Pair crown above the borderless composer.
+      data-crown={crownHead || undefined}
       data-motion={motion}
       data-narrow={narrow || undefined}
       data-head={head}
@@ -894,7 +909,7 @@ export const SubagentTray = memo(function SubagentTray({
         if (!to || !event.currentTarget.contains(to)) setKeyboardIn(false);
       }}
     >
-      {hideAt === "bar" && (
+      {!crownHead && hideAt === "bar" && (
         // The `bar` arm: a slim bar along the hat's top, over the header. A press hides the hat (the rim
         // over it passes a press that never dragged through to it); its eye-slash shows on hover.
         <Tooltip label={t("tray.tuck")}>
@@ -904,213 +919,215 @@ export const SubagentTray = memo(function SubagentTray({
           </Button>
         </Tooltip>
       )}
-      {headed && (
-        <button
-          type="button"
-          ref={headButton}
-          className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__head"
-          data-lone={loneEnd ? "" : undefined}
-          aria-expanded={opensPanel === "header" ? undefined : open}
-          aria-controls={open && opensPanel !== "header" ? listId : undefined}
-          onClick={toggle}
-        >
-          {/* The `pill` arm: the hide pill's room, leading the bar (the pill lies over it, outside the
+      {crownHead && crown
+        ? renderCrownHead()
+        : headed && (
+            <button
+              type="button"
+              ref={headButton}
+              className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__head"
+              data-lone={loneEnd ? "" : undefined}
+              aria-expanded={opensPanel === "header" ? undefined : open}
+              aria-controls={open && opensPanel !== "header" ? listId : undefined}
+              onClick={toggle}
+            >
+              {/* The `pill` arm: the hide pill's room, leading the bar (the pill lies over it, outside the
               header's own button). */}
-          {hideAt === "pill" && <span className="acpmux-hat-hide-slot" data-at="pill" aria-hidden="true" />}
-          {lineHead ? (
-            deck && lineDeck !== "trail" && headDeck
-          ) : deck ? (
-            headDeck
-          ) : summaryHead ? (
-            <HeadSummary
-              t={t}
-              parts={headParts}
-              separator={KIND_LINE_SEPARATOR[kindLine]}
-              markSize={ROW_ICON}
-              mark={(part) => <KindMark part={part} chatHarness={chatHarness} />}
-              nameOf={(item) => itemName(t, item)}
-              countOnly={foldHead === "group-marks"}
-            />
-          ) : kindsHead ? (
-            <HeadKinds
-              t={t}
-              parts={headParts}
-              separator={KIND_LINE_SEPARATOR[kindLine]}
-              chatHarness={chatHarness}
-              tally={tallyHead}
-              faces={
-                !tallyHead && faces.length > 0 && facesArm !== "lead" ? (
-                  <GlideRow value={headGlide}>
-                    <HatFaces
-                      faces={faces}
-                      size={ROW_ICON}
-                      narrow={narrow}
-                      arm={facesArm}
-                      onOpen={onOpen}
-                      onOpenSession={onOpenSession}
-                    />
-                  </GlideRow>
-                ) : undefined
-              }
-            />
-          ) : (head === "stack" || lone) && drawnMarks.length > 0 ? (
-            // The lines' own marks side by side, each subagent's in its tone (trayHead.experiment.ts),
-            // as the sidebar's status row stacks them before "8 done".
-            <span className="acpmux-running-tray__stack" data-tray-stack aria-hidden="true">
-              {drawnMarks.map((mark) => (
-                <AgentIdentity
-                  key={mark.key}
-                  className="acpmux-running-tray__stack-mark"
-                  harness={mark.harness}
-                  tone={mark.tone}
-                  size={ROW_ICON}
-                  fallback={mark.icon}
-                  plain
-                  blankUnknown={mark.tone !== undefined}
+              {hideAt === "pill" && <span className="acpmux-hat-hide-slot" data-at="pill" aria-hidden="true" />}
+              {lineHead ? (
+                deck && lineDeck !== "trail" && headDeck
+              ) : deck ? (
+                headDeck
+              ) : summaryHead ? (
+                <HeadSummary
+                  t={t}
+                  parts={headParts}
+                  separator={KIND_LINE_SEPARATOR[kindLine]}
+                  markSize={ROW_ICON}
+                  mark={(part) => <KindMark part={part} chatHarness={chatHarness} />}
+                  nameOf={(item) => itemName(t, item)}
+                  countOnly={foldHead === "group-marks"}
                 />
-              ))}
-            </span>
-          ) : (
-            // The `bare` arm: the slot stays, blank, so the counts keep the lines' text column
-            // (desktop.css --grid-tray-text) instead of jumping to the inset.
-            <span
-              className="acpmux-lineage__icon"
-              data-state={runs ? "running" : "done"}
-              // An empty stack keeps the slot blank, never the ring.
-              data-blank={head === "bare" || head === "stack" || undefined}
-              aria-hidden="true"
-            >
-              <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
-            </span>
-          )}
-          {/* Its words slide as a status line hands over: a new name joining, the lone item's task (Leo,
-              2026-11-07); its counts roll in place (trayMotion.tsx `Tick`). */}
-          {/* A deck takes the counts' place, so its words stay: the summary, or the pointed-at line's name. */}
-          {(!kindsHead || deck) && (
-            // Held at least PHASE_DWELL_MS, as the step is: twenty subagents joining in a burst is one
-            // change of words, not twenty (Leo, 2026-11-22: "huge churn in numbers"; feel-composer-hat.test.ts).
-            // A fold or unfold, or pointing at a deck's mark, is the reader's own change: keyed by it, the
-            // words change at once.
-            <Dwelt
-              key={`${open ? "open" : "folded"}:${peekItem ? peeked : ""}`}
-              value={headText}
-              dwellMs={PHASE_DWELL_MS}
-            >
-              {(text) => (
-                <Tick className="acpmux-summary-text acpmux-running-tray__title" text={text} steadyCounts slide />
+              ) : kindsHead ? (
+                <HeadKinds
+                  t={t}
+                  parts={headParts}
+                  separator={KIND_LINE_SEPARATOR[kindLine]}
+                  chatHarness={chatHarness}
+                  tally={tallyHead}
+                  faces={
+                    !tallyHead && faces.length > 0 && facesArm !== "lead" ? (
+                      <GlideRow value={headGlide}>
+                        <HatFaces
+                          faces={faces}
+                          size={ROW_ICON}
+                          narrow={narrow}
+                          arm={facesArm}
+                          onOpen={onOpen}
+                          onOpenSession={onOpenSession}
+                        />
+                      </GlideRow>
+                    ) : undefined
+                  }
+                />
+              ) : (head === "stack" || lone) && drawnMarks.length > 0 ? (
+                // The lines' own marks side by side, each subagent's in its tone (trayHead.experiment.ts),
+                // as the sidebar's status row stacks them before "8 done".
+                <span className="acpmux-running-tray__stack" data-tray-stack aria-hidden="true">
+                  {drawnMarks.map((mark) => (
+                    <AgentIdentity
+                      key={mark.key}
+                      className="acpmux-running-tray__stack-mark"
+                      harness={mark.harness}
+                      tone={mark.tone}
+                      size={ROW_ICON}
+                      fallback={mark.icon}
+                      plain
+                      blankUnknown={mark.tone !== undefined}
+                    />
+                  ))}
+                </span>
+              ) : (
+                // The `bare` arm: the slot stays, blank, so the counts keep the lines' text column
+                // (desktop.css --grid-tray-text) instead of jumping to the inset.
+                <span
+                  className="acpmux-lineage__icon"
+                  data-state={runs ? "running" : "done"}
+                  // An empty stack keeps the slot blank, never the ring.
+                  data-blank={head === "bare" || head === "stack" || undefined}
+                  aria-hidden="true"
+                >
+                  <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
+                </span>
               )}
-            </Dwelt>
-          )}
-          {/* Kept while the hat is open, faded out in place (subagents.css), so it never leaves or comes
+              {/* Its words slide as a status line hands over: a new name joining, the lone item's task (Leo,
+              2026-11-07); its counts roll in place (trayMotion.tsx `Tick`). */}
+              {/* A deck takes the counts' place, so its words stay: the summary, or the pointed-at line's name. */}
+              {(!kindsHead || deck) && (
+                // Held at least PHASE_DWELL_MS, as the step is: twenty subagents joining in a burst is one
+                // change of words, not twenty (Leo, 2026-11-22: "huge churn in numbers"; feel-composer-hat.test.ts).
+                // A fold or unfold, or pointing at a deck's mark, is the reader's own change: keyed by it, the
+                // words change at once.
+                <Dwelt
+                  key={`${open ? "open" : "folded"}:${peekItem ? peeked : ""}`}
+                  value={headText}
+                  dwellMs={PHASE_DWELL_MS}
+                >
+                  {(text) => (
+                    <Tick className="acpmux-summary-text acpmux-running-tray__title" text={text} steadyCounts slide />
+                  )}
+                </Dwelt>
+              )}
+              {/* Kept while the hat is open, faded out in place (subagents.css), so it never leaves or comes
               back at once; it gives way to the counts first, so its room costs them nothing. */}
-          {loneEnd?.agent && loneEnd.status === "running" && !loneEnd.retry && stepArm !== "exact"
-            ? showLatest &&
-              agentStep(stepArm, loneEnd.agent, loneEnd.latest, loneEnd.status, "acpmux-running-tray__latest")
-            : loneEnd?.latest &&
-              loneEnd.latest !== loneEnd.title && (
+              {loneEnd?.agent && loneEnd.status === "running" && !loneEnd.retry && stepArm !== "exact"
+                ? showLatest &&
+                  agentStep(stepArm, loneEnd.agent, loneEnd.latest, loneEnd.status, "acpmux-running-tray__latest")
+                : loneEnd?.latest &&
+                  loneEnd.latest !== loneEnd.title && (
+                    <Tick
+                      className={`acpmux-running-tray__latest${loneEnd.latestCode ? " is-code" : ""}`}
+                      text={loneEnd.latest}
+                      slide
+                    />
+                  )}
+              {/* A pointed-at mark's latest step, after its name, as a lone item's header shows its own. */}
+              {peekHead?.latest && peekHead.latest !== peekHead.title && (
                 <Tick
-                  className={`acpmux-running-tray__latest${loneEnd.latestCode ? " is-code" : ""}`}
-                  text={loneEnd.latest}
+                  className={`acpmux-running-tray__latest${peekHead.latestCode ? " is-code" : ""}`}
+                  text={peekHead.latest}
                   slide
                 />
               )}
-          {/* A pointed-at mark's latest step, after its name, as a lone item's header shows its own. */}
-          {peekHead?.latest && peekHead.latest !== peekHead.title && (
-            <Tick
-              className={`acpmux-running-tray__latest${peekHead.latestCode ? " is-code" : ""}`}
-              text={peekHead.latest}
-              slide
-            />
-          )}
-          {/* The one line's `trail` marks, after its words (hatLine.experiment.ts). */}
-          {lineDeck === "trail" && headDeck}
+              {/* The one line's `trail` marks, after its words (hatLine.experiment.ts). */}
+              {lineDeck === "trail" && headDeck}
 
-          {loneHead?.agent && <LoneProgress agent={loneHead.agent} fallback={loneHead.progress} />}
-          {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
+              {loneHead?.agent && <LoneProgress agent={loneHead.agent} fallback={loneHead.progress} />}
+              {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
               another model family by its harness's mark, as its line draws it. */}
-          {!named && !loneEnd && !peekHead && !kindsHead && counts.failed > 0 && (
-            <span className="acpmux-running-tray__failed">
-              {title && <span aria-hidden="true">· </span>}
-              {t("summary.subagents.failed", { n: counts.failed })}
-            </span>
-          )}
-          {/* A family the stacked marks already draw is not drawn again here. */}
-          {!named && !loneEnd && !peekHead && !kindsHead && trailingMarks.length > 0 && (
-            <span className="acpmux-running-tray__marks" data-tray-marks>
-              {trailingMarks.map((harness) => (
-                <AgentMark key={harness} agent={harness} size={ROW_ICON} label={harness} />
-              ))}
-            </span>
-          )}
-          {/* The rest of the names, one word space after them (subagents.css); its count rolls in place
-              and its "+" sits on the figures' centre (Typography.tsx `Sign`). */}
-          {named && !peekHead && moreCount > 0 && (
-            <Dwelt key={open ? "open" : "folded"} value={moreCount} dwellMs={PHASE_DWELL_MS}>
-              {(n) => (
-                <Tick
-                  className="acpmux-summary-meta acpmux-running-tray__more"
-                  text={t("tools.more", { n })}
-                  steadyCounts
-                />
+              {!named && !loneEnd && !peekHead && !kindsHead && counts.failed > 0 && (
+                <span className="acpmux-running-tray__failed">
+                  {title && <span aria-hidden="true">· </span>}
+                  {t("summary.subagents.failed", { n: counts.failed })}
+                </span>
               )}
-            </Dwelt>
-          )}
-          {/* Quiet meta right after the counts, never a column of its own far from them. */}
-          {loneEnd ? (
-            // A lone item's state and time end the row, where its line's would (AgentLine.tsx trail).
-            // A failed or waiting one's state word takes its line's tone (summary.css): folded, the
-            // header is all that says so.
-            <span className="acpmux-summary-meta acpmux-running-tray__time" data-lone data-status={loneEnd.status}>
-              {loneEnd.status === "done" ? (
-                <DoneMark state={loneEnd.state} time={loneEnd.time} look={doneLook} checkInSlot />
-              ) : loneEnd.status === "running" && !loneEnd.retry && since !== undefined ? (
-                // The run's clock, not the item's own: left the one running after a longer one ended,
-                // the header's time never goes back (trayHeadOrder.ts `runSince`; review of cmux#41078).
-                <Elapsed since={since} />
-              ) : loneEnd.status === "running" && !loneEnd.retry && loneEnd.time !== undefined ? (
-                loneEnd.time
-              ) : (
-                <>
-                  <span className="acpmux-running-tray__lone-state">{loneEnd.state}</span>
-                  {loneEnd.time !== undefined && (
+              {/* A family the stacked marks already draw is not drawn again here. */}
+              {!named && !loneEnd && !peekHead && !kindsHead && trailingMarks.length > 0 && (
+                <span className="acpmux-running-tray__marks" data-tray-marks>
+                  {trailingMarks.map((harness) => (
+                    <AgentMark key={harness} agent={harness} size={ROW_ICON} label={harness} />
+                  ))}
+                </span>
+              )}
+              {/* The rest of the names, one word space after them (subagents.css); its count rolls in place
+              and its "+" sits on the figures' centre (Typography.tsx `Sign`). */}
+              {named && !peekHead && moreCount > 0 && (
+                <Dwelt key={open ? "open" : "folded"} value={moreCount} dwellMs={PHASE_DWELL_MS}>
+                  {(n) => (
+                    <Tick
+                      className="acpmux-summary-meta acpmux-running-tray__more"
+                      text={t("tools.more", { n })}
+                      steadyCounts
+                    />
+                  )}
+                </Dwelt>
+              )}
+              {/* Quiet meta right after the counts, never a column of its own far from them. */}
+              {loneEnd ? (
+                // A lone item's state and time end the row, where its line's would (AgentLine.tsx trail).
+                // A failed or waiting one's state word takes its line's tone (summary.css): folded, the
+                // header is all that says so.
+                <span className="acpmux-summary-meta acpmux-running-tray__time" data-lone data-status={loneEnd.status}>
+                  {loneEnd.status === "done" ? (
+                    <DoneMark state={loneEnd.state} time={loneEnd.time} look={doneLook} checkInSlot />
+                  ) : loneEnd.status === "running" && !loneEnd.retry && since !== undefined ? (
+                    // The run's clock, not the item's own: left the one running after a longer one ended,
+                    // the header's time never goes back (trayHeadOrder.ts `runSince`; review of cmux#41078).
+                    <Elapsed since={since} />
+                  ) : loneEnd.status === "running" && !loneEnd.retry && loneEnd.time !== undefined ? (
+                    loneEnd.time
+                  ) : (
                     <>
-                      {" · "}
-                      {loneEnd.time}
+                      <span className="acpmux-running-tray__lone-state">{loneEnd.state}</span>
+                      {loneEnd.time !== undefined && (
+                        <>
+                          {" · "}
+                          {loneEnd.time}
+                        </>
+                      )}
                     </>
                   )}
-                </>
+                </span>
+              ) : lineHead ? null : headSince !== undefined ? ( // The clock is the time element itself, so a range over it holds only its text.
+                <Elapsed clock="acpmux-summary-meta acpmux-running-tray__time" since={headSince} />
+              ) : (
+                <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden />
               )}
-            </span>
-          ) : lineHead ? null : headSince !== undefined ? ( // The clock is the time element itself, so a range over it holds only its text.
-            <Elapsed clock="acpmux-summary-meta acpmux-running-tray__time" since={headSince} />
-          ) : (
-            <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden />
-          )}
-          {/* The panel button's room, in the lines' Stop column: the button lies over it, outside the
+              {/* The panel button's room, in the lines' Stop column: the button lies over it, outside the
               header's own button (a button holds no button). */}
-          {/* The `hide` arm (hatOpen.experiment.ts): the hide control's room in the header, one column
+              {/* The `hide` arm (hatOpen.experiment.ts): the hide control's room in the header, one column
               before the panel button's, so it never sits where the expand chevron is. */}
-          {hidesInHead && <span className="acpmux-running-tray__hide-slot" aria-hidden="true" />}
-          {hideAt === "eye" && <span className="acpmux-hat-hide-slot" data-at="eye" aria-hidden="true" />}
-          {opensPanel === "button" && (!lineHead || open) && (
-            <span className="acpmux-running-tray__open-slot" aria-hidden="true" />
-          )}
-          {/* The one trailing column every line's chevron ends in. */}
-          {!lineHead && (
-            <span className="acpmux-running-tray__status">
-              {/* It points the way the hat goes, up while folded (the hat opens upward from the composer),
+              {hidesInHead && <span className="acpmux-running-tray__hide-slot" aria-hidden="true" />}
+              {hideAt === "eye" && <span className="acpmux-hat-hide-slot" data-at="eye" aria-hidden="true" />}
+              {opensPanel === "button" && (!lineHead || open) && (
+                <span className="acpmux-running-tray__open-slot" aria-hidden="true" />
+              )}
+              {/* The one trailing column every line's chevron ends in. */}
+              {!lineHead && (
+                <span className="acpmux-running-tray__status">
+                  {/* It points the way the hat goes, up while folded (the hat opens upward from the composer),
                 down while open, never a sideways arrow that reads as going somewhere (Leo, 2026-11-07,
                 on a lone line that navigated on its first click). It stays at the row's end, in the
                 lines' chevron column: a chevron centred on the hat's bottom edge (Leo, 2026-11-07: "I
                 feel like the chevron for the composer hat would maybe be nicer at the bottom. Do you
                 think? I'm not sure.") floated mid-row over the header in the gallery. */}
-              <span className="acpmux-running-tray__chevron" data-open={open || undefined}>
-                <HatChevron />
-              </span>
-            </span>
+                  <span className="acpmux-running-tray__chevron" data-open={open || undefined}>
+                    <HatChevron />
+                  </span>
+                </span>
+              )}
+            </button>
           )}
-        </button>
-      )}
       {fold.present && (
         // While it folds away its lines are out of reach: no focus, no reading.
         <div
@@ -1146,7 +1163,7 @@ export const SubagentTray = memo(function SubagentTray({
           onDoubleClick={() => setHatHeight(undefined, true)}
         />
       )}
-      {hidesInHead && (
+      {!crownHead && hidesInHead && (
         // The `hide` arm: the header's own hide button, over its slot, shown while the pointer is on
         // the hat or it has keyboard focus; the top edge keeps only the resize rim.
         <Tooltip label={t("tray.tuck")}>
@@ -1162,7 +1179,7 @@ export const SubagentTray = memo(function SubagentTray({
           </Button>
         </Tooltip>
       )}
-      {(hideAt === "eye" || hideAt === "pill") && (
+      {!crownHead && (hideAt === "eye" || hideAt === "pill") && (
         // The `eye` arm: a small eye-slash circle in the bar's trailing controls, shown at rest in muted
         // ink (never a hover-only control). The `pill` arm: a glass pill leading the bar, attached to the
         // hat's edge. Each lies over its slot in the header, outside the header's own button.
@@ -1180,14 +1197,14 @@ export const SubagentTray = memo(function SubagentTray({
           </Button>
         </Tooltip>
       )}
-      {onTuck && !hidesInHead && !hideAt && (
+      {!crownHead && onTuck && !hidesInHead && !hideAt && (
         <Tooltip label={t("tray.tuck")}>
           <Button bare type="button" className="acpmux-running-tray__tuck" aria-label={t("tray.tuck")} onClick={onTuck}>
             <Icon name="disclosure.expanded" size={12} />
           </Button>
         </Tooltip>
       )}
-      {headed && opensPanel === "button" && (!lineHead || open) && (
+      {!crownHead && headed && opensPanel === "button" && (!lineHead || open) && (
         <Tooltip label={t("backgroundTasks.open")}>
           <Button
             bare
@@ -1202,6 +1219,345 @@ export const SubagentTray = memo(function SubagentTray({
       )}
     </section>
   );
+
+  /// Direct navigation for every item in the Leading Pair crown: never expands inline, never subnests.
+  function openCrownItem(item: TrayItem): (() => void) | undefined {
+    if (item.kind === "agent") return () => onOpen(item.agent.id);
+    if (item.kind === "command") return onOpenCommand ? () => onOpenCommand(item.command) : onOpenPanel;
+    if (item.kind === "session") return onOpenSession ? () => onOpenSession(item.session.sessionId) : onOpenPanel;
+    return onOpenPanel;
+  }
+
+  function crownItemTitle(item: TrayItem): string {
+    if (item.kind === "command") {
+      const read = commandRead(
+        t,
+        item.command,
+        COMMAND_KIND_ICON[commandKind(item.command.command)],
+        currentCommandRules(),
+      );
+      const named = sendLabel(t, item.command) ?? read.label;
+      return item.owner ? `${subagentTaskLabel(t, item.owner)} · ${named}` : named;
+    }
+    return itemName(t, item);
+  }
+
+  function crownItemStatus(item: TrayItem): SubagentStatus {
+    if (item.kind === "agent") return subagentStatus(item.agent, waiting);
+    if (item.kind === "command") return commandStatus(item.command);
+    if (item.kind === "turn") return "done";
+    return sessionRetry(item.session).kind === "retrying" ? "running" : SESSION_STATUS[item.session.state];
+  }
+
+  function crownItemTime(item: TrayItem): ReactNode {
+    if (item.kind === "agent") return agentTime(item.agent);
+    if (item.kind === "command") return commandTime(item.command);
+    if (item.kind === "turn") return <Elapsed since={item.turn.startedAt} until={item.turn.endedAt} />;
+    return undefined;
+  }
+
+  function crownItemIcon(item: TrayItem): ReactNode {
+    if (item.kind === "agent")
+      return (
+        <AgentIdentity
+          className="acpmux-crown__icon-glyph"
+          harness={item.agent.harness ?? chatHarness}
+          tone={agentTone(item.agent.id)}
+          size={14}
+          fallback={SUBAGENT_FALLBACK}
+          plain
+        />
+      );
+    if (item.kind === "session")
+      return (
+        <AgentIdentity
+          className="acpmux-crown__icon-glyph"
+          harness={item.session.harness ?? chatHarness}
+          tone={agentTone(item.session.sessionId)}
+          size={14}
+          fallback="agent.chat"
+          plain
+        />
+      );
+    return (
+      <span className="acpmux-crown__icon-glyph" aria-hidden="true">
+        <Icon name={item.kind === "turn" ? SILENT_TURN_ICON : "terminal"} size={14} row />
+      </span>
+    );
+  }
+
+  function crownStopFor(item: TrayItem): { control: ReactNode; menuItem?: ContextMenuItem } {
+    if (item.kind === "agent" && item.agent.state === "running" && !item.agent.command && stop) {
+      return {
+        control: <StopButton agent={item.agent} stop={stop} solid />,
+        menuItem: stopItem(
+          stopKey(item)!,
+          subagentDisplayName(t, item.agent),
+          t("subagents.stop", { name: subagentDisplayName(t, item.agent) }),
+          () => stop(item.agent.id),
+        ),
+      };
+    }
+    if (item.kind === "command" && commandStatus(item.command) === "running" && item.command.processId && stopProcess) {
+      const processId = item.command.processId;
+      return {
+        control: (
+          <ProcessStopButton
+            id={processId}
+            name={item.command.command}
+            label={t("tray.stopCommand")}
+            stop={stopProcess}
+            solid
+          />
+        ),
+        menuItem: stopItem(stopKey(item)!, item.command.command, t("tray.stopCommand"), () => stopProcess(processId)),
+      };
+    }
+    return { control: undefined, menuItem: undefined };
+  }
+
+  function crownStateGlyph(status: SubagentStatus, stopControl: ReactNode): ReactNode {
+    if (status === "running" || status === "idle") {
+      return (
+        <span className="acpmux-crown__state-slot">
+          <span className="acpmux-crown__run-ind" aria-hidden="true">
+            <Spinner size={12} loading />
+          </span>
+          {stopControl && <span className="acpmux-crown__stop-wrap">{stopControl}</span>}
+        </span>
+      );
+    }
+    if (status === "failed") {
+      return (
+        <span className="acpmux-crown__state-slot" aria-hidden="true">
+          <span className="acpmux-crown__fail-ind">
+            <Icon name="status.failure" size={12} />
+          </span>
+        </span>
+      );
+    }
+    if (status === "stopped") {
+      return (
+        <span className="acpmux-crown__state-slot" aria-hidden="true">
+          <Icon name="task.status.canceled" size={12} />
+        </span>
+      );
+    }
+    if (status === "waiting") {
+      return (
+        <span className="acpmux-crown__state-slot">
+          <span className="acpmux-crown__run-ind acpmux-crown__wait-ind" aria-hidden="true">
+            <Icon name="status.needsinput" size={12} />
+          </span>
+          {stopControl && <span className="acpmux-crown__stop-wrap">{stopControl}</span>}
+        </span>
+      );
+    }
+    return (
+      <span className="acpmux-crown__state-slot" aria-hidden="true">
+        <DoneCheck />
+      </span>
+    );
+  }
+
+  function renderCrownTools(): ReactNode {
+    const showHide = Boolean(onTuck);
+    const showPanel = opensPanel === "button";
+    if (!showHide && !showPanel) return null;
+    return (
+      <span className="acpmux-crown__tools">
+        <span className="acpmux-crown__vdiv" aria-hidden="true" />
+        {showHide && (
+          <Tooltip label={t("tray.tuck")}>
+            <Button
+              bare
+              type="button"
+              className="acpmux-crown__tool acpmux-running-tray__tuck"
+              aria-label={t("tray.tuck")}
+              onClick={onTuck}
+            >
+              <Icon name="action.hide" size={14} row />
+            </Button>
+          </Tooltip>
+        )}
+        {showPanel && (
+          <Tooltip label={t("backgroundTasks.open")}>
+            <Button
+              bare
+              type="button"
+              className="acpmux-crown__tool acpmux-running-tray__open"
+              aria-label={t("backgroundTasks.open")}
+              onClick={onOpenPanel}
+            >
+              <Icon name="panel.right" size={14} row />
+            </Button>
+          </Tooltip>
+        )}
+      </span>
+    );
+  }
+
+  function renderCrownHead(): ReactNode {
+    if (!crown || !crown.lead) return null;
+    if (crown.isSingle) {
+      const single = crown.flatList[0]!.item;
+      const status = crownItemStatus(single);
+      const isActive = status === "running" || status === "idle";
+      const isQuietDone = status === "done" || status === "stopped";
+      const time = crownItemTime(single);
+      const { control: stopControl, menuItem } = crownStopFor(single);
+      const onDirect = openCrownItem(single);
+      const stateWord =
+        single.kind === "agent"
+          ? subagentStateText(t, single.agent, waiting, connectionQuiet)
+          : t(STATUS_LABEL[status]);
+      return menu(
+        <div
+          className="acpmux-crown__bar"
+          data-single=""
+          data-status={status}
+          data-done={isQuietDone || undefined}
+          data-stoppable={Boolean(stopControl) || undefined}
+        >
+          <Button
+            bare
+            type="button"
+            ref={headButton}
+            className="acpmux-crown__head-btn acpmux-running-tray__head"
+            disabled={!onDirect}
+            onClick={onDirect}
+          >
+            <span className="acpmux-crown__lead-group">
+              <span className="acpmux-crown__icon-badge" aria-hidden="true">
+                {crownItemIcon(single)}
+              </span>
+            </span>
+            <span className="acpmux-crown__body">
+              <span className="acpmux-crown__name acpmux-running-tray__title">{crownItemTitle(single)}</span>
+              {!isActive && (
+                <span className="acpmux-crown__state-word" data-status={status}>
+                  {stateWord}
+                </span>
+              )}
+            </span>
+            {time !== undefined && <span className="acpmux-crown__time">{time}</span>}
+          </Button>
+          {crownStateGlyph(status, stopControl)}
+          {renderCrownTools()}
+        </div>,
+        menuItem,
+      );
+    }
+
+    const leadItem = crown.lead.item;
+    const leadTime = crownItemTime(leadItem);
+    const statuses = crown.flatList.map((card) => crownItemStatus(card.item));
+    const headStatus: SubagentStatus = statuses.includes("waiting")
+      ? "waiting"
+      : crown.anyRunning
+        ? "running"
+        : statuses.includes("failed")
+          ? "failed"
+          : statuses.every((s) => s === "stopped")
+            ? "stopped"
+            : "done";
+    const agentBadge = crown.leadAgent ? (
+      <span className="acpmux-crown__icon-badge" data-has-badge="" data-badge-kind="agents" aria-hidden="true">
+        {crownItemIcon(crown.leadAgent.item)}
+        <span className="acpmux-crown__sub-badge" data-done={crown.agentsRunning === 0 || undefined}>
+          {formatCrownBadge(crown.agentsRunning > 0 ? crown.agentsRunning : crown.agents.length)}
+        </span>
+      </span>
+    ) : null;
+    const cmdBadge = crown.leadCommand ? (
+      <span className="acpmux-crown__icon-badge" data-has-badge="" data-badge-kind="commands" aria-hidden="true">
+        <span className="acpmux-crown__icon-glyph">
+          <Icon name="terminal" size={14} row />
+        </span>
+        <span className="acpmux-crown__sub-badge" data-done={crown.commandsRunning === 0 || undefined}>
+          {formatCrownBadge(crown.commandsRunning > 0 ? crown.commandsRunning : crown.commands.length)}
+        </span>
+      </span>
+    ) : null;
+
+    return menu(
+      <div className="acpmux-crown__bar" data-status={headStatus} data-done={!crown.anyRunning || undefined}>
+        <Button
+          bare
+          type="button"
+          ref={headButton}
+          className="acpmux-crown__head-btn acpmux-running-tray__head"
+          aria-expanded={opensPanel === "header" ? undefined : open}
+          aria-controls={open && opensPanel !== "header" ? listId : undefined}
+          onClick={toggle}
+        >
+          <span className="acpmux-crown__lead-group">
+            {agentBadge}
+            {cmdBadge}
+          </span>
+          <span className="acpmux-crown__body">
+            <span className="acpmux-crown__name acpmux-running-tray__title">{crownItemTitle(leadItem)}</span>
+            {headCounts.text && <span className="acpmux-agent-line__sr">{headCounts.text}</span>}
+          </span>
+          {leadTime !== undefined && <span className="acpmux-crown__time">{leadTime}</span>}
+        </Button>
+        {crownStateGlyph(headStatus, undefined)}
+        {renderCrownTools()}
+        {opensPanel !== "header" && (
+          <span className="acpmux-crown__chev" data-open={open || undefined} aria-hidden="true">
+            <Icon name="disclosure.expanded" size={12} />
+          </span>
+        )}
+      </div>,
+      undefined,
+    );
+  }
+
+  function crownRow(item: TrayItem): ReactNode {
+    const status = crownItemStatus(item);
+    const isQuietDone = status === "done" || status === "stopped";
+    const isActionableState = status === "waiting" || status === "failed" || status === "stopped";
+    const time = crownItemTime(item);
+    const onDirect = openCrownItem(item);
+    const { control: stopControl, menuItem } = crownStopFor(item);
+    const stateWord =
+      item.kind === "agent" ? subagentStateText(t, item.agent, waiting, connectionQuiet) : t(STATUS_LABEL[status]);
+    return menu(
+      <div
+        className="acpmux-crown__row acpmux-agent-line"
+        data-status={status}
+        data-done={isQuietDone || undefined}
+        data-stoppable={Boolean(stopControl) || undefined}
+      >
+        <Button
+          bare
+          type="button"
+          className="acpmux-crown__row-btn acpmux-agent-line__button"
+          disabled={!onDirect}
+          onClick={onDirect}
+        >
+          <span className="acpmux-crown__row-lead acpmux-lineage__icon" aria-hidden="true">
+            {crownItemIcon(item)}
+          </span>
+          <span className="acpmux-crown__row-name acpmux-summary-text">
+            <span className="acpmux-summary-agent__name">{crownItemTitle(item)}</span>
+            {isActionableState && (
+              <span className="acpmux-crown__state-word" data-status={status}>
+                {stateWord}
+              </span>
+            )}
+          </span>
+          {!isActionableState && <span className="acpmux-agent-line__sr">{stateWord}</span>}
+          {time !== undefined && <span className="acpmux-crown__time acpmux-agent-line__time">{time}</span>}
+        </Button>
+        {crownStateGlyph(status, stopControl)}
+        <span className="acpmux-crown__nav-arrow" aria-hidden="true">
+          <Icon name="disclosure.collapsed" size={12} />
+        </span>
+      </div>,
+      menuItem,
+    );
+  }
 
   /// A line in its context menu's host. The host stays when there is nothing to stop (no items, so a
   /// right-click keeps the default and no menu opens): a line that ends, or whose command's process

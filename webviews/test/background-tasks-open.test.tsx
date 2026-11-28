@@ -38,6 +38,7 @@ const replacements: Record<string, unknown> = {
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
+  cmuxExperiments: { "subagent-tray-fold-head": "groups" },
 };
 for (const key of Object.getOwnPropertyNames(dom.window))
   if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
