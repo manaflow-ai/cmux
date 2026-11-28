@@ -40,3 +40,28 @@ test("a catalog given as a list keeps its first agent", () => {
   expect(listedNoDefault(normalizeCatalog(listed))).toBe(false);
   expect(start(listed)).toBe("codex");
 });
+
+// Leo 2026-11-27: "i think the new chat thing is maybe bc it's trying to "inherit" agent chat but it
+// should purely just be new tab". A pick in a chat saves acpmux's start model (`start`, source
+// saved); New Tab names its own (`start.newTab`), never the chat's.
+test("New Tab's model is its own start, not the one a chat's pick saved", () => {
+  const listing = {
+    harnesses: {
+      codex: {
+        kind: "acp",
+        models: [{ id: "gpt-6.2-sol" }, { id: "gpt-6-astra" }],
+        start: {
+          model: "gpt-6-astra",
+          modelSource: "saved",
+          newTab: { model: "gpt-6.2-sol", modelSource: "catalog" },
+        },
+      },
+    },
+    defaultHarness: "codex",
+  };
+  const snapshot = { ...emptySnapshot(), catalog: normalizeCatalog(listing) };
+  expect(snapshot.catalog[0]?.start?.newTab).toEqual({ model: "gpt-6.2-sol", modelSource: "catalog" });
+  const agents = snapshot.catalog.map((entry) => ({ id: entry.id, name: entry.name }));
+  const shown = newTabStart(snapshot, agents, undefined, undefined, { harness: "", model: "" }, true);
+  expect(shown.snapshot.summary?.model).toBe("gpt-6.2-sol");
+});
