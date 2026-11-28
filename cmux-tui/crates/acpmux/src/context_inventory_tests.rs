@@ -347,3 +347,24 @@ fn the_fakes_strip_every_hidden_block_the_product_sends() {
     sent.sort_unstable();
     assert_eq!(listed, sent, "update tests/guidance_sources.json to the product's RULE_SOURCES");
 }
+
+/// fake_agent.py is also copied alone as a stub agent (cmuxterm-hq's onboarding walk), with no
+/// `guidance_sources.json` beside it; its fallback list must name the same sources.
+#[test]
+fn the_stub_agent_copied_alone_strips_the_same_blocks() {
+    let fake = include_str!("../tests/fake_agent.py");
+    let line = fake
+        .lines()
+        .find(|l| l.starts_with("GUIDANCE_SOURCES_COPIED_ALONE = ("))
+        .expect("fake_agent.py keeps GUIDANCE_SOURCES_COPIED_ALONE on one line");
+    let inner = line.split_once('(').unwrap().1.trim_end_matches(')');
+    let mut copied: Vec<&str> =
+        inner.split(',').map(|s| s.trim().trim_matches('"')).filter(|s| !s.is_empty()).collect();
+    let mut sent = RULE_SOURCES.to_vec();
+    copied.sort_unstable();
+    sent.sort_unstable();
+    assert_eq!(
+        copied, sent,
+        "update fake_agent.py's GUIDANCE_SOURCES_COPIED_ALONE to the product's RULE_SOURCES"
+    );
+}

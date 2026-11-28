@@ -407,8 +407,15 @@ def is_attribution(block):
 # you are" card (`agent_card.rs`) is hidden first-turn context the same way.
 # The hidden cmux blocks' sources, shared with the product: `context_inventory::RULE_SOURCES`, whose
 # test fails when this file drifts from it. Each goes out as `<SOURCE-context>`.
-with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "guidance_sources.json")) as _f:
-    GUIDANCE_SOURCES = frozenset(json.load(_f))
+# This file is also copied alone as a stub agent (cmuxterm-hq's onboarding walk, own-machines-e2e,
+# cloud round trip): without the JSON beside it every session start failed (walk 2026-11-27T20:05Z),
+# so it falls back to the same list, which the Rust test also checks against RULE_SOURCES.
+GUIDANCE_SOURCES_COPIED_ALONE = ("cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card")
+try:
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "guidance_sources.json")) as _f:
+        GUIDANCE_SOURCES = frozenset(json.load(_f))
+except FileNotFoundError:
+    GUIDANCE_SOURCES = frozenset(GUIDANCE_SOURCES_COPIED_ALONE)
 GUIDANCE_TAGS = tuple(sorted(f"<{s}-context>" for s in GUIDANCE_SOURCES))
 
 
