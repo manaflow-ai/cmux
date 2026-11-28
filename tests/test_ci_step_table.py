@@ -156,6 +156,16 @@ class NightlyGateTest(unittest.TestCase):
         start, why, (jobs, only) = self.landing(["docs/x.md"])
         self.assertNotIn("web-typecheck", only)
 
+    def test_a_landing_head_that_changes_the_vm_openapi_runs_the_sdk_codegen_check(self) -> None:
+        # cmux#63748 and cmux#64283 changed workers/cmux-vm/openapi.json without regenerating the committed clients;
+        # cmux-vm-sdk and cmux-vm-clients-rust are push tier, so `cmux VM clients / rust` and `/ sdk` went red on
+        # feat-cmux-next (from 25d38e9da) until cmux#64493 regenerated them.
+        start, why, (jobs, only) = self.landing(["workers/cmux-vm/openapi.json"])
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertIn("cmux-vm-sdk", only)
+        start, why, (jobs, only) = self.landing(["docs/x.md"])
+        self.assertNotIn("cmux-vm-sdk", only)
+
     def test_a_source_change_runs_the_next_checks_guards_on_the_pull_request(self) -> None:
         # 11-27 base tier run 46080642938: state roots, the FFI caller ratchet and the base-red classifier went red on
         # the feat-cmux-next tip after green merges. Their sources were whole-directory globs, which --pr-scope never
