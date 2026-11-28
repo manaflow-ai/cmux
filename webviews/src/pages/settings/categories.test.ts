@@ -233,7 +233,7 @@ test("settingsLeadPages moves its pages, in order, into one lead run and skips u
 
 test("every app profile's Settings pages are pages this build shows", async () => {
   const { isCategory } = await import("./categories");
-  for (const look of ["codex", "t3code", "claude-code"]) {
+  for (const look of ["codex", "studio-app", "claude-code"]) {
     const text = readFileSync(`../examples/looks/${look}/profile/cmux-setup.json`, "utf8");
     const landing = /"window\.settingsLanding":\s*"([^"]*)"/.exec(text)?.[1];
     const lead = /"window\.settingsLeadPages":\s*\[([^\]]*)\]/.exec(text)?.[1] ?? "";
