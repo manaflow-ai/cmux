@@ -693,7 +693,8 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
  * Records ownMs: the time from the handler's entry to proven ownership, once the route is inside withOwnedVm. Its two
  * halves, which withOwnedVm runs at once, go on the line too: rateMs the tenant limits object's rate spend, ownReadMs
  * the Postgres ownership read (the request's `rate` and `read` steps). Staging 2026-11-28 18:51-19:10Z: ownMs was
- * ~0.1 s in 12 of 19 starts and 0.9-1.7 s in 7, and the line could not say which read held it.
+ * ~0.1 s in 12 of 19 starts and 0.9-1.7 s in 7, and the line could not say which read held it. dbConnectMs is the
+ * request's Postgres handshake up to then, which the ownership read waits for when it is the request's first query.
  */
 const ownedAt = (phases: TimedPhases) =>
   Effect.flatMap(Clock.currentTimeMillis, (at) => Effect.flatMap(FiberRef.get(UpstreamTime), (tally) => Effect.sync(() => {
@@ -701,6 +702,7 @@ const ownedAt = (phases: TimedPhases) =>
     const steps = tally?.steps;
     if (steps?.["rate"] !== undefined) phases["rateMs"] = Math.round(steps["rate"]);
     if (steps?.["read"] !== undefined) phases["ownReadMs"] = Math.round(steps["read"]);
+    if (steps?.["connect"] !== undefined) phases["dbConnectMs"] = Math.round(steps["connect"]);
   })));
 
 const timedStart = <A, E, R>(route: "start" | "resume", run: (phases: TimedPhases) => Effect.Effect<A, E, R>) =>
@@ -712,6 +714,7 @@ const timedStart = <A, E, R>(route: "start" | "resume", run: (phases: TimedPhase
           ...("readMs" in phases ? { readMs: phases["readMs"] } : {}),
           ...("ownMs" in phases ? { ownMs: phases["ownMs"] } : {}), ...("gateMs" in phases ? { gateMs: phases["gateMs"] } : {}),
           ...("rateMs" in phases ? { rateMs: phases["rateMs"] } : {}), ...("ownReadMs" in phases ? { ownReadMs: phases["ownReadMs"] } : {}),
+          ...("dbConnectMs" in phases ? { dbConnectMs: phases["dbConnectMs"] } : {}),
           startMs: phases["startMs"], totalMs: at - entered,
         }))
       : Effect.void));
