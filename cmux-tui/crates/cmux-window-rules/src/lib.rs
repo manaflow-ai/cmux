@@ -70,6 +70,11 @@
 //!   last tab closed: it closes; its terminal was lost: it gets a new one).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
 //!   now, or why it waits (input, a running turn, an unsent draft).
+//! - [`onboarding_steps`]: the onboarding window's Computer Use step (which
+//!   permission is next, what Allow does, when the step is done) and its
+//!   Agents step (which agents list, sign-in and install marks).
+//! - [`external_open`]: what cmux does with a URL or file macOS hands it
+//!   (browser tab, terminal, SSH, man page, chat picture, share link).
 //! - [`onboarding`]: the onboarding tool window's footer (the primary
 //!   button, Skip, Back) and Import from Browser's selection rules.
 
@@ -87,6 +92,7 @@ pub mod desktop_bursts;
 pub mod desktop_center;
 pub mod editors;
 pub mod empty_workspace;
+pub mod external_open;
 pub mod files;
 pub mod handlers_agentmisc;
 pub mod handlers_verbs;
@@ -99,6 +105,7 @@ pub mod notification_policy;
 pub mod notification_rings;
 pub mod notifications;
 pub mod onboarding;
+pub mod onboarding_steps;
 pub mod remote;
 pub mod restore;
 pub mod right_column;
