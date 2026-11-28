@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b";
+pub const ir_sha256 = "d9aa68a5dabb61952b99173ca2112ad420ee5b10901a51c09e56d18abd059208";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -11559,6 +11559,28 @@ pub fn urlOpenSubscribe(client: anytype, request: UrlOpenSubscribeRequest) !clie
     );
 }
 
+pub const VaultEnvRequest = struct {
+    access_token: []const u8,
+    action: []const u8,
+    params: wire.Nullable(JsonValue),
+    platform_origin: []const u8,
+};
+
+pub const VaultEnvResult = JsonValue;
+
+pub fn vaultEnv(client: anytype, request: VaultEnvRequest) !wire.Decoded(VaultEnvResult) {
+    return client.callTyped(
+        VaultEnvResult,
+        .{
+            .name = "vault-env",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "vault-env-v1",
+        },
+        request,
+    );
+}
+
 pub const VtStateRequest = struct {
     surface: Id,
 };
@@ -13486,7 +13508,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 316;
+pub const command_count: usize = 317;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13800,6 +13822,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "url-open-claim", .authority = "frontend", .since = 12, .capability = null, .stream = null },
     .{ .name = "url-open-result", .authority = "frontend", .since = 12, .capability = null, .stream = null },
     .{ .name = "url-open-subscribe", .authority = "frontend", .since = 12, .capability = null, .stream = "subscribe" },
+    .{ .name = "vault-env", .authority = "local-admin", .since = 12, .capability = "vault-env-v1", .stream = null },
     .{ .name = "vt-state", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "wait-for", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "ws-listen", .authority = "local-admin", .since = 12, .capability = "ws-listen-v1", .stream = null },

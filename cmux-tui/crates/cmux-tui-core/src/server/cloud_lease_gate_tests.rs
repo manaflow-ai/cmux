@@ -417,3 +417,109 @@ fn cloud_environment_create_posts_only_the_platform_create_fields() {
     );
     let _ = plain;
 }
+
+fn vault(action: &str, params: Value) -> Value {
+    json!({"id":12,"cmd":"vault-env","action":action,"params":params,
+        "platform_origin":PLATFORM_BASE,"access_token":"install.jwt"})
+}
+
+#[test]
+fn vault_env_lists_sets_and_removes_without_ever_returning_a_value() {
+    let (mux, app, plain, backend) = daemon();
+    backend.reply(
+        "/v1/vault/env",
+        200,
+        json!({"entries":[
+        {"name":"GITHUB_TOKEN","revision":3,"updatedAt":17,"delivery":"proxy",
+         "allowedHosts":["api.github.com"],"value":"hunter2","fingerprint":"ab12"}]}),
+    );
+    let listed = reply(&mux, plain, vault("list", json!({})));
+    assert_eq!(listed["ok"], true, "{listed}");
+    assert_eq!(listed["data"]["entries"][0]["name"], "GITHUB_TOKEN");
+    assert!(!listed.to_string().contains("hunter2") && !listed.to_string().contains("ab12"));
+
+    backend.reply(
+        "/v1/vault/env/GITHUB_TOKEN",
+        200,
+        json!({"name":"GITHUB_TOKEN","revision":4,"fingerprint":"echoed"}),
+    );
+    let set = reply(
+        &mux,
+        app,
+        vault(
+            "set",
+            json!({"name":"GITHUB_TOKEN","value":"s3cret",
+        "delivery":"proxy","allowedHosts":["api.github.com"]}),
+        ),
+    );
+    assert_eq!(set["ok"], true, "{set}");
+    assert_eq!(set["data"], json!({"name":"GITHUB_TOKEN","revision":4}));
+    let put = backend.platform_put.lock().unwrap().pop().unwrap();
+    assert_eq!(put.url, format!("{PLATFORM_BASE}/v1/vault/env/GITHUB_TOKEN"));
+    assert_eq!(put.bearer, "install.jwt");
+    assert_eq!(put.body["valueBase64"], "czNjcmV0");
+    assert_eq!(
+        put.body["fingerprint"],
+        "1ec1c26b50d5d3c58d9583181af8076655fe00756bf7285940ba3670f99fcba0"
+    );
+    assert_eq!(put.body["delivery"], "proxy");
+
+    backend.reply("/v1/vault/env/GITHUB_TOKEN/policy", 200,
+        json!({"name":"GITHUB_TOKEN","revision":5,"delivery":"proxy","allowedHosts":["*.github.com"]}));
+    let policy = reply(
+        &mux,
+        app,
+        vault("policy", json!({"name":"GITHUB_TOKEN","allowedHosts":["*.github.com"]})),
+    );
+    assert_eq!(policy["data"]["allowedHosts"], json!(["*.github.com"]), "{policy}");
+
+    backend.reply("/v1/vault/env/GITHUB_TOKEN", 200, json!({"name":"GITHUB_TOKEN","revision":6}));
+    let removed = reply(&mux, app, vault("rm", json!({"name":"GITHUB_TOKEN"})));
+    assert_eq!(removed["data"]["revision"], 6, "{removed}");
+    assert_eq!(backend.deleted.lock().unwrap().len(), 1);
+
+    backend.reply(
+        "/v1/vault/grants",
+        200,
+        json!({"grants":[{"kind":"cloud","id":"m1","expiresAt":0,"grantedAt":1}]}),
+    );
+    let grants = reply(&mux, app, vault("grants", json!({})));
+    assert_eq!(grants["data"]["grants"][0]["id"], "m1", "{grants}");
+}
+
+#[test]
+fn vault_env_refuses_bad_requests_and_pages_before_sending_anything() {
+    let (mux, app, _, backend) = daemon();
+    for (request, reason) in [
+        (
+            vault("set", json!({"name":"GITHUB_TOKEN","value":"x","delivery":"env"})),
+            "vault.key_shaped_variable",
+        ),
+        (vault("set", json!({"name":"PATH","value":"x"})), "vault.invalid_name"),
+        (
+            vault("set", json!({"name":"A","value":"x","allowedHosts":["Bad"]})),
+            "vault.invalid_hosts",
+        ),
+        (vault("set", json!({"name":"A","value":"x".repeat(16_385)})), "vault.invalid_value"),
+        (vault("set", json!({"name":"A","value":"x","url":"https://elsewhere"})), "vault.invalid"),
+        (vault("rm", json!({"name":"../grants"})), "vault.invalid"),
+        (vault("policy", json!({"name":"A"})), "vault.invalid"),
+        (vault("list", json!({"name":"A"})), "vault.invalid"),
+    ] {
+        let answer = reply(&mux, app, request);
+        assert_eq!(answer["ok"], false, "{answer}");
+        assert_eq!(answer["reason"], reason, "{answer}");
+        assert!(!answer.to_string().contains("xxxx"));
+    }
+    for transport in [ClientTransport::WebSocket, ClientTransport::Remote] {
+        let page = mux.control_clients.register(transport, writer());
+        assert_environment_forbidden(&reply(&mux, page, vault("list", json!({}))), "vault read");
+    }
+    assert!(backend.got().is_empty());
+    assert!(backend.platform_put.lock().unwrap().is_empty());
+    assert!(backend.deleted.lock().unwrap().is_empty());
+    backend.reply("/v1/vault/env/A", 413, json!({"code":"vault.too_large","message":"hunter2"}));
+    let refused = reply(&mux, app, vault("set", json!({"name":"A","value":"hunter2"})));
+    assert_eq!(refused["reason"], "vault.too_large", "{refused}");
+    assert!(!refused.to_string().contains("hunter2"));
+}

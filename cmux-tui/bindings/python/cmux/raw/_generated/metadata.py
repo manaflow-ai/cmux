@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b'
+IR_SHA256 = 'd9aa68a5dabb61952b99173ca2112ad420ee5b10901a51c09e56d18abd059208'
 
 
 @dataclass(frozen=True)
@@ -4236,6 +4236,20 @@ COMMANDS = {
         'subscribe',
         {
             'terminal_ids': CommandFieldMetadata(None, None),
+        },
+    ),
+    'vault-env': CommandMetadata(
+        'vault-env',
+        'local-admin',
+        12,
+        'vault-env-v1',
+        ('local-admin',),
+        None,
+        {
+            'access_token': CommandFieldMetadata(None, None),
+            'action': CommandFieldMetadata(None, None),
+            'params': CommandFieldMetadata(None, None),
+            'platform_origin': CommandFieldMetadata(None, None),
         },
     ),
     'vt-state': CommandMetadata(

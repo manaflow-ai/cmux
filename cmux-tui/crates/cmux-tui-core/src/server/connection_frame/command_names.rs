@@ -250,6 +250,7 @@ impl Command {
             Self::CloudRequestsList(..) => "cloud-requests-list",
             Self::CloudSelfhostInfo(..) => "cloud-selfhost-info",
             Self::CloudEnvironment(..) => "cloud-environment",
+            Self::VaultEnv(..) => "vault-env",
             Self::CloudConversationSnapshot(..) => "cloud-conversation-snapshot",
             Self::CloudConversationHistory(..) => "cloud-conversation-history",
             Self::CloudConversationThread(..) => "cloud-conversation-thread",

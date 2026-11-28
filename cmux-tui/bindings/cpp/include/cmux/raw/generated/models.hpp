@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b";
+inline constexpr std::string_view kProtocolIrSha256 = "d9aa68a5dabb61952b99173ca2112ad420ee5b10901a51c09e56d18abd059208";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -651,6 +651,7 @@ struct UrlOpenRequest;
 struct UrlOpenClaimRequest;
 struct UrlOpenResultRequest;
 struct UrlOpenSubscribeRequest;
+struct VaultEnvRequest;
 struct VtStateRequest;
 struct WaitForRequest;
 struct WsListenRequest;
@@ -6933,6 +6934,14 @@ struct UrlOpenSubscribeRequest {
     friend bool operator==(const UrlOpenSubscribeRequest&, const UrlOpenSubscribeRequest&) = default;
 };
 
+struct VaultEnvRequest {
+    std::string access_token{};
+    std::string action{};
+    std::optional<JsonValue> params{};
+    std::string platform_origin{};
+    friend bool operator==(const VaultEnvRequest&, const VaultEnvRequest&) = default;
+};
+
 struct ViewportPaneWidthResult {
     float width{};
     friend bool operator==(const ViewportPaneWidthResult&, const ViewportPaneWidthResult&) = default;
@@ -10895,6 +10904,12 @@ template <>
 struct Codec<UrlOpenSubscribeRequest> {
     static Result<Json> encode(const UrlOpenSubscribeRequest& value);
     static Result<UrlOpenSubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<VaultEnvRequest> {
+    static Result<Json> encode(const VaultEnvRequest& value);
+    static Result<VaultEnvRequest> decode(const Json& value);
 };
 
 template <>

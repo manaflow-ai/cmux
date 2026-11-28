@@ -20,6 +20,7 @@ pub mod platform;
 mod service;
 mod session;
 mod stream;
+mod vault_env;
 
 /// How a stream asks again for a snapshot that did not decode
 /// ([`ServiceOptions::snapshot_backoff`]).
@@ -40,6 +41,7 @@ pub use service::{
 };
 pub use session::SessionParams;
 pub use stream::CloudEvent;
+pub use vault_env::wipe as wipe_value;
 
 /// The capability `identify` advertises when a cloud backend is installed.
 pub const CLOUD_CONVERSATIONS_CAPABILITY: &str = "cloud-conversations-v1";

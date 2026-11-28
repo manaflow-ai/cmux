@@ -6,7 +6,7 @@ package raw
 const (
 	SDKSchemaVersion   = 2
 	MuxProtocolVersion = 12
-	SDKIRSHA256        = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b"
+	SDKIRSHA256        = "d9aa68a5dabb61952b99173ca2112ad420ee5b10901a51c09e56d18abd059208"
 )
 
 type Authority string
@@ -374,6 +374,7 @@ var commandMetadata = map[string]CommandMetadata{
 	"url-open-claim":                     {Name: "url-open-claim", GoMethod: "URLOpenClaim", Authority: AuthorityFrontend, Since: 12, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"url-open-result":                    {Name: "url-open-result", GoMethod: "URLOpenResult", Authority: AuthorityFrontend, Since: 12, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"url-open-subscribe":                 {Name: "url-open-subscribe", GoMethod: "URLOpenSubscribe", Authority: AuthorityFrontend, Since: 12, Capability: "", Stream: "subscribe", FieldSince: nil, FieldCapabilities: nil},
+	"vault-env":                          {Name: "vault-env", GoMethod: "VaultEnv", Authority: AuthorityLocalAdmin, Since: 12, Capability: "vault-env-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"vt-state":                           {Name: "vt-state", GoMethod: "VTState", Authority: AuthorityControl, Since: 5, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"wait-for":                           {Name: "wait-for", GoMethod: "WaitFor", Authority: AuthorityControl, Since: 6, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"ws-listen":                          {Name: "ws-listen", GoMethod: "WSListen", Authority: AuthorityLocalAdmin, Since: 12, Capability: "ws-listen-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
@@ -528,7 +529,7 @@ func ProfileInfo(name Profile) (ProfileMetadata, bool) {
 }
 
 func AllCommandMetadata() []CommandMetadata {
-	result := make([]CommandMetadata, 0, 316)
+	result := make([]CommandMetadata, 0, 317)
 	result = append(result, cloneCommandMetadata(commandMetadata["ack-tab-notifications"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-screens-to-screen-group"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-tabs-to-tab-group"]))
@@ -841,6 +842,7 @@ func AllCommandMetadata() []CommandMetadata {
 	result = append(result, cloneCommandMetadata(commandMetadata["url-open-claim"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["url-open-result"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["url-open-subscribe"]))
+	result = append(result, cloneCommandMetadata(commandMetadata["vault-env"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["vt-state"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["wait-for"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["ws-listen"]))
