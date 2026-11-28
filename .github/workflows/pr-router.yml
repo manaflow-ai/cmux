@@ -465,6 +465,15 @@ jobs:
     permissions:
       contents: read
 
+  motion-frames:
+    name: cmux-next motion frames
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-motion-frames.yml') }}
+    uses: ./.github/workflows/cmux-next-motion-frames.yml
+    permissions:
+      # dispatch starts cmux-next-frame-pacing.yml's `frames` suite on the pull request's branch.
+      actions: write
+
   transcript-replay-perf-report:
     name: transcript-replay perf report
     needs: route
