@@ -192,6 +192,11 @@ struct SidebarWorkspaceChecklistSection: View {
     /// delete button. A single id (not a per-row `@State`) is enough because
     /// only one row can be hovered at a time; mirrors `editingItemId`.
     @State private var hoveredItemId: UUID?
+    /// Measured row frames let the capped scroll viewport include wrapped
+    /// text instead of assuming every item is one line tall.
+    @State private var itemRowFrames: [UUID: CGRect] = [:]
+
+    private static let rowMeasurementSpaceName = "sidebarChecklistRowMeasurementSpace"
 
     /// Whether taps and the "Add Checklist Item…" activation token should
     /// route to the anchored popover instead of the inline expansion. Equal
@@ -258,6 +263,10 @@ struct SidebarWorkspaceChecklistSection: View {
             isAddingItem = true
             inlineAddGeneration += 1
         }
+        .coordinateSpace(name: Self.rowMeasurementSpaceName)
+        .onPreferenceChange(SidebarWorkspaceChecklistRowFramesKey.self) { frames in
+            itemRowFrames = frames
+        }
     }
 
     // MARK: Summary line
@@ -318,7 +327,7 @@ struct SidebarWorkspaceChecklistSection: View {
                         }
                     }
                 }
-                .frame(height: scrollViewportHeight(forItemCount: ordered.count))
+                .frame(height: scrollViewportHeight(forItems: ordered))
             }
             if canAddItems {
                 addItemRow
@@ -328,21 +337,19 @@ struct SidebarWorkspaceChecklistSection: View {
     }
 
     /// Single-line row height estimate (matches the add/edit field's own
-    /// `11 * fontScale + 4` sizing), used to cap the expanded list's
-    /// scrollable viewport at ``visibleRowCount`` rows instead of letting an
-    /// arbitrarily long checklist grow the sidebar row without bound.
+    /// `11 * fontScale + 4` sizing), used until the row frames arrive. The
+    /// measured frames then account for wrapped item text while preserving
+    /// the six-row viewport cap.
     private var itemRowHeightEstimate: CGFloat { 11 * fontScale + 4 }
-    private static let visibleRowCount = 6
     private static let rowSpacing: CGFloat = 2
 
-    /// Content height for `count` rows, capped at ``visibleRowCount`` rows —
-    /// short lists get exactly their own height (no dead space), longer
-    /// lists get the 6-row cap and scroll for the rest.
-    private func scrollViewportHeight(forItemCount count: Int) -> CGFloat {
-        guard count > 0 else { return 0 }
-        let visibleCount = min(count, Self.visibleRowCount)
-        return itemRowHeightEstimate * CGFloat(visibleCount)
-            + Self.rowSpacing * CGFloat(visibleCount - 1)
+    private func scrollViewportHeight(forItems items: [WorkspaceChecklistItem]) -> CGFloat {
+        SidebarWorkspaceChecklistPopoverViewportModel.viewportHeight(
+            orderedIds: items.map(\.id),
+            rowFrames: itemRowFrames,
+            fallbackRowHeight: itemRowHeightEstimate,
+            fallbackSpacing: Self.rowSpacing
+        )
     }
 
     private func checklistItemRow(_ item: WorkspaceChecklistItem) -> some View {
@@ -411,6 +418,14 @@ struct SidebarWorkspaceChecklistSection: View {
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
         }
         .contentShape(Rectangle())
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: SidebarWorkspaceChecklistRowFramesKey.self,
+                    value: [item.id: proxy.frame(in: .named(Self.rowMeasurementSpaceName))]
+                )
+            }
+        )
         // `.onContinuousHover` rather than `.onHover`: `.onHover` only fires
         // on the `mouseEntered`/`mouseExited` edge, so if this row's backing
         // view gets recreated (e.g. a sidebar re-render under this section)
