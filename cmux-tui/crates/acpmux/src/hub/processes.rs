@@ -168,7 +168,7 @@ const HELD_ENDED: usize = 1024;
 const SHRINK_AT: usize = 2 * HELD_ENDED;
 
 /// The seqs of the log [`Hub::fold_processes`] reads back at a time.
-const FOLD_WINDOW: u64 = 1 << 16;
+pub(in crate::hub) const FOLD_WINDOW: u64 = 1 << 16;
 
 /// The ended processes a table dropped ([`ProcessTable::shrink`]): what tells a lookup, a fold or
 /// a list that the answer may be in them, so it reads the whole history back from the log. Leo,
@@ -1439,17 +1439,24 @@ impl Hub {
         }
         let window = window.max(1);
         let mut from = after;
-        loop {
+        let mut windows = 0u64;
+        let whole = loop {
             let to = from.saturating_add(window);
             let end = if to >= last { before } else { to.saturating_add(1) };
+            windows += 1;
             if !self.fold_processes_in(session, table, from, end) {
-                return false;
+                break false;
             }
             if end == before {
-                return true;
+                break true;
             }
             from = to;
+        };
+        // A fold of more than one window freed what it read: give those pages back once.
+        if windows > 1 {
+            crate::heap_return::return_freed();
         }
+        whole
     }
 
     /// The records after `after` and before `before`, read back and folded in order.

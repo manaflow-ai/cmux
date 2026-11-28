@@ -187,3 +187,19 @@ async fn a_fold_read_a_window_at_a_time_is_the_fold_read_whole() {
     }
     hub.shutdown_all().await;
 }
+
+/// A fold read more than one window at a time gives the pages it freed back once, after the
+/// last window; one read in a single window frees too little to walk the free lists for.
+#[tokio::test(flavor = "current_thread")]
+async fn a_fold_of_many_windows_returns_its_freed_pages_once() {
+    let (hub, session) = logged_chat(300).await;
+    let fold = |window: u64| {
+        let mut table = ProcessTable { loaded: true, ..ProcessTable::default() };
+        let before = crate::heap_return::returns_on_this_thread();
+        assert!(hub.fold_processes_by(&session, &mut table, 0, u64::MAX, window));
+        crate::heap_return::returns_on_this_thread() - before
+    };
+    assert_eq!(fold(u64::MAX), 0, "one window");
+    assert_eq!(fold(17), 1, "many windows");
+    hub.shutdown_all().await;
+}
