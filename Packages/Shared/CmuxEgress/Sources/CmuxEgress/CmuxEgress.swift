@@ -19,9 +19,9 @@ import ObjectiveC
 /// Make every URLSession with `session(site:...)` or `shared(site:)`, every WebSocket task with `websocket`, every
 /// NWConnection with `connection`. `tests/test_egress_gate.py` finds the ones made by hand.
 ///
-/// The mode is `CMUX_EGRESS` (`enforce`, `log`, `off`) when set, else enforce in a debug build and in a nightly
-/// (bundle id ending `.nightly` or containing `.nightly.`), else log. Every unlisted host prints one
-/// `egress.unlisted host=H site=S mode=M` line to stderr.
+/// The mode is `CMUX_EGRESS` (`enforce`, `log`, `off`) when set, else enforce in a debug build, else the mode
+/// the app's bundle id names (`bundleMode`: NIGHTLY, dev, staging and iPhone INTERNAL enforce), else log.
+/// Every unlisted host prints one `egress.unlisted host=H site=S mode=M` line to stderr.
 ///
 /// Redirects: the system loads each redirect target through the session's protocol classes again, so the gate
 /// checks every hop of every gated session, with or without the caller's own delegate, and a refused hop fails the
@@ -73,10 +73,28 @@ public struct CmuxEgress {
         #if DEBUG
         return .enforce
         #else
-        let bundleID = Bundle.main.bundleIdentifier ?? ""
-        return bundleID.hasSuffix(".nightly") || bundleID.contains(".nightly.") ? .enforce : .log
+        return bundleMode(Bundle.main.bundleIdentifier ?? "") ?? .log
         #endif
     }()
+
+    /// The mode a bundle id names, by build kind; the same rule as the Rust gate's `bundle_mode`
+    /// (cmux-tui/crates/cmux-egress/src/lib.rs, which `tests/test_egress_gate.py` keeps equal to this one):
+    /// - macOS: NIGHTLY (`com.cmuxterm.app.nightly[.x]`), DEV (`com.cmuxterm.app.debug[.tag]` or any other
+    ///   `com.cmuxterm.app.x`) and staging (`com.cmuxterm.app.staging[.tag]`) enforce; stable (`com.cmuxterm.app`)
+    ///   and rc (`com.cmuxterm.app.rc[.x]`) keep the default (nil).
+    /// - iPhone (cmux-next-ios/project.yml): developer builds (`dev.cmux.mobile[.tag]`) and TestFlight INTERNAL
+    ///   (`dev.cmux.app.internal`) enforce; the App Store app (`com.cmux.app`) keeps the default.
+    public static func bundleMode(_ bundleID: String) -> Mode? {
+        let id = bundleID.trimmingCharacters(in: .whitespaces)
+        if id == "dev.cmux.mobile" || id.hasPrefix("dev.cmux.mobile.") || id == "dev.cmux.app.internal" {
+            return .enforce
+        }
+        let prefix = "com.cmuxterm.app."
+        guard id.hasPrefix(prefix) else { return nil }
+        let rest = id.dropFirst(prefix.count)
+        if rest.isEmpty || rest == "rc" || rest.hasPrefix("rc.") { return nil }
+        return .enforce
+    }
 
     // MARK: Verdict
 
