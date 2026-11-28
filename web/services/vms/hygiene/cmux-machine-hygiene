@@ -254,11 +254,18 @@ fi
 # /proc on Linux, lsof elsewhere. With neither, nothing counts as idle.
 in_use_evidence=1
 if [ -d /proc/self/fd ]; then
-  for pid_dir in /proc/[0-9]*; do
-    readlink "$pid_dir/cwd" 2>/dev/null
-    readlink "$pid_dir/exe" 2>/dev/null
-    for fd in "$pid_dir"/fd/*; do readlink "$fd" 2>/dev/null; done
-  done | grep '^/' | sort -u > "$in_use_file"
+  # One find reads every link target; a readlink fork per fd took 25 s on a
+  # busy shared CI host. The fork loop stays for a find without -printf.
+  if find /proc/self/cwd -maxdepth 0 -printf '%l' >/dev/null 2>&1; then
+    find /proc/[0-9]*/cwd /proc/[0-9]*/exe /proc/[0-9]*/fd -maxdepth 1 \
+      -type l -printf '%l\n' 2>/dev/null
+  else
+    for pid_dir in /proc/[0-9]*; do
+      readlink "$pid_dir/cwd" 2>/dev/null
+      readlink "$pid_dir/exe" 2>/dev/null
+      for fd in "$pid_dir"/fd/*; do readlink "$fd" 2>/dev/null; done
+    done
+  fi | grep '^/' | sort -u > "$in_use_file"
 elif command -v lsof >/dev/null 2>&1; then
   lsof -n -F n 2>/dev/null | sed -n 's/^n//p' | grep '^/' | sort -u > "$in_use_file"
 else
