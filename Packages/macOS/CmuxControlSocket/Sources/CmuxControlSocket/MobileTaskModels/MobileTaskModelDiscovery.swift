@@ -15,6 +15,7 @@ public actor MobileTaskModelDiscovery {
     private struct CacheKey: Hashable {
         let provider: MobileTaskModelProvider
         let claudeExecutable: String
+        let codexInstallation: MobileTaskCodexInstallation?
     }
 
     /// Default lifetime for one provider's discovered result.
@@ -97,7 +98,12 @@ public actor MobileTaskModelDiscovery {
         } else {
             claudeExecutable = "claude"
         }
-        let key = CacheKey(provider: provider, claudeExecutable: claudeExecutable)
+        let codexInstallation = provider == .codex ? await strategy.codexInstallation() : nil
+        let key = CacheKey(
+            provider: provider,
+            claudeExecutable: claudeExecutable,
+            codexInstallation: codexInstallation
+        )
         let currentTime = await now()
         if let cached = cache[key],
            currentTime.timeIntervalSince(cached.fetchedAt) < cacheTTL {
@@ -109,7 +115,11 @@ public actor MobileTaskModelDiscovery {
 
         let strategy = self.strategy
         let pending = Task {
-            await strategy.models(for: provider, claudeExecutable: claudeExecutable)
+            await strategy.models(
+                for: provider,
+                claudeExecutable: claudeExecutable,
+                codexInstallation: codexInstallation
+            )
         }
         inFlight[key] = pending
         let result = await pending.value
