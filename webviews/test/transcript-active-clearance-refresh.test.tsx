@@ -15,10 +15,21 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 dom.window.document.documentElement.dataset.agentMotion = "off";
 
 // No observer entry is delivered: the commit must repair clearance before observation.
+const observers: SilentResizeObserver[] = [];
 class SilentResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
+  targets = new Set<Element>();
+  constructor(readonly callback: (entries: ResizeObserverEntry[]) => void) {
+    observers.push(this);
+  }
+  observe(target: Element) {
+    this.targets.add(target);
+  }
+  unobserve(target: Element) {
+    this.targets.delete(target);
+  }
+  disconnect() {
+    this.targets.clear();
+  }
 }
 
 const scope = globalThis as Record<string, unknown>;
@@ -26,6 +37,7 @@ const replacements: Record<string, unknown> = {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   HTMLElement: dom.window.HTMLElement,
   Element: dom.window.Element,
   customElements: dom.window.customElements,
@@ -218,6 +230,47 @@ test("an unchanged-placement transcript commit refreshes active clearance before
   } finally {
     marker?.mockRestore();
     acpmuxPerf.enabled = false;
+    await act(async () => root.unmount());
+  }
+});
+
+test("row observation refreshes pinned clearance even when placement stays unchanged", async () => {
+  const { pinLiveLine, drawPinned } = await import("../src/agent-session/acpmux/conversation/pinnedLiveLine");
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  let thread: HTMLElement | undefined;
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript rows={turnView(history, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
+      ),
+    );
+    await openSettled(dom.window);
+    const upper = dom.window.document.querySelector<HTMLElement>('.acpmux-row[data-row-id="t39-user"]')!;
+    const live = dom.window.document.querySelector<HTMLElement>('.acpmux-row[data-row-id="t39-answer"]')!;
+    thread = live.parentElement!;
+    // Install the pin without another placement: observation must repair the cached geometry.
+    live.dataset.rowId = "thinking-live";
+    fakeGeometry.set(upper, { top: 3527, height: 58 });
+    fakeGeometry.set(live, { top: 3593, height: 32 });
+    thread.style.removeProperty("translate");
+    pinLiveLine(thread, true);
+    thread.style.translate = "0 28.283092px";
+    drawPinned(thread, 28.283092);
+    expect(upper.style.clipPath).toBe("inset(-4096px -4096px 21px -4096px)");
+    fakeGeometry.set(upper, { top: 3527, height: 93 });
+    const observer = observers.find((one) => one.targets.has(upper));
+    expect(observer).toBeDefined();
+    // A different row's observation can follow a commit that grew this reply. Its own entry has
+    // not arrived yet, so no new placement report repairs the pin before the callback returns.
+    const observed = dom.window.document.querySelector<HTMLElement>('.acpmux-row[data-row-id="t38-answer"]')!;
+    expect(observer!.targets.has(observed)).toBe(true);
+    await act(async () => {
+      observer!.callback([{ target: observed } as ResizeObserverEntry]);
+      expect(upper.style.clipPath).toBe("inset(-4096px -4096px 56px -4096px)");
+      expect(live.style.translate).toBe("0 -28.283092px");
+    });
+  } finally {
+    pinLiveLine(thread ?? null, false);
     await act(async () => root.unmount());
   }
 });

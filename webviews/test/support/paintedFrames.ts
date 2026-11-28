@@ -1,11 +1,14 @@
-// Frame tests read what the page painted, once per frame, after that frame's rendering.
+// Schedule tasks after rendering. These callbacks read the live DOM, not a saved painted frame.
+// For per-frame geometry assertions use renderedFrames.ts: a message/socket/React task can mutate
+// the DOM between rendering and this task. Input listeners cover input events only; they cannot
+// make other task sources atomic with paint (painted-frames-post-task.test.ts).
 //
 // A requestAnimationFrame callback runs before the frame's style, layout, ResizeObserver callbacks
 // and paint. A read there sees the layout as it stands before the observers that size the page
 // (the transcript's room under its last row, for one) have run, a state the frame may never paint:
 // a probe read in a frame callback showed the last row 30 px low on the first frame of an opened
 // chat, and nobody saw it (scroll-jitter, 2026-10-21). A message posted from the frame callback
-// runs as a task after the frame has rendered, so every read here is of a painted state. Input the
+// runs as a task after the frame has rendered. Input the
 // browser handles between the frame and that task would change the page the read lays out, a
 // state no frame painted (a composer card a line taller than the lift its frame painted,
 // scroll-jitter 2026-10-21): the first input event after a frame runs its read at once instead,
@@ -17,7 +20,7 @@ import type { Page } from "playwright";
 
 declare global {
   interface Window {
-    /** Calls `read` after each painted frame, with that frame's time, until it returns false (an
+    /** Calls `read` after rendering, with the preceding RAF time, until it returns false (an
      *  input event that comes before the read runs it first, on the state the frame painted);
      *  `drive`, if given, runs in each frame's callbacks first (to set what the frame paints, or
      *  note what it paints at). Returns a function that stops it. */
@@ -79,8 +82,8 @@ function definePaintedFrames() {
   window.cmuxAfterPaint = (read, drive) => {
     listen();
     let stopped = false;
-    // The next frame is asked for in this one's callback, so no frame goes unread. A read runs as
-    // the first task after its frame; under heavy load Chromium can start the next frame first.
+    // The next frame is asked for in this one's callback. Other task sources may run before the
+    // read; under heavy load Chromium can even start the next frame first.
     const tick = (frame: number) => {
       if (stopped) return;
       requestAnimationFrame(tick);

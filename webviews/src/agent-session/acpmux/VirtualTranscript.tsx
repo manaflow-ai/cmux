@@ -2144,6 +2144,9 @@ function TranscriptView({
   }, []);
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
   const pendingMeasures = useRef(new Map<HTMLElement, () => void>());
+  // Rows committed by an observer's synchronous catch-up join that observer's post-commit read.
+  // Ordinary token commits still defer their height to ResizeObserver without a layout read.
+  const observerCatchUpRows = useRef<Set<HTMLElement> | undefined>(undefined);
   /// This render draws a scroll that outruns the warm rows (a fling: `warmOutrun` below). Its rows
   /// are measured by their observer in the browser's own layout pass, not read in the commit: about
   /// 30 rows a frame came in new, and the commit's read restyled and laid them all out inside the
@@ -2621,8 +2624,10 @@ function TranscriptView({
           Boolean(known.actions) === Boolean(actions) &&
           known.status === (status || undefined) &&
           (row === undefined || (known.open ?? "") === rowOpenState(sessionId, row))
-        )
+        ) {
+          observerCatchUpRows.current?.add(node);
           return noQueue;
+        }
       }
       const measure = () => {
         if (!node.isConnected || node.dataset.rowId !== id) return;
@@ -2988,8 +2993,9 @@ function TranscriptView({
             // heights are read once, when the width holds (`endFlow`).
             if (liveResize.current.flow !== undefined || renderedFlowing.current) return;
             const targets = (entries ?? []).map((entry) => entry.target as HTMLElement);
+            const measuredTargets = new Set(targets);
             const measure = () => {
-              for (const target of targets) reportRow(target);
+              for (const target of measuredTargets) if (target.isConnected) reportRow(target);
             };
             measure();
             discardEstimatedReports();
@@ -3053,13 +3059,24 @@ function TranscriptView({
                   flushDrawn();
                   break;
                 }
-                acpmuxPerf.timed("flush.drawn", () => flushSync(placeAndCatchUp));
+                // Catch-up can grow a different reply than the entries delivered this frame.
+                // Its observer cannot necessarily deliver again before paint. Collect its skipped
+                // token measurement during the commit and read it with this bounded observer pass.
+                observerCatchUpRows.current = measuredTargets;
+                try {
+                  acpmuxPerf.timed("flush.drawn", () => flushSync(placeAndCatchUp));
+                } finally {
+                  observerCatchUpRows.current = undefined;
+                }
                 measure();
               }
             } else flushDrawn();
             // A synchronous placement can grow another row before its observer entry arrives.
             // Refresh only the active glide's bounded clearance span before this frame paints.
             tailGlide.current?.refresh(thread.current, () => ref.current?.getBoundingClientRect());
+            // The pinned live line owns its own clearance, outside the tail glide. Re-read only its
+            // active span after observation; ordinary token commits keep their cached geometry.
+            refreshPinned(thread.current, true);
           }),
     [reportRow, discardEstimatedReports, flushDrawn, catchUpLive],
   );
