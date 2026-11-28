@@ -75,6 +75,16 @@ pub(super) const UPGRADE_BUSY: Duration = Duration::from_secs(3);
 /// shared schedule's 30 s sits on that cut.)
 pub(super) const WARM_EVERY: Duration = Duration::from_secs(25);
 
+/// The shortest bound of a quiet TURN route's server check. The route's
+/// RTT is the peer's round trip, not the server's, and a fresh allocation's
+/// route has none yet: from it alone the bound was 200 ms (a resend at
+/// 100 ms), and a live server behind a slower cellular leg was declared
+/// dead, the session took a new allocation whose routes had no RTT either,
+/// and the label flipped Direct and Turn every few seconds (Leo's phone,
+/// 2026-11-27). A dead server is still found within this, not the link's
+/// 45 s keepalive timeout; it is the TURN dial's own UDP answer wait.
+pub(super) const TURN_SERVER_CHECK_FLOOR: Duration = Duration::from_secs(2);
+
 /// The phone app is in the background ([`set_app_backgrounded`]). False
 /// until it says (and always on the Mac), so nothing changes for a side
 /// that never calls it.
@@ -424,6 +434,15 @@ impl Paths {
     /// RTT of such routes, once per report.
     pub fn take_turn_quiet(&mut self) -> Option<Option<u64>> {
         self.turn_quiet.take()
+    }
+
+    /// The bound of the TURN server check a quiet TURN route starts
+    /// ([`super::turn::TurnCarrier::check_server`]): two silence windows of
+    /// that route's smoothed RTT ([`Self::take_turn_quiet`]), the server's
+    /// leg being part of that round trip, and never under
+    /// [`TURN_SERVER_CHECK_FLOOR`].
+    pub fn turn_server_bound(rtt_us: Option<u64>) -> Duration {
+        (cmux_wg::silence_window(rtt_us) * 2).max(TURN_SERVER_CHECK_FLOOR)
     }
 
     /// The route the selector held went quiet (silent past its window, or
@@ -1070,5 +1089,105 @@ mod tests {
         assert!(!paths.drives());
         answer_all(&mut paths, Instant::now(), std::time::Duration::from_millis(2));
         assert_eq!(paths.current(), Some(lan));
+    }
+
+    /// Leo's phone link flipped Direct and Turn every 2-5 s ("so between
+    /// mac and ios connections something broke") although the regain rule
+    /// bounds a flapping direct path to a few switches a minute. A quiet
+    /// TURN route checks its server; the check's bound came from the
+    /// route's RTT, 200 ms when the route has none yet (a fresh allocation
+    /// whose first probe was lost). A cellular leg to the TURN server
+    /// slower than that declared a live server dead, the session took a
+    /// new allocation, its TURN routes started over with no RTT, and the
+    /// next lost probe killed that one too: each death sent the session to
+    /// the direct path and each new allocation back to Turn.
+    #[tokio::test(start_paused = true)]
+    async fn a_live_turn_server_behind_a_slow_leg_is_not_declared_dead_and_the_link_does_not_flip() {
+        let ms = Duration::from_millis;
+        let mut paths = paths_on(lan_table());
+        let lan = udp("192.168.1.30:4100");
+        let relay = turn("203.0.113.9:4100");
+        let wanted = |turn_up: bool| {
+            let mut wanted = vec![Wanted { route: lan, relayed: false }];
+            if turn_up {
+                wanted.push(Wanted { route: relay, relayed: true });
+            }
+            wanted
+        };
+        paths.sync(&wanted(true));
+        // A lossy cellular link: 15% of datagrams lost on every route (a
+        // fixed sequence), the direct path out every other second, the
+        // relay's round trip 300 ms of which the leg to the server is 250.
+        let mut seed: u64 = 0x2545_f491_4f6c_dd1d;
+        let mut lost = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % 100 < 15
+        };
+        let server_leg = ms(250);
+        let start = Instant::now();
+        let mut pending: Vec<(Instant, PathId, u64)> = Vec::new();
+        let (mut deaths, mut switches) = (0, 0);
+        let mut realloc_at: Option<Instant> = None;
+        let mut last = None;
+        let kind = |route: Option<Route>| route.map(|route| route.carrier);
+        while Instant::now() < start + Duration::from_secs(60) {
+            let now = Instant::now();
+            let lan_up = (now - start).as_secs().is_multiple_of(2);
+            if realloc_at.is_some_and(|at| now >= at) {
+                realloc_at = None;
+                paths.sync(&wanted(true));
+            }
+            paths.sent_data(now);
+            match paths.current() {
+                Some(route) => paths.sent(route, now),
+                None => paths.sent_everywhere(now),
+            }
+            pending.retain(|&(at, id, probe)| {
+                if at > now {
+                    return true;
+                }
+                if paths.route_of(id).is_some() {
+                    paths.on_pong(id, probe, now);
+                }
+                false
+            });
+            for (id, probe) in paths.poll(now).pings {
+                let Some(route) = paths.route_of(id) else { continue };
+                let rtt = if route.carrier == Carrier::Turn { ms(300) } else { ms(20) };
+                if (route.carrier == Carrier::Turn || lan_up) && !lost() {
+                    pending.push((now + rtt, id, probe));
+                }
+            }
+            if let Some(rtt_us) = paths.take_turn_quiet()
+                && realloc_at.is_none()
+            {
+                // The server answers one of the check's two requests (sent
+                // now and at half the bound) one leg later; nothing by the
+                // bound and the allocation is dead, a new one in a second.
+                let bound = Paths::turn_server_bound(rtt_us);
+                let first = !lost();
+                let answered = (first && server_leg <= bound) || (!lost() && bound / 2 + server_leg <= bound);
+                if !answered {
+                    deaths += 1;
+                    paths.forget_carrier(Carrier::Turn);
+                    paths.sync(&wanted(false));
+                    realloc_at = Some(now + ms(1000));
+                }
+            }
+            let held = kind(paths.current());
+            if held != last && held.is_some() && last.is_some() {
+                switches += 1;
+            }
+            if held.is_some() {
+                last = held;
+            }
+            tokio::time::advance(ms(10)).await;
+        }
+        assert!(
+            deaths == 0 && switches <= 6,
+            "a live TURN server declared dead {deaths} times, {switches} Direct/Turn switches, in a minute"
+        );
     }
 }

@@ -87,7 +87,11 @@ where
             crate::codex_cloud_auth::file_var(&path, key)
         }
     };
-    let origin = var("CMUX_CODEROUTER_URL").filter(|origin| origin.starts_with("https://"))?;
+    // An owner image takes the origin as [`team_pair`] does (`team_origin`): a per-home file that
+    // kept only the OpenAI pair hides the image's origin from `model_plane_var`, and every
+    // explicit Cloud start refused with no route (production probe, 2026-11-28 07:45Z on).
+    let origin = if owner { inputs.team_origin() } else { var("CMUX_CODEROUTER_URL") }
+        .filter(|origin| origin.starts_with("https://"))?;
     let base = var("ANTHROPIC_BASE_URL").unwrap_or_else(|| origin.clone());
     let key = var("ANTHROPIC_API_KEY").unwrap_or_else(|| PLACEHOLDER_KEY.to_owned());
     cloud_pair(origin, base, key, resolves).await
@@ -351,7 +355,7 @@ pub(crate) fn apply_machine_login(
     let at = argv.iter().position(|arg| arg == "--").unwrap_or(argv.len());
     // Claude takes only the last flag. Keep file settings in place, including policy rules,
     // and refuse a launch that would require copying an existing flag's settings into argv.
-    if argv[..at].iter().any(|arg| arg == "--settings" || arg.starts_with("--settings=")) {
+    if argv.iter().take(at).any(|arg| arg == "--settings" || arg.starts_with("--settings=")) {
         return false;
     }
     let clears = [

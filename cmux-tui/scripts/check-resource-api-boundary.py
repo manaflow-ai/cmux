@@ -1264,7 +1264,7 @@ def _validate_catalog_type(
             # answer are the cmux-cloud-api crate's and the Cloud API's,
             # passed through unchanged (the crate validates every argument).
             is_cloud_api_call = re.fullmatch(
-                r"operations\.cloud\.(vm|runs|owner|previews|machine)\.[a-z_]+"
+                r"operations\.cloud\.(vm|runs|owner|previews|machine|artifacts)\.[a-z_]+"
                 r"\.(params\.fields\.args\.values|result|result\.arguments\[0\])",
                 context,
             ) is not None

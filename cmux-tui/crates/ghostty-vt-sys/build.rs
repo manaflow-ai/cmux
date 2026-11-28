@@ -126,13 +126,11 @@ fn main() {
     if let Some(target_arg) = build_support::zig_target_arg(&target, &host, &macos_min) {
         command.arg(target_arg);
     }
-    // macOS builds use a baseline CPU, not the build Mac's. Valgrind's
-    // instruction emulation doesn't cover every CPU-native SIMD extension
-    // zig's default target detection can select (e.g. some AVX-512 variants),
-    // which SIGILLs under valgrind. CI's valgrind job sets
-    // CMUX_GHOSTTY_VT_ZIG_CPU to "baseline" to match the same workaround
-    // ghostty's own build.zig uses for its valgrind step (see
-    // `Config.baselineTarget()`).
+    // Every build uses a baseline CPU, not the build host's: zig's default
+    // (the host's CPU, e.g. AVX-512 on a Zen 4 fleet host) SIGILLs the binary
+    // on any older CPU it is copied to, and under valgrind, whose emulation
+    // lacks some AVX-512 variants. CMUX_GHOSTTY_VT_ZIG_CPU overrides it
+    // (`native` for a build that never leaves its host).
     let cpu = env::var("CMUX_GHOSTTY_VT_ZIG_CPU").ok();
     if let Some(cpu_arg) = build_support::zig_cpu_arg(&target, cpu.as_deref()) {
         command.arg(cpu_arg);

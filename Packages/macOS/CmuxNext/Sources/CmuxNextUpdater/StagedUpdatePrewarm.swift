@@ -226,10 +226,10 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
             }
         }
         var ran = parts.keys.sorted().compactMap { parts[$0] }
-        // Stopped for the install (``UpdaterService/stopPrewarmForInstall()``): the installer moves these files now,
-        // so nothing more of them is read, and the marker keeps the step it reached.
+        // Stopped (``UpdaterService/stopPrewarm(_:)``): an install moves these files now, or a cancel removes them, so
+        // nothing more of them is read, and the marker keeps the step it reached.
         if Task.isCancelled {
-            return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): stopped for the install"
+            return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): stopped"
                 + (ran.isEmpty ? "" : " after " + ran.joined(separator: ", "))
         }
         // The framework's pages a renderer and the GPU process run, which the helpers' --version never touched

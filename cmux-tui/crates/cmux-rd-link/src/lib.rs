@@ -87,8 +87,12 @@ pub const SIGNALING_TIMEOUT_US: u64 = 60_000_000;
 /// ([`Link::set_peer_lost`]): the host's own grace for a silent viewer
 /// (`cmux-rd-host` `REATTACH_GRACE_NS`). A live peer answers a probe every
 /// second, so only a peer that is gone stays silent this long; a network
-/// drop or a sleep shorter than it still comes back.
-pub const PEER_LOST_US: u64 = 90_000_000;
+/// drop or a sleep shorter than it still comes back. At 90 s a 5 min full
+/// drop ended every viewer ("the peer stopped answering (90 s with nothing
+/// heard)") and needed Connect Again (cmuxterm-hq
+/// goals/screen-share-netem-1s-nightly.md, the probe's drop-300s row); 10 min
+/// covers it and still ends a link whose host is gone.
+pub const PEER_LOST_US: u64 = 600_000_000;
 
 /// Inner kinds (first plaintext byte of a sealed packet).
 mod inner {
