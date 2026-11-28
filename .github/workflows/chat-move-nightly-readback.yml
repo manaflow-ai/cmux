@@ -88,6 +88,13 @@ jobs:
           mkdir -p "$out"
           args=()
           if [ -n "$BUILD" ]; then args+=("--arg=build=$BUILD"); fi
+          # A dispatched readback is a Leo ask's receipt: the exclusive display queue's p90 wait (517-764 min,
+          # line ~45) outlasts the 3 h queue wait, so runs 46145802408 and 46163427711 never started (exit 75).
+          # --urgent takes the urgent display hold after 5 min (hq docs/handbook/urgent-step-waits-behind-a-hold.md).
+          # Push runs (this file changed) stay ordinary.
+          if [ "${GITHUB_EVENT_NAME:-}" = workflow_dispatch ]; then
+            args+=(--urgent --reason "chat move NIGHTLY readback: a Leo ask receipt, dispatched by $GITHUB_ACTOR")
+          fi
           status=0
           "$client" run --class exclusive --display --sign-in agent \
             --script scripts/measure/chat-move-nightly-readback.sh --ref "$REF_SHA" --repo manaflow-ai/cmux \

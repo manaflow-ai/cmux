@@ -409,6 +409,7 @@ async fn connection(
                     Some(failure.step),
                     times,
                     elapsed,
+                    None,
                 ));
             }
             reply(&contract::failure_line(failure.step.error_code(), Some(&failure.detail)));
@@ -426,6 +427,7 @@ async fn connection(
             None,
             times,
             elapsed,
+            None,
         ));
     }
     reply(&contract::served_line(vmk));
