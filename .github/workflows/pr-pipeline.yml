@@ -1036,7 +1036,27 @@ jobs:
     env:
       CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.ios-fast-runner.outputs.label, 'glaeda-') && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
+      # A hosted Mac starts empty, and fetching the whole tree took 47 of the step's 54 s (run 46185444100,
+      # 2026-11-28; 54-59 s on every hosted run that day). cmux-next-ios/verify/ is a third of the tree's bytes
+      # (about 490 of 1,451 MB, PNG and MP4 proof media) and no build input reads it: ios_fast_verdict.py plans
+      # nothing for a verify/ change. So a hosted Mac fetches blobless and leaves it out; ios-fast-verdict-seed.yml
+      # checks out the same way, so the seed's recorded directory listings match. An owned Mac reuses one
+      # workspace across every job, so it keeps the full checkout. CI_IOS_FAST_SPARSE_CHECKOUT=0 turns this off.
+      - name: Checkout the merge commit (hosted Mac, without verify/ media)
+        if: ${{ format('{0}', vars.CI_IOS_FAST_SPARSE_CHECKOUT) != '0' && (startsWith(runner.name, 'blacksmith') || runner.environment == 'github-hosted') }}
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+          filter: blob:none
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+          sparse-checkout-cone-mode: false
       - name: Checkout the merge commit
+        if: ${{ !(format('{0}', vars.CI_IOS_FAST_SPARSE_CHECKOUT) != '0' && (startsWith(runner.name, 'blacksmith') || runner.environment == 'github-hosted')) }}
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.ref }}

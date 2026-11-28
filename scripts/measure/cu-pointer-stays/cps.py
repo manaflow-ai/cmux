@@ -48,6 +48,34 @@ def note(**kw):
         f.write(json.dumps(kw) + "\n")
 
 
+def allow_capture_prompt(wait_s=15):
+    """Runs a 4 s warm-up capture and presses the picker-bypass alert's Allow if it shows up."""
+    warm = os.path.join(D, "warm.mov")
+    cap = subprocess.Popen(["screencapture", "-v", "-x", "-V", "4", warm],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    seen = {"pressed": False, "owner": ""}
+    t0 = time.time()
+    while time.time() - t0 < wait_s:
+        try:
+            r = subprocess.run([PROBE, "allow-capture"], capture_output=True, text=True, timeout=20)
+            seen = json.loads(r.stdout.strip() or "{}") or seen
+        except (subprocess.TimeoutExpired, ValueError) as e:
+            seen = {"pressed": False, "owner": "", "error": str(e)[:200]}
+        if seen.get("pressed"):
+            seen["after_s"] = round(time.time() - t0, 1)
+            break
+        time.sleep(0.5)
+    try:
+        cap.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        cap.kill()
+    seen["warm_bytes"] = os.path.getsize(warm) if os.path.exists(warm) else 0
+    approvals = os.path.expanduser("~/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist")
+    dump = subprocess.run(["plutil", "-p", approvals], capture_output=True, text=True)
+    open(os.path.join(OUT, "capture-approvals.txt"), "w").write(dump.stdout + dump.stderr)
+    return seen
+
+
 def probe(*args, timeout=30):
     p = subprocess.run([PROBE] + [str(a) for a in args], capture_output=True, text=True, timeout=timeout)
     try:
@@ -238,6 +266,15 @@ def main():
         ("scroll", "", {"x": sx, "y": sy, "dy": 3}, lambda ev: "scroll" in ev),
         ("move_pointer", "", {"x": mx, "y": my}, lambda ev: "moved" in ev),
     ]
+
+    # macOS 26 still asks "bash is requesting to bypass the system private window picker" on the first
+    # capture, past the TCC grant and the pre-seeded ScreenCaptureApprovals.plist (step 8b5c1c82: the
+    # alert sat over the target for the whole movie). A short warm-up capture raises it before the
+    # movie, and cpsprobe presses its Allow through Accessibility, which never moves the pointer; the
+    # approval macOS then stores is saved next to the movie.
+    allowed = allow_capture_prompt()
+    print("CPS-SETUP capture prompt %s" % json.dumps(allowed), flush=True)
+    note(phase="capture-prompt", **allowed)
 
     video = os.path.join(OUT, "cps.mov")
     rec = subprocess.Popen(["screencapture", "-v", "-C", "-k", "-x", "-V", str(VIDEO_S), video],

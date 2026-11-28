@@ -67,7 +67,8 @@ extension SettingsModels: PageProvider {
     }
 
     /// The Cloud chat's own connector (Set up Cloud's buttons, ``connectInPlace(_:)``): no page, no team
-    /// keys; a sign-in page opens in the app's own browser (`openSignInPage`), else the person's.
+    /// keys; a sign-in page opens in the app's own browser (`openSignInPage`; nil when no window has a
+    /// pane to open it beside, cmux#63349), else the person's.
     public static func cloudSetup(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
                                   openSignInPage: @escaping @MainActor (URL) async -> (@MainActor () -> Void)?) -> SettingsModels {
         SettingsModels(environment: environment, keys: KeychainModelKeyStore(environment: environment),

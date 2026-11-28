@@ -135,13 +135,13 @@
    "todo": true
   },
   "cmux_tui::cli::cloud_pair_invite_watch": {
-   "none": "a receive-only WebSocket: its upgrade GET to the invite's https (or loopback) API origin (secure_origin) carries only the invite code in the query and the watch secret in sec-websocket-protocol (set_sensitive), plus the build-space header; it sends no frame, and cmux_egress::capture has no WebSocket path to seed"
+   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_pair_invite_watch_tests.rs::seeded_watch_secret_rides_only_in_the_subprotocol"
   },
   "cmux_tui::cli::cloud_start_chat::direct": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/direct_seeded_tests.rs::seeded_secrets_ride_only_where_the_cmux_api_needs_them"
   },
   "cmux_tui::cli::cloud_wire_watch": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_wire_watch_seeded_tests.rs::the_token_rides_only_on_the_ticket_mint_and_the_ticket_only_in_the_subprotocol"
+   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_wire_watch_tests.rs::seeded_secrets_ride_only_where_the_wire_needs_them"
   },
   "cmux_tui::cli::customize::pr": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/customize/pr_tests.rs::seeded_layer_fetch_sends_no_credential"

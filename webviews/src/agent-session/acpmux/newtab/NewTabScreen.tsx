@@ -46,7 +46,8 @@ import {
 } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
-import { NewProjectName, NewProjectFailure, NewProjectUnsupported } from "./NewProjectName";
+import { NewProjectName, NewProjectFailure } from "./NewProjectName";
+import { NewProjectUnsupported } from "./newProjectUnsupported";
 import {
   awaitProjectPreview,
   forgetProjectPreview,
@@ -117,7 +118,8 @@ import {
   attachedRows,
   commandRows,
 } from "./screenModel";
-import { SuggestionGlyph, rowGlyphName } from "./RowGlyph";
+import { SuggestionGlyph } from "./RowGlyph";
+import { rowGlyphName } from "./rowGlyphNames";
 import { Icon } from "../icons/Icon";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
