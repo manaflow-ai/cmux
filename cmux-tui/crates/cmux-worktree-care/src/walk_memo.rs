@@ -149,7 +149,7 @@ pub fn open(dir: &Path) {
         .and_then(|bytes| serde_json::from_slice::<Memo>(&bytes).ok())
         .unwrap_or_default();
     MEMO.with(|m| {
-        *m.borrow_mut() = Some(Open { dir: dir.to_path_buf(), memo, budget: REWALK_BUDGET })
+        *m.borrow_mut() = Some(Open { dir: dir.to_path_buf(), memo, budget: REWALK_BUDGET });
     });
 }
 
