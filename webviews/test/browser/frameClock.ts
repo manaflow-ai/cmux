@@ -7,7 +7,7 @@
 // it, not from how long the host took to draw them: a CPU stall delays the frames, it does not move
 // more text or more pixels into one of them.
 //
-// - Frame `n` after install is at `install + n` slots exactly: `performance.now()`, the time frame
+// - After the first native frame, each frame advances one slot exactly: `performance.now()`, the time frame
 //   callbacks are given and `document.timeline.currentTime` read it (Chromium's own frame times are
 //   rounded to 0.1 ms, which moved a timer due on a frame's edge, as a scripted 400 ms is, a frame
 //   either way), and `performance.now()` reads a timer's due time while that timer runs.
@@ -28,10 +28,15 @@ type Timer = { id: number; due: number; run: () => void };
 export function installFrameClock(): void {
   const realNow = performance.now.bind(performance);
   const realRaf = window.requestAnimationFrame.bind(window);
-  const installed = realNow();
+  // WAAPI startTime uses the document timeline, which can trail wall time while the
+  // controlled display is idle. Anchor the synthetic clock to that same last frame;
+  // a wall-time origin makes an explicitly pinned animation start in the future.
+  const nativeTime = document.timeline.currentTime;
+  const installed = typeof nativeTime === "number" ? nativeTime : realNow();
   let now = installed;
   /// Frames drawn since install, and the latest one's time.
   let frames = 0;
+  let firstFrame: number | undefined;
   let frameNow = installed;
   /// Timers due before this (the next frame's time) run before the next frame.
   let horizon = Number.NEGATIVE_INFINITY;
@@ -96,10 +101,20 @@ export function installFrameClock(): void {
 
   // The first frame callback of every frame (it asks for the next one before any other callback
   // of this one can), so the frame's time is set before anything reads it.
-  const frame = () => {
+  const frame = (nativeFrame: number) => {
     realRaf(frame);
     frames += 1;
-    frameNow = installed + frames * FRAME_MS;
+    // At document creation the native timeline is still zero; its first frame may
+    // arrive much later. Use that frame's origin, then exact slots (not wall time).
+    if (firstFrame === undefined) {
+      firstFrame = nativeFrame;
+      // Installing before the first native frame sees timeline zero. Startup is
+      // not elapsed test time: that first frame consumes one slot, just as before
+      // the rebase. Preserve the pending timers' remaining frame-clock budget.
+      const rebase = firstFrame - installed - FRAME_MS;
+      for (const timer of timers.values()) timer.due += rebase;
+    }
+    frameNow = firstFrame + (frames - 1) * FRAME_MS;
     now = Math.max(now, frameNow);
     horizon = frameNow + FRAME_MS - 0.01;
     startFiring();

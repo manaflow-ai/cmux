@@ -77,6 +77,8 @@ function row(id: string, top: number, height: number): Row {
     dataset: { rowId: id },
     offsetTop: top,
     offsetHeight: height,
+    // These rows remain mounted for the fixture; a placement refresh drops disconnected rows.
+    isConnected: true,
     ownerDocument: doc,
     animations: [] as FakeAnimation[],
     box: { top, bottom: top + height },

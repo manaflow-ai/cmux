@@ -7,6 +7,9 @@ import { JSDOM } from "jsdom";
 import { captureTurnEnd, playTurnEnd, settleTurnEnd } from "../src/agent-session/acpmux/conversation/turnEndFold";
 import { LIVE_THINKING } from "../src/agent-session/acpmux/conversation/turns";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { importWithDom } from "./support/importWithDom";
+
+const { MOTION_SETTLE_MS } = await importWithDom(() => import("../src/motion/scale.generated"));
 
 type Sample = {
   id: string;
@@ -14,6 +17,8 @@ type Sample = {
   left: number;
   top: number;
   bottom: number;
+  visibleTop: number;
+  visibleBottom: number;
   width: number;
   translate: string;
   opacity: number;
@@ -28,6 +33,7 @@ type Scenario = {
   name: string;
   /** Where the kept `worked-u` row was drawn before the turn ended, when it moves (a kept row sliding through the reply's place). */
   wasTop?: number;
+  keptTail?: boolean;
   after: Array<{ id: string; kind: string; top: number; height: number; className?: string }>;
 };
 
@@ -36,7 +42,7 @@ const row = (id: string, kind: AcpmuxRow["kind"] = "assistant"): AcpmuxRow => ({
 const TIMES = Array.from({ length: 151 }, (_, index) => index * 4);
 
 function page() {
-  // These pin the fold's slide mechanics, the `fade` look's (the shipped look, `wipe`, slides nothing).
+  // Pin the shipped fade look so a local experiment override cannot change the probe.
   const dom = new JSDOM('<!doctype html><main data-turn-end-fold="fade"></main>', { pretendToBeVisual: true });
   const thread = dom.window.document.querySelector<HTMLElement>("main")!;
   const proto = dom.window.HTMLElement.prototype;
@@ -63,6 +69,12 @@ function page() {
     const list = animations.get(node) ?? [];
     let translateY = 0;
     let opacity = 1;
+    const inset = (value: unknown) => {
+      const match = /^inset\(([^)]*)\)/.exec(String(value ?? ""));
+      const sides = match?.[1]?.split(/\s+/).map((side) => Number.parseFloat(side) || 0) ?? [];
+      return { top: sides[0] ?? 0, bottom: sides[2] ?? sides[0] ?? 0 };
+    };
+    let clip = inset(node.style.clipPath);
     for (const animation of list) {
       if (animation.cancelled) continue;
       const progress = Math.max(0, Math.min(1, (time - animation.delay) / animation.duration));
@@ -72,12 +84,20 @@ function page() {
         const parseY = (value: unknown) => Number.parseFloat(String(value ?? "0").split(/\s+/)[1] ?? "0") || 0;
         translateY = parseY(first.translate) + (parseY(last.translate) - parseY(first.translate)) * progress;
       }
+      if (first.clipPath !== undefined || last.clipPath !== undefined) {
+        const from = inset(first.clipPath);
+        const to = inset(last.clipPath);
+        clip = {
+          top: from.top + (to.top - from.top) * progress,
+          bottom: from.bottom + (to.bottom - from.bottom) * progress,
+        };
+      }
       if (first.opacity !== undefined || last.opacity !== undefined)
         opacity =
           Number(first.opacity ?? opacity) +
           (Number(last.opacity ?? opacity) - Number(first.opacity ?? opacity)) * progress;
     }
-    return { translateY, opacity };
+    return { translateY, opacity, clip };
   };
   proto.getBoundingClientRect = function () {
     const { translateY } = sampleAnimation(this, currentTime);
@@ -128,7 +148,7 @@ function page() {
     currentTime = time;
     const node = thread.querySelector<HTMLElement>(`[data-row-id="${id}"]`);
     const rect = node?.getBoundingClientRect();
-    const animation = node ? sampleAnimation(node, time) : { opacity: 0, translateY: 0 };
+    const animation = node ? sampleAnimation(node, time) : { opacity: 0, translateY: 0, clip: { top: 0, bottom: 0 } };
     const presentation = node?.querySelector<HTMLElement>(".acpmux-row__message-presentation");
     // An entrance's own fade is its presentation; a row without one shows its group opacity alone.
     const presentationOpacity = node?.classList.contains("acpmux-row--message-enter") ? Math.min(1, time / 80) : 1;
@@ -138,6 +158,8 @@ function page() {
       left: rect?.left ?? 0,
       top: rect?.top ?? 0,
       bottom: rect?.bottom ?? 0,
+      visibleTop: (rect?.top ?? 0) + Math.max(0, animation.clip.top),
+      visibleBottom: (rect?.bottom ?? 0) - Math.max(0, animation.clip.bottom),
       width: rect?.width ?? 0,
       translate: node ? `0 ${animation.translateY}px` : "none",
       opacity: node ? animation.opacity : 0,
@@ -158,11 +180,12 @@ function page() {
       .filter((node) => node.dataset.rowId !== exceptId)
       .map((node) => {
         const rect = node.getBoundingClientRect();
+        const animation = sampleAnimation(node, time);
         return {
           id: node.dataset.rowId ?? "copy",
-          top: rect.top,
-          bottom: rect.bottom,
-          ink: sampleAnimation(node, time).opacity,
+          top: rect.top + Math.max(0, animation.clip.top),
+          bottom: rect.bottom - Math.max(0, animation.clip.bottom),
+          ink: animation.opacity,
         };
       });
   };
@@ -176,7 +199,13 @@ function runScenario(scenario: Scenario) {
   p.draw("answer-old", "assistant", 294, 120);
   p.draw(LIVE_THINKING, "thinking", 414, 22);
   if (scenario.wasTop !== undefined) p.draw("worked-u", "worked", scenario.wasTop, 34);
-  const capture = captureTurnEnd(p.thread, p.thread, [row("worked-u", "worked"), row("answer-old")], "chat")!;
+  if (scenario.keptTail) p.draw("tail", "assistant", 700, 34);
+  const capture = captureTurnEnd(
+    p.thread,
+    p.thread,
+    [row("worked-u", "worked"), row("answer-old"), ...(scenario.keptTail ? [row("tail")] : [])],
+    "chat",
+  )!;
   p.thread.replaceChildren();
   for (const item of scenario.after) p.draw(item.id, item.kind, item.top, item.height, item.className);
   const fold = playTurnEnd(p.thread, capture, "chat", p.thread);
@@ -188,7 +217,7 @@ function runScenario(scenario: Scenario) {
     let who = "";
     for (const other of p.others(TIMES[index]!, "answer-new")) {
       if (other.ink <= 0.05) continue;
-      const shared = Math.min(sample.bottom, other.bottom) - Math.max(sample.top, other.top);
+      const shared = Math.min(sample.visibleBottom, other.bottom) - Math.max(sample.visibleTop, other.top);
       if (shared > px) [px, who] = [shared, other.id];
     }
     return { px, with: who };
@@ -297,6 +326,26 @@ const scenarios: Scenario[] = [
     ],
   },
   {
+    name: "kept-row-crosses-reply-with-own-entrance",
+    wasTop: 520,
+    keptTail: true,
+    after: [
+      { id: "worked-u", kind: "worked", top: 300, height: 34 },
+      { id: "answer-new", kind: "assistant", top: 334, height: 120, className: "acpmux-row--message-enter" },
+      { id: "tail", kind: "assistant", top: 700, height: 34 },
+    ],
+  },
+  {
+    name: "kept-row-crosses-reply-with-row-entrance",
+    wasTop: 520,
+    keptTail: true,
+    after: [
+      { id: "worked-u", kind: "worked", top: 300, height: 34 },
+      { id: "answer-new", kind: "assistant", top: 334, height: 120, className: "acpmux-row--enter" },
+      { id: "tail", kind: "assistant", top: 700, height: 34 },
+    ],
+  },
+  {
     name: "kept-row-slides-up-short",
     wasTop: 380,
     after: [
@@ -313,12 +362,41 @@ const scenarios: Scenario[] = [
   },
 ];
 
-test("T5: every reply new at settle paints in its final place, with no ink over a kept row", () => {
-  const report = scenarios.map(runScenario);
-  for (const result of report) console.log(`reply-settle ${JSON.stringify({ ...result, samples: undefined })}`);
-  for (const result of report) {
+for (const scenario of scenarios)
+  test(`T5: ${scenario.name}: new reply stays in place without overlapping`, () => {
+    const result = runScenario(scenario);
+    console.log(`reply-settle ${JSON.stringify({ ...result, samples: undefined })}`);
     expect(result.firstPaintedOffsetPx, result.name).toBeLessThanOrEqual(0.5);
     expect(result.inkWhileAway, result.name).toBeLessThanOrEqual(0.05);
     expect(result.overlapFrames, `${result.name} overlaps ${result.overlapWith}`).toBe(0);
+  });
+
+// Clips affect visible ink without changing the layout rectangle. Keep an unclipped control so
+// recognizing a fully clipped ghost cannot silently disable collision detection.
+test("T5 detector clips ghost ink while preserving partial and unclipped overlaps", () => {
+  const p = page();
+  try {
+    p.draw("reply", "assistant", 334, 120);
+    const ghost = p.draw("ghost", "thinking", 414, 22);
+    for (const [clip, expected] of [
+      [40, 0],
+      [10, 12],
+      [0, 22],
+    ] as const) {
+      const animation = ghost.animate([{ clipPath: `inset(${clip}px 0 0)` }, { clipPath: `inset(${clip}px 0 0)` }], {
+        delay: 40,
+        duration: MOTION_SETTLE_MS,
+        fill: "both",
+      });
+      const reply = p.frame(8, "reply");
+      const other = p.others(8, "reply")[0]!;
+      expect(Math.max(0, Math.min(reply.visibleBottom, other.bottom) - Math.max(reply.visibleTop, other.top))).toBe(
+        expected,
+      );
+      expect(ghost.getBoundingClientRect().height).toBe(22);
+      animation.cancel();
+    }
+  } finally {
+    p.dom.window.close();
   }
 });

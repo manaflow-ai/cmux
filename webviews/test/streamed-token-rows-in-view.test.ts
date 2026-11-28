@@ -20,7 +20,11 @@ const saved = ["Element", "HTMLElement"].map(
 );
 beforeAll(() => {
   for (const name of ["Element", "HTMLElement"] as const)
-    Object.defineProperty(globalThis, name, { value: dom[name], configurable: true, writable: true });
+    Object.defineProperty(globalThis, name, {
+      value: dom[name],
+      configurable: true,
+      writable: true,
+    });
 });
 afterAll(() => {
   for (const [name, descriptor] of saved)
@@ -170,12 +174,21 @@ describe("a streamed token's layout reads do not follow the rows in view", () =>
       expect((clip as unknown as { keyframes: Keyframe[] } | undefined)?.keyframes[0]).toEqual({
         clipPath: `inset(-4096px -4096px ${ROW}px -4096px)`,
       });
+      const active = counted(() =>
+        glide.place(thread, true, rows[0]!.dataset.rowId, true, undefined, undefined, placed()),
+      );
+      const refresh = counted(() => glide.refresh(thread));
       glide.stop();
-      return { count, still, moved };
+      const idleRefresh = counted(() => glide.refresh(thread));
+      return { count, still, moved, active, refresh, idleRefresh };
     });
     console.log(`PER-UPDATE tail glide reads ${JSON.stringify(passes)}`);
     expect(passes[1]!.still).toBe(passes[0]!.still);
     expect(passes[1]!.moved).toBe(passes[0]!.moved);
+    expect(passes[1]!.active).toBe(passes[0]!.active);
+    expect(passes[1]!.refresh).toBe(passes[0]!.refresh);
+    expect(passes[0]!.idleRefresh).toBe(0);
+    expect(passes[1]!.idleRefresh).toBe(0);
   });
 
   test("the pinned live line: a pass that pins it, and a chase frame that holds it back", () => {
