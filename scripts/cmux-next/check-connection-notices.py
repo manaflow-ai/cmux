@@ -199,6 +199,7 @@ class Unit:
     gated: bool = False
     acted: bool = False
     literal_grace: list[str] = field(default_factory=list)
+    declared: list[str] = field(default_factory=list)  # a Swift unit's declarations, as written (`Outer.Failure`)
 
     @property
     def id(self) -> str:
@@ -420,6 +421,11 @@ def scan(tree: Tree) -> list[Unit]:
         for name, first, last in units_of(path, source):
             uid = f"{path}::{name}"
             unit = units.setdefault(uid, Unit(path, name, surface))
+            if path.endswith(".swift") and name != "<file>":
+                # `extension CloudAgentCredentials.Failure {` declares the words of a nested failure type: the
+                # unit is named for its outer type, so keep what each declaration extends to judge it an outcome.
+                m = SWIFT_TOP.match(lines[first])
+                unit.declared.append(m.group(1) if m else name)
             body = lines[first:last + 1]
             base = len(unit.lines)
             unit.lines.extend(body)
@@ -451,7 +457,15 @@ def scan(tree: Tree) -> list[Unit]:
     for unit in units.values():
         unit.lines = []
         unit.numbers = []
-    return [u for u in units.values() if u.hits and not ERROR_TYPE.search(u.name) and not OUTCOME_UNIT.search(u.name)]
+    return [u for u in units.values() if u.hits and not outcome_unit(u)]
+
+
+def outcome_unit(unit: Unit) -> bool:
+    """An Error/Failure type's words (or an outcome function's): the answer to something the person did. A Swift
+    unit counts when every declaration in it is such a type, nested ones included (`extension X.Failure`)."""
+    if ERROR_TYPE.search(unit.name) or OUTCOME_UNIT.search(unit.name):
+        return True
+    return bool(unit.declared) and all(ERROR_TYPE.search(name.rsplit(".", 1)[-1]) for name in unit.declared)
 
 
 # A component named for the action it draws (`ConnectButton`, `RetryAction`, `CardActions`); a component that only
@@ -544,8 +558,8 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
     for _round in range(4):
         moved = False
         for unit in list(units.values()):
-            if not unit.hits or unit.ok or not is_provider(unit):
-                continue
+            if not unit.hits or unit.ok or not is_provider(unit) or outcome_unit(unit):
+                continue  # an outcome helper's words (`deviceFailureText`) stay an outcome wherever drawn
             members = {member_at(unit, h.index) for h in unit.hits}
             # A label table or strings type passes its words on through two hops; a helper function through one,
             # so a call chain (a host bridge's error key) does not spread to every caller.

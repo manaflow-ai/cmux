@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextDevices
+import CmuxNextWakeups
 import Foundation
+import Observation
 
 /// What the home page reads of the device hub: the hub (while signed in),
 /// this Mac as a host, and whether the build has a hub at all.
@@ -144,7 +146,7 @@ struct MacScreenHomeSnapshot: Equatable {
                                   accessibilityGranted: home.host.accessibilityGranted,
                                   session: hubHost.session, lastError: hubHost.lastError,
                                   showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing),
-                                  hubNote: registered ? nil : Self.hubNote(hub.status))
+                                  hubNote: home.hubNoteQuiet.shown(registered ? nil : Self.hubNote(hub.status)))
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
                                                                                                restoring: source.box.restoring || source.box.connecting)
@@ -599,5 +601,29 @@ extension DeviceDiscovery.Reason {
         }
         guard let detail, !detail.isEmpty else { return text }
         return text + " (" + detail + ")"
+    }
+}
+
+extension MacScreenHomeSnapshot {
+    /// This Mac not on the device hub yet ("Connecting this Mac to the device hub…", or why it could not register
+    /// while cmux keeps trying) usually ends on its own within a second: it says nothing until the stretch has
+    /// lasted the shared bound (``NoticeTiming/connectionQuiet``), as Screen Sharing's cards do (MacScreenCardQuiet).
+    /// The switch still shows busy at once.
+    @MainActor @Observable
+    final class HubNoteQuiet {
+        /// Bumped when the hold ends: the page's observation reads it and draws the note.
+        private(set) var revealed = 0
+        @ObservationIgnored private let hold: QuietHold
+
+        init(clock: any Clock<Duration> = ContinuousClock()) {
+            hold = QuietHold(owner: "mac-screen-home-hub-note", delay: NoticeTiming.connectionQuiet, clock: clock)
+        }
+
+        /// `note` as the page shows it now: nil while this Mac's wait for the hub is younger than the bound.
+        func shown(_ note: String?) -> String? {
+            _ = revealed
+            hold.update(note != nil) { [weak self] in self?.revealed &+= 1 }
+            return hold.held ? nil : note
+        }
     }
 }

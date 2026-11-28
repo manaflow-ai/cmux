@@ -44,6 +44,8 @@ final class MacScreenHomeView: MacScreenThemedView {
     private var permissionsRead: Task<Void, Never>?
     private var readFor: [String] = []
     private var builtWithBorders = true
+    /// Holds This Mac's hub note back for the shared quiet bound (``MacScreenHomeSnapshot/HubNoteQuiet``).
+    let hubNoteQuiet = MacScreenHomeSnapshot.HubNoteQuiet()
     /// Your Devices' Offline group is open (the quiet look folds offline Macs under one row).
     var offlineExpanded = false
     /// The snapshot the rows were last built from (the page's own or a test's), for a rebuild after a local toggle.

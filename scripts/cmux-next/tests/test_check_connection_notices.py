@@ -318,6 +318,55 @@ class WebShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 1, "only the outcome's words are exempt, not any unit named failed*")
 
+    def test_an_outcome_helper_drawn_by_a_component_stays_an_outcome(self):
+        """`deviceFailureText` (ChatGPTDevicePanel.tsx) says why the person's sign-in failed ("…before reconnecting
+        here"); the form that draws it is not a passive connection state for it. A helper named like any other
+        still passes its words on."""
+        for helper, code in (("deviceFailureText", 0), ("deviceNote", 1)):
+            with self.subTest(helper=helper):
+                tree = Tree(self)
+                tree.write(f"{WEB}/DeviceForm.tsx", f"""\
+    function {helper}(failed: boolean) {{
+      return failed ? "Disconnect it there before reconnecting here." : undefined;
+    }}
+    export function DeviceForm({{ failed }}: {{ failed: boolean }}) {{
+      return <output>{{{helper}(failed)}}</output>;
+    }}
+""")
+                got, out = tree.check()
+                self.assertEqual(got, code, out)
+                if code:
+                    self.assertIn("DeviceForm shows a connection state", out)
+
+    def test_the_words_of_a_nested_failure_type_are_an_outcome(self):
+        """`extension CloudAgentCredentials.Failure` (CloudModelConnectionNotice.swift, cmux#54956) says why a
+        connection the person picked was refused: an outcome, as `CloudAgentFailure` would be. The outer type
+        itself, or one with any other declaration in the unit, is still judged."""
+        failure = """\
+    extension CloudAgentCredentials.Failure {
+        func notice() -> String { "This connection is offline. Try again when you are connected." }
+    }
+"""
+        tree = Tree(self)
+        tree.write(f"{MAC}/CloudNotice.swift", failure)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        for other in ("extension CloudAgentCredentials {", "extension CloudAgentCredentials.Status {"):
+            with self.subTest(other=other):
+                tree = Tree(self)
+                tree.write(f"{MAC}/CloudNotice.swift", failure.replace("extension CloudAgentCredentials.Failure {", other))
+                code, out = tree.check()
+                self.assertEqual(code, 1, out)
+                self.assertIn("CloudAgentCredentials shows a connection state", out)
+        tree = Tree(self)
+        tree.write(f"{MAC}/CloudNotice.swift", failure + """\
+    struct CloudAgentCredentials {
+        var label: String { "Reconnecting…" }
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 1, "the outer type's own words in the same unit still fail: " + out)
+
     def test_a_view_drawing_its_own_button_component_carries_the_action(self):
         tree = Tree(self)
         tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
