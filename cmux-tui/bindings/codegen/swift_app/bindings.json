@@ -37,12 +37,7 @@
               "type": "AgentState"
             }
           },
-          "response": "generate",
-          "response_fields": {
-            "agents": {
-              "type": "[AgentStatus]"
-            }
-          }
+          "response": "generate"
         },
         "report-agent": {
           "name": "ReportAgentRequest",
@@ -195,6 +190,76 @@
             }
           },
           "response": "hand-written"
+        }
+      },
+      "objects": {
+        "AgentStatus": {
+          "type": "AgentRecord",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "One `list-agents` row and the `agents` list a snapshot carries: a terminal's agent state."
+          ],
+          "order": [
+            "surface",
+            "terminal_id",
+            "state",
+            "source",
+            "session",
+            "agent",
+            "agent_session_id",
+            "updated_at_ms",
+            "since_ms",
+            "last_prompt"
+          ],
+          "omit": [
+            "status"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "terminal_id": {
+              "type": "ResourceID",
+              "optional": true,
+              "decode": "((try? container.decodeIfPresent(String.self, forKey: .terminalID)) ?? nil).flatMap { $0.isEmpty ? nil : ResourceID(rawValue: $0) }",
+              "doc": [
+                "The terminal's public id (`term_…`, `terminal_id`): a terminal restored or reopened into a",
+                "new tab keeps it while its tab's surface changes, so the store matches a status to the tabs",
+                "that show its terminal by it (cmux#49392). Nil from an older daemon: the surface alone; empty reads nil."
+              ]
+            },
+            "state": {
+              "type": "AgentState",
+              "default": ".unknown",
+              "lenient": true
+            },
+            "source": {
+              "type": "String",
+              "optional": true
+            },
+            "agent_session_id": {
+              "optional": true,
+              "decode": "((try? container.decodeIfPresent(String.self, forKey: .agentSessionID)) ?? nil).flatMap { $0.isEmpty ? nil : $0 }",
+              "doc": [
+                "The harness's own session id a hook reported (`agent_session_id`): hook reports publish no",
+                "`session`, so this is how a `cmux://agent` link finds the terminal. Nil from an older daemon; empty reads nil."
+              ]
+            },
+            "updated_at_ms": {
+              "default": "0"
+            },
+            "since_ms": {
+              "lenient": true
+            },
+            "last_prompt": {
+              "optional": true,
+              "decode": "((try? container.decodeIfPresent(String.self, forKey: .lastPrompt)) ?? nil).flatMap { $0.isEmpty ? nil : $0 }"
+            }
+          }
         }
       }
     },
@@ -596,9 +661,19 @@
             "moves and comes to the front. Build it from a `FloatingPaneSnapshot.Frame` with",
             "`init(pane:mode:frame:transaction:)`."
           ],
-          "order": ["pane", "mode", "x", "y", "w", "h", "transaction"],
+          "order": [
+            "pane",
+            "mode",
+            "x",
+            "y",
+            "w",
+            "h",
+            "transaction"
+          ],
           "fields": {
-            "mode": { "type": "Mode" }
+            "mode": {
+              "type": "Mode"
+            }
           },
           "response": "hand-written"
         },
@@ -2467,6 +2542,238 @@
           "order": [],
           "response": "TerminalRegistryList"
         }
+      },
+      "objects": {
+        "TerminalColorOverrides": {
+          "type": "TerminalColorOverrides",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "App-authored OSC 10/11/12 colors, distinct from session defaults (`TerminalColors.overrides`)."
+          ],
+          "order": [
+            "fg",
+            "bg",
+            "cursor"
+          ]
+        },
+        "TerminalColors": {
+          "type": "TerminalColors",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "Terminal colors captured with a replay or changed live. `nil` means \"use",
+            "the frontend theme\". Keys of `palette` are OSC 4 indexes."
+          ],
+          "order": [
+            "fg",
+            "bg",
+            "cursor",
+            "selection_bg",
+            "selection_fg",
+            "palette",
+            "cursor_style",
+            "cursor_blink",
+            "overrides"
+          ],
+          "fields": {
+            "selection_bg": {
+              "name": "selectionBackground"
+            },
+            "selection_fg": {
+              "name": "selectionForeground"
+            },
+            "palette": {
+              "default": "[:]"
+            },
+            "cursor_style": {
+              "type": "String",
+              "doc": [
+                "`\"block\" | \"underline\" | \"bar\"`. Apply after the replay: the replay omits DECSCUSR."
+              ]
+            }
+          }
+        },
+        "KittyImageAlias": {
+          "type": "KittyImageAlias",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "One kitty image id alias of a replay: the image number a program used, and the id it now has."
+          ]
+        },
+        "KittyGraphicsState": {
+          "type": "KittyGraphicsState",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "Kitty graphics sidecar of a daemon replay (the desktop fork restored it",
+            "with a kitty replay API; GhosttyNextKit restores images through snapshots)."
+          ],
+          "fields": {
+            "replay_cursor_offset": {
+              "doc": [
+                "Feed `data[..<offset]`, install the replay cursors, then feed the rest."
+              ]
+            }
+          },
+          "order": [
+            "image_bytes",
+            "inflight_bytes",
+            "images",
+            "placements",
+            "replay_cursor_offset",
+            "primary_replay_next_image_id",
+            "primary_next_image_id",
+            "alternate_replay_next_image_id",
+            "alternate_next_image_id"
+          ]
+        },
+        "TerminalSizePolicy": {
+          "type": "SizePolicy",
+          "conformances": [
+            "Decodable",
+            "Sendable",
+            "Hashable"
+          ],
+          "omit": [
+            "priority",
+            "fixed"
+          ],
+          "doc": [
+            "The sizing policy of a terminal's size state (`TerminalSizeState.policy`)."
+          ],
+          "fields": {
+            "mode": {
+              "type": "String",
+              "doc": [
+                "`latest`, `smallest`, `largest`, `priority` or `fixed`."
+              ]
+            }
+          }
+        },
+        "TerminalSizeParticipant": {
+          "type": "SizeParticipant",
+          "conformances": [
+            "Decodable",
+            "Sendable",
+            "Hashable"
+          ],
+          "omit": [
+            "user_id",
+            "device_id",
+            "via",
+            "counts_override",
+            "priority_key"
+          ],
+          "doc": [
+            "One view of a terminal in its size state (`TerminalSizeState.participants`)."
+          ],
+          "order": [
+            "id",
+            "display_name",
+            "device_kind",
+            "device_name",
+            "viewport",
+            "counts"
+          ],
+          "fields": {
+            "device_kind": {
+              "type": "String",
+              "optional": true,
+              "doc": [
+                "`mac`, `iphone`, `ipad`, `tui`, `browser`, `linux`, `windows` or `unknown`."
+              ]
+            },
+            "counts": {
+              "optional": true
+            }
+          }
+        },
+        "TerminalSizeState": {
+          "type": "SizeState",
+          "conformances": [
+            "Decodable",
+            "Sendable",
+            "Hashable"
+          ],
+          "doc": [
+            "The daemon's shared-sizing state of one terminal (`size-state`, docs/shared-terminal-sizing.md",
+            "\"Size state\"): its grid, who sets it, and every view of it. A view reads it only to tell its",
+            "user who the grid is sized for (plans/cmux-next/sync-ux/DESIGN.md 2.6)."
+          ],
+          "order": [
+            "generation",
+            "cols",
+            "rows",
+            "owners",
+            "policy",
+            "reason",
+            "participants"
+          ],
+          "fields": {
+            "cols": {
+              "type": "Int"
+            },
+            "rows": {
+              "type": "Int"
+            },
+            "owners": {
+              "default": "[]"
+            },
+            "policy": {
+              "optional": true
+            },
+            "reason": {
+              "type": "String",
+              "optional": true,
+              "doc": [
+                "Why the grid has this size: `latest`, `smallest`, `largest`, `priority`, `fixed`, `held` or",
+                "`priority-fallback` (no ranked view counts, so the grid follows activity)."
+              ]
+            },
+            "participants": {
+              "default": "[]"
+            }
+          }
+        },
+        "ClipboardReadHost": {
+          "type": "TerminalClipboardHost",
+          "doc": [
+            "The host a clipboard read names: its kind and, off this Mac, its name."
+          ],
+          "conformances": [
+            "Decodable",
+            "Sendable",
+            "Hashable"
+          ],
+          "order": [
+            "kind",
+            "name"
+          ],
+          "fields": {
+            "kind": {
+              "type": "ClipboardReadHostKind",
+              "default": ".unknown",
+              "decode": "(try container.decodeIfPresent(String.self, forKey: .kind)).flatMap(ClipboardReadHostKind.init(rawValue:)) ?? .unknown",
+              "doc": [
+                "Fails closed without claiming an unknown origin is remote."
+              ]
+            }
+          }
+        }
       }
     },
     "Conversations": {
@@ -2936,7 +3243,7 @@
               "type": "Int"
             }
           },
-          "response": "hand-written"
+          "response": "SetTerminalCommandHistoryResponse"
         },
         "list-terminal-commands": {
           "name": "ListTerminalCommandsRequest",
@@ -2952,7 +3259,7 @@
               "type": "Int"
             }
           },
-          "response": "hand-written"
+          "response": "ListTerminalCommandsResponse"
         }
       },
       "objects": {
@@ -2973,6 +3280,39 @@
           ],
           "fields": {
             "exit_code": {
+              "type": "Int"
+            }
+          }
+        },
+        "SetTerminalCommandHistoryResponse": {
+          "result": "set-terminal-command-history",
+          "doc": [
+            "`set-terminal-command-history` data."
+          ],
+          "order": [
+            "enabled",
+            "retention_days"
+          ],
+          "fields": {
+            "retention_days": {
+              "type": "Int"
+            }
+          }
+        },
+        "ListTerminalCommandsResponse": {
+          "result": "list-terminal-commands",
+          "doc": [
+            "`list-terminal-commands` data."
+          ],
+          "order": [
+            "commands",
+            "truncated",
+            "deletions",
+            "registry_id",
+            "retention_days"
+          ],
+          "fields": {
+            "retention_days": {
               "type": "Int"
             }
           }
@@ -3304,6 +3644,32 @@
               "doc": [
                 "SF Symbol name or one emoji grapheme."
               ]
+            }
+          }
+        },
+        "FloatingPaneSnapshot": {
+          "type": "FloatingPane",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "One floating pane of a screen (`floating-panes-v1`, `Screen.floating[]`): a leaf of the screen's layout that the",
+            "tiled layout leaves out, shown above the tiled panes in its frame. The frame is as the daemon sent it; not checked",
+            "against the layout, the range or repeats. The daemon bounds each number (each is in `0...1` today).",
+            "FloatingPaneSnapshot.swift groups x, y, w and h as `frame`."
+          ],
+          "order": [
+            "pane",
+            "x",
+            "y",
+            "w",
+            "h"
+          ],
+          "fields": {
+            "pane": {
+              "type": "PaneID"
             }
           }
         },
@@ -3838,6 +4204,29 @@
               "doc": [
                 "Not on `Tab.notification`: the app fills it from the `list-notifications` ledger (`created_at_ms`)."
               ]
+            }
+          }
+        },
+        "CellSize": {
+          "type": "Size",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Codable"
+          ],
+          "doc": [
+            "A terminal grid size in cells (`Size`)."
+          ],
+          "order": [
+            "cols",
+            "rows"
+          ],
+          "fields": {
+            "cols": {
+              "type": "Int"
+            },
+            "rows": {
+              "type": "Int"
             }
           }
         }

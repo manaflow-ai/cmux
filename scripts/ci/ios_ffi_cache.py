@@ -9,8 +9,9 @@ step on the same worker had already built.
 
     ios_ffi_cache.py key     ROOT INPUTS       print the key of ROOT's FFI inputs and write them to
                                                INPUTS (exit 3: no key, build as before)
-    ios_ffi_cache.py restore ROOT KEY          install the cached build for KEY from this worker's cache, else
-                                               the fleet's component store (exit 0 hit, 1 miss)
+    ios_ffi_cache.py restore ROOT KEY [INPUTS] install the cached build for KEY from this worker's cache, else
+                                               the fleet's component store (exit 0 hit, 1 miss); with INPUTS,
+                                               claim the key on a miss or wait for the step that claimed it
     ios_ffi_cache.py probe   INPUTS TIP        write the same paths' trees on feat-cmux-next's tip to
                                                TIP (run beside the build on a miss)
     ios_ffi_cache.py store   ROOT INPUTS TIP   publish ROOT's fresh build under its key
@@ -107,6 +108,9 @@ FLEET_FILES = (XCF_TAR, SWIFT_FILE)
 FLEET_MAX_MANIFEST = 16 << 10  # the controller's limit
 FLEET_MAX_FILE = 2 << 30
 FLEET_DOWNLOAD_SECONDS = 150  # a miss builds in ~230-600 s; a slower download is not worth waiting for
+CLAIM_WAIT_SECONDS = 1200  # how long a step waits for another step's claimed build (a miss: 140-1552 s, median 385)
+CLAIM_READ_SECONDS = 30  # one waiting read of a claim (the controller answers at once when the entry is written)
+CLAIM_FILE = ".ios-ffi-claim"  # in $CI_JOB_DIR: the key this step claimed (store releases it if it stores nothing)
 WORKSPACE = "cmux-next-ios/rust"
 XCFRAMEWORK = "cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework"
 SWIFT = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift"
@@ -368,7 +372,7 @@ def cache_lock(cache, exclusive, wait=True):
             fcntl.flock(f, fcntl.LOCK_UN)
 
 
-def restore(root, key):
+def restore(root, key, inputs_file=None):
     cache = cache_root()
     if cache is None or not valid_key(key):
         print("ios-ffi cache: off (no CMUX_CI_CACHE_DIR)" if cache is None else "ios-ffi cache: bad key")
@@ -377,6 +381,8 @@ def restore(root, key):
     fleet = ""
     if not entry.is_dir():
         fleet = fleet_fetch(cache, key)
+        if not fleet and inputs_file:
+            fleet = coalesce(cache, key, json.loads(pathlib.Path(inputs_file).read_text()).get("manifest"))
         if not fleet:
             print("ios-ffi cache: miss %s" % key[:12])
             return 1
@@ -588,6 +594,121 @@ def fleet_fetch(cache, key):
     return "fleet store%s, %d MiB in %.1f s" % (built, total >> 20, time.monotonic() - started)
 
 
+# Build claims (2026-11-28, cmux#13742). With the fleet tier live, 5 of the 6 repeat builds in 8.6 h were steps that
+# missed one key at the same time on different workers and each built it. On a miss a step now claims the key at the
+# controller (hq components_claim.go; the claim takes the proofs of the write it announces: the step's worker node,
+# a running simulator step, input trees of its commit). The first claim builds; a step that finds the key claimed
+# waits for its entry, at most CLAIM_WAIT_SECONDS (CMUX_IOS_FFI_CLAIM_WAIT), and builds it too past that or when
+# the holder ends without one. Only a step whose worker publishes a marked build while the step runs claims
+# (CMUX_CI_COMPONENT_EARLY=1 with CMUX_CI_JOB_ID, hq components_ready.go): another worker's entry would come only
+# after the step's tests. Any other step still waits. Every failure to read or claim builds, as before.
+
+def _claim(method, key, body=None, wait=0):
+    """One claim call; the controller's answer ({"state": free|mine|claimed|present, ...}) or None."""
+    import urllib.error
+    import urllib.request
+    url = "%s/v1/components/%s/%s/%s/claim" % (controller_base(), FLEET_NAMESPACE, COMPONENT, key)
+    if wait:
+        url += "?wait=%d" % wait
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method,
+                                 headers={"User-Agent": "cmux-ios-ffi-cache", "Content-Type": "application/json"})
+    try:
+        # A claim reads the step's commit at the controller (a cold fetch takes up to ~45 s); a waiting read
+        # answers by its wait. Any other answer than 200 or 409 (an older controller's 400/405, a 503) builds.
+        with urllib.request.urlopen(req, timeout=wait + 15 if method == "GET" else 50) as res:
+            answer = json.loads(res.read(64 << 10))
+    except urllib.error.HTTPError as e:
+        if e.code != 409:
+            print("ios-ffi cache: claim %s answered %d (%s)" % (key[:12], e.code, e.read(300).decode("utf-8", "replace").strip()))
+            return None
+        try:
+            answer = json.loads(e.read(64 << 10))
+        except ValueError:
+            return None
+    except (OSError, ValueError, http.client.HTTPException) as e:
+        print("ios-ffi cache: claim %s unavailable (%s)" % (key[:12], e))
+        return None
+    return answer if isinstance(answer, dict) and isinstance(answer.get("state"), str) else None
+
+
+def claim_job():
+    """The step's job id when its worker lets it claim, else ""."""
+    job = os.environ.get("CMUX_CI_JOB_ID", "")
+    ok = os.environ.get("CMUX_CI_COMPONENT_EARLY") == "1" and os.environ.get("CI_JOB_DIR") and 0 < len(job) <= 64
+    return job if ok else ""
+
+
+def claimed(key):
+    """Whether this step holds the claim of KEY."""
+    try:
+        return (pathlib.Path(os.environ["CI_JOB_DIR"]) / CLAIM_FILE).read_text().strip() == key
+    except (KeyError, OSError):
+        return False
+
+
+def release_claim(key, manifest):
+    """Drop this step's claim of KEY (its build was not exported), so a waiting step builds it now."""
+    if not claimed(key) or not isinstance(manifest, str):
+        return
+    (pathlib.Path(os.environ["CI_JOB_DIR"]) / CLAIM_FILE).unlink()
+    answer = _claim("DELETE", key, {"manifest": manifest, "job": claim_job()})
+    if answer is not None:
+        print("ios-ffi cache: released the claim of %s" % key[:12])
+
+
+def coalesce(cache, key, manifest):
+    """On a miss: claim KEY (return "": build it), or wait for the step that claimed it and install its entry
+    (a description of the entry), or give up waiting ("": build it too)."""
+    if remote_off() or not isinstance(manifest, str) or hashlib.sha256(manifest.encode()).hexdigest() != key:
+        return ""
+    job = claim_job()
+    body = {"manifest": manifest, "job": job}
+
+    def take():
+        return _claim("POST", key, body) if job else _claim("GET", key)
+
+    try:
+        budget = float(os.environ.get("CMUX_IOS_FFI_CLAIM_WAIT", CLAIM_WAIT_SECONDS))
+    except ValueError:
+        budget = CLAIM_WAIT_SECONDS
+    started = time.monotonic()
+    answer, holder = take(), None
+    reads = int(budget / CLAIM_READ_SECONDS) * 4 + 8  # a controller that answers a waiting read at once is no wait
+    while answer is not None:
+        state = answer["state"]
+        if state == "mine":
+            try:
+                (pathlib.Path(os.environ["CI_JOB_DIR"]) / CLAIM_FILE).write_text(key + "\n")
+            except OSError as e:
+                print("ios-ffi cache: claim of %s not recorded (%s)" % (key[:12], e))
+            print("ios-ffi cache: claimed %s; steps that miss it now wait for this build" % key[:12])
+            return ""
+        if state == "present":
+            waited = time.monotonic() - started
+            fleet = fleet_fetch(cache, key)
+            if fleet and holder:
+                return "%s, after waiting %.0f s for its build" % (fleet, waited)
+            return fleet
+        if state != "claimed":
+            return ""  # free and this step may not claim: build
+        left = budget - (time.monotonic() - started)
+        who = "step %s on %s" % (str(answer.get("job", "?"))[:32], str(answer.get("worker", "?"))[:64])
+        if holder is None:
+            holder = who
+            print("ios-ffi cache: %s is being built by %s; waiting for it (at most %d s)" % (key[:12], who, budget),
+                  flush=True)
+        reads -= 1
+        if left <= 0 or reads < 0:
+            print("ios-ffi cache: waited %.0f s for %s of %s; building it too" % (time.monotonic() - started, who, key[:12]))
+            return ""
+        answer = _claim("GET", key, wait=max(1, min(CLAIM_READ_SECONDS, int(left + 0.999))))
+        if answer is not None and answer["state"] == "free":
+            print("ios-ffi cache: %s ended without an entry for %s" % (who, key[:12]))
+            answer = take()
+    return ""
+
+
 def write_tar(src, target):
     """SRC (a directory) as an uncompressed archive whose bytes depend only on the files: sorted, no owner, mtime 0."""
     import tarfile
@@ -615,13 +736,13 @@ def export(entry, key, manifest):
     """Leave ENTRY (a build this step published locally) for the worker to publish to the fleet store. Never fatal."""
     job = os.environ.get("CI_JOB_DIR", "")
     if not job or remote_off() or not isinstance(manifest, str):
-        return
+        return False
     if hashlib.sha256(manifest.encode()).hexdigest() != key or len(manifest.encode()) > FLEET_MAX_MANIFEST:
         print("ios-ffi cache: %s not exported for the fleet store (manifest is not its key or too large)" % key[:12])
-        return
+        return False
     out = pathlib.Path(job) / EXPORT_DIR / COMPONENT / key
     if out.exists():
-        return
+        return True
     try:
         out.parent.mkdir(parents=True, exist_ok=True)
         staging = pathlib.Path(tempfile.mkdtemp(prefix=".incoming.", dir=out.parent))
@@ -632,10 +753,14 @@ def export(entry, key, manifest):
             os.rename(staging, out)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
+        # Last, beside the finished output: a worker that publishes while the step runs takes only a marked one
+        # (hq components_ready.go), so steps waiting on this step's claim get the entry minutes before the step ends.
+        (out.parent / (key + ".ready")).write_bytes(b"")
     except (OSError, ValueError) as e:
         print("ios-ffi cache: %s not exported for the fleet store (%s)" % (key[:12], e))
-        return
+        return False
     print("ios-ffi cache: %s left for the fleet store" % key[:12])
+    return True
 
 
 def last_use(entry):
@@ -684,8 +809,24 @@ def store(root, inputs_file, tip_file):
         return 0
     recorded = json.loads(pathlib.Path(inputs_file).read_text())
     key, want = recorded["key"], recorded["trees"]
-    if not valid_key(key) or (cache / key).is_dir():
+    if not valid_key(key):
         return 0
+    exported = False
+    try:
+        if (cache / key).is_dir():
+            # Another step on this worker stored the key first: the steps waiting on this step's claim still get it.
+            if claimed(key) and verify(cache / key, key)[0]:
+                exported = export(cache / key, key, recorded.get("manifest"))
+            return 0
+        exported = store_build(root, cache, key, want, recorded, tip_file)
+        return 0
+    finally:
+        if not exported:
+            release_claim(key, recorded.get("manifest"))
+
+
+def store_build(root, cache, key, want, recorded, tip_file):
+    """Publish ROOT's build of KEY in the local cache and export it; whether it was exported for the fleet store."""
     try:
         tip = json.loads(pathlib.Path(tip_file).read_text())
     except (OSError, ValueError):
@@ -695,7 +836,7 @@ def store(root, inputs_file, tip_file):
     dirty = git(root, "status", "--porcelain", "--untracked-files=all", "--", *paths).stdout.strip()
     if dirty or trees(root, "HEAD", paths) != want:
         print("ios-ffi cache: not stored, the FFI inputs changed during the build")
-        return 0
+        return False
     # Landed or a branch's: either is stored under its own key (see the module doc).
     landed = tip.get("trees") == want
     if not tip:
@@ -709,7 +850,7 @@ def store(root, inputs_file, tip_file):
     for out in OUTPUTS:
         if not (root / out).exists():
             print("ios-ffi cache: not stored, no " + out)
-            return 0
+            return False
     cache.mkdir(parents=True, exist_ok=True)
     tmp = pathlib.Path(tempfile.mkdtemp(prefix=".tmp.", dir=cache))
     try:
@@ -724,17 +865,18 @@ def store(root, inputs_file, tip_file):
         except OSError as e:
             shutil.rmtree(tmp, ignore_errors=True)
             if verify(cache / key, key)[0]:
-                return 0  # another step published the key first; either build serves
+                # Another step published the key first; either build serves (and goes to the store if claimed).
+                return export(cache / key, key, recorded.get("manifest")) if claimed(key) else False
             raise RuntimeError("could not publish %s: %s" % (key[:12], e))
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
     print("ios-ffi cache: stored %s (%s)" % (key[:12], how))
-    export(cache / key, key, recorded.get("manifest"))
+    exported = export(cache / key, key, recorded.get("manifest"))
     removed = prune(cache)
     if removed:
         print("ios-ffi cache: pruned %d old entries (%s)" % (len(removed), ", ".join(k[:12] for k in removed)))
-    return 0
+    return exported
 
 
 def tree_bytes(base):
@@ -875,7 +1017,7 @@ def build(root, rc_file, argv):
     return run_build(argv, rc_file)
 
 
-USAGE = """usage: ios_ffi_cache.py key ROOT INPUTS | restore ROOT KEY | probe INPUTS TIP | store ROOT INPUTS TIP
+USAGE = """usage: ios_ffi_cache.py key ROOT INPUTS | restore ROOT KEY [INPUTS] | probe INPUTS TIP | store ROOT INPUTS TIP
        | build ROOT RC CMD..."""
 
 
@@ -883,6 +1025,12 @@ def main(argv):
     arity = {"key": 3, "restore": 3, "probe": 3, "store": 4}
     if argv and argv[0] == "build" and len(argv) >= 4:
         return build(pathlib.Path(argv[1]).resolve(), argv[2], argv[3:])
+    if argv and argv[0] == "restore" and len(argv) == 4:
+        try:
+            return restore(pathlib.Path(argv[1]).resolve(), argv[2], argv[3])
+        except Exception as e:  # never fatal for the step: exit 5 warns and builds
+            print("ios-ffi cache: restore failed: %s: %s" % (type(e).__name__, e), file=sys.stderr)
+            return 5
     if not argv or arity.get(argv[0]) != len(argv):
         print(USAGE, file=sys.stderr)
         return 2

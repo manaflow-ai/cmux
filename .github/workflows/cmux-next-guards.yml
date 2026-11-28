@@ -1298,14 +1298,20 @@ jobs:
   # (cmux#61127 fixed it; the nightly feed stood still). This runs the same script the nightly runs
   # (scripts/ci/app-store-shelf-check.sh) at the pull request's own head, draft or ready
   # (tests/test_head_tier.py KEEP_ON_EVERY_HEAD). A change that reaches no shelf input ends after a checkout and a diff.
+  # Heavy-at-land rule (scripts/ci/head_tier.py, CI_HEAVY_AT_LAND, on unless 0; Leo, 2026-11-21: "whatever we need to
+  # cut, we cut."): on a pull request it runs on the `labeled` event that adds ready-to-land or full-ci, at that head
+  # (land-judge pulses ready-to-land at the head it lands), so the head that merges is still checked, which is what
+  # cmux#46903 lacked; earlier pushes skip it. On 11-28 07Z..11:30Z it spent ~1.8k runner-min/day on every head that
+  # reached a shelf input. CI_HEAVY_AT_LAND=0: every such head again.
   app-store-shelf-pr:
     needs: [coalesce, workflow-start-lint]
     name: cmux-next App Store shelf (every listing installs and shows something)
-    if: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && (needs.workflow-start-lint.outputs.app_store_shelf != 'false' || vars.APP_STORE_SHELF_EVERY_HEAD == '1') && !(github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && (needs.workflow-start-lint.outputs.app_store_shelf != 'false' || vars.APP_STORE_SHELF_EVERY_HEAD == '1') && ((github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) || ((vars.CI_HEAVY_AT_LAND || '1') == '0' && github.event.action != 'labeled')) && !(github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     permissions:
       contents: read
+      actions: read
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CMUX_GHOSTTY_SRC: ""
@@ -1344,10 +1350,24 @@ jobs:
       # merged into the base in between: run 46051655127 (cmux#62280, no shelf input) diffed fb1aef0c against a
       # merge onto 6efe6629 and built the shelf for 26 min. 186 of 1,013 runs on 11-27 16-20Z ran the full job,
       # 2,615 of the job's 2,965 min. No first parent (an unreadable checkout) runs the shelf.
+      # A reopen, ready-to-land or other event at a head this job already passed (same head sha, this workflow file
+      # unchanged on the base since) runs nothing past here: scripts/ci/same_head_job.py, the PR router's same-head
+      # rule (cmux#64125) for a job on its own trigger. About 900 runner-min a day of shelf reruns at a passed head in
+      # the 24 h to 11-28 03Z. full-ci or vars.CI_SAME_HEAD_RERUN_ONLY_RED=0 runs it; anything unread runs it.
+      - name: Same head already passed
+        id: same
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_SAME_HEAD_RERUN_ONLY_RED: ${{ vars.CI_SAME_HEAD_RERUN_ONLY_RED }}
+        run: python3 scripts/ci/same_head_job.py --job "cmux-next App Store shelf (every listing installs and shows something)"
+
       - name: Changed shelf inputs
         id: inputs
         run: |
           set -euo pipefail
+          if [ "${{ steps.same.outputs.skip }}" = true ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           if ! base="$(git rev-parse --verify -q 'HEAD^1^{commit}')"; then
             echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
