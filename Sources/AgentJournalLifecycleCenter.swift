@@ -42,7 +42,9 @@ final class AgentJournalLifecycleCenter: Sendable {
         self.init(databaseURL: Self.defaultDatabaseURL())
     }
 
-    init(databaseURL: URL?) {
+    /// `notificationDefaults` holds the Notifications settings the consumer reads;
+    /// tests pass their own suite so they never share `UserDefaults.standard`.
+    init(databaseURL: URL?, notificationDefaults: UserDefaults = .standard) {
         guard let databaseURL else {
             self.lazyStore = nil
             self.operations = nil
@@ -96,7 +98,13 @@ final class AgentJournalLifecycleCenter: Sendable {
                     Self.canonicalized(event, aliases: eventAliases),
                     state: state
                 ) else { return false }
-                let decision = notifications.apply(canonical)
+                // Agent Finished "Always" notifies a turn as it ends, even while its
+                // background work is still running (#24386).
+                let decision = notifications.apply(
+                    canonical,
+                    deliversPendingCompletions: AgentNotificationDelivery(defaults: notificationDefaults)
+                        .deliversPendingCompletions
+                )
                 if decision.disposition != .stale, decision.projectsLifecycle,
                    let application = Self.reduceIngest(notifications.lifecycleEvent(canonical), sourceKind: canonical.kind,
                        aliases: eventAliases,
@@ -128,7 +136,7 @@ final class AgentJournalLifecycleCenter: Sendable {
                     return false
                 }
                 guard !Task.isCancelled,
-                      let delivery = await MainActor.run(body: { Self.notificationAdmission(notificationEvent.draft) }) else { return false }
+                      let delivery = await MainActor.run(body: { Self.notificationAdmission(notificationEvent.draft, defaults: notificationDefaults) }) else { return false }
                 guard Self.claimNotification(notificationEvent, decision: decision, store: store) else { return false }
                 if deliver {
                     await MainActor.run { Self.deliverNotification(notificationEvent, identity: identity, admission: delivery) }
@@ -231,7 +239,8 @@ final class AgentJournalLifecycleCenter: Sendable {
                         reducer: reducer,
                         replayPolicy: replayPolicy,
                         state: &state,
-                        notifications: &notifications
+                        notifications: &notifications,
+                        notificationDefaults: notificationDefaults
                     )
                     if !assignments.isEmpty {
                         await MainActor.run {

@@ -58,6 +58,10 @@ struct AgentNotificationDelivery: Sendable {
         return true
     }
 
+    /// Whether a turn completion with background work still pending is
+    /// delivered when it happens (Agent Finished "Always").
+    var deliversPendingCompletions: Bool { turnMode == .always }
+
     func allows(category: AgentNotifyCategory?, pending: Bool) -> Bool {
         guard let category else { return true }
         return agentNotificationShouldDeliver(category: category, pending: pending,
