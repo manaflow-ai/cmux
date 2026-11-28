@@ -50,6 +50,8 @@ Usage:
   python3 scripts/ci/runner_routing_table.py check
   python3 scripts/ci/runner_routing_table.py inventory   # print routed jobs
 """
+# guard-inputs: .github/workflows/
+# iter_jobs() walks WORKFLOWS, or a test's own fixture folder.
 
 from __future__ import annotations
 

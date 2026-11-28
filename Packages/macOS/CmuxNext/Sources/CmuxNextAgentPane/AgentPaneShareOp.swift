@@ -15,6 +15,11 @@ public nonisolated enum AgentPaneShareOp: Equatable, Sendable {
     case invite(account: String, role: String)
     /// `{op:"uninvite", account}`: the account leaves every share of this chat.
     case uninvite(account: String)
+    /// `{op:"approve", account, role}`: an account that asked for access is invited as `role` (`view`
+    /// when absent) on every share of this chat it asked on.
+    case approve(account: String, role: String)
+    /// `{op:"decline", account}`: its requests on this chat are declined (it is not told).
+    case decline(account: String)
     /// `{op:"revoke", shareId}`: one share of this chat stops working.
     case revoke(shareId: String)
     /// `{op:"manage"}`: Settings at its Shared links card.
@@ -23,8 +28,8 @@ public nonisolated enum AgentPaneShareOp: Equatable, Sendable {
     /// A link or an invite shows the chat to someone new: only the person's click makes one.
     public var needsGesture: Bool {
         switch self {
-        case .link, .invite, .team: true
-        case .state, .uninvite, .revoke, .manage: false
+        case .link, .invite, .team, .approve: true
+        case .state, .uninvite, .decline, .revoke, .manage: false
         }
     }
 
@@ -54,6 +59,12 @@ public nonisolated enum AgentPaneShareOp: Equatable, Sendable {
         case "uninvite":
             guard let account = text("account", limit: 320) else { return nil }
             self = .uninvite(account: account)
+        case "approve":
+            guard let account = text("account", limit: 320), let role = role(["view", "talk"], default: "view") else { return nil }
+            self = .approve(account: account, role: role)
+        case "decline":
+            guard let account = text("account", limit: 320) else { return nil }
+            self = .decline(account: account)
         case "revoke":
             guard let shareId = text("shareId", limit: 128) else { return nil }
             self = .revoke(shareId: shareId)

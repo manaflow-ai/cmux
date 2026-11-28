@@ -175,7 +175,21 @@ pub(super) fn invite_chat(
             }
         };
         let fresh = made.is_some();
-        let (mut answer, changed) = invite_in(all, &share_id, account, role, now, &connected)?;
+        // The chat's other shares that invite the account take the role too: one role per
+        // person on a chat, however many invite shares it has.
+        let others: Vec<String> = all
+            .iter()
+            .filter(|s| s.session == session && s.share_id != share_id && s.live().is_ok())
+            .filter(|s| {
+                s.invitees.iter().any(|i| i.account == account && i.state == InviteState::Invited)
+            })
+            .map(|s| s.share_id.clone())
+            .collect();
+        let (mut answer, mut changed) =
+            invite_in(all, &share_id, account.clone(), role, now, &connected)?;
+        for other in others {
+            changed |= invite_in(all, &other, account.clone(), role, now, &connected)?.1;
+        }
         answer.set("created_share", json!(fresh));
         let expires_at = find(all, &share_id)?.expires_at;
         answer.set("expires_at", json!(expires_at));
@@ -272,7 +286,20 @@ pub(super) fn invite_in(
     share.requests.retain(|r| r.account != account);
     if let Some(invitee) = share.invitees.iter_mut().find(|i| i.account == account) {
         if invitee.state == InviteState::Invited {
-            return if invitee.role == role { Ok((answer, false)) } else { Err("share.invited") };
+            if invitee.role == role {
+                return Ok((answer, false));
+            }
+            // Another role: the invite keeps its place (the account never loses access on the
+            // way), and the guests it joined as take the new role. Their connections close at
+            // the next `settle` (`LinkShares::note_ended`), so each binds again with an author
+            // of that role; none keeps one its role no longer matches.
+            invitee.role = role;
+            for guest in share.guests.iter_mut() {
+                if guest.invited() && guest.account.as_ref() == Some(&account) {
+                    guest.role = Some(role);
+                }
+            }
+            return Ok((answer, true));
         }
         *invitee = Invitee {
             account: account.clone(),

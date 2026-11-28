@@ -11,6 +11,7 @@ import { ShareDialogBody } from "./ShareDialog";
 import { translate } from "../i18n";
 import { shareView, type ChatShare, type ShareView } from "./shareState";
 import { settleReact } from "../../../../test/support/domTeardown";
+
 import { actTurn, until } from "../../../../test/support/until";
 
 let dom: JSDOM | undefined;
@@ -82,6 +83,7 @@ const shared: ShareView = {
   links: [],
   inviteUrl: "https://share.example.com/i/1",
   guestsNow: 0,
+  requests: [],
 };
 
 async function render(calls: string[], view = shared, busy = false) {
@@ -96,6 +98,8 @@ async function render(calls: string[], view = shared, busy = false) {
         onInvite={() => {}}
         onRole={(account, role) => calls.push(`role ${account} ${role}`)}
         onRemove={(account) => calls.push(`remove ${account}`)}
+        onApprove={() => {}}
+        onDecline={() => {}}
         onGeneral={(access) => calls.push(`general ${access}`)}
         onTeam={(teamId, role) => calls.push(`team ${teamId} ${role}`)}
         onTeamCopy={(url) => calls.push(`copy ${url}`)}
@@ -207,6 +211,8 @@ test("a pending invitee's row says they haven't opened it yet", async () => {
         onInvite={() => {}}
         onRole={() => {}}
         onRemove={() => {}}
+        onApprove={() => {}}
+        onDecline={() => {}}
         onGeneral={() => {}}
         onCopy={() => {}}
         onDone={() => {}}
@@ -232,6 +238,8 @@ test("a notice shows muted on the status line", async () => {
         onInvite={() => {}}
         onRole={() => {}}
         onRemove={() => {}}
+        onApprove={() => {}}
+        onDecline={() => {}}
         onGeneral={() => {}}
         onCopy={() => {}}
         onDone={() => {}}
@@ -242,6 +250,83 @@ test("a notice shows muted on the status line", async () => {
   expect(line.textContent).toBe("@sam changed to Can send.");
   expect(line.getAttribute("role")).toBeNull();
   expect(line.hasAttribute("data-hint")).toBe(true);
+});
+
+const asking: ShareView = {
+  ...shared,
+  requests: [
+    { account: "mei@example.com", name: "Mei Chen", avatarUrl: null, requestedAt: 1 },
+    { account: "@jordan", name: "", avatarUrl: null, requestedAt: 2 },
+    { account: "riley@example.com", name: "Riley Park", avatarUrl: null, requestedAt: 3 },
+  ],
+};
+
+async function renderAsks(view: ShareView, calls: string[]) {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ShareDialogBody
+        chat="Add retries"
+        view={view}
+        onInvite={() => {}}
+        onRole={() => {}}
+        onRemove={() => {}}
+        onApprove={(account, role) => calls.push(`approve ${account} ${role}`)}
+        onDecline={(account) => calls.push(`decline ${account}`)}
+        onGeneral={() => {}}
+        onCopy={() => {}}
+        onDone={() => {}}
+      />,
+    );
+  });
+  return container;
+}
+
+// RFD 0077 D5: requests sit above People with access, the band caps at two rows (the rest scroll),
+// and the people band is told how much room they take so the dialog keeps its height.
+test("access requests sit above People with access in a band of at most two rows", async () => {
+  const container = await renderAsks(asking, []);
+  const sections = [...container.querySelectorAll(".share-dialog__section")];
+  expect(sections[0]?.classList.contains("share-dialog__requests")).toBe(true);
+  expect(sections[0]?.getAttribute("data-rows")).toBe("2");
+  expect(sections[1]?.getAttribute("data-asks")).toBe("2");
+  expect(container.querySelectorAll(".share-dialog__ask")).toHaveLength(3);
+  expect(sections[0]?.querySelector(".share-dialog__count")?.textContent).toBe("3");
+  // A request with no name shows its account once.
+  const names = [...container.querySelectorAll(".share-dialog__ask .share-dialog__name")].map((n) => n.textContent);
+  expect(names).toEqual(["Mei Chen", "@jordan", "Riley Park"]);
+});
+
+test("no requests: no band", async () => {
+  const container = await renderAsks(shared, []);
+  expect(container.querySelector(".share-dialog__requests")).toBeNull();
+  expect(container.querySelector('[data-asks="0"]')).not.toBeNull();
+});
+
+test("Approve grants Can view unless the row picks Can send; Decline is one press", async () => {
+  const calls: string[] = [];
+  const container = await renderAsks(asking, calls);
+  const rows = [...container.querySelectorAll<HTMLElement>(".share-dialog__ask")];
+  const approve = (row: HTMLElement) =>
+    [...row.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === translate("share.approve"))!;
+  expect(rows[0]!.querySelector(".ui-select")?.textContent).toContain(translate("share.role.view"));
+  await act(async () => approve(rows[0]!).click());
+  // Pick Can send on the second row, then approve it.
+  await act(async () => rows[1]!.querySelector<HTMLButtonElement>(".ui-select button")!.click());
+  await settle();
+  const talk = [...document.querySelectorAll<HTMLElement>('[role="option"], [role="menuitemradio"]')].find((item) =>
+    item.textContent?.includes(translate("share.role.talk")),
+  );
+  await act(async () => talk!.click());
+  await settle();
+  // What Can send means goes on the status line.
+  expect(container.querySelector(".share-dialog__status")?.textContent).toBe(translate("share.role.talkHint"));
+  await act(async () => approve(rows[1]!).click());
+  const decline = rows[2]!.querySelector<HTMLButtonElement>(".share-dialog__remove")!;
+  expect(decline.getAttribute("aria-label")).toBe(translate("share.declineWho", { account: "riley@example.com" }));
+  await act(async () => decline.click());
+  expect(calls).toEqual(["approve mei@example.com view", "approve @jordan talk", "decline riley@example.com"]);
 });
 
 test("a failed read of the chat's shares is read again on its own, with no Try again", async () => {

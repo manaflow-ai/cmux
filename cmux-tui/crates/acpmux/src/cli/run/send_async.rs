@@ -40,33 +40,46 @@ pub(super) async fn queue(
         {
             Ok(()) => Ok(()),
             Err(error) if super::super::output::daemon_closed_error(&error) => {
-                let replacement = before_deadline(deadline, session, async {
-                    super::super::output::reconnect_after_update().await.map_err(|e| {
-                        prompt_id.closed(
-                            client,
-                            session,
-                            &format!("reconnecting after daemon update: {e}"),
-                        )
-                    })
-                })
-                .await?;
+                // Again on every daemon that goes away under it (an update can land the reconnect
+                // on the old daemon still draining), the same prompt id with `resend: true`, until
+                // the update's reconnect budget runs out: the outbox runs an id once.
+                let budget_end = super::super::output::update_reconnect_deadline();
                 let mut retry = prompt_id.clone();
                 retry.resend = true;
-                before_deadline(
-                    deadline,
-                    session,
-                    queue_once(
-                        &replacement,
+                drop(error);
+                loop {
+                    let replacement = before_deadline(deadline, session, async {
+                        super::super::output::reconnect_after_update().await.map_err(|e| {
+                            prompt_id.closed(
+                                client,
+                                session,
+                                &format!("reconnecting after daemon update: {e}"),
+                            )
+                        })
+                    })
+                    .await?;
+                    match before_deadline(
+                        deadline,
                         session,
-                        text,
-                        steer,
-                        &retry,
-                        superseding,
-                        json_out,
-                        &mut delivery_id,
-                    ),
-                )
-                .await
+                        queue_once(
+                            &replacement,
+                            session,
+                            text,
+                            steer,
+                            &retry,
+                            superseding,
+                            json_out,
+                            &mut delivery_id,
+                        ),
+                    )
+                    .await
+                    {
+                        Err(again)
+                            if super::super::output::daemon_closed_error(&again)
+                                && tokio::time::Instant::now() < budget_end => {}
+                        done => break done,
+                    }
+                }
             }
             Err(error) => Err(error),
         }

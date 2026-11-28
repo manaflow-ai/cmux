@@ -17,8 +17,12 @@
 // 2026-11-27 screenshot, "2 calls · 2.8s": a command and a sent message, the message the slowest. Its
 // message's bar drew in the fixed merged purple whatever the theme (he asked why it was purple if
 // that was just his theme); a call outside the named kinds now takes a neutral ink from the theme.
+// `model-calls` is his 2026-11-27 turn ("was your thinkin really 3ms only? from anthropic and back?"):
+// two calls of 2.2s and 2.5s whose thinking read 3ms, timed from its first thought chunk to its last;
+// now each model call reads from its request to its last token, as acpmux timed it (claude_stdio/model_calls.rs).
 import { componentEntry } from "../../../gallery/format";
-import type { AcpmuxActivity } from "../model";
+import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { turnWork } from "./waterfallSpans";
 import {
   TurnWaterfall,
   type WaterfallForm,
@@ -84,6 +88,31 @@ const LEO_1127: AcpmuxActivity[] = [
 ];
 const LEO_1127_ROW = { at: START + 2_800, durationMs: 2_800 };
 
+// Leo's 2026-11-27 turn: the prompt goes out, the model's first byte comes 2.1s later, its thinking
+// arrives in one 3ms burst at 6s and it calls two tools; their results go out at 8.2s and the second
+// call ends at 10.4s. `timed` rows carry the two calls as acpmux timed them.
+const queueLands = call("queue-1", "other", "Queue lands for #60053 and #60188", 6_000, 8_200);
+const sentTo = call("send-2", "other", "Sent to Distribute work off the build host", 5_700, 8_200);
+const modelRows = (timed: boolean): AcpmuxRow[] => [
+  {
+    id: "a",
+    version: 1,
+    at: START,
+    kind: "activity",
+    items: [{ ...thought(5_997, 6_000), text: "Queue both lands" }, queueLands, sentTo],
+    ...(timed && {
+      modelCalls: [
+        { requestAt: START, firstTokenAt: START + 2_100, lastTokenAt: START + 6_100, thought: true as const },
+        { requestAt: START + 8_210, firstTokenAt: START + 9_900, lastTokenAt: START + 10_400 },
+      ],
+    }),
+  },
+];
+const MODEL_BEFORE = turnWork(modelRows(false))!;
+const MODEL_AFTER = turnWork(modelRows(true))!;
+const MODEL_BEFORE_ROW = { at: START + 8_200 };
+const MODEL_ROW = { at: START + 10_400, durationMs: 10_400 };
+
 type Props = {
   look: WaterfallLook;
   summary?: WaterfallSummary;
@@ -92,9 +121,11 @@ type Props = {
   one?: boolean;
   leo?: boolean;
   queued?: boolean;
+  /// Leo's 2026-11-27 turn, its thinking timed by its chunks (`before`) or its model calls (`after`).
+  model?: "before" | "after";
 };
 
-function Waterfall({ look, summary, modelTime, form, one, leo, queued }: Props) {
+function Waterfall({ look, summary, modelTime, form, one, leo, queued, model }: Props) {
   return (
     <TurnActionsContext.Provider value={{ showCall: () => true }}>
       <div className="acpmux-shell" style={{ padding: 16 }}>
@@ -102,8 +133,32 @@ function Waterfall({ look, summary, modelTime, form, one, leo, queued }: Props) 
             a block around it gives it the pane's width, as the transcript's row does. */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <TurnWaterfall
-            row={queued ? LEO_1127_ROW : leo ? LEO_TURN_ROW : one ? ONE_CALL_ROW : ROW}
-            work={queued ? LEO_1127 : leo ? LEO_TURN : one ? ONE_CALL : WORK}
+            row={
+              model === "after"
+                ? MODEL_ROW
+                : model === "before"
+                  ? MODEL_BEFORE_ROW
+                  : queued
+                    ? LEO_1127_ROW
+                    : leo
+                      ? LEO_TURN_ROW
+                      : one
+                        ? ONE_CALL_ROW
+                        : ROW
+            }
+            work={
+              model === "after"
+                ? MODEL_AFTER
+                : model === "before"
+                  ? MODEL_BEFORE
+                  : queued
+                    ? LEO_1127
+                    : leo
+                      ? LEO_TURN
+                      : one
+                        ? ONE_CALL
+                        : WORK
+            }
             look={look}
             summary={summary}
             modelTime={modelTime}
@@ -145,6 +200,18 @@ export default componentEntry<Props>({
     "leo-1127": {
       note: "Leo's 2026-11-27 turn, \"2 calls · 2.8s\": a command (the accent) and a sent message, the slowest. The message's bar is a neutral ink from the theme, no longer the fixed merged purple, so the bars follow the theme; the slowest is told by its outline, bold time and tag.",
       props: { look: "bars", queued: true },
+    },
+    "model-calls": {
+      note: 'Leo\'s 2026-11-27 turn, chosen: each model call from its request to its last token, as acpmux timed it where it read the stream. "Thinking 6s" (the call that thought; its hover says its first token came after 2s) and "Model call 2s" beside the two calls, on an axis that opens at the prompt.',
+      props: { look: "bars", model: "after" },
+    },
+    "model-calls-plain": {
+      note: 'The same turn as plain lines: "Thinking 8s", the model\'s own time over both calls, then the two calls.',
+      props: { look: "bars", model: "after", form: "plain" },
+    },
+    "model-calls-before": {
+      note: "Before: thinking timed from its first thought chunk to its last, \"Thinking 3ms\". Claude Code's thinking comes in one burst at its call's end, and the axis opened at the first call.",
+      props: { look: "bars", model: "before", form: "chart" },
     },
     "one-call": {
       note: 'One 2.7s read in a 14.1s turn: one call and mostly the model, so plain lines, "Thinking 11.4s" and the read.',

@@ -35,6 +35,7 @@ test("a chat shared with nobody reads Restricted with only the owner", () => {
     links: [],
     inviteUrl: null,
     guestsNow: 0,
+    requests: [],
   });
 });
 
@@ -104,6 +105,7 @@ test("Invite on someone with access says so, or changes their role", () => {
     links: [],
     inviteUrl: null,
     guestsNow: 0,
+    requests: [],
   };
   expect(inviteStep(view, " Ana@Example.com", "view")).toEqual({ kind: "already", account: "ana@example.com" });
   expect(inviteStep(view, "ana@example.com", "talk")).toEqual({ kind: "role", account: "ana@example.com" });
@@ -149,10 +151,20 @@ test("Copy link reuses the page's live viewer link, and Restricted revokes every
   expect(calls.filter(([op]) => op === "link")).toHaveLength(2);
 });
 
-test("a role change is uninvite then invite, in that order", async () => {
+test("a role change is one invite with the new role, never a remove first", async () => {
+  const calls: [string, Record<string, unknown>][] = [];
+  await shareClient("chat", async (op, params = {}) => void calls.push([op, params])).setRole("@sam", "view");
+  expect(calls).toEqual([["invite", { account: "@sam", role: "view", session: "chat" }]]);
+});
+
+test("a role change the daemon refuses leaves the person invited: nothing was removed", async () => {
   const ops: string[] = [];
-  await shareClient("chat", async (op) => void ops.push(op)).setRole("@sam", "talk");
-  expect(ops).toEqual(["uninvite", "invite"]);
+  const refusing = async (op: string) => {
+    ops.push(op);
+    throw new Error("share.limit");
+  };
+  await expect(shareClient("chat", refusing).setRole("@sam", "talk")).rejects.toThrow("share.limit");
+  expect(ops).toEqual(["invite"]);
 });
 
 test("accounts are an email or an @handle", () => {
@@ -254,4 +266,38 @@ test("team creation pins chat, team and role in one gesture operation and propag
   });
   await expect(client.team("team-a", "talk")).rejects.toThrow("declined");
   expect(calls).toEqual([["team", { teamId: "team-a", role: "talk", session: "chat-a" }]]);
+});
+
+// Access requests (RFD 0077 D2, D5): the daemon lists pending ones only; the dialog shows one row per
+// account across the chat's live shares, oldest first, none for an ended share or an account that
+// has access by now.
+test("access requests are one row per account, oldest first, none once the account has access", () => {
+  const ask = (account: string, requestedAt: number) => ({ account, name: account, avatarUrl: null, requestedAt });
+  const view = shareView([
+    {
+      ...base,
+      shareId: "a",
+      invitees: [{ account: "@in", role: "view", state: "invited", joined: false }],
+      requests: [ask("@late", 9), ask("@in", 1), ask("@early", 2)],
+    },
+    { ...base, shareId: "b", requests: [ask("@early", 5)] },
+    { ...base, shareId: "c", state: "revoked", requests: [ask("@gone", 1)] },
+  ]);
+  expect(view.requests.map((request) => request.account)).toEqual(["@early", "@late"]);
+  // A host older than requests sends none.
+  expect(shareView([base]).requests).toEqual([]);
+});
+
+test("approve and decline name the chat, the account and, for approve, the role", async () => {
+  const calls: unknown[] = [];
+  const client = shareClient("chat-1", async (op, params) => {
+    calls.push({ op, ...params });
+    return {};
+  });
+  await client.approve("mei@example.com", "view");
+  await client.decline("@jordan");
+  expect(calls).toEqual([
+    { op: "approve", account: "mei@example.com", role: "view", session: "chat-1" },
+    { op: "decline", account: "@jordan", session: "chat-1" },
+  ]);
 });
