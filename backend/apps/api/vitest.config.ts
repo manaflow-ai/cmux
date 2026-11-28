@@ -1,9 +1,19 @@
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers"
+import { cloudflareTest } from "@cloudflare/vitest-plugin"
 import { exportJWK, exportPKCS8, generateKeyPair } from "jose"
 import { createHash } from "node:crypto"
 import { defineConfig } from "vitest/config"
 import { cloudAllowedTeams } from "./test/setup/cloud-teams.ts"
+import { tmpdir } from "node:os"
 import { writeChiefVmSource } from "./scripts/gen-chief-vm-source.ts"
+
+// workerd's SQLite (Durable Object storage) writes its temp files (statement journals, sorts) to the first of
+// SQLITE_TMPDIR, TMPDIR, /var/tmp, /usr/tmp, /tmp that stats as a writable directory. CI sets no TMPDIR, so that was
+// /var/tmp, and a pool runner whose /var/tmp is an unlinked directory (still a directory to stat, ENOENT on create)
+// failed every ConversationDO write with SQLITE_CANTOPEN: api-workerd shards on cmux-runner-pool-w4a-0079-2 (runs
+// 46076499859, 46086414313, 46086431213), e5b-0225-2 and c1a-0160-2 failed the same tests on retry; the same files
+// pass elsewhere, and SQLITE_TMPDIR pointed at an unlinked directory reproduces it locally. The job's own temp
+// directory (RUNNER_TEMP) is the runner's, under its work folder; locally the OS temp directory.
+process.env.SQLITE_TMPDIR ||= process.env.RUNNER_TEMP || tmpdir()
 
 // The turn machine's chief-vm, as the Worker embeds it (build output, not in git).
 writeChiefVmSource()

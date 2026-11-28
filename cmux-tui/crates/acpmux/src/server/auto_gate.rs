@@ -76,7 +76,7 @@ async fn chat_move(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value,
     use crate::chat_place::{Asker, Consent, Place, agent_moves_enabled, consent, not_moved};
     let word = params.get("on").and_then(Value::as_str).unwrap_or_default();
     let to = Place::parse(word).ok_or_else(|| {
-        RpcError::invalid_params(&format!("on must be local, cloud or auto (got {word:?})"))
+        RpcError::invalid_params(format!("on must be local, cloud or auto (got {word:?})"))
     })?;
     let s = hub.resolve(session_key(params)?)?;
     let row = crate::auto_session::record::AutoRecord::row_of(hub.auto_record(&s).as_ref());

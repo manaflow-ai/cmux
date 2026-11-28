@@ -75,6 +75,65 @@ pub(crate) enum NotProjected {
     Unserved,
 }
 
+/// Why a projection that was tried did not go, and the seed or copy went in its place: never
+/// silent. The push's answer line carries it (`projection_fallback`), and a progress line on
+/// stderr says it as it happens, so the app can say it and the fleet can page on it. `Off` (the
+/// person turned projection off) and `Small` (a copy is the right answer) are choices, not
+/// fallbacks, and carry none.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Fallback {
+    /// `projection.unserved` (the machine's image predates `projection-v1`) or
+    /// `projection.failed`.
+    pub(crate) code: &'static str,
+    /// The reason's first line.
+    pub(crate) why: String,
+}
+
+impl Fallback {
+    pub(crate) fn json(&self) -> Value {
+        json!({"code": self.code, "why": self.why})
+    }
+
+    /// Says it on stderr: one progress line the app reads, then words for a person.
+    pub(crate) fn announce(&self, who: &str, local: &Path) {
+        eprintln!(
+            "{}",
+            json!({"progress": {"phase": "projection_fallback", "code": self.code, "why": self.why}})
+        );
+        eprintln!(
+            "{who}: {} was not projected ({}: {}); seeding or copying it",
+            local.display(),
+            self.code,
+            self.why
+        );
+    }
+}
+
+/// A projection's outcome as the projected answer, or why it fell back ([`Fallback`]; none for a
+/// projection that was off or not asked for).
+pub(crate) fn outcome(
+    result: anyhow::Result<Result<Value, NotProjected>>,
+) -> Result<Value, Option<Fallback>> {
+    match result {
+        Ok(Ok(answer)) => Ok(answer),
+        Ok(Err(NotProjected::Off | NotProjected::Small)) => Err(None),
+        Ok(Err(NotProjected::Unserved)) => Err(Some(Fallback {
+            code: "projection.unserved",
+            why: "the machine does not serve projection-v1 (its image predates it)".to_owned(),
+        })),
+        Err(error) => Err(Some(Fallback {
+            code: "projection.failed",
+            why: first_line(&format!("{error:#}")),
+        })),
+    }
+}
+
+fn first_line(text: &str) -> String {
+    let line =
+        text.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("no reason given");
+    line.chars().take(400).collect()
+}
+
 /// The listed folder: its manifest and, by manifest entry, what each file is read from.
 struct Listed {
     manifest: Manifest,
@@ -132,7 +191,7 @@ struct Served {
 
 const USAGE: &str = "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
                      REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
-                     archived|deleted] | pin --socket S --at REMOTE FOLDER PATH | unpin --socket S --at \
+                     archived|deleted] | detach --socket S --at REMOTE [--name NAME] [--chat ID] FOLDER | pin --socket S --at REMOTE FOLDER PATH | unpin --socket S --at \
                      REMOTE FOLDER PATH | pins --socket S --at REMOTE FOLDER | enable | disable | status | \
                      moves on|off";
 
@@ -156,6 +215,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
         Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
         Some("release") => super::project_back::release_command(args.get(1..).unwrap_or_default()),
+        Some("detach") => super::project_back::detach_command(args.get(1..).unwrap_or_default()),
         Some(cmd @ ("pin" | "unpin" | "pins")) => {
             super::project_pin::command(cmd, args.get(1..).unwrap_or_default())
         }
@@ -177,8 +237,8 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
 }
 
-/// Whether chats from big folders are projected: on unless [`ENV`] or `cmux link project disable`
-/// turned it off.
+/// Whether chats from attached local folders are projected: on unless [`ENV`] or
+/// `cmux link project disable` turned it off.
 pub(crate) fn enabled() -> bool {
     match std::env::var(ENV).ok().as_deref() {
         Some("1" | "true") => return true,
@@ -191,10 +251,13 @@ pub(crate) fn enabled() -> bool {
 /// The env switch for a moved chat's folder (`1`/`true` on, `0`/`false` off), over the setting.
 const MOVES_ENV: &str = "CMUX_PROJECTED_MOVES";
 
-/// Whether Move to Cloud projects the chat's folder (`cmux link seed push`, seed_cli.rs): off
-/// unless [`MOVES_ENV`] or `cmux link project moves on` turned it on, and never while projection
-/// itself is off. Off by default until Bring Back Local brings a projection's edits home: a
-/// projected folder has no seed or copy record for Bring Back to merge against.
+/// Whether Move to Cloud projects the chat's folder (`cmux link seed push`, seed_cli.rs): on
+/// unless [`MOVES_ENV`] or `cmux link project moves off` turned it off, and never while projection
+/// itself is off. Leo, 2026-11-27: "you mark as autocloud, it starts instantly and works like
+/// dropbox to sync your thing first with projectionfs then with the full or compressed amount fast
+/// through git carry". The machine sees the tree as soon as it mounts the manifest, the git carry
+/// pack and the background bulk copy fill it behind, and Bring Back Local brings the projection's
+/// edits home from its upper layer (`project_back.rs`), so the move back takes the same path.
 pub(crate) fn moves_enabled() -> bool {
     if !enabled() {
         return false;
@@ -204,25 +267,27 @@ pub(crate) fn moves_enabled() -> bool {
         Some("0" | "false") => return false,
         _ => {}
     }
-    moves_on_path().is_some_and(|path| path.exists())
+    !moves_off_path().is_some_and(|path| path.exists())
 }
 
-/// The opt-in marker for moves: present only after `cmux link project moves on`.
-fn moves_on_path() -> Option<PathBuf> {
+/// The opt-out marker for moves: present only after `cmux link project moves off`.
+fn moves_off_path() -> Option<PathBuf> {
     Some(
         cmux_tui_core::platform::workspace_state_dir()?
             .join("link-sync")
-            .join("projected-moves-on"),
+            .join("projected-moves-off"),
     )
 }
 
 fn set_moves(on: bool) -> anyhow::Result<()> {
-    let path = moves_on_path().context("this Mac has no state folder")?;
+    let path = moves_off_path().context("this Mac has no state folder")?;
     if on {
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+    } else {
         std::fs::create_dir_all(path.parent().context("no state folder")?)?;
-        std::fs::write(&path, b"on\n")?;
-    } else if path.exists() {
-        std::fs::remove_file(&path)?;
+        std::fs::write(&path, b"off\n")?;
     }
     Ok(())
 }
@@ -292,6 +357,8 @@ pub(crate) fn start(
     // The server's files go by its mount point (`stop --at`), the projection by its chat.
     let server = name_of(remote);
     let name = chat_name(chat);
+    // Publish the PID and served record together with respect to a concurrent stop.
+    let _registration = registration_lock(&log, &server)?;
     let stderr = std::fs::File::create(log.join(format!("{server}.log")))?;
     let mut command = cmux_process::Command::new(exe);
     // The store this Mac signs in to goes to the server on its stdin (never its arguments), so
@@ -374,17 +441,61 @@ fn servers_dir() -> anyhow::Result<PathBuf> {
         .context("this Mac has no state folder")
 }
 
+fn registration_lock(dir: &Path, server: &str) -> anyhow::Result<std::fs::File> {
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(format!("{server}.registration")))?;
+    lock.lock()?;
+    Ok(lock)
+}
+
+/// Only stop the server registered for this projection on this machine. A path can be reused
+/// while the removal RPC is in flight, including by another machine or a different chat.
+pub(super) fn stop_recorded_server(
+    socket: &Path,
+    record: &super::project_back::Recorded,
+) -> anyhow::Result<bool> {
+    let dir = servers_dir()?;
+    let server = name_of(&record.remote);
+    let Some(on) = projected_at(&record.remote) else { return Ok(false) };
+    if chat_name(&on.chat) != record.name
+        || std::fs::canonicalize(&on.local).ok().as_ref() != Some(&record.local)
+        || on.machine.is_empty()
+        || machine_id(socket).as_deref() != Some(on.machine.as_str())
+    {
+        return Ok(false);
+    }
+    let _registration = registration_lock(&dir, &server)?;
+    if projected_at(&record.remote).as_ref() != Some(&on) {
+        return Ok(false);
+    }
+    stop_registered(&dir, &server, &record.remote)
+}
+
 /// Ends the server [`start`] left running for the projection at `remote`, and forgets what it
 /// served. Whether there was one to end.
 pub(crate) fn stop_server(remote: &str) -> anyhow::Result<bool> {
     let dir = servers_dir()?;
     let server = name_of(remote);
+    if !dir.exists() {
+        return Ok(false);
+    }
+    let _registration = registration_lock(&dir, &server)?;
+    stop_registered(&dir, &server, remote)
+}
+
+fn stop_registered(dir: &Path, server: &str, remote: &str) -> anyhow::Result<bool> {
     let pid_file = dir.join(format!("{server}.pid"));
     let _ = std::fs::remove_file(dir.join(format!("{server}.served")));
     let Ok(pid) = std::fs::read_to_string(&pid_file) else {
         return Ok(false);
     };
     let pid = pid.trim().parse::<u32>().context("a bad pid file")?;
+    // `start` creates a new process group whose id is its pid. Signalling that group avoids
+    // terminating an unrelated process if the pid file outlives the server and the pid is reused.
+    let process_group = format!("-{pid}");
     if !still_serving(remote) {
         // A server that ended (it gives up, or the Mac restarted) leaves its pid file; that pid
         // may be another process's now.
@@ -392,7 +503,7 @@ pub(crate) fn stop_server(remote: &str) -> anyhow::Result<bool> {
         return Ok(false);
     }
     let stopped = cmux_process::Command::new("kill")
-        .arg(pid.to_string())
+        .args(["-TERM", "--", &process_group])
         .status()
         .is_ok_and(|status| status.success());
     let _ = std::fs::remove_file(&pid_file);
@@ -586,7 +697,7 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     let kept_already = super::base::kept(&folder, &at);
     let (dialed, made) = std::thread::scope(|scope| {
         let made = (!kept_already).then(|| scope.spawn(|| base_of_listing(&folder, &listed)));
-        (dial(&socket, &name, &at, &encoded, None), made.map(|made| made.join()))
+        (dial(&socket, &name, &at, &encoded, None, false), made.map(|made| made.join()))
     });
     let (stream, mut answer) = dialed?;
     if !ok(&answer) {
@@ -873,12 +984,12 @@ fn redial(
     encoded: &[u8],
     revision: Option<&Value>,
 ) -> (anyhow::Result<(BufReader<UnixStream>, Value)>, bool) {
-    if let Some(quiet) = quiet_socket(socket) {
-        if let Ok(stream) = UnixStream::connect(&quiet) {
-            return (ask(stream, name, at, encoded, revision), true);
-        }
+    if let Some(quiet) = quiet_socket(socket)
+        && let Ok(stream) = UnixStream::connect(&quiet)
+    {
+        return (ask(stream, name, at, encoded, revision, true), true);
     }
-    (dial(socket, name, at, encoded, revision), false)
+    (dial(socket, name, at, encoded, revision, true), false)
 }
 
 /// Dials the machine and asks it to serve projection `name` at `at` (`encoded`: the manifest, or
@@ -889,10 +1000,11 @@ fn dial(
     at: &str,
     encoded: &[u8],
     revision: Option<&Value>,
+    redial: bool,
 ) -> anyhow::Result<(BufReader<UnixStream>, Value)> {
     let stream = UnixStream::connect(socket)
         .with_context(|| format!("cannot reach the machine at {}", socket.display()))?;
-    ask(stream, name, at, encoded, revision)
+    ask(stream, name, at, encoded, revision, redial)
 }
 
 /// A dial the machine closed before it answered (a quiet socket while the machine sleeps).
@@ -918,6 +1030,7 @@ fn ask(
     at: &str,
     encoded: &[u8],
     revision: Option<&Value>,
+    redial: bool,
 ) -> anyhow::Result<(BufReader<UnixStream>, Value)> {
     let mut line = json!({
         "id": 1,
@@ -925,8 +1038,8 @@ fn ask(
         "name": name,
         "at": at,
         "manifest_bytes": encoded.len(),
-        // Every byte after this line goes as text lines, both ways: the Cloud carrier carries
-        // the dial as a `mux-control` stream, which moves whole lines only.
+        "redial": redial,
+        // The carrier only preserves complete lines; frame every byte after the dial line too.
         "lines": true,
         // This Mac reads binary lines and packed answers; it writes them once the answer says
         // the machine does too (an older machine ignores this and keeps base64 lines).

@@ -18,6 +18,16 @@
 #     (each live chat holds an agent host and an agent, so 1,000 of them need tens of GB).
 #   infinite-items-linux.sh freed=1 ...: last, runs the same build with every tab parked after the open and each day
 #     (--park-idle, FREED lines): what an item costs once the app's freeing tier (workspaces.freeing, a day idle) took it.
+#   infinite-items-linux.sh alloc_ab=1 [alloc_budget=3000] [alloc_caps=64,off] ...: acpmux several ways from this head
+#     (glibc's malloc, the gnu build's own: arms system and glibc; mimalloc, the musl packages' allocator: feature
+#     mimalloc-gnu; mimalloc2: its v2 line; dhat-heap) and one cmux-tui, run in turn REPEAT times (ALLOC arm=A rI
+#     lines). glibc-* arms run the glibc binary with a malloc setting in acpmux's environment (alloc_env below), so one
+#     build measures each knob. alloc_caps=64,off runs every arm at each --resident-cap (off: none) and tags the arm
+#     A@capN or A@off. The dhat arm writes its profile after the last sample (--heap-profile) and
+#     its live bytes by allocation site print as DHAT lines. A round starts only while the last round's time still
+#     fits in alloc_budget seconds from the start, so a job cap cuts repeats, not counts. Answers whether the
+#     daemon's heap is live data (dhat's bytes near mimalloc's heap) or the allocator's retention. alloc_arms=A,B
+#     runs a subset (dhat alone in a job of its own: it records slowly and writes at the budget's end if not done).
 #   infinite-items-linux.sh musl=1 ...: builds the shipped musl flavor (cargo-zigbuild, x86_64-unknown-linux-musl) and
 #     measures those binaries (not with before=ref:, which builds REF for the host).
 # Builds release acpmux and cmux-tui (cmux-tui/), then prints INFINITE and PERF_ROW lines.
@@ -34,6 +44,10 @@ live=0
 live_counts=""
 freed=0
 cap_ab=""
+alloc_ab=0
+alloc_budget=3000
+alloc_arms="mimalloc system dhat"
+alloc_caps=""
 extra=()
 for arg in "$@"; do
   case "$arg" in
@@ -48,6 +62,10 @@ for arg in "$@"; do
     live_counts=*) live_counts="${arg#live_counts=}" ;;
     freed=*) freed="${arg#freed=}" ;;
     cap_ab=*) cap_ab="${arg#cap_ab=}" ;;
+    alloc_ab=*) alloc_ab="${arg#alloc_ab=}" ;;
+    alloc_budget=*) alloc_budget="${arg#alloc_budget=}" ;;
+    alloc_arms=*) alloc_arms="${arg#alloc_arms=}"; alloc_arms="${alloc_arms//,/ }" ;;
+    alloc_caps=*) alloc_caps="${arg#alloc_caps=}"; alloc_caps="${alloc_caps//,/ }" ;;
     page_counts=*) page_counts="${arg#page_counts=}" ;;
     --*) extra+=("$arg") ;;
     *) echo "infinite-items-linux.sh: unknown argument $arg" >&2; exit 2 ;;
@@ -78,6 +96,15 @@ if ! command -v zig >/dev/null && [ -z "${ZIG:-}${CMUX_ZIG:-}" ]; then
 fi
 command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev pkg-config; }
 export PATH="$HOME/.cargo/bin:$PATH"
+started_at=$SECONDS
+# alloc_ab=1 builds acpmux three times. The release profile (thin LTO, one codegen unit) took 25 min for one build
+# and 15 min for each rebuild (job e45696a9: 3400 s of builds, no round run), so every arm, the shipped allocator's
+# too, builds with no LTO and 16 codegen units into a target directory of its own (the cached one is left as it is).
+# The heap a run holds is the program's data, not its code, and all three arms share the one profile.
+if [[ "$alloc_ab" == 1 ]]; then
+  export CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+  export CARGO_TARGET_DIR="${RUNNER_TEMP:-/tmp}/infinite-alloc-ab-target"
+fi
 cd "$root/cmux-tui"
 # cmux-tui-host: the slim terminal host the daemon runs its hosts from when it sits beside it (host_exe.rs).
 target="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
@@ -186,6 +213,104 @@ elif [[ "$before" == ref:* ]]; then
 elif [ -n "$before" ]; then
   echo "infinite-items-linux.sh: unknown before=$before (own-exe, hosts, ref:REF)" >&2
   exit 2
+fi
+# The malloc settings of the glibc-* arms, as the environment glibc reads them: MALLOC_ARENA_MAX wins over acpmux's
+# own arena cap (malloc_arenas.rs), and a tunable fixes its threshold (glibc then stops moving it on its own).
+# glibc is the build's defaults.
+alloc_env() {
+  local thr="glibc.malloc.mmap_threshold=131072:glibc.malloc.trim_threshold=131072"
+  case "$1" in
+    glibc) echo "" ;;
+    glibc-a2) echo "MALLOC_ARENA_MAX=2" ;;
+    glibc-a4) echo "MALLOC_ARENA_MAX=4" ;;
+    glibc-a16) echo "MALLOC_ARENA_MAX=16" ;;
+    glibc-notrim) echo "CMUX_MALLOC_QUIET_TRIM=0" ;;
+    glibc-thr) echo "GLIBC_TUNABLES=$thr" ;;
+    glibc-a4thr) echo "MALLOC_ARENA_MAX=4 GLIBC_TUNABLES=$thr" ;;
+    # The daemon's tokio workers (one per core by default): tokio reads TOKIO_WORKER_THREADS when the
+    # runtime sets no count, as the daemon's does (acpmux cli/entry.rs runtime_with).
+    glibc-w2) echo "TOKIO_WORKER_THREADS=2" ;;
+    glibc-w4) echo "TOKIO_WORKER_THREADS=4" ;;
+    glibc-w8) echo "TOKIO_WORKER_THREADS=8" ;;
+    *) echo "infinite-items-linux.sh: unknown glibc arm $1" >&2; exit 2 ;;
+  esac
+}
+if [[ "$alloc_ab" == 1 ]]; then
+  ab="$(mktemp -d)"
+  trap 'rm -rf "$ab"; [ -n "${FAST_CHECKS_OUT:-}" ] || rm -rf "$out"' EXIT
+  # The default build is glibc's (a gnu target); every other allocator is a feature build of acpmux alone.
+  mkdir "$ab/system"
+  cp "$bin/acpmux" "$bin/cmux-tui" "$bin/cmux-tui-host" "$ab/system/"
+  for arm in $alloc_arms; do
+    case "$arm" in
+      system|glibc) continue ;;
+      glibc-*)
+        # acpmux alone gets the setting (cmux-tui keeps its own): a wrapper that execs the glibc binary.
+        mkdir -p "$ab/$arm"
+        cp "$ab/system/cmux-tui" "$ab/system/cmux-tui-host" "$ab/$arm/"
+        printf '#!/bin/sh\nexec env %s "%s" "$@"\n' "$(alloc_env "$arm")" "$ab/system/acpmux" >"$ab/$arm/acpmux"
+        chmod +x "$ab/$arm/acpmux"
+        echo "INFINITE-ALLOC-BUILD arm=$arm env=$(alloc_env "$arm")"
+        continue ;;
+      dhat) feature=dhat-heap ;;
+      mimalloc2) feature=mimalloc-v2 ;;
+      mimalloc) feature=mimalloc-gnu ;;
+      *) echo "infinite-items-linux.sh: unknown alloc arm $arm" >&2; exit 2 ;;
+    esac
+    [ -d "$ab/$arm" ] && continue
+    mkdir "$ab/$arm"
+    t0=$SECONDS
+    (cd "$root/cmux-tui" && cargo build --locked --release -p acpmux --bin acpmux --features "$feature" 2>&1 | tail -n 3
+     exit "${PIPESTATUS[0]}")
+    cp "$bin/acpmux" "$ab/$arm/acpmux"
+    cp "$ab/system/cmux-tui" "$ab/system/cmux-tui-host" "$ab/$arm/"
+    echo "INFINITE-ALLOC-BUILD arm=$arm feature=$feature seconds=$((SECONDS - t0))"
+  done
+  echo "INFINITE-ALLOC arms=${alloc_arms// /,} caps=${alloc_caps:-as-given} repeat=$repeat counts=$counts days=$days budget_s=$alloc_budget head=$(git rev-parse HEAD) built_s=$((SECONDS - started_at))"
+  round_s=0
+  for r in $(seq 1 "$repeat"); do
+    # Round 1 always runs: a job that only built measured nothing.
+    if (( r > 1 && SECONDS - started_at + round_s > alloc_budget )); then
+      echo "INFINITE-ALLOC-CUT before r$r: $((SECONDS - started_at)) s spent, the last round took ${round_s} s, budget ${alloc_budget} s"
+      break
+    fi
+    t0=$SECONDS
+    for cap in ${alloc_caps:-as-given}; do
+    capflag=(); captag=""
+    if [[ "$cap" != as-given ]]; then
+      captag="@$([[ "$cap" == off ]] && echo off || echo "cap$cap")"
+      [[ "$cap" == off ]] || capflag=(--resident-cap "$cap")
+    fi
+    for arm in $alloc_arms; do
+      bin_arm="$arm"
+      [[ "$arm" == glibc ]] && bin_arm=system
+      # Every arm answers _acpmux/heap_profile after its last sample: dhat's live bytes, glibc's mallinfo2
+      # (system), nothing more for mimalloc. dhat records slowly, so it also writes at the budget's end
+      # (--heap-profile-at) and its run is cut there: what it held then, at the count it reached.
+      profile=(--heap-profile); limit=()
+      if [[ "$arm" == dhat ]]; then
+        left=$((alloc_budget - (SECONDS - started_at)))
+        profile+=(--heap-profile-at "$(( $(date +%s) + left - 240 ))"); limit=(timeout --signal=KILL "$((left - 120))")
+      fi
+      dhat_out="$ab/dhat-r$r.json"
+      ACPMUX_DHAT_OUT="$([[ "$arm" == dhat ]] && echo "$dhat_out")" \
+        ${limit[@]+"${limit[@]}"} python3 scripts/measure/infinite-items.py --acpmux "$ab/$bin_arm/acpmux" --tui "$ab/$bin_arm/cmux-tui" \
+        --counts "$counts" --days "$days" ${capflag[@]+"${capflag[@]}"} ${profile[@]+"${profile[@]}"} ${extra[@]+"${extra[@]}"} 2>&1 \
+        | sed -u "s/^/ALLOC arm=$arm$captag r$r /" || status=$?
+      if [[ "$arm" == dhat ]]; then
+        if [ -f "$dhat_out" ]; then
+          python3 scripts/measure/dhat-top.py "$dhat_out" 30 | sed -u "s/^/ALLOC arm=dhat r$r /"
+          rm -f "$dhat_out"
+        else
+          echo "ALLOC arm=dhat r$r DHAT none: $dhat_out"
+        fi
+      fi
+    done
+    done
+    round_s=$((SECONDS - t0))
+    echo "INFINITE-ALLOC-ROUND r$r seconds=$round_s"
+  done
+  exit "$status"
 fi
 # cap_ab=N: ACPMUX_RESIDENT_CAP off against N, REPEAT times each, interleaved (off, N, off, N, ...) on this
 # runner with this build; each INFINITE line carries its arm and repeat (CAPAB arm=off|capN rI).

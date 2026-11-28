@@ -1,5 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
+use super::auto_resume::RefusedRules;
 use super::exit_reason::explains_exit;
 use super::transcript::REPLAY_CHARS;
 use super::*;
@@ -647,6 +648,12 @@ impl Hub {
         // drain). Checked again as the steer is written (`steer_end.rs`).
         let prompt_held =
             from_agent && running.is_some() && super::inbox::persons_prompt_waits(session);
+        // Nor before a Codex turn's model answered its prompt: codex-acp takes that steer as a new
+        // prompt and cancels the running one (`inbox_admit.rs` `codex_unanswered`). It queues
+        // behind the turn; the person's own steer still goes in.
+        let codex_held = from_agent
+            && running.is_some()
+            && session.read_meta(|m| super::inbox::codex_unanswered(session, m));
         // Other agents wait until the person's own turn ends; family replies, and the reports
         // of the chat's own lanes (`lane_reports.rs`), still enter it.
         let persons_held = from_agent
@@ -674,6 +681,7 @@ impl Hub {
             && !notice_held
             && !review_held
             && !prompt_held
+            && !codex_held
             && !persons_held;
         if steer && opts.steer_only && !steer_now {
             if review_held && running.is_some() {
@@ -845,6 +853,21 @@ impl Hub {
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate, cloud_mobile) =
             (run.blocks.clone(), run.control, run.trust_gate, run.cloud_mobile);
+        // What a turn the store refuses on a full disk goes on under (`auto_resume/disk_wait.rs`).
+        let refused_prompt_text = super::session::prompt_text(&run.blocks);
+        let rules = RefusedRules {
+            control,
+            trust_gate,
+            from: run
+                .provenance
+                .as_ref()
+                .filter(|p| super::subsession_guard::is_family(Some(p)))
+                .and_then(|p| p["from"].as_str()),
+            slash: super::auto_resume::resent_command(&refused_prompt_text),
+            goes_on: !crate::prompt_provenance::is_trigger(run.provenance.as_ref())
+                && !super::idle::cache_compact::is_own(run.provenance.as_ref())
+                && !super::cold_wake::is_own(run.provenance.as_ref()),
+        };
         // A queued prompt restored from the log may still name its uploads (`prompt_uploads.rs`).
         let web = control == Control::Web;
         let read = crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await;
@@ -889,6 +912,22 @@ impl Hub {
         if !no_queue {
             self.hold_retry_start(session, &prompt_id).await;
         }
+        if (session.read_meta(super::credentials::claude_login_needs_restart)
+            || (session.route_switch.load(Ordering::SeqCst) && self.route_child_is_idle(session)))
+            && let Err(e) = Box::pin(self.restart_on_route(session)).await
+        {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
+        if let Err(e) = Box::pin(self.refresh_disconnected_subscription_before_turn(session)).await
+        {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
+        self.refresh_local_chatgpt_between_turns(session).await;
+        self.refresh_local_kimi_between_turns(session).await;
         if session.cancels.load(Ordering::SeqCst) != cancels {
             // A continuation or retry of a cut turn is refused as one Stop overtook
             // (`auto_resume.stopped`): its callers answer `retry.stopped` and record the skip.
@@ -1194,19 +1233,29 @@ impl Hub {
         // Only this turn's start resumes the cut turn, never a later one.
         session.resume_cut_ask.store(false, Ordering::SeqCst);
         let started = match started {
-            Ok(child) => session
-                .meta()
-                .agent_session_id
-                .map(|sid| (child, sid))
-                .ok_or_else(|| RpcError::internal("no agent session")),
+            Ok(child) => match Box::pin(self.check_local_subscription_child(session, &child)).await
+            {
+                Ok(()) => session
+                    .meta()
+                    .agent_session_id
+                    .map(|sid| (child, sid))
+                    .ok_or_else(|| RpcError::internal("no agent session")),
+                Err(e) => Err(e),
+            },
             Err(e) => Err(e),
         };
         let (mut child, agent_sid) = match started {
             Ok(started) => started,
             Err(mut e) => {
                 // A turn the shutdown settles writes no end of its own (`start_retry.rs`).
-                let failed =
-                    self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined);
+                let failed = self.fail_unless_shutdown_settles(
+                    session,
+                    &prompt_id,
+                    &turn_id,
+                    &e,
+                    joined,
+                    Some(&rules),
+                );
                 if !failed && self.hands_off(session) {
                     super::digest::forget_joined(Some(joined));
                 }
@@ -1250,7 +1299,14 @@ impl Hub {
             // ended does: the next daemon queues the prompt again (`unstarted_prompt.rs`).
             // Decided and written under the shutdown's lock (`fail_unless_shutdown_settles`), not
             // after a read of its flag a shutdown could begin behind.
-            if self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined) {
+            if self.fail_unless_shutdown_settles(
+                session,
+                &prompt_id,
+                &turn_id,
+                &e,
+                joined,
+                Some(&rules),
+            ) {
                 if session.status() == SessionStatus::Disconnected {
                     self.set_status(session, NotWaiting::Ready);
                 }
@@ -1269,7 +1325,7 @@ impl Hub {
             Ok(gate) => gate,
             Err(e) => {
                 self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
-                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined, &rules);
                 if resumed {
                     child.kill().await;
                 }
@@ -1346,6 +1402,12 @@ impl Hub {
                 json!({"type": "text", "text": said, "_meta": {"acpmux": {"context": true}}}),
             );
         }
+        // What a sidecar rule found at the last turn's end, said once (`sidecars.rs`).
+        if !resumed && let Some(said) = self.sidecars_start(session) {
+            blocks.push(
+                json!({"type": "text", "text": said, "_meta": {"acpmux": {"context": true}}}),
+            );
+        }
         session.stderr_tail.lock().unwrap().clear();
         // Under the turn lock: this turn ends a person's Stop's hold only if it began under it.
         session.turn_hold.store(session.stop_hold.load(Ordering::SeqCst), Ordering::SeqCst);
@@ -1382,7 +1444,7 @@ impl Hub {
             Ok(wire) if !stopped => wire,
             Ok(_) => {
                 let e = stopped_before_prompt();
-                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined, &rules);
                 if resumed {
                     child.kill().await;
                 }
@@ -1392,7 +1454,7 @@ impl Hub {
                 return Err(e);
             }
             Err(e) => {
-                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined, &rules);
                 self.forum_turn_end(session, &told, false);
                 if resumed {
                     child.kill().await;
@@ -1416,7 +1478,7 @@ impl Hub {
         {
             let e = RpcError::new(-32000, "the remote floor cancelled this turn before its prompt")
                 .with_data(json!({"reason": reason}));
-            self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+            self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined, &rules);
             self.forum_turn_end(session, &told, false);
             if resumed {
                 child.kill().await;
@@ -1577,7 +1639,12 @@ impl Hub {
                 }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
-                let fallback = Box::pin(self.child_for_since(session, stops)).await;
+                let fallback = match Box::pin(self.child_for_since(session, stops)).await {
+                    Ok(child) => Box::pin(self.check_local_subscription_child(session, &child))
+                        .await
+                        .map(|()| child),
+                    Err(e) => Err(e),
+                };
                 let refusal = match &fallback {
                     Ok(_) => match self
                         .check_dispatch(
@@ -1612,6 +1679,10 @@ impl Hub {
                     (Ok(child2), None) => {
                         // The turn ends on the fallback's agent: `finish_turn` reads its life.
                         child = child2.clone();
+                        // A fallback is still the same person's turn. Keep the static
+                        // background harness lifted for the retry too; otherwise a capacity or
+                        // auth failover silently regresses the original turn's tool priority.
+                        let lifted_fallback = person && child2.person_turn(true).await;
                         // A fallback that could not resume (another store)
                         // starts fresh: it gets the restored transcript first.
                         let mut blocks = blocks;
@@ -1698,6 +1769,9 @@ impl Hub {
                                     .await
                                 }
                             };
+                        }
+                        if lifted_fallback {
+                            child2.person_turn(false).await;
                         }
                     }
                     // It could not start after all: the chat goes back to the profile it was
@@ -1810,7 +1884,12 @@ impl Hub {
         // one starts (route_switch.rs). A restart that fails leaves the
         // harness stopped; the next prompt's spawn reports why. A carried turn runs on: its
         // task moves it when it ends.
-        if session.route_switch.load(Ordering::SeqCst) && carried.is_none() {
+        // Work below it (a background subagent, a sub-session) would end with the agent: then
+        // it waits for quiet (`route_switch.rs` `restart_waits_for_work_below`).
+        if session.route_switch.load(Ordering::SeqCst)
+            && carried.is_none()
+            && !self.restart_waits_for_work_below(session)
+        {
             let _ = self.restart_on_route(session).await;
         }
         drop(guard);
@@ -1893,6 +1972,10 @@ fn restored_transcript(session: &Session, transcript: &str) -> Value {
 #[cfg(test)]
 #[path = "close_why_tests.rs"]
 mod close_why_tests;
+
+#[cfg(test)]
+#[path = "exit_notify_tests.rs"]
+mod exit_notify_tests;
 
 #[cfg(test)]
 #[path = "first_acceptance_tests.rs"]

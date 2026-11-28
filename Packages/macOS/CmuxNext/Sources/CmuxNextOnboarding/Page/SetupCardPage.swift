@@ -76,7 +76,11 @@ public final class SetupCardHost {
         // The card floats on the chat's backdrop: a Chromium page cannot be transparent.
         guard let page = PageWebView(descriptor: .setupCard, routes: [PageRoute(prefix: SetupCardPageProvider.prefix, provider: provider)],
                                      options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true),
-                                     overlayProcess: overlayProcess) else { return nil }
+                                     overlayProcess: overlayProcess) else {
+            // No page, no card: its provider stops, so a classic import asking on the row goes to the dialog.
+            provider.stop()
+            return nil
+        }
         self.page = page
         self.provider = provider
         provider.onSize = { [weak self] height in
@@ -137,14 +141,22 @@ public final class SetupCardPageProvider: PageProvider {
         self.setup = setup
         self.agents = setup.agents(source: agents)
         self.environment = environment
+        // Only the whole card has the cmux Classic row, so only it can answer the launch's classic import.
+        if !forChief { setup.cardOpened() }
         self.agents.start()
         readCLI()
     }
 
     /// The card's own reads end; the shared agents model (``FirstRunSetup/agents(source:)``) and its install go on.
+    /// A classic import asking on this card's row goes back to the dialog when no other card is drawn.
     func stop() {
         cliRead?.cancel()
+        guard !stopped, !forChief else { return }
+        stopped = true
+        setup.cardClosed()
     }
+
+    @ObservationIgnored private var stopped = false
 
     private func readCLI() {
         cliRead?.cancel()
@@ -177,11 +189,27 @@ public final class SetupCardPageProvider: PageProvider {
         // Signed out: what the row's Sign In signs in to ("Signs in to cmux.com"), the line under it.
         if !account.signedIn, let backend = environment.signInBackend { wire["signInBackend"] = .string(backend) }
         return ["agents": .array(rows),
-                "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": .null,
+                "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": forChief ? .null : classicState,
                 "forChief": .bool(forChief), "look": forChief ? .null : environment.look?.wire ?? .null]
     }
 
-    /// Every row is done: an agent signed in, the account signed in, this app's `cmux` on PATH.
+    /// The cmux Classic row (setupModel.ts `SetupState.classic`): what the launch's import would bring, and its answer.
+    private var classicState: JSONValue {
+        guard let offer = setup.classic else { return .null }
+        var wire: [String: JSONValue] = [
+            "workspaces": .number(Double(offer.workspaces)), "app": .string(offer.app), "savedAt": .number(offer.savedAt * 1000),
+            "running": .bool(offer.running), "resumes": .bool(offer.resumes),
+        ]
+        switch setup.classicAnswer {
+        case .accepted: wire["answered"] = .string(setup.classicImported.map { $0 ? "imported" : "failed" } ?? "importing")
+        case .declined: wire["answered"] = .string("declined")
+        case .unanswered, nil: break
+        }
+        return .object(wire)
+    }
+
+    /// Every row is done: an agent signed in, the account signed in, this app's `cmux` on PATH, and the launch's
+    /// classic import answered (never before the migration decided whether it asks).
     var allDone: Bool {
         if forChief { return agents.agents.contains { $0.id == FirstRunSetup.chiefAgentID && agents.countsAsSignedIn($0) } }
         return agents.agents.contains { Self.agentIDs.contains($0.id) && agents.countsAsSignedIn($0) } && rowsBesideAgentsDone
@@ -190,6 +218,8 @@ public final class SetupCardPageProvider: PageProvider {
     /// The rows besides the agents' are done (``allDone``).
     var rowsBesideAgentsDone: Bool {
         environment.account().signedIn && cli == "installed"
+            && !setup.awaitsClassic && (setup.classic == nil || setup.classicAnswer != nil)
+            && (setup.classicAnswer != .accepted || setup.classicImported != nil)
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -255,6 +285,9 @@ public final class SetupCardPageProvider: PageProvider {
             guard let look = environment.look, !forChief else { throw PageError.invalidParams("no density row") }
             guard let id = action["id"]?.stringValue, DensityPreset(rawValue: id) != nil else { throw PageError.invalidParams("unknown density") }
             write(look, DensitySetting.configPath, .string(id))
+        // cmux Classic: Import or Not Now answers the launch's classic import, which asks here instead of its dialog.
+        case "importClassic" where !forChief: setup.answerClassic(.accepted)
+        case "declineClassic" where !forChief: setup.answerClassic(.declined)
         case "installCLI":
             // Only the row's own offer: Install when missing, Replace for another cmux app's CLI; never over a
             // `cmux` that is no cmux app's.

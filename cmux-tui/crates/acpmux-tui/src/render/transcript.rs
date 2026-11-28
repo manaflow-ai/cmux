@@ -322,9 +322,10 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         }
         app.rows_cache.truncate(changed);
         app.row_meta.truncate(changed);
-        app.rows_cache.extend(app.transcript_cache.rows[changed..].iter().map(|r| r.text.clone()));
+        app.rows_cache
+            .extend(app.transcript_cache.rows.iter().skip(changed).map(|r| r.text.clone()));
         app.row_meta
-            .extend(app.transcript_cache.rows[changed..].iter().map(|r| (r.item, r.toggle)));
+            .extend(app.transcript_cache.rows.iter().skip(changed).map(|r| (r.item, r.toggle)));
     }
     let rows = &app.transcript_cache.rows;
     let track = Rect { x: area.x + area.width - 1, y: inner.y, width: 1, height: inner.height };
