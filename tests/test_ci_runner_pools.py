@@ -91,6 +91,19 @@ class Declared(unittest.TestCase):
                          ["cmux-fleet-linux-x64", "cmux-freestyle-linux-x64", "blacksmith-4vcpu-ubuntu-2404",
                           "blacksmith-16vcpu-ubuntu-2404"])
 
+    def test_a_dead_macos_15_label_moves_its_pool_to_macos_26(self) -> None:
+        # 2026-11-28 ~12:50-14:35Z blacksmith-6vcpu-macos-15 started nothing for 104+ min (9-10 queued, oldest 99 min)
+        # while blacksmith-6vcpu-macos-26 ran 16; with one member the pool could not move. Owned Macs never join:
+        # fork pull request code reads this pool.
+        pools = runner_pools.load_pools()
+        self.assertEqual(runner_pools.members(pools["macos_15"]),
+                         ["blacksmith-6vcpu-macos-15", "blacksmith-6vcpu-macos-26"])
+        live, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=NOW)
+        self.assertEqual(live["macos_15"], "blacksmith-6vcpu-macos-15")
+        dead, lines = runner_pools.reconcile({}, pools, dead_now={"blacksmith-6vcpu-macos-15"}, served_now=(), now=NOW)
+        self.assertEqual(dead["macos_15"], "blacksmith-6vcpu-macos-26")
+        self.assertTrue(any("pools.macos_15:" in line and "blacksmith-6vcpu-macos-26" in line for line in lines), lines)
+
     def test_every_blacksmith_linux_size_has_its_own_pool(self) -> None:
         # Leo, 2026-10-28: "Where the f***ing are the generalized solution to all these problems that these
         # incessant pins?" A job measured at one size reads that size's pool, so a stalled size moves by declaration.
