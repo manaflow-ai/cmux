@@ -168,6 +168,22 @@ LINUX_SIZE = re.compile(r"^blacksmith-(\d+)vcpu-(ubuntu-\d+(?:-arm)?)$")
 # sweeps about as often, so a label that is still dead is marked again before its mark expires,
 # and one that recovered is used again within half an hour (or at once when it starts a job).
 DEAD_TTL = dt.timedelta(minutes=30)
+# A Blacksmith macOS label that starts jobs, but too slowly: label -> when its queue was first seen past
+# SLOW_SPILL_MINUTES (slow_waits(), reconcile()). label_evidence() never calls such a label dead, since it keeps
+# starting jobs, so before this a pool stayed on it however long its jobs waited: from 2026-11-27 18:17Z to 11-28
+# 16:15Z (29 janitor snapshots) blacksmith-6vcpu-macos-15 ran 0-6 jobs with its oldest queued job at 40-154 min in
+# 13 of them, while blacksmith-6vcpu-macos-26 ran 9-18 with its oldest under 10 min in 21.
+SLOW_KEY = "_slow"
+# The wait that marks a macOS label slow. A spill moves a pool to its next member only while that member's oldest
+# wait is under half of this, and keeps it there while that wait stays under all of it: Blacksmith's macOS vCPUs are
+# one pool shared by every size, so a spill onto a busy 6 vCPU macOS 26 starves blacksmith-12vcpu-macos-26 too.
+# The mark clears (the pool moves back) once the label's oldest wait is under half of this again. Replayed over the
+# same 29 snapshots (tests/fixtures/macos-pool-load-replay.json, `scripts/ci/macos_pool_replay.py replay`), 10,
+# 15, 20 and 30 all bring the macos_15 pool's median wait from 21 to 3 min (the swift-check target is a 10 min
+# median); 30 cuts the mean further (8 against 15 min) only by staying on macOS
+# 26 while its own oldest wait is 27-29 min, where 12 vCPU starves. 20 moves only onto a macOS 26 under 10 min.
+SLOW_SPILL_MINUTES = 20.0
+SLOW_SPILL = re.compile(r"^blacksmith-\d+vcpu-macos-[a-z0-9.-]+$")
 # Probe health older than this is from a run that did not finish; it decides nothing.
 HEALTH_MAX_AGE = dt.timedelta(minutes=25)
 # A janitor snapshot older than this (or undated, or from the future) decides nothing: the age the
@@ -438,6 +454,15 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
                            "dropped")
         if good:
             clean[SERVED_KEY] = dict(sorted(good.items()))
+    slow = value.get(SLOW_KEY)
+    if slow is not None:
+        good = {label: since for label, since in (slow.items() if isinstance(slow, dict) else ())
+                if isinstance(label, str) and SLOW_SPILL.match(label) and parse_time(since) is not None}
+        if not isinstance(slow, dict) or len(good) != len(slow):
+            dropped.append(f"{VARIABLE}.{SLOW_KEY} holds entries that are not Blacksmith macOS label -> zoned time; "
+                           "dropped")
+        if good:
+            clean[SLOW_KEY] = dict(sorted(good.items()))
     homes = value.get(RAW_HOME_KEY)
     if homes is not None:
         good = {name: {"home": entry["home"], "to": entry["to"]}
@@ -963,6 +988,30 @@ def recently_started(snapshot: Mapping[str, Any], *, now: dt.datetime) -> set[st
     return found
 
 
+def slow_waits(snapshot: Mapping[str, Any] | None, *, now: dt.datetime) -> dict[str, float] | None:
+    """Blacksmith macOS label -> its oldest queued job's wait in minutes (0 with nothing queued, or not listed), from
+    a fresh, complete janitor snapshot; None without one.
+
+    None decides nothing: the slow marks keep their state and no pool spills or comes back (reconcile()). On
+    2026-11-28 at 15:47Z the watch's snapshot and run-list reads got 403 (the read budget spent), and a rule judging
+    the missing queue as empty would have moved every spilled pool back onto the slow label."""
+    generated = parse_time(snapshot.get("generated_at")) if isinstance(snapshot, Mapping) else None
+    if generated is None or not (dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE) \
+            or pr_runner_pool.snapshot_truncated(snapshot) or not isinstance(snapshot.get("pools"), Mapping):
+        return None
+    waits: dict[str, float] = {}
+    for label, load in snapshot["pools"].items():
+        if not (isinstance(label, str) and SLOW_SPILL.match(label) and isinstance(load, Mapping)):
+            continue
+        try:
+            queued = int(load.get("queued") or 0)
+            oldest = float(load.get("oldest_queued_minutes") or 0)
+        except (TypeError, ValueError):
+            return None
+        waits[label] = oldest if queued > 0 else 0.0
+    return waits
+
+
 def unproven(label: str, served: Mapping[str, Any]) -> bool:
     """An owned Mac fleet Linux VM label (OWNED_EPHEMERAL_LINUX) no runner has been seen taking a job on.
 
@@ -979,10 +1028,12 @@ def unproven(label: str, served: Mapping[str, Any]) -> bool:
 
 def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]], *,
               dead_now: Iterable[str], served_now: Iterable[str], now: dt.datetime,
-              covered: Iterable[str] | None = None) -> tuple[dict[str, Any], list[str]]:
+              covered: Iterable[str] | None = None,
+              waits: Mapping[str, float] | None = None) -> tuple[dict[str, Any], list[str]]:
     """The next RUNNER_POOLS value and a line per change. `current` is parse_value()'s output.
 
-    `covered` (evidence_covers()) names the labels whose marks may expire; None lets every mark expire."""
+    `covered` (evidence_covers()) names the labels whose marks may expire; None lets every mark expire. `waits`
+    (slow_waits()) moves the slow marks; None keeps them and every pool's spill as they are."""
     lines: list[str] = []
     marks: dict[str, str] = {}
     known_now = None if covered is None else set(covered)
@@ -1011,6 +1062,20 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
             served[label] = iso(now)
             lines.append(f"{label}: an owned Linux VM runner took a job; the pools may lead with it")
     skipped = set(marks) | {label for label in known if unproven(label, served)}
+    slow = {label: since for label, since in (current.get(SLOW_KEY) or {}).items()
+            if label in known and SLOW_SPILL.match(label)}
+    if waits is None:
+        if slow:
+            lines.append(f"slow marks kept ({', '.join(sorted(slow))}); no fresh, complete janitor snapshot this pass")
+    else:
+        for label in sorted(label for label in known if SLOW_SPILL.match(label)):
+            wait = float(waits.get(label, 0.0))
+            if wait >= SLOW_SPILL_MINUTES and label not in slow:
+                slow[label] = iso(now)
+                lines.append(f"{label}: slow (oldest queued {wait:g} min, at least {SLOW_SPILL_MINUTES:g})")
+            elif wait < SLOW_SPILL_MINUTES / 2 and label in slow:
+                del slow[label]
+                lines.append(f"{label}: queue cleared (oldest queued {wait:g} min); it takes its pools back")
     value: dict[str, Any] = {}
     for name, spec in sorted(pools.items()):
         candidates = members(spec)
@@ -1022,18 +1087,47 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
             chosen = candidates[0]
             if current.get(name) != chosen:
                 lines.append(f"pools.{name}: every member is dead ({', '.join(candidates)}); keeping the first member")
+        if chosen in slow:
+            spill, why = spill_target(candidates, chosen, skipped, current.get(name), waits)
+            if spill is not None:
+                chosen = spill
+            if why:
+                lines.append(f"pools.{name}: {why}")
         if current.get(name) != chosen:
             lines.append(f"pools.{name}: {current.get(name) or 'unset'} -> {chosen}")
         value[name] = chosen
     value[DEAD_KEY] = dict(sorted(marks.items()))
     if served:
         value[SERVED_KEY] = dict(sorted(served.items()))
+    if slow:
+        value[SLOW_KEY] = dict(sorted(slow.items()))
     comparable = {key: current.get(key) for key in value}
-    if comparable != value or UPDATED_KEY not in current:
+    if comparable != value or UPDATED_KEY not in current or (SLOW_KEY in current) != (SLOW_KEY in value):
         value[UPDATED_KEY] = iso(now)
     else:
         value[UPDATED_KEY] = current[UPDATED_KEY]
     return value, lines
+
+
+def spill_target(candidates: Sequence[str], slow_label: str, passed: set[str], current: str | None,
+                 waits: Mapping[str, float] | None) -> tuple[str | None, str]:
+    """The member a pool leaves its slow `slow_label` for, or None to stay, and why.
+
+    Only the next member not passed over (dead or unproven) takes it, and only with headroom (a slow one has none): its oldest wait
+    under half of SLOW_SPILL_MINUTES to move there, under all of it to stay there. Without a fresh reading (`waits`
+    None) a pool already spilled stays and one not spilled does not move."""
+    later = candidates[candidates.index(slow_label) + 1:]
+    target = next((label for label in later if label not in passed), None)
+    if target is None:
+        return None, f"{slow_label} is slow and no later member is free to take its jobs" if later else ""
+    if waits is None:
+        return (target, "") if current == target else (None, "")
+    wait = float(waits.get(target, 0.0))
+    bound = SLOW_SPILL_MINUTES if current == target else SLOW_SPILL_MINUTES / 2
+    if wait < bound:
+        return target, f"{slow_label} is slow; spilling to {target} (oldest queued {wait:g} min, under {bound:g})"
+    return None, (f"{slow_label} is slow but {target} has no headroom (oldest queued {wait:g} min, at least "
+                  f"{bound:g}); staying")
 
 
 def render(value: Mapping[str, Any]) -> str:
@@ -1257,7 +1351,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     for note in notes:
         print(note)
     value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now,
-                             covered=evidence_covers(health, snapshot, pools, now=now, gates=gates))
+                             covered=evidence_covers(health, snapshot, pools, now=now, gates=gates),
+                             waits=slow_waits(snapshot, now=now))
     # The mirrored and raw-label variables and the switch's record, read live: the switch step just before this
     # one may have moved them, so the job-start values could undo its failover.
     live, record, readable = _live(switch, env)

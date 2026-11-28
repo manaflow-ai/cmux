@@ -1655,5 +1655,59 @@ class ReadTokenTests(unittest.TestCase):
         self.assertIn("f95bc766b1fc840ab8817e4d9bb61348a2084b07", spill["with"]["ref"])
 
 
+class SpentPoolWatchTests(unittest.TestCase):
+    """A watch whose read pool is spent waits for the reset, or stops, instead of re-asking every POLL_SECONDS."""
+
+    START = dt.datetime(2026, 11, 28, 15, 37, tzinfo=dt.timezone.utc)
+
+    def run_watch(self, reset_minutes: float | None, *, recover: bool = False) -> tuple[str, int, list[float], list[str]]:
+        import email.message
+        import urllib.error
+        clock = [self.START]
+        pauses: list[float] = []
+        logs: list[str] = []
+        asked = [0]
+        api = switch.GitHub("bot", "manaflow-ai/cmux")
+
+        def send(method: str, path: str, data: bytes | None, token: str) -> dict:
+            asked[0] += 1
+            if recover and clock[0] >= self.START + dt.timedelta(minutes=reset_minutes or 0):
+                return {"jobs": [{"name": switch.probe_job_name("lbl"), "status": "in_progress",
+                                  "created_at": switch.iso(self.START), "started_at": switch.iso(clock[0])}]}
+            headers = email.message.Message()
+            if reset_minutes is not None:
+                headers["x-ratelimit-remaining"] = "0"
+                headers["x-ratelimit-reset"] = str(int(
+                    (self.START + dt.timedelta(minutes=reset_minutes)).timestamp()))
+            raise urllib.error.HTTPError(path, 403, "Forbidden", headers, None)  # type: ignore[arg-type]
+
+        def sleep(seconds: float) -> None:
+            pauses.append(seconds)
+            clock[0] += dt.timedelta(seconds=seconds)
+
+        api._send = send  # type: ignore[method-assign]
+        outcome, _ = switch.wait_for_probe(api, 1, 1, 5, ["lbl"], now=lambda: clock[0], sleep=sleep,
+                                           log=logs.append)
+        return outcome, asked[0], pauses, logs
+
+    def test_pool_spent_past_the_deadline_asks_once(self) -> None:
+        # Run 46160799649: reset after the 10 min watch ended; 42 refused reads before, one now.
+        outcome, asked, pauses, logs = self.run_watch(14.8)
+        self.assertEqual((outcome, asked, pauses), ("unknown", 1, []))
+        self.assertIn("nothing is asked again", logs[0])
+
+    def test_pool_spent_until_inside_the_deadline_waits_for_the_reset(self) -> None:
+        outcome, asked, pauses, _ = self.run_watch(4, recover=True)
+        self.assertEqual(outcome, "started")
+        self.assertEqual(asked, 2)
+        self.assertGreater(pauses[0], 200)
+
+    def test_any_other_refusal_still_retries_every_poll(self) -> None:
+        outcome, asked, pauses, _ = self.run_watch(None)
+        self.assertEqual(outcome, "unknown")
+        self.assertGreater(asked, 10)
+        self.assertEqual(set(pauses), {switch.POLL_SECONDS})
+
+
 if __name__ == "__main__":
     unittest.main()

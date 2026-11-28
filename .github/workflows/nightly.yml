@@ -167,6 +167,13 @@ jobs:
     # There is no preceding picker; bounded overflow needs controller admission.
     # The nightly slot refuses RC/dogfood refs; keep their existing route.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/main' && 'cmux-gcp-nightly-jit-x64' || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    # A 15-minute tick's decide holds the one-running `nightly-main-tick-decide` group, so a long
+    # wait here cancels every tick behind it. Run 46153075055 (2026-11-28) waited 2821s on one
+    # rate-limited GET, two ticks were cancelled, and nightly-next sat still. That decide is seconds
+    # of metadata and the next tick retries it, so it is bounded below one tick. Every other decide
+    # (rc pushes, the 6-hourly backstop) keeps the whole-reset wait, 3900s + 300s
+    # (tests/test_nightly_decide_bounded.py, tests/test_scheduled_workflow_gh_retry.py).
+    timeout-minutes: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/main' && github.event.schedule != '17 */6 * * *' && 15 || 70 }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -227,6 +234,10 @@ jobs:
         id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
+          # The tick's decide waits at most 8 min, fails loud, and the next tick retries. It gets no
+          # quota-isolated App token: this job's runner follows a repo variable, and a job holding
+          # an App key must not (tests/test_ci_fork_runner_routing.py).
+          GH_BUDGET_WAIT_MAX_SECONDS: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/main' && github.event.schedule != '17 */6 * * *' && '480' || '3900' }}
           FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
           FAST_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'true' || 'false' }}
           BUILD_ONLY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && 'true' || 'false' }}

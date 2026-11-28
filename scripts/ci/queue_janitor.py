@@ -214,6 +214,19 @@ it in flight) and re-run whole as cmux-bot by the next sweep at the same head, t
 newer run took that head; a pull request run at a superseded head is only cancelled. An attempt at
 LOST_FAILOVER_MAX_ATTEMPT, or a re-run GitHub refuses JOBLESS_RERUN_TRIES times, gives up with an ::error::.
 
+Superseded lane push holders are one more pass (push_holder_pairs(), find_push_holders()). A push run of a lane
+branch's old head can hold its workflow's per-branch concurrency group with nothing left that runs, while the
+run at the branch tip waits `pending` behind it; cmux-tui-artifacts.yml's group never cancels in progress, so a
+newer push does not end it. Every sweep, with no queue threshold and on a truncated listing too, such a run is
+cancelled, then force-cancelled if the cancel leaves it in flight, when it is attempt 1 of a push from this
+repository on a branch that is not main, feat-cmux-next, nightly*, release*, rc/*, next-batch/* or cmux-tui-pin-*,
+and no nightly, DEV, promote, release or tag run (protected_reason(), orphan_protected_reason()); a newer push run
+of its workflow and branch is `pending` or `queued`; one `git ls-remote` of the candidates' branches says the tip
+is that newer run's head and not this run's; every unfinished job has sat `queued` with no runner for
+HOLDER_JOB_WAIT, read again right before the cancel; and no open pull request of the branch is labelled
+`no-janitor`. Finished jobs keep their results and no started job is cut. Its own lookup budget and cap; never
+re-run.
+
 Stale-ref routing is one more pass (g, scripts/ci/stale_route_runs.py; stale_route_pass()): a queued job on a pool
 over the threshold that asks for a label the run's branch copy of its workflow (main's, or a BRANCH_WORKFLOWS
 branch's) no longer names, in a run created before the commit that took the label out. A run follows the workflow
@@ -236,6 +249,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -4241,6 +4255,241 @@ def render_jobless_summary(decisions: Sequence[JoblessDecision], notes: Sequence
     return "\n".join(lines) + "\n"
 
 
+# --- superseded lane push holders --------------------------------------------------------------------------------
+# A push run of a lane branch's old head whose unfinished jobs all sit `queued` with no runner holds its workflow's
+# per-branch concurrency group, and the branch's current head waits behind it, so its pull request cannot land.
+# cmux-tui-artifacts.yml's group is `cmux-tui-artifacts-ref-<ref>` with cancel-in-progress false, since a started
+# run uploading immutable R2 objects must never be cut, so a newer push never ends the old run. Run 44428962232
+# (lane/rd-host-heal-scope at 08139f38, created 2026-11-19 00:26Z) had its last two jobs queued on ubuntu-24.04 with
+# no runner from 11-20 14:19Z while run 44807860049 at the branch tip sat `pending` from 20:03Z. Run 44781509486
+# (lane/cloud-codex-failed-launch at 2af1e6e3, from 17:15Z) held run 44800231757 `pending` from 19:14Z the same way
+# once only its `drop this run's build artifacts` job was left, queued on cmux-gcp-nightly-jit-x64. A coordinator's
+# plain cancel left both reading `queued`. The concurrency-holder pass judges only pull request runs, the jobless
+# pass waits JOBLESS_AGE for the parked run, and neither acts on a truncated sweep, which is every sweep while
+# thousands of runs are queued.
+#
+# This pass runs every sweep, with no queue threshold and on a truncated listing too, since each verdict rests on
+# its own reads. A run is cancelled, then force-cancelled when the cancel leaves it in flight (cancel_orphans()),
+# only when all of these hold:
+#   - event push, attempt 1 (a re-run is someone asking for it), from this repository, on a lane branch: not
+#     PUSH_HOLDER_PROTECTED_BRANCH, and nothing protected_reason() or orphan_protected_reason() protects (nightly,
+#     DEV, promote, release, publish and notarize workflows, tag-like refs);
+#   - a newer push run of the same workflow and branch, `pending` or `queued`, is in the listing, and the branch's
+#     tip (one `git ls-remote` a sweep for the candidates' branches, no REST) is that newer run's head and not this
+#     run's, so the cancel frees the group for the current head;
+#   - nothing of it runs (holds_nothing_running()): every unfinished job is `queued` with no runner for
+#     HOLDER_JOB_WAIT, and a job `waiting` for an approval keeps the run. Jobs that already finished keep their
+#     results, and a job that never started has uploaded nothing. Its jobs are read again right before the cancel;
+#   - no open pull request of the branch is labelled `no-janitor` or left unread, and none has its head.
+# At most PUSH_HOLDER_LOOKUPS candidates a sweep, oldest first (a job listing each, when the sweep has none), and
+# MAX_PUSH_HOLDER_CANCELS cancels, a cap of its own. A superseded head's run is never re-run.
+PUSH_HOLDER_PROTECTED_BRANCH = re.compile(
+    r"^(main|master|feat-cmux-next|nightly.*|release.*|rc/.*|next-batch/.*|cmux-tui-pin-.*|gh-pages)$")
+PUSH_HOLDER_LOOKUPS = 10
+DEFAULT_MAX_PUSH_HOLDER_CANCELS = 5
+MAX_PUSH_HOLDER_CANCELS_LIMIT = 10
+
+
+def push_holder_pairs(runs: Sequence[Mapping[str, Any]],
+                      repo: str) -> list[tuple[Mapping[str, Any], Mapping[str, Any]]]:
+    """(holder, newer) for each lane-branch push run with a newer push run of its workflow and branch waiting
+    (`pending` or `queued`) at another head, oldest holder first. Pure: the branch tip and jobs are judged later."""
+    waiting: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+    for run in runs:
+        if run.get("event") == "push" and run.get("status") in ("pending", "queued") and run.get("path"):
+            waiting.setdefault((str(run["path"]), str(run.get("head_branch") or "")), []).append(run)
+    pairs = []
+    for run in runs:
+        branch = str(run.get("head_branch") or "")
+        created = parse_time(run.get("created_at"))
+        if (run.get("event") != "push" or run.get("status") not in ("queued", "in_progress") or not branch
+                or not run.get("path") or created is None or int(run.get("run_attempt") or 1) != 1
+                or PUSH_HOLDER_PROTECTED_BRANCH.match(branch)
+                or (run.get("head_repository") or {}).get("full_name") != repo
+                or protected_reason(run) is not None or orphan_protected_reason(run) is not None):
+            continue
+        newer = [other for other in waiting.get((str(run["path"]), branch), ())
+                 if other.get("id") != run.get("id") and other.get("head_sha") != run.get("head_sha")
+                 and (parse_time(other.get("created_at")) or created) > created]
+        if newer:
+            pairs.append((run, max(newer, key=lambda other: (str(other.get("created_at") or ""), other["id"]))))
+    return sorted(pairs, key=lambda pair: (str(pair[0].get("created_at") or ""), pair[0]["id"]))
+
+
+def parse_ls_remote(text: str, branches: Iterable[str]) -> dict[str, str]:
+    """`git ls-remote` output -> branch -> sha, for exactly `branches` (a pattern also matches longer refs)."""
+    wanted = {f"refs/heads/{branch}": branch for branch in branches}
+    tips: dict[str, str] = {}
+    for line in text.splitlines():
+        sha, _, ref = line.partition("\t")
+        if ref.strip() in wanted and sha.strip():
+            tips[wanted[ref.strip()]] = sha.strip()
+    return tips
+
+
+def holds_nothing_running(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime,
+                          min_wait: dt.timedelta = HOLDER_JOB_WAIT) -> bool:
+    """concurrency_holder()'s rule for one run: every unfinished job `queued` with no runner for min_wait (a run
+    with none unfinished, created min_wait ago, still holds its group while it reads in flight)."""
+    unfinished = [job for job in jobs if job.get("status") != "completed"]
+    if any(not never_assigned(job) for job in unfinished):
+        return False
+    if not unfinished:
+        created = parse_time(run.get("created_at"))
+        return created is not None and now - created >= min_wait
+    times = [parse_time(job.get("created_at")) for job in unfinished]
+    return all(when is not None and now - when >= min_wait for when in times)
+
+
+def judge_push_holder(holder: Mapping[str, Any], newer: Mapping[str, Any], tip: str | None,
+                      jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime) -> tuple[Orphan | None, str]:
+    """The holder as an Orphan when it may be cancelled, else None and why it is kept. Pure."""
+    if not tip:
+        return None, f"{holder.get('head_branch')}'s tip was not read or the branch is gone"
+    if holder.get("head_sha") == tip:
+        return None, "its head is still the branch tip"
+    if newer.get("head_sha") != tip:
+        return None, f"run {newer.get('id')} behind it is not at the branch tip {tip[:9]}"
+    found = concurrency_holder(newer, [holder], {holder["id"]: jobs}, now=now) if holds_nothing_running(
+        holder, jobs, now=now) else None
+    if found is None:
+        return None, (f"a job of it has a runner, waits for an approval, or queued under "
+                      f"{format_age(HOLDER_JOB_WAIT)}")
+    return found, ""
+
+
+def find_push_holders(
+    github: "GitHub",
+    pairs: Sequence[tuple[Mapping[str, Any], Mapping[str, Any]]],
+    jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+    *,
+    now: dt.datetime,
+    limit: int = PUSH_HOLDER_LOOKUPS,
+) -> tuple[list[Orphan], list[str]]:
+    """Judge the first `limit` pairs: one ls-remote for their branches, then each holder's jobs (the sweep's
+    listing, else one read). A failed read keeps that run and is noted; a rate limit stops the pass."""
+    pairs = list(pairs)[:max(0, limit)]
+    if not pairs:
+        return [], []
+    try:
+        tips = github.branch_tips(sorted({str(holder["head_branch"]) for holder, _ in pairs}))
+    except RuntimeError as error:
+        return [], [f"branch tips not read, nothing judged: {error}"]
+    found: list[Orphan] = []
+    notes: list[str] = []
+    for holder, newer in pairs:
+        try:
+            jobs = jobs_by_run[holder["id"]] if holder["id"] in jobs_by_run else github.jobs(holder["id"])
+        except RateLimited as error:
+            notes.append(f"run {holder['id']}: {error}")
+            break
+        except RuntimeError as error:
+            notes.append(f"run {holder['id']}: {error}")
+            continue
+        orphan, why = judge_push_holder(holder, newer, tips.get(str(holder["head_branch"])), jobs, now=now)
+        if orphan is None:
+            notes.append(f"run {holder['id']} ({holder.get('name')}, {holder.get('head_branch')}) kept: {why}")
+        else:
+            found.append(orphan)
+    return found, notes
+
+
+def build_push_holder_plan(
+    holders: Sequence[Orphan],
+    prs_by_branch: Mapping[str, Sequence[Mapping[str, Any]]],
+    *,
+    max_cancels: int,
+    exclude_ids: set[int],
+) -> list[OrphanDecision]:
+    """Which push holders to cancel this sweep, under their own cap. A branch whose pull requests were not read,
+    or whose open pull request is labelled `no-janitor` (or its labels were not all read), is left alone."""
+    decisions: list[OrphanDecision] = []
+    cancels = 0
+    for orphan in holders:
+        run = orphan.run
+        if run["id"] in exclude_ids:
+            continue
+        branch_prs = prs_by_branch.get(str(run.get("head_branch") or ""))
+        if branch_prs is None:
+            decisions.append(OrphanDecision(orphan, "skip", "its branch's pull requests were not read"))
+            continue
+        opted_out = next((pr for pr in branch_prs if pr.get(OPEN_PRS_UNREAD) or (
+            pr.get("state") == "OPEN" and (JANITOR_OPT_OUT_LABEL in pr_labels(pr) or not labels_complete(pr)))), None)
+        if opted_out is not None:
+            decisions.append(OrphanDecision(orphan, "skip", f"PR #{opted_out.get('number')} is labelled "
+                                            f"`{JANITOR_OPT_OUT_LABEL}` or was not fully read"))
+            continue
+        at_head = open_pr_at_head(run, branch_prs)
+        if at_head is not None:
+            decisions.append(OrphanDecision(orphan, "skip", f"at the head of open PR #{at_head.get('number')}; "
+                                            f"{OPEN_HEAD_RULE}"))
+            continue
+        if cancels >= max_cancels:
+            decisions.append(OrphanDecision(orphan, "skip", f"push holder cap of {max_cancels} reached"))
+            continue
+        cancels += 1
+        decisions.append(OrphanDecision(orphan, "cancel"))
+    return decisions
+
+
+def cancel_push_holders(github: "GitHub", decisions: Sequence[OrphanDecision], *,
+                        now: dt.datetime) -> tuple[dict[int, str], int]:
+    """Read each holder's jobs again, then cancel (and force-cancel) the ones still running nothing."""
+    results: dict[int, str] = {}
+    failures = 0
+    still: list[OrphanDecision] = []
+    for decision in decisions:
+        if decision.action != "cancel":
+            continue
+        run = decision.orphan.run
+        try:
+            jobs = github.jobs(run["id"])
+        except RateLimited:
+            raise
+        except RuntimeError as error:
+            failures += 1
+            results[run["id"]] = f"kept: jobs not read again ({error})"
+            continue
+        if not holds_nothing_running(run, jobs, now=now):
+            results[run["id"]] = "kept: a job of it started since the first read"
+            continue
+        still.append(decision)
+    cancelled, cancel_failures = cancel_orphans(github, still)
+    results.update(cancelled)
+    return results, failures + cancel_failures
+
+
+def render_push_holder_summary(decisions: Sequence[OrphanDecision], notes: Sequence[str], *, dry_run: bool,
+                               results: Mapping[int, str] | None = None) -> str:
+    results = results or {}
+    lines = [
+        "",
+        "### Superseded lane push holders",
+        "",
+        "Lane-branch push runs at a head the branch moved past, holding the concurrency group of a newer push run "
+        f"at the branch tip, with every unfinished job queued {format_age(HOLDER_JOB_WAIT)} with no runner. Each is "
+        "cancelled, then force-cancelled if the cancel leaves it in flight, and never re-run.",
+        "",
+    ]
+    lines.extend(f"- {note}" for note in notes)
+    if not decisions:
+        lines.append("No superseded push holders to clear.")
+        return "\n".join(lines) + "\n"
+    lines.append("| Decision | Run | Workflow | Branch | Evidence |")
+    lines.append("| --- | --- | --- | --- | --- |")
+    for decision in decisions:
+        run = decision.orphan.run
+        if decision.action == "cancel":
+            verb = results.get(run["id"]) or ("would cancel" if dry_run else "cancel")
+        else:
+            verb = f"keep ({decision.note})"
+        name = str(run.get("name") or run.get("path") or "").replace("|", "\\|")
+        evidence = decision.orphan.evidence.replace("|", "\\|")
+        lines.append(f"| {verb.replace('|', '/')} | {run.get('html_url') or run.get('id')} | {name} "
+                     f"| {run.get('head_branch')} | {evidence} |")
+    return "\n".join(lines) + "\n"
+
+
 def _cancel_refused(error: RuntimeError) -> bool:
     """Whether GitHub rejected a cancellation because the run cannot be cancelled."""
     return "(409)" in str(error)
@@ -5083,6 +5332,24 @@ class GitHub:
             raise
         return str(((payload or {}).get("commit") or {}).get("sha") or "")
 
+    def branch_tips(self, branches: Sequence[str]) -> dict[str, str]:
+        """Branch -> tip sha for `branches`, from one `git ls-remote` (git's endpoint, not the REST budget). A branch
+        missing from the answer is gone. Raises RuntimeError when git fails."""
+        if not branches:
+            return {}
+        auth = base64.b64encode(f"x-access-token:{self._token}".encode()).decode()
+        env = {**os.environ, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.extraheader",
+               "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {auth}", "GIT_TERMINAL_PROMPT": "0"}
+        try:
+            proc = subprocess.run(["git", "ls-remote", f"https://github.com/{self.repo}.git",
+                                   *(f"refs/heads/{branch}" for branch in branches)],
+                                  capture_output=True, text=True, env=env, timeout=60, check=False)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise RuntimeError(f"git ls-remote failed: {error}") from error
+        if proc.returncode != 0:
+            raise RuntimeError(f"git ls-remote failed ({proc.returncode}): {proc.stderr.strip()[:200]}")
+        return parse_ls_remote(proc.stdout, branches)
+
     def compare_status(self, base: str, head: str) -> str:
         """GitHub's compare status of base...head (ahead, behind, identical or diverged)."""
         payload = self.request("GET", f"/repos/{self.repo}/compare/{base}...{head}?per_page=1")
@@ -5425,6 +5692,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     parser.add_argument("--max-orphan-cancels", type=int, default=None)
     parser.add_argument("--max-holder-cancels", type=int, default=None)
     parser.add_argument("--max-jobless-cancels", type=int, default=None)
+    parser.add_argument("--max-push-holder-cancels", type=int, default=None)
     parser.add_argument("--workflows-dir", type=Path,
                         default=Path(__file__).resolve().parents[2] / ".github" / "workflows")
     parser.add_argument("--branch-workflows", action="append", metavar="BRANCH=DIR",
@@ -5483,6 +5751,16 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         return 2
     if not 0 <= max_jobless_cancels <= MAX_JOBLESS_CANCELS_LIMIT:
         print(f"queue-janitor: max jobless cancels must be within 0..{MAX_JOBLESS_CANCELS_LIMIT}", file=sys.stderr)
+        return 2
+    try:
+        max_push_holder_cancels = (args.max_push_holder_cancels if args.max_push_holder_cancels is not None
+                                   else env_int("MAX_PUSH_HOLDER_CANCELS", DEFAULT_MAX_PUSH_HOLDER_CANCELS))
+    except ValueError:
+        print("queue-janitor: MAX_PUSH_HOLDER_CANCELS must be an integer", file=sys.stderr)
+        return 2
+    if not 0 <= max_push_holder_cancels <= MAX_PUSH_HOLDER_CANCELS_LIMIT:
+        print(f"queue-janitor: max push holder cancels must be within 0..{MAX_PUSH_HOLDER_CANCELS_LIMIT}",
+              file=sys.stderr)
         return 2
 
     github = GitHub(token, args.repo, fallback_token=os.environ.get("GH_FALLBACK_TOKEN") or "")
@@ -5577,8 +5855,14 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
             find_jobless(github, runs, jobs_by_run, now=now, skip_ids=held, pending_entries=pending or [])
             if max_jobless_cancels else ([], [], []))
         holders += [h for h in jobless_holders if h.run["id"] not in {other.run["id"] for other in holders}]
+        # Lane push runs at a moved head holding a newer push run's group (find_push_holders()): their own reads,
+        # so they are judged on a truncated sweep too.
+        push_holders, push_holder_notes = (
+            find_push_holders(github, push_holder_pairs(runs, args.repo), jobs_by_run, now=now)
+            if max_push_holder_cancels else ([], []))
         branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans, now))
                           | {str(h.run["head_branch"]) for h in holders}
+                          | {str(h.run["head_branch"]) for h in push_holders}
                           | {str(o.run["head_branch"]) for o in jobless}
                           | {str(run["head_branch"]) for run in superseded if run.get("head_branch")}
                           | set(lost_branches(runs, {**lost, **unclaimed}, pending or [])))
@@ -5589,6 +5873,20 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         if isinstance(error, RateLimited):
             github.rate_limited = github.rate_limited or str(error)
         return 1
+
+    def clear_push_holders(exclude_ids: set[int]) -> tuple[str, int]:
+        """Plan, cancel (unless a dry run) and summarize the superseded lane push holders: (summary, failures)."""
+        decisions = build_push_holder_plan(push_holders, prs_by_branch, max_cancels=max_push_holder_cancels,
+                                           exclude_ids=exclude_ids)
+        results: dict[int, str] = {}
+        failed = 0
+        if not args.dry_run:
+            try:
+                results, failed = cancel_push_holders(github, decisions, now=now)
+            except RateLimited as error:
+                github.rate_limited = github.rate_limited or str(error)
+                push_holder_notes.append(f"stopped: {error}")
+        return render_push_holder_summary(decisions, push_holder_notes, dry_run=args.dry_run, results=results), failed
 
     # Categories e and f: is a push or dispatch run's branch live (its head still the run's)? One request a
     # branch: at most CANDIDATE_HEAD_LOOKUPS for this sweep's candidates, and PENDING_HEAD_LOOKUPS of their
@@ -5807,14 +6105,14 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         if unread:
             summary = (f"\n_The job listings of {len(unread)} run(s) failed ({', '.join(map(str, sorted(unread)))}): "
                        f"the pool snapshot was written from the other {len(runs)}, and this sweep decided nothing "
-                       "else; only the jobless pass acted._\n")
+                       "else; only the jobless pass acted, plus the superseded lane push holders below._\n")
         else:
             summary = ""
         if listing["truncated"]:
             # An annotation too: the ceilings (MAX_RUN_PAGES, MAX_JOB_LISTINGS) need raising.
             print(f"::warning title=queue janitor listing truncated::{render_listing(listing)}")
             summary += (f"\n_{render_listing(listing)}: the pool snapshot says `truncated`, and this sweep "
-                        "decided nothing else; only the jobless pass acted._\n")
+                        "decided nothing else; only the jobless pass acted, plus the superseded lane push holders below._\n")
         verb = "would " if args.dry_run else ""
         summary += (f"\n_Jobless pass on this partial sweep: {verb}force-cancel "
                     f"{sum(1 for d in holder_decisions if d.action == 'cancel')} holder(s), {verb}cancel "
@@ -5827,6 +6125,9 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         summary += render_lost_reruns(rerun_decisions, dry_run=args.dry_run, results=rerun_results)
         summary += render_jobless_summary(jobless_decisions, jobless_notes, dry_run=args.dry_run,
                                           results=jobless_results)
+        # The one pass whose verdicts rest on its own reads, not the listing (find_push_holders()).
+        push_summary, _ = clear_push_holders(set())
+        summary += push_summary
         summary += f"\n_{render_rate_limits(github.rate_limits)}_\n"
         print(summary)
         if args.summary:
@@ -5943,6 +6244,13 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     for line in jobless_alerts(jobless_decisions, jobless_results):
         print(line)
 
+    # Superseded lane push holders, under their own cap; a run another pass cancelled this sweep is left out.
+    push_summary, push_failures = clear_push_holders(
+        {candidate.run["id"] for candidate in plan.to_cancel()}
+        | {d.orphan.run["id"] for d in [*orphan_decisions, *holder_decisions, *jobless_decisions]
+           if d.action == "cancel"})
+    failures += push_failures
+
     try:
         superseded_decisions, superseded_failures = skip_superseded_delivery(
             github, superseded, runs, delivery_jobs, prs_by_branch, dry_run=args.dry_run)
@@ -6000,6 +6308,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     if alert:
         print(alert)
     summary += render_jobless_summary(jobless_decisions, jobless_notes, dry_run=args.dry_run, results=jobless_results)
+    summary += push_summary
     summary += render_superseded_summary(superseded_decisions)
     summary += stale_summary
     summary += f"\n_{render_listing(listing)}._\n"
