@@ -27,6 +27,10 @@ enum ResumeCommandHandlers {
         })
         let lastCommand = DaemonCapability.terminalLastCommand
         RunLastCommandActions(unavailable: context.needs(lastCommand.rawValue), terminal: { terminal($0, context, lastCommand) }).bind(into: registry)
+        let commandContext = DaemonCapability.terminalCommandContext
+        TerminalToChatActions(unavailable: context.needs(commandContext.rawValue), terminal: { terminal($0, context, commandContext) },
+                              selection: { context.terminal($0).flatMap(TerminalHandlers.selection(of:)) },
+                              deliver: { context.draftInChat($0, from: $1) }).bind(into: registry)
     }
 
     /// The targeted or focused terminal tab and its own daemon's connection.

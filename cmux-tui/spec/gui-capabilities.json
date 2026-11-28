@@ -182,6 +182,10 @@
       "`terminal-last-command`: the newest command a live shell finished,",
       "for Run Last Command Again."
     ]},
+    {"case": "terminalCommandContext", "wire": "terminal-command-context-v1", "tier": "optional", "doc": [
+      "`terminal-command-context`: the newest finished command's line, output, status and folder,",
+      "as chat text, for Fix and Send Last Output to Chat."
+    ]},
     {"case": "terminalReaperActive", "wire": "terminal-reaper-active-v1", "tier": "optional", "doc": [
       "The owner's reaper runs now (started with a reap grace, as the app",
       "starts it), so a detached terminal ends after the grace period. An",

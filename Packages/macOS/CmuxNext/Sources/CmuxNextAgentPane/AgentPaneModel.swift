@@ -53,6 +53,9 @@ public final class AgentPaneModel {
     /// not once: a command sent to a page whose connection then restarts (a handshake sets
     /// `clientReady` false) is lost, and the files waited for the next file sent.
     @ObservationIgnored var sendHeldExternal: (@MainActor () -> Void)?
+    /// Page actions asked for before ``clientReady`` that each must reach the page (Send to Chat appends,
+    /// ``AgentPaneView/appendToDraft(_:focus:)``), run in order when the page says it is ready.
+    @ObservationIgnored var clientReadyWaiters: [@MainActor () -> Void] = []
     /// The page's finish sound (`pane.finishSound`), with its own gap between sounds.
     @ObservationIgnored let finishSound = AgentPaneFinishSound()
 
@@ -695,8 +698,13 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .clientReady(let ready):
             clientReady = ready
-            if ready { openWaits.ran(.connected) }
-            if ready, droppedPaths.holdsExternal { sendHeldExternal?() }
+            if ready {
+                openWaits.ran(.connected)
+                if droppedPaths.holdsExternal { sendHeldExternal?() }
+                let waiters = clientReadyWaiters
+                clientReadyWaiters = []
+                for waiter in waiters { waiter() }
+            }
             return AgentPaneReply.success()
         case .framePacing(let intervals):
             return AgentPaneReply.success(onFramePacing?(intervals) ?? [:])
