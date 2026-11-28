@@ -86,11 +86,9 @@ fn push_capped(into: &mut String, text: &str) {
         into.push_str(text);
         return;
     }
-    let mut cut = room;
-    while !text.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    into.push_str(&text[..cut]);
+    // The longest prefix that fits and ends on a char boundary (0 always is one).
+    let cut = (0..=room).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0);
+    into.push_str(text.get(..cut).unwrap_or_default());
 }
 
 /// The last [`KEEP`] replies of the records folded so far, oldest first.
