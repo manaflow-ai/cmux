@@ -34,7 +34,8 @@ or changing endpoints and unequal capture scales fail. The script does not OCR t
 review the video and endpoint to establish that the visible content is the intended composer.
 
 Detector-only checks (the acceptance test is registered in the `linux-guard` fast lane;
-changes to the detector select it through the focused test planner):
+changes to the detector select it through the focused test planner and the existing
+PR pipeline's `new-tab-split-acceptance` step):
 
 ```sh
 python3 tests/test_new_tab_split_acceptance.py
