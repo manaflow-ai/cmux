@@ -12,22 +12,22 @@
     },
     {
       "path": "generated_metadata.go",
-      "sha256": "b5e118a4c9a191ecdd86220f55d0f3cae3d7c7680c153b6b88ac0905a4bd81fa",
+      "sha256": "7e50008de0822022ebe649d937fa2ef1abbd34f2bfc3f3174284d2f675f98acc",
       "size": 140113
     },
     {
       "path": "generated_presence_test.go",
-      "sha256": "f06700ff95fb1738fe4fa0574659279ae2efaaa489fdc8b58165902c3c332701",
-      "size": 3185346
+      "sha256": "db906eae6b1ff866ca96f665bd05b8787e08c15784c8811db2e47af1edac7639",
+      "size": 3191762
     },
     {
       "path": "generated_types.go",
-      "sha256": "1a3fd131f12e56704fbef6a914917ab70d1d8880a39bf1e1fa8a9888a7b4e219",
-      "size": 685686
+      "sha256": "308d448f4c09968ca264c4ef98c126449d301f987ec6a4b23afadde055515705",
+      "size": 691774
     }
   ],
   "format": 1,
-  "ir_sha256": "aa7779b3359ce4c7b932c9de646ff247ae742afc7c712a93c9e618c22b5d7f09",
+  "ir_sha256": "4fec002cc50074d54cc2ceb3cce0c5793558740f152e0e38234067f26eb505bf",
   "language": "go",
   "mux_protocol": 12,
   "schema_version": 2
