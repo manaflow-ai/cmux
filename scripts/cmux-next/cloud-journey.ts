@@ -76,6 +76,10 @@
  * auto, the default, the server's choice). The summary and the probe row carry ready_ms, create machine to agent
  * running (create, running, first exec, login copy, start agent), when every one of those passed.
  *
+ * --machine-provider NAME puts `provider: NAME` on the chat machine's create: `own-host` boots it on our own
+ * Firecracker hosts (cmux-platform ownhost/, cmuxterm-hq RFD 0073) for a team the deployment's CLOUD_OWN_HOST_TEAMS
+ * names. It implies --seed none (a copy boots on its snapshot's provider). Absent: the deployment's default provider.
+ *
  * --gateway CMUX_BIN: the chat machine holds no login at all (Leo, 2026-11-07: "VMs stop holding tokens"). A second
  * machine becomes the team's inference gateway: the person's own subscription proxy runs on it (--gateway-upstream URL,
  * or by default the shared model stub with the journey's nonce, as `stub`), and CMUX_BIN runs `cmux inference setup
@@ -503,23 +507,36 @@ const BACKGROUND_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
  * The final answer of a provider request sent with BACKGROUND_AFTER. Freestyle's edge cuts a request it holds open at
  * about 120 s (an exec-await of a 290 s command answered 524 after 125 s, production 2026-11-21), so a request still
  * running after 60 s answers 202 with a request id, and GET /v5/background-requests/{id} (with the same `headers`)
- * answers 202 until the stored answer is ready, then that answer, which comes back whatever its status. Five failed
- * polls in a row (no answer, 429 or 5xx), or no answer by `deadlineAt`, throw: the command may have run. cmux-vm
+ * answers 202 until the stored answer is ready, then that answer, which comes back whatever its status. Failed polls
+ * (no answer, 429 or 5xx) back off and keep going, past `deadlineAt` too, until none has answered for `outageMs`
+ * (Freestyle answered 503 to every poll for 9 min in rebake 45960390204, 2026-11-27, while the command ran on); no
+ * answer then, or by the deadline with the provider answering, throws: the command may have run. cmux-vm
  * (workers/cmux-vm/src/upstream/live-background.ts) and the CLI (cmux-cloud-api background.rs) do the same.
  */
-export async function settleBackground(answer: Answer, apiBase: string, headers: Record<string, string>, deadlineAt: number, pollMs = 2_000, fetchJson: typeof http = http): Promise<Answer> {
+export async function settleBackground(answer: Answer, apiBase: string, headers: Record<string, string>, deadlineAt: number, pollMs = 2_000, fetchJson: typeof http = http, outageMs = 300_000): Promise<Answer> {
   if (answer.status !== 202) return answer;
   const id = answer.headers?.get("x-freestyle-background-request-id") ?? answer.body?.requestId ?? answer.body?.request_id;
   if (typeof id !== "string" || !BACKGROUND_ID.test(id)) throw new Error("background request: the 202 names no request");
   const url = `${apiBase.replace(/\/+$/, "")}/v5/background-requests/${id}`;
-  let failures = 0;
-  while (Date.now() + pollMs < deadlineAt) {
-    await new Promise((r) => setTimeout(r, pollMs));
-    const poll = await fetchJson("GET", url, undefined, headers, Math.max(1, Math.min(30_000, deadlineAt - Date.now()))).catch(() => null);
-    if (poll && poll.status === 202) failures = 0;
-    else if (poll && poll.status !== 429 && poll.status < 500) return poll;
-    else if (++failures >= 5) break;
+  let lastAnswerAt = Date.now();
+  let wait = pollMs;
+  let failing = false;
+  for (;;) {
+    const until = failing ? Math.max(deadlineAt, lastAnswerAt + outageMs) : deadlineAt;
+    if (Date.now() + wait >= until) break;
+    await new Promise((r) => setTimeout(r, wait));
+    const poll = await fetchJson("GET", url, undefined, headers, Math.max(1, Math.min(30_000, until - Date.now()))).catch(() => null);
+    if (poll && poll.status === 202) {
+      lastAnswerAt = Date.now();
+      wait = pollMs;
+      failing = false;
+    } else if (poll && poll.status !== 429 && poll.status < 500) return poll;
+    else {
+      failing = true;
+      wait = Math.min(15_000, wait * 2);
+    }
   }
+  if (failing) throw new Error(`background request ${id}: provider outage, no poll answered for ${Math.round(outageMs / 1000)} s (the command may have run)`);
   throw new Error(`background request ${id}: no answer by the deadline (the command may have run)`);
 }
 
@@ -3376,11 +3393,8 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
   secrets.push(s.access, s.refresh);
   const api = new Api(backend.api, team);
   api.bearer = s.access;
-  const names = new Set([false, true].flatMap((long) => [autoMachineName(tag, long), `${autoMachineName(tag, long)} gateway`]));
-  // --kept: also the machine a --keep run with this tag made (`cloud journey TAG`), once its operator is done with it.
-  if (kept) names.add(`cloud journey ${tag}`).add(`cloud journey ${tag} gateway`);
   const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
-  const mine = rows.filter((r) => names.has(r?.name) && r.status !== "deleted" && r.status !== "deleting");
+  const mine = ownNamedMachines(rows, tag, { kept });
   let failed = 0;
   for (const r of mine) {
     const id = String(r.id ?? r.machine_id ?? "");
@@ -4499,6 +4513,41 @@ export const LONG_JOURNEY_MS = 11 * 3_600_000;
 export function autoMachineName(tag: string, long: boolean): string {
   return `cloud journey auto ${tag}${long ? " long" : ""}`;
 }
+/**
+ * The `ttl_seconds` a CI journey's own machines are created with, so the platform's alarm (cmux-platform
+ * TestMachines.ts, `expires_at`) deletes a machine its run left behind once no run can still use it, instead of
+ * waiting for a later journey's sweep at STALE_JOURNEY_MS. A short run's invocation runs well under an hour (its whole
+ * job is at most half of STALE_JOURNEY_MS, the test above checks it), so half of STALE_JOURNEY_MS is past any run that
+ * named the machine; a long run's (` long`) gets LONG_JOURNEY_MS. 2026-11-27 23:23Z: the production journey team sat
+ * at its 20-machine cap (paused ones included) with 12 paused journey leftovers, all under 3 h old, so every sweep
+ * deleted 0 and the live journey failed `cloud.quota.exceeded` (cmux-platform run 46080502496).
+ * CLOUD_JOURNEY_MACHINE_TTL_S overrides it (300 to 604800, the create's bounds; 0 = none). Outside CI a hand run has no
+ * timeout, so its machines get none unless that is set.
+ */
+export function journeyMachineTtl(long: boolean, env: Record<string, string | undefined> = process.env): { ttl_seconds?: number } {
+  const raw = env.CLOUD_JOURNEY_MACHINE_TTL_S;
+  if (raw !== undefined && raw !== "") {
+    const n = Number(raw);
+    if (n === 0) return {};
+    if (!Number.isInteger(n) || n < 300 || n > 604_800) throw new Error(`CLOUD_JOURNEY_MACHINE_TTL_S: not 0 or a whole 300 to 604800: ${JSON.stringify(raw)}`);
+    return { ttl_seconds: n };
+  }
+  if (env.GITHUB_ACTIONS !== "true") return {};
+  return { ttl_seconds: Math.round((long ? LONG_JOURNEY_MS : STALE_JOURNEY_MS / 2) / 1000) };
+}
+/**
+ * The live machines on ROWS that carry one of TAG's own names (autoMachineName either length, its gateway and its cold create cell), minus
+ * the ids in EXCLUDE. A create can leave a second machine under the run's name besides the id it answered: run
+ * 46059808882 (jr-mwzf7mv7, an 86.8 s create) deleted the answered vm_5e22ac9cfbb7343202e5 at its end while a second
+ * `cloud journey auto jr-mwzf7mv7` stayed paused on the production probe account, held a plan slot (paused counts
+ * against the 20-machine cap) until the next run's STALE_JOURNEY_MS sweep 3 h later. --kept adds a --keep run's names.
+ */
+export function ownNamedMachines(rows: any[], tag: string, opts: { kept?: boolean; exclude?: Iterable<string | null | undefined> } = {}): any[] {
+  const names = new Set([false, true].flatMap((long) => [autoMachineName(tag, long), `${autoMachineName(tag, long)} gateway`, `${autoMachineName(tag, long)} cold`]));
+  if (opts.kept) names.add(`cloud journey ${tag}`).add(`cloud journey ${tag} gateway`);
+  const exclude = new Set([...(opts.exclude ?? [])].filter((id): id is string => typeof id === "string" && id !== ""));
+  return rows.filter((r) => names.has(r?.name) && r.status !== "deleted" && r.status !== "deleting" && !exclude.has(String(r.id ?? r.machine_id ?? "")));
+}
 /** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
 export const IDLE_JOURNEY_MS = 60 * 60_000;
 /**
@@ -4537,6 +4586,24 @@ export function strandedGatewayMode(body: any): boolean {
   const g = body?.gateway;
   if (!g || typeof g !== "object") return false;
   return g.mode === "gateway" && g.online !== true;
+}
+
+/**
+ * What a run that is not a --gateway run does to its team's gateway mode before create. A run whose agent has no
+ * login of its own and no model stub (the production real leg: no CLAUDE_CODE_OAUTH_TOKEN) reaches its model only
+ * through the team's gateway, so it puts the team in gateway mode ("gateway") and, with no gateway online, says so
+ * ("offline") instead of setting it off: the heal that set it off during the 11-27 gateway outage left the team off
+ * after the gateway came back, and every later real leg read "has no model route" (run 46059370159). Any other run
+ * sets a stranded team back to off ("off", #61939) and leaves the rest alone ("keep").
+ */
+export function gatewayModeAction(body: unknown, gatewayOnly: boolean): "keep" | "off" | "gateway" | "offline" {
+  const g = (body as { gateway?: { mode?: unknown; online?: unknown } } | null)?.gateway;
+  if (gatewayOnly) {
+    if (!g || typeof g !== "object") return "keep";
+    if (g.mode !== "gateway") return "gateway";
+    return g.online === true ? "keep" : "offline";
+  }
+  return strandedGatewayMode(body) ? "off" : "keep";
 }
 
 export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS, longMs = LONG_JOURNEY_MS): StaleMachine[] {
@@ -5413,8 +5480,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (autocloudTui && !cmux) throw new Error("--autocloud-tui needs --cmux PATH: cmux-autocloud dials with that cmux");
   if (desktopLink && !cmux) throw new Error("--desktop-link needs --cmux PATH: the readback is the CLI's own dial");
   const keep = argv.includes("--keep") || Boolean(reuse);
-  const seed = argValue("--seed", argv) ?? "auto";
+  const machineProvider = argValue("--machine-provider", argv);
+  if (machineProvider !== undefined && !/^[a-z][a-z0-9-]{0,31}$/.test(machineProvider)) throw new Error(`--machine-provider ${machineProvider}: a provider name such as own-host`);
+  const seed = argValue("--seed", argv) ?? (machineProvider ? "none" : "auto");
   if (seed !== "none" && seed !== "auto") throw new Error(`--seed ${seed}: none or auto`);
+  if (machineProvider && seed !== "none") throw new Error("--machine-provider needs --seed none: a copy boots on its snapshot's provider");
   // --chaos: after the carrier dial, the chaos leg (cloud-chaos.ts) on this machine; --chaos-probe-out FILE writes it
   // as one synthetic-probe row (--chaos-probe NAME, default cloud-carrier-chaos-<backend>).
   const chaos = argv.includes("--chaos");
@@ -5490,6 +5560,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let launchCredential = homeChat === "reserved" ? false : startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: Boolean(preclaimLoginCmux) });
   // A --preclaim-login run whose claimed machine got no login on spare.ready takes this path (loginPathAfterClaim).
   const launchOnMiss = homeChat === "reserved" ? false : startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: false });
+  // The production real leg: an agent with no login of its own and no model stub reaches its model only through the
+  // team's gateway (gatewayModeAction).
+  const gatewayOnlyRoute = !gatewayAny && !modelStub && Boolean(provider) && !login;
   const tag =`jr-${Date.now().toString(36)}`;
   // This run's send as one trace (cloud-start-trace.ts mintSendTrace): on the create, the carrier ticket and the prompt.
   const sendTrace = mintSendTrace();
@@ -5498,6 +5571,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
   // the sweep existed, and the sweep never matches it, so a kept machine is never deleted.
   const machineName = keep ? `cloud journey ${tag}` : autoMachineName(tag, resumePauses.length > 0 || wakeEchoN > 0);
+  // A CI run's own machines carry a ttl, so the platform deletes one this run leaves behind (journeyMachineTtl).
+  const machineTtl = journeyMachineTtl(resumePauses.length > 0 || wakeEchoN > 0);
   const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" }, preclaim);
   if (password) J.secrets.push(password);
   if (claudeLogin) J.secrets.push(claudeLogin);
@@ -5664,19 +5739,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: g };
       }).catch(() => undefined);
     }
-    if (deleted) return;
-    let id = machine;
-    if (!id && !cleanupCreatedIdsOnly) {
-      // Every page: the machine may sit past the first (a shared account's list).
-      const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
-      id = rows.find((r) => r?.name === machineName && r.status !== "deleted")?.id ?? null;
+    if (!deleted && machine) {
+      const target: string = machine;
+      await J.step("delete (cleanup)", async () => {
+        await api.deleteMachine(target, `${tag}-cleanup-delete`);
+        return { value: null, detail: target };
+      }).catch(() => undefined);
     }
-    if (!id) return;
-    const target: string = id;
-    await J.step("delete (cleanup)", async () => {
-      await api.deleteMachine(target, `${tag}-cleanup-delete`);
-      return { value: null, detail: target };
-    }).catch(() => undefined);
+    if (cleanupCreatedIdsOnly) return;
+    // Every machine under this run's own names, not only the id create answered: a lost create reply leaves
+    // `machine` null, and a slow create can leave a second machine by the same name (ownNamedMachines). Every page:
+    // the machine may sit past the first (a shared account's list).
+    const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
+    for (const r of ownNamedMachines(rows, tag, { exclude: [machine, gatewayMachine] })) {
+      const target = String(r.id ?? r.machine_id ?? "");
+      if (!target) continue;
+      await J.step("delete own-named machine (cleanup)", async () => {
+        await api.deleteMachine(target, `${tag}-cleanup-name-${target}`);
+        return { value: null, detail: `${target} ${r.status ?? "?"}` };
+      }).catch(() => undefined);
+    }
   });
   // The cmuxterm-hq probes.py row: ok with send-to-reply ms, or fail naming the first failed step (or none reached).
   const writeProbe = () => {
@@ -5833,10 +5915,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const g = await installApi.raw("GET", "/v1/cloud/inference-gateway");
         if (g.status !== 200) return { value: null, detail: `unread: GET HTTP ${g.status} ${short(g.body?.error ?? g.body)}` };
         const mode = String(g.body?.gateway?.mode ?? "off");
-        if (!strandedGatewayMode(g.body)) return { value: null, detail: `${mode}${g.body?.gateway?.online ? ", gateway online" : ""}` };
-        const r = await installApi.raw("PUT", "/v1/cloud/inference-gateway", { mode: "off", machine: null });
-        if (r.status !== 200) throw new Error(`stranded in gateway mode with no gateway online; PUT off HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
-        return { value: null, detail: "was gateway with no gateway online (a killed --gateway run's); set back to off" };
+        const online = g.body?.gateway?.online === true;
+        const action = gatewayModeAction(g.body, gatewayOnlyRoute);
+        if (action === "keep") return { value: null, detail: `${mode}${online ? ", gateway online" : ""}` };
+        if (action === "offline") throw new Error("gateway mode with no gateway online: this run's agent has no login of its own, so its only model route is the team's gateway, which is down; the mode is left on for when it comes back");
+        const to = action === "gateway" ? "gateway" : "off";
+        const r = await installApi.raw("PUT", "/v1/cloud/inference-gateway", { mode: to, machine: null });
+        if (r.status !== 200) throw new Error(`was ${mode}; PUT ${to} HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+        return { value: null, detail: to === "gateway"
+          ? `was ${mode}; set to gateway: this run's agent has no login of its own, so the team's gateway is its model route${online ? " (gateway online)" : ""}`
+          : "was gateway with no gateway online (a killed --gateway run's); set back to off" };
       }).catch(() => undefined);
     }
 
@@ -5901,27 +5989,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         gatewayMachineBefore = beforeMachine;
         return { value: null, detail: `was ${before}; set before the chat machine is made, so its edge route goes to the gateway` };
       });
-    } else {
-      // A --gateway run killed before its cleanup leaves the team in gateway mode with no gateway online, and every
-      // later chat machine's edge answers "No cmux inference gateway is online" (prod real legs, 11-26..11-27). The
-      // edge route is picked at create, so the mode is read, and a stranded one set back to off, before any machine.
-      const name = "team gateway mode (not stranded)";
-      const t0 = Date.now();
-      try {
-        const g = await installApi.raw("GET", "/v1/cloud/inference-gateway");
-        if (g.status !== 200) throw new Error(`GET HTTP ${g.status} ${short(g.body?.error ?? g.body)}`);
-        const mode = String(g.body?.gateway?.mode ?? "off");
-        const online = g.body?.gateway?.online === true;
-        if (!strandedGatewayMode(g.body)) {
-          J.record({ step: name, status: "pass", ms: Date.now() - t0, detail: `mode ${mode}, gateway online ${online}` });
-        } else {
-          const r = await installApi.raw("PUT", "/v1/cloud/inference-gateway", { mode: "off", machine: null });
-          if (r.status !== 200) throw new Error(`PUT off HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
-          J.record({ step: name, status: "pass", ms: Date.now() - t0, detail: `mode was gateway with no gateway online; set to off before the chat machine is made` });
-        }
-      } catch (error) {
-        J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `could not read or heal: ${String((error as Error)?.message ?? error).slice(0, 300)}` });
-      }
     }
     // The sweep's machine list, kept so a full cap's preflight names the machines that hold it.
     let sweptRows: any[] | null = null;
@@ -6079,7 +6146,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (n) J.firstText.reset();
             J.firstText.mark("create");
             createSentAt = Date.now();
-            return api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}) }, n ? `${tag}-create-${n}` : `${tag}-create`, sendTrace.headers);
+            return api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(keep ? {} : machineTtl), ...(seed === "none" ? { seed: "none" } : {}), ...(machineProvider ? { provider: machineProvider } : {}) }, n ? `${tag}-create-${n}` : `${tag}-create`, sendTrace.headers);
           });
           const v = room.value;
           if (room.refusals) console.log(`create machine: waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)`);
@@ -6288,7 +6355,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           let deadline = Date.now() + COLD_CREATE_BOUND_MS;
           let room: { value: any; waitedMs: number; refusals: number };
           try {
-            room = await createWithRoom((n) => api.op("cloud.machine.create", { name: coldName, size: COLD_CREATE_SIZE }, n ? `${tag}-cold-create-${n}` : `${tag}-cold-create`, {}, CREATE_OP_TIMEOUT_MS, (deadline = Date.now() + COLD_CREATE_BOUND_MS)));
+            room = await createWithRoom((n) => api.op("cloud.machine.create", { name: coldName, size: COLD_CREATE_SIZE, ...(keep ? {} : machineTtl) }, n ? `${tag}-cold-create-${n}` : `${tag}-cold-create`, {}, CREATE_OP_TIMEOUT_MS, (deadline = Date.now() + COLD_CREATE_BOUND_MS)));
           } catch (error) {
             // No answer, so no id: cleanup finds the machine by its name and deletes it off the step's clock.
             coldDeletes.push(deleteByName(coldName, `${tag}-cold-delete`));
@@ -6472,7 +6539,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     let gwStubUrl: string | null = null;
     if (gatewayCmux) {
       const g = await J.step("gateway machine", async () => {
-        const v = await api.op("cloud.machine.create", { name: `${machineName} gateway`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-gw-create`);
+        const v = await api.op("cloud.machine.create", { name: `${machineName} gateway`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 }, ...(keep ? {} : machineTtl) }, `${tag}-gw-create`);
         gatewayMachine = v.machine.id as string;
         const m = await waitRunning(api, gatewayMachine, 300_000);
         return { value: m, detail: `${gatewayMachine}, daemon ${m.image?.daemon_version ?? "?"}` };
@@ -6900,11 +6967,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           J.firstText.mark("sent");
           return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
         }
-        if (probeExtra.login_path === "receipt" && provider === "claude") {
-          // The spare holds the person's login (its receipt says installed): the app's start carries no credential and
-          // sends the first prompt on the link its start opened. Before, the journey ran `acp ensure` and then `acp send`
-          // as two execs and two fresh cmux-tui processes: session_ready -> sent 2,566 and 2,515 ms on the real leg's
-          // last two ok runs (45563753386, 45571173365), a cost no person's first send pays.
+        if (provider === "claude") {
+          // The machine holds the person's login (a receipt spare or a copy) or reaches its model through the team's
+          // gateway: the app's start carries no credential and sends the first prompt on the link its start opened.
+          // Before, the journey ran `acp ensure` and then `acp send` as two execs and two fresh cmux-tui processes:
+          // session_ready -> sent 2,566 and 2,515 ms on the real leg's last two ok runs (45563753386, 45571173365), and
+          // on the gateway real leg (46028327619) start 3,996 ms + send 3,331 ms, of which 6,010 ms was the exec route:
+          // a cost no person's first send pays.
           const r = await startExec(`${GUEST}${launchCredentialStartProgram(session, agent, null, null, prompt, sendTrace.id)}`);
           const id = /@@session (\S+)/.exec(r.stdout)?.[1];
           if (!id) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
@@ -6913,7 +6982,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           promptedWithStart = true;
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, on the login copied on spare.ready; its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
+          return { value: null, detail: `session ${session}, ${probeExtra.login_path === "receipt" ? "on the login copied on spare.ready" : probeExtra.login_path === "copy" ? "on the login copied after bind" : "with no login of its own (gateway or none)"}; its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
         }
         const r = await startExec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
@@ -7499,12 +7568,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
   console.log(`\n${failed.length ? "FAIL" : "PASS"} ${backend.name}: ${J.steps.filter((s) => s.status === "pass").length} passed, ${failed.length} failed, ${J.steps.filter((s) => s.status === "skip").length} skipped, ${(J.steps.reduce((n, s) => n + s.ms, 0) / 1000).toFixed(1)} s`);
   return failed.length ? 1 : 0;
-}
-
-/** A team in gateway mode with no gateway online: every chat machine it makes answers the offline 400. */
-export function strandedGatewayMode(body: unknown): boolean {
-  const g = (body as { gateway?: { mode?: unknown; online?: unknown } } | null)?.gateway;
-  return g?.mode === "gateway" && g.online !== true;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exit(await main());

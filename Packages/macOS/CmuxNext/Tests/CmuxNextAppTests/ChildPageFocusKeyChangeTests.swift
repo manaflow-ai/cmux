@@ -105,6 +105,56 @@ struct ChildPageFocusKeyChangeTests {
         #expect(world.focusCalls.count == 1)
     }
 
+    @Test func refocusingTheSamePageAfterItsOwnerTookTheKeysGrantsItAgain() {
+        let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
+        world.focus.focus(world.a)
+        world.keys.makeKey(world.cmux)
+        let event = NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                       windowNumber: world.cmux.windowNumber, context: nil, eventNumber: 0,
+                                       clickCount: 1, pressure: 1)
+        #expect(!world.focus.keysReturned(to: world.cmux, during: event))
+        #expect(world.focus.page === world.a)
+        world.focus.refocus(world.a)
+        #expect(world.keys.changes == ["pageA", "cmux", "pageA"])
+        #expect(world.focusCalls.map { "\($0.0)\($0.1)" } == ["atrue", "atrue"])
+    }
+
+    @Test func refocusingAHiddenPageKeepsItsAskWithoutGranting() {
+        let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
+        world.focus.focus(world.a)
+        world.hidden = ["a"]
+        world.keys.makeKey(world.cmux)
+        world.focus.refocus(world.a)
+        #expect(world.keptAsks == ["a"])
+        #expect(world.focusCalls.count == 1)
+        #expect(world.keys.changes == ["pageA", "cmux"])
+    }
+
+    @Test func refocusingDuringAGrantDoesNotGrantAgain() {
+        let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
+        world.duringGrant = { [weak world] in
+            guard let world else { return }
+            world.keys.makeKey(world.cmux)
+            world.focus.refocus(world.a)
+        }
+        world.focus.focus(world.a)
+        #expect(world.focusCalls.count == 1)
+        #expect(world.keys.changes == ["pageA", "cmux"])
+    }
+
+    @Test func refocusingAStaleTargetDoesNotTakeKeysFromTheSelectedPage() {
+        let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
+        world.focus.focus(world.b)
+        world.focus.refocus(world.a)
+        #expect(world.focus.page === world.b)
+        #expect(world.focusCalls.count == 1)
+        #expect(world.keys.changes == ["pageB"])
+    }
+
     /// AppKit's didBecomeKey runs inside the grant; a re-apply there must not grant again (ping-pong).
     @Test func aReapplyInsideTheGrantDoesNotGrantAgain() {
         let world = World()

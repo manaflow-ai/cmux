@@ -481,6 +481,33 @@ def sim_free(load: IOSLoad, capacity: int) -> int:
     return capacity - taken - load.ios_since
 
 
+def live_owned_pool(pools: Sequence[str], runners: Sequence[Mapping[str, Any]] | None) -> str:
+    """The first pin pool an online runner carries with the simulator label; `pools[0]` when unlisted.
+
+    A label routes while one online runner carries it (pr_runner_pool.routing_slots). `runner: owned`
+    reads no queue, so without this a pin whose every carrier is offline queues its jobs until a
+    lander cancels them (hosted#1034: 46 minutes on glaeda-std-xcode-27.2, 0 of 4 online). An
+    unread listing (None: no route token, or the call failed) keeps the first pool: the listing
+    failing is not the pool failing. An empty listing is an answer: no runner carries the pin, so
+    the pick refuses as it does when every carrier is offline.
+    """
+    if runners is None:
+        return pools[0]
+    registered = {pool: 0 for pool in pools}
+    for pool in pools:
+        for runner in runners:
+            if not pr_runner_pool.carries_office_pool_label(runner, pool) \
+                    or SIM_LABEL not in pr_runner_pool.runner_labels(runner):
+                continue
+            registered[pool] += 1
+            if runner.get("status") == "online":
+                return pool
+    counts = ", ".join(f"{pool} 0 of {registered[pool]} registered" for pool in pools)
+    raise ValueError(f"runner: {OWNED_CHOICE} refused: no online runner carries an owned pool for "
+                     f"{pr_runner_pool.PR_XCODE_VARIABLE} with {SIM_LABEL} ({counts}); bring one online "
+                     "or pin an Xcode the fleet carries")
+
+
 def resolve(
     lane: str,
     requested: str | None,
@@ -503,6 +530,7 @@ def resolve(
     now: dt.datetime,
     log: Callable[[str], None] = lambda message: None,
     fork: bool = False,
+    list_runners: Callable[[], Sequence[Mapping[str, Any]] | None] | None = None,
 ) -> Route:
     """The route for one run, from its inputs and variables. Raises ValueError on a refused request."""
     config = LANES[lane]
@@ -530,8 +558,9 @@ def resolve(
         if not pools:
             raise ValueError(f"runner: {OWNED_CHOICE} needs {pr_runner_pool.PR_XCODE_VARIABLE} to name an "
                              "Xcode version (/Applications/Xcode_<version>.app)")
-        log(f"runner: {OWNED_CHOICE} -> {pools[0]} with {SIM_LABEL}")
-        return Route(pools[0], retry_label(default), True)
+        pool = live_owned_pool(pools, list_runners() if list_runners else None)
+        log(f"runner: {OWNED_CHOICE} -> {pool} with {SIM_LABEL}")
+        return Route(pool, retry_label(default), True)
     if blocker:
         log(f"{blocker}; staying on {default}")
         return ephemeral(default)
@@ -1200,6 +1229,20 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     def log(message: str) -> None:
         print(message, file=sys.stderr)
 
+    def list_runners() -> Sequence[Mapping[str, Any]] | None:
+        # `runner: owned` reads no queue: one runners listing proves its pool has an online carrier.
+        if "runners" in listed:
+            return listed["runners"]
+        if not route_token or not repo:
+            return None
+        try:
+            listed["runners"] = pr_runner_pool.GitHub(route_token, repo).runners()
+        except Exception as error:  # noqa: BLE001 - an unread listing keeps the pinned pool
+            print(f"::warning title=owned pool::could not list runners ({error}); keeping the first pin pool",
+                  file=sys.stderr)
+            return None
+        return listed["runners"]
+
     try:
         route = resolve(
             args.lane, args.requested, args.variable,
@@ -1210,6 +1253,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             swift_package=args.swift_package, upload=args.upload, called=args.called,
             seed_cache=args.seed_cache,
             measure=measure, now=now, log=log, fork=args.fork.strip() == "true",
+            list_runners=list_runners,
         )
     except ValueError as error:
         print(f"::error::{error}", file=sys.stderr)
