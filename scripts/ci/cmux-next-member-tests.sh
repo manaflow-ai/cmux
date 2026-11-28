@@ -30,6 +30,19 @@ rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
 # cmux-next-daemon-tests' env, word for word: the saved target's fingerprints hold it.
 export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_HTTP_MULTIPLEXING=false TMPDIR=/tmp CMUX_GHOSTTY_SRC=""
 export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
+# The workspace's heaviest rustc compile one at a time (scripts/ci/cargo-giant-lock.sh, as cargo-groups.sh does when
+# capped). CARGO_BUILD_JOBS=2 still let acpmux (over 10.6 GB at opt-level 0) and cmux-tui-core (5.3 GB), or cmux-tui's
+# lib started on acpmux's metadata, compile at once, and the kernel SIGKILLed acpmux's rustc on the 14-16 GiB pr pipeline
+# / linux runners: cmux-next-idle-wakeups in runs 46170006062 (both attempts) and 46174703227 (cmux#64797, cmux#64815).
+# A wrapper leaves flags and outputs as they were, so the saved target's fingerprints still hold. CARGO_GROUPS_GIANTS
+# overrides the crates; CARGO_GROUPS_NO_GIANT_LOCK=1 turns it off.
+if [[ -z "${CARGO_GROUPS_NO_GIANT_LOCK:-}" ]] && command -v flock >/dev/null 2>&1; then
+  export CARGO_GROUPS_GIANTS="${CARGO_GROUPS_GIANTS:-acpmux cmux_tui_core cmux_tui}"
+  export CARGO_GROUPS_GIANT_LOCK="$(mktemp -d /tmp/cmux-next-giant.XXXXXX)/giant.lock"
+  export CARGO_GROUPS_INNER_WRAPPER="${RUSTC_WRAPPER:-}"
+  export RUSTC_WRAPPER="$repo/scripts/ci/cargo-giant-lock.sh"
+  echo "cmux_next_ tests of $member: giants ($CARGO_GROUPS_GIANTS) compile one at a time"
+fi
 unset CMUX_ZIG ZIG
 ../scripts/ci/cmux-tui-test-target.sh restore
 home="$(mktemp -d /tmp/acpmux-home.XXXXXX)"
@@ -61,7 +74,7 @@ for attempt in 1 2 3; do
 done
 echo "cmux_next_ tests of $member: cargo test took $((SECONDS - start)) s (exit $status)"
 case "$(head -c 300 "$(command -v cargo)" 2>/dev/null | tr -d '\0')" in
-  *RUSTC_WRAPPER=*sccache*) sccache --show-stats || true ;;
+  *RUSTC_WRAPPER*sccache*|*sccache*RUSTC_WRAPPER*) sccache --show-stats || true ;;
 esac
 # End the daemon of this home and its agents, then delete the home (a path this script made).
 acpmux="$(command -v acpmux || true)"
