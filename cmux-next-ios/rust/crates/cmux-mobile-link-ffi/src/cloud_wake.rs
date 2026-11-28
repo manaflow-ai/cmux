@@ -109,8 +109,10 @@ fn to_hint(hint: CloudWakeHint) -> Hint {
         allowed: hint.allowed,
         loaded: hint.loaded,
         status: hint.status,
-        // The phone does not serve a machine's chat without it, so a focus or unlock still wakes.
-        reads_without_wake: false,
+        // Fields the iPhone does not send yet (`readsWithoutWake`, RFD 0144 piece 2) take the
+        // value an absent JSON field gets, so the hint wakes as before and a new field never
+        // breaks this crate's build.
+        ..Hint::default()
     }
 }
 
