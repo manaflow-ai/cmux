@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7df57cce4f9e96c3daad0cc0e808f1ec0d7199a7f17efe43676557e7b2a6694c";
+pub const ir_sha256 = "9c616b15bc10cbdb786c6b1fc05a37c3b398c03d902244b89142ec5978078dc1";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -9149,6 +9149,29 @@ pub fn reattachView(client: anytype, request: ReattachViewRequest) !wire.Decoded
     );
 }
 
+pub const RecordNotificationDeliveryRequest = struct {
+    /// shown or suppressed.
+    desktop: []const u8,
+    notification: u64,
+    /// Why: viewed, typing, muted, quiet-hours, desktop-never, app-active, poster-no-banner, permission-denied, incognito, digest.
+    reason: wire.Field([]const u8) = .absent,
+};
+
+pub const RecordNotificationDeliveryResult = JsonValue;
+
+pub fn recordNotificationDelivery(client: anytype, request: RecordNotificationDeliveryRequest) !wire.Decoded(RecordNotificationDeliveryResult) {
+    return client.callTyped(
+        RecordNotificationDeliveryResult,
+        .{
+            .name = "record-notification-delivery",
+            .authority = "control",
+            .since = 12,
+            .capability = "notification-ack-v1",
+        },
+        request,
+    );
+}
+
 pub const RegisterBrowserProviderRequest = struct {
     authentication: BrowserProviderAuthentication,
     bearer_token: wire.Field([]const u8) = .absent,
@@ -13483,7 +13506,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 316;
+pub const command_count: usize = 317;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13692,6 +13715,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "read-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "read-scrollback", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reattach-view", .authority = "control", .since = 12, .capability = "sizing-view-detach-v1", .stream = null },
+    .{ .name = "record-notification-delivery", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "register-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
