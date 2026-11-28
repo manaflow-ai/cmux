@@ -185,6 +185,10 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
     let status = summary["status"].as_str().unwrap_or_default();
     let last = summary["lastTurn"]["status"].as_str();
     let answered = last == Some("completed");
+    // A clean turn after it (a background or trigger turn, `background_turn.rs`) shows the chat
+    // works again: its failure no longer reads `failed` or `lost`.
+    let recovered =
+        summary.get("lastTurn").and_then(|last| last.get("recoveredAt")).is_some_and(Value::is_u64);
     let pending = summary["pendingPermissions"].as_u64().unwrap_or(0) > 0;
     match status {
         "closed" => None,
@@ -198,11 +202,14 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         _ if crate::session_liveness::blocked(summary) => Some("failed"),
         // acpmux holds a turn a capacity error cut and goes on by itself (`row_last_turn`).
         _ if last == Some("capacity") => Some("working"),
-        // Work the session started after its failed turn ended is newer than the failure: the
-        // chat is working again, not erroring (Leo, 2026-11-27: "this isn't leaving the tab icon
-        // even after you're not erroring anymore").
-        _ if last == Some("failed") && !works_since_last_turn(summary) => Some("failed"),
-        "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
+        // Work the session started after its failed turn ended, or a clean turn after it (a
+        // background or trigger turn, `background_turn.rs` `recoveredAt`), is newer than the
+        // failure: the chat is working again, not erroring (Leo, 2026-11-27: "this isn't leaving
+        // the tab icon even after you're not erroring anymore").
+        _ if last == Some("failed") && !recovered && !works_since_last_turn(summary) => {
+            Some("failed")
+        }
+        "disconnected" | "unreachable" if last.is_some() && !answered && !recovered => Some("lost"),
         "unreachable" => answered.then_some("done"),
         _ if summary["subagentsWorkingSince"].is_u64() => Some("working"),
         _ if summary["commandsRunning"].as_u64().unwrap_or(0) > 0 => Some("working"),
@@ -1143,16 +1150,16 @@ impl Hub {
         extras
             .push(("hostBuildDiffers", json!(host_build_differs(host_build.as_deref(), build()))));
         extras.push(("hostBuild", json!(host_build)));
-        // Its agent restarts on its profile's new launch when the turn ends (`profile_respawn.rs`).
-        extras.push((
-            "respawnPending",
-            json!(
-                session
-                    .profile_respawn
-                    .load(Ordering::SeqCst)
-                    .then_some(super::profile_respawn::PROFILE_CHANGED)
-            ),
-        ));
+        // A profile change keeps its specific reason; route, credential, gateway, capacity and
+        // stale-host changes expose the generic quiet wait so a long-lived background task is
+        // visible while it safely finishes (`idle.rs`).
+        let profile_pending = session
+            .profile_respawn
+            .load(Ordering::SeqCst)
+            .then_some(super::profile_respawn::PROFILE_CHANGED);
+        let quiet_pending =
+            session.respawn_when_quiet.load(Ordering::SeqCst).then_some("restart when quiet");
+        extras.push(("respawnPending", json!(profile_pending.or(quiet_pending))));
         // The usage rules it breaks (`usage_warnings.rs`), read from `usageStats` in `render_row`.
         let limits = *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner());
         RowInputs { summary, extras, notice, with_tools, limits }

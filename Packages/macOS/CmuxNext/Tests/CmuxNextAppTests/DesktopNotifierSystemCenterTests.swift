@@ -53,13 +53,23 @@ struct DesktopNotifierSystemCenterTests {
         #expect(DesktopNotifier.asksPermission(in: automation.merging(["CMUX_NEXT_NATIVE_NOTIFICATIONS": "1"]) { $1 }))
     }
 
-    @Test func onlyAnOptedInAutomationLaunchStartsWithoutDeliveredBanners() {
-        #expect(!DesktopNotifier.startsWithoutDeliveredBanners(in: [:]))
-        #expect(!DesktopNotifier.startsWithoutDeliveredBanners(in: ["CMUX_NEXT_SOCKET_MODE": "automation"]))
+    @Test func onlyAnOptedInAutomationLaunchReplacesReusedBannerIDs() {
+        #expect(!DesktopNotifier.replacesReusedBannerIDs(in: [:]))
+        #expect(!DesktopNotifier.replacesReusedBannerIDs(in: ["CMUX_NEXT_SOCKET_MODE": "automation"]))
         let optedIn = ["CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_NATIVE_NOTIFICATIONS": "1"]
-        #expect(DesktopNotifier.startsWithoutDeliveredBanners(in: optedIn) == WindowDrawPolicy.isAutomationLaunch(optedIn))
+        #expect(DesktopNotifier.replacesReusedBannerIDs(in: optedIn) == WindowDrawPolicy.isAutomationLaunch(optedIn))
         // A user's launch that happens to set the variable keeps its Notification Center history.
-        #expect(!DesktopNotifier.startsWithoutDeliveredBanners(in: ["CMUX_NEXT_NATIVE_NOTIFICATIONS": "1"]))
+        #expect(!DesktopNotifier.replacesReusedBannerIDs(in: ["CMUX_NEXT_NATIVE_NOTIFICATIONS": "1"]))
+    }
+
+    /// 2026-11-28 notify-banner-click relaunch-click: the relaunch's first click opened the center, its blanket clear
+    /// raced the lookup, and the earlier launch's banners were gone (not_found). Only a reused id is cleared, at its
+    /// first post in a launch; never on a click, and never a user launch's.
+    @Test func onlyAReusedIDsFirstPostClearsAnEarlierBanner() {
+        #expect(DesktopNotifier.clearsEarlierBanner(postedThisLaunch: false, replacesReusedIDs: true))
+        #expect(!DesktopNotifier.clearsEarlierBanner(postedThisLaunch: true, replacesReusedIDs: true))
+        #expect(!DesktopNotifier.clearsEarlierBanner(postedThisLaunch: false, replacesReusedIDs: false))
+        #expect(!DesktopNotifier.clearsEarlierBanner(postedThisLaunch: true, replacesReusedIDs: false))
     }
 
     #if DEBUG

@@ -566,8 +566,8 @@ jobs:
     name: Build the app and the gate for testing (build fleet)
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
     continue-on-error: true
-    # The literal fallback never schedules: the job's if: skips outside manaflow-ai and when the variable is unset.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_EVAL_STEP_GATEWAY }}
+    # The job's if: skips outside manaflow-ai and when vars.CI_EVAL_STEP_GATEWAY (the opt-in switch) is unset.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (linux-pickers-gone host pins)
     timeout-minutes: 45  # the client waits up to 600 s queued plus 1800 s running
     outputs:
       use: ${{ steps.done.outputs.use }}
@@ -582,6 +582,7 @@ jobs:
           sparse-checkout: |
             cmux-next-ios/UITests/AppReviewGateUITests.swift
             cmux-next-ios/AppStoreReview/rejection-history.json
+            .gitmodules
       - name: Checkout the gate's files
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -592,6 +593,7 @@ jobs:
           sparse-checkout: |
             cmux-next-ios/UITests/AppReviewGateUITests.swift
             cmux-next-ios/AppStoreReview/rejection-history.json
+            .gitmodules
       - name: Build on the build fleet
         id: build
         env:
@@ -1222,6 +1224,7 @@ jobs:
             scripts/ci/ios_gate_screen_diff.py
             scripts/ci/deadline_http.py
             cmux-tui/
+            .gitmodules
             # cargo loads every cmux-tui member; one links this by path (tests/test_ci_sparse_cargo_path_deps.py).
             workers/cmux-vm/cli/
           sparse-checkout-cone-mode: false

@@ -17,7 +17,11 @@ name: Bench baselines (nightly)
 # `record-mac-fleet` runs SidebarChiefLagTests 3 times in one fleet Mac step (cmux-ci, submitted from a cmux-linux
 # runner as cmux-next-sidebar-bench.yml does), reads its SIDEBAR-CHIEF-LAG lines (`cmux-bench baselines from-log`)
 # and writes bench-baselines/v1/macos-arm64-fleet-light/<area>.json with its own stamp. Either recorder is red when it
-# records nothing; the pull request side stays fail-open. The job id ends in -fleet: the runner hook admits a
+# ran and records nothing; the pull request side stays fail-open. The Mac step is --background (an advisory
+# measurement: it queues after foreground work and gives its place back at --queue-timeout). One that does not start
+# in time (client exit 75) is "not measured", a notice, not red: the stamp stays stale, so the next push asks again.
+# With --queue-timeout 1200 and the light class's p90 queue wait at 159 min (2026-11-28), run 46132541199 waited
+# out its 20 min, printed nothing and turned the base red for queue time. The job id ends in -fleet: the runner hook admits a
 # cmux-linux job by that suffix (it refused `measure` on cmux#63279 and took `measure-fleet`).
 on:
   push:
@@ -42,6 +46,8 @@ jobs:
     # The same label as pr-checks.yml's advisory job: a baseline is only comparable on its own machine class.
     runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 30
+    # next-cache-writer, whose deployment branches are feat-cmux-next only, in the exact form
+    # tests/test_ci_pull_request_caches_are_read_only.py accepts (the job already runs only there).
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
       contents: read
@@ -111,6 +117,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     # The client's queue wait (20 min) and run limit (40 min: one build, the suite 3 times), and the upload.
     timeout-minutes: 70
+    # next-cache-writer, whose deployment branches are feat-cmux-next only, in the exact form
+    # tests/test_ci_pull_request_caches_are_read_only.py accepts (the job already runs only there).
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
       contents: read
@@ -155,6 +163,7 @@ jobs:
           controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
 
       - name: Run SidebarChiefLagTests 3 times on a fleet Mac
+        id: mac
         if: steps.due.outputs.due == 'true'
         run: |
           set -uo pipefail
@@ -165,24 +174,30 @@ jobs:
           fi
           # One build, then the suite 3 times on the same worker (package-test-lane.sh runs each filter in turn).
           status=0
-          "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$GITHUB_SHA" \
+          "$client" run --class light --background --script scripts/ci/package-test-lane.sh --ref "$GITHUB_SHA" \
             --arg=suite --arg=Packages/macOS/CmuxNext \
             --arg=SidebarChiefLagTests --arg=SidebarChiefLagTests --arg=SidebarChiefLagTests --no-supersede \
             --env=CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=600 \
             --timeout 2400 --queue-timeout 1200 > "$RUNNER_TEMP/mac-bench.log" 2>&1 || status=$?
           cat "$RUNNER_TEMP/mac-bench.log"
-          # A budget miss still printed its numbers; what was measured is the baseline. Nothing printed is red below.
           echo "fleet step client exit $status"
+          # 75: the step did not start within --queue-timeout (queue time, not a bench result). It gave its place
+          # back (--background); nothing is recorded and the stale stamp makes the next push ask again.
+          if [[ "$status" == 75 ]] && ! grep -q 'SIDEBAR-CHIEF-LAG' "$RUNNER_TEMP/mac-bench.log"; then
+            echo "::notice title=Mac bench baselines::not measured: the fleet light queue did not start the step within 1200 s; the next feat-cmux-next push asks again"
+            echo "queued=true" >> "$GITHUB_OUTPUT"
+          fi
+          # A budget miss still printed its numbers; what was measured is the baseline. Nothing printed is red below."
 
       - name: Read the bench lines
-        if: steps.due.outputs.due == 'true'
+        if: steps.due.outputs.due == 'true' && steps.mac.outputs.queued != 'true'
         run: |
           set -euo pipefail
           python3 -I scripts/bench/cmux-bench baselines from-log "$RUNNER_TEMP/mac-bench.log" \
             --out "$RUNNER_TEMP/mac-baselines" --sha "$GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload to R2
-        if: steps.due.outputs.due == 'true'
+        if: steps.due.outputs.due == 'true' && steps.mac.outputs.queued != 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
