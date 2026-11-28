@@ -81,11 +81,13 @@ jobs:
           done
           echo "::warning title=cmux ios verify (auto)::dispatch refused 3 times; run \`cmux ios verify --pr $PR\` by hand"
 
-  verify:
+  # -fleet: the gateway runner's hook takes only job ids ending in it.
+  verify-fleet:
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     name: cmux ios verify
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && vars.CI_EVAL_STEP_GATEWAY != '' && format('{0}', vars.CI_IOS_VERIFY_AUTO) != '0' }}
-    runs-on: cmux-linux
+    # It fetches the fleet client, and the cmux-linux pool has no route to the tailnet-only controller (#64245).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     # Two simulator shards in parallel (their own bounds in ios_verify.py), plus queue time for a simulator worker.
     timeout-minutes: 150
     permissions:
@@ -174,7 +176,7 @@ jobs:
           set -euo pipefail
           # The token goes on this one fetch's command line, never into .git/config: the head's scripts run in a
           # worktree that shares it.
-          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
           git -c "http.https://github.com/.extraheader=$auth" fetch -q --filter=blob:none origin "$SHA"
           git -c "http.https://github.com/.extraheader=$auth" worktree add -q --detach "$RUNNER_TEMP/ios-verify-head" "$SHA"
       - uses: ./.github/actions/fleet-client
@@ -198,9 +200,14 @@ jobs:
         run: |
           set -uo pipefail
           # ios_verify.py calls `cmux-ci` by name: the checked client from the controller.
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=cmux ios verify (auto)::$client is not installed on runner $RUNNER_NAME; nothing was verified"
+            exit 1
+          fi
           bin="$RUNNER_TEMP/ios-verify-bin"
           mkdir -p "$bin"
-          ln -sf "${CMUX_CI_CLIENT:?no fleet client}" "$bin/cmux-ci"
+          ln -sf "$client" "$bin/cmux-ci"
           export PATH="$bin:$PATH"
           rc=0
           python3 -I scripts/ci/ios_verify.py --pr "$PR" --repo "$REPO" --no-merge-base \
