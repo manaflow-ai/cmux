@@ -1,5 +1,6 @@
 # shellcheck shell=sh
 # Sourced (sh or bash) by scripts that run bun's package manager: bun install, bun pm, bun x, bunx.
+# It also gives bun a writable temp dir (bun_tmpdir_pick, below).
 # It rewrites an inherited BUN_OPTIONS so each path-taking preload flag is joined to its path:
 # `--preload PATH` becomes `--preload=PATH` (and `-r PATH` becomes `--preload=PATH`). Bun reads the
 # spaced form in BUN_OPTIONS as a script name, so every subcommand but `bun run` fails with
@@ -32,3 +33,21 @@ bun_options_join() {
   unset _boj_noglob _boj_out _boj_flag _boj_word _boj_w
 }
 bun_options_join
+
+# bun unpacks into $BUN_TMPDIR, else the system temp dir, and exits "EACCES accessing temporary directory. set
+# $BUN_TMPDIR or $BUN_INSTALL" when that is not writable: Hetzner pool slots (hetzner-2-21 run 46053948772,
+# hetzner-1-21 and hetzner-2-8 run 46063462029, the agent pane build). Every script that sources this gets the
+# first writable candidate; scripts/cmux-next/private-bun.sh exports the same for the rest of a CI job.
+bun_tmpdir_pick() {
+  [ -z "${BUN_TMPDIR:-}" ] || return 0
+  for _btp_c in "${RUNNER_TEMP:-}" "${TMPDIR:-}" /tmp "${HOME:-}/.cache"; do
+    [ -n "$_btp_c" ] || continue
+    if mkdir -p "$_btp_c/bun-tmp" 2>/dev/null && [ -w "$_btp_c/bun-tmp" ]; then
+      BUN_TMPDIR="$_btp_c/bun-tmp"
+      export BUN_TMPDIR
+      break
+    fi
+  done
+  unset _btp_c
+}
+bun_tmpdir_pick

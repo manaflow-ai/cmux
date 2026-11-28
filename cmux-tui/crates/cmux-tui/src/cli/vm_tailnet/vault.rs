@@ -124,6 +124,10 @@ impl NodeVault for PlatformVault {
         parse_lease(&body)
     }
 
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "positions come from the value's own length or search, so they are in range"
+    )]
     fn claim(&self, holder: &str, if_epoch: Option<u64>) -> Result<Lease, String> {
         let mut body = json!({"holder": holder});
         if let Some(epoch) = if_epoch {
@@ -201,6 +205,26 @@ pub(super) fn let_go(vault: &dyn NodeVault, vm: &str) -> Result<(), String> {
         Lease { holder: Some(holder), epoch } if holder == vm => vault.release(vm, epoch),
         _ => Ok(()),
     }
+}
+
+/// After `vm` resumed from a memory snapshot with `tailscaled` still running the node `name`: the
+/// VM the lease names now when that is another VM and the vault's node is this one (so the resumed
+/// VM runs a second copy of it). `None` when the lease is free, names `vm`, or the vault keeps
+/// another node or none.
+pub(super) fn moved_away(
+    vault: &dyn NodeVault,
+    vm: &str,
+    name: &str,
+) -> Result<Option<String>, String> {
+    let Some(holder) = vault.lease()?.holder.filter(|holder| holder != vm) else {
+        return Ok(None);
+    };
+    Ok(vault.get()?.filter(|kept| label(&kept.name) == label(name)).map(|_| holder))
+}
+
+/// Stops the node on a VM that no longer holds it, without signing it out (the holder runs it).
+pub(super) fn stand_down(guest: &mut dyn Guest) -> Result<(), String> {
+    exec_ok(guest, &handoff::stand_down_command(), "cmux-tailnet-stood-down")
 }
 
 /// The vault names the node by its hostname label (`leo-cmux` of `leo-cmux.tail1.ts.net`): the

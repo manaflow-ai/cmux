@@ -4,10 +4,12 @@
 import { afterEach, beforeAll, describe, expect, mock, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { MarkdownEditor as Editor, MarkdownEditorHost } from "../src/pages/markdown/editor";
-import { resolveImageURL } from "../src/pages/markdown/host";
-import { htmlPreview } from "../src/pages/markdown/htmlPreview";
-import { MarkdownStore } from "../src/pages/markdown/store";
 import type { PageClient } from "../src/pages/shared/pageClient";
+import { importWithDom } from "./support/importWithDom";
+
+const { resolveImageURL } = await importWithDom(() => import("../src/pages/markdown/host"));
+const { htmlPreview } = await importWithDom(() => import("../src/pages/markdown/htmlPreview"));
+const { MarkdownStore } = await importWithDom(() => import("../src/pages/markdown/store"));
 
 let dom: JSDOM;
 let MarkdownEditor: typeof Editor;

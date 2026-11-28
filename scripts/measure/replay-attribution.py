@@ -49,7 +49,11 @@ class _Stream:
     CHUNK = 1 << 20
 
     def __init__(self, path: str) -> None:
-        self.f = gzip.open(path, "rt", encoding="utf-8") if path.endswith(".gz") else open(path, encoding="utf-8")
+        # The bytes decide, not the name: `--trace run.json.gz` gets plain JSON from the bench, and a suffix check
+        # crashed the attribution on it (BadGzipFile), failing the whole run.
+        with open(path, "rb") as head:
+            gzipped = head.read(2) == b"\x1f\x8b"
+        self.f = gzip.open(path, "rt", encoding="utf-8") if gzipped else open(path, encoding="utf-8")
         self.buf, self.pos, self.eof = "", 0, False
         self.dec = json.JSONDecoder()
 
@@ -285,6 +289,15 @@ def script_owner(frames: list[str]) -> str:
                     phase = label
                     break
             comp = next((n for n in inner if n[:1].isupper() and n not in IDLE), None)
+            if comp is None and phase == "React render":
+                # No capitalized name: the function React called (the frame just inside renderWithHooks) is still the
+                # owner, even a lowercase one or a React Compiler closure (t1); with none, React's own diffing is.
+                # A bare "React render" row named nobody (12:30Z 2026-11-28 lane-1 pass: 6.7% of long-task time).
+                hooks = next((j for j, n in enumerate(inner) if n.startswith("renderWithHooks")), None)
+                if hooks:
+                    comp = inner[hooks - 1] or "(anon)"
+                else:
+                    return f"{phase} (React internals)"
             return f"{phase}: {comp}" if comp else phase
     entry = next((n for n in outer if n not in IDLE and n != "(anon)"), outer[0] if outer else "(anon)")
     return f"script: {entry}"

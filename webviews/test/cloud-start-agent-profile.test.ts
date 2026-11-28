@@ -31,9 +31,16 @@ test("an agent the machine carries is named as is, and UniiChat still leaves the
 // cmux#51731: an agent the machine does not carry (a Mac-only harness) is never sent to it; the
 // machine starts its default instead of refusing the start as `agent_session.harness_missing`.
 test("an agent the Cloud machine does not carry starts the machine's default, unnamed", () => {
-  for (const agent of ["gemini", "amp", "my-local-tool"])
+  for (const agent of ["amp", "my-local-tool"])
     expect(cloudStartAgent(agent, agent)).toEqual({ family: "claude", harness: "claude", named: false });
-  expect(cloudSendAgent("gemini", "gemini", "gemini-3-pro")).toEqual({});
+  expect(cloudSendAgent("amp", "amp", "default")).toEqual({});
+});
+
+test.each([
+  ["gemini", "gemini-3-pro"],
+  ["grok", "grok-build-0.1"],
+])("a Cloud send carries the selected %s harness and model", (harness, model) => {
+  expect(cloudSendAgent(harness, harness, model)).toEqual({ harness, model });
 });
 
 // cmux#51731: with Cloud picked the model picker lists the agents a Cloud machine carries, never this

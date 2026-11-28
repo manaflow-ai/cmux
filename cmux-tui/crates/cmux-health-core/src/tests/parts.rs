@@ -61,6 +61,64 @@ fn acpmux_silent_or_disconnected_reconnects_then_restarts_the_connection() {
     assert_eq!(part(&h, ID), None);
 }
 
+/// Fail all automatic attempts at the same instant, without waiting out backoff.
+fn exhausted_connection(now: u64) -> Health {
+    let mut h = model();
+    register(&mut h, "acpmux", Kind::Acpmux, "Agent sessions", now);
+    h.event("acpmux", "disconnected", now, None);
+    for (index, expected) in
+        [Reconnect, RestartConnection, RestartConnection].into_iter().enumerate()
+    {
+        let actions = h.tick(now);
+        assert_eq!(actions.len(), 1);
+        let action = &actions[0];
+        assert_eq!((action.action, action.attempt), (expected, index as u32 + 1));
+        h.repair_result("acpmux", action.action, Some(action.token), false, now);
+    }
+    assert!(h.tick(now).is_empty(), "the cap still prevents a fourth attempt");
+    h
+}
+
+#[test]
+fn exhausted_reconnect_stays_quiet_until_ten_seconds_then_requests_action() {
+    let mut h = exhausted_connection(1_000);
+    assert_eq!(h.snapshot().worst, State::Repairing);
+    assert_eq!(h.next_tick_ms(), Some(11_000));
+    assert_eq!(h.heap_sizes().0, 1, "the existing part deadline is the only live timer");
+
+    // A repeated failure cannot accelerate or restart the escalation bound.
+    h.repair_result("acpmux", RestartConnection, Some(3), false, 2_000);
+    assert_eq!(h.next_tick_ms(), Some(11_000));
+    assert!(h.tick(10_999).is_empty());
+    assert_eq!(h.snapshot().worst, State::Repairing);
+    assert!(h.tick(11_000).is_empty(), "escalation does not send another repair");
+    let failed = part(&h, "acpmux").expect("failed connection");
+    assert_eq!((failed.state, failed.can_repair), (State::Failed, true));
+    assert_eq!(
+        h.next_tick_ms(),
+        Some(601_000),
+        "a failed part retries by itself when its oldest attempt leaves the window"
+    );
+}
+
+#[test]
+fn recovery_before_the_failure_bound_cancels_connection_escalation() {
+    let mut h = exhausted_connection(1_000);
+    h.event("acpmux", "connected", 10_999, None);
+    assert_eq!(part(&h, "acpmux"), None);
+    assert_eq!(h.next_tick_ms(), Some(20_999), "only ordinary liveness remains armed");
+    assert!(h.tick(11_000).is_empty());
+    assert_eq!(h.snapshot().worst, State::Healthy);
+
+    // The spent cap survives recovery, but a new short outage gets its own bound.
+    h.event("acpmux", "disconnected", 12_000, None);
+    assert!(h.tick(12_000).is_empty());
+    assert_eq!(h.snapshot().worst, State::Repairing);
+    assert_eq!(h.next_tick_ms(), Some(22_000));
+    assert!(h.tick(22_000).is_empty());
+    assert_eq!(h.snapshot().worst, State::Failed);
+}
+
 #[test]
 fn page_host_restarts_on_two_load_failures_in_30_s_or_a_missing_listener() {
     const ID: &str = "pageHost";

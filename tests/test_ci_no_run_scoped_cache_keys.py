@@ -48,9 +48,7 @@ SETUP_ZIG = "mlugg/setup-zig@"
 
 # Workflows whose schedule runs main's copy: a change here reaches production only through a
 # twin PR against main, so they keep setup-zig's cache until that lands.
-SETUP_ZIG_ON_MAIN: dict[str, str] = {
-    "cloud-journey-prod.yml": "its schedule runs main's copy; the fix lands with a Main-Twin PR",
-}
+SETUP_ZIG_ON_MAIN: dict[str, str] = {}
 
 ALLOWED: dict[str, str] = {
     "ci-web.yml: Save the duration manifest":
@@ -70,6 +68,9 @@ ALLOWED: dict[str, str] = {
     "cmux-tui-spec.yml: Save the base's last test log":
         "a few hundred kB gzipped log per feat-cmux-next push of the acpmux tests; pull requests restore the newest by prefix "
         "so their reds need no rebuild of the merge parent",
+    "cmux-tui-clippy-seed.yml: Save the clippy verdict to R2":
+        "a few kB of red packages per seeded feat-cmux-next sha (at most one every 120 min), in R2, not the 10 GB store; "
+        "clippy-changed reads the base's own key, else the newest by prefix, to skip base-red crates",
 }
 
 
@@ -275,6 +276,9 @@ class NoPerRefCacheSaves(unittest.TestCase):
 # so third-party crates added or bumped since rebuild on every run (run 45512288219: 70 crates
 # built in the debug and release `cargo test`). The key carries a `hashFiles` of the lockfile,
 # so a lockfile change makes a new entry that a base push saves.
+# A UTC day bucket (`steps.rust-day.outputs.day`, from `date -u +%Y%m%d`) moves the key too, at most once a day:
+# cmux-tui/Cargo.lock changed 24 times in the 24 h to 2026-11-28 02:30Z, and each change saved another 1.75 GB
+# headless-debug entry into the 10 GB GitHub cache, evicting pull requests' web-bundle entries within ~25 min.
 # The two iOS ones get theirs in #55162; cloud-journey-prod runs main's copy on its schedule and needs a main twin PR. Drop the entries once they land.
 LOCK_KEY_PENDING = {"first-user-journey-ios.yml", "ios-reliability-matrix.yml", "cloud-journey-prod.yml"}
 
@@ -292,7 +296,8 @@ def rust_cache_keys_without_lockfile() -> list[str]:
             if str(inputs.get("add-rust-environment-hash-key", "")).lower() != "false":
                 continue
             keys = f"{inputs.get('key', '')} {inputs.get('shared-key', '')}"
-            if "hashFiles(" not in keys or "Cargo.lock" not in keys:
+            moves = "Cargo.lock" in keys or "steps.rust-day.outputs.day" in keys
+            if "hashFiles(" not in keys or not moves:
                 bad.append(f"{_label(path)}: {step.get('name') or step.get('uses')}")
     return bad
 

@@ -125,6 +125,22 @@ Today's targets:
   and view refuse, since a viewer Mac's simulator would have nothing on the host Mac to stop it.
   Its `host-stop` (also run by the harness's exit trap, on a signal too) deletes every simulator
   in its own `/tmp/iphsim.*` set and the set.
+- `iphone-link`: the Mac's screen as `cmux.rd/1` over the cmux link (WireGuard) into the same
+  iPhone app in an iOS simulator, the Mac Screen over Link viewer's path, with the same rows as
+  `iphone-sim` so one run compares them (`--arg=targets=iphone-sim,iphone-link`). The host needs no
+  cmux app: `cmux-mobile-host` standalone, signaling through `cmux-mobile-fake-backend` on
+  loopback, its `surface` service streaming `d~0` from a child `cmux-rd surface-source`
+  (`CMUX_MOBILE_SURFACE_SOURCE`, `CMUX_MOBILE_MAC_DISPLAY=1`): the rd target's ScreenCaptureKit
+  capture and VideoToolbox encode, so the step needs the Screen Recording and Accessibility grants
+  the rd target has. The app is launched with `CMUX_MOBILE_RD_LINK` (`ScreenSharingRdLinkRoot`,
+  DEBUG only): it dials with the app's `FFIMacLinkDialer` and shows `d~0` on
+  `StreamedBrowserModel` and `StreamedViewOnlySurface`. Its probe reads the marker from each
+  picture `BrowserVideoDecoder` enqueued (`debugPicture`, DEBUG only) and times the present as
+  iphone-sim's sample-buffer path does (the first display link tick after the enqueue). A
+  view-only rd/1 session takes no input, so the app sends each input as a loopback datagram with
+  a per-run token to the source (`CMUX_RD_SURFACE_EVAL_INPUT`, `CMUX_RD_SURFACE_EVAL_TOKEN`), which
+  injects it; the timer starts at that send. No netem, latency only, one Mac only; it reuses
+  iphone-sim's app build and simulator set (`iphone-sim.sh ensure-sim`, `fractions`).
 - `cu-png`: the computer-use preview's frame path as the app runs it today (`CmuxNextComputerUse`
   `ComputerUseLiveCapture`), replayed by `cu-png.swift` on the scene's window. It captures a window
   stream, reads it at 6 fps, scales it to 360 px on the long side, and encodes PNG and a base64
@@ -537,6 +553,13 @@ CmuxScreenEvalLauncher in System Settings > Privacy & Security. The first run li
 (`launcher --request`). Until then the run writes `run.blocked`, naming the app, and exits 3.
 macOS 15 and later may ask again, after some weeks, to keep allowing screen capture. A run blocked
 again on a mini that ran before is that prompt waiting at its console.
+
+On a dedicated fleet Mac the step can skip that console visit: `seed-grants=1`, inside a fleet console
+step only (`CMUX_CI_CONSOLE_SESSION=1` with `CMUX_CI_STEP_KEY`, after `person_guard.py` has refused a
+person's Mac), runs `launcher/seed-grants.sh`. It writes the two rows that console grant makes into the system
+TCC database with `sudo -n sqlite3`, keyed to the launcher's designated requirement. That is the same write the
+zero-touch screen-share probe makes for the app's helper. The step log prints one
+`SCREEN-STREAM-EVAL-LAUNCHER-SEED` line with each grant `held`, `seeded` or `refused: WHY`.
 
 **Trust.** The app holds both grants and runs the harness for any process of its user that asks:
 the path check only guards against a wrong path, since that user can edit its own checkout anyway.

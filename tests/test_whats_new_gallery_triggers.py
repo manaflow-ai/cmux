@@ -21,6 +21,40 @@ class GalleryTriggerTests(unittest.TestCase):
         self.assertIn("environment: pr-media", text)
         self.assertIn("(main, feat-cmux-next, nightly-next)", text)
 
+    def test_one_broken_gallery_file_costs_only_its_own_pictures(self):
+        # 2026-11-27: one duplicate `const` in ClaudeConnectRow.gallery.tsx failed 10 runs (05:14Z to 08:18Z), so four
+        # Improved highlights shipped in nightly 4598742452601 with no picture. Every step that loads the gallery
+        # files skips one that fails to load (entries.ts loadEntrySources), and each build compiles only the entries
+        # it renders (CMUX_GALLERY_ENTRIES), never the whole gallery.
+        render = open(WORKFLOW).read().split("- name: Render the gallery states", 1)[1].split("\n      - name:", 1)[0]
+        loads = re.findall(r"bun scripts/gallery/(?:manifest|notes)\.ts[^\n]*", render)
+        self.assertEqual(len(loads), 3, loads)
+        for line in loads:
+            self.assertTrue("--skip-broken" in line or "$skip" in line, line)
+        builds = re.findall(r"(?:^|\n)([^\n]*\n)?([^\n]*bun run gallery:build[^\n]*)", render)
+        self.assertEqual(len(builds), 2, builds)
+        for before, line in builds:
+            self.assertIn("CMUX_GALLERY_ENTRIES=", (before or "") + line)
+
+    def test_a_parent_from_before_skip_broken_still_renders_its_befores(self):
+        # 2026-11-27, run 46048895481: every before renders from a checkout of the highlight's parent commit,
+        # whose manifest.ts predated --skip-broken, so all 4 parents stopped at "Unknown option '--skip-broken'"
+        # and 5 Improved highlights had no before/after. The flag goes only to a manifest.ts that knows it.
+        render = open(WORKFLOW).read().split("- name: Render the gallery states", 1)[1].split("\n      - name:", 1)[0]
+        loop = render.split("for parent in", 1)[1]
+        self.assertNotRegex(loop, r"bun scripts/gallery/manifest\.ts[^\n]*--skip-broken")
+        probe = re.search(r"^\s*(skip=\$\(.*\)) &&$", loop, re.M)
+        self.assertIsNotNone(probe, loop)
+        import subprocess, tempfile
+        for source, want in (("const args = ['--entries'];\n", ""), ("if (arg === '--skip-broken') skip = true;\n", "--skip-broken")):
+            with tempfile.TemporaryDirectory() as tmp:
+                os.makedirs(os.path.join(tmp, "scripts", "gallery"))
+                with open(os.path.join(tmp, "scripts", "gallery", "manifest.ts"), "w") as f:
+                    f.write(source)
+                out = subprocess.run(["bash", "-c", probe.group(1) + ' && printf %s "$skip"'], cwd=tmp,
+                                     capture_output=True, text=True)
+                self.assertEqual((out.returncode, out.stdout), (0, want), out.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,7 @@
 // to read on white.
 {
   "name": "Tachyon Light",
-  "description": "A modern terminal, light: two-tone cool paper, deep-teal selected blocks, monospaced output as cards.",
+  "description": "Light: cool paper, command output as cards, a deep teal accent.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",

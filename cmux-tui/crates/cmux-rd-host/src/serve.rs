@@ -67,6 +67,9 @@ struct Setup {
     /// The hub's TURN relays, for a relayed path when no direct one works.
     #[serde(default)]
     turn: Vec<crate::carrier::TurnSetup>,
+    /// TCP and TLS relays, used after the UDP ones, for a network that blocks UDP.
+    #[serde(default)]
+    turn_stream: Vec<crate::carrier::TurnSetup>,
     #[serde(default)]
     display: Option<String>,
     #[serde(default)]
@@ -421,7 +424,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         // address, so a Mac with Ethernet and Wi-Fi on one subnet sends from Wi-Fi when asked
         // (scripts/screen-share-vs.py --link wifi). The app never passes it.
         bind: opts.str_or("link-bind", "0.0.0.0:0").parse()?,
-        turn: crate::carrier::turn_servers(&setup.turn),
+        turn: crate::carrier::turn_servers_with_stream(&setup.turn, &setup.turn_stream),
         relay_only: setup.relay_only,
     })?;
     if let Some(later) = stun_later {
@@ -642,13 +645,13 @@ fn serve_session(
                         Ok(h @ Control::Hello { .. }) => hello = Some(h),
                         Ok(s @ Control::Start { .. }) => start = Some(s),
                         Ok(Control::Stop | Control::Ended { .. } | Control::Refused { .. }) => {
-                            return Ok("viewer stopped or refused the session".into())
+                            return Ok("viewer stopped or refused the session".into());
                         }
                         _ => {}
                     }
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {
-                    return Ok("viewer closed the link".into())
+                    return Ok("viewer closed the link".into());
                 }
                 NetEvent::Endpoint(path @ EndpointEvent::PathChanged { .. }) => {
                     // The path's class picks the start bitrate.

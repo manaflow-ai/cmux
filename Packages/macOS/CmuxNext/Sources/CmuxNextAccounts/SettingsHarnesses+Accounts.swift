@@ -193,6 +193,9 @@ extension SettingsHarnesses {
                 pendingLogins.insert(made.id)
             }
         case "accountSignIn":
+            if let id = params["account"]?.stringValue, accounts?.contains(where: { $0.id == id }) != true {
+                await readAccounts(environment, generation: generation)
+            }
             let account = try listed(params, action)
             // An API-key account has no login to open.
             guard !account.key else { throw PageError.invalidParams("accountSignIn needs an account with a login") }

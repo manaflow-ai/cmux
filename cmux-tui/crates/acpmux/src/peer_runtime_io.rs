@@ -202,6 +202,10 @@ impl Peer {
                 // What this build reads (`server/client_features.rs`): the peer sends a gated
                 // notification only once it is listed.
                 crate::server::client_features::FIELD: crate::server::client_features::own()}}});
+        // The ABI hello (`abi_hello.rs`): this build's revision and build id.
+        if let Some(meta) = hello.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+            crate::abi_hello::stamp(meta);
+        }
         // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
         if self.github_broker() {
             hello.set_path(&["_meta", "acpmux", "githubBroker"], json!(true));
@@ -798,6 +802,7 @@ impl Peer {
         }
         // Time this daemon kept the loop from reading is not the peer's silence (`ReaderHeld`).
         let mut reader = crate::peer_link::ReaderHeld::default();
+        crate::peer_starved::ensure_started();
         // The stamped pings still out and when each left, on the runtime's clock, so their pongs
         // time the link's round trip (`peer_link_quality.rs`). Bounded: the oldest goes first.
         let mut pinged: std::collections::VecDeque<(Vec<u8>, tokio::time::Instant)> =
@@ -872,6 +877,12 @@ impl Peer {
         // Each chat's last row this link heard, which the peer's patches apply to
         // (`peer_row_patch.rs`): the peer forgets what it sent at each `initialize`, so this does too.
         let mut held_rows = crate::peer_row_patch::HeldRows::default();
+        // Attach baselines and live presence are ordered on this reader, not on the tasks
+        // awaiting replies. A late attach cannot replace a live snapshot already read.
+        let _ = self
+            .notices
+            .send((self.name.clone(), self.generation, PeerNotice::PresenceReset { link }))
+            .await;
         // A reply to this daemon's request: a watch list's (`watch_key`) is published here, before
         // the next frame is read.
         macro_rules! watch_reply {
@@ -1137,6 +1148,9 @@ impl Peer {
                     let now = tokio::time::Instant::now();
                     // A gap this daemon made by not reading teaches the budget nothing.
                     let gap = heard.as_ref().map_or_else(|| std::mem::take(&mut frame_gap), Heard::take_gap).min(reader.reading());
+                    // Nor a gap this process was starved through (`peer_starved.rs`).
+                    let starved_now = std::time::Instant::now();
+                    let gap = gap.saturating_sub(crate::peer_starved::global().within(starved_now, gap));
                     let (was, silence) = self.with_silence(|b| {
                         let was = b.current();
                         b.answered_after(gap, now);
@@ -1154,9 +1168,12 @@ impl Peer {
                     // meanwhile wait unread. cosmic-gray at load 100 dropped 493 links in 3 h for
                     // 6 to 19 s of such "silence".
                     let late = now.saturating_duration_since(due);
-                    if silent.saturating_sub(late) >= silence {
+                    // Nor the time this process was starved over the silence, tick by tick: each
+                    // tick a little late sums past a 2 s floor (`peer_starved.rs`).
+                    let starved = crate::peer_starved::global().within(starved_now, silent);
+                    if crate::peer_starved::past_budget(silent, late, starved, silence) {
                         out_of_silence!(silent, silence, now);
-                    } else if replacing.is_none() && silent.saturating_sub(late) >= timings.replace_at(silence) {
+                    } else if replacing.is_none() && crate::peer_starved::past_budget(silent, late, starved, timings.replace_at(silence)) {
                         replace_early!(silent, silence, now);
                     } else {
                         // The next deadline: the replace setting's while no replacement dials,
@@ -1290,6 +1307,20 @@ impl Peer {
                                 continue;
                             };
                             let reply = match error { Some(e) => Err(e), None => Ok(result.unwrap_or(Value::Null)) };
+                            if let Ok(page) = &reply
+                                && let Some(params) = attach_presence_baseline(page)
+                            {
+                                let mut params = params;
+                                params.as_object_mut().map(|object| object.insert(
+                                    crate::hub::presence::BASELINE_MARKER.into(), Value::Bool(true),
+                                ));
+                                let notice = PeerNotice::Notification {
+                                    method: method::MUX_PRESENCE.to_owned(), params, link,
+                                };
+                                if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
+                                    break Ok(LinkEnd::Stopped);
+                                }
+                            }
                             // A watch sent with `initialize` waits for the handshake to read that
                             // reply, and the changes after it wait with it (`paged`).
                             if self.pipelined_key.lock_or_recover().as_deref() == Some(key.as_str()) {
@@ -1648,4 +1679,13 @@ async fn pending_or<F: std::future::Future + Unpin>(fut: &mut Option<F>) -> F::O
         Some(fut) => fut.await,
         None => std::future::pending().await,
     }
+}
+
+/// Only the first snapshot on a link supplies an attach baseline. Later live frames win,
+/// including a withdrawal read before an older attach reply reaches its waiting task.
+fn attach_presence_baseline(page: &Value) -> Option<Value> {
+    let note = page.get("presence")?;
+    note.get("sessionId")?.as_str()?;
+    note.get("participants")?.as_array()?;
+    Some(note.clone())
 }

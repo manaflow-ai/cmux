@@ -251,7 +251,7 @@ impl Hub {
     }
 }
 
-fn command(update: &Value) -> Option<String> {
+pub(super) fn command(update: &Value) -> Option<String> {
     // pi names its bash call's command only in its title (`tool_shell.rs` `add_terminal_input`),
     // which this sees before that runs.
     if update.pointer("/rawInput/command").is_none() {
