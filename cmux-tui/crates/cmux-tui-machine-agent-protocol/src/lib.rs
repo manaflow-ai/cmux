@@ -13,6 +13,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
+mod version_range;
+pub use version_range::{PROTOCOL_MAX, PROTOCOL_MIN, VersionIncompatible, VersionPeek, speaks};
+
 pub const PROTOCOL_NAME: &str = "cmux.machine-agent";
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const MAX_FRAME_BYTES: usize = 64 * 1024;
@@ -130,7 +133,7 @@ impl<'de> Deserialize<'de> for Version {
         D: Deserializer<'de>,
     {
         let value = u16::deserialize(deserializer)?;
-        if value == PROTOCOL_VERSION {
+        if speaks(value) {
             Ok(Self)
         } else {
             Err(D::Error::custom("unsupported machine-agent protocol version"))

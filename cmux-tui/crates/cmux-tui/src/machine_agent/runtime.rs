@@ -519,9 +519,9 @@ fn generation_failure_kind(error: &anyhow::Error) -> GenerationFailureKind {
     for cause in error.chain() {
         if let Some(frame) = cause.downcast_ref::<FrameReadError>() {
             return match frame {
-                FrameReadError::TooLarge | FrameReadError::Invalid(_) => {
-                    GenerationFailureKind::InvalidFrame
-                }
+                FrameReadError::TooLarge
+                | FrameReadError::Invalid(_)
+                | FrameReadError::VersionIncompatible(_) => GenerationFailureKind::InvalidFrame,
                 FrameReadError::Io(_)
                 | FrameReadError::Disconnected
                 | FrameReadError::Truncated => GenerationFailureKind::Transport,

@@ -35,8 +35,8 @@ use cmux_tui_machine_protocol::{
     ProviderError, ProviderEvent, ProviderRequest, ProviderResponse, RequestEnvelope,
     ResponseEnvelope, SelectScopeParams, SelectScopeResult, SnapshotParams, SnapshotResult,
     SubscribeNoticesParams, SubscribeNoticesResult, TransportDescriptor, TransportHandshake,
-    TransportHandshakeResult, TransportRole, Version, WORKSPACE_LIFECYCLE_CAPABILITY,
-    WorkspaceSnapshotParams, WorkspaceSnapshotResult,
+    TransportHandshakeResult, TransportRole, Version, VersionIncompatible,
+    WORKSPACE_LIFECYCLE_CAPABILITY, WorkspaceSnapshotParams, WorkspaceSnapshotResult,
 };
 #[cfg(unix)]
 use serde::Serialize;
@@ -192,7 +192,9 @@ pub(crate) enum ProviderClientError {
     Io(io::Error),
     Json(serde_json::Error),
     Provider(ProviderError),
-    FrameTooLarge { limit: usize },
+    FrameTooLarge {
+        limit: usize,
+    },
     Disconnected,
     Timeout,
     NotAuthenticated,
@@ -201,10 +203,29 @@ pub(crate) enum ProviderClientError {
     Protocol(String),
     StatePoisoned(&'static str),
     TransportRejected,
+    /// The provider and this build share no machine-provider protocol version (hq RFD 0224):
+    /// typed, with the side to update, never a decode error. The string is the provider's own
+    /// refusal message, when it sent one.
+    VersionIncompatible(VersionIncompatible, Option<String>),
 }
 
 #[cfg(unix)]
 impl ProviderClientError {
+    /// A hello the provider refused for its version, as the typed refusal. Providers from before
+    /// RFD 0224 answer `unsupported_version`; newer ones `version.incompatible`.
+    fn from_hello_refusal(error: ProviderError) -> Self {
+        use cmux_tui_machine_protocol::{ProtocolRange, ProviderErrorCode};
+        match error.code {
+            ProviderErrorCode::UnsupportedVersion | ProviderErrorCode::VersionIncompatible => {
+                Self::VersionIncompatible(
+                    VersionIncompatible::new(ProtocolRange::OURS, None, "machine provider"),
+                    Some(error.message),
+                )
+            }
+            _ => Self::Provider(error),
+        }
+    }
+
     /// True when the request failed before its frame was written, so the
     /// provider cannot have seen it. `mutate` checks authentication and the
     /// request's capability before it sends anything.
@@ -248,6 +269,10 @@ impl fmt::Display for ProviderClientError {
             Self::TransportRejected => {
                 formatter.write_str("machine provider rejected the transport ticket")
             }
+            Self::VersionIncompatible(refusal, None) => write!(formatter, "{refusal}"),
+            Self::VersionIncompatible(refusal, Some(message)) => {
+                write!(formatter, "{refusal} (the provider said: {message})")
+            }
         }
     }
 }
@@ -287,6 +312,7 @@ enum ReaderFailure {
     FrameTooLarge { limit: usize },
     InvalidFrame(String),
     Io(String),
+    VersionIncompatible(VersionIncompatible),
 }
 
 #[cfg(unix)]
@@ -297,6 +323,7 @@ impl From<ReaderFailure> for ProviderClientError {
             ReaderFailure::FrameTooLarge { limit } => Self::FrameTooLarge { limit },
             ReaderFailure::InvalidFrame(message) => Self::Protocol(message),
             ReaderFailure::Io(message) => Self::Io(io::Error::other(message)),
+            ReaderFailure::VersionIncompatible(refusal) => Self::VersionIncompatible(refusal, None),
         }
     }
 }
@@ -815,6 +842,9 @@ impl ProviderClient {
                 self.inner.authenticated.store(true, Ordering::Release);
                 Ok(hello)
             }
+            Err(ProviderClientError::Provider(error)) => {
+                Err(ProviderClientError::from_hello_refusal(error))
+            }
             Err(error) => Err(error),
         }
     }
@@ -1282,6 +1312,20 @@ fn dispatch_control_frame(
     let object = value
         .as_object()
         .ok_or_else(|| ReaderFailure::InvalidFrame("top-level frame is not an object".into()))?;
+    // A frame from outside this build's protocol range is the typed refusal for the whole link
+    // (hq RFD 0224), before any strict decode turns it into an "invalid frame".
+    if let Some(version) = object.get("version").and_then(Value::as_u64) {
+        let peek = cmux_tui_machine_protocol::VersionPeek {
+            version: u16::try_from(version).unwrap_or(u16::MAX),
+        };
+        if let Some(refusal) =
+            peek.check(cmux_tui_machine_protocol::ProtocolRange::OURS, "machine provider")
+        {
+            frame.zeroize();
+            zeroize_json_strings(&mut value);
+            return Err(ReaderFailure::VersionIncompatible(refusal));
+        }
+    }
     let has_event = object.contains_key("event");
     let has_id = object.contains_key("id");
     match (has_event, has_id) {
