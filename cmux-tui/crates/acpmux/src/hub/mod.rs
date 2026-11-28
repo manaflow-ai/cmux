@@ -450,6 +450,7 @@ mod surgery_codex;
 pub mod synced;
 mod tags;
 mod tailnet_controller;
+mod taint;
 mod tap;
 mod task_names;
 pub(crate) mod tasks;

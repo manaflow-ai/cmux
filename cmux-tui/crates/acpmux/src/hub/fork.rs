@@ -1099,6 +1099,7 @@ impl Hub {
             pull_request_times: Default::default(),
             closed_pull_requests: vec![],
             touched_files: vec![],
+            taint: Default::default(),
             harness_cost_usd: if matches!(made, Made::ClaudeResume) {
                 parent_meta.harness_cost_usd
             } else {

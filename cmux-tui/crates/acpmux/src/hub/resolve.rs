@@ -463,6 +463,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         pull_request_times: Default::default(),
         closed_pull_requests: vec![],
         touched_files: vec![],
+        taint: Default::default(),
         git_branch: None,
         git_head: None,
         worktree: None,
