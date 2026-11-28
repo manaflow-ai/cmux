@@ -814,11 +814,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// focus: only a browser's creation used to replay the ask.
     func grantPendingFocusIfShown() {
         guard pendingFocus, isShown, pageWindowHostHasArea, !appearedThisTurn, !awaitsWindowMove, let browserID else { return }
-        // Not while the person types in another window (Cmd-N, then Cmd-` before the page painted), or in a panel of
-        // this one (a popover, the tab-group editor, the palette): the ask waits until this page's window, or a page
-        // window of it, has the keys again (`CEFRuntime.windowBecameKey`).
-        if let key = keyWindows.keyWindow(), let owner = container.window, key !== owner,
-           key.parent !== owner || !WindowOverlayHost.isPageWindow(key) {
+        // Not while the person types in another window (Cmd-N, then Cmd-` before the page painted): the ask waits
+        // until this page's window has the keys again (`CEFRuntime.windowBecameKey`).
+        if let key = keyWindows.keyWindow(), let owner = container.window, key !== owner, key.parent !== owner {
             host.lifecycleTrace.record(id, "grant kept: another window is key")
             runtime.asksAwaitingWindow[ObjectIdentifier(self)] = CEFAskAwaitingWindow(tab: self, window: owner)
             return
