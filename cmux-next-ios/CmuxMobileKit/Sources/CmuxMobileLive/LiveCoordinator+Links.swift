@@ -107,8 +107,10 @@ extension LiveCoordinator {
             guard let self, let session, self.sessions[session.macID] === session else { return }
             session.tree = tree
             self.store.updateWorkspaces(macID: session.macID, rows: tree.workspaces.filter { ids.contains($0.id) })
-            // A tab closed inside a workspace: its Feed rows go.
-            self.feedStore.setOpenTabs(FeedOpenTabs(tree: tree), macID: session.macID)
+            // A tab closed inside a workspace: its Feed rows go. Only the changed workspaces'
+            // tabs are read and compared (RFD 0227 fix 3), not every tab of the Mac.
+            self.feedStore.updateOpenTabs(FeedOpenTabs.changedTabs(in: tree, workspaceIDs: ids),
+                                          macID: session.macID) { FeedOpenTabs(tree: tree) }
             if agentChanged {
                 session.terminalFeed.treeChanged(tree, macID: session.macID,
                                                 connection: session.workspaces.connectionSerial, changedWorkspaceIDs: ids)

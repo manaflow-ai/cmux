@@ -498,6 +498,29 @@ public final class FeedStore {
         refreshDerived()
     }
 
+    /// `macID`'s open tabs changed in the workspaces `changed` names, and nowhere else (a row
+    /// delta from its tree, RFD 0227 fix 3). Each named workspace's tabs are replaced, or dropped
+    /// when nil (no longer in the tree), and only those entries are compared: O(changed), not a
+    /// rebuild and compare of every tab. The result is the list as complete as a tree's.
+    ///
+    /// When the Mac's tabs held now are not a tree's (none yet, or the launch snapshot's partial
+    /// rows), the rest of them is not known from a delta, so `whole` is set instead.
+    public func updateOpenTabs(_ changed: [String: Set<String>?], macID: String, whole: () -> FeedOpenTabs) {
+        guard !macID.isEmpty else { return }
+        guard var tabs = openTabs[macID], tabs.complete else {
+            setOpenTabs(whole(), macID: macID)
+            return
+        }
+        var differs = false
+        for (workspaceID, next) in changed where tabs.tabsByWorkspace[workspaceID] != next {
+            tabs.tabsByWorkspace[workspaceID] = next
+            differs = true
+        }
+        guard differs else { return }
+        openTabs[macID] = tabs
+        refreshDerived()
+    }
+
     /// `macID` was removed from the account: its rows are no longer checked against its tabs.
     public func forgetOpenTabs(macID: String) {
         guard openTabs.removeValue(forKey: macID) != nil else { return }
