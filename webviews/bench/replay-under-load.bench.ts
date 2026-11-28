@@ -23,12 +23,6 @@
 //                           when fewer than MIN_FRAMES gaps came: the chat drew nothing to count.
 //   frame_p50_ms, frame_p99_ms, frames, frames_over_50ms   the same tally's other reads
 //   renderer_main_busy_pct  the renderer main thread's task time over the window's wall time (CDP TaskDuration), %
-//   renderer_main_cpu_pct   the same thread's CPU time over the window's wall time (CDP ThreadTime), %. TaskDuration is
-//                           wall time from a task's start to its end, so it counts the time the thread waited for a
-//                           CPU inside a task: a traced run on a shared 16-core host (2026-11-28, load average 90)
-//                           read 89.9% busy on 4.9% CPU, its longest task 11477 ms wall on 23 ms CPU. A cut's own
-//                           work shows here; busy over CPU is how much a task waits for a CPU (cpu_wait_x)
-//   cpu_wait_x              renderer_main_busy_pct / renderer_main_cpu_pct: 1 is a thread that never waits
 //   long_tasks              tasks of 50 ms or more in the window, and longest_task_ms
 //   records                 the records sent in the window
 //   painter                 --painter ARM, who paints the viewport (bench-only A/B, support/viewportPainter.ts):
@@ -136,26 +130,17 @@ type Reading = {
   frame_p95_reason: string | null;
   frame_p95_source: "frame_tally";
   renderer_main_busy_pct: number | null;
-  renderer_main_cpu_pct: number | null;
-  cpu_wait_x: number | null;
   long_tasks: number;
   longest_task_ms: number;
   chromium: string;
   at: string;
 };
 
-/// The renderer main thread's task time (wall) and CPU time so far, in seconds.
-async function taskSeconds(cdp: CDPSession): Promise<{ task: number; cpu: number }> {
+async function taskSeconds(cdp: CDPSession): Promise<number> {
   const { metrics } = (await cdp.send("Performance.getMetrics")) as {
     metrics: { name: string; value: number }[];
   };
-  const read = (name: string) => metrics.find((m) => m.name === name)?.value ?? 0;
-  return { task: read("TaskDuration"), cpu: read("ThreadTime") };
-}
-
-/// `seconds` of the window's `wallMs`, as a percentage to one decimal.
-function pctOfWall(seconds: number, wallMs: number): number | null {
-  return wallMs > 0 ? Math.round((seconds * 1000 * 1000) / wallMs) / 10 : null;
+  return metrics.find((m) => m.name === "TaskDuration")?.value ?? 0;
 }
 
 async function run(): Promise<Reading> {
@@ -259,8 +244,17 @@ async function run(): Promise<Reading> {
         build: {
           outDir: out,
           emptyOutDir: true,
-          ...(PROFILE || TRACE ? { minify: false } : {}),
+          ...(PROFILE || TRACE || process.env.RR === "1" ? { minify: false } : {}),
         },
+        ...(process.env.RR === "1" ? { plugins: [{ name: "rr", transform(code: string, id: string) {
+          if (!id.includes("react-dom-client.production")) return;
+          const R = (a: string, b: string) => { if (!code.includes(a)) throw new Error("rr: " + a); code = code.replace(a, b); };
+          R("function scheduleUpdateOnFiber(root, fiber, lane) {", "function scheduleUpdateOnFiber(root, fiber, lane) { if (lane === 2) { var __s=(globalThis.__rrs??={}); var __n=(fiber.type&&(fiber.type.displayName||fiber.type.name))||String(fiber.tag); var __st=(new Error().stack||'').split('\\n').slice(2,9).map(function(l){return l.trim().replace(/ \\(.*\\/(assets\\/)?/,' (')}).join(' < '); var __k=__n+' :: '+__st; __s[__k]=(__s[__k]||0)+1; }");
+          R("  renderLanes = nextRenderLanes;\n  currentlyRenderingFiber = workInProgress;\n  workInProgress.memoizedState = null;", "  renderLanes = nextRenderLanes;\n  currentlyRenderingFiber = workInProgress;\n  var __nm=Component&&(Component.displayName||Component.name); if (__nm && current !== null) { var __a=(globalThis.__rra??={}); var __o=current.memoizedProps, __same=__o===props; if (!__same && __o && props) { __same=true; var __ks=Object.keys(props); if (__ks.length!==Object.keys(__o).length) __same=false; else for (var __i=0;__i<__ks.length;__i++) if (!Object.is(__o[__ks[__i]],props[__ks[__i]])) { __same=false; var __d=(globalThis.__rrd??={}); var __dk=__nm+'.'+__ks[__i]; __d[__dk]=(__d[__dk]||0)+1; } } var __e=(__a[__nm]??=[0,0,0]); __e[0]++; if (__same) __e[1]++; if (current.memoizedProps===props) __e[2]++; } if (__nm==='TranscriptView'||__nm==='AcpmuxPane'||__nm==='VirtualTranscript') { var __w=(globalThis.__rrw??={}); var __k2=__nm+' lanes='+nextRenderLanes+' '+(current===null?'mount':current.memoizedProps!==props?'props':'state'); __w[__k2]=(__w[__k2]||0)+1; }\n  workInProgress.memoizedState = null;");
+          R("function prepareFreshStack(root, lanes) {", "function prepareFreshStack(root, lanes) { var __r=(globalThis.__rr??={fresh:0,discard:0,dl:{},commit:0,cl:{},inconsistent:0}); __r.fresh++; if (workInProgress !== null && workInProgressRootRenderLanes) { __r.discard++; var __k=workInProgressRootRenderLanes+'>'+lanes; __r.dl[__k]=(__r.dl[__k]||0)+1; }");
+          R("        renderWasConcurrent &&\n        !isRenderConsistentWithExternalStores(forceSync)\n      ) {", "        renderWasConcurrent &&\n        !isRenderConsistentWithExternalStores(forceSync)\n      ) { globalThis.__rr.inconsistent++;");
+          R("  root.cancelPendingCommit = null;\n  do flushPendingEffects();", "  if (finishedWork) { var __c=globalThis.__rr; __c.commit++; __c.cl[lanes]=(__c.cl[lanes]||0)+1; }\n  root.cancelPendingCommit = null;\n  do flushPendingEffects();");
+          return code; } }] } : {}),
         logLevel: "error",
       });
     const statics = Bun.serve({
@@ -370,6 +364,10 @@ async function run(): Promise<Reading> {
           ...(process.env.SELSTATS === "1" ? ["disabled-by-default-blink.debug"] : []),
         ],
       });
+    // RENDERS=1: the components React committed in the window and why each record redrew the pane (perf.ts
+    // `renders`, paneSnapshot.ts `redrawCause`); counting turns the pane's perf on, so its busy is not a clean one.
+    const RENDERS = process.env.RENDERS === "1";
+    if (RENDERS) await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
     const pageStart = await page.evaluate(() => performance.now());
     const taskBefore = await taskSeconds(cdp);
     const wallBefore = performance.now();
@@ -390,6 +388,19 @@ async function run(): Promise<Reading> {
       }
     }
     const pageEnd = await page.evaluate(() => performance.now());
+    if (process.env.RR === "1") fs.writeFileSync("/home/cmux/.cache/rmb-rr/rr.json", JSON.stringify(await page.evaluate(() => ({ rr: (globalThis as any).__rr, sync: (globalThis as any).__rrs, w: (globalThis as any).__rrw, all: (globalThis as any).__rra, diff: (globalThis as any).__rrd }))));
+    if (RENDERS) {
+      const counts = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
+        string,
+        number
+      >;
+      const top = Object.entries(counts)
+        .filter(([name]) => !name.startsWith("row:") && !name.startsWith("content:") && !name.startsWith("mount:"))
+        .sort((x, y) => y[1] - x[1])
+        .filter(([name], i) => i < 40 || name.startsWith("miss:"));
+      console.log(`renders in the window (${sent} records sent; top 40, then every miss:):`);
+      for (const [name, count] of top) console.log(`  ${String(count).padStart(6)}  ${name}`);
+    }
     clearInterval(timer);
     // The tally's last flush (at most FLUSH_MS after the window's last frames) still counts.
     await page.waitForTimeout(FLUSH_WAIT_MS);
@@ -404,8 +415,6 @@ async function run(): Promise<Reading> {
     const frames = [...counts.values()].reduce((sum, n) => sum + n, 0);
     const over50 = [...counts.entries()].reduce((sum, [index, n]) => sum + (index * BUCKET_MS >= 50 ? n : 0), 0);
     const enough = frames >= MIN_FRAMES;
-    const busyPct = pctOfWall(taskAfter.task - taskBefore.task, wallMs);
-    const cpuPct = pctOfWall(taskAfter.cpu - taskBefore.cpu, wallMs);
     return {
       schema: "replay-under-load/v1",
       scenario: `replay ${log.name} at ${RATE} records/s, ${SECONDS} s window${PAINTER === "react" ? "" : `, painter ${PAINTER}`}`,
@@ -425,9 +434,7 @@ async function run(): Promise<Reading> {
         ? null
         : `${frames} frames in the window, under ${MIN_FRAMES}: the chat drew too little to count`,
       frame_p95_source: "frame_tally",
-      renderer_main_busy_pct: busyPct,
-      renderer_main_cpu_pct: cpuPct,
-      cpu_wait_x: busyPct !== null && cpuPct ? Math.round((busyPct / cpuPct) * 10) / 10 : null,
+      renderer_main_busy_pct: wallMs > 0 ? Math.round(((taskAfter - taskBefore) * 1000 * 1000) / wallMs) / 10 : null,
       long_tasks: long.length,
       longest_task_ms: Math.round(Math.max(0, ...long.map((t) => t.ms))),
       chromium: browser.version(),
@@ -452,7 +459,7 @@ if (import.meta.main) {
     console.log(text);
     console.log(
       `replay-under-load: frame p95 ${reading.frame_p95_ms ?? "null"} ms over ${reading.frames} frames, renderer main ` +
-        `${reading.renderer_main_busy_pct ?? "null"}% busy on ${reading.renderer_main_cpu_pct ?? "null"}% CPU, ${reading.records} records in ${reading.seconds} s`,
+        `${reading.renderer_main_busy_pct ?? "null"}% busy, ${reading.records} records in ${reading.seconds} s`,
     );
   } catch (error) {
     // One line with the cause: a vite build error's message starts "Build failed with 1 error:" and names the file
