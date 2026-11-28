@@ -57,7 +57,7 @@ final class OnboardingPageImages {
         return encode(key, side: 16) { (try? Data(blockingContentsOf: url)).flatMap(NSImage.init(data:)) }
     }
 
-    /// The helper app's icon at 96 pt (Computer Use's when its bundle names none), or cmux's own until the helper is found on disk.
+    /// The helper app's icon at 96 pt (Computer Use's tile, ``ComputerUseAppIcon``), or cmux's own until the helper is found on disk.
     func helper(_ url: URL?) -> Image? {
         let key = "helper:\(url?.path ?? "")"
         if let image = drawn[key] { return image }

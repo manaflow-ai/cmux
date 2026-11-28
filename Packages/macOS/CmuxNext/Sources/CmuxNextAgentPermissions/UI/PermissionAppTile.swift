@@ -6,13 +6,17 @@ import CmuxNextDesign
 /// file URL (what System Settings' lists accept).
 final class PermissionAppTile: NSView, NSDraggingSource {
     private let appURL: URL
-    /// The app's own icon, else Computer Use's (``ComputerUseAppIcon``): the row and its drag image.
+    /// The row's icon and its drag image: Computer Use's tile for the helper, else the app's own icon.
     private let image: NSImage
     private lazy var hover = ChromeHover(self)
 
-    init(appURL: URL) {
+    /// - Parameters:
+    ///   - appURL: the app that gets the grant.
+    ///   - computerUseHelper: `appURL` is the Computer Use helper: the row draws Computer Use's tile
+    ///     (``ComputerUseAppIcon``), not the helper bundle's icon (blank in a copy an older build staged).
+    init(appURL: URL, computerUseHelper: Bool = false) {
         self.appURL = appURL
-        image = ComputerUseAppIcon.image(forApp: appURL)
+        image = computerUseHelper ? ComputerUseAppIcon.image(forApp: appURL) : NSWorkspace.shared.icon(forFile: appURL.path)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         let icon = NSImageView(image: image)

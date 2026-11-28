@@ -117,7 +117,7 @@ public final class PermissionRequestCardView: NSView {
         let grant = request.guidingGrant ?? request.request.kind.grants[0]
         if grant.usesDragHelper, let url = appURL(grant) {
             add(label(strings.dragGuide(PermissionAppTile.displayName(url)), size: TypeScale.detail, color: Palette.textPrimary, lines: 2))
-            add(PermissionAppTile(appURL: url))
+            add(PermissionAppTile(appURL: url, computerUseHelper: grant.heldByComputerUseHelper))
         } else {
             add(label(strings.promptGuide, size: TypeScale.detail, color: Palette.textPrimary, lines: 2))
         }

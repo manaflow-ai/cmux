@@ -31,7 +31,8 @@ final class HelperAppTile: NSView, NSDraggingSource {
 
     init(appURL: URL) {
         self.appURL = appURL
-        // The helper's own icon, else Computer Use's: a helper that names no icon would draw the blank app.
+        // Computer Use's tile (Lucas's midnight cursor), never the helper bundle's own icon: a copy an older build
+        // staged names none, and macOS draws the blank app for it.
         icon = NSImageView(image: ComputerUseAppIcon.image(forApp: appURL))
         name = OnboardingLabel.make(Self.displayName(appURL), font: Typography.system(size: TypeScale.body))
         content = NSStackView(views: [icon, name])
