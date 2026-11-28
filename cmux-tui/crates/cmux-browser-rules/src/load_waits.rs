@@ -405,8 +405,7 @@ pub fn is_blank_error_document(committed: Option<&str>, requested: Option<&str>)
 
 /// The scheme of a URL string (RFC 3986: a letter, then letters, digits, `+`, `-`, `.`, then `:`).
 pub fn scheme(url: &str) -> Option<&str> {
-    let end = url.find(':')?;
-    let head = &url[..end];
+    let (head, _) = url.split_once(':')?;
     let mut chars = head.chars();
     let first = chars.next()?;
     (first.is_ascii_alphabetic()

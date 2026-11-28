@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// the first `#` is equal.
 pub fn differ_only_in_fragment(a: &str, b: &str) -> bool {
     fn base(url: &str) -> &str {
-        url.find('#').map_or(url, |at| &url[..at])
+        url.split_once('#').map_or(url, |(head, _)| head)
     }
     a != b && base(a) == base(b)
 }
