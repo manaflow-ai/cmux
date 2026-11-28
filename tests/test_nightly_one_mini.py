@@ -33,7 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_nightly_never_blacksmith import JOBS, evaluate, parse_expression, sample  # noqa: E402
 from test_nightly_owned_minis_only import (HOSTED_DISPATCH_JOBS, HOSTED_LOOP_JOBS, HOSTED_PREFLIGHT_JOBS,  # noqa: E402
-                                           HOSTED_TAIL_JOBS,
+                                           HOSTED_RESTORE_JOBS, HOSTED_TAIL_JOBS,
                                            JIT_LABEL, NIGHTLY_NEXT_ONLY_OWNED, NIGHTLY_PINNED_JOBS, hosted_route)
 import workflow_jobs  # noqa: E402
 
@@ -79,6 +79,10 @@ def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2, f
         return PINNED_LINUX
     if name in LINUX_POOL_JOBS:
         return "cmux-linux"
+    # The manual note restore (#62726) takes the JIT label as a bare literal on every attempt, in this mode too
+    # (test_nightly_owned_minis_only.HOSTED_RESTORE_JOBS pins its route).
+    if name in HOSTED_RESTORE_JOBS:
+        return JIT_LABEL
     # A tail or loop job takes the JIT nightly label on every attempt (test_nightly_owned_minis_only.hosted_route).
     return hosted_route(name, attempt) if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS \
         or name in HOSTED_DISPATCH_JOBS else MINI

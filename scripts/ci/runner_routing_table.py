@@ -84,6 +84,9 @@ MACOS_HINT = re.compile(
     re.IGNORECASE,
 )
 NON_MAC_HINT = re.compile(r"ubuntu|linux|windows|cmux-gcp-", re.IGNORECASE)  # cmux-gcp-*-x64: GCP Linux VMs
+# mac-gateway is the Linux gateway runner that hands a step to the controller with cmux-ci run
+# (tests/test_ci_gateway_jobs_on_linux.py); it names the Macs it reaches, not its own OS.
+GATEWAY_LABEL = re.compile(r"(?<![\w-])mac-gateway(?![\w-])")
 
 NEEDS = ("macos", "linux", "any")
 
@@ -140,7 +143,8 @@ POOL_FLEET_MEMBERS = ("cmux-fleet-linux-x64",)
 
 # Nightlies never run on Blacksmith (user, 2026-10-30): a nightly route's overflow is our own
 # nightly-only pool, the nightly build slot, or an ephemeral hosted Ubuntu runner.
-NIGHTLY_OVERFLOW = ("'glaeda-nightly-only-m4pro'", "'glaeda-nightly-std-xcode-26.6'", "'ubuntu-24.04'")
+# 'mac-nightly' is the same build slot's unified label (#61222, RFD 0185 phase 2; .github/single-host-fallbacks.json).
+NIGHTLY_OVERFLOW = ("'glaeda-nightly-only-m4pro'", "'glaeda-nightly-std-xcode-26.6'", "'mac-nightly'", "'ubuntu-24.04'")
 
 
 def nightly_overflow_term(term: str) -> bool:
@@ -454,7 +458,7 @@ def routes_to_macos(job: dict[str, Any]) -> bool:
         runs_on += json.dumps(job.get("strategy", {}))
     if MACOS_HINT.search(runs_on):
         return True
-    return not NON_MAC_HINT.search(runs_on)
+    return not NON_MAC_HINT.search(GATEWAY_LABEL.sub("linux-gateway", runs_on))
 
 
 def iter_jobs(workflows: Path = WORKFLOWS) -> Iterable[tuple[Job, bool]]:

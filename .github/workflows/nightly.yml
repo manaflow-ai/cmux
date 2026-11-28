@@ -2901,9 +2901,6 @@ jobs:
 
   # Why: docs/ci/nightly-workflow-notes/2026-11-26-resolve-nightly-cmux-tui-client.md
   resolve-nightly-cmux-tui-client:
-    environment:
-      name: ci-routing-agent
-      deployment: false
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     # Why: docs/ci/nightly-workflow-notes/2026-11-28-resolve-nightly-cmux-tui-client-comments.md
@@ -2929,8 +2926,7 @@ jobs:
       already_published: ${{ steps.build.outputs.already_published }}
       superseded: ${{ steps.superseded.outputs.superseded }}
       daemon_build: ${{ steps.daemon-build.outputs.build }}
-    env:
-      GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+    # No pool token: cmux-linux holds no secret (test_nightly_owned_minis_only CMUX_LINUX_JOBS).
     steps:
       - name: Fix this run's build number
         id: daemon-build
@@ -7603,9 +7599,6 @@ jobs:
 
   # Why: docs/ci/nightly-workflow-notes.md#note-22
   published-build:
-    environment:
-      name: ci-routing-agent
-      deployment: false
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, nightly-next-one]
     if: "always() && (github.event_name == 'workflow_dispatch' && inputs.nightly_next_restore_notes == '' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_post_publish != '' || needs.decide.outputs.should_publish == 'true' && (needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' || needs.nightly-next-one.result == 'success' && needs.nightly-next-one.outputs.left != 'true' && needs.nightly-next-one.outputs.refused != 'true'))"
     # Why: docs/ci/nightly-workflow-notes/2026-11-26-published-build.md
@@ -7656,7 +7649,7 @@ jobs:
       comment: ${{ steps.record.outputs.comment }}
       run_tail: ${{ steps.record.outputs.cross_run == 'true' || steps.record.outputs.track != 'nightly-next' || github.event_name != 'push' && inputs.nightly_next_loop_retry == '' }}
     env:
-      GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+      # No pool token: cmux-linux holds no secret (test_nightly_owned_minis_only CMUX_LINUX_JOBS).
       SOURCE: ${{ inputs.nightly_next_post_publish }}
       NEEDS: ${{ toJSON(needs) }}
       RUN_ID: ${{ github.run_id }}

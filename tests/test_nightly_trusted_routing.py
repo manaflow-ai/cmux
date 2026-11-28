@@ -44,7 +44,9 @@ TAIL_CONTROL_JOBS = (
 # Our runners' fallback labels (nightly.yml): the nightly-only Mac pool (vars.CI_NIGHTLY_ONLY_RUNNER), the
 # owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER) and, for a fork only, GitHub-hosted Ubuntu.
 NIGHTLY_ONLY = 'glaeda-nightly-only-m4pro'
-NIGHTLY_SLOT = 'glaeda-nightly-std-xcode-26.6'
+# #61222 (RFD 0185 phase 2) renamed the slot's literal to the unified label; the same nightly slots carry both
+# (.github/single-host-fallbacks.json "mac-nightly").
+NIGHTLY_SLOT = 'mac-nightly'
 # The signer's label: only a trusted-only mini that runs no pull request job carries it, and the secret-bearing
 # jobs end on it as a literal, never on a label nightly builds or PR side lanes share.
 SIGNING_SLOT = 'glaeda-trusted-next-signing'
@@ -106,8 +108,6 @@ OWNED_SECRET_JOBS = {
     'await-release-surface-ack': "retired (if: false); its environment is the release-surface ack, on the nightly-only pool",
     'promote-nightly-next': 'a main dispatch the signer refuses; ends on the nightly slot (test_no_signing_job_reads_an_owned_runner_variable)',
     'promote-nightly-next-acked': "retired (if: false) twin of promote-nightly-next, same route",
-    'refresh-compilation-cache': 'cache-writer credentials on main only; a nightly-only Mac build',
-    'refresh-test-compilation-cache': 'cache-writer credentials on main only; its matrix pool is the nightly-only Mac pool',
     'build-nightly-app': 'cache, CEF and Sentry credentials for the build itself; the nightly-only Mac pool',
     'build-sign-notarize-nightly': "signing keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
     'recover-nightly-next-notarization': "signing keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
@@ -115,6 +115,13 @@ OWNED_SECRET_JOBS = {
     'publish-nightly': "release and feed credentials in the push run; the signer's label",
     'nightly-next-pkg': "the .pkg's Installer identity (RFD 0134 cut 2, #54859); the signer's label, after publish",
     'republish-nightly-deltas': "the signer's label on nightly-next, the JIT nightly label for classic and RC (NIGHTLY_NEXT_ONLY_OWNED)",
+    'refresh-compilation-caches': 'both refreshers, moved to a reusable call (#64722): cache-writer R2 keys on feat-cmux-next only; the nightly-only Mac pool',
+    'visual-gate-nightly': "R2 cache keys for its GhosttyKit download (ci-cache-writer on main); the mini route-visual-gate-nightly picks",
+    'build-nightly-deltas': "pool tokens for its gh rate-limit waits (#64554); the nightly-only Mac pool",
+    'restore-historical-notes': "a manual note restore (#62726) on the ephemeral JIT label under the publish lease "
+                                "(test_nightly_owned_minis_only.HOSTED_RESTORE_JOBS)",
+    'resolve-nightly-ghostty-cli-helper': "its read-only helper lookup token (#60803) on cmux-linux, the one secret "
+                                          "test_nightly_owned_minis_only.CMUX_LINUX_READ_SECRETS grants it",
 }
 # Parser anchors: a regression in holds_secret that empties the derived sets would empty the checks with them.
 SECRET_ANCHORS = {'decide', 'build-sign-notarize-nightly', 'publish-nightly', 'publish-nightly-next-github'}
@@ -159,6 +166,25 @@ def linux_routes(doc):
                 yield name, job, cell
 
 
+# test_nightly_owned_minis_only.CMUX_LINUX_READ_SECRETS, copied (that module imports this one at load);
+# test_the_read_secret_grant_matches_owned_minis keeps the two equal.
+CMUX_LINUX_READ_SECRETS = {'resolve-nightly-ghostty-cli-helper': {'NIGHTLY_HELPER_LOOKUP_TOKEN'}}
+
+
+def read_secret_cmux_linux_job(name, job):
+    """True for a job test_nightly_owned_minis_only.CMUX_LINUX_READ_SECRETS names whose secrets are within its grant,
+    that writes nothing and whose every cell is cmux-linux (or a fork's hosted Ubuntu)."""
+    allowed = CMUX_LINUX_READ_SECRETS.get(name)
+    if allowed is None or not workflow_jobs.secret_names(job) <= allowed:
+        return False
+    permissions = job.get('permissions')
+    if permissions == 'write-all' or (isinstance(permissions, dict) and 'write' in permissions.values()):
+        return False
+    cells = workflow_jobs.runs_on_cells(job)
+    return bool(cells) and all(cell == f"${{{{ github.repository_owner != 'manaflow-ai' && '{HOSTED}' || '{CMUX_LINUX}' }}}}"
+                               for cell in cells)
+
+
 def credentialed_control_jobs(doc):
     """Every Linux control that holds a credential, outside the hosted secret jobs and the signer route (whose
     jobs end on the signer's label, test_nightly_sign_runner.py and the publish tests): derived, not kept by hand."""
@@ -174,6 +200,11 @@ def credentialed_control_jobs(doc):
         # The hosted preflight's one credential is its own GITHUB_TOKEN's issues: write, for the failure notice
         # (test_nightly_owned_minis_only pins it to that and no secret); it stays on hosted Ubuntu by design.
         if name in HOSTED_SECRET_JOBS or name in HOSTED_PREFLIGHT_JOBS:
+            continue
+        # A cmux-linux job with only the read secret test_nightly_owned_minis_only grants it (#60803) and no write
+        # token is that guard's: it pins the label to cmux-linux and the secret set exactly. Any other secret or a
+        # write token still makes it a control here.
+        if read_secret_cmux_linux_job(name, job):
             continue
         if holds_credential(job):
             found.add(name)
@@ -1157,6 +1188,21 @@ class CredentialedControls(unittest.TestCase):
 
     def test_every_control_takes_our_nightly_pool_and_forks_take_hosted(self):
         self.assertEqual(control_route_failures(DOC), {})
+
+    def test_the_read_secret_grant_matches_owned_minis(self):
+        from test_nightly_owned_minis_only import CMUX_LINUX_READ_SECRETS as granted
+        self.assertEqual(CMUX_LINUX_READ_SECRETS, granted)
+
+    def test_a_read_secret_cmux_linux_job_with_more_is_still_a_control(self):
+        """The grant is exact: a second secret or a write token puts the helper back under the control route check."""
+        for extra in ({'env': {'K': '${{ secrets.GLAEDA_ROUTE_APP_KEY }}'}}, {'permissions': {'issues': 'write'}}):
+            with self.subTest(extra=extra):
+                doc = copy.deepcopy(DOC)
+                job = doc['jobs']['resolve-nightly-ghostty-cli-helper']
+                for key, value in extra.items():
+                    job[key] = {**(job.get(key) or {}), **value}
+                self.assertIn('resolve-nightly-ghostty-cli-helper', credentialed_control_jobs(doc))
+                self.assertIn('resolve-nightly-ghostty-cli-helper', control_route_failures(doc))
 
     def test_a_new_credentialed_control_on_a_pool_route_fails(self):
         """A control split out with a write token on the pool route, which nobody lists."""

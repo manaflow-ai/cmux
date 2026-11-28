@@ -51,6 +51,7 @@
         "Every Discover listing installs and shows something, on the build commit": {"pr": "cmux-next-guards.yml:app-store-shelf-pr:Every Discover listing installs and shows something", "note": "the same check on every pull request head that touches a shelf input, landing heads included (cmux#61435; cmux#46903's red was found here); a red here reds the run and files report-nightly-shelf-red, it holds no publish"},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"}},
       "nightly-next-pkg": {
+        "Import signing cert for the .pkg": {"nightly_only": "imports Developer ID signing certificate"},
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Forget the kept clone's sparse-checkout mode": {"plumbing": true},
         "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
@@ -423,9 +424,8 @@
       "sentry-dsyms-nightly": {
         "Wait for API budget before the dSYM download": {"plumbing": true},
         "Wait through GitHub API rate limits in this job's gh calls": {"plumbing": true},
-        "Send this job's gh calls as the release App, github.token as the fallback": {"plumbing": true},
-        "Mint the release App token for this job's gh calls": {"plumbing": true},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
+        "Download the build's dSYMs (parallel, waits through a rate limit)": {"nightly_only": "downloads the published build's dSYM artifacts from their producing run (download-run-artifact.py, #64554), continue-on-error with the download action as fallback; a pull request has no published nightly build"},
         "Find the attempt that compiled the published build": {"nightly_only": "looks up the published binary's producing run and its dSYM artifacts; a pull request has no published nightly build"},
         "Upload the build's dSYMs to Sentry": {"nightly_only": "uploads the published build's dSYMs to Sentry with the Sentry token, in the tail run outside the push group"}},
       "restore-historical-notes": {
