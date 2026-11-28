@@ -737,7 +737,7 @@ impl Hub {
                 true
             })?;
             if proves && let (Some(start), Some(first)) = (start, first_match) {
-                self.subagent_starts.put(id, &start.subagent, &start.kinds, start.stamp, first);
+                self.page_replies.starts.put(id, &start.subagent, &start.kinds, start.stamp, first);
             }
             return Ok(page);
         }
@@ -824,7 +824,7 @@ impl Hub {
             && !page.has_more
             && let (Some(start), Some(first)) = (start, first_match)
         {
-            self.subagent_starts.put(id, &start.subagent, &start.kinds, start.stamp, first);
+            self.page_replies.starts.put(id, &start.subagent, &start.kinds, start.stamp, first);
         }
         Ok(page)
     }
@@ -835,7 +835,7 @@ impl Hub {
         let subagent = filter.subagent.clone()?;
         let stamp = self.store.log_stamp(id).ok()?;
         let kinds = serde_json::to_string(&filter.kinds).ok()?;
-        let seq = self.subagent_starts.get(id, &subagent, &kinds, stamp);
+        let seq = self.page_replies.starts.get(id, &subagent, &kinds, stamp);
         Some(SubagentStart { subagent, kinds, stamp, seq })
     }
 }
@@ -953,6 +953,9 @@ impl Hub {
         Ok(page)
     }
 }
+
+#[path = "subagent_starts.rs"]
+pub(crate) mod subagent_starts;
 
 #[cfg(test)]
 #[path = "paging_tests.rs"]
