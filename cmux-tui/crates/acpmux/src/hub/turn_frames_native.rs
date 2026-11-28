@@ -31,9 +31,7 @@ pub(crate) fn runs_mac_app(update: &Value) -> Option<String> {
     let command = update.pointer("/rawInput/command")?;
     let script = match command {
         Value::String(text) => text.clone(),
-        Value::Array(words) => {
-            words.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")
-        }
+        Value::Array(words) => words.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "),
         _ => return None,
     };
     let lexed = shell_words::lex(&script)?;
@@ -58,7 +56,8 @@ fn program_words(words: &[String]) -> &[String] {
     let mut rest = words;
     while let Some(first) = rest.first() {
         let assignment = first.contains('=') && !first.starts_with('-') && !first.contains('/');
-        if assignment || matches!(first.as_str(), "env" | "exec" | "nohup" | "time" | "caffeinate") {
+        if assignment || matches!(first.as_str(), "env" | "exec" | "nohup" | "time" | "caffeinate")
+        {
             rest = &rest[1..];
         } else {
             break;
@@ -153,7 +152,8 @@ pub(crate) fn front_window(listed: &Value, app: &str) -> Option<String> {
     let app = app.to_ascii_lowercase();
     let suffix = format!(".{app}");
     listed.get("windows")?.as_array()?.iter().find_map(|w| {
-        let field = |k: &str| w.get(k).and_then(Value::as_str).unwrap_or_default().to_ascii_lowercase();
+        let field =
+            |k: &str| w.get(k).and_then(Value::as_str).unwrap_or_default().to_ascii_lowercase();
         let flag = |k: &str| w.get(k).and_then(Value::as_bool).unwrap_or(false);
         let (name, id) = (field("app_name"), field("app_id"));
         let ours = name == app || id == app || id.ends_with(&suffix);
