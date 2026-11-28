@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextDevices
+import CmuxNextWakeups
 import Observation
 
 /// What the home page asks of its owner.
@@ -40,6 +41,8 @@ final class MacScreenHomeView: MacScreenThemedView {
     private let column = MacScreenStack.make(.vertical, spacing: 28, alignment: .leading)
     /// What the rows show now (nil before the first build).
     private(set) var shown: MacScreenHomeSnapshot?
+    /// Holds This Mac's connecting-to-the-hub note for ``MacScreenHomeSnapshot/hubJoinQuiet``.
+    private let hubJoinHold = QuietHold(owner: "macScreen.home.hubJoin", delay: MacScreenHomeSnapshot.hubJoinQuiet)
     /// Reads the permissions of the hosts listed (this Mac's access to each).
     private var permissionsRead: Task<Void, Never>?
     private var readFor: [String] = []
@@ -138,6 +141,14 @@ final class MacScreenHomeView: MacScreenThemedView {
         Task { [host] in await host.refreshPermissions() }
         systemShortcuts?.refreshAccessibility()
         readPermissions(shown?.deviceIDs ?? [])
+    }
+
+    /// Whether This Mac has been connecting to the hub for the shared bound (`joining` false ends the stretch).
+    /// Once it has, the page draws again and the note shows.
+    @discardableResult
+    func hubJoinLasted(_ joining: Bool) -> Bool {
+        hubJoinHold.update(joining) { [weak self] in self?.render() }
+        return joining && !hubJoinHold.held
     }
 
     // MARK: Drawing
