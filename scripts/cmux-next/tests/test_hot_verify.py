@@ -33,6 +33,10 @@ sys.modules["hot_verify"] = hv
 _spec.loader.exec_module(hv)
 # The real reader, kept before PlanTest.setUp replaces it so no test reads the live controller.
 REAL_POOL_METRICS = hv._linux_pool_metrics
+# No test submits a real fleet build: a look that reaches build_swift_app without its own _ci_client patch finds no
+# client (LookError). 2026-11-28: once FFI changes took the fleet app path, a refusal test ran the real cmux-ci and
+# queued a cmux build on the fleet.
+os.environ["CMUX_CI"] = "/nonexistent/cmux-ci-in-tests"
 
 # cmuxterm-hq build-fleet/hot-verify MARKER, copied: the line the PR comment and the NOW metric read.
 HQ_MARKER = r"<!-- cmux-hot-verify sha=([0-9a-f]{40}) app=(\S+) layers=([a-z,]+) source=(worktree|pr) -->"
@@ -547,7 +551,9 @@ class PlanTest(unittest.TestCase):
                 parsed["needs_build"] = value.strip() == "true"
         self.assertEqual(parsed, {"layers": [], "needs_build": True})
 
-    def test_look_on_a_change_that_needs_a_build_exits_3_with_a_receipt(self):
+    def test_look_on_an_ffi_change_goes_to_the_fleet_app_build(self):
+        # The app links the FFI, so the change needs a build: the fleet app of the head carries it (built from
+        # source when the pin is stale). Here no client is reachable, so the look fails at that build, not exit 3.
         head = self.fx.change({"cmux-tui/crates/cmux-app-ffi/src/lib.rs": "pub fn ffi() -> u32 { 3 }\n"})
         app = Path(self.tmp.name) / "cmux NIGHTLY.app"
         (app / "Contents").mkdir(parents=True)
@@ -557,12 +563,12 @@ class PlanTest(unittest.TestCase):
         out = Path(self.tmp.name) / "look"
         code, _ = self.cli("look", "--source", f"sha:{head}", "--app", str(app), "--repo", str(self.fx.repo),
                            "--out", str(out), "--no-video")
-        self.assertEqual(code, 3)
         receipt = json.loads((out / "receipt.json").read_text())
         self.assertEqual(receipt["schema"], 1)
-        self.assertIsNone(receipt["marker"])
         self.assertTrue(receipt["plan"]["needs_build"])
+        self.assertTrue(receipt["plan"]["fleet_app"])
         self.assertIn("plan", receipt["phases"])
+        self.assertNotEqual(code, 3)
 
     def fake_app(self, commit: str) -> Path:
         import plistlib
@@ -592,16 +598,27 @@ class PlanTest(unittest.TestCase):
             "needs_build": True,
             "build": {"Swift, resources or manifests": ["Resources/Info.plist"]},
         }))
-        self.assertFalse(hv.can_build_swift_app({
-            "needs_build": True,
-            "build": {"Swift": ["App.swift"], "Rust the app links (FFI)": ["pin.json"]},
-        }))
         self.assertTrue(hv.can_build_swift_app({
             "needs_build": True, "build": {"Swift, resources or manifests": ["App.swift"]},
         }))
-        self.assertFalse(hv.can_build_swift_app({
-            "needs_build": True, "build": {"Swift, resources or manifests": ["Packages/App/Package.swift"]},
-        }))
+
+    def test_a_fleet_app_covers_manifests_and_an_ffi_the_nightly_cannot_take(self):
+        def fleet(build):
+            return hv.can_build_swift_app({"needs_build": True, "build": build})
+
+        # 2026-11-28, cmux#62151's plan: Swift beside a Package.swift edit, its FFI not additive to the NIGHTLY's.
+        self.assertTrue(fleet({"Swift": ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/Usage/AppResourceSource.swift"],
+                               "Swift, resources or manifests": ["Packages/macOS/CmuxNext/Package.swift"]}))
+        self.assertTrue(fleet({"Swift, resources or manifests": ["Packages/App/Package.resolved"]}))
+        self.assertTrue(fleet({"Swift": ["App.swift"], "Rust the app links (FFI)": ["pin.json"]}))
+        self.assertTrue(fleet({"Rust the app links (FFI): the app's release is not the change's": ["pin.json"]}))
+        self.assertTrue(fleet({"Rust the app links (FFI), in the commits the app lacks": ["lib.rs"]}))
+        self.assertTrue(fleet({"web ABI": ["the change's web needs ABI 5, the app has 4"]}))
+        # What changes what the app is, or has no NIGHTLY before, stays a build.
+        self.assertFalse(fleet({"Swift, resources or manifests": ["Resources/Info.plist"]}))
+        self.assertFalse(fleet({"Swift, resources or manifests": ["Resources/cmux.entitlements"]}))
+        self.assertFalse(fleet({"Swift": ["App.swift"], "unrelated history": ["x"]}))
+        self.assertFalse(fleet({"Swift": []}))
 
     def test_fleet_zip_fallback_preserves_app_archive_with_ditto(self):
         for code in (3, 1):
@@ -672,6 +689,32 @@ class PlanTest(unittest.TestCase):
                 with self.assertRaises(hv.LookError) as raised:
                     hv.build_swift_app(self.fx.repo, {"head": self.fx.base}, f"sha:{self.fx.base}", scratch)
                 self.assertIn(said, str(raised.exception))
+
+    def test_a_failed_fleet_app_build_says_its_error_not_the_waits_progress(self):
+        # 2026-11-28, cmux#63536: the build had failed on a link error, the look said "... still waiting".
+        scratch = Path(self.tmp.name) / "scratch"
+        progress = ("cmux-ci: job job-9 running on cmux-linux-pool-1 after 11m05s; still waiting "
+                    "(deadline 2026-11-28T08:17Z)\n")
+        failed = json.dumps({"id": "job-9", "state": "failed", "error": "exit status 1; rust_compile: tui-fetch: "
+                             "error: could not compile `cmux-tui`"})
+
+        def run(argv, **kwargs):
+            if argv[1:3] == ["build", "cmux"]:
+                return subprocess.CompletedProcess(argv, 0, '{"id":"job-9"}', "")
+            if argv[1] == "wait":
+                return subprocess.CompletedProcess(argv, 1, "", progress)
+            if argv[1] == "status":
+                return subprocess.CompletedProcess(argv, 0, failed + "\n", "")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with unittest.mock.patch.object(hv, "_ci_client", return_value="/fake/cmux-ci"), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=run):
+            with self.assertRaises(hv.LookError) as raised:
+                hv.build_swift_app(self.fx.repo, {"head": self.fx.base}, f"sha:{self.fx.base}", scratch)
+        said = str(raised.exception)
+        self.assertIn("fleet app build job-9 failed: exit status 1; rust_compile", said)
+        self.assertIn("cmux-ci log job-9", said)
+        self.assertNotIn("still waiting", said)
 
     def test_swift_app_fallback_builds_a_clean_ref_with_cmux_ci(self):
         head = self.fx.change({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift": "struct App { let x = 3 }\n"})

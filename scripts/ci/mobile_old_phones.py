@@ -88,6 +88,30 @@ def fetch_runs(repo: str, token: str, *, opener=urllib.request.urlopen, sleep=ti
     raise AssertionError("unreachable")
 
 
+def resolve(repo: str, token: str, count: int, cache: Path | None, *, fetch=fetch_runs) -> tuple[list[str], bool]:
+    """The phone build lines and whether they are fresh. The repo's token shares one hourly quota with every
+    workflow, and runs 46116606886 and 46125947911 died on "API rate limit exceeded for installation"
+    (x-ratelimit-remaining=0) after every retry. Builds ship about nightly, so the last list read
+    (kept in CACHE, which the workflow carries between runs) answers until the quota resets."""
+    try:
+        got = shipped_commits(fetch(repo, token), count)
+    except SystemExit as e:
+        old = cache.read_text().split("\n") if cache and cache.is_file() else []
+        old = [line for line in old if line.strip()]
+        if not old:
+            raise
+        print(f"{e}; using the last list read ({cache}), which may miss a build shipped since",
+              file=sys.stderr)
+        return old, False
+    if len(got) < count:
+        print(f"::warning::only {len(got)} shipped phone builds found", file=sys.stderr)
+    lines = [f"{g['sha']} {g['run']} {g['created']}" for g in got]
+    if cache and lines:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text("\n".join(lines) + "\n")
+    return lines, True
+
+
 def json_lines(path: Path) -> list[dict]:
     rows = []
     if not path.exists():
@@ -166,17 +190,20 @@ def main() -> int:
     r = sub.add_parser("resolve")
     r.add_argument("--repo", required=True)
     r.add_argument("--count", type=int, default=3)
+    r.add_argument("--cache", help="last list read: written on success, read when GitHub refuses")
     d = sub.add_parser("verdict")
     d.add_argument("--dir", required=True)
     a = ap.parse_args()
     if a.cmd == "resolve":
-        got = shipped_commits(fetch_runs(a.repo, os.environ.get("GH_TOKEN", "")), a.count)
-        if len(got) < a.count:
-            print(f"::warning::only {len(got)} shipped phone builds found", file=sys.stderr)
-        if not got:
+        lines, fresh = resolve(a.repo, os.environ.get("GH_TOKEN", ""), a.count,
+                               Path(a.cache) if a.cache else None)
+        if not lines:
             return 1
-        for g in got:
-            print(g["sha"], g["run"], g["created"])
+        print("\n".join(lines))
+        out = os.environ.get("GITHUB_OUTPUT")
+        if out:
+            with open(out, "a") as f:
+                f.write(f"fresh={'true' if fresh else 'false'}\n")
         return 0
     lines, failed = verdict(Path(a.dir))
     print("\n".join(lines))

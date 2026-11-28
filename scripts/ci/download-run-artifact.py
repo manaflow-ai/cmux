@@ -138,8 +138,10 @@ def rate_limited(error: urllib.error.HTTPError) -> bool:
 
 def next_spare(error: urllib.error.HTTPError, what: str) -> bool:
     """Move to the next spare after a spent hour, or past a spare that cannot read (401, a 403 that is no limit)."""
-    global active
+    global active, job_refusal
     on_spare = active is not None
+    if not on_spare and rate_limited(error):
+        job_refusal = error
     if not (rate_limited(error) or on_spare and error.code in (401, 403, 404)):
         return False
     while spares:
@@ -148,6 +150,25 @@ def next_spare(error: urllib.error.HTTPError, what: str) -> bool:
               file=sys.stderr)
         return True
     return False
+
+
+# The job token's own spent-hour refusal, kept so a dead spare can hand back to it and wait for its reset.
+job_refusal: urllib.error.HTTPError | None = None
+
+
+def back_to_job_token(error: urllib.error.HTTPError, what: str) -> urllib.error.HTTPError:
+    """Every spare is spent or cannot read: go back to the job's own token and wait for its hour's reset.
+    2026-11-28 09:46Z (keep-published-dsyms, run 46125411693): github.token's hour was spent (403), both
+    CI_POOL_TOKEN spares answered 401, and the 401 ended the download in 1 s with the reset under an hour away."""
+    global active
+    if active is None:
+        return error
+    if job_refusal is None or error.code not in (401, 403, 404) or rate_limited(error):
+        return error
+    active = None
+    print(f"{what}: HTTP {error.code} on the last spare; back on the job's token until its hour resets",
+          file=sys.stderr)
+    return job_refusal
 
 
 def with_retries(call, what: str):
@@ -161,6 +182,7 @@ def with_retries(call, what: str):
         except urllib.error.HTTPError as error:
             if next_spare(error, what):
                 continue
+            error = back_to_job_token(error, what)
             if not retryable(error.code) or attempt >= MAX_ATTEMPTS:
                 explain(error, what)
                 raise
