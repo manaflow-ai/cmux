@@ -357,6 +357,21 @@ class RateLimitTest(unittest.TestCase):
         self.assertEqual(got, {"jobs": []})
         self.assertEqual(slept, [105.0])
 
+    def test_reset_is_the_soonest_of_the_tokens(self) -> None:
+        # Probe run 46155774726 (11-28): token resets 14:51:46 and 14:55:12; the first one back lets the read through.
+        replies = {"app": '{"resources": {"core": {"reset": 1795877712}}}', "job": '{"resources": {"core": {"reset": 1795877506}}}', "bad": "nope"}
+
+        def fake(argv, env=None, **_):
+            return subprocess.CompletedProcess(argv, 0, stdout=replies[(env or {}).get("GH_TOKEN", "bad")], stderr="")
+
+        with mock.patch.object(pmb.subprocess, "run", fake):
+            self.assertEqual(pmb._core_reset(["app", "job", "bad"]), 1795877506.0)
+            self.assertIsNone(pmb._core_reset(["bad"]))
+
+    def test_judge_budget_outlasts_an_hourly_reset(self) -> None:
+        with mock.patch.object(pmb, "cmd_judge", lambda _a: pmb.API_WAIT_BUDGET["seconds"]):
+            self.assertGreaterEqual(pmb.main(["judge", "--branch", "b", "--mode", "batch", "--sha", "s", "--run-id", "1"]), 3600)
+
     def test_gives_up_past_the_budget_and_never_retries_other_errors(self) -> None:
         limited = "gh: API rate limit exceeded for installation ID 1. (HTTP 403)"
         with self.assertRaises(RuntimeError):
@@ -472,7 +487,7 @@ class BisectTest(unittest.TestCase):
         runs = 0
         while True:
             runs += 1
-            red = commits.index(probe.sha) >= commits.index(culprit)
+            red = probe.sha != good and commits.index(probe.sha) >= commits.index(culprit)
             head = probe.bad or probe.sha
             span = commits[: commits.index(head) + 1] if probe.good == good else commits[commits.index(probe.good) + 1 : commits.index(head) + 1]
             step, value = pmb.next_step(probe, "failure" if red else "success", span)
@@ -481,12 +496,20 @@ class BisectTest(unittest.TestCase):
             self.assertEqual(step, "probe")
             probe = value
 
-    def test_every_culprit_in_31_commits_in_six_runs(self) -> None:
+    def test_every_culprit_in_31_commits_in_seven_runs(self) -> None:
         commits = [f"c{i:02d}" for i in range(31)]
         for culprit in commits:
             found, runs = self.walk(commits, culprit)
             self.assertEqual(found, culprit)
-            self.assertLessEqual(runs, 6, culprit)  # one confirming run, then log2(31) = 5
+            self.assertLessEqual(runs, 7, culprit)  # one confirming run, the good anchor, then log2(31) = 5
+
+    def test_every_culprit_in_31_commits_in_six_runs_with_the_anchor_off(self) -> None:
+        commits = [f"c{i:02d}" for i in range(31)]
+        with mock.patch.dict(os.environ, {"POST_MERGE_GOOD_ANCHOR": "0"}):
+            for culprit in commits:
+                found, runs = self.walk(commits, culprit)
+                self.assertEqual(found, culprit)
+                self.assertLessEqual(runs, 6, culprit)  # one confirming run, then log2(31) = 5
 
     def test_one_commit_needs_no_bisect(self) -> None:
         self.assertEqual(self.walk(["c0"], "c0"), ("c0", 1))
@@ -522,6 +545,51 @@ class BisectTest(unittest.TestCase):
                 shas.append(g("rev-parse", "HEAD"))
             self.assertEqual(pmb.first_parent_range(shas[0], shas[3], cwd=Path(tmp)), shas[1:])
             self.assertEqual(pmb.PR_RE.search(g("log", "-1", "--format=%s")).group(1), "103")
+
+
+class GoodAnchorTest(unittest.TestCase):
+    """A new red's bisect probes its last green once before walking good..bad (good_anchor_on): 13 of 30 confirm
+    rounds in the 24 h to 11-27 23:30Z found the parent (good itself) red too, after a walk where every probe failed."""
+
+    span = ["c1", "c2", "c3", "c4"]
+
+    def test_the_red_repeating_on_the_batch_commit_probes_good_next(self) -> None:
+        first = pmb.Probe("s", "s / j", "j", "c4", "g", "", "1", step="build")
+        step, anchor = pmb.next_step(first, "failure", self.span)
+        self.assertEqual(step, "probe")
+        self.assertEqual((anchor.sha, anchor.good, anchor.bad, anchor.step), ("g", "g", "c4", "build"))
+        self.assertTrue(pmb.is_anchor(anchor))
+
+    def test_good_red_too_ends_the_bisect_with_no_culprit(self) -> None:
+        anchor = pmb.Probe("s", "s / j", "j", "g", "g", "c4", "1")
+        self.assertEqual(pmb.next_step(anchor, "failure", self.span), ("anchored", None))
+
+    def test_good_green_walks_the_range_as_before(self) -> None:
+        anchor = pmb.Probe("s", "s / j", "j", "g", "g", "c4", "1")
+        step, nxt = pmb.next_step(anchor, "success", self.span)
+        self.assertEqual((step, nxt.sha, nxt.good, nxt.bad), ("probe", "c2", "g", "c4"))
+        self.assertFalse(pmb.is_anchor(nxt))
+        self.assertEqual(pmb.next_step(pmb.Probe("s", "s / j", "j", "g", "g", "c1", "1"), "success", ["c1"]), ("culprit", "c1"))
+
+    def test_a_one_commit_range_and_the_off_switch_skip_the_anchor(self) -> None:
+        first = pmb.Probe("s", "s / j", "j", "c1", "g", "", "1")
+        self.assertEqual(pmb.next_step(first, "failure", ["c1"]), ("culprit", "c1"))
+        with mock.patch.dict(os.environ, {"POST_MERGE_GOOD_ANCHOR": "0"}):
+            step, nxt = pmb.next_step(pmb.Probe("s", "s / j", "j", "c4", "g", "", "1"), "failure", self.span)
+        self.assertEqual((step, nxt.sha), ("probe", "c2"))
+
+    def test_probe_refusal_takes_the_anchor_at_the_last_green(self) -> None:
+        origin = {"id": 9, "path": f".github/workflows/{pmb.WORKFLOW}", "head_branch": "main", "head_sha": "c4",
+                  "display_title": "batch", "event": "schedule"}
+        found = [("s / j", "s", "g")]
+        covered = lambda good, head: self.span
+        with mock.patch.object(pmb, "is_batch", return_value=True):
+            self.assertEqual(pmb.probe_refusal(pmb.Probe("s", "s / j", "j", "g", "g", "c4", "9"), "main", origin, found, covered), "")
+            # Only the last green itself: another commit outside the range is still refused.
+            self.assertIn("not in the commits", pmb.probe_refusal(pmb.Probe("s", "s / j", "j", "x", "x", "c4", "9"), "main", origin, found, covered))
+
+    def test_the_judge_step_passes_the_switch(self) -> None:
+        self.assertIn("POST_MERGE_GOOD_ANCHOR: ${{ vars.POST_MERGE_GOOD_ANCHOR }}", WORKFLOW.read_text())
 
 
 class WiringTest(unittest.TestCase):
@@ -1101,6 +1169,18 @@ class DeeperReachTest(unittest.TestCase):
         self.assertEqual([r["id"] for r in runs], [50, 40, 30, 20])
         self.assertEqual(pmb.stuck_reds("6" * 40, self.verdicts, runs, jobs_of, self.suites),
                          [(self.job, "cmux-tui-sdks", "2" * 40, "3" * 40)])
+
+    def test_a_skipped_red_says_why(self) -> None:
+        """Run 45987000605 said only "a known red, no bisect" for 23 of its 25 known reds."""
+        jobs_of = lambda rid: self.jobs[rid]
+        skipped: dict = {}
+        self.assertEqual(pmb.stuck_reds("6" * 40, self.verdicts, self.reach, jobs_of, self.suites, skipped=skipped), [])
+        self.assertEqual(list(skipped), [self.job])
+        self.assertIn("no green batch run in reach (2 read)", skipped[self.job])
+        note = f"`{self.job}` was already red on `44444444444` (run 40): a known red, no bisect."
+        self.assertEqual(pmb.with_skip_reason(note, skipped), note[:-1] + ": " + skipped[self.job] + ".")
+        self.assertEqual(pmb.with_skip_reason("`other / job` was already red: a known red, no bisect.", skipped),
+                         "`other / job` was already red: a known red, no bisect.")
 
     def test_no_deeper_read_when_every_red_has_a_green_in_reach(self) -> None:
         self.jobs[40] = ({self.job: ("cmux-tui-sdks", "success")}, True)
