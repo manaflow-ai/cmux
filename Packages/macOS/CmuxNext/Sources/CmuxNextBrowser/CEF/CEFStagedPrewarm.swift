@@ -207,12 +207,13 @@ public struct CEFStagedPrewarm: Sendable {
 /// One pre-warm's state behind the shim's C callbacks (their `ctx`, unretained; the pre-warm keeps it alive), and the
 /// watch that ends the process with the app that started it.
 /// Where the pre-warm is, for the watchdog's line: set on the main thread, read on the watchdog's queue.
-nonisolated final class CEFPrewarmStage: @unchecked Sendable {
-    private let lock = NSLock()
-    private var current = "the start"
+nonisolated final class CEFPrewarmStage: Sendable {
+    // concurrency-allow: a short critical section over one string, written by the main thread at each stage and read
+    // once by the watchdog's queue, with no I/O under it.
+    private let current = Mutex("the start")
     var name: String {
-        get { lock.withLock { current } }
-        set { lock.withLock { current = newValue } }
+        get { current.withLock { $0 } }
+        set { current.withLock { $0 = newValue } }
     }
 }
 

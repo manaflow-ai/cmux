@@ -78,10 +78,10 @@ import Testing
         #expect(prewarm.deadline == prewarm.timeout + prewarm.closeTimeout + CEFStagedPrewarm.callAllowance)
         #expect(prewarm.deadline < .seconds(60), "the updater stops the run at 60 s (StagedUpdatePrewarm.runTimeout)")
         #expect(CEFStagedPrewarm(deadline: .seconds(5)).deadline == .seconds(5))
-        let fired = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-            let box = WatchdogBox()
-            box.source = CEFStagedPrewarm.watchdog(after: .milliseconds(20)) { _ = box; done.resume(returning: !Thread.isMainThread) }
-        }
+        let (ends, end) = AsyncStream.makeStream(of: Bool.self)
+        let source = CEFStagedPrewarm.watchdog(after: .milliseconds(20)) { end.yield(!Thread.isMainThread); end.finish() }
+        let fired = await ends.first { _ in true } ?? false
+        withExtendedLifetime(source) {}
         #expect(fired, "the watchdog ran on the main thread, which the hang it ends holds")
     }
 
@@ -90,7 +90,3 @@ import Testing
     }
 }
 
-/// Keeps a watchdog source alive past its arming in the test (a released source never fires).
-nonisolated private final class WatchdogBox: @unchecked Sendable {
-    var source: (any DispatchSourceTimer)?
-}
