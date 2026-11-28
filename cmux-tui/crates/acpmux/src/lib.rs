@@ -425,6 +425,7 @@ pub mod sidecar_census;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
 pub(crate) mod slow_notice;
+pub mod status_line;
 // The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
 pub mod perf_watch;
 pub mod scorecard;

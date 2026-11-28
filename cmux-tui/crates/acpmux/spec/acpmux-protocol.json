@@ -933,6 +933,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/status_line",
+      "params": {
+        "$ref": "#/types/StatusLineParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pull_request_action",
       "params": {
         "$ref": "#/types/PullRequestActionParams"
@@ -10176,6 +10184,16 @@
         "cwd": true,
         "harness": true,
         "preset": true
+      },
+      "type": "object"
+    },
+    "StatusLineParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
       },
       "type": "object"
     },

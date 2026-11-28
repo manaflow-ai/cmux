@@ -2180,6 +2180,24 @@
   height: var(--ui-ghost-icon-size);
 }
 
+/* The person's own status line (Settings > Status Line Command, ComposerStatusLine.tsx): one muted
+   detail-size line under the quiet row, its text on the row's text column, cut with an ellipsis
+   past the pane's width. It takes the foot's 8 px under it, so the row and the line together end
+   where the row alone did plus one line. Unset, nothing draws. */
+.acpmux-composer-status-line {
+  min-width: 0;
+  overflow: hidden;
+  padding-inline: var(--grid-composer-quiet-row-text);
+  margin-top: calc(-4px * var(--acpmux-density, 1));
+  margin-bottom: calc(8px * var(--acpmux-density, 1));
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+  text-overflow: ellipsis;
+}
+
 /* A location menu sized by a drag (ui/PopupResize.tsx, cmux#51745): its list takes the height the
    person gave it, not its own cap, and scrolls inside it; the search field and the actions keep theirs.
    A popover only: a location menu that is a menu (Branch, Cloud environment) scrolls its rows in the

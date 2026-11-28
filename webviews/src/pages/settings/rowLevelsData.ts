@@ -342,6 +342,7 @@ export const ROW_LEVELS: {
     "agentPane.display.queueing": "more",
     "agentPane.dictationSource": "more",
     "agentPane.dictationShortcut": "more",
+    "agentPane.statusLine.command": "more",
     "agentPane.attachmentView": "more",
     "agentPane.scrollToBottomOnSend": "more",
     "agentPane.followUpMode": "more",

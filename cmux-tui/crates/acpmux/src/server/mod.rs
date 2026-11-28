@@ -237,6 +237,7 @@ mod sign_in_follow;
 #[path = "socket_access_tests.rs"]
 mod socket_access_tests;
 pub(crate) mod ssh_carry;
+mod status_line;
 mod stream;
 mod stream_cursor;
 #[cfg(test)]

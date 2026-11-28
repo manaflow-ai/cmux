@@ -136,6 +136,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_STASH_MOVE,
     method::MUX_STASH_PUSH,
     method::MUX_STATUS,
+    method::MUX_STATUS_LINE,
     method::MUX_STEER,
     method::MUX_SUBAGENT_LIST,
     method::MUX_SUBAGENT_TRANSCRIPT,

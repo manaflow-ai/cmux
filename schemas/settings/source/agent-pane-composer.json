@@ -213,6 +213,31 @@
           ]
         },
         {
+          "key": "agentPane.statusLine.command",
+          "note": "A shell command acpmux runs for a chat's own status line, as Claude Code's statusLine: the chat's session JSON (session_id, cwd, model, workspace, mode, ...) on its stdin; the first line of its stdout shows under the prompt (ComposerStatusLine.tsx), within 2 s and 200 characters (cmux-tui acpmux status_line.rs). Empty runs nothing and shows nothing. Read by acpmux from this file, never sent by the page.",
+          "title": {
+            "key": "settings.agentPane.statusLine.command",
+            "text": "Status Line Command"
+          },
+          "help": {
+            "key": "settings.agentPane.statusLine.command.help",
+            "text": "A command whose first line of output shows under the message box. It gets the chat's details as JSON on stdin. Empty shows nothing."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "status line",
+            "statusline",
+            "status bar",
+            "command",
+            "script",
+            "prompt",
+            "composer",
+            "footer",
+            "claude code"
+          ]
+        },
+        {
           "key": "agentPane.spellChecking",
           "title": {
             "key": "settings.agentPane.spellChecking",

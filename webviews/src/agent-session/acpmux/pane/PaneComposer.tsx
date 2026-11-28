@@ -22,9 +22,9 @@ import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
-import { rememberCloudPick, rememberStartedProject } from "../newtab/startedProject";
+import { rememberStartedProject, rememberCloudPick } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
-import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
+import { Composer, type ComposerHandle, type ComposerRelay, type ComposerWake } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
@@ -430,6 +430,8 @@ export type PaneComposerDeps = {
   setComputerUseAsked: React.Dispatch<React.SetStateAction<ComputerUsePlace | undefined>>;
   /// Whether a send of `text` from `place` waits for Computer Use (App.tsx, #48541).
   holdsForComputerUseSetup: (text: string, toast?: boolean, place?: ComputerUsePlace, opensSetup?: boolean) => boolean;
+  /// The person's own status line under the composer (ComposerStatusLine.tsx); unset draws nothing.
+  statusLine: string | undefined;
 };
 
 /// The pane's composer tree: a subagent pane's relayed Composer, or (unless reviewing) the bottom
@@ -659,6 +661,7 @@ export function drawPaneComposer({
   setUpComputerUse,
   setComputerUseAsked,
   holdsForComputerUseSetup,
+  statusLine,
 }: PaneComposerDeps) {
   // Where the composer's send runs, for `@computer-use` (CMUX-682): a chat off this Mac (a Cloud VM, a
   // Sandboxed run, a peer, an SSH host) has no Computer Use tools (acpmux gives a remote session no cmux
@@ -1024,6 +1027,7 @@ export function drawPaneComposer({
             headerCwd={snapshot.summary?.cwd ?? ""}
             turnQueue={composerTurnQueue}
             sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+            statusLine={statusLine}
             placeholder={isSideSession ? t("sideSession.placeholder") : undefined}
             switching={Boolean(switchView.intent)}
             // An existing chat being restored or opened (no handshake yet, or its session not

@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "The status line command runs in the daemon for every chat the person opens: only the person picks what runs there, as with a terminal's URL command."
+}

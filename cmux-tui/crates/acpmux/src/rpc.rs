@@ -848,6 +848,9 @@ pub mod method {
     pub const MUX_AGENT_HOME_RESOLVE: &str = "_acpmux/agent_home_resolve";
     /// The rewrite of a chat's prompt coach offer, made once (`server/prompt_coach.rs`).
     pub const MUX_PROMPT_COACH: &str = "_acpmux/prompt_coach";
+    /// The person's own status line under a chat's prompt, from the command the settings name
+    /// (`server/status_line.rs`, `status_line.rs`).
+    pub const MUX_STATUS_LINE: &str = "_acpmux/status_line";
     /// Person-facing PR chip reads, scoped to the session's checked-out branch.
     pub const MUX_PULL_REQUEST_ACTION: &str = "_acpmux/pull_request_action";
     pub const MUX_ASK: &str = "_acpmux/ask";

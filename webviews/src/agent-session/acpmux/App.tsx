@@ -188,6 +188,7 @@ import { liveToolOutput } from "./liveToolOutput";
 import { liveThought } from "./liveThought";
 import { remoteComposer } from "./remoteEditing";
 import { type ComposerHandle, type ComposerRelay, type ComposerWake } from "./Composer";
+import { useComposerStatusLine } from "./ComposerStatusLine";
 import { takeExternalInto } from "./composer/externalAttach";
 import {
   FolderContinuation,
@@ -7853,6 +7854,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const composerTurnQueue = useSameValue(snapshot.queue);
   // The link's state reaches the composer only while it offers Resume, the one thing it draws from it.
   const composerDrawn = useComposerView(composerOnMachine, interruptedResumeOwner !== undefined);
+  // The person's own status line under the composer (Settings > Status Line Command): asked again
+  // when the chat's status, turn count, model or mode changes, never on a timer.
+  const askStatusLine = useCallback(
+    (id: string) => directClient.current?.statusLine(id) ?? Promise.resolve(undefined),
+    [],
+  );
+  const statusLineSummary = snapshot.summary;
+  const statusLine = useComposerStatusLine(
+    askStatusLine,
+    snapshot.sessionId ?? statusLineSummary?.sessionId,
+    [
+      statusLineSummary?.status,
+      statusLineSummary?.turnCount,
+      statusLineSummary?.model,
+      statusLineSummary?.modes?.currentModeId,
+    ].join("|"),
+  );
   useEffect(() => {
     if (!snapshot.sessionId) return;
     setProjectDraft(undefined);
@@ -11190,6 +11208,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setUpComputerUse,
     setComputerUseAsked,
     holdsForComputerUseSetup,
+    statusLine,
   });
   // While the host recovers nothing shows (no card, no spinner, no button) and the composer stays
   // usable; a failure past its deadline, or a refusal, is one line (HostUnavailableLine).

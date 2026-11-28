@@ -415,6 +415,7 @@ mod start_watch;
 mod startup;
 #[cfg(test)]
 mod startup_wait_tests;
+mod status_line;
 mod steer_end;
 #[cfg(test)]
 mod steer_on_start_tests;
