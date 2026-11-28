@@ -19,7 +19,8 @@ public nonisolated struct MachineColor: Sendable {
 
     /// The color in `tokens`' palette: the pick in `overrides`, else the automatic one.
     public func rgb(tokens: ThemeTokens, overrides: MachineColorOverrides) -> ThemeRGB {
-        overrides.rgb(forKey: key, tokens: tokens) ?? AgentPresenceColor(key: key).rgb(tokens: tokens)
+        overrides.rgb(forKey: key, tokens: tokens) ?? overrides.automaticRGB(forKey: key, tokens: tokens)
+            ?? AgentPresenceColor(key: key).rgb(tokens: tokens)
     }
 
     /// The color as text drawn on `grounds` (the surfaces the name can show on): its hue, moved

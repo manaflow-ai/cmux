@@ -80,6 +80,11 @@ enum AgentPaneTheme {
         ]
         // The theme file's slot variants as the daemon resolved them (theme.ts configureThemeSlots);
         // none sends no `slots` key, so every slot keeps its default.
+        // Each machine's color (its pick, else an accent no other machine draws) and emoji icon, as the
+        // sidebar's headers draw them, so the project chooser's headings match (machineColor.ts).
+        let store = ThemeScope.app.store
+        if !store.machineNames.isEmpty { values["machineColors"] = store.machineCSSColors(tokens: tokens, css: css) }
+        if !store.machineIcons.isEmpty { values["machineIcons"] = store.machineIcons }
         let slots = DesignSettings.shared.themeSlots
         if !slots.isEmpty { values["slots"] = slots }
         return values

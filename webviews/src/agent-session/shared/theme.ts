@@ -3,6 +3,7 @@ import type { AgentSessionTheme } from "./types";
 import { codeFontFamily } from "../../appearance";
 import { configureThemeSlots } from "../../slots/registry";
 import { AGENT_THEME_VARIABLES } from "./themeVariables";
+import { setHostMachineMarks } from "../acpmux/machineColor";
 
 const cssVariables = AGENT_THEME_VARIABLES;
 
@@ -50,6 +51,8 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   // The theme's slot choices (schemas/theme/slots.json): each slot draws the variant the look names;
   // a look without `slots` (every host today) leaves every slot on its default.
   configureThemeSlots(theme.slots);
+  // The person's machines' colors and icons, as the sidebar draws them (machineColor.ts).
+  setHostMachineMarks(theme.machineColors, theme.machineIcons);
   for (const [key, variable] of Object.entries(cssVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
     if (!variable) {
       continue;

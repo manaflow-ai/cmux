@@ -4,6 +4,9 @@ import type { ReactNode } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { Project } from "./ProjectChooser";
+import { resetDeviceKinds } from "../../ui/deviceKinds";
+import type { DeviceKind } from "../../ui/deviceKinds";
+import { assignMachineHues, hueColor, setHostMachineMarks } from "./machineColor";
 
 type Props = {
   projects: Project[];
@@ -32,6 +35,37 @@ const icon = createElement(
   },
   createElement("path", { d: "M2 4.5h4l1.4 1.6H14v6.4H2z" }),
 );
+
+// The machine fixtures: this Mac and three other machines, and twelve projects on this Mac and three.
+const machineProjects: Project[] = [
+  { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
+  { cwd: "/home/you/src/relay", label: "relay", host: "linux-box", peer: "linux-box" },
+  { cwd: "/home/you/src/ml-train", label: "ml-train", host: "gpu-box", peer: "gpu-box" },
+  { cwd: "/workspace/api-server", label: "api-server", host: "build-box", peer: "build-box" },
+];
+const twelveProjects: Project[] = [
+  ...["atlas-web", "cmux", "notes", "dotfiles"].map((label) => ({ cwd: `/Users/you/src/${label}`, label })),
+  ...["relay", "infra", "ops", "bench"].map((label) => ({
+    cwd: `/home/you/src/${label}`,
+    label,
+    host: "linux-box",
+    peer: "linux-box",
+  })),
+  ...["ml-train", "eval"].map((label) => ({ cwd: `/home/you/src/${label}`, label, host: "gpu-box", peer: "gpu-box" })),
+  ...["design", "site"].map((label) => ({ cwd: `/Users/you/src/${label}`, label, host: "mini", peer: "mini" })),
+];
+
+/// Opens the chooser after the host has said what each machine is (`kinds`), each machine's color
+/// (as the app assigns it: no two alike) and its own icons, as the app's status read and theme do.
+const machines =
+  (kinds: Record<string, DeviceKind>, icons: Record<string, string> = {}): Play =>
+  async (ctx) => {
+    resetDeviceKinds({ local: "macbook", peers: kinds });
+    const names = ["linux-box", "gpu-box", "build-box", "mini"];
+    const hues = assignMachineHues(names);
+    setHostMachineMarks(Object.fromEntries(Object.entries(hues).map(([name, hue]) => [name, hueColor(hue)])), icons);
+    await open(ctx);
+  };
 
 const projects: Project[] = [
   { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
@@ -237,20 +271,48 @@ export default componentEntry<Props>({
       },
     },
     "machine-tags": {
-      note: "Projects on three machines (Leo, \"we can have them be delineated rather than just this is a computer symbol\"): each other machine's projects carry its computer in that machine's own color and its name, and this Mac's carry none.",
+      note: "Projects on three other machines (Leo, \"we can have them be delineated rather than just this is a computer symbol. This is a computer symbol\"): each heading draws what that machine is (a rack server, the cloud, a remote host's terminal) in a color no other machine shares, as the sidebar's headers do; this Mac draws its laptop, uncolored.",
       props: {
-        projects: [
-          { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
-          { cwd: "/home/you/src/relay", label: "relay", host: "linux-box", peer: "linux-box" },
-          { cwd: "/home/you/src/ml-train", label: "ml-train", host: "gpu-box", peer: "gpu-box" },
-          { cwd: "/workspace/api-server", label: "api-server", host: "build-box", peer: "build-box" },
-        ],
+        projects: machineProjects,
         current: "/Users/you/src/atlas-web",
         currentLabel: "atlas-web",
         icon,
         onPick: () => undefined,
       },
-      play: open,
+      play: machines({ "gpu-box": "linux-server", "build-box": "cloud" }),
+    },
+    "machine-tags-own-icons": {
+      note: "Machines with their own icons (Leo, \"if you want to add your own icon for your machine, sure\"): the emoji set with Set Machine Icon… draws on the chooser's heading as on the sidebar's.",
+      props: {
+        projects: machineProjects,
+        current: "/Users/you/src/atlas-web",
+        currentLabel: "atlas-web",
+        icon,
+        onPick: () => undefined,
+      },
+      play: machines({ "gpu-box": "linux-server", "build-box": "cloud" }, { "gpu-box": "🔥", "linux-box": "🐧" }),
+    },
+    "machine-tags-twelve": {
+      note: 'Twelve projects on this Mac and three machines: one heading per machine, each its own symbol and color, and no machine mark on any project row (Leo, "repeated ad nauseum").',
+      props: {
+        projects: twelveProjects,
+        current: twelveProjects[0]!.cwd,
+        currentLabel: twelveProjects[0]!.label,
+        icon,
+        onPick: () => undefined,
+      },
+      play: machines({ "gpu-box": "linux-server", mini: "mac-mini" }),
+    },
+    "machine-tags-unknown-kinds": {
+      note: "Machines whose daemons have not said what they are yet: each other machine draws a remote host's terminal, not this Mac's laptop, and linux-box and gpu-box, whose names hash to one green, still take two colors.",
+      props: {
+        projects: machineProjects,
+        current: "/Users/you/src/atlas-web",
+        currentLabel: "atlas-web",
+        icon,
+        onPick: () => undefined,
+      },
+      play: machines({}),
     },
     "no-matches": {
       note: "A query with no results shows the quiet empty state without changing the anchor.",

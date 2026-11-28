@@ -43,13 +43,13 @@ extension MachineRegistry {
     /// from the home daemon), else its device (`SidebarMapping.deviceSymbol`: a Cloud machine's cloud, a Mac mini...).
     func withMachineIcons(_ sections: [SidebarRowSection]) -> [SidebarRowSection] {
         let asset = IconAssetImages.shared.sidebarIcon(owner: local)
-        return sections.map { section in
+        return SidebarMapping.publishMachineMarks(sections.map { section in
             guard case .machine(var machine) = section.kind else { return section }
             machine.icon = SidebarMapping.machineIcon(icon(machine: machine.id.rawValue), asset: asset, device: SidebarMapping.deviceSymbol(kind: machine.kind, reported: anyDaemon(machine: machine.id.rawValue)?.store.identity?.machineSymbol))
             var drawn = section
             drawn.kind = .machine(machine)
             return drawn
-        }
+        })
     }
 
     /// Machine `machineID`'s icon as its shell tabs draw it (`tabs.shellIconTheme` machine, TabItem+ShellIconTheme):

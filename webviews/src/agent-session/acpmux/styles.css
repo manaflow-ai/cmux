@@ -595,6 +595,7 @@
 /* Each machine heads its own folders once (Leo 2026-10-20: "we can have them be delineated rather than
    just this is a computer symbol. This is a computer symbol"): its symbol in its own color and its name,
    a quiet caption in the first folder's top margin; a second machine's opens with a hairline. */
+.acpmux-project-machine .acpmux-machine-emoji{display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;font-size:11px;line-height:1}
 .acpmux-project-menu .acpmux-menu-item:has(> .acpmux-project-machine){position:relative;margin-top:24px}
 .acpmux-project-menu .acpmux-menu-item:has(> .acpmux-project-machine[data-divider]){margin-top:32px}
 .acpmux-project-menu .acpmux-menu-item:has(> .acpmux-project-machine[data-divider])::before{content:"";position:absolute;inset-inline:0;top:-24px;border-top:var(--cmux-hairline,0.5px) solid color-mix(in srgb,var(--agent-text) 14%,transparent);pointer-events:none}

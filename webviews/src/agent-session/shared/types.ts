@@ -66,6 +66,11 @@ export type AgentSessionTheme = {
   /// e.g. `{ "chat.thinkingIndicator": "counting-dots" }` (slots/registry.ts). Absent, or an id no
   /// variant has, draws each slot's default.
   slots?: Record<string, string>;
+  /// Each of the person's machines' color as CSS (their `appearance.machineColors` pick, else an accent no
+  /// other machine draws), by name: the color the sidebar's header draws (machineColor.ts).
+  machineColors?: Record<string, string>;
+  /// Each machine's own emoji icon (`machine.setIcon`), by name, which its sidebar header draws.
+  machineIcons?: Record<string, string>;
   /// Running tray placement; absent keeps the tray above the composer. The alternate is
   /// fixture/Labs-driven until a native setting owns it.
   subagentTrayPlacement?: "tray" | "after-latest-message";

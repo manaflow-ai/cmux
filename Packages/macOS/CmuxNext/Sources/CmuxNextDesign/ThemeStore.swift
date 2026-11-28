@@ -59,6 +59,14 @@ public final class ThemeStore {
     public private(set) var accentFollowsArt = false
     /// `appearance.machineColors`: the colors people picked for machines (`MachineColor.color`).
     public private(set) var machineColors = MachineColorOverrides.none
+    /// The person's own picks (`appearance.machineColors`), before ``machineColors`` assigns the
+    /// automatic accents over ``machineNames``.
+    @ObservationIgnored private var machineColorPicks = MachineColorOverrides.none
+    /// The machines the person has, This Mac left out (``setMachines(names:icons:)``).
+    public private(set) var machineNames: [String] = []
+    /// Each machine's own icon when it is an emoji (`machine.setIcon`), by `MachineColor.key`, so
+    /// pages draw the icon the sidebar's header draws.
+    public private(set) var machineIcons: [String: String] = [:]
 
     @ObservationIgnored private let publishesGlobally: Bool
     /// The root scope of this store's tree (``ThemeScope/app`` for the app's store): it tells its
@@ -260,11 +268,42 @@ public final class ThemeStore {
     /// rows, tab badges) redraws in them. Returns false when they did not change.
     @discardableResult
     public func setMachineColors(_ colors: MachineColorOverrides) -> Bool {
-        guard colors != machineColors else { return false }
-        machineColors = colors
+        machineColorPicks = colors
+        let next = colors.assigningAutomatic(names: machineNames)
+        guard next != machineColors else { return false }
+        machineColors = next
         generation += 1
         if publishesGlobally { repaintAll(crossfade: true) }
         return true
+    }
+
+    /// Sets the machines the person has (This Mac left out) and their emoji icons: each takes an
+    /// automatic accent no other has (``MachineColorOverrides/assigningAutomatic(names:)``), and pages
+    /// read both (`AgentPaneTheme`). Repaints when a color moved; returns false when nothing changed.
+    @discardableResult
+    public func setMachines(names: [String], icons: [String: String]) -> Bool {
+        let keyedIcons = Dictionary(icons.map { (MachineColor(name: $0.key).key, $0.value) }, uniquingKeysWith: { first, _ in first })
+        let sorted = names.sorted()
+        guard sorted != machineNames || keyedIcons != machineIcons else { return false }
+        machineNames = sorted
+        machineIcons = keyedIcons
+        let next = machineColorPicks.assigningAutomatic(names: sorted)
+        guard next != machineColors else { return true }
+        machineColors = next
+        generation += 1
+        if publishesGlobally { repaintAll(crossfade: true) }
+        return true
+    }
+
+    /// Each machine's color as CSS in `tokens`' palette (pick, else automatic), by `MachineColor.key`,
+    /// for the pages' machine marks.
+    public func machineCSSColors(tokens: ThemeTokens, css: (ThemeRGB) -> String) -> [String: String] {
+        var colors: [String: String] = [:]
+        for name in machineNames {
+            let color = MachineColor(name: name)
+            colors[color.key] = css(color.rgb(tokens: tokens, overrides: machineColors))
+        }
+        return colors
     }
 
     /// Repaints every window and responder as a theme change does, for a
