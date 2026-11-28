@@ -577,6 +577,8 @@ class Gallery:
         self.strings_hash: str | None = None
         self.shooter: subprocess.Popen | None = None
         self.shooter_lines: "queue.Queue[str | None]" = queue.Queue()
+        # The entries this vite has drawn once (a throwaway shot, Gallery.warm_up): cleared when the vite stops.
+        self.warmed: set[str] = set()
         suffix = "" if name == "web" else f"-{name}"
         self.log_path = worker.state / f"gallery-dev{suffix}.log"
         self.shooter_log = worker.state / f"shooter{suffix}.log"
@@ -689,6 +691,7 @@ class Gallery:
         if self.proc is not None and self.proc.poll() is None and self.up():
             return
         self.stop()
+        self.warmed.clear()
         self.seed_deps()
         logf = open(self.log_path, "ab")
         self.proc = subprocess.Popen([self.worker.bun(), "run", "gallery:dev"], cwd=self.tree / "webviews",
@@ -710,6 +713,31 @@ class Gallery:
             with _suppress():
                 self.proc.wait(10)
         self.proc = None
+        self.warmed.clear()
+
+    def warm_up(self, entries: list[str], out: Path) -> None:
+        """One throwaway shot of each of ENTRIES this vite has not drawn yet, before the measured one. An entry's first
+        page on a fresh vite marks ready while its modules, fonts and styles still arrive, so that frame is not the
+        one a warm page draws: the preshoot's agent-pane.access-offer, shot first on a cold vite and cached as the
+        next push's before, differed from every warm after by 7.91% though neither side changed it (#65743,
+        11-28; 0 px across warm head and base shots, job b85317d29211d429e3baacf4). The frame is discarded; a
+        warm-up that fails leaves the measured shot to the usual path."""
+        cold = [e for e in entries if e not in self.warmed]
+        if not cold:
+            return
+        scratch = out.with_name(f".{out.name}.warm")
+        shutil.rmtree(scratch, ignore_errors=True)
+        scratch.mkdir(parents=True)
+        spec = {"base": f"http://127.0.0.1:{self.port}/gallery/", "scheme": "dark", "out": str(scratch),
+                "try_ms": SHOT_TRY_S * 1000, "bound_ms": SHOT_BOUND_S * 1000,
+                "shots": [{"name": e, "entry": e} for e in cold]}
+        try:
+            shots, _ = self.collect(self.shoot_resident(spec), scratch)
+            self.warmed.update(shots)
+        except LookError as err:
+            log(f"gallery {self.name}: the warm-up shot of {len(cold)} entries: {err}")
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
 
     def scenes(self, files: list[str]) -> list[str]:
         """The gallery entries touched.ts ranks first for FILES, at the tree's checkout."""
@@ -759,6 +787,7 @@ class Gallery:
             shutil.rmtree(out)
         out.mkdir(parents=True)
         absent = absent or {}
+        self.warm_up([e for e in entries if e not in absent], out)
         spec = {"base": f"http://127.0.0.1:{self.port}/gallery/", "scheme": "dark", "out": str(out),
                 "try_ms": SHOT_TRY_S * 1000, "bound_ms": SHOT_BOUND_S * 1000,
                 "shots": [{"name": e, "entry": e, **({"absent": absent[e][:12]} if e in absent else {})}
@@ -775,7 +804,9 @@ class Gallery:
             self.stop_shooter()
             self.stop()
             self.start()
+            self.warm_up([e for e in entries if e not in absent], out)
             shots, errors = self.collect(self.shoot_once(spec, out), out)
+        self.warmed.update(shots)
         if not shots and entries:
             raise LookError(f"the gallery shoot took no shot: {tail('; '.join(errors)) or 'no answer'}")
         return shots
