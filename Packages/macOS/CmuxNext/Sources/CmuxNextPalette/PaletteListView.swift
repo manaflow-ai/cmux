@@ -41,6 +41,9 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
     private var middlePressID: String?
     private var rows: [DisplayRow] = []
     private var rowIndexByID: [String: Int] = [:]
+    /// The header and result row heights the table holds (``rowHeights``): rows kept in place keep theirs, so
+    /// results set under other heights (a settings change no text size or window size follows) reload.
+    private var heldHeights: [CGFloat] = []
     private var selectedID: String?
     private var hoveredID: String?
     /// No rubber band while every result fits.
@@ -103,10 +106,11 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
                 rows.append(.item(row))
             }
         }
-        let shown = self.rows
+        let shown = self.rows, heights = rowHeights
         self.rows = rows
         rowIndexByID = index
-        if !updateInPlace(from: shown) { table.reloadData() }
+        if heights != heldHeights || !updateInPlace(from: shown) { table.reloadData() }
+        heldHeights = heights
         syncTableSelection()
         // Size the table now, not at the next display, so the rubber band
         // matches the new results before the next scroll event.
@@ -120,7 +124,8 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
     /// layout: every palette open (its first frame, then the full list after it) paid that for rows it already showed.
     private func updateInPlace(from shown: [DisplayRow]) -> Bool {
         let kept = min(shown.count, rows.count)
-        guard kept > 0, (0..<kept).allSatisfy({ shown[$0].isHeader == rows[$0].isHeader }) else { return false }
+        guard kept > 0, table.numberOfRows == shown.count,
+              (0..<kept).allSatisfy({ shown[$0].isHeader == rows[$0].isHeader }) else { return false }
         if rows.count > shown.count {
             table.insertRows(at: IndexSet(integersIn: shown.count..<rows.count), withAnimation: [])
         } else if rows.count < shown.count {
@@ -202,11 +207,13 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
     /// Configures every row again, in the current text size (#26606).
     func reloadRows() {
         table.reloadData()
+        heldHeights = rowHeights
         syncTableSelection()
     }
 
     func relayoutRows() {
         table.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rows.count))
+        heldHeights = rowHeights
     }
 
     private func refresh(_ id: String?, hoverAnimated: Bool = true) {
@@ -247,6 +254,9 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
     // MARK: NSTableViewDataSource / Delegate
 
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+
+    /// A header's height and a result row's (``tableView(_:heightOfRow:)``).
+    private var rowHeights: [CGFloat] { [PaletteLayout.headerRowHeight, PaletteLayout.rowHeight] }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         if case .header = rows[row] { return PaletteLayout.headerRowHeight }

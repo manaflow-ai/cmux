@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextPalette
 import CmuxNextTestSupport
 import Testing
@@ -143,5 +144,31 @@ struct PaletteRowsKeptTests {
                     "\(name), selected \(selected ?? "-"), hovered \(hovered ?? "-"): the updated list shows other rows")
             #expect(updatedTable.numberOfRows == freshTable.numberOfRows)
         }
+    }
+
+    /// Results set after a header height change (a setting no window or text size follows) show headers at the new
+    /// height, as a list made for them does, not the height the rows on screen were laid out with.
+    @Test func resultsAfterAHeightChangeShowTheNewHeight() throws {
+        let store = TunableStore.shared
+        let header = MetricTunables.sidebarHeaderHeight.descriptor
+        store.activate(file: nil)
+        store.register([header])
+        defer { _ = store.set(header.key, nil) }
+        let (updated, updatedTable, updatedWindow) = try Self.host()
+        defer { updatedWindow.closeAfterTest() }
+        updated.setSections(Self.sections("a", [3, 4]))
+        updated.layoutSubtreeIfNeeded()
+        let before = updatedTable.rect(ofRow: 0).height
+        try #require(store.set(header.key, .number(Double(MetricTunables.sidebarHeaderHeight.value) + 10)) != nil)
+        try #require(PaletteLayout.headerRowHeight != before, "the header height did not change")
+
+        updated.setSections(Self.sections("b", [3, 4]))
+        updated.layoutSubtreeIfNeeded()
+        let (fresh, freshTable, freshWindow) = try Self.host()
+        defer { freshWindow.closeAfterTest() }
+        fresh.setSections(Self.sections("b", [3, 4]))
+        fresh.layoutSubtreeIfNeeded()
+        #expect(updatedTable.rect(ofRow: 0).height == PaletteLayout.headerRowHeight, "a kept header keeps its old height")
+        #expect(Self.shown(updatedTable) == Self.shown(freshTable), "the updated list shows other rows")
     }
 }
