@@ -99,6 +99,8 @@ class SideLaneCapabilityLabelsTests(unittest.TestCase):
         for value, why in (
             ('["glaeda-ram-48"]', "exactly one side pool"),
             ('["glaeda-side-xcode-26.6", "glaeda-side-std-xcode-26.6"]', "exactly one side pool"),
+            ('["glaeda-aws-side-std-xcode-26.6", "glaeda-ram-48"]', "exactly one side pool"),
+            ('["glaeda-side-xcode-26.6", "glaeda-aws-side-std-xcode-26.6"]', "not a capability label"),
             ('["glaeda-side-xcode-26.6", "glaeda-runner-cmux16-glaeda"]', "not a capability label"),
             ('["glaeda-side-xcode-26.6", "glaeda-ram-32"]', "not a capability label"),
             ('["glaeda-side-xcode-26.6", "glaeda-ram-16", "glaeda-ram-16"]', "twice"),

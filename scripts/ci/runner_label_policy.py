@@ -159,7 +159,7 @@ def side_lane_reason(label: str) -> str | None:
     runners a pool keeps beside its root runners. Anything else is held to the
     workflow policy like every other runner variable.
     """
-    for prefix in (SIDE_LANE_PREFIX, "glaeda-aws-side-"):
+    for prefix in (SIDE_LANE_PREFIX,):
         if label.startswith(prefix):
             candidate = "glaeda-" + label[len(prefix):]
             if _owned_pattern().fullmatch(candidate):
