@@ -541,6 +541,47 @@ def seed_packages(packages: Path, workspace: Path) -> None:
     packages.mkdir(parents=True, exist_ok=True)
 
 
+# Written by run-xcodebuild-with-diagnostics.sh when the Xcode build service crashed in a build on ROOT.
+HOST_CRASH_MARK = 'xcode-service-crashed'
+# Above this share of the data volume used, a host build drops its CAS and DerivedData first. ultra1 ran at
+# 95-97% (30 GiB free, 10 GiB eaten per run) while every build crashed, 2026-11-27.
+HOST_DISK_FULL_PERCENT = 90
+
+
+def disk_used_percent(path: Path) -> float:
+    override = os.environ.get('CMUX_NIGHTLY_DISK_USED_PERCENT')
+    if override:
+        return float(override)
+    usage = shutil.disk_usage(path)
+    return 100.0 * usage.used / usage.total if usage.total else 0.0
+
+
+def prune_reason(root: Path) -> str:
+    """Why ROOT's compilation cache and DerivedData must go before this build, or ''."""
+    if (root / HOST_CRASH_MARK).exists():
+        return 'the Xcode build service crashed in the last build'
+    used = disk_used_percent(root)
+    if used > HOST_DISK_FULL_PERCENT:
+        return f'the data volume is {used:.0f}% used (over {HOST_DISK_FULL_PERCENT}%)'
+    return ''
+
+
+def prune_host(root: Path) -> str:
+    """Drop ROOT's CAS and DerivedData (only paths this script made) when prune_reason says so; returns
+    the reason, or ''."""
+    why = prune_reason(root)
+    if not why:
+        return ''
+    targets = [root / 'CompilationCache', root / 'DerivedData']
+    freed = sum(tree_bytes(path) for path in targets if path.is_dir() and not path.is_symlink())
+    for path in targets:
+        remove(path)
+    (root / HOST_CRASH_MARK).unlink(missing_ok=True)
+    print(f'NEXT host build root pruned: {why}; removed CompilationCache and DerivedData '
+          f'({freed / 2**30:.1f} GiB) in {root}', flush=True)
+    return why
+
+
 def prepare_host(root: Path, workspace: Path, toolchain: str) -> tuple[str, str]:
     """Ready ROOT/DerivedData for the tree cloned into ROOT/src; returns (mode, reason). The caller
     holds ROOT's lock."""
@@ -548,7 +589,7 @@ def prepare_host(root: Path, workspace: Path, toolchain: str) -> tuple[str, str]
     state_file = root / HOST_STATE
     state = read_state(state_file)
     key = input_key(src, toolchain)
-    reason = clean_reason(state, key, src)
+    reason = prune_host(root) or clean_reason(state, key, src)
     derived_data = root / 'DerivedData'
     if reason:
         remove(derived_data)
