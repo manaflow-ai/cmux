@@ -94,11 +94,10 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// Tabs whose Chromium store is a Cloud machine's proxy (`browser.tab.open`).
     let proxiedTabs = ProxiedBrowserTabs()
 
-    /// True when tab `key`'s localhost is never this Mac's: a Cloud proxy tab (``proxiedTabs``) or a
-    /// tab bound to a chat's machine (a Cloud chat's sign-in page, ChatMachineSignInTab). Neither
-    /// may get a WebKit page that loads its URL, which WebKit would load from this Mac.
+    /// Proxy and approval tabs require Chromium's guarded routing, including approvals for this Mac.
+    /// Loading their URLs directly in WebKit would bypass the callback and machine checks.
     func staysOffThisMacLocalhost(_ key: String) -> Bool {
-        proxiedTabs.isProxied(key) || services?.remoteLocalhost.boundMachine(ofTab: key) != nil
+        proxiedTabs.isProxied(key) || services?.remoteLocalhost.boundMachine(ofTab: key) != nil || services?.remoteLocalhost.isSignInApprovalTab(key) == true
     }
 
     /// Site settings of `site`, a site whose automatic-downloads setting
