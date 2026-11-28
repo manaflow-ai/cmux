@@ -64,6 +64,7 @@ fn pooled_host_spec(
     std_cmd: &std::process::Command,
     env: Vec<(String, String)>,
     translator: Option<agent_host::TranslatorSpec>,
+    codex_prompt_suggestions: bool,
 ) -> agent_host::SpawnSpec {
     let dir = pool_dir();
     let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
@@ -74,6 +75,7 @@ fn pooled_host_spec(
         env,
         cwd: draft.cwd.clone(),
         codex_bridge: !claude && crate::codex_app_server::is_profile_launch(&profile.argv),
+        codex_prompt_suggestions,
         translator,
         socket: agent_host::socket_path(&dir, session_id),
         hosts_dir: dir,
@@ -179,7 +181,16 @@ impl Hub {
             &profile.argv,
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
-        let mut host_spec = pooled_host_spec(&session_id, draft, profile, std_cmd, env, translator);
+        let mut host_spec = pooled_host_spec(
+            &session_id,
+            draft,
+            profile,
+            std_cmd,
+            env,
+            translator,
+            // A person can claim this bridge only under the same setting it was warmed with.
+            spec.key.prompt_suggestions == Some(true),
+        );
         // The agent holder (`agent_host/custody.rs`), as for a session's own host.
         #[cfg(unix)]
         if crate::agent_host::custody::holder_on()
@@ -517,7 +528,7 @@ mod tests {
             remote: false,
         });
         let command = std::process::Command::new("opencode");
-        let spec = pooled_host_spec(&draft.id, &draft, &profile, &command, Vec::new(), None);
+        let spec = pooled_host_spec(&draft.id, &draft, &profile, &command, Vec::new(), None, false);
         assert_eq!(spec.local_kimi_expiry, Some(123456));
         assert!(spec.env.is_empty());
     }

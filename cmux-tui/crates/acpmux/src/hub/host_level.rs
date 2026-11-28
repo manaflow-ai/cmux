@@ -120,6 +120,13 @@ impl Hub {
         }
     }
 
+    /// Whether a Codex bridge started now for `session` keeps prompt suggestions on: only a
+    /// person's start, and only when the daemon's global suggestion setting is on. An agent's
+    /// Codex lane starts with them off.
+    pub(super) fn codex_suggests(&self, session: &Session) -> bool {
+        self.for_a_person(session) && crate::claude_stdio::prompt_suggestions::enabled_in_settings()
+    }
+
     /// The `initialize` params of a start of `session`'s agent. One that is no person's asks
     /// Claude Code for no next-prompt suggestions (`prompt_suggestions::NO_SUGGESTIONS`): Claude Code honours the
     /// per-turn pause (`claude_stdio/prompt_suggestions.rs`) only under a server-side flag of its
