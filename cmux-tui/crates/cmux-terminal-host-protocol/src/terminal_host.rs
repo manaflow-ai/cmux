@@ -675,7 +675,7 @@ impl HostHandshakeError {
     pub fn recovery(&self) -> Option<&'static str> {
         self.update_side().map(|side| match side {
             "client" => {
-                "this cmux build is older than the terminal host serves: update cmux (`acpmux host self-update`) to reach it"
+                "this cmux build is older than the terminal host serves: run `acpmux host self-update` to reach it"
             }
             _ => {
                 "the terminal host is older than this cmux build serves: close and reopen the terminal so a current host runs it"

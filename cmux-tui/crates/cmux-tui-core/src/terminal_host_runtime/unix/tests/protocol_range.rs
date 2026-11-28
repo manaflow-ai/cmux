@@ -30,7 +30,10 @@ fn owner_handshake_selects_newest_common_version() {
     let newer = selected(n + 1, n + 2).unwrap_err().to_string();
     assert!(newer.contains(VERSION_INCOMPATIBLE), "{newer}");
     let older = selected(1, PROTOCOL_MIN_VERSION - 1).unwrap_err().to_string();
-    assert!(older.contains(VERSION_INCOMPATIBLE) && older.contains("update cmux"), "{older}");
+    assert!(
+        older.contains(VERSION_INCOMPATIBLE) && older.contains("acpmux host self-update"),
+        "{older}"
+    );
 }
 
 #[test]

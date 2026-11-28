@@ -36,7 +36,7 @@ fn no_common_protocol_is_typed_version_incompatible_with_update_side() {
     let older = negotiate_version(1, PROTOCOL_MIN_VERSION - 1, served_versions()).unwrap_err();
     assert_eq!(older.error_kind(), Some(VERSION_INCOMPATIBLE));
     assert_eq!(older.update_side(), Some("client"));
-    assert!(older.to_string().contains("update cmux"), "{older}");
+    assert!(older.to_string().contains("acpmux host self-update"), "{older}");
 
     assert!(negotiate_version(0, 0, served_versions()).is_err());
     assert!(negotiate_version(4, 3, served_versions()).is_err());

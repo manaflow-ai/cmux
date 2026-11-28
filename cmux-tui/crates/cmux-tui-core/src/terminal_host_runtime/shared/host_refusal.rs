@@ -23,7 +23,7 @@ impl NoCommonHostProtocol {
     pub const UPDATE_SIDE: &'static str = "self";
     /// The action the refusal names.
     pub const RECOVERY: &'static str = "the terminal host runs a newer cmux than this daemon \
-        speaks: update cmux (`acpmux host self-update`) to adopt it; the shell keeps running";
+        speaks: run `acpmux host self-update` to adopt it; the shell keeps running";
 }
 
 impl std::fmt::Display for NoCommonHostProtocol {
