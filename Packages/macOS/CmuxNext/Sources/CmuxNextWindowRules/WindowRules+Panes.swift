@@ -2,56 +2,6 @@
 /// (cmux-window-rules `tabs::panes`). Directions are `left`, `right`, `up`, `down`; edges
 /// `left`, `right`, `top`, `bottom`.
 extension WindowRules {
-    /// The folder facts of a new pane, each as the app read it.
-    public nonisolated struct SplitFolders: Encodable, Equatable, Sendable {
-        public var explicit, uninherited, inherited, selected, first: String?
-
-        public init(explicit: String?, uninherited: String?, inherited: String?, selected: String?, first: String?) {
-            self.explicit = explicit
-            self.uninherited = uninherited
-            self.inherited = inherited
-            self.selected = selected
-            self.first = first
-        }
-    }
-
-    /// The facts of one split.
-    public nonisolated struct SplitFacts: Encodable, Equatable, Sendable {
-        public var direction: String
-        public var folders: SplitFolders
-        /// What the tool-split rule said: `split`, `refused`, `tab`, `besideDock`.
-        public var tool: String
-        public var page: Bool
-        public var shown: Bool
-
-        public init(direction: String, folders: SplitFolders, tool: String, page: Bool, shown: Bool) {
-            self.direction = direction
-            self.folders = folders
-            self.tool = tool
-            self.page = page
-            self.shown = shown
-        }
-    }
-
-    /// The plan of one split.
-    public nonisolated struct SplitPlan: Decodable, Equatable, Sendable {
-        /// `pageSplit`, `refuse`, `stripPage`, `stripTerminal`, `dockPage`, `dockColumn`, `split`.
-        public var action: String
-        public var edge: String
-        public var horizontal: Bool
-        /// `right` or `down`: the daemon splits only that way.
-        public var daemonDirection: String
-        /// Left and up swap the original toward this direction afterwards.
-        public var swapTowards: String?
-        public var splitAction: String
-        public var cwd: String?
-        public var tabCwd: String?
-
-        private enum CodingKeys: String, CodingKey {
-            case action = "do", edge, horizontal, daemonDirection, swapTowards, splitAction, cwd, tabCwd
-        }
-    }
-
     public func split(_ facts: SplitFacts) -> SplitPlan? {
         call("window_panes_split", facts, as: SplitPlan.self)
     }
@@ -62,12 +12,6 @@ extension WindowRules {
         struct Reply: Decodable { var preferred: String, fitting: String? }
         return call("window_panes_auto_direction", Request(width: width, height: height, roomRight: roomRight, roomDown: roomDown), as: Reply.self)
             .map { ($0.preferred, $0.fitting) }
-    }
-
-    /// The refusals (`appPaneHasNoTabBar`, `chiefPaneHasNoTabBar`) of Hide/Show Tab Bar and New Horizontal Tab.
-    public nonisolated struct TabBar: Decodable, Equatable, Sendable {
-        public var toggle: String?
-        public var newTab: String?
     }
 
     public func tabBar(appPane: Bool, pinnedDock: Bool, pinnedDockHidesTabBar: Bool) -> TabBar? {

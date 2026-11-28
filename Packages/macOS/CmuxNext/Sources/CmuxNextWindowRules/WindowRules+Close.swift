@@ -2,41 +2,6 @@ public import CmuxNextDaemon
 
 /// What a close asks first and whether it earns an undo toast (cmux-window-rules `close`).
 extension WindowRules {
-    /// The facts of one closing tab.
-    public nonisolated struct ClosingTab: Encodable, Equatable, Sendable {
-        public var kind: String
-        public var dead = false
-        /// An internal page (Settings, History, What's New, an app's page).
-        public var page = false
-        /// A new chat still on its New Tab page.
-        public var newTabPage = false
-        public var url: String?
-        /// A new chat's typed text from before it has a session.
-        public var unsentDraft = false
-        /// The tab's agent is working or waiting on a permission answer.
-        public var agentAtWork = false
-        public var agent: String?
-        /// The status map says the tab works or waits on the person.
-        public var statusWorking = false
-
-        @MainActor public init(_ tab: TabModel, page: Bool = false, newTabPage: Bool = false, unsentDraft: Bool = false,
-                        agentAtWork: Bool, statusWorking: Bool = false) {
-            kind = switch tab.kind {
-            case .pty: "pty"
-            case .browser: "browser"
-            default: "other"
-            }
-            dead = tab.dead
-            url = tab.url
-            agent = tab.agent?.agent
-            self.page = page
-            self.newTabPage = newTabPage
-            self.unsentDraft = unsentDraft
-            self.agentAtWork = agentAtWork
-            self.statusWorking = statusWorking
-        }
-    }
-
     /// Whether a close earns the undo toast.
     public nonisolated enum Toast: Decodable, Equatable, Sendable {
         case show
@@ -53,95 +18,6 @@ extension WindowRules {
             // the tabs the new rule closes with no toast (one tab, none working). Remove after the re-pin.
             case "askTerminals": self = .skip
             case let other: throw DecodingError.dataCorruptedError(forKey: .decision, in: container, debugDescription: "toast \(other)")
-            }
-        }
-    }
-
-    /// The close warning settings (`app.warnBeforeClosingTab`, `app.warnBeforeClosingAgentSession`).
-    public nonisolated struct Warnings: Encodable, Equatable, Sendable {
-        public var warnTab: Bool
-        public var warnAgent: Bool
-
-        public init(warnTab: Bool, warnAgent: Bool) {
-            self.warnTab = warnTab
-            self.warnAgent = warnAgent
-        }
-    }
-
-    /// What a close reads before it knows its question.
-    public nonisolated struct Reads: Codable, Equatable, Sendable {
-        /// The closing terminals' working agents as the question names them (nil: "The agent").
-        public var agents: [String?]
-        /// The closing live terminals with no working agent (indices into the closing tabs): asked what each runs.
-        public var others: [Int]
-
-        public init(agents: [String?], others: [Int]) {
-            self.agents = agents
-            self.others = others
-        }
-
-        /// Whether the close's question is known before the daemon's read: an agent at work in a closing terminal (with
-        /// `warnAgent`; `agents` lists them whatever the setting says), or a read terminal known to run a program in front
-        /// (`close::runs_known_program`). Such a close keeps its tabs in place through the read and the question, and they
-        /// leave only on Close (a tab that left, then came back with the question, read as closed). A shell at its prompt
-        /// or without integration is not known: only the read can tell, so that close still takes its tabs out in the
-        /// key's turn (SL-3, #31875).
-        /// The rule is Rust's (cmux-window-rules `close::known_to_ask`); nil from the FFI is not known, as a shell at its
-        /// prompt: the read still asks.
-        @MainActor public func knownToAsk(_ tabs: [TabModel], _ warnings: Warnings) -> Bool {
-            struct Facts: Encodable { var reads: Reads; var tabs: [ProgramFacts]; var warnTab, warnAgent: Bool }
-            struct Reply: Decodable { var ask: Bool }
-            let facts = Facts(reads: self, tabs: tabs.map(ProgramFacts.init), warnTab: warnings.warnTab, warnAgent: warnings.warnAgent)
-            return WindowRules().call("window_close_known_to_ask", facts, as: Reply.self)?.ask ?? false
-        }
-
-        /// What `close::runs_known_program` reads of a terminal: its shell's running command (OSC 133 C) and prompt, its
-        /// agent (hooks; `done` at its session's end) and OSC 7501 `programStatus`.
-        struct ProgramFacts: Encodable {
-            var commandSinceMs, promptSinceMs: UInt64?
-            var agentDone: Bool?
-            var programStatus: Bool
-
-            @MainActor init(_ tab: TabModel) {
-                (commandSinceMs, promptSinceMs) = (tab.commandSinceMs, tab.promptSinceMs)
-                agentDone = tab.agent.map { $0.state == .done }
-                programStatus = !tab.programStatus.isEmpty
-            }
-        }
-    }
-
-    /// What the daemon said one asked terminal runs.
-    public nonisolated struct TerminalAnswer: Encodable, Equatable, Sendable {
-        /// The tab's title, named when the terminal gave no answer.
-        public var title: String
-        /// False: no answer in time, which never confirms that no program runs.
-        public var answered: Bool
-        /// The foreground program; nil for the shell only.
-        public var program: String?
-
-        public init(title: String, answered: Bool, program: String?) {
-            self.title = title
-            self.answered = answered
-            self.program = program
-        }
-    }
-
-    /// The one question a close of live terminals asks.
-    public nonisolated enum Warning: Decodable, Equatable, Sendable {
-        /// The agent working in a closing terminal; nil for an unnamed one.
-        case agent(String?)
-        /// Foreground programs, unique and sorted, and the titles of the terminals that gave no answer.
-        case programs([String], unanswered: [String])
-
-        private enum CodingKeys: String, CodingKey { case kind, name, programs, unanswered }
-
-        public init(from decoder: any Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            switch try container.decode(String.self, forKey: .kind) {
-            case "agent": self = .agent(try container.decodeIfPresent(String.self, forKey: .name))
-            case "programs": self = .programs(try container.decode([String].self, forKey: .programs),
-                                              unanswered: try container.decode([String].self, forKey: .unanswered))
-            case let other: throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "warning \(other)")
             }
         }
     }
@@ -197,5 +73,54 @@ extension WindowRules {
         // Each warning still obeys its own setting.
         if warnings.warnAgent, let agent = agents.first { return .agent(agent) }
         return warnings.warnTab && !titles.isEmpty ? .programs([], unanswered: titles) : nil
+    }
+}
+
+extension WindowRules.ClosingTab {
+    @MainActor public init(_ tab: TabModel, page: Bool = false, newTabPage: Bool = false, unsentDraft: Bool = false,
+                    agentAtWork: Bool, statusWorking: Bool = false) {
+        kind = switch tab.kind {
+        case .pty: "pty"
+        case .browser: "browser"
+        default: "other"
+        }
+        dead = tab.dead
+        url = tab.url
+        agent = tab.agent?.agent
+        self.page = page
+        self.newTabPage = newTabPage
+        self.unsentDraft = unsentDraft
+        self.agentAtWork = agentAtWork
+        self.statusWorking = statusWorking
+    }
+}
+
+extension WindowRules.Reads {
+    /// Whether the close's question is known before the daemon's read: an agent at work in a closing terminal (with
+    /// `warnAgent`; `agents` lists them whatever the setting says), or a read terminal known to run a program in front
+    /// (`close::runs_known_program`). Such a close keeps its tabs in place through the read and the question, and they
+    /// leave only on Close (a tab that left, then came back with the question, read as closed). A shell at its prompt
+    /// or without integration is not known: only the read can tell, so that close still takes its tabs out in the
+    /// key's turn (SL-3, #31875).
+    /// The rule is Rust's (cmux-window-rules `close::known_to_ask`); nil from the FFI is not known, as a shell at its
+    /// prompt: the read still asks.
+    @MainActor public func knownToAsk(_ tabs: [TabModel], _ warnings: Warnings) -> Bool {
+        struct Facts: Encodable { var reads: Reads; var tabs: [ProgramFacts]; var warnTab, warnAgent: Bool }
+        struct Reply: Decodable { var ask: Bool }
+        let facts = Facts(reads: self, tabs: tabs.map(ProgramFacts.init), warnTab: warnings.warnTab, warnAgent: warnings.warnAgent)
+        return WindowRules().call("window_close_known_to_ask", facts, as: Reply.self)?.ask ?? false
+    }
+    /// What `close::runs_known_program` reads of a terminal: its shell's running command (OSC 133 C) and prompt, its
+    /// agent (hooks; `done` at its session's end) and OSC 7501 `programStatus`.
+    struct ProgramFacts: Encodable {
+        var commandSinceMs, promptSinceMs: UInt64?
+        var agentDone: Bool?
+        var programStatus: Bool
+
+        @MainActor init(_ tab: TabModel) {
+            (commandSinceMs, promptSinceMs) = (tab.commandSinceMs, tab.promptSinceMs)
+            agentDone = tab.agent.map { $0.state == .done }
+            programStatus = !tab.programStatus.isEmpty
+        }
     }
 }

@@ -1,20 +1,6 @@
 /// The code editors Open in Editor knows and which one opens a folder (cmux-window-rules `editors`).
 /// The App only asks the system which bundle ids resolve; the table, its order and the pick are Rust's.
 extension WindowRules {
-    /// One editor of the table: its id (`vscode`), name, bundle ids in preference order, menu symbol,
-    /// and the URL scheme of its Remote-SSH open when it has one.
-    public nonisolated struct Editor: Decodable, Equatable, Sendable {
-        public var id: String
-        public var name: String
-        public var bundleIds: [String]
-        public var symbol: String
-        public var remoteScheme: String?
-
-        public init(id: String, name: String, bundleIds: [String], symbol: String, remoteScheme: String? = nil) {
-            (self.id, self.name, self.bundleIds, self.symbol, self.remoteScheme) = (id, name, bundleIds, symbol, remoteScheme)
-        }
-    }
-
     /// Which editor opens a folder: `default`, then every installed one in table order, default first.
     public nonisolated struct EditorPick: Decodable, Equatable, Sendable {
         public var `default`: String?
@@ -46,5 +32,11 @@ extension WindowRules {
             }
         }
         return call("window_editors_pick", Request(installed: installed, configured: configured), as: EditorPick.self)
+    }
+}
+
+extension WindowRules.Editor {
+    public init(id: String, name: String, bundleIds: [String], symbol: String, remoteScheme: String? = nil) {
+        (self.id, self.name, self.bundleIds, self.symbol, self.remoteScheme) = (id, name, bundleIds, symbol, remoteScheme)
     }
 }

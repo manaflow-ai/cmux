@@ -1,0 +1,2100 @@
+{
+  "rust_src": "cmux-tui/crates/cmux-window-rules/src",
+  "sources_root": "Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules",
+  "output": "WindowRulesWire.generated.swift",
+  "imports": [
+    "public import CmuxNextDaemon"
+  ],
+  "names": {},
+  "types": {
+    "tabs_place::TerminalReadFacts": {
+      "swift": "TogglePlaceRules.TerminalReadFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "at": {
+          "type": "Int?"
+        },
+        "total": {
+          "type": "Int"
+        },
+        "rows": {
+          "type": "Int"
+        }
+      },
+      "init": false
+    },
+    "tabs_place::TerminalRead": {
+      "swift": "TogglePlaceRules.TerminalRead",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Screen": {
+          "labels": [
+            "base",
+            "fromViewportTop"
+          ],
+          "fields": {
+            "base": {
+              "type": "Int"
+            },
+            "from_viewport_top": {
+              "type": "Bool"
+            }
+          }
+        }
+      }
+    },
+    "tabs_place::TerminalScroll": {
+      "swift": "TogglePlaceRules.TerminalScroll",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Row": {
+          "labels": [
+            "_"
+          ],
+          "fields": {
+            "row": {
+              "type": "Int"
+            }
+          }
+        }
+      }
+    },
+    "tabs_place::ChatReadFacts": {
+      "swift": "TogglePlaceRules.ChatReadFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "top": {
+          "type": "Int"
+        },
+        "visible": {
+          "type": "Int"
+        },
+        "total": {
+          "type": "Int"
+        },
+        "at_bottom": {
+          "type": "Bool"
+        },
+        "at_latest": {
+          "type": "Bool"
+        },
+        "rows": {
+          "type": "Int"
+        }
+      },
+      "init": false
+    },
+    "tabs_place::ChatRead": {
+      "swift": "TogglePlaceRules.ChatRead",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Latest": {
+          "labels": [
+            "show"
+          ],
+          "fields": {
+            "show": {
+              "type": "Bool"
+            }
+          }
+        },
+        "Screen": {
+          "labels": [
+            "base",
+            "fromViewportTop",
+            "throughViewportBottom"
+          ],
+          "fields": {
+            "base": {
+              "type": "Int"
+            },
+            "from_viewport_top": {
+              "type": "Bool"
+            },
+            "through_viewport_bottom": {
+              "type": "Bool"
+            }
+          }
+        }
+      }
+    },
+    "tabs_place::ChatShow": {
+      "swift": "TogglePlaceRules.ChatShow",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Turn": {
+          "labels": [
+            "_"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            }
+          }
+        }
+      }
+    },
+    "browser::FitAction": {
+      "swift": "WindowRules.FitAction",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "action": {
+          "type": "String"
+        },
+        "fit": {
+          "type": "String?"
+        }
+      },
+      "init": "action, fit = nil"
+    },
+    "browser::PipFacts": {
+      "swift": "WindowRules.PipFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "omit": [
+        "named_page",
+        "card",
+        "shown_video",
+        "focused",
+        "focused_video"
+      ],
+      "fields": {
+        "named": {
+          "type": "Bool, namedPage: Bool, card: Bool, shownVideo: Bool, focused: Bool, focusedVideo: Bool"
+        }
+      },
+      "init": false
+    },
+    "browser::PipPage": {
+      "swift": "WindowRules.PipPage",
+      "conforms": [
+        "String",
+        "Decodable",
+        "Sendable"
+      ]
+    },
+    "browser::PipRowFacts": {
+      "swift": "WindowRules.PipRowFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "omit": [
+        "target",
+        "video",
+        "floating"
+      ],
+      "fields": {
+        "enabled": {
+          "type": "Bool, target: String, video: Bool, floating: Bool"
+        }
+      },
+      "init": false
+    },
+    "browser::PipRow": {
+      "swift": "WindowRules.PipRow",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "hidden": {
+          "type": "Bool"
+        },
+        "exit": {
+          "type": "Bool"
+        }
+      },
+      "init": "hidden, exit"
+    },
+    "remote::Machine": {
+      "swift": "WindowRules.Machine",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "id": {
+          "type": "String"
+        },
+        "names": {
+          "type": "[String]"
+        }
+      },
+      "init": "id, names"
+    },
+    "remote::TerminalHere": {
+      "swift": "WindowRules.TerminalHere",
+      "conforms": [
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Open": {
+          "labels": [
+            "split"
+          ],
+          "fields": {
+            "split": {
+              "type": "String?"
+            }
+          }
+        }
+      }
+    },
+    "remote::ConnectFacts": {
+      "swift": "WindowRules.ConnectFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "omit": [
+        "has_window",
+        "offline",
+        "needs_recovery",
+        "failure_attempt",
+        "current_attempt"
+      ],
+      "fields": {
+        "loaded": {
+          "type": "Bool, hasWindow: Bool, offline: Bool, needsRecovery: Bool, failureAttempt: UInt64?, currentAttempt: UInt64"
+        }
+      },
+      "init": false
+    },
+    "remote::ConnectStep": {
+      "swift": "WindowRules.ConnectStep",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "omit": [
+        "end",
+        "open_window",
+        "recovery"
+      ],
+      "fields": {
+        "show_workspace": {
+          "type": "Bool, end: Bool, openWindow: Bool, recovery: Bool"
+        }
+      },
+      "init": "showWorkspace"
+    },
+    "chat::DockedOpen": {
+      "swift": "WindowRules.DockedOpen",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "user": {
+          "type": "Bool"
+        },
+        "targeted": {
+          "type": "Bool"
+        },
+        "has_arguments": {
+          "type": "Bool"
+        },
+        "can_host": {
+          "type": "Bool"
+        },
+        "dock_roles": {
+          "type": "Bool"
+        },
+        "pane": {
+          "type": "String"
+        },
+        "shown": {
+          "type": "Bool"
+        },
+        "chat_dock_top": {
+          "type": "String?"
+        },
+        "docks_chat": {
+          "type": "Bool"
+        },
+        "pending_dock": {
+          "type": "Bool"
+        }
+      },
+      "init": false
+    },
+    "chat::DockedOpenDecision": {
+      "swift": "WindowRules.DockedOpenDecision",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Focus": {
+          "labels": [
+            "_"
+          ],
+          "fields": {
+            "pane": {
+              "type": "String"
+            }
+          }
+        }
+      }
+    },
+    "chat::DropSplit": {
+      "swift": "WindowRules.DropSplit",
+      "conforms": [
+        "String",
+        "Decodable",
+        "Sendable"
+      ]
+    },
+    "chat::ChatPane": {
+      "swift": "WindowRules.ChatPane",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "id": {
+          "type": "String"
+        },
+        "resource_id": {
+          "type": "String?"
+        },
+        "focused_at": {
+          "type": "UInt64"
+        }
+      },
+      "init": "id, resourceId, focusedAt"
+    },
+    "chat::ChatWorkspace": {
+      "swift": "WindowRules.ChatWorkspace",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "id": {
+          "type": "String"
+        },
+        "resource_id": {
+          "type": "String?"
+        },
+        "key": {
+          "type": "String?"
+        },
+        "panes": {
+          "type": "[ChatPane]"
+        }
+      },
+      "init": "id, resourceId, key, panes"
+    },
+    "chat::ChatWindow": {
+      "swift": "WindowRules.ChatWindow",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "workspace": {
+          "type": "String?"
+        },
+        "recency": {
+          "type": "[String]"
+        },
+        "focus_workspace": {
+          "type": "String?"
+        },
+        "focused_pane": {
+          "type": "String?"
+        },
+        "remembered": {
+          "type": "[String: String]"
+        }
+      },
+      "init": false
+    },
+    "chat::ChatDestination": {
+      "swift": "WindowRules.ChatDestination",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "workspace": {
+          "type": "Int"
+        },
+        "pane": {
+          "type": "String"
+        }
+      },
+      "init": "workspace, pane"
+    },
+    "chat::ColumnActions": {
+      "swift": "WindowRules.ColumnActions",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "planned": {
+          "type": "[String]"
+        },
+        "lone_column_disabled": {
+          "type": "[String]"
+        },
+        "canvas": {
+          "type": "[Canvas]"
+        }
+      },
+      "init": "planned, loneColumnDisabled, canvas"
+    },
+    "chat::ActionColumn": {
+      "swift": "WindowRules.ActionColumn",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "width": {
+          "type": "Double"
+        },
+        "panes": {
+          "type": "[String]"
+        },
+        "implicit": {
+          "type": "Bool"
+        },
+        "docked": {
+          "type": "Bool"
+        }
+      },
+      "init": false
+    },
+    "chat::ColumnFacts": {
+      "swift": "WindowRules.ColumnFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "column": {
+          "type": "ActionColumn"
+        },
+        "left": {
+          "type": "[String]?"
+        },
+        "right": {
+          "type": "[String]?"
+        },
+        "recent": {
+          "type": "[String]"
+        },
+        "focused": {
+          "type": "String?"
+        },
+        "column_move": {
+          "type": "Bool"
+        },
+        "handle": {
+          "type": "Bool"
+        }
+      },
+      "init": false
+    },
+    "chat::ColumnUnavailable": {
+      "swift": "WindowRules.ColumnUnavailable",
+      "conforms": [
+        "String",
+        "Decodable",
+        "Sendable"
+      ]
+    },
+    "chat::DockMoveFacts": {
+      "swift": "WindowRules.DockMoveFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "pane": {
+          "type": "String"
+        },
+        "pane_tabs": {
+          "type": "Int"
+        },
+        "column_panes": {
+          "type": "[String]"
+        },
+        "shown_others": {
+          "type": "[String]"
+        },
+        "has_tab": {
+          "type": "Bool"
+        },
+        "edge_docks": {
+          "type": "Bool"
+        },
+        "tab_column_respawn": {
+          "type": "Bool"
+        }
+      },
+      "init": false
+    },
+    "chat::DockMove": {
+      "swift": "WindowRules.DockMove",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Refuse": {
+          "labels": [
+            "_"
+          ],
+          "fields": {
+            "needs": {
+              "type": "String"
+            }
+          }
+        },
+        "Move": {
+          "labels": [
+            "respawn",
+            "anchor"
+          ],
+          "fields": {
+            "respawn": {
+              "type": "Bool"
+            },
+            "anchor": {
+              "type": "String"
+            }
+          }
+        }
+      }
+    },
+    "chat::agent::InspectorColumn": {
+      "swift": "WindowRules.InspectorColumn",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "panes": {
+          "type": "[UInt64]"
+        },
+        "dock": {
+          "type": "Bool"
+        }
+      },
+      "init": "panes, dock"
+    },
+    "chat::agent::InspectorPlacement": {
+      "swift": "WindowRules.InspectorPlacement",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Tab": {
+          "labels": [
+            "_"
+          ],
+          "fields": {
+            "pane": {
+              "type": "UInt64"
+            }
+          }
+        },
+        "NewColumn": {
+          "labels": [
+            "_"
+          ],
+          "fields": {
+            "pane": {
+              "type": "UInt64"
+            }
+          }
+        }
+      }
+    },
+    "chat::agent::AnchorWorkspace": {
+      "swift": "WindowRules.AnchorWorkspace",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "home": {
+          "type": "Bool"
+        },
+        "has_pane": {
+          "type": "Bool"
+        }
+      },
+      "init": "home, hasPane"
+    },
+    "chat::agent::InspectorAnchor": {
+      "swift": "WindowRules.InspectorAnchor",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Workspace": {
+          "labels": [
+            "_"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            }
+          }
+        }
+      }
+    },
+    "chat::agent::ChiefPlace": {
+      "swift": "WindowRules.ChiefPlace",
+      "conforms": [
+        "Decodable",
+        "Hashable",
+        "Sendable"
+      ],
+      "cases": {
+        "Local": {
+          "labels": [
+            "chief"
+          ],
+          "fields": {
+            "chief": {
+              "type": "String?"
+            }
+          }
+        },
+        "Server": {
+          "labels": [
+            "machineID"
+          ],
+          "fields": {
+            "machine_id": {
+              "type": "String"
+            }
+          }
+        }
+      }
+    },
+    "chat::agent::HarnessModels": {
+      "swift": "WindowRules.HarnessModels",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "harness": {
+          "type": "String"
+        },
+        "models": {
+          "type": "[Model]"
+        }
+      },
+      "init": "harness, models"
+    },
+    "chat::agent::HarnessChoices": {
+      "swift": "WindowRules.HarnessChoices",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "harness": {
+          "type": "String"
+        },
+        "models": {
+          "type": "[Choice]"
+        }
+      },
+      "init": "harness, models"
+    },
+    "chat::agent::SessionPlacement": {
+      "swift": "WindowRules.SessionPlacement",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "joins_group": {
+          "type": "Bool"
+        },
+        "below_caller": {
+          "type": "Bool"
+        },
+        "default_slot": {
+          "type": "DefaultSlot?"
+        }
+      },
+      "init": "joinsGroup, belowCaller, defaultSlot = nil"
+    },
+    "close::ClosingTab": {
+      "swift": "WindowRules.ClosingTab",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "kind": {
+          "type": "String"
+        },
+        "dead": {
+          "type": "Bool"
+        },
+        "page": {
+          "type": "Bool"
+        },
+        "new_tab_page": {
+          "type": "Bool"
+        },
+        "url": {
+          "type": "String?"
+        },
+        "unsent_draft": {
+          "type": "Bool"
+        },
+        "agent_at_work": {
+          "type": "Bool"
+        },
+        "agent": {
+          "type": "String?"
+        },
+        "status_working": {
+          "type": "Bool"
+        }
+      },
+      "init": false
+    },
+    "close::Warnings": {
+      "swift": "WindowRules.Warnings",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "warn_tab": {
+          "type": "Bool"
+        },
+        "warn_agent": {
+          "type": "Bool"
+        }
+      },
+      "init": "warnTab, warnAgent"
+    },
+    "close::Reads": {
+      "swift": "WindowRules.Reads",
+      "conforms": [
+        "Codable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "agents": {
+          "type": "[String?]"
+        },
+        "others": {
+          "type": "[Int]"
+        }
+      },
+      "init": "agents, others"
+    },
+    "close::TerminalAnswer": {
+      "swift": "WindowRules.TerminalAnswer",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "title": {
+          "type": "String"
+        },
+        "answered": {
+          "type": "Bool"
+        },
+        "program": {
+          "type": "String?"
+        }
+      },
+      "init": "title, answered, program"
+    },
+    "close::Warning": {
+      "swift": "WindowRules.Warning",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Agent": {
+          "labels": [
+            "_"
+          ],
+          "fields": {
+            "name": {
+              "type": "String?"
+            }
+          }
+        },
+        "Programs": {
+          "labels": [
+            "_",
+            "unanswered"
+          ],
+          "fields": {
+            "programs": {
+              "type": "[String]"
+            },
+            "unanswered": {
+              "type": "[String]"
+            }
+          }
+        }
+      }
+    },
+    "closed::OwnerFacts": {
+      "swift": "WindowRules.OwnerFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "kind": {
+          "type": "String"
+        },
+        "local": {
+          "type": "Bool"
+        },
+        "recorded_window": {
+          "type": "String?"
+        },
+        "recorded_open": {
+          "type": "Bool?"
+        },
+        "workspace_window": {
+          "type": "String?"
+        }
+      },
+      "init": false
+    },
+    "closed::UndoState": {
+      "swift": "WindowRules.UndoState",
+      "conforms": [
+        "Codable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "expected": {
+          "type": "[Expected]"
+        }
+      },
+      "init": false
+    },
+    "closed::Announced": {
+      "swift": "WindowRules.Announced",
+      "conforms": [
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Waiting": {
+          "labels": [
+            "dropped"
+          ],
+          "fields": {
+            "dropped": {
+              "type": "[UInt64]"
+            }
+          }
+        }
+      }
+    },
+    "closed::RecordedItem": {
+      "swift": "WindowRules.RecordedItem",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "id": {
+          "type": "String"
+        },
+        "kind": {
+          "type": "String"
+        },
+        "pane": {
+          "type": "String?"
+        },
+        "tabs": {
+          "type": "Int"
+        }
+      },
+      "init": false
+    },
+    "closed::Settled": {
+      "swift": "WindowRules.Settled",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "token": {
+          "type": "UInt64"
+        },
+        "items": {
+          "type": "[String]"
+        },
+        "tabs": {
+          "type": "Int"
+        },
+        "shows": {
+          "type": "Bool"
+        }
+      },
+      "init": "token, items, tabs, shows"
+    },
+    "closed::ToastShow": {
+      "swift": "WindowRules.ToastShow",
+      "conforms": [
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "New": {
+          "labels": [
+            "tabs"
+          ],
+          "fields": {
+            "tabs": {
+              "type": "Int"
+            }
+          }
+        },
+        "Join": {
+          "labels": [
+            "tabs"
+          ],
+          "fields": {
+            "tabs": {
+              "type": "Int"
+            }
+          }
+        }
+      }
+    },
+    "editors::Editor": {
+      "swift": "WindowRules.Editor",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "id": {
+          "type": "String"
+        },
+        "name": {
+          "type": "String"
+        },
+        "bundle_ids": {
+          "type": "[String]"
+        },
+        "symbol": {
+          "type": "String"
+        },
+        "remote_scheme": {
+          "type": "String?"
+        }
+      },
+      "init": false
+    },
+    "files::DiffAsk": {
+      "swift": "WindowRules.DiffAsk",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "omit": [
+        "path",
+        "pane_folder",
+        "allows_view_change",
+        "beside_caller"
+      ],
+      "fields": {
+        "patch": {
+          "type": "Bool, path: String?, paneFolder: String?, allowsViewChange: Bool, besideCaller: Bool"
+        }
+      },
+      "init": false
+    },
+    "files::EditorAction": {
+      "swift": "WindowRules.EditorAction",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "omit": [
+        "runs_editor_command"
+      ],
+      "fields": {
+        "action": {
+          "type": "String, runsEditorCommand: Bool"
+        }
+      },
+      "init": false
+    },
+    "files::EditorBinding": {
+      "swift": "WindowRules.EditorBinding",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "action": {
+          "type": "String"
+        },
+        "needs_text": {
+          "type": "Bool"
+        }
+      },
+      "init": "action, needsText"
+    },
+    "files::VSCodeFacts": {
+      "swift": "WindowRules.VSCodeFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "omit": [
+        "installed",
+        "by_person",
+        "terminal",
+        "cwd"
+      ],
+      "fields": {
+        "local": {
+          "type": "Bool, installed: Bool, byPerson: Bool, terminal: Bool, cwd: String?"
+        }
+      },
+      "init": false
+    },
+    "appearance::AppearanceAsk": {
+      "swift": "WindowRules.AppearanceAsk",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "omit": [
+        "property",
+        "set"
+      ],
+      "fields": {
+        "scope": {
+          "type": "String?, property: String?, set: Bool"
+        }
+      },
+      "init": false
+    },
+    "appearance::KeymapToast": {
+      "swift": "WindowRules.KeymapToast",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "lines": {
+          "type": "[String]"
+        },
+        "undo": {
+          "type": "Bool"
+        },
+        "seconds": {
+          "type": "Int"
+        }
+      },
+      "init": "lines, undo, seconds"
+    },
+    "launch::LastFront": {
+      "swift": "WindowRules.LastFront",
+      "conforms": [
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Workspace": {
+          "labels": [
+            "_",
+            "pane",
+            "tab"
+          ],
+          "fields": {
+            "workspace": {
+              "type": "String"
+            },
+            "pane": {
+              "type": "String?"
+            },
+            "tab": {
+              "type": "String?"
+            }
+          }
+        }
+      }
+    },
+    "launch::TabStanding": {
+      "swift": "WindowRules.TabStanding",
+      "conforms": [
+        "String",
+        "Encodable",
+        "Sendable"
+      ]
+    },
+    "launch::PendingHome": {
+      "swift": "WindowRules.PendingHome",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "window": {
+          "type": "String"
+        },
+        "active": {
+          "type": "String?"
+        },
+        "window_open": {
+          "type": "Bool"
+        },
+        "home_ready": {
+          "type": "Bool"
+        },
+        "moved": {
+          "type": "Bool"
+        },
+        "moved_since_restore": {
+          "type": "Bool"
+        }
+      },
+      "init": false
+    },
+    "launch::FreshFacts": {
+      "swift": "WindowRules.FreshFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "empty_tree": {
+          "type": "Bool"
+        },
+        "no_saved_window_open": {
+          "type": "Bool"
+        },
+        "classic_home": {
+          "type": "Bool"
+        },
+        "home_ensured": {
+          "type": "Bool"
+        },
+        "home_not_ensured_yet": {
+          "type": "Bool"
+        }
+      },
+      "init": "emptyTree, noSavedWindowOpen, classicHome, homeEnsured, homeNotEnsuredYet"
+    },
+    "launch::FreshLanding": {
+      "swift": "WindowRules.FreshLanding",
+      "conforms": [
+        "String",
+        "Decodable",
+        "Sendable"
+      ]
+    },
+    "tabs_panes::SplitFolders": {
+      "swift": "WindowRules.SplitFolders",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "explicit": {
+          "type": "String?"
+        },
+        "uninherited": {
+          "type": "String?"
+        },
+        "inherited": {
+          "type": "String?"
+        },
+        "selected": {
+          "type": "String?"
+        },
+        "first": {
+          "type": "String?"
+        }
+      },
+      "init": "explicit, uninherited, inherited, selected, first"
+    },
+    "tabs_panes::SplitFacts": {
+      "swift": "WindowRules.SplitFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "direction": {
+          "type": "String"
+        },
+        "folders": {
+          "type": "SplitFolders"
+        },
+        "tool": {
+          "type": "String"
+        },
+        "page": {
+          "type": "Bool"
+        },
+        "shown": {
+          "type": "Bool"
+        }
+      },
+      "init": "direction, folders, tool, page, shown"
+    },
+    "tabs_panes::SplitPlan": {
+      "swift": "WindowRules.SplitPlan",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "action": {
+          "type": "String"
+        },
+        "edge": {
+          "type": "String"
+        },
+        "horizontal": {
+          "type": "Bool"
+        },
+        "daemon_direction": {
+          "type": "String"
+        },
+        "swap_towards": {
+          "type": "String?"
+        },
+        "split_action": {
+          "type": "String"
+        },
+        "cwd": {
+          "type": "String?"
+        },
+        "tab_cwd": {
+          "type": "String?"
+        }
+      },
+      "init": "action, edge, horizontal, daemonDirection, swapTowards = nil, splitAction, cwd = nil, tabCwd = nil"
+    },
+    "tabs_panes::TabBar": {
+      "swift": "WindowRules.TabBar",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "toggle": {
+          "type": "String?"
+        },
+        "new_tab": {
+          "type": "String?"
+        }
+      },
+      "init": "toggle = nil, newTab = nil"
+    },
+    "restore::SavedWindow": {
+      "swift": "WindowRules.SavedWindow",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "id": {
+          "type": "String"
+        },
+        "open": {
+          "type": "Bool"
+        },
+        "made": {
+          "type": "Bool"
+        }
+      },
+      "init": "id, open, made"
+    },
+    "workspaces::CwdChange": {
+      "swift": "WindowRules.CwdChange",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Set": {
+          "labels": [
+            "_"
+          ],
+          "fields": {
+            "path": {
+              "type": "String"
+            }
+          }
+        }
+      }
+    },
+    "workspaces::DefaultsPatch": {
+      "swift": "WindowRules.DefaultsPatch",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "cwd": {
+          "type": "CwdChange?"
+        },
+        "env": {
+          "type": "[String: String]?"
+        }
+      },
+      "init": "cwd, env"
+    },
+    "workspaces::DefaultsRefusal": {
+      "swift": "WindowRules.DefaultsRefusal",
+      "conforms": [
+        "String",
+        "Decodable",
+        "Error",
+        "Sendable"
+      ]
+    },
+    "workspaces::HeldDefaults": {
+      "swift": "WindowRules.HeldDefaults",
+      "conforms": [
+        "String",
+        "Encodable",
+        "Sendable"
+      ]
+    },
+    "workspaces::ClearDefaults": {
+      "swift": "WindowRules.ClearDefaults",
+      "conforms": [
+        "String",
+        "Decodable",
+        "Sendable"
+      ]
+    },
+    "tabs::NewTabKind": {
+      "swift": "WindowRules.NewTabKind",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Browser": {
+          "labels": [
+            "engine"
+          ],
+          "fields": {
+            "engine": {
+              "type": "String?"
+            }
+          }
+        }
+      }
+    },
+    "tabs::NewTabFacts": {
+      "swift": "WindowRules.NewTabFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "selected_kind": {
+          "type": "String?"
+        },
+        "engine": {
+          "type": "String?"
+        },
+        "local_browser": {
+          "type": "Bool"
+        },
+        "agent": {
+          "type": "Bool"
+        },
+        "new_tab_page": {
+          "type": "Bool"
+        },
+        "user": {
+          "type": "Bool"
+        },
+        "follows_setting": {
+          "type": "Bool"
+        },
+        "can_host_agent": {
+          "type": "Bool"
+        },
+        "terminal_first": {
+          "type": "Bool"
+        }
+      },
+      "init": "selectedKind, engine, localBrowser, agent, newTabPage, user = false, followsSetting = false, canHostAgent = false, terminalFirst = false"
+    },
+    "tabs::Resolution": {
+      "swift": "WindowRules.Resolution",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "url": {
+          "type": "String"
+        },
+        "agent_refuses": {
+          "type": "Bool"
+        },
+        "route": {
+          "type": "String?"
+        },
+        "page": {
+          "type": "String?"
+        }
+      },
+      "init": "url, agentRefuses, route, page"
+    },
+    "tabs::BrowserOpenFacts": {
+      "swift": "WindowRules.BrowserOpenFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "has_text": {
+          "type": "Bool"
+        },
+        "engine": {
+          "type": "String?"
+        },
+        "agent": {
+          "type": "Bool"
+        },
+        "chromium_internal": {
+          "type": "Bool"
+        },
+        "cmux_owned": {
+          "type": "Bool"
+        },
+        "webkit": {
+          "type": "Resolution?"
+        },
+        "chromium": {
+          "type": "Resolution?"
+        }
+      },
+      "init": "hasText, engine, agent, chromiumInternal, cmuxOwned, webkit, chromium"
+    },
+    "tabs::BrowserOpen": {
+      "swift": "WindowRules.BrowserOpen",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Refuse": {
+          "labels": [
+            "_"
+          ],
+          "fields": {
+            "reason": {
+              "type": "String"
+            }
+          }
+        },
+        "Open": {
+          "labels": [
+            "url",
+            "engine"
+          ],
+          "fields": {
+            "url": {
+              "type": "String?"
+            },
+            "engine": {
+              "type": "String?"
+            }
+          }
+        }
+      }
+    },
+    "tabs::BrowserPlacementFacts": {
+      "swift": "WindowRules.BrowserPlacementFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "scripted": {
+          "type": "Bool"
+        },
+        "allows_view_change": {
+          "type": "Bool"
+        },
+        "focused_here": {
+          "type": "Bool"
+        },
+        "beside_caller": {
+          "type": "Bool"
+        },
+        "new_column_beside": {
+          "type": "Bool"
+        },
+        "opens_in_background": {
+          "type": "Bool"
+        }
+      },
+      "init": "scripted, allowsViewChange, focusedHere, besideCaller, newColumnBeside, opensInBackground"
+    },
+    "tabs::BrowserPlacement": {
+      "swift": "WindowRules.BrowserPlacement",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "background": {
+          "type": "Bool"
+        },
+        "agent_driven": {
+          "type": "Bool"
+        }
+      },
+      "init": "background, agentDriven"
+    },
+    "tabs::ReopenFacts": {
+      "swift": "WindowRules.ReopenFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "is_browser": {
+          "type": "Bool"
+        },
+        "current": {
+          "type": "String?"
+        },
+        "target": {
+          "type": "String"
+        },
+        "proxied": {
+          "type": "Bool"
+        },
+        "chromium_unavailable": {
+          "type": "Bool"
+        }
+      },
+      "init": "isBrowser, current, target, proxied, chromiumUnavailable"
+    },
+    "tabs::TerminalChat": {
+      "swift": "WindowRules.TerminalChat",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "Adopt": {
+          "labels": [
+            "harness",
+            "session"
+          ],
+          "fields": {
+            "harness": {
+              "type": "String"
+            },
+            "session": {
+              "type": "String"
+            }
+          }
+        }
+      }
+    },
+    "tabs::ToggleFacts": {
+      "swift": "WindowRules.ToggleFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "terminal": {
+          "type": "Bool"
+        },
+        "chat": {
+          "type": "Bool"
+        },
+        "agent": {
+          "type": "String?"
+        },
+        "session": {
+          "type": "String?"
+        },
+        "running": {
+          "type": "Bool"
+        },
+        "busy": {
+          "type": "Bool"
+        },
+        "hand_off": {
+          "type": "HandOff?"
+        },
+        "hand_off_open": {
+          "type": "Bool"
+        },
+        "now": {
+          "type": "Double"
+        },
+        "cannot_start_terminal": {
+          "type": "Bool"
+        }
+      },
+      "init": "terminal = false, chat = false, agent, session, running = false, busy = false, handOff = nil, handOffOpen = false, now = 0, cannotStartTerminal = false"
+    },
+    "tabs::TerminalChatToggle": {
+      "swift": "WindowRules.TerminalChatToggle",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "cases": {
+        "ToChat": {
+          "labels": [
+            "harness",
+            "session"
+          ],
+          "fields": {
+            "harness": {
+              "type": "String"
+            },
+            "session": {
+              "type": "String"
+            }
+          }
+        },
+        "ToTerminal": {
+          "labels": [
+            "harness",
+            "session"
+          ],
+          "fields": {
+            "harness": {
+              "type": "String"
+            },
+            "session": {
+              "type": "String"
+            }
+          }
+        },
+        "ResumeInTerminal": {
+          "labels": [
+            "harness",
+            "session"
+          ],
+          "fields": {
+            "harness": {
+              "type": "String"
+            },
+            "session": {
+              "type": "String"
+            }
+          }
+        },
+        "HandingOff": {
+          "labels": [
+            "tab"
+          ],
+          "fields": {
+            "tab": {
+              "type": "String?"
+            }
+          }
+        }
+      }
+    },
+    "tabs::DuplicateFacts": {
+      "swift": "WindowRules.DuplicateFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "browser": {
+          "type": "Bool"
+        },
+        "local_browser": {
+          "type": "Bool"
+        },
+        "agent": {
+          "type": "Bool"
+        },
+        "local_page": {
+          "type": "Bool"
+        },
+        "page": {
+          "type": "Bool"
+        }
+      },
+      "init": "browser, localBrowser, agent, localPage, page"
+    },
+    "tabs::MoveToSplitFacts": {
+      "swift": "WindowRules.MoveToSplitFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "direction": {
+          "type": "String?"
+        },
+        "group": {
+          "type": "Bool"
+        },
+        "tabs_in_pane": {
+          "type": "Int"
+        },
+        "chat_dock": {
+          "type": "Bool"
+        },
+        "chat": {
+          "type": "Bool"
+        },
+        "dock_column": {
+          "type": "Bool"
+        }
+      },
+      "init": "direction, group, tabsInPane = 0, chatDock, chat = false, dockColumn = false"
+    },
+    "targets::PastEnd": {
+      "swift": "WindowRules.PastEnd",
+      "conforms": [
+        "String",
+        "Encodable",
+        "Sendable"
+      ]
+    },
+    "targets::Named": {
+      "swift": "WindowRules.Named",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "id": {
+          "type": "String"
+        },
+        "folded": {
+          "type": "String"
+        }
+      },
+      "init": "id, folded"
+    },
+    "targets::TargetRef": {
+      "swift": "WindowRules.TargetRef",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "kind": {
+          "type": "String"
+        },
+        "id": {
+          "type": "String"
+        }
+      },
+      "init": "kind, id"
+    },
+    "targets::Refusal": {
+      "swift": "WindowRules.Refusal",
+      "conforms": [
+        "String",
+        "Decodable",
+        "Sendable"
+      ]
+    },
+    "workspaces::BulkClose": {
+      "swift": "WindowRules.BulkClose",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "id": {
+          "type": "String"
+        },
+        "plan": {
+          "type": "String"
+        },
+        "nothing_to_close": {
+          "type": "String?"
+        },
+        "by_group": {
+          "type": "Bool"
+        }
+      },
+      "init": "id, plan, nothingToClose = nil, byGroup"
+    },
+    "workspaces::CloseFacts": {
+      "swift": "WindowRules.CloseFacts",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "count": {
+          "type": "Int"
+        },
+        "programs": {
+          "type": "[String]"
+        },
+        "ask_without_undo": {
+          "type": "Bool"
+        },
+        "incognito": {
+          "type": "Bool"
+        },
+        "titled": {
+          "type": "Bool"
+        }
+      },
+      "init": "count, programs, askWithoutUndo, incognito, titled"
+    },
+    "workspaces::ClosePrompt": {
+      "swift": "WindowRules.ClosePrompt",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "title": {
+          "type": "Title"
+        },
+        "body": {
+          "type": "Body"
+        },
+        "suppresses_warning": {
+          "type": "Bool"
+        }
+      },
+      "init": "title, body, suppressesWarning"
+    },
+    "workspaces::NotesVerb": {
+      "swift": "WindowRules.NotesVerb",
+      "conforms": [
+        "Sendable"
+      ],
+      "cases": {
+        "Describe": {
+          "labels": [
+            "_"
+          ],
+          "fields": {
+            "text": {
+              "type": "String?"
+            }
+          }
+        },
+        "CycleStatus": {
+          "labels": [
+            "current"
+          ],
+          "fields": {
+            "current": {
+              "type": "String?"
+            }
+          }
+        },
+        "SetStatus": {
+          "labels": [
+            "_"
+          ],
+          "fields": {
+            "status": {
+              "type": "String?"
+            }
+          }
+        }
+      }
+    },
+    "workspaces::NotesUpdate": {
+      "swift": "WindowRules.NotesUpdate",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "description": {
+          "type": "FieldChange"
+        },
+        "task_status": {
+          "type": "FieldChange"
+        },
+        "capabilities": {
+          "type": "[String]"
+        }
+      },
+      "init": "description, taskStatus, capabilities"
+    },
+    "workspaces::DirectoryTab": {
+      "swift": "WindowRules.DirectoryTab",
+      "conforms": [
+        "Encodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "id": {
+          "type": "String"
+        },
+        "cwd": {
+          "type": "String?"
+        },
+        "terminal": {
+          "type": "Bool"
+        }
+      },
+      "init": "id, cwd, terminal"
+    },
+    "workspaces::FocusPlan": {
+      "swift": "WindowRules.FocusPlan",
+      "conforms": [
+        "Decodable",
+        "Equatable",
+        "Sendable"
+      ],
+      "fields": {
+        "expands": {
+          "type": "Bool"
+        },
+        "workspace": {
+          "type": "String?"
+        },
+        "reopens": {
+          "type": "Bool"
+        }
+      },
+      "init": "expands, workspace, reopens"
+    },
+    "workspaces::ScreenClose": {
+      "swift": "WindowRules.ScreenClose",
+      "conforms": [
+        "String",
+        "Encodable",
+        "Sendable"
+      ]
+    }
+  }
+}

@@ -135,13 +135,33 @@ class Emitter:
     def __init__(self, items: dict[str, Item], bindings: dict[str, Any]):
         self.items = items
         self.bindings = bindings
-        self.namespace: str = bindings["namespace"]
         self.types: dict[str, dict[str, Any]] = bindings.get("types", {})
-        self.names: dict[str, str] = dict(bindings.get("names", {}))
+        self.names: dict[str, str] = dict(bindings.get("names", {}))  # hand-written: Rust name -> Swift type
+        self.swift_of: dict[str, str] = {}  # `module::Name` -> its full Swift name (`WindowRules.ClosingTab`)
+        by_name: dict[str, list[str]] = {}
         for key, options in self.types.items():
             if key not in items:
                 raise BindingError(f"{key}: no such struct or enum in the crate")
-            self.names[items[key].name] = options.get("swift", items[key].name)
+            if "swift" not in options or "." not in options["swift"]:
+                raise BindingError(f"{key}: `swift` must name the type in its namespace (`WindowRules.ClosingTab`)")
+            self.swift_of[key] = options["swift"]
+            by_name.setdefault(items[key].name, []).append(key)
+        self.by_name = by_name
+
+    def resolve(self, name: str, context: str) -> str:
+        """A Rust type name used in `context` (`module::Type...`): its own module's, else the only one bound."""
+        module = context.rsplit("::", 1)[0] if "::" in context else ""
+        own = f"{module}::{name}" if module else name
+        if own in self.swift_of:
+            return self.swift_of[own]
+        bound = self.by_name.get(name, [])
+        if len(bound) == 1:
+            return self.swift_of[bound[0]]
+        if name in self.names:
+            return self.names[name]
+        if len(bound) > 1:
+            raise BindingError(f"{context}: {name} is bound in {bound}; name it in the field's `type`")
+        raise BindingError(f"{context}: {name} is neither generated nor named in `names`")
 
     # Types
 
@@ -166,9 +186,7 @@ class Emitter:
             return self.swift_type(args[-1], context)
         if args or not re.fullmatch(r"[A-Z]\w*", head):
             raise BindingError(f"{context}: the Rust type {rust!r} has no Swift type (bind it in `fields`)")
-        if head not in self.names:
-            raise BindingError(f"{context}: {head} is neither generated nor named in `names`")
-        return self.names[head]
+        return self.resolve(head, context)
 
     def default_for(self, swift: str, rust: str) -> str | None:
         if swift.endswith("?"):
@@ -209,21 +227,16 @@ class Emitter:
     def render(self, keys: list[str]) -> str:
         groups: dict[str, list[str]] = {}
         for key in keys:
-            options = self.types[key]
-            swift = options.get("swift", self.items[key].name)
-            parent = ".".join([self.namespace, *swift.split(".")[:-1]])
+            parent = self.swift_of[key].rsplit(".", 1)[0]
             groups.setdefault(parent, []).append(self.render_type(key))
-        lines = [HEADER_MARK + ". Do not edit: the types are Rust's (window_rules.json says which)."]
-        lines += [f"{line}" for line in self.bindings.get("imports", [])]
+        lines = [HEADER_MARK, "// Do not edit: the types are Rust's (cmux-tui/crates); the bindings file says which and how."]
+        lines += list(self.bindings.get("imports", []))
         for parent, bodies in groups.items():
-            lines.append("")
-            lines.append(f"extension {parent} {{")
-            lines.append("\n\n".join(bodies))
-            lines.append("}")
+            lines += ["", f"extension {parent} {{", "\n\n".join(bodies), "}"]
         return "\n".join(lines) + "\n"
 
     def header(self, key: str, item: Item, options: dict[str, Any], conformances: list[str], kind: str) -> list[str]:
-        name = options.get("swift", item.name).split(".")[-1]
+        name = options["swift"].split(".")[-1]
         access = options.get("access", "public")
         modifiers = " ".join(part for part in (access if access != "internal" else "", "nonisolated") if part)
         docs = [f"    /// {line}".rstrip() for line in item.attrs.docs]
@@ -279,11 +292,9 @@ class Emitter:
             lines += [f"        /// {line}".rstrip() for line in prop.docs]
             initial = f" = {prop.default}" if prop.default is not None and prop.default != "nil" else ""
             lines.append(f"        {member}var {ident(prop.swift)}: {prop.type}{initial}")
-        if options.get("init", True):
-            parameters = ", ".join(
-                f"{ident(p.swift)}: {p.type}" + (f" = {p.default}" if p.default is not None else "") for p in props
-            )
-            lines += ["", f"        {member}init({parameters}) {{"]
+        initializer = self.initializer(key, props, options.get("init", True))
+        if initializer:
+            lines += ["", f"        {member}init({initializer}) {{"]
             lines += [f"            self.{ident(p.swift)} = {ident(p.swift)}" for p in props]
             lines.append("        }")
         renamed = any(p.swift != p.wire for p in props)
@@ -299,6 +310,24 @@ class Emitter:
             lines.append("        }")
         lines.append("    }")
         return "\n".join(lines)
+
+    def initializer(self, key: str, props: list[Prop], spec: bool | str) -> str | None:
+        """The memberwise init's parameters: every property in Rust's order with its default (`true`), none (`false`),
+        or the bindings' list (`"a, b, c = false"`: the hand-written init's order and defaults, which callers use)."""
+        if spec is False:
+            return None
+        if spec is True:
+            return ", ".join(f"{ident(p.swift)}: {p.type}" + (f" = {p.default}" if p.default is not None else "") for p in props)
+        by_name = {p.swift: p for p in props}
+        parameters = []
+        for part in spec.split(","):
+            name, _, default = (piece.strip() for piece in part.partition("="))
+            if name not in by_name:
+                raise BindingError(f"{key}: init names {name!r}, which is not a property")
+            parameters.append(f"{ident(name)}: {by_name.pop(name).type}" + (f" = {default}" if default else ""))
+        if by_name:
+            raise BindingError(f"{key}: init leaves out {sorted(by_name)}")
+        return ", ".join(parameters)
 
     def read(self, p: Prop) -> str:
         bare = p.type[:-1] if p.optional else p.type
