@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46115311587",
+  "recorded_at": "2026-11-28T06:32:41Z",
+  "reason": "image inputs changed in 750b51024be01f995a529d189d02510114a7a088..57c3c73a59a17b68a23c703ef6e89c8a65b10f05; cmux-tui 0d15ef715a33, the newest build published on HEAD (pinned d92f892154f3; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "0d15ef715a339d803ff7068d28de6d88c21aec9f",
+  "fixes": [
+    {
+      "sha": "57c3c73a59a17b68a23c703ef6e89c8a65b10f05",
+      "mergedAt": "2026-11-28T06:09:30Z",
+      "subject": "devbox ws smoke: 90 s output bound for cold restores; a blank pane names its processes and load (#64146)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-28T06:32:41Z",
+    "snapshot_id": "sh-6864e9e162214374af81c71d22cfe1d0",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 46115311587): 35 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "397f9a5ca34236518282bc331c4caa3f6ddd097c",
+    "image": "cloud-native-auto-0d15ef71-46115311587-1",
+    "revision": "ci-46115311587-1",
+    "at": "2026-11-28T06:32:41Z"
+  },
+  "rolled_back": false
+}
