@@ -179,6 +179,21 @@ describe("retryFreestyleOverload", () => {
     expect(calls).toBeGreaterThan(1);
   });
 
+  test("an ask that outlasts the budget in Freestyle's queue is still asked again", async () => {
+    // Rebake run 46028301324: the verify start sat ten minutes in the capacity queue, then 429.
+    let calls = 0;
+    const vm = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      if (calls < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        throw overloaded;
+      }
+      return "vm-1";
+    }, 30, 5);
+    expect(vm).toBe("vm-1");
+    expect(calls).toBe(3);
+  });
+
   test("with isFreestyleTransient asks again after a 500, as a resize needs, and still rethrows a 4xx", async () => {
     // Rebake run 45889121287: POST /v5/vms/ID/resize answered 500 INTERNAL_ERROR once.
     const internal = Object.assign(new Error("Internal server error"), { status: 500, code: "INTERNAL_ERROR" });

@@ -164,6 +164,8 @@ async fn start_adopted(spec: &SpawnSpec, adopt: Adopt) -> Result<Started> {
         host_level: HOST_LEVEL,
         // A replacement host is the holder of the harness it took over.
         holder: Some(true),
+        local_chatgpt_expiry: spec.local_chatgpt_expiry,
+        local_kimi_expiry: spec.local_kimi_expiry,
     };
     write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record)?;
     cleanup.paths.clear();
@@ -204,6 +206,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     cmd.args(&spec.args)
         .env_clear()
         .envs(spec.env.iter().map(|(k, v)| (k, v)))
+        .env_remove(crate::agent_credentials::LOCAL_REDACTION)
         // What this host started is found by it after the host is killed (`end_left_behind`).
         .env(super::HOST_MARK, &nonce)
         .current_dir(&spec.cwd)
@@ -251,6 +254,8 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         claude_translator: spec.translator.is_some(),
         host_level: HOST_LEVEL,
         holder: Some(holder.is_some()),
+        local_chatgpt_expiry: spec.local_chatgpt_expiry,
+        local_kimi_expiry: spec.local_kimi_expiry,
     };
     if let Err(e) = write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record) {
         if let Some(pg) = child.id() {
@@ -415,6 +420,8 @@ struct Retained {
 struct State {
     record: HostRecord,
     spec: SpawnSpec,
+    launch_key_index: Option<usize>,
+    harness_start: Option<u64>,
     /// Retained entries as their encoded frames: encoded once in `push`, sent as is
     /// (live and on resume), weighed by their size.
     entries: VecDeque<Retained>,
@@ -589,6 +596,12 @@ impl Started {
             let ring = holder.fds.ring.clone();
             Ok(Box::new(super::custody::RingPipe::new(pipe, ring, holder.replay_from)?))
         };
+        let harness_start = match &harness {
+            Harness::Spawned(_) => record.harness_pid.and_then(crate::owner_exit::process_start),
+            Harness::Adopted { .. } => {
+                holder.as_ref().and_then(|h| h.adopt.as_ref()?.harness_start)
+            }
+        };
         let (stdin, stdout, stderr, pgid, exit): (
             Writer,
             Reader,
@@ -701,13 +714,22 @@ impl Started {
         {
             let tx = events_tx.clone();
             let alive = leader_alive.clone();
+            let scratch = spec.copilot_scratch.as_ref().map(|scratch| scratch.path.clone());
+            let session = spec.session_id.clone();
+            let home = spec.hosts_dir.parent().map(Path::to_owned);
             tokio::spawn(async move {
+                let clean = || {
+                    if let (Some(path), Some(home)) = (&scratch, &home) {
+                        crate::agent::copilot_auth::remove_host_launch(home, &session, path);
+                    }
+                };
                 let mut child = match exit {
                     HarnessExit::Child(child) => child,
                     // No child of this host: its exit status is not known here, and its leader
                     // is reaped by another, so its group is not proven ours once it exited.
                     HarnessExit::Watch(watch) => {
                         watch.exited().await;
+                        clean();
                         alive.store(false, std::sync::atomic::Ordering::SeqCst);
                         let _ = tx.send(Event::Exited(None)).await;
                         return;
@@ -725,6 +747,7 @@ impl Started {
                     unsafe { libc::killpg(pg, libc::SIGKILL) };
                 }
                 let code = child.wait().await.ok().and_then(|s| s.code());
+                clean();
                 // Reaped: from here the group id may be freed; nobody may
                 // signal it on the strength of the leader being alive.
                 alive.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -807,6 +830,8 @@ impl Started {
         let (start_h, start_out_id) = resumed_at.map_or((0, 0), |a| (a.last_h, a.max_out_id));
         let mut state = State {
             record,
+            launch_key_index: spec.launch_key_index(),
+            harness_start,
             spec,
             entries: VecDeque::new(),
             weight: 0,
@@ -1087,6 +1112,39 @@ fn over_frame_limit_note(h: u64) -> Entry {
     Entry::Err { line: format!("[entry {h} over the frame limit dropped]") }
 }
 
+fn redact_launch_key(entry: &mut Entry, key: &str) {
+    fn redact_text(text: &mut String, key: &str) {
+        if text.contains(key) {
+            *text = text.replace(key, "[redacted]");
+        }
+    }
+
+    fn redact_json(value: &mut Value, key: &str) {
+        match value {
+            Value::String(text) => redact_text(text, key),
+            Value::Array(items) => items.iter_mut().for_each(|item| redact_json(item, key)),
+            Value::Object(fields) => {
+                if fields.keys().any(|name| name.contains(key)) {
+                    *fields = std::mem::take(fields)
+                        .into_iter()
+                        .map(|(name, value)| {
+                            (crate::agent_credentials::redact_line(name, Some(key)), value)
+                        })
+                        .collect();
+                }
+                fields.values_mut().for_each(|value| redact_json(value, key));
+            }
+            _ => {}
+        }
+    }
+
+    match entry {
+        Entry::Tap { msg, .. } | Entry::In { msg } => redact_json(msg, key),
+        Entry::Err { line } => redact_text(line, key),
+        Entry::Exit { .. } => {}
+    }
+}
+
 impl State {
     /// Note the processes under this host before its harness group is
     /// ended, while the harness still parents what it moved out of it.
@@ -1121,7 +1179,10 @@ impl State {
     }
 
     /// [`Self::push`], carrying ring offset `o` (`custody.rs`).
-    fn push_at(&mut self, entry: Entry, o: Option<u64>) {
+    fn push_at(&mut self, mut entry: Entry, o: Option<u64>) {
+        if let Some(key) = self.spec.launch_key(self.launch_key_index) {
+            redact_launch_key(&mut entry, key);
+        }
         self.orphan.note_entry(&entry);
         let h = self.next_h + 1;
         // One serialization per entry: the bytes are sent and kept (perf100: the entry was
@@ -1581,11 +1642,22 @@ impl State {
                 let _ = old.tx.send(HostFrame::Superseded);
             }
             let exited = self.exit_h.map(|_| self.leader_code.unwrap_or(None));
+            let harness_start = self.harness_start;
+            // The base host omitted the start time from Hello even for a live harness.
+            #[cfg(all(target_os = "linux", debug_assertions))]
+            let harness_start = harness_start.filter(|_| {
+                !self
+                    .spec
+                    .env
+                    .iter()
+                    .any(|(key, value)| key == "ACPMUX_TEST_LEGACY_HOST_HELLO" && value == "1")
+            });
             let _ = tx.send(HostFrame::HostHello {
                 version,
                 host_build: self.record.host_build.clone(),
                 incarnation: self.record.incarnation.clone(),
                 harness_pid: self.record.harness_pid,
+                harness_start,
                 last_h: self.next_h,
                 acked_h: self.acked_h,
                 max_out_id: self.max_out_id,
@@ -1838,3 +1910,73 @@ fn can_enter(dir: &std::path::Path) -> bool {
 #[cfg(test)]
 #[path = "host_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod launch_key_redaction_tests {
+    use super::*;
+
+    #[test]
+    fn local_route_keys_are_redacted_without_becoming_cloud_credentials() {
+        for name in [
+            "OPENROUTER_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "XAI_API_KEY",
+            crate::agent_credentials::CHATGPT_TOKEN,
+        ] {
+            let key = "fixture-local-provider-key";
+            let spec: SpawnSpec = serde_json::from_value(serde_json::json!({
+                "session_id": "chat",
+                "program": "fixture",
+                "args": [],
+                "env": [[name, key], [crate::agent_credentials::LOCAL_REDACTION, name]],
+                "cwd": "/",
+                "hosts_dir": "/",
+                "socket": "/unused",
+                "buffer_cap": 1024
+            }))
+            .unwrap();
+            let mut entry = Entry::Err { line: format!("provider refused {key}") };
+            redact_launch_key(&mut entry, spec.launch_key(spec.launch_key_index()).unwrap());
+            assert_eq!(entry, Entry::Err { line: "provider refused [redacted]".into() });
+            let process_env =
+                format!("{}={name}\0{name}={key}\0", crate::agent_credentials::LOCAL_REDACTION);
+            assert!(crate::agent_credentials::recovered(process_env.as_bytes()).is_none());
+        }
+    }
+
+    #[test]
+    fn local_kimi_grants_are_redacted_without_a_cloud_recovery_marker() {
+        let grant = "fixture-kimi-grant";
+        let spec: SpawnSpec = serde_json::from_value(serde_json::json!({
+            "session_id": "chat",
+            "program": "opencode",
+            "args": [],
+            "env": [[crate::byo_endpoint::OPENAI_KEY_ENV, grant]],
+            "cwd": "/",
+            "hosts_dir": "/",
+            "socket": "/unused",
+            "buffer_cap": 1024
+        }))
+        .unwrap();
+        let key = spec.launch_key(spec.launch_key_index()).expect("the host registers the grant");
+        let mut entry = Entry::Err { line: format!("provider refused {grant}") };
+        redact_launch_key(&mut entry, key);
+        assert_eq!(entry, Entry::Err { line: "provider refused [redacted]".into() });
+    }
+
+    #[test]
+    fn endpoint_launch_credentials_are_redacted_from_host_entries() {
+        let token = "fixture-provider-key";
+        let mut line = Entry::Err { line: format!("provider refused {token}") };
+        let mut event = Entry::In {
+            msg: serde_json::json!({"params": {"text": token, token: "provider metadata"}}),
+        };
+        for entry in [&mut line, &mut event] {
+            redact_launch_key(entry, token);
+            let json = serde_json::to_string(entry).unwrap();
+            assert!(!json.contains(token));
+            assert!(json.contains("[redacted]"));
+        }
+    }
+}

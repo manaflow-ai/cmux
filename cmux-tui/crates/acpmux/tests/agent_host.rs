@@ -69,6 +69,9 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         orphan_exit: None,
         prompt_suggestions_managed: None,
         holder: None,
+        copilot_scratch: None,
+        local_chatgpt_expiry: None,
+        local_kimi_expiry: None,
     }
 }
 
@@ -370,6 +373,70 @@ async fn a_host_with_no_holder_answers_a_custody_ask_with_no() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[tokio::test]
+async fn a_replacement_host_keeps_a_partial_line_ending_in_a_key_prefix() {
+    let dir = scratch("split-grant");
+    let mut launch = spec(&dir, "s-split-grant");
+    launch.holder = Some(agent_host::HolderSpec::default());
+    launch.env.extend([
+        ("ACPMUX_LOCAL_CREDENTIAL_REDACTION".into(), "FIXTURE_LAUNCH_KEY".into()),
+        ("FIXTURE_LAUNCH_KEY".into(), "fixture-prefix-secret".into()),
+    ]);
+    launch.args = vec![
+        "-c".into(),
+        r#"
+import os, pathlib, sys, time
+os.write(1, b'{"jsonrpc":"2.0","method":"fixture/first"}\n'
+            b'{"jsonrpc":"2.0","method":"fixture/second","params":{"text":"fixture-prefix-')
+deadline = time.monotonic() + 20
+while not pathlib.Path("continue").exists() and time.monotonic() < deadline:
+    time.sleep(0.01)
+os.write(1, b'ordinary","echo":"' + os.environ['FIXTURE_LAUNCH_KEY'].encode() + b'"}}\n')
+sys.stdin.read()
+"#
+        .into(),
+    ];
+
+    let launcher = launcher();
+    let record = link::spawn(&launcher, &launch).await.unwrap();
+    let (owner, _) = connected(&record, 0).await;
+    let is_first =
+        |entry: &Entry| matches!(entry, Entry::In { msg } if msg["method"] == "fixture/first");
+    let mut after = 0;
+    // The first notification and the partial line arrive in the same pipe write.
+    read_until(&owner, &mut after, is_first).await;
+    let offset = owner.take_offset_through(after).unwrap();
+    let custody = {
+        let record = record.clone();
+        tokio::task::spawn_blocking(move || agent_host::custody::take(&record))
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+    };
+    let lock = live_lock(&dir, &record);
+    // SAFETY: the original host belongs to this fixture.
+    assert_eq!(unsafe { libc::kill(record.host_pid as i32, libc::SIGKILL) }, 0);
+    wait_dead(lock).await;
+
+    let replacement =
+        agent_host::custody::respawn(&launcher, &custody, after, 0, offset).await.unwrap();
+    let (owner, _) = connected(&replacement, after).await;
+    std::fs::write(dir.join("continue"), "").unwrap();
+    let seen = read_until(
+        &owner,
+        &mut after,
+        |entry| matches!(entry, Entry::In { msg } if msg["method"] == "fixture/second"),
+    )
+    .await;
+    let Entry::In { msg } = &seen.last().unwrap().1 else { unreachable!() };
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    assert_eq!(msg["params"]["text"], "fixture-prefix-ordinary");
+    assert_eq!(msg["params"]["echo"], "[redacted]");
+    drop(custody);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Only a harness that speaks ACP itself keeps a holder: a bridged (Codex) or translated
 /// (Claude) spec gets none, its record says so, and its daemon does not ask for custody
 /// (`HostRecord::may_hold`, which `take_custody` reads). A host of an older build, which says
@@ -664,6 +731,8 @@ fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace(
         claude_translator: false,
         host_level: 0,
         holder: None,
+        local_chatgpt_expiry: None,
+        local_kimi_expiry: None,
     };
     let wrong = record("wrong-socket", outside_socket.clone());
     let wrong_path = hosts.join("wrong-socket.json");

@@ -163,6 +163,8 @@ pub enum HostFrame {
         host_build: String,
         incarnation: String,
         harness_pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        harness_start: Option<u64>,
         /// Last entry sequence assigned.
         last_h: u64,
         /// Last entry the controller acknowledged.
@@ -241,7 +243,7 @@ impl Entry {
 /// What the controller asks the host to run. Sent once on the private
 /// bootstrap pipe; never written to disk (it carries the environment), but
 /// for the caller token the host keeps in its record (`HostRecord::caller_token`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SpawnSpec {
     pub session_id: String,
     pub program: String,
@@ -280,6 +282,59 @@ pub struct SpawnSpec {
     /// neither (the holder off, or a daemon that predates it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub holder: Option<HolderSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copilot_scratch: Option<CopilotScratch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_chatgpt_expiry: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_kimi_expiry: Option<i64>,
+}
+
+/// On the private host pipe only. The grant is used to redact output, never exported.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CopilotScratch {
+    pub path: PathBuf,
+    pub redaction: String,
+}
+
+impl SpawnSpec {
+    fn launch_key(&self, index: Option<usize>) -> Option<&str> {
+        self.copilot_scratch
+            .as_ref()
+            .map(|scratch| scratch.redaction.as_str())
+            .or_else(|| index.and_then(|index| self.env.get(index).map(|(_, key)| key.as_str())))
+    }
+
+    /// The per-launch key's index in the existing environment, for output redaction.
+    fn launch_key_index(&self) -> Option<usize> {
+        if let Some(index) = self.local_launch_key_index() {
+            return Some(index);
+        }
+        let name = self
+            .env
+            .iter()
+            .find(|(name, _)| name == crate::agent_credentials::MARKER)
+            .map_or(crate::byo_endpoint::OPENAI_KEY_ENV, |(_, name)| name.as_str());
+        if !crate::agent_credentials::NAMES.contains(&name) {
+            return None;
+        }
+        self.env.iter().position(|(key, value)| key == name && !value.is_empty())
+    }
+
+    fn local_launch_key_index(&self) -> Option<usize> {
+        let (_, name) =
+            self.env.iter().find(|(name, _)| name == crate::agent_credentials::LOCAL_REDACTION)?;
+        self.env.iter().position(|(key, value)| key == name && !value.is_empty())
+    }
+}
+
+impl std::fmt::Debug for SpawnSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SpawnSpec")
+            .field("session_id", &self.session_id)
+            .field("env_names", &self.env.iter().map(|(name, _)| name).collect::<Vec<_>>())
+            .finish_non_exhaustive()
+    }
 }
 
 /// `SpawnSpec::holder`: the host keeps an output ring and hands custody to its daemon.
@@ -428,6 +483,10 @@ pub struct HostRecord {
     /// which may hold one; it is asked as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub holder: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_chatgpt_expiry: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_kimi_expiry: Option<i64>,
 }
 
 impl SpawnSpec {

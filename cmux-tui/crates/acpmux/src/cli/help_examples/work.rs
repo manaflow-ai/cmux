@@ -748,13 +748,27 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     (
         "exec-router",
-        &[("Show where the last heavy commands ran, and why", "acpmux exec-router trace")],
+        &[
+            ("Show where the last heavy commands ran, and why", "acpmux exec-router trace"),
+            ("Prove local and routed give identical results", "acpmux exec-router conformance"),
+        ],
     ),
     (
         "exec-router trace",
         &[
             ("Show the last 20 routing decisions", "acpmux exec-router trace"),
             ("The last 100, as JSON rows", "acpmux --json exec-router trace --last 100"),
+        ],
+    ),
+    (
+        "exec-router conformance",
+        &[
+            ("Run every case here and routed, and compare", "acpmux exec-router conformance"),
+            ("One JSON row per case, then the summary", "acpmux --json exec-router conformance"),
+            (
+                "Only two cases, keeping the work copies",
+                "acpmux exec-router conformance --case failing-exit --case cargo-build-test --keep",
+            ),
         ],
     ),
 ];

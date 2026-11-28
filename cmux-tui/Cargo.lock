@@ -130,6 +130,7 @@ dependencies = [
  "rusqlite",
  "rustls",
  "schemars 1.2.2",
+ "security-framework",
  "serde",
  "serde_json",
  "sha1",
@@ -1602,9 +1603,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-egress",
  "getrandom 0.3.4",
  "reqwest",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
  "tokio",
@@ -1778,6 +1781,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -3839,6 +3843,7 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "cmux-config",
+ "cmux-json",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
