@@ -514,6 +514,18 @@ describe("auto-roll settle", () => {
     expect(settle(roll({ deploy: "skipped", product: "", tipHas: false })).outcome).toBe("superseded");
   });
 
+  test("a roll whose deploy job failed before its Worker deploy step is deployed again, within the bound", () => {
+    // 0d1e69fa-46184101136-1, 2026-11-28: the ordering gate found production's database full (53300) and the image was
+    // rolled back though the Worker was never touched.
+    for (let attempt = 1; attempt < ROLLBACK_DEPLOYS; attempt++)
+      expect(settle(roll({ deploy: "failure", product: "", bootImage: "", workerDeployRan: false, attempt }))).toMatchObject({ outcome: "retry", nextAttempt: attempt + 1 });
+    expect(settle(roll({ deploy: "failure", product: "", bootImage: "", workerDeployRan: false, attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback");
+    // A Worker deploy that ran (or is not known not to have run) and failed still rolls back.
+    expect(settle(roll({ deploy: "failure", product: "", bootImage: "", workerDeployRan: true })).outcome).toBe("rollback");
+    expect(settle(roll({ deploy: "failure", product: "", bootImage: "" })).outcome).toBe("rollback");
+    expect(settle(roll({ deploy: "cancelled", product: "", bootImage: "", workerDeployRan: false })).outcome).toBe("rollback");
+  });
+
   test("a deployed roll whose smoke job never ran a step (lost runner) is deployed and smoked again, within the bound", () => {
     // 99de33e5-45840828684-1, 2026-11-26: deploy-production green, smoke-production's runner lost the server in setup.
     for (let attempt = 1; attempt < ROLLBACK_DEPLOYS; attempt++)

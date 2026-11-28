@@ -276,6 +276,13 @@ export function handleCmuxCommand(
     });
   }
   if (command.action === "fork") {
+    // Fork Conversation's own fork (`chat.forkTo`): a working chat forks as it is now and its turn
+    // goes on, an idle one through its latest finished turn (cmux#59876: "/fork is unavailable"
+    // while a turn ran, though Fork Conversation and /side already forked a working chat).
+    if (snapshot.isWorking || forkSeq === undefined) {
+      ignoreFailure(callNative("chat.forkTo", {}));
+      return true;
+    }
     ignoreFailure(callNative("chat.fork", { throughSeq: forkSeq }));
     return true;
   }
