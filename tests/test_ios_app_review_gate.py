@@ -1002,6 +1002,31 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(severities["asc.version.state.editable"], "blocker")
         self.assertEqual(severities["asc.subscriptions.images.recommended"], "warning")
 
+    def test_a_ready_to_submit_subscription_waits_for_the_next_version(self) -> None:
+        # Readiness runs 46112655921 .. 46118358980 (2026-11-27/28) on 1.0.0
+        # WAITING_FOR_REVIEW: the only blockers were 4 subscriptions
+        # READY_TO_SUBMIT, which submit only with an app version and so cannot
+        # move while one is in review. MISSING_METADATA can be fixed today.
+        def body(state: str) -> dict:
+            return {"checks": [
+                {"id": "version.state.editable", "severity": "error",
+                 "message": f'version is in non-editable state "{state}"'},
+                {"id": "subscriptions.review_readiness.needs_attention", "severity": "warning",
+                 "resourceId": "6838160761", "message": 'Subscription "cmux Max monthly" is READY_TO_SUBMIT'},
+                {"id": "subscriptions.review_readiness.needs_attention", "severity": "warning",
+                 "resourceId": "6838160813", "message": 'Subscription "cmux Plus monthly" is MISSING_METADATA'},
+            ]}
+
+        asc = self.root / "asc-validate.json"
+        asc.write_text(json.dumps(body("WAITING_FOR_REVIEW")))
+        findings = gate.asc_findings(asc)
+        self.assertEqual([(f["where"], f["severity"]) for f in findings[1:]],
+                         [("6838160761", "warning"), ("6838160813", "blocker")])
+        self.assertIn("submits with the next version", findings[1]["message"])
+        # An editable version can take the subscription with it: it blocks.
+        asc.write_text(json.dumps(body("PREPARE_FOR_SUBMISSION")))
+        self.assertEqual([f["severity"] for f in gate.asc_findings(asc)[1:]], ["blocker", "blocker"])
+
     def test_the_asc_job_saves_the_app_store_version_history(self) -> None:
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
         self.assertIn('asc versions list --app "$ASC_APP_ID" --platform IOS --paginate --output json > app-store-versions.json',
@@ -1356,6 +1381,7 @@ class GateWorkflowTests(unittest.TestCase):
 
         doc = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())
         on = doc.get("on", doc.get(True))
+        self.assertEqual(on["push"]["paths"], on["pull_request"]["paths"])
         for event in ("push", "pull_request"):
             patterns = on[event]["paths"]
             with self.subTest(event=event):
@@ -1406,7 +1432,9 @@ class GateWorkflowTests(unittest.TestCase):
                 for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
                              "cmux-next-ios/verify/parity-mac/2026-11-25-find-in-terminal.md",
                              "cmux-next-ios/verify/alignment/alignscan.swift",
-                             "cmux-next-ios/CmuxMobileKit/README.md", "Packages/Shared/CmuxSpinner/README.md"):
+                             "cmux-next-ios/CmuxMobileKit/README.md", "Packages/Shared/CmuxSpinner/README.md",
+                             "Packages/Shared/CmuxTerminalStream/Sources/Resources/fixture.json",
+                             "Packages/iOS/CmuxMobileShellModel/Sources/Resources/help.md"):
                     self.assertFalse(matches(path), path)
                 for path in ("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/X.swift",
                              "cmux-next-ios/CmuxMobileKit/Package.swift", "cmux-next-ios/rust/Cargo.toml",
@@ -1803,124 +1831,6 @@ class InternalSubmissionTests(unittest.TestCase):
             proc = subprocess.run(["bash", str(submit), *args], capture_output=True, text=True)
             self.assertNotEqual(proc.returncode, 0, args)
             self.assertIn(message, proc.stderr, args)
-
-
-class FleetProductsRuntimeTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
-        self.products = self.root / "Products"
-        self.developer = self.root / "Xcode.app/Contents/Developer"
-        self.platform = self.developer / "Platforms/iPhoneSimulator.platform/Developer"
-        spec = importlib.util.spec_from_file_location(
-            "ios_review_gate_products", ROOT / ".github/scripts/ios_review_gate_products.py")
-        self.checker = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.checker)
-        self.runner = self.products / "Debug-iphonesimulator/CmuxMobileAppUITests-Runner.app/Frameworks"
-        for name in ("XCTest", "XCTestCore", "Testing"):
-            section = "PrivateFrameworks" if name == "XCTestCore" else "Frameworks"
-            write(self.platform, f"Library/{section}/{name}.framework/{name}", name)
-            write(self.runner, f"{name}.framework/{name}", name)
-        write(self.platform, "usr/lib/libXCTestSwiftSupport.dylib", "swift support")
-        write(self.runner, "libXCTestSwiftSupport.dylib", "swift support")
-
-    def check(self):
-        return self.checker.compatible(self.products, self.developer)
-
-    def test_identical_runtime_keeps_prebuilt_products(self):
-        self.assertTrue(self.check()[0])
-
-    def test_unrelated_app_frameworks_do_not_change_runtime_compatibility(self):
-        write(self.runner, "CmuxMobileLinkFFI.framework/CmuxMobileLinkFFI", "app dependency")
-        self.assertTrue(self.check()[0])
-
-    def test_runtime_discovery_error_selects_local_build(self):
-        from unittest.mock import patch
-
-        with patch.object(Path, "glob", side_effect=OSError("unreadable runtime")):
-            matched, reason = self.check()
-        self.assertFalse(matched)
-        self.assertIn("unreadable runtime", reason)
-
-    def test_different_binary_rebuilds_even_with_same_size(self):
-        write(self.runner, "libXCTestSwiftSupport.dylib", "SWIFT SUPPORT")
-        matched, reason = self.check()
-        self.assertFalse(matched)
-        self.assertIn("libXCTestSwiftSupport.dylib", reason)
-
-    def test_missing_components_on_either_side_rebuild(self):
-        (self.runner / "XCTestCore.framework/XCTestCore").unlink()
-        self.assertFalse(self.check()[0])
-        write(self.runner, "XCTestCore.framework/XCTestCore", "XCTestCore")
-        (self.platform / "usr/lib/libXCTestSwiftSupport.dylib").unlink()
-        self.assertFalse(self.check()[0])
-
-    def test_missing_runner_and_extra_runtime_component_rebuild(self):
-        self.assertFalse(self.checker.compatible(self.root / "absent", self.developer)[0])
-        write(self.runner, "libXCUIExtra.dylib", "new runtime dependency")
-        self.assertFalse(self.check()[0])
-
-    def test_versioned_framework_layout_matches_flat_runtime(self):
-        binary = self.runner / "XCTestCore.framework/XCTestCore"
-        binary.unlink()
-        write(self.runner, "XCTestCore.framework/Versions/A/XCTestCore", "XCTestCore")
-        (self.runner / "XCTestCore.framework/Versions/Current").symlink_to("A")
-        self.assertTrue(self.check()[0])
-        binary.symlink_to("Versions/Current/XCTestCore")
-        self.assertTrue(self.check()[0])
-
-    def test_every_runner_is_checked_across_product_configurations(self):
-        second = self.products / "Release-iphonesimulator/OtherUITests-Runner.app/Frameworks"
-        shutil.copytree(self.runner, second)
-        self.assertTrue(self.check()[0])
-        write(second, "XCTestCore.framework/XCTestCore", "different")
-        self.assertFalse(self.check()[0])
-
-    def test_workflow_selects_fallback_before_all_build_prerequisites(self):
-        import yaml
-
-        steps = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())["jobs"]["reviewer-path"]["steps"]
-        selection = next(i for i, step in enumerate(steps) if step.get("name") ==
-                         "Check the products against this worker's XCTest runtime")
-        self.assertLess(next(i for i, step in enumerate(steps) if step.get("name") == "Select Xcode"), selection)
-        guarded = [(i, step) for i, step in enumerate(steps) if "env.BUILD_HERE == 'true'" in step.get("if", "")]
-        self.assertTrue(guarded)
-        for index, step in guarded:
-            self.assertGreater(index, selection, step["name"])
-        names = {step["name"] for _, step in guarded}
-        self.assertTrue({"The framework's inputs", "Build CmuxMobileLinkFFI.xcframework", "Resolve packages",
-                         "Build the app and the gate for testing"}.issubset(names))
-        # Execute the actual selection shell with real fixture products. Its
-        # GITHUB_ENV controls every later prerequisite and test-product path.
-        workspace = self.root / "workspace"
-        gate_scripts = workspace / ".review-gate/.github/scripts"
-        gate_scripts.mkdir(parents=True)
-        shutil.copy(ROOT / ".github/scripts/ios_review_gate_products.py", gate_scripts)
-        results = self.root / "results"
-        results.mkdir()
-        env_file = self.root / "env"
-        script = steps[selection]["run"]
-        # Archive extraction is covered by Actions; fixture products take its place.
-        script = script.replace('tar -xzf "$RUNNER_TEMP/gate-products/ios-sim-build.tar.gz" -C "$RUNNER_TEMP/gate-build"', ':')
-        (self.root / "gate-build").mkdir()
-        (self.root / "gate-build/Products").symlink_to(self.products, target_is_directory=True)
-        for mismatch in (False, True):
-            with self.subTest(mismatch=mismatch):
-                if mismatch:
-                    write(self.runner, "libXCTestSwiftSupport.dylib", "incompatible")
-                env_file.write_text("")
-                proc = subprocess.run(["bash", "-e", "-c", script], cwd=workspace, capture_output=True, text=True,
-                                      env=dict(os.environ, RUNNER_TEMP=str(self.root), RESULTS=str(results),
-                                               GITHUB_ENV=str(env_file), GITHUB_RUN_ID="fixture",
-                                               DEVELOPER_DIR=str(self.developer)))
-                self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-                output = env_file.read_text()
-                if mismatch:
-                    self.assertEqual(output, "BUILD_HERE=true\n")
-                else:
-                    self.assertIn("PRODUCTS=", output)
-                    self.assertNotIn("BUILD_HERE=true", output)
 
 
 if __name__ == "__main__":

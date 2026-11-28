@@ -121,9 +121,9 @@ public final class IPhoneHostService {
                        deviceName: String, daemonSocket: String, chief: ChiefPlacement?) -> MobileHostLaunch {
         var launch = MobileHostLaunch(
             executable: executable, baseURL: dependencies.baseURL, teamID: account.teamID, userID: account.userID,
-            deviceID: deviceID, deviceName: deviceName, daemonSocket: daemonSocket,
-            stateDirectory: dependencies.stateDirectory, fileRoots: dependencies.fileRoots(),
-            stackProjectID: dependencies.stackProjectID, agentTabHost: dependencies.agentTabHost())
+            deviceID: deviceID, deviceName: deviceName, daemonSocket: daemonSocket, stateDirectory: dependencies.stateDirectory,
+            fileRoots: dependencies.fileRoots(), stackProjectID: dependencies.stackProjectID,
+            agentTabHost: dependencies.agentTabHost(), acpmuxHome: dependencies.acpmuxEnvironment?.home.path)
         launch.deviceKind = dependencies.deviceKind()
         launch.browserHosts = dependencies.browserHosts != nil
         launch.surfaceHosts = dependencies.surfaceHosts != nil

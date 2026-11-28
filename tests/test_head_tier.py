@@ -406,6 +406,60 @@ class LandTierTests(unittest.TestCase):
         self.assertFalse(head_tier.land_affected(head_tier.tier("pull_request", land_event(), land_switch="1",
                                                                 land_full_switch="0")))
 
+    def test_land_ask_rule_a_later_push_of_a_landing_pr_runs_the_cheap_tier_until_land_pulses(self) -> None:
+        # 11-28 02Z..05Z: heads of ready-to-land PRs that a later head replaced ran the landing tier (ios fast
+        # verdict, landing gates) about 2.6k runner-min in 3 h. Only the head land pulses runs it now.
+        push = land_event(labels=("ready-to-land",))
+        own = {"base_merge_only": False, "by_github": False}
+        decided = head_tier.tier("pull_request", push, facts=own, land_switch="1", land_full_switch="0",
+                                 land_ask_switch="1")
+        self.assertEqual(decided[0], "cheap")
+        self.assertFalse(head_tier.land_affected(decided))
+        self.assertIn("CI_LAND_TIER_AT_ASK=0", decided[1])
+        old = os.environ.get("CI_LAND_TIER")
+        try:
+            os.environ["CI_LAND_TIER"] = "1"
+            self.assertEqual(pr_router.land_status(push, decided), "pending")
+        finally:
+            if old is None:
+                os.environ.pop("CI_LAND_TIER", None)
+            else:
+                os.environ["CI_LAND_TIER"] = old
+        start, _ = pr_router.route(push, RouterTests.CALLEES, ["a.py"], decided=decided)
+        self.assertEqual(start, ["cheap.yml"])
+        # An agent's own git merge of the base is a later push too.
+        agent_merge = {"base_merge_only": True, "by_github": False}
+        self.assertFalse(head_tier.land_affected(head_tier.tier(
+            "pull_request", push, facts=agent_merge, land_switch="1", land_full_switch="0", land_ask_switch="1")))
+        # Land's own update-branch (a base merge GitHub made), the pulse itself, unread facts and the switch off
+        # keep the affected landing tier.
+        github_merge = {"base_merge_only": True, "by_github": True}
+        pulse = land_event(labels=("ready-to-land",), action="labeled", added="ready-to-land")
+        for ev, facts, switch in ((push, github_merge, "1"), (pulse, own, "1"), (push, None, "1"), (push, own, "0")):
+            with self.subTest(action=ev["action"], facts=facts, switch=switch):
+                self.assertTrue(head_tier.land_affected(head_tier.tier(
+                    "pull_request", ev, facts=facts, land_switch="1", land_full_switch="0", land_ask_switch=switch)))
+        # full-ci's own labeled event and CI_LAND_FULL_PER_PR=1 keep the full tier.
+        self.assertEqual(head_tier.tier("pull_request", push, facts=own, land_switch="1", land_full_switch="1",
+                                        land_ask_switch="1")[0], "full")
+
+    def test_land_ask_rule_reads_its_switch_from_the_environment(self) -> None:
+        push = land_event(labels=("ready-to-land",))
+        old = os.environ.get("CI_LAND_TIER_AT_ASK")
+        try:
+            os.environ.pop("CI_LAND_TIER_AT_ASK", None)
+            self.assertTrue(head_tier.land_ask_rule_applies(push))
+            os.environ["CI_LAND_TIER_AT_ASK"] = "0"
+            self.assertFalse(head_tier.land_ask_rule_applies(push))
+        finally:
+            if old is None:
+                os.environ.pop("CI_LAND_TIER_AT_ASK", None)
+            else:
+                os.environ["CI_LAND_TIER_AT_ASK"] = old
+        self.assertFalse(head_tier.land_ask_rule_applies(land_event(labels=("ready-to-land",), action="labeled",
+                                                                   added="ready-to-land"), "1"))
+        self.assertFalse(head_tier.land_ask_rule_applies(land_event(), "1"))
+
     def test_decide_reads_ci_land_full_per_pr_unset_as_the_affected_tier(self) -> None:
         keys = ("CI_LAND_TIER", "CI_LAND_FULL_PER_PR")
         old = {key: os.environ.get(key) for key in keys}
@@ -1540,6 +1594,86 @@ class RouterRerunPlanTests(unittest.TestCase):
         self.assertIsNone(pr_router.router_jobs_at(runs, "manaflow-ai/cmux", ""))
 
 
+class SameHeadRerunTests(unittest.TestCase):
+    """pr_router.py's same-head rerun rule: a new event at a head the router already ran keeps off the callees whose
+    jobs passed there (same sha, same workflow file), before any runner starts; full-ci or the switch runs all."""
+
+    job = staticmethod(RouterRerunPlanTests.job)
+
+    @staticmethod
+    def router_run(id_: int) -> dict:
+        return {"id": id_, "path": ".github/workflows/pr-router.yml", "status": "completed",
+                "conclusion": "failure", "created_at": "2026-11-28T01:00:00Z"}
+
+    def carry(self, event: dict, jobs_by_run: dict, moved=lambda *a: False, decided=("full", "ready-to-land"),
+              runs=None, env=None) -> set:
+        callees = pr_router.load_manifest()
+        runs = [self.router_run(i) for i in jobs_by_run] + [_run(99, "ci.yml", "success")] if runs is None else runs
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "1000", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                                                   "GH_TOKEN": "t", **(env or {})}):
+            return pr_router.same_head_carry(event, decided, callees, runs_reader=lambda *a: runs,
+                                             jobs_reader=lambda run, *a: jobs_by_run.get(run["id"]), moved=moved)
+
+    def test_a_ready_to_land_re_add_keeps_off_what_passed_at_this_head_and_reruns_the_red(self) -> None:
+        ev = {**_pr_event(("ready-to-land",), "labeled"), "label": {"name": "ready-to-land"}}
+        jobs = [self.job("compile preflight / web bundle build"),
+                self.job("Swift packages on Linux / test", "failure"),
+                self.job("cmux-next size budget / check", "success", 20),  # short: reruns
+                self.job("classic API guard / guard", "cancelled"),
+                self.job("pr pipeline / linux")]  # tier-routed steps: never carried by this rule
+        self.assertEqual(self.carry(ev, {500: jobs}), {"cmux-next-compile-preflight.yml"})
+        start, why = pr_router.route(ev, pr_router.load_manifest(), None, decided=("full", "ready-to-land"),
+                                     same_head={"cmux-next-compile-preflight.yml"})
+        self.assertNotIn("cmux-next-compile-preflight.yml", start)
+        self.assertTrue(why["cmux-next-compile-preflight.yml"].startswith(pr_router.SAME_HEAD_RERUN_REASON))
+
+    def test_the_newest_run_that_ran_a_callee_decides_and_a_skip_looks_further_back(self) -> None:
+        ev = _pr_event((), "reopened")
+        newer = [self.job("compile preflight / web bundle build", "skipped", 0)]
+        older = [self.job("compile preflight / web bundle build")]
+        self.assertEqual(self.carry(ev, {600: newer, 500: older}), {"cmux-next-compile-preflight.yml"})
+        red = [self.job("compile preflight / web bundle build", "failure")]
+        self.assertEqual(self.carry(ev, {600: red, 500: older}), set())
+        # An unread newer run may hold a red: nothing older counts.
+        self.assertEqual(self.carry(ev, {600: None, 500: older}), set())
+
+    def test_the_current_run_and_other_workflows_are_never_the_earlier_run(self) -> None:
+        ev = _pr_event((), "reopened")
+        green = [self.job("compile preflight / web bundle build")]
+        self.assertEqual(self.carry(ev, {1000: green}), set())
+        self.assertEqual(self.carry(ev, {}, runs=[_run(5, "ci.yml", "success")]), set())
+        self.assertEqual(self.carry(ev, {}, runs=[]), set())
+
+    def test_a_moved_workflow_file_or_unread_history_runs_it(self) -> None:
+        ev = _pr_event((), "ready_for_review")
+        green = {500: [self.job("compile preflight / web bundle build")]}
+        self.assertEqual(self.carry(ev, green, moved=lambda r, b, path, *a: path.endswith("/pr-router.yml")), set())
+        self.assertEqual(self.carry(ev, green, moved=lambda r, b, path, *a: path.endswith("-preflight.yml")), set())
+        self.assertEqual(self.carry(ev, green, moved=lambda *a: None), set())
+        callees = pr_router.load_manifest()
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "1"}):
+            self.assertEqual(pr_router.same_head_carry(ev, ("full", ""), callees, runs_reader=lambda *a: None), set())
+        self.assertIsNone(pr_router.workflow_moved("manaflow-ai/cmux", "feat-cmux-next", "x.yml", "", "t"))
+        self.assertIsNone(pr_router.workflow_moved("manaflow-ai/cmux", "feat-cmux-next", "x.yml", "2026", ""))
+
+    def test_full_ci_the_switch_a_fork_and_a_none_tier_opt_out(self) -> None:
+        green = {500: [self.job("compile preflight / web bundle build")]}
+        self.assertEqual(self.carry({**_pr_event(("full-ci",), "labeled"), "label": {"name": "full-ci"}}, green),
+                         set())
+        self.assertEqual(self.carry({**_pr_event((), "labeled"), "label": {"name": "full-ci"}}, green), set())
+        self.assertEqual(self.carry(_pr_event((), "reopened"), green,
+                                    env={pr_router.SAME_HEAD_RERUN_VAR: "0"}), set())
+        self.assertEqual(self.carry(_pr_event((), "reopened"), green, decided=("none", "carried")), set())
+        fork = _pr_event((), "reopened")
+        fork["pull_request"]["head"]["repo"] = {"full_name": "someone/cmux"}
+        self.assertEqual(self.carry(fork, green), set())
+        self.assertEqual(self.carry(_pr_event((), "reopened"), green), {"cmux-next-compile-preflight.yml"})
+
+    def test_the_route_job_passes_the_switch(self) -> None:
+        self.assertIn(f"{pr_router.SAME_HEAD_RERUN_VAR}: ${{{{ vars.{pr_router.SAME_HEAD_RERUN_VAR} || '1' }}}}",
+                      pr_router.ENTRY.read_text())
+
+
 class RustWorkspacesTierTests(unittest.TestCase):
     """rust-workspaces.yml's plan job plans no workspace on a head head_tier gives `none` (goal
     ci-runner-min-per-day-500k): its own run only, never a caller's, and `cheap` still plans (the land carry head
@@ -1793,3 +1927,71 @@ class SameHeadLandCarryTests(unittest.TestCase):
         for name in ("pr-router.yml", "ci.yml"):
             text = (ROOT / ".github" / "workflows" / name).read_text()
             self.assertIn("CI_SAME_HEAD_LAND_CARRY: ${{ vars.CI_SAME_HEAD_LAND_CARRY || '1' }}", text)
+
+
+class PostMergeTierTests(unittest.TestCase):
+    """The post-merge tier rule (CI_POST_MERGE_TIER_PR): a batch-covered post-merge-tier workflow plans nothing on a
+    feat-cmux-next pull request head; off by default, so nothing changes until the variable is 1."""
+
+    def rule(self, ev: dict, workflow: str = "rust-workspaces.yml", switch: str = "1",
+             event_name: str = "pull_request"):
+        return head_tier.post_merge_tier(event_name, ev, workflow, switch, root=str(ROOT))
+
+    def test_the_two_largest_batch_covered_workflows_are_in_the_set(self) -> None:
+        listed = head_tier.batch_post_merge_workflows(str(ROOT))
+        self.assertIn("rust-workspaces.yml", listed)
+        self.assertIn("cmux-tui-spec.yml", listed)
+        # Post-merge tier but run by a push, not the batch: kept on PRs by this rule.
+        self.assertNotIn("test-ios.yml", listed)
+
+    def test_on_a_landing_head_is_none(self) -> None:
+        ev = land_event(labels=("ready-to-land",), action="labeled", added="ready-to-land")
+        decided = self.rule(ev)
+        self.assertEqual(decided[0], "none")
+        self.assertIn("post-merge batch", decided[1])
+        self.assertEqual(self.rule(ev, workflow="cmux-tui-spec.yml")[0], "none")
+
+    def test_off_by_default_and_when_zero(self) -> None:
+        ev = land_event(labels=("ready-to-land",))
+        self.assertIsNone(self.rule(ev, switch="0"))
+        self.assertIsNone(self.rule(ev, switch=""))
+        with unittest.mock.patch.dict(os.environ, {}):
+            os.environ.pop("CI_POST_MERGE_TIER_PR", None)
+            self.assertIsNone(head_tier.post_merge_tier("pull_request", ev, "rust-workspaces.yml", root=str(ROOT)))
+
+    def test_full_ci_other_bases_forks_pushes_and_other_workflows_keep_their_tier(self) -> None:
+        self.assertIsNone(self.rule(land_event(labels=("full-ci",), action="labeled", added="full-ci")))
+        self.assertIsNone(self.rule(land_event(base="leo/stack")))
+        self.assertIsNone(self.rule(land_event(head_repo="someone/cmux")))
+        self.assertIsNone(self.rule(land_event(), event_name="push"))
+        for workflow in ("pr-router.yml", "ci.yml", "cmux-next.yml", "test-ios.yml", ""):
+            self.assertIsNone(self.rule(land_event(), workflow=workflow), workflow)
+
+    def test_unreadable_config_or_switch_off_is_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(head_tier.batch_post_merge_workflows(tmp), set())
+            (Path(tmp) / ".github").mkdir()
+            checks = json.loads((ROOT / ".github" / "post-merge-checks.json").read_text())
+            checks["merge_tier"]["switch"] = "off"
+            (Path(tmp) / ".github" / "post-merge-checks.json").write_text(json.dumps(checks))
+            (Path(tmp) / ".github" / "post-merge-batch.json").write_text(
+                (ROOT / ".github" / "post-merge-batch.json").read_text())
+            self.assertEqual(head_tier.batch_post_merge_workflows(tmp), set())
+
+    def test_decide_reads_the_run_s_workflow_and_the_switch(self) -> None:
+        ev = land_event(labels=("ready-to-land",), action="labeled", added="ready-to-land")
+        ref = "manaflow-ai/cmux/.github/workflows/rust-workspaces.yml@refs/pull/1/merge"
+        with unittest.mock.patch.dict(os.environ, {"CI_POST_MERGE_TIER_PR": "1", "GITHUB_WORKFLOW_REF": ref}):
+            self.assertEqual(head_tier.decide("pull_request", ev)[0], "none")
+        router = "manaflow-ai/cmux/.github/workflows/pr-router.yml@refs/pull/1/merge"
+        with unittest.mock.patch.dict(os.environ, {"CI_POST_MERGE_TIER_PR": "1", "GITHUB_WORKFLOW_REF": router,
+                                                   "CI_SAME_HEAD_LAND_CARRY": "0", "CI_FULL_CI_BASE_MERGE_CARRY": "0",
+                                                   "CI_IDLE_BASE_MERGE_SKIP": "0", "CI_SYNC_MERGE_CHEAP": "0",
+                                                   "CI_GREEN_BASE_MERGE_SKIP": "0", "CI_LAND_CARRY": "0",
+                                                   "CI_RED_BASE_MERGE_RERUN": "0"}):
+            self.assertNotEqual(head_tier.decide("pull_request", ev)[0], "none")
+
+    def test_both_workflows_pass_the_switch_default_on(self) -> None:
+        for workflow in ("cmux-tui-spec.yml", "rust-workspaces.yml"):
+            text = (ROOT / ".github" / "workflows" / workflow).read_text()
+            self.assertIn("CI_POST_MERGE_TIER_PR: ${{ vars.CI_POST_MERGE_TIER_PR || '1' }}", text, workflow)

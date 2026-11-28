@@ -185,6 +185,18 @@ peer_port=4180
 # From the script's place, not the cwd: inside the launcher app (below) the cwd is /.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
+# The Xcode this source pins for this host, as import-set-xcode.sh does, unless the worker exported one.
+# Without it the build follows xcode-select, which on Macs with only versioned apps
+# names a missing /Applications/Xcode.app: run 46098219666 failed in cargo's
+# build scripts with "xcrun: error: missing DEVELOPER_DIR path". Exported here, the launcher app gets it too.
+if [[ -z "${DEVELOPER_DIR:-}" && "$(uname -s)" == Darwin && -f scripts/select-ci-xcode.sh ]]; then
+  xcode_env="$(mktemp)"
+  CMUX_CI_SKIP_XCODE_SELECT=1 GITHUB_ENV="$xcode_env" /bin/bash scripts/select-ci-xcode.sh >/dev/null 2>&1 || true
+  DEVELOPER_DIR="$(sed -n 's/^DEVELOPER_DIR=//p' "$xcode_env" | tail -1)"
+  rm -f "$xcode_env"
+  if [[ -n "$DEVELOPER_DIR" ]]; then export DEVELOPER_DIR; else unset DEVELOPER_DIR; fi
+fi
+echo "SCREEN-STREAM-EVAL-XCODE developer_dir=${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null || echo none)}"
 # The rd host takes options it does not know without a word, so input-frame-now=1 at a commit whose host
 # lacks --input-frame-now (before #36690) would measure the default and call it the bypass: refuse it.
 if [[ "$input_frame_now" == 1 ]] && ! grep -q 'flag("input-frame-now")' cmux-tui/crates/cmux-rd-host/src/host.rs 2>/dev/null; then

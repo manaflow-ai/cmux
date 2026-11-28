@@ -25,6 +25,7 @@ import UIKit
     final class GridSession: TerminalSession {
         let programName = "zsh"
         var isAlternateScreen = false
+        var preservesHostGrid = false
         var remoteColumns: Int? = 30
         var remoteRows: Int? = 12
         private(set) var handler: (@MainActor (TerminalSessionEvent) -> Void)?
@@ -83,8 +84,9 @@ import UIKit
         }
     }
 
-    static func makeScreen() async throws -> Screen {
+    static func makeScreen(preservesHostGrid: Bool = false) async throws -> Screen {
         let session = GridSession()
+        session.preservesHostGrid = preservesHostGrid
         let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "host grid")
         let screen = TerminalViewController(model: model)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
@@ -320,6 +322,36 @@ import UIKit
         let note = "\(first.columns)×\(first.rows) · set by Rig Mac"
         try await TerminalPredictionInputTests.waitUntil(5) { rig.screen.hostGridOwner == "Rig Mac" && noteShown() }
         #expect(noteShown(), "no \"\(note)\" note for another device's grid at the phone's old claim")
+    }
+
+    /// A passive Mac grid may equal the phone's first viewport. Rotation must
+    /// keep those Mac columns, without mistaking the old viewport for a claim
+    /// and re-wrapping the primary screen at the new phone width.
+    @Test func passiveMacGridMatchingThePhoneKeepsItsColumnsAfterRotation() async throws {
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
+        let rig = try await Self.makeScreen(preservesHostGrid: true)
+        defer { rig.close() }
+        try await TerminalPredictionInputTests.waitUntil(5) { rig.session.sent != nil }
+        let first = try #require(rig.session.sent, "the screen never measured its viewport")
+        rig.session.remoteColumns = first.columns
+        rig.session.remoteRows = first.rows
+        rig.session.emit(.hostGrid(columns: first.columns, rows: first.rows))
+        rig.session.write("\u{1B}cMac grid")
+        try await TerminalPredictionInputTests.waitUntil(3) {
+            (rig.screen.surface.activeAreaText() ?? "").contains("Mac grid")
+        }
+        #expect(!rig.screen.hostGridIsPhonesOwn, "an equal viewport is not a size claim")
+
+        rig.window.frame = CGRect(x: 0, y: 0, width: 320, height: 844)
+        rig.window.layoutIfNeeded()
+        try await TerminalPredictionInputTests.waitUntil(5) { rig.session.sent.map { $0.columns != first.columns } == true }
+        let rotated = try #require(rig.session.sent)
+        try #require(rotated.columns != first.columns, "the phone's viewport never changed")
+        #expect(rig.screen.hostLayout.columns == first.columns)
+        #expect(rig.screen.surface.grid.columns == first.columns, "rotation re-wrapped the Mac's primary screen")
+        #expect(!rig.screen.hostGridIsPhonesOwn)
+        #expect(rig.screen.model.ptyResizesSent == 0, "passive viewport measurements were counted as Mac resize claims")
     }
 
     /// Fleet UI capture of #42422 after feat-cmux-next's R1-1 (2cc0f36b): a
