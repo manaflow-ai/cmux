@@ -131,6 +131,17 @@ def test_the_signer_bundle_step_does_not_wait_out_a_macos_rebuild() -> None:
     assert '"$rebuilding" == true && "$rebuild_ends" == 1' in wait, "the wait must end on a rebuild when asked"
 
 
+def test_the_signer_bundle_step_does_not_look_twice_at_a_failed_publisher() -> None:
+    # NIGHTLY 46146914237 (2026-11-28) read "failed build-linux" twice, 254 s apart, on the signing Mac,
+    # then bundled the fallback tree anyway.
+    bundle = (ROOT / "scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh").read_text()
+    await_tree = _bundle_await_tree(bundle)
+    assert 'CMUX_TUI_TREE_CLIENT_FAILED_ENDS="$failed_ends"' in await_tree, (
+        "every tree wait in the signer step must end on a failed publisher")
+    assert re.search(r'CMUX_TUI_TREE_CLIENT_FAILED_ENDS:-1\}', bundle), "the signer step must default it on"
+    assert '"$failed_ends" == 1 && "$stuck" == *" is failed "*' in AWAIT.read_text()
+
+
 def test_the_wait_cases_pass_against_fake_runs() -> None:
     missing = [tool for tool in ("bash", "git", "sha256sum") if shutil.which(tool) is None]
     if missing:
@@ -145,7 +156,9 @@ def test_the_wait_cases_pass_against_fake_runs() -> None:
                  "a terminal preflight failure fails fast", "a preflight failure with active retry grace",
                  "a preflight queued under the stall bound keeps the wait",
                  "unreadable runs keep waiting when no limit is set", "unreadable runs end the wait at the set limit",
-                 "a malformed unreadable-checks limit is a usage error"):
+                 "a malformed unreadable-checks limit is a usage error",
+                 "a failed publisher ends the wait at its first check", "a failed publisher takes two checks without",
+                 "a malformed failed-ends switch is a usage error"):
         assert any(line.startswith("ok   ") and case in line for line in result.stdout.splitlines()), (case, result.stdout)
 
 

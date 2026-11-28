@@ -38,12 +38,15 @@ unreadable_checks="${CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS:-2}"
 # Likewise a publisher rebuilding its failed primary macOS leg lands the tree about 30 min late: with a
 # fallback tree in hand, the first such answer bundles it (NIGHTLY 46123570780 held that Mac 1869 s for one).
 rebuild_ends="${CMUX_TUI_TREE_CLIENT_REBUILD_ENDS:-1}"
+# And a publisher that failed (on any attempt) ends it at the first check, not a second one 5 min later
+# for a retry that lands the tree long after this Mac moves on (NIGHTLY 46146914237: 254 s).
+failed_ends="${CMUX_TUI_TREE_CLIENT_FAILED_ENDS:-1}"
 # One budget for every tree wait in this step, not one per wait. The no-fallback wait and the wait
 # after a refused fallback tree used await-tree-client.sh's own bound (2700 s plus a 1200 s rebuild
-# grace) and ignored the two checks above, so they could still hold the signing Mac past an hour:
+# grace) and ignored the checks above, so they could still hold the signing Mac past an hour:
 # NIGHTLY 46157002388 sat in this step on a signing Mac from 15:08:52Z to past 16:00Z. Each wait now gets
 # what is left of CMUX_TUI_TREE_BUNDLE_WAIT_BUDGET_SECONDS (default the bounded wait's 1500 s) and the
-# same unreadable and rebuild checks; past it a wait takes one look. With no tree to bundle the step
+# same unreadable, rebuild and failed checks; past it a wait takes one look. With no tree to bundle the step
 # fails, the run leaves the signer and its retry finds the tree then.
 wait_budget="${CMUX_TUI_TREE_BUNDLE_WAIT_BUDGET_SECONDS:-$fallback_wait}"
 [[ "$wait_budget" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_BUNDLE_WAIT_BUDGET_SECONDS must be whole seconds" >&2; exit 2; }
@@ -53,6 +56,7 @@ wait_left() { local left=$(( wait_budget - (SECONDS - wait_started) )); (( left 
 await_tree() {
   CMUX_TUI_TREE_CLIENT_WAIT_SECONDS="$(wait_left)" CMUX_TUI_TREE_CLIENT_REBUILD_GRACE_SECONDS=0 \
     CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS="$unreadable_checks" CMUX_TUI_TREE_CLIENT_REBUILD_ENDS="$rebuild_ends" \
+    CMUX_TUI_TREE_CLIENT_FAILED_ENDS="$failed_ends" \
     scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}"
 }
 # Leo, 2026-11-26: "cant we just accept the nightly using an older tui version". TREE_FALLBACK is
