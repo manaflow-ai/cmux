@@ -203,14 +203,15 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Err(error) => return Some(fail(Failure::usage(error.0))),
     };
     let env = |key: &str| std::env::var(key).ok();
-    let (credential, team, app_origin) = match session::sign_in(&command, &env, args) {
+    let (credential, team, app_platform) = match session::sign_in(&command, &env, args) {
         Ok(signed_in) => signed_in,
         Err(Ok(code)) => return Some(code),
         Err(Err(failure)) => return Some(fail(failure)),
     };
-    // An explicit `--platform` wins; else the API the app's token came from; else the usual
-    // variables and production.
-    let flag = command.auth.platform.as_deref().or(app_origin.as_deref());
+    // An explicit `--platform` wins; else the platform of the API the app's token came from
+    // (`session::platform_of_api`, never that API itself: it 404s every machine route); else the
+    // usual variables and production.
+    let flag = command.auth.platform.as_deref().or(app_platform.as_deref());
     let origin = match platform_origin(flag, &env) {
         Ok(origin) => origin,
         Err(message) => return Some(fail(Failure::usage(message))),
