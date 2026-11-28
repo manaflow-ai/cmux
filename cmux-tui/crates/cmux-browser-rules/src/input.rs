@@ -126,17 +126,17 @@ pub fn virtual_key(code: &str) -> Option<u16> {
         return LETTERS.iter().find(|(name, _)| *name == letter).map(|(_, key)| *key);
     }
     if let Some(digit) = code.strip_prefix("Digit") {
-        return single_digit(digit).map(|index| DIGITS[index]);
+        return single_digit(digit).and_then(|index| DIGITS.get(index).copied());
     }
     if let Some(digit) = code.strip_prefix("Numpad") {
-        if let Some(index) = single_digit(digit) {
-            return Some(PAD[index]);
+        if let Some(key) = single_digit(digit).and_then(|index| PAD.get(index)) {
+            return Some(*key);
         }
     }
     if let Some(number) = code.strip_prefix('F') {
         if let Ok(index) = number.parse::<usize>() {
             if (1..=12).contains(&index) && number == index.to_string() {
-                return Some(FUNCTION[index - 1]);
+                return index.checked_sub(1).and_then(|at| FUNCTION.get(at)).copied();
             }
         }
     }
@@ -188,8 +188,9 @@ fn named_characters(key: &str) -> Option<String> {
         "PageUp" => 0xF72C,
         "PageDown" => 0xF72D,
         _ => {
-            let index = key.strip_prefix('F')?.parse::<u32>().ok()?;
-            if !(1..=12).contains(&index) || key[1..] != index.to_string() {
+            let number = key.strip_prefix('F')?;
+            let index = number.parse::<u32>().ok()?;
+            if !(1..=12).contains(&index) || number != index.to_string() {
                 return None;
             }
             0xF703 + index
@@ -339,11 +340,11 @@ pub fn flags_named(names: &[String]) -> u64 {
 
 /// The unshifted character of a printable key on a US layout.
 fn base(code: &str, key: &str) -> String {
-    if code.starts_with("Key") && code.chars().count() == 4 {
-        return code[3..].to_lowercase();
+    if let Some(letter) = code.strip_prefix("Key").filter(|rest| rest.chars().count() == 1) {
+        return letter.to_lowercase();
     }
-    if code.starts_with("Digit") && code.chars().count() == 6 {
-        return code[5..].to_owned();
+    if let Some(digit) = code.strip_prefix("Digit").filter(|rest| rest.chars().count() == 1) {
+        return digit.to_owned();
     }
     if let Some(symbol) = unshifted_symbol(code) {
         return symbol.to_owned();
