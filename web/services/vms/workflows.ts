@@ -39,6 +39,7 @@ import type {
   VMStatus,
 } from "./drivers";
 import { isProviderId, vmCapabilitiesFor } from "./drivers";
+import { addressReleaseFromMetadata, isAddressReleaseRow, VM_ADDRESS_RELEASE_KEY, type VmAddressRelease } from "./addressRelease";
 import { SANDBOX_VM_IDEMPOTENCY_PREFIX, SANDBOX_VM_MARKER_KEY, isSandboxRunVm } from "../runs/model";
 import {
   VmBillingGateway,
@@ -2871,6 +2872,11 @@ export function resumeVm(input: {
     if (vm.status === "destroyed") {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
+    // A parked machine has no provider machine to resume; resumeParkedVm
+    // restores it from its snapshot through the create path.
+    if (isAddressReleaseRow(vm)) {
+      return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "resumeParked" }));
+    }
     if (!providers.resume || !providers.getStatus) {
       if (vm.status === "running") return { id: providerVmId, status: "running" } satisfies VmPauseResumeResult;
       return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "resume" }));
@@ -2955,7 +2961,7 @@ type SnapshotProviderResources = {
  * Preserve a durable reservation as a floor, while repairing legacy snapshots
  * from provider-confirmed dimensions and failing closed for missing fields.
  */
-function snapshotResourceReservation(
+export function snapshotResourceReservation(
   providerMetadata: Record<string, unknown> | null | undefined,
   providerResources: SnapshotProviderResources | null,
 ): VmResourceReservation {
@@ -2999,6 +3005,8 @@ export function restoreVm(input: {
   readonly provider: ProviderId;
   readonly snapshotId: string;
   readonly idempotencyKey?: string;
+  /** Same contract as createVm: queue at a full network instead of failing. */
+  readonly waitForCapacity?: boolean;
   /** Work to run after the route answers (the guest vm-kind write); detached when absent. */
   readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
   /** Same contract as createVm: the restored machine gets its own token and edge rule. */
@@ -3062,6 +3070,7 @@ export function restoreVm(input: {
       ...(resourceReservation ? { memoryMb: resourceReservation.memoryMb } : {}),
       idempotencyKey: input.idempotencyKey,
       origin: "restore",
+      ...(input.waitForCapacity ? { waitForCapacity: true } : {}),
       providerMetadata: { [CLOUD_REMOTE_AUTH_METADATA_KEY]: snapshotRemoteAuthMode },
       ...(resourceReservation ? { resourceReservation } : {}),
       modelPlane: input.modelPlane,
@@ -3069,6 +3078,76 @@ export function restoreVm(input: {
       timing: input.timing,
       deferAfterResponse: input.deferAfterResponse,
     });
+  });
+}
+
+/** Restore key of a parked row: every retry of its resume is the same create. */
+export function parkedRestoreIdempotencyKey(vmId: string): string {
+  return `park-restore:${vmId}`;
+}
+
+/**
+ * Resume a parked machine (addressRelease.ts): restore its snapshot through
+ * restoreVm, so admission, `waiting_for_address` and the model-plane wiring
+ * are the normal create's, then retire the parked row with a pointer to its
+ * successor. The retry of a waiting resume reuses the same create key.
+ */
+export function resumeParkedVm(input: {
+  readonly userId: string;
+  readonly billingCustomerType: BillingCustomerType;
+  readonly billingTeamId: string;
+  readonly billingPlanId: string;
+  readonly maxActiveVms: number | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly provider?: ProviderId;
+  readonly waitForCapacity?: boolean;
+  readonly modelPlane?: VmModelPlaneProvisioner;
+  readonly teamDirectory?: VmTeamDirectory;
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
+  readonly now?: () => number;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const vm = yield* requireUserVm(input);
+    const release = addressReleaseFromMetadata(vm.providerMetadata);
+    if (!release || release.state !== "parked" || !repo.writeAddressRelease) {
+      return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "resumeParked" }));
+    }
+    const entry = yield* restoreVm({
+      userId: input.userId,
+      billingCustomerType: input.billingCustomerType,
+      billingTeamId: input.billingTeamId,
+      billingPlanId: input.billingPlanId,
+      maxActiveVms: input.maxActiveVms,
+      provider: vm.provider,
+      snapshotId: release.snapshotId,
+      idempotencyKey: parkedRestoreIdempotencyKey(vm.id),
+      waitForCapacity: input.waitForCapacity,
+      modelPlane: input.modelPlane,
+      teamDirectory: input.teamDirectory,
+      deferAfterResponse: input.deferAfterResponse,
+    });
+    const restored: VmAddressRelease = {
+      ...release,
+      state: "restored",
+      successorProviderVmId: entry.providerVmId,
+      restoredAt: (input.now ?? Date.now)(),
+    };
+    yield* repo.writeAddressRelease({
+      id: vm.id,
+      providerVmId: vm.providerVmId ?? input.providerVmId,
+      fromStatus: "paused",
+      fromState: "parked",
+      release: restored,
+      toStatus: "destroyed",
+    });
+    // The parked machine's model-plane token lives on in its snapshot; the
+    // successor has its own, so the old one is revoked.
+    if (input.modelPlane) {
+      yield* Effect.tryPromise(() => input.modelPlane!.revoke(vm.id)).pipe(Effect.catchAll(() => Effect.void));
+    }
+    return entry;
   });
 }
 
@@ -3956,6 +4035,9 @@ function applyObservedProviderStatus(
   },
 ): Effect.Effect<boolean, VmDatabaseError> {
   return Effect.gen(function* () {
+    // A parked machine has no provider machine by design (addressRelease.ts).
+    // Reading that as gone would retire the row and lose its snapshot pointer.
+    if (isAddressReleaseRow(vm)) return false;
     const status = input.forceStatus ?? observedDbStatus(input.providerStatus);
     const usageEvent: VmUsageEventInput | undefined = status === "destroyed"
       ? {
@@ -4006,7 +4088,7 @@ function reconcileObservedProviderStatus(
 ): Effect.Effect<ProviderStatusReconcileOutcome | "unexpected_wake", never> {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
-    if (!providerVmId || isRetiredProviderRow(vm)) return "skipped" as const;
+    if (!providerVmId || isRetiredProviderRow(vm) || isAddressReleaseRow(vm)) return "skipped" as const;
     const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.catchAll((err) =>
         isProviderMachineGone(vm.provider, err)
@@ -4475,6 +4557,11 @@ function preflightResumeIfSuspended(
   options: ResumePreflightOptions = {},
 ): Effect.Effect<boolean, VmWorkflowError> {
   return Effect.gen(function* () {
+    // Parking or parked (addressRelease.ts): the provider machine is being or
+    // has been removed on purpose. Never probe it and retire the row.
+    if (isAddressReleaseRow(vm)) {
+      return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "resumeParked" }));
+    }
     const getStatus = providers.getStatus;
     const resume = providers.resume;
     if (!getStatus || !resume) return false;
@@ -6377,12 +6464,14 @@ export function requireAccessibleUserVm(input: ExistingVmAccessInput) {
 export function requireUserVm(input: ExistingVmAccessInput) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    const vm = yield* repo.findUserVm({
-      userId: input.userId,
-      billingTeamId: input.billingTeamId,
-      providerVmId: input.providerVmId,
-      provider: input.provider,
-    });
+    const scope = { userId: input.userId, billingTeamId: input.billingTeamId, provider: input.provider };
+    let vm = yield* repo.findUserVm({ ...scope, providerVmId: input.providerVmId });
+    // A parked machine that was restored runs under a new provider id; its
+    // old id keeps working by following the successor pointer one hop.
+    if (!vm && repo.findAddressReleaseSuccessor) {
+      const successor = yield* repo.findAddressReleaseSuccessor({ ...scope, providerVmId: input.providerVmId });
+      if (successor) vm = yield* repo.findUserVm({ ...scope, providerVmId: successor });
+    }
     if (!vm || !vm.providerVmId || isRetiredProviderRow(vm)) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
