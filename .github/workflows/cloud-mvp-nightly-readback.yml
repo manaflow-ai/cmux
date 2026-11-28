@@ -38,8 +38,18 @@ jobs:
     environment:
       name: cmux-next-cloud-journey
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 75
+    # An owned Mac: the fleet controller answers only on the tailnet, and no owned Linux runner reached it (the
+    # client fetch timed out in runs 46037691304 and 46039141923 here, and in each chief-evals fleet job on
+    # 2026-11-27; #60707 met the same on the Swift fast tier). The job only submits the step and waits, on the
+    # same label as cmux-next-batch.yml's fleet gateway. Back to cmux-linux once that pool reaches the controller.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    # The display queue waits hours when busy (run 46102219213: source bundling 24 min, then 87 measurements
+    # ahead; p90 of the exclusive class 517-764 min over 24 h). A 25-min queue wait cancelled every readback
+    # before its turn, so the job waits up to 3 h for a display Mac, plus the step's 40 min. Run 46109116709 still
+    # waited the whole 3 h as exclusive (107 measurements ahead, "no drain for it"): the readback gives a pass or
+    # a fail, no number, so it needs no quiet host and asks class light on a display Mac (the controller's
+    # quietFreeMeasureClasses, measure_reviewed.go), which shares a console with at most one other display step.
+    timeout-minutes: 230
     steps:
       # Only the client action is checked out here. The display worker checks out this commit and runs the
       # script from it.
@@ -83,24 +93,39 @@ jobs:
           args=()
           if [ -n "$BUILD" ]; then args+=("--arg=build=$BUILD"); fi
           status=0
-          "$client" run --class exclusive --display --sign-in agent \
+          "$client" run --class light --display --sign-in agent \
             --script scripts/measure/cloud-mvp-nightly-readback.sh --ref "$REF_SHA" --repo manaflow-ai/cmux \
             --key "cloud-mvp-readback-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "${args[@]}" \
             --artifact .build/cloud-mvp-nightly-readback/report.tgz \
-            --timeout 2400 --queue-timeout 1500 2>&1 | tee "$out/step.log" || status=${PIPESTATUS[0]}
-          step="$(grep -o -E 'step [0-9a-f]{24}' "$out/step.log" | head -1 | cut -d' ' -f2)"
+            --timeout 2400 --queue-timeout 10800 2>&1 | tee "$out/step.log" || status=${PIPESTATUS[0]}
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$out/step.log" | head -1 | cut -d' ' -f2 || true)"
           if [[ "$status" == 75 && -n "$step" ]]; then
             # Not started within the queue wait: the step stays queued after the client stops waiting.
-            "$client" cancel "$step" --reason "cloud MVP readback: no display Mac within 1500 s" || true
+            "$client" cancel "$step" --reason "cloud MVP readback: no display Mac within 3 h" || true
           fi
           if [[ -n "$step" ]]; then
             "$client" artifact "$step" "$out/report.tgz" || "$client" artifact --failed "$step" "$out/report.tgz" || true
           fi
           echo "fleet step ${step:-none} exited $status; report: $([[ -s "$out/report.tgz" ]] && echo returned || echo none)"
           grep -E '^(CMR |CLOUD_MVP_READBACK )' "$out/step.log" >> "$GITHUB_STEP_SUMMARY" || true
+          # No step id means the controller never took the step (a refusal, no route): that is the rig, whatever the
+          # client's exit code. Run 46086119436 reported a refused step (HTTP 400) as a product failure.
+          if [[ -z "$step" && "$status" != 0 ]]; then
+            echo "::error::Cloud MVP readback: the fleet took no step (client exit $status); the rig could not run it"
+            exit 3
+          fi
+          # The script prints its first CMR line (the host and DMG) before it does anything else, so a step with no
+          # CMR line never ran it: the worker failed first. Run 46157120573's worker was refused its sign-in key
+          # ("sign-in key not registered: controller status 403") and exited 1, which this read as a product
+          # failure.
+          if [[ "$status" != 0 ]] && ! grep -q '^CMR ' "$out/step.log"; then
+            echo "::error::Cloud MVP readback: the worker failed before the script ran (step exit $status); the rig could not run it"
+            exit 3
+          fi
           case "$status" in
             0) echo "Cloud MVP readback passed (build ${BUILD:-newest})" >> "$GITHUB_STEP_SUMMARY" ;;
             1) echo "::error::Cloud MVP readback: a product step failed (exit 1)" ;;
+            75) echo "::error::Cloud MVP readback: still queued for a display Mac after 3 h (exit 75); nothing ran, so this is no product result" ;;
             *) echo "::error::Cloud MVP readback: the rig could not run it (exit $status)" ;;
           esac
           exit "$status"

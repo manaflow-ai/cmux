@@ -320,6 +320,25 @@ import Testing
         }
     }
 
+    @Test func anEndpointUpdatesAMachineThatLacksItsCapability() async throws {
+        let updated = UpdateCount()
+        do {
+            try await Self.machine(printing: Self.unrouted()).prepare(serves: { false }, carriesConnection: true, family: "opencode", requiresCredentialCapability: true) { await updated.add() }
+            Issue.record("the endpoint reached a machine without its capability")
+        } catch let failure as CloudMoveFailure {
+            #expect(failure.message == CloudMachineRoute.tooOld)
+        }
+        #expect(await updated.count == 1)
+    }
+
+    @Test func anEndpointCanLaunchWhenTheReportOnlyNamesOtherAgents() async throws {
+        let updated = UpdateCount()
+        try await Self.machine(printing: Self.unrouted(variables: ["CLAUDE_CODE_OAUTH_TOKEN"])).prepare(
+            carriesConnection: true, family: "opencode", requiresCredentialCapability: true
+        ) { await updated.add() }
+        #expect(await updated.count == 0)
+    }
+
     private actor UpdateCount {
         var count = 0
         func add() { count += 1 }

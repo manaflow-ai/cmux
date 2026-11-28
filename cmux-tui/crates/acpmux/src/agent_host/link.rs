@@ -239,6 +239,7 @@ pub struct Adopted {
     pub host_build: String,
     pub incarnation: String,
     pub harness_pid: Option<u32>,
+    pub harness_start: Option<u64>,
     pub last_h: u64,
     pub acked_h: u64,
     pub max_out_id: i64,
@@ -579,6 +580,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             host_build,
             incarnation,
             harness_pid,
+            harness_start,
             last_h,
             acked_h,
             max_out_id,
@@ -589,6 +591,15 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             host_build,
             incarnation,
             harness_pid,
+            // Older hosts already stamp their harness with the session id. Capture the live
+            // start time here, before the attach can yield, and still require that stamp.
+            harness_start: harness_start.or_else(|| {
+                #[cfg(target_os = "linux")]
+                if exited.is_none() {
+                    return harness_pid.and_then(crate::owner_exit::process_start);
+                }
+                None
+            }),
             last_h,
             acked_h,
             max_out_id,

@@ -1,0 +1,14 @@
+/* A device glyph sits in the icon box its row already gives an icon (a menu's square column, a
+   chip's wider slot): every kind shares that box and the viewBox, so swapping a machine's kind
+   never moves its label. Ink is the text color the row sets; an offline machine dims with its
+   label rather than taking a color of its own. */
+.ui-device-glyph {
+  flex: none;
+  display: block;
+  color: inherit;
+  overflow: visible;
+}
+
+.ui-device-glyph[data-offline] {
+  opacity: 0.5;
+}

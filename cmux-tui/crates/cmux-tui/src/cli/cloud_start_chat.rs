@@ -1424,7 +1424,11 @@ fn make_room(
     } else {
         room
     };
-    if let Err(refused) = step_result(&runner.cmux(&room.command())) {
+    // A delete of a machine that is already gone made the room all the same (deleted in the meantime, or the
+    // fault drill's id no machine has, start_fault.rs): the start runs again.
+    if let Err(refused) = step_result(&runner.cmux(&room.command()))
+        && !(!room.archive && machine_gone(&refused))
+    {
         let message = at(&refused, "message").as_str().unwrap_or("it was refused").to_owned();
         return failed(
             "cloud.make_room_failed",
@@ -1451,6 +1455,12 @@ fn make_room(
     let until = request.until.or(Deadline::of(request, began).0);
     let again = Request { make_room: false, until, ..request.clone() };
     run_once(runner, &again)
+}
+
+/// Whether a machine step was refused because no such machine is left (the Cloud app's `cloud.machine.not_found`,
+/// the VM API's `vm_not_found`).
+fn machine_gone(error: &Value) -> bool {
+    matches!(at(error, "code").as_str(), Some("cloud.machine.not_found" | "vm_not_found"))
 }
 
 fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
