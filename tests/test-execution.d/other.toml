@@ -3,8 +3,7 @@
 
 [[test]]
 path = "tests/test_accounts_nightly_transport.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_accounts_nightly_transport.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_actions_artifact_prune.py"
