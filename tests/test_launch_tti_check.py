@@ -129,6 +129,24 @@ class InAppPathTests(unittest.TestCase):
                                    {"agent_pane.painted": 900.0, tti.CHAT_PROBE_NO_KEY_WINDOW: 901.0}, 30)
         self.assertIn("chat.probe_no_key_window", why)
 
+    def test_snapshot_does_not_expire_probe_grace_before_live_page(self):
+        marks = {"agent_pane.painted": 900.0}
+        finished, started = tti.chat_probe_finished(marks, None, 1.0)
+        self.assertFalse(finished)
+        finished, started = tti.chat_probe_finished(marks, started, 10.0)
+        self.assertFalse(finished)  # live page delayed well beyond the three-second grace
+        self.assertIsNone(started)
+        marks["agent_pane.page_painted"] = 10000.0
+        finished, started = tti.chat_probe_finished(marks, started, 10.0)
+        self.assertFalse(finished)
+        self.assertEqual(10.0, started)
+        self.assertFalse(tti.chat_probe_finished(marks, started, 12.0)[0])
+        self.assertTrue(tti.chat_probe_finished(marks, started, 14.0)[0])  # older build with no probe
+        marks[tti.CHAT_PROBE_TYPED] = 10001.0
+        self.assertFalse(tti.chat_probe_finished(marks, started, 14.0)[0])  # still needs the composer echo
+        marks[tti.CHAT_PROBE_NO_KEY_WINDOW] = 10002.0
+        self.assertTrue(tti.chat_probe_finished(marks, started, 14.0)[0])
+
     def test_in_app_chat_round_on_a_build_without_the_chat_probe_fails_nothing(self):
         # No chat.probe_* mark after the paint: an older build, `unmeasured`, measures nothing and fails nothing.
         self.assertIsNone(tti.chat_probe_state({"agent_pane.painted": 900.0}))

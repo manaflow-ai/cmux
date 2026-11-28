@@ -43,6 +43,14 @@ pub enum GuestRequest {
         #[serde(default)]
         mode: Option<u32>,
     },
+    /// Step the guest's realtime clock to the host's. The host sends it right after a snapshot
+    /// restore or a resume: kvmclock stops while the VM is paused or saved, so the guest wakes
+    /// with its wall clock in the past, and cmux-host's clock-set wake (`TFD_TIMER_CANCEL_ON_SET`)
+    /// is what makes it re-read its identity and bind.
+    SetClock {
+        /// Host `CLOCK_REALTIME` in nanoseconds since the Unix epoch, read just before sending.
+        unix_ns: u64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,9 +72,21 @@ pub enum GuestResponse {
         data: String,
     },
     Ok,
+    /// The answer to [`GuestRequest::SetClock`]: how far the guest's clock moved (host time
+    /// minus the guest's old time, in nanoseconds; positive means the guest was behind).
+    Clock {
+        stepped_ns: i64,
+    },
     Error {
         message: String,
     },
+}
+
+/// How far a [`GuestRequest::SetClock`] to `host_ns` moves a guest clock that reads `guest_ns`
+/// (both nanoseconds since the Unix epoch), clamped to `i64`.
+pub fn clock_step_ns(guest_ns: u64, host_ns: u64) -> i64 {
+    let step = i128::from(host_ns) - i128::from(guest_ns);
+    i64::try_from(step).unwrap_or(if step < 0 { i64::MIN } else { i64::MAX })
 }
 
 pub fn write_frame<W: Write, T: Serialize>(w: &mut W, value: &T) -> io::Result<()> {
@@ -110,6 +130,30 @@ mod tests {
         write_frame(&mut buf, &req).unwrap();
         let back: GuestRequest = read_frame(&mut buf.as_slice()).unwrap();
         assert_eq!(back, req);
+    }
+
+    #[test]
+    fn set_clock_round_trips_with_its_wire_names() {
+        let req = GuestRequest::SetClock { unix_ns: 1_795_000_000_123_456_789 };
+        let text = serde_json::to_string(&req).unwrap();
+        assert_eq!(text, r#"{"op":"set_clock","unix_ns":1795000000123456789}"#);
+        let mut buf = Vec::new();
+        write_frame(&mut buf, &req).unwrap();
+        assert_eq!(read_frame::<_, GuestRequest>(&mut buf.as_slice()).unwrap(), req);
+        let reply = GuestResponse::Clock { stepped_ns: -5 };
+        let text = serde_json::to_string(&reply).unwrap();
+        assert_eq!(text, r#"{"result":"clock","stepped_ns":-5}"#);
+        assert_eq!(serde_json::from_str::<GuestResponse>(&text).unwrap(), reply);
+    }
+
+    #[test]
+    fn clock_step_is_host_minus_guest_and_clamps() {
+        // A guest restored from a snapshot taken an hour ago is an hour behind.
+        let hour = 3_600_000_000_000u64;
+        assert_eq!(clock_step_ns(10 * hour, 11 * hour), 3_600_000_000_000);
+        assert_eq!(clock_step_ns(11 * hour, 10 * hour), -3_600_000_000_000);
+        assert_eq!(clock_step_ns(0, u64::MAX), i64::MAX);
+        assert_eq!(clock_step_ns(u64::MAX, 0), i64::MIN);
     }
 
     #[test]
