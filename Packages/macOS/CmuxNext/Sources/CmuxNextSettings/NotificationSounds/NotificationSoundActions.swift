@@ -18,14 +18,6 @@ public final class NotificationSoundActions {
         let message: String
     }
 
-    /// Where one change lands.
-    private enum Level {
-        case workspace(String)
-        case group(String)
-        case agent(String)
-        case event(NotificationSoundEvent)
-    }
-
     /// - Parameters:
     ///   - host: The App's side (preferences, settings write, targets, groups).
     ///   - gate: The notification service's sound gate: previews play through its player, it
@@ -41,17 +33,17 @@ public final class NotificationSoundActions {
         gate.groups = { [weak host] in host?.soundGroups(ofWorkspace: $0) ?? [] }
         Task { [gate, host] in await gate.refreshSounds(work: host.soundWork) }
         registry.bindEffect("notifications.setWorkspaceSound", effect: { [self, weak registry] invocation in
-            level(registry, "notifications.setWorkspaceSound", invocation) { try .workspace(self.host.soundWorkspace($0)) }
+            level(registry, "notifications.setWorkspaceSound", invocation) { try Self.level("workspace", self.host.soundWorkspace($0)) }
         })
         registry.bindEffect("notifications.setGroupSound", effect: { [self, weak registry] invocation in
-            level(registry, "notifications.setGroupSound", invocation) { try .group(self.host.soundGroup($0).id) }
+            level(registry, "notifications.setGroupSound", invocation) { try Self.level("group", self.host.soundGroup($0).id) }
         })
         registry.bindEffect("notifications.setAgentSound", effect: { [self, weak registry] invocation in
             level(registry, "notifications.setAgentSound", invocation) { invocation in
                 guard let agent = invocation["agent"]?.stringValue?.trimmingCharacters(in: .whitespaces).lowercased(), !agent.isEmpty else {
                     throw Refusal(message: NotificationSoundStrings.noAgent)
                 }
-                return .agent(agent)
+                return Self.level("agent", agent)
             }
         })
         registry.bindEffect("notifications.setEventSound", effect: { [self, weak registry] invocation in
@@ -59,7 +51,7 @@ public final class NotificationSoundActions {
                 guard let event = invocation["event"]?.stringValue.flatMap(NotificationSoundEvent.init(rawValue:)) else {
                     throw Refusal(message: NotificationSoundStrings.noEvent)
                 }
-                return .event(event)
+                return Self.level("event", event.rawValue)
             }
         })
         registry.bindEffect("notifications.previewSound", effect: { [self] invocation in preview(invocation) })
@@ -78,8 +70,8 @@ public final class NotificationSoundActions {
 
     /// One change at the level `target` names (its refusal is the person's message).
     private func level(_ registry: ActionRegistry?, _ id: ActionID, _ invocation: ActionInvocation,
-                       _ target: (ActionInvocation) throws -> Level) -> ActionEffect {
-        let level: Level
+                       _ target: (ActionInvocation) throws -> JSONValue) -> ActionEffect {
+        let level: JSONValue
         do { level = try target(invocation) } catch let refusal as Refusal {
             return .refused(refusal.message)
         } catch {
@@ -119,34 +111,20 @@ public final class NotificationSoundActions {
         }
     }
 
-    /// Applies one change to the live preferences and returns what to write and what to restore.
-    private func apply(_ level: Level, sound: String?, event: NotificationSoundEvent?, volume: Double?)
-        -> (before: NotificationSoundPreferences, path: [String], value: JSONValue?) {
-        var sounds = host.soundPreferences.sounds
-        let before = sounds
-        let root = ["notifications", "sounds"]
-        let result: (path: [String], value: JSONValue?)
-        switch level {
-        case .event(let event):
-            if let sound { sounds.events[event] = sound == "inherit" ? nil : sound }
-            result = (root + ["events", event.rawValue], sounds.events[event].map(JSONValue.string))
-        case .workspace(let key):
-            result = (root + ["workspaces"], Self.edit(&sounds.workspaces, key, sound: sound, event: event, volume: volume))
-        case .group(let key):
-            result = (root + ["groups"], Self.edit(&sounds.groups, key, sound: sound, event: event, volume: volume))
-        case .agent(let key):
-            result = (root + ["agents"], Self.edit(&sounds.agents, key, sound: sound, event: event, volume: volume))
-        }
-        host.applySoundPreferences(sounds)
-        return (before, result.path, result.value)
-    }
+    /// Where one change lands (`notifications.sound_edit`'s level).
+    private static func level(_ kind: String, _ key: String) -> JSONValue { ["kind": .string(kind), "key": .string(key)] }
 
-    /// Edits `key`'s rule in `map` and returns the map as cmux.json holds it (nil when empty).
-    private static func edit(_ map: inout [String: NotificationSoundRule], _ key: String, sound: String?,
-                             event: NotificationSoundEvent?, volume: Double?) -> JSONValue? {
-        let rule = (map[key] ?? NotificationSoundRule()).applying(sound: sound, event: event, volume: volume)
-        map[key] = rule.isEmpty ? nil : rule
-        return map.isEmpty ? nil : .object(map.mapValues(\.json))
+    /// Applies one change to the live preferences and returns what to write and what to restore.
+    private func apply(_ level: JSONValue, sound: String?, event: NotificationSoundEvent?, volume: Double?)
+        -> (before: NotificationSoundPreferences, path: [String], value: JSONValue?) {
+        let before = host.soundPreferences.sounds
+        let reply = SettingsRust.answer("notifications.sound_edit", [
+            "sounds": SettingsRust.json(before), "level": level, "sound": sound.map(JSONValue.string) ?? .null,
+            "event": event.map { .string($0.rawValue) } ?? .null, "volume": volume.map(JSONValue.number) ?? .null,
+        ])
+        host.applySoundPreferences(SettingsRust.decode(reply["sounds"]) ?? before)
+        let path = (reply["path"]?.arrayValue ?? []).compactMap(\.stringValue)
+        return (before, path, reply["value"].flatMap { $0 == .null ? nil : $0 })
     }
 
     // MARK: Preview
@@ -156,23 +134,15 @@ public final class NotificationSoundActions {
         let workspace: String
         do { workspace = try host.soundWorkspace(invocation) } catch { return .refused(host.soundRefusal(error)) }
         let event = invocation["event"]?.stringValue.flatMap(NotificationSoundEvent.init(rawValue:)) ?? .finished
-        let prefs = host.soundPreferences
         let scope = NotificationSoundScope(workspace: workspace, groups: host.soundGroups(ofWorkspace: workspace))
-        guard !prefs.mutedWorkspaces.contains(workspace),
-              let choice = prefs.sounds.choice(for: event, in: scope, fallback: prefs.sound(for: Self.source(of: event))) else {
+        let reply = SettingsRust.answer("notifications.preview_choice", [
+            "prefs": SettingsRust.json(host.soundPreferences), "scope": SettingsRust.json(scope), "event": .string(event.rawValue),
+        ])
+        guard let choice = SettingsRust.decode(reply["choice"], as: NotificationSoundChoice.self) else {
             return .refused(NotificationSoundStrings.silent)
         }
         gate.preview(choice.name, volume: choice.volume)
         return .done
-    }
-
-    /// The source whose `notifications.sound` an event falls back to.
-    private static func source(of event: NotificationSoundEvent) -> NotificationSource {
-        switch event {
-        case .finished, .needsInput, .error: .agent
-        case .bell: .terminal
-        case .message: .cli
-        }
     }
 
     // MARK: Import
