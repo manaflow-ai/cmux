@@ -79,7 +79,11 @@ fn scene_file(manifest: &Path) -> Option<String> {
 }
 
 fn main() {
-    let here = Path::new(env!("CARGO_MANIFEST_DIR"));
+    // Read at run time, not with env!(): a build-script binary reused from another checkout (a shared
+    // target dir, a build cache) keeps the path it was compiled at, and that tree may be gone
+    // ("wallpapers/scene-engine/engine.wgsl: missing" under a deleted temp tree).
+    let here = std::env::var_os("CARGO_MANIFEST_DIR").unwrap_or_default();
+    let here = Path::new(&here);
     let root = here.join("wallpapers");
     println!("cargo:rerun-if-changed={}", root.display());
     for f in ["src/program.rs", "src/prelude.wgsl", "src/scene_prelude.wgsl", "src/epilogue.wgsl"] {
