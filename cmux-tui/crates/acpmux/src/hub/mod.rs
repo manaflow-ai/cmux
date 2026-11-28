@@ -178,6 +178,7 @@ pub(super) mod idle;
 mod idle_census;
 pub(super) mod residency;
 pub use residency::IdlePolicyKind;
+pub(crate) mod chat_export;
 mod idle_digest;
 mod idle_governor;
 pub(crate) mod image_size;
@@ -187,7 +188,6 @@ pub(crate) mod inbox_subscription;
 pub mod journal_restore;
 #[cfg(test)]
 mod journal_restore_tests;
-pub(crate) mod chat_export;
 pub(crate) mod key_route;
 mod key_store;
 pub(crate) mod session_lifecycle;

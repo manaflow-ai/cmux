@@ -56,9 +56,8 @@
 //!   `role: "raw"` and `rawStart,rawEnd,rawOffset,completeThrough` instead of a turn index.
 //!   These search rendered JSONL source literally (ASCII case-insensitive), including across
 //!   chunks. JSON escape sequences are matched as written on disk.
-//! - `_acpmux/chat_export {keys?, all?, sessionId?, format?}`: a portable
-//!   JSON bundle or readable Markdown document. `_acpmux/chat_import {path}`
-//!   restores the acpmux entries of a JSON bundle.
+//! - `_acpmux/chat_export {keys?, all?, sessionId?}`: one call returns the chats as one
+//!   portable `cmux.chat-bundle.v1` JSON document (`hub/chat_export.rs`).
 //! - `_acpmux/chat_fork {harness, agentSessionId, cwd?}`: a terminal chat's fork, made by its
 //!   harness's ACP agent (`chat_fork.rs`): `{harness, agentSessionId}` of the new session.
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
@@ -503,14 +502,6 @@ pub(super) async fn route(
             let hub = hub.clone();
             blocking(move || crate::hub::chat_export::export_value(&hub, service.as_ref(), &params))
                 .await
-        }
-        "_acpmux/chat_import" => {
-            let path = params
-                .get("path")
-                .and_then(Value::as_str)
-                .map(PathBuf::from)
-                .ok_or_else(|| RpcError::invalid_params("path is required"))?;
-            crate::hub::chat_export::import(hub, &path).await
         }
         // Fork Conversation of a terminal chat whose agent's CLI has no fork (`chat_fork.rs`).
         "_acpmux/chat_fork" => {
