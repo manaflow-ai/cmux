@@ -50,7 +50,9 @@ LIST_TIMEOUT_S = 20
 SEND_TIMEOUT_S = 10
 CHAIN_MAX = 8
 NOTICES_KEEP = 500
-DEAD = {"closed", "stopped", "failed", "dead", "disconnected", "retired"}
+# "unreachable": the hub cannot reach the session's host, so a notice sent there bounces (2026-11-28: 255 of ~2,000
+# listed rows read unreachable and counted as live holders).
+DEAD = {"closed", "stopped", "failed", "dead", "disconnected", "retired", "unreachable"}
 WORKSTREAM = re.compile(r"\bPL-[A-Za-z0-9][\w-]*")
 SESSION = re.compile(r"\bsessions? ([A-Za-z0-9][\w./-]*[A-Za-z0-9])")
 LANES = re.compile(r"\blanes ([A-Za-z0-9*?\[\]][\w*?\[\]./,-]*)")
@@ -228,9 +230,11 @@ def is_self(how: str) -> bool:
 
 def holder(cell: str, rows: list[dict], coordinator: str | None = None,
            area: str | None = None, pusher: str | None = None,
-           branch: str | None = None) -> tuple[str | None, str]:
+           branch: str | None = None, worked=None) -> tuple[str | None, str]:
     """(live session, how) for the owner CELL of AREA, or (None, why none). PUSHER (HOST/NAME) and its BRANCH, when
-    given, are asked first (pusher_holds)."""
+    given, are asked first (pusher_holds). WORKED(short name) says whether that lane has its own recent commits under
+    the area's paths: a role glob holds only a lane it says yes for (a name alone is never a holder; with no WORKED,
+    no role lane holds)."""
     workstreams, sessions = cell_names(cell)
     mine = pusher_holds(cell, rows, pusher, area, branch)
     if mine:
@@ -246,7 +250,8 @@ def holder(cell: str, rows: list[dict], coordinator: str | None = None,
             return _name(tagged[0]), f"holds owns={owns_area(tagged[0], area)}"
     globs = cell_lanes(cell)
     if globs:
-        lanes = sorted((r for r in live if fills_role(_short(_name(r)), globs)),
+        lanes = sorted((r for r in live if fills_role(_short(_name(r)), globs) and not r.get(ENDED_KEY)
+                        and worked is not None and worked(_short(_name(r)))),
                        key=lambda r: -(r.get("updatedAt") or 0))
         if lanes:
             return _name(lanes[0]), f"a lane of {','.join(globs)}"
@@ -293,9 +298,66 @@ def list_sessions(timeout: float = LIST_TIMEOUT_S) -> tuple[list[dict] | None, s
     if not isinstance(rows, list):
         return None, None
     rows = [r for r in rows if isinstance(r, dict)]
-    merged = merge_tagged(rows, _tagged(TAG_KEYS, timeout))
+    merged = mark_ended(merge_tagged(rows, _tagged(TAG_KEYS, timeout)), read_beats())
     _cache_write(merged)
     return merged, None
+
+
+# A name is not a holder. 2026-11-28: a fresh lane named sidebar-bench-chiefs-61230-2 (a bench, no sidebar code, no
+# owns= tag) was sent a sidebar push because its name starts with the area word. A role glob now picks among lanes
+# that also have their own commits under the area's paths (holder's WORKED, which the pre-push hook reads from the
+# lanes' pushed branches); with none, the push goes on down the chain (the named session, its successor, the lead,
+# the coordinator), never to a lane picked by name.
+# A lane holds a role by its name only while its work goes on. 2026-11-28: a lane named sidebar-bench-chiefs-61230
+# (a CI-routing PR, no sidebar code) checked in `dropped` at 01:15Z and stayed listed idle, so `lanes *sidebar*` sent
+# it two sidebar pushes it never touched. The check-in outcome (tools/checkin.py: `checkin done|dropped`) reaches every
+# host in the fleet heartbeats (session_heartbeat.fleet's cache); a session whose newest check-in deciding its work is
+# done or dropped, with no in-progress or blocked one after it, gets ENDED_KEY and no role glob counts it. An owns=
+# tag or a named cell still does: those were set by hand. No cache (a host without the heartbeat read): no filter.
+ENDED_KEY = "checkinEnded"
+ENDED_OUTCOMES = {"done", "dropped"}
+WORKING_STATES = {"in_progress", "in-progress", "blocked"}
+BEATS_FILE = Path(os.environ.get("CMUX_OWNER_LIVE_HEARTBEATS")
+                  or Path.home() / ".cache" / "agent-heartbeat" / "fleet.json")
+
+
+def read_beats(path: Path | None = None) -> list[dict]:
+    """The fleet heartbeat records the leo-workspace heartbeat read cached on this host, or [] (none, unreadable)."""
+    try:
+        doc = json.loads((path or BEATS_FILE).read_text())
+    except (OSError, ValueError):
+        return []
+    beats = doc.get("beats") if isinstance(doc, dict) else None
+    return [b for b in beats or [] if isinstance(b, dict)]
+
+
+def ended_sessions(beats: list[dict]) -> set[str]:
+    """The keys (acpmux session id, HOST/NAME) of sessions whose work is over by their own check-in: the newest
+    record that decides (an outcome, or an in-progress or blocked state) says done or dropped."""
+    newest: dict[str, tuple[float, bool]] = {}
+    for b in beats:
+        c = b.get("checkin") if isinstance(b.get("checkin"), dict) else {}
+        outcome, state = c.get("outcome"), str(c.get("state") or "").casefold()
+        if outcome not in ENDED_OUTCOMES and state not in WORKING_STATES:
+            continue
+        ended = outcome in ENDED_OUTCOMES and state not in WORKING_STATES
+        at = float(c.get("outcome_at") or c.get("at") or b.get("at") or 0)
+        keys = [c.get("acpmux_session")]
+        name, host = c.get("name") or b.get("name"), b.get("host")
+        if name and host:
+            keys.append(f"{host}/{name}")
+        for k in (k for k in keys if k):
+            if k not in newest or at >= newest[k][0]:
+                newest[k] = (at, ended)
+    return {k for k, (_, ended) in newest.items() if ended}
+
+
+def mark_ended(rows: list[dict], beats: list[dict]) -> list[dict]:
+    """ROWS, each whose session ended by its check-in (ended_sessions) carrying ENDED_KEY."""
+    ended = ended_sessions(beats)
+    if not ended:
+        return rows
+    return [{**r, ENDED_KEY: True} if (r.get("sessionId") in ended or _name(r) in ended) else r for r in rows]
 
 
 # Each `ls --tag KEY` asks every peer host over ssh (3 keys, about 40 hosts, 4 processes a host: ~500 processes a
