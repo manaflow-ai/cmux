@@ -50,3 +50,5 @@ extension NewAgentChatIntent {
     }
 }
 #endif
+
+// ios-fast sparse-checkout proof (cmux#65581); never merges.
