@@ -88,6 +88,10 @@ impl HubCarrier {
         if !self.key_current() {
             return Err("the node key was replaced; this carrier is stopped".into());
         }
+        // With `irohDirect` on, start the iroh upgrade beside the hold (`hub_carrier_iroh.rs`),
+        // so the first dial to a held machine is already off the relay. It waits on this slot
+        // for the far machine's address, so it runs after this hold opens the relay circuit.
+        let _ = self.iroh_ready(daemon, lane).await;
         let slot = self.kept.slot(daemon, lane);
         let mut kept = slot.lock().await;
         kept.held = true;
@@ -107,6 +111,7 @@ impl HubCarrier {
                 circuit.hold();
                 self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
                 kept.live = Some(circuit);
+                kept.saved_since = None;
                 kept.path = Some(Path::Relay);
                 kept.reopen_at = None;
                 kept.reopen_wait = Duration::ZERO;

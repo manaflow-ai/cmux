@@ -1159,6 +1159,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github/read",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/worktree/report",
       "params": true,
       "result": true
@@ -2880,6 +2886,12 @@
     {
       "kind": "request",
       "name": "_acpmux/shutdown",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/watchdog_hold",
       "params": true,
       "result": true
     },
@@ -5414,6 +5426,10 @@
       "additionalProperties": false,
       "description": "`_acpmux/here`.",
       "properties": {
+        "includeSync": {
+          "description": "Include acknowledgement state for peers this daemon has exchanged chat state with.",
+          "type": "boolean"
+        },
         "scope": {
           "description": "Only who shows this chat or workspace; agents match by session id.",
           "type": [
@@ -5432,6 +5448,16 @@
             "$ref": "#/types/HereMember"
           },
           "type": "array"
+        },
+        "sync": {
+          "description": "Absent unless requested. Empty means no peer has exchanged yet, not globally synced.",
+          "items": {
+            "$ref": "#/types/HereSyncPeer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [
@@ -5447,6 +5473,34 @@
         "away"
       ],
       "type": "string"
+    },
+    "HereSyncPeer": {
+      "description": "A peer's last acknowledged chat-state vector, separate from its current connectivity.",
+      "properties": {
+        "acknowledged": {
+          "description": "Both vectors were equal at this read. A disconnected peer can still have new offline edits.",
+          "type": "boolean"
+        },
+        "connected": {
+          "type": "boolean"
+        },
+        "peer": {
+          "type": "string"
+        },
+        "unacknowledgedEdits": {
+          "description": "Local edit sequences not covered by the peer's last acknowledgement; not a chunk count.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "acknowledged",
+        "connected",
+        "peer",
+        "unacknowledgedEdits"
+      ],
+      "type": "object"
     },
     "InboxThreadParams": {
       "additionalProperties": false,
