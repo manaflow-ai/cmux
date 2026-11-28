@@ -71,6 +71,14 @@ pub(super) async fn acquire_daemon_lock(
     // it must own the home, or the unit is left failed while a detached daemon serves it.
     let yields_since = (!unit).then(crate::store::now_ms);
     let stands_by = !unit && launchd_standby::this_start_stands_by(take_over);
+    // The holder a supervised start watches, and since when it answered none of this start's
+    // asks: past the stall rule it is replaced (`hung_holder.rs`), as a ready-fd waiter would.
+    #[cfg(unix)]
+    let bounds = hung_holder::Bounds::current();
+    #[cfg(unix)]
+    let mut watched: Option<(u32, tokio::time::Instant)> = None;
+    #[cfg(unix)]
+    let mut said = tokio::time::Instant::now();
     loop {
         match acquire_lock(path) {
             Ok(lock) => return Ok(lock),
@@ -104,13 +112,62 @@ pub(super) async fn acquire_daemon_lock(
                 let holder = live_holder_pid(path);
                 #[cfg(not(unix))]
                 let holder = None;
+                let mut answered = false;
                 if asked != Some(holder)
-                    && let Some(answered) = take_over_holder(&socket_path(), yields_since).await?
+                    && let Some(by) = take_over_holder(&socket_path(), yields_since).await?
                     // What answered is the holder (or the lock named none): asked. Another
                     // daemon answering for a holder still starting is not; ask again.
-                    && (holder.is_none() || answered == holder)
+                    && (holder.is_none() || by == holder)
                 {
                     asked = Some(holder);
+                    answered = true;
+                }
+                // A holder that answers nothing and whose beat stopped is hung: the unit's start
+                // replaces it once proven this home's daemon, never waits on it for good. Fleet
+                // lane VMs, 2026-11-28: a detached `--ready-fd` daemon a client started during a
+                // unit restart held the lock and hung; the unit's daemon waited behind it for
+                // hours and every restart of the unit queued another start behind it.
+                #[cfg(unix)]
+                if let Some(pid) = holder {
+                    let now = tokio::time::Instant::now();
+                    let since = match watched {
+                        Some((p, since)) if p == pid && !answered => since,
+                        _ => now,
+                    };
+                    watched = Some((pid, since));
+                    let unanswered = now - since;
+                    let beat = hung_holder::beat_of(&home(), pid);
+                    if hung_holder::stalled(unanswered, beat, bounds) {
+                        let why = format!(
+                            "daemon {pid} holds the lock but answered no ask of the unit's start \
+                             for {}s and its beat is {} old",
+                            unanswered.as_secs(),
+                            beat.map_or("missing".to_owned(), |(_, age)| format!(
+                                "{}s",
+                                age.as_secs()
+                            ))
+                        );
+                        match hung_holder::replace(&home(), &why).await {
+                            // The lock is free or a successor holds it: look again now.
+                            Ok(_) => {
+                                watched = None;
+                                continue;
+                            }
+                            Err(refusal) => {
+                                tracing::warn!("{why}; not replacing it: {refusal}");
+                                // Its clock starts again: one refusal a bound, not one a look.
+                                watched = Some((pid, tokio::time::Instant::now()));
+                            }
+                        }
+                    }
+                    if said.elapsed() >= hung_holder::WAITER_SAYS_EVERY {
+                        said = tokio::time::Instant::now();
+                        tracing::info!(
+                            holder = pid,
+                            "the unit's start still waits for the lock holder; no answer for {}s",
+                            unanswered.as_secs()
+                        );
+                    }
                 }
                 // Still no wall-clock cutoff: the wait only looks again at who holds the lock.
                 wait_for_lock_release_with_budget(path.to_owned(), Some(HOLDER_LOOK)).await;
@@ -136,13 +193,23 @@ async fn take_over_holder(
     socket: &std::path::Path,
     yields_since: Option<u64>,
 ) -> Result<Option<Option<u32>>> {
-    // Client::connect and request finish promptly on a closed socket. If the
-    // peer is alive but busy, keep the handover request alive until it answers.
-    let Ok(client) = crate::client::Client::connect(socket).await else { return Ok(None) };
-    let Ok(status) = client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await
-    else {
-        return Ok(None);
+    // Bounded on Unix: a holder that bound its socket and accepts nothing leaves the connect or
+    // its status queued with no answer forever, and the unit's start with it (fleet lane VMs,
+    // 2026-11-28: blocked here for hours after "open-file limit raised"). Past the probe bound
+    // nothing answered; the caller asks again and replaces a hung holder (`hung_holder.rs`).
+    // Once it answered, the handover request itself waits as long as the holder takes.
+    let probe = async {
+        let client = crate::client::Client::connect(socket).await.ok()?;
+        let status =
+            client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await.ok()?;
+        Some((client, status))
     };
+    #[cfg(unix)]
+    let probed =
+        tokio::time::timeout(hung_holder::Bounds::current().probe, probe).await.ok().flatten();
+    #[cfg(not(unix))]
+    let probed = probe.await;
+    let Some((client, status)) = probed else { return Ok(None) };
     let same = |key: &str, want: &std::path::Path| {
         status
             .get(key)
