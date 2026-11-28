@@ -150,7 +150,8 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 /// - `input`: a permission or question waits for the person, here or in an
 ///   open sub-session below it (`subsessionsWaiting`, `asks_below.rs`).
 /// - `working`: a turn runs.
-/// - `failed`: the last turn failed (also when the agent then exited).
+/// - `failed`: the last turn failed (also when the agent then exited), and no work the session
+///   started since it ended runs (`subagentsWorkingSince` later than `lastTurn.endedAt`).
 /// - `lost`: the agent process is gone (`disconnected`, or a peer's
 ///   `unreachable`) and the chat's last turn did not answer. A chat with
 ///   no turn yet has nothing to lose.
@@ -173,6 +174,13 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 ///
 /// Reads only the summary's own fields, so a summary whose `status` changes
 /// afterwards (a peer going unreachable) is re-decided from it.
+/// Work below the turn (`subagentsWorkingSince`) began after the last turn ended, or the last
+/// turn has no end time: that work is newer than the turn.
+fn works_since_last_turn(summary: &Value) -> bool {
+    let Some(since) = summary["subagentsWorkingSince"].as_u64() else { return false };
+    summary["lastTurn"]["endedAt"].as_u64().is_none_or(|ended| since >= ended)
+}
+
 pub fn status_indicator(summary: &Value) -> Option<&'static str> {
     let status = summary["status"].as_str().unwrap_or_default();
     let last = summary["lastTurn"]["status"].as_str();
@@ -190,7 +198,10 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         _ if crate::session_liveness::blocked(summary) => Some("failed"),
         // acpmux holds a turn a capacity error cut and goes on by itself (`row_last_turn`).
         _ if last == Some("capacity") => Some("working"),
-        _ if last == Some("failed") => Some("failed"),
+        // Work the session started after its failed turn ended is newer than the failure: the
+        // chat is working again, not erroring (Leo, 2026-11-27: "this isn't leaving the tab icon
+        // even after you're not erroring anymore").
+        _ if last == Some("failed") && !works_since_last_turn(summary) => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
         "unreachable" => answered.then_some("done"),
         _ if summary["subagentsWorkingSince"].is_u64() => Some("working"),

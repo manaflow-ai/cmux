@@ -2692,6 +2692,63 @@ def step_only_verdict(name: str, why: str, head: UnplacedSignature, found: Unpla
             f"often each, as {where}, which names no failing test or error line either")
 
 
+# A placed head that names no failing test beside a red base verdict whose log is unplaced (BASE_UNPLACED_WHY): its error
+# lines were never compared with the whole base log, since a passing base step can print one (#40542's fourth Codex
+# BLOCK, F2). A runner `##[error]` annotation that a `Process completed with exit code N` line follows before the next
+# step's `##[group]Run` header is a failing step's own: a passing step prints no exit line. When every error line on
+# both sides is such an annotation, they are the same ones as often each, the failed steps are the same, and neither
+# side names a test, crash or unnamed failure, the head's red is the base's. Anything else still refuses. cmux#64116:
+# cmux#63770's 'plan (changed Cargo workspaces)' and hq#35638 were refused on this while their one `##[error]` line
+# (scripts/bench/phone-speed is a Cargo workspace with no entry in .github/rust-workspaces.toml) was the base's.
+STEP_HEADER = re.compile(r"^##\[group\]Run ")
+
+
+def failing_annotations(log: str) -> tuple[Counter, Counter]:
+    """(the `##[error]` annotations of LOG a runner exit line closes before the next step header, the ones it does
+    not), each normalise_error'd as unplaced_signature counts errors and counted; the generic exit lines left out."""
+    lines = test_reds.lines_of(log)
+    closed: Counter = Counter()
+    open_: Counter = Counter()
+    for n, line in enumerate(lines):
+        if not line.startswith("##[error]") or GENERIC.search(line) or EXIT_LINE.match(line):
+            continue
+        after = lines[n + 1:]
+        end = next((i for i, text in enumerate(after) if STEP_HEADER.match(text)), len(after))
+        (closed if any(EXIT_LINE.match(text) for text in after[:end]) else open_)[normalise_error(line)] += 1
+    return closed, open_
+
+
+def annotation_verdict(name: str, base: str, placed: tuple, head: UnplacedSignature, found: UnplacedSignature,
+                       head_log: str, base_log: str, base_run: dict) -> str:
+    """The audit line for placed red NAME (PLACED: its signature) that names no failing test, beside a red base verdict
+    (BASE_RUN) whose log is not placed, when every error line of both whole logs (HEAD, FOUND: unplaced_signature) is
+    a failing step's own annotation (failing_annotations) and they are the same, as often each; else Refused."""
+    where = f"{base} run {base_run.get('id')}"
+    refused = (f"'{name}': {BASE_UNPLACED_WHY}, and this head's failed steps name no failing test, so its error lines "
+               "are compared with the whole base log only as failing steps' own `##[error]` annotations")
+    if head.tests or head.unnamed or head.crashes or found.tests or found.unnamed or found.crashes:
+        raise Refused(f"{refused}; a failing test, crash or unnamed failure is named on one side")
+    if not head.steps or head.steps != found.steps:
+        raise Refused(f"{refused}; its failed steps ({step_keys_text(head.steps)}) are not {where}'s "
+                      f"({step_keys_text(found.steps)})")
+    mine, mine_open = failing_annotations(head_log)
+    theirs, theirs_open = failing_annotations(base_log)
+    if not head.errors or set(head.errors) != set(placed[2]):
+        raise Refused(f"{refused}; its whole log's error lines are not its failed steps' own")
+    for side, errors, closed, unclosed in (("its", head.errors, mine, mine_open),
+                                           (f"{where}'s", found.errors, theirs, theirs_open)):
+        if errors != closed or unclosed:
+            raise Refused(f"{refused}; {side} error lines are not all annotations a failing step's exit line closes")
+    if head.errors != found.errors:
+        more = sorted((head.errors - found.errors).elements())
+        raise Refused(f"{refused}; its annotations are not {where}'s"
+                      + (f": more on this head: {'; '.join(more)[:500]}" if more else ""))
+    return (f"excused '{name}': its base verdict's log does not map onto its steps, so its failing steps' own "
+            f"`##[error]` annotations were compared with that whole log: the same failed steps "
+            f"({step_keys_text(head.steps)[:200]}) and annotations, as often each, as {where}: "
+            f"{'; '.join(sorted(head.errors))[:400]}")
+
+
 def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, found: UnplacedSignature,
                      base_run: dict, *, why: str | None = None) -> str:
     """The audit line for an unplaced red job NAME whose whole-log signature HEAD is FOUND's, the newest red base
@@ -10843,8 +10900,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 # are the placed head's own failed steps' (HEAD), never a passing step's line in its whole log (review
                 # F1 on #46811 at 5d7cb257).
                 if not head[1]:
-                    raise Refused(f"'{name}': {BASE_UNPLACED_WHY}, and this head's failed steps name no failing test, "
-                                  "so its error lines are not compared with a whole base log")
+                    # Unless every error line is a failing step's own annotation on both sides (failing_annotations),
+                    # the same ones as often each, which a passing step cannot print (cmux#64116).
+                    audit.append(annotation_verdict(name, base, head, mine, theirs, github.log(repo, job),
+                                                    github.log(vrepo, base_job), base_run)
+                                 + (f"; {aside}" if aside is not None else ""))
+                    continue
                 audit.append(unplaced_verdict(vrepo, name, base, mine, theirs, base_run, why=BASE_UNPLACED_WHY)
                              + (f"; {aside}" if aside is not None else ""))
                 continue
