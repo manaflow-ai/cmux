@@ -1,6 +1,6 @@
 import type { Env } from "./env.ts"
 import { handStub, indexStub, mintPairCode } from "./hand-api.ts"
-import { sandboxProvider } from "./hand-providers.ts"
+import { sandboxProviders, type SandboxProvider } from "./hand-providers.ts"
 import { randomB32, type HandCaller, type HandReply } from "./hand-wire.ts"
 
 /**
@@ -35,8 +35,8 @@ export interface Sandbox {
 }
 
 export const createSandbox = async (env: Env, caller: HandCaller, name: string, wanted?: string): Promise<HandReply<Sandbox>> => {
-  const provider = sandboxProvider(env, wanted)
-  if (!provider) return unavailable(wanted ? `the sandbox provider ${wanted} is not set up on this deployment (no key configured)` : "sandboxes are off on this deployment")
+  const providers = sandboxProviders(env, wanted)
+  if (!providers.length) return unavailable(wanted ? `the sandbox provider ${wanted} is not set up on this deployment (no key configured)` : "sandboxes are off on this deployment")
   // The deployment's own origin only (never a fallback to another environment): the sandbox pairs with it.
   const origin = (env.CLOUD_API_ORIGIN ?? "").replace(/\/$/, "")
   if (!/^https:\/\/[A-Za-z0-9.-]+$/.test(origin)) return unavailable("this deployment names no public https origin; a sandbox cannot reach it")
@@ -53,13 +53,33 @@ export const createSandbox = async (env: Env, caller: HandCaller, name: string, 
   if (!minted.ok) return minted
   const { hand, code } = minted.value
   const stub = handStub(env, hand)
-  const made = await provider.create(env, { name: `${prefix}hand-${randomB32(12)}`, hand, owner: caller.user, deployment: origin })
-  if (!made) {
+  // Every ready provider in order, at once: a provider out of capacity is never asked again in this call
+  // (2026-11-27: Freestyle's 429 INFRASTRUCTURE_OVERLOADED left the Slack Chief with no machine twice).
+  const refused: Array<string> = []
+  let capacityOnly = true
+  let picked: { provider: SandboxProvider; id: string } | null = null
+  for (const p of providers) {
+    const r = await p.create(env, { name: `${prefix}hand-${randomB32(12)}`, hand, owner: caller.user, deployment: origin }).catch(() => null)
+    if (r && "id" in r) {
+      picked = { provider: p, id: r.id }
+      break
+    }
+    capacityOnly &&= r?.capacity === true
+    refused.push(`${p.id}: ${r ? r.error : "no answer"}`)
+    console.warn(JSON.stringify({ msg: "hand.sandbox_create_failed", provider: p.id, capacity: r?.capacity === true, error: (r?.error ?? "no answer").slice(0, 160), next: providers[providers.indexOf(p) + 1]?.id ?? null }))
+  }
+  if (!picked) {
     // No id came back: the code is dropped now; a machine the provider made anyway carries this
     // deployment's tags, and the hourly sweep deletes it (hand-sweep.ts).
     await stub.discard()
-    return { ok: false, error: { code: "hand.sandbox_failed", message: `the ${provider.id} sandbox was not created` } }
+    const why = refused.join("; ")
+    return capacityOnly
+      ? { ok: false, error: { code: "hand.sandbox_capacity", message: `no sandbox provider has a machine now (${why}). Code search, file reads and git history need no machine: use the code tool` } }
+      : { ok: false, error: { code: "hand.sandbox_failed", message: `the sandbox was not created (${why})` } }
   }
+  const { provider } = picked
+  const made = { id: picked.id }
+  if (refused.length) console.log(JSON.stringify({ msg: "hand.sandbox_fallback", provider: provider.id, refused: refused.length }))
   await stub.setSandbox(made.id, provider.id)
   // The code and name are checked shapes (PAIR_CODE, SANDBOX_NAME); a login shell gives the
   // image's tools (node, claude, opencode) on the PATH the hand's service keeps.

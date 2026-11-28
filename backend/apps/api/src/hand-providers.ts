@@ -32,13 +32,24 @@ export interface CreateInput {
   readonly deployment: string
 }
 
+/** A create the provider refused: its status and message, and whether it was out of capacity (429, 503, overloaded). */
+export interface CreateFailure {
+  readonly error: string
+  readonly capacity: boolean
+}
+
+/** Whether a provider's refusal means it has no machine now (Freestyle 2026-11-27: 429 INFRASTRUCTURE_OVERLOADED). */
+export const isCapacityFailure = (status: number, text: string): boolean =>
+  status === 429 || status === 503 || /overload|capacity|no (?:machine|vm|spare)s? available|queue ?full/i.test(text)
+
 export interface SandboxProvider {
   readonly id: string
   /** The provider's key and image are set on this deployment (it can make sandboxes). */
   ready(env: Env): boolean
   /** The provider's key is set (it can list and delete what was made, even with no image now). */
   canManage(env: Env): boolean
-  create(env: Env, input: CreateInput): Promise<{ id: string } | null>
+  /** The machine, or why not (`capacity`: the provider is out of machines now; another provider may have one), or null (no answer). */
+  create(env: Env, input: CreateInput): Promise<{ id: string } | CreateFailure | null>
   /** Runs `command` as root; the exit code, or null when the provider did not answer. */
   exec(env: Env, id: string, command: string, timeoutMs: number): Promise<number | null>
   pause(env: Env, id: string): Promise<boolean>
@@ -61,11 +72,13 @@ const stub = (id: string, keyVar: string): SandboxProvider => {
  * (pairs with the code, dials the hand socket). Never ready on a deployment.
  */
 export const testSandboxInstalls: Array<{ readonly code: string; readonly name: string }> = []
-const testProvider: SandboxProvider = {
-  id: "test",
+/** Test only: the next creates of a test provider (by id) answer these failures first, then machines again. */
+export const testSandboxRefusals: Record<string, Array<CreateFailure | null>> = {}
+const testProvider = (id: string): SandboxProvider => ({
+  id,
   ready: (env) => env.ENVIRONMENT === "test",
   canManage: (env) => env.ENVIRONMENT === "test",
-  create: async () => ({ id: `test-vm-${crypto.randomUUID().slice(0, 8)}` }),
+  create: async () => (testSandboxRefusals[id]?.length ? testSandboxRefusals[id]!.shift()! : { id: `${id}-vm-${crypto.randomUUID().slice(0, 8)}` }),
   exec: async (_env, _id, command) => {
     const m = /--pair (\S+) --name ([A-Za-z0-9._-]+)/.exec(command)
     if (!m) return 1
@@ -75,7 +88,7 @@ const testProvider: SandboxProvider = {
   pause: async () => true,
   remove: async () => true,
   list: async () => []
-}
+})
 
 /** Providers by id, written adapters first; only the ones whose key is on this deployment are offered. */
 export const PROVIDERS: Readonly<Record<string, SandboxProvider>> = Object.fromEntries(
@@ -88,9 +101,20 @@ export const PROVIDERS: Readonly<Record<string, SandboxProvider>> = Object.fromE
     stub("docker", "HAND_DOCKER_HOST"),
     stub("kubernetes", "HAND_KUBERNETES_CONFIG"),
     stub("ssh", "HAND_SSH_HOST"),
-    testProvider
+    testProvider("test"),
+    // A second test provider: the fallback a capacity refusal of the first moves to.
+    testProvider("test-spare")
   ].map((p) => [p.id, p])
 )
+
+/**
+ * The providers to try in order: the one a person asked for only, else every ready one (written adapters first).
+ * createSandbox moves to the next at once when one is out of capacity, never waiting on the same provider.
+ */
+export const sandboxProviders = (env: Env, wanted?: string): ReadonlyArray<SandboxProvider> => {
+  if (wanted) return PROVIDERS[wanted]?.ready(env) ? [PROVIDERS[wanted]!] : []
+  return Object.values(PROVIDERS).filter((p) => p.ready(env))
+}
 
 /** The provider a person asked for (default: the first ready one), or null when none is ready. */
 export const sandboxProvider = (env: Env, wanted?: string): SandboxProvider | null => {
