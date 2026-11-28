@@ -51,11 +51,33 @@ def check_pr(pr: dict, repo: str, sha: str) -> str:
     if head.get("sha") != sha:
         raise Refused(f"the PR's head is {head.get('sha')}, not {sha}: its own pr router run answers that head")
     merge = pr.get("merge_commit_sha") or ""
-    if pr.get("mergeable") is False:
+    if pr.get("mergeable") is False or pr.get("mergeable_state") == "dirty":
         raise Refused("the PR conflicts with its base: no merge commit to test (merge the base first)")
     if not SHA_RE.match(merge):
-        raise Refused("GitHub has no test merge commit for the PR yet (mergeability is computing): dispatch again")
+        raise Refused(f"GitHub has no test merge commit for the PR after {SETTLE_READS} reads "
+                      f"(mergeability still computing): dispatch again")
     return merge
+
+
+# GitHub answers `mergeable: null` while it computes, and a busy base (feat-cmux-next moves every few minutes) keeps
+# a PR recomputing, so one read of a conflicting PR said "computing: dispatch again" and every redispatch said it again
+# (cmux#39420 at 1a96014d, run 46165116783: GraphQL said CONFLICTING/DIRTY). Re-read until GitHub settles, bounded.
+SETTLE_READS = 6
+SETTLE_WAIT_S = 5
+
+
+def read_settled(read, sleep=None) -> dict:
+    """The PR once GitHub has decided its mergeability, or its last read after SETTLE_READS."""
+    import time
+    sleep = time.sleep if sleep is None else sleep
+    for i in range(SETTLE_READS):
+        pr = read()
+        if pr.get("mergeable") is not None or i == SETTLE_READS - 1:
+            return pr
+        print(f"mergeability still computing (read {i + 1} of {SETTLE_READS}); reading again in {SETTLE_WAIT_S}s",
+              file=sys.stderr)
+        sleep(SETTLE_WAIT_S)
+    return pr
 
 
 def check_merge(commit: dict, merge: str, sha: str) -> str:
@@ -107,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if not (repo and pr.isdigit() and token):
             raise Refused("REPO, PR (a number) and GH_TOKEN are needed")
-        merge = check_pr(get(f"repos/{repo}/pulls/{pr}", token), repo, sha)
+        merge = check_pr(read_settled(lambda: get(f"repos/{repo}/pulls/{pr}", token)), repo, sha)
         base = check_merge(get(f"repos/{repo}/commits/{merge}", token), merge, sha)
     except Refused as e:
         print(f"::error title=ios fast verdict dispatch::{e}")

@@ -90,12 +90,14 @@ jobs:
           fi
           out="$RUNNER_TEMP/cloud-mvp-nightly-readback"
           mkdir -p "$out"
+          # macOS Bash 3.2 with set -u calls "${args[@]}" of an empty array unbound (run 46166264543, a push with
+          # no build input): expand it only when set. cmuxterm-hq docs/handbook/unset-var-reads-as-zero.md.
           args=()
           if [ -n "$BUILD" ]; then args+=("--arg=build=$BUILD"); fi
           status=0
           "$client" run --class light --display --sign-in agent \
             --script scripts/measure/cloud-mvp-nightly-readback.sh --ref "$REF_SHA" --repo manaflow-ai/cmux \
-            --key "cloud-mvp-readback-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "${args[@]}" \
+            --key "cloud-mvp-readback-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" ${args[@]+"${args[@]}"} \
             --artifact .build/cloud-mvp-nightly-readback/report.tgz \
             --timeout 2400 --queue-timeout 10800 2>&1 | tee "$out/step.log" || status=${PIPESTATUS[0]}
           step="$(grep -o -E 'step [0-9a-f]{24}' "$out/step.log" | head -1 | cut -d' ' -f2 || true)"
@@ -112,6 +114,14 @@ jobs:
           # client's exit code. Run 46086119436 reported a refused step (HTTP 400) as a product failure.
           if [[ -z "$step" && "$status" != 0 ]]; then
             echo "::error::Cloud MVP readback: the fleet took no step (client exit $status); the rig could not run it"
+            exit 3
+          fi
+          # The script prints its first CMR line (the host and DMG) before it does anything else, so a step with no
+          # CMR line never ran it: the worker failed first. Run 46157120573's worker was refused its sign-in key
+          # ("sign-in key not registered: controller status 403") and exited 1, which this read as a product
+          # failure.
+          if [[ "$status" != 0 ]] && ! grep -q '^CMR ' "$out/step.log"; then
+            echo "::error::Cloud MVP readback: the worker failed before the script ran (step exit $status); the rig could not run it"
             exit 3
           fi
           case "$status" in

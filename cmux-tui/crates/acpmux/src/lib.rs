@@ -14,6 +14,7 @@
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
+pub mod abi_compat;
 pub mod abi_hello;
 pub mod accept_errors;
 pub(crate) mod acp_key_auth;
@@ -60,6 +61,7 @@ pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
 pub mod ci_log_cache;
+pub mod cited_memory;
 pub mod class;
 pub mod claude_auth;
 mod claude_cloud_auth;
@@ -156,6 +158,7 @@ pub mod journal_replay;
 pub mod key_check;
 pub mod memory_follow;
 pub mod model_router;
+pub mod parked_wait;
 pub mod spec_exec;
 mod subscription_store;
 mod subscriptions;

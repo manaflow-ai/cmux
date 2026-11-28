@@ -141,6 +141,10 @@ impl Hub {
         if let Some(e) = result.as_ref().ok().and_then(Self::capacity_retry_error) {
             result = Err(e);
         }
+        // acpmux stopped a sandboxed agent that never wrote a line (`remote_start_bound.rs`).
+        if let Some(e) = result.as_ref().ok().and_then(Self::remote_start_bound_error) {
+            result = Err(e);
+        }
         // Apply queued stderr before classifying a dead process (a limit never resumes).
         Self::drain_inbound(session).await;
         // Before the message gains the stderr line: `recovery::annotate_as` below types it.
@@ -369,6 +373,8 @@ impl Hub {
                         o.extend(super::surgery::turn_fields(&session.id));
                         // What the task cost, model and compute, and the chat's total so far.
                         super::turn_cost::add_turn_cost(session, o, started_at, ended);
+                        // What of it rebuilt a prompt cache it could have read, and why.
+                        super::cache_rebuild::add_cache_rebuild(session, o);
                         // Its spend checks during the turn, and their warnings (`spend_burn.rs`).
                         o.extend(super::spend_burn::turn_fields(&session.id, turn_id));
                         // Harness magic's counts for the turn (`claude_stdio/dedupe.rs`).
