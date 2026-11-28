@@ -96,7 +96,10 @@ public struct TurnFailureCopy: Hashable, Sendable {
             return .modelServiceUnavailable
         }
         // The account can't run the chat's model (Codex with a ChatGPT account, a retired model).
-        if matches(Self.rate, raw) { return .rateLimited }
+        // Capacity and an account's rate limit read as the Mac reads them (``UpstreamError``); the card
+        // says the same sentence for both. The phone's own extras stay: a usage limit or a quota (an
+        // account's plan), "rate-limited" spelled with a hyphen, a bare "Service Unavailable".
+        if UpstreamError.isCapacity(raw) || UpstreamError.isAccountLimit(raw) || matches(Self.rateExtras, raw) { return .rateLimited }
         if matches(Self.modelUnavailable, parts.message ?? raw) { return .modelUnavailable }
         if matches(Self.unreachable, raw) { return .unreachable }
         let via = via(raw, harness: harness)
@@ -125,7 +128,8 @@ public struct TurnFailureCopy: Hashable, Sendable {
     /// The command the refusal names, captured.
     private static let addCommand = #"\b(cr add (?:codex|claude|opencode))\b"#
     private static let modelUnavailable = #"\bmodel\b.{0,80}\b(?:is not supported|isn't supported|not supported|does not exist|is not available|not available|not found|unknown model|no access)|(?:unknown|unsupported|invalid) model"#
-    private static let rate = #"\b(?:429|529)\b|rate.?limit|too many requests|overloaded|at capacity|no non-exhausted|usage limit|quota|\b503\b|service unavailable"#
+    /// What the phone also reads as rate limited, past ``UpstreamError``'s capacity and account limit.
+    private static let rateExtras = #"rate.?limit|usage limit|quota|service unavailable"#
     private static let unreachable = #"ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|fetch failed|socket hang up|connection (?:refused|reset|closed|error)|could not (?:connect|resolve)|network (?:error|is unreachable)|\bunreachable\b|timed out"#
     private static let invalidKey = #"invalid[ _-]?(?:x-)?api[ _-]?key|incorrect api key|api key (?:is )?(?:missing|not set|not found|invalid)|no api key|(?:ANTHROPIC|OPENAI)_API_KEY"#
     private static let subscription = #"not logged in|login required|please (?:run )?/login|(?:claude|codex) (?:auth )?login|oauth token (?:has )?expired|session (?:has )?expired|refresh token|invalid_grant|sign(?:ed)? ?in again"#
