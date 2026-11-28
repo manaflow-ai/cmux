@@ -1,4 +1,5 @@
 name: cmux-next head compile
+run-name: cmux-next head compile ${{ inputs.head || github.sha }}
 # Compiles the feat-cmux-next head after every push, and when it does not compile, names the merge that broke it
 # (scripts/ci/head_compile.py, scripts/ci/head-compile.sh).
 #
