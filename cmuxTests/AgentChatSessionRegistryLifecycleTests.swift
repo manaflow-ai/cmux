@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxAgentChat
 import CmuxFoundation
 @testable import CmuxMobileHost
 import Foundation
@@ -195,6 +196,227 @@ struct AgentChatSessionRegistryLifecycleTests {
         #expect(record.sessionID == sessionID)
         #expect(record.hookStoreLookupSessionID == sessionID)
         #expect(record.hookStoreSessionID == nil)
+    }
+
+    /// Notes `names` in order on `registry` for one session, one second apart
+    /// from `start`, and returns the state after the last one.
+    @MainActor
+    private func stateAfter(
+        _ names: [WorkstreamEvent.HookEventName],
+        tool: String? = "mcp__plugin__refresh",
+        source: String = "claude",
+        session: String,
+        surface: String? = nil,
+        on registry: AgentChatSessionRegistry,
+        from start: TimeInterval
+    ) -> ChatAgentState {
+        var state = ChatAgentState.idle
+        for (offset, name) in names.enumerated() {
+            let isToolEvent = [.preToolUse, .postToolUse, .postToolUseFailure].contains(name)
+            state = registry.noteHookEvent(WorkstreamEvent(
+                sessionId: session,
+                hookEventName: name,
+                source: source,
+                surfaceId: surface,
+                toolName: isToolEvent ? tool : nil,
+                receivedAt: Date(timeIntervalSince1970: start + TimeInterval(offset))
+            )).state
+        }
+        return state
+    }
+
+    @MainActor
+    @Test("Claude tool hooks after Stop leave the session idle until the next prompt")
+    func claudeToolHooksAfterStopKeepTheSessionIdle() {
+        let registry = AgentChatSessionRegistry()
+        let session = "plugin-between-turns"
+        #expect(stateAfter([.sessionStart, .userPromptSubmit, .preToolUse, .postToolUse, .stop], session: session, on: registry, from: 100) == .idle)
+
+        // A plugin calls an MCP tool on a timer. No turn is running, so no
+        // Stop follows these.
+        for (offset, name) in [WorkstreamEvent.HookEventName.preToolUse, .postToolUse, .preToolUse, .postToolUseFailure, .todoWrite, .subagentStop].enumerated() {
+            #expect(
+                stateAfter([name], session: session, on: registry, from: 200 + TimeInterval(offset)) == .idle,
+                "\(name.rawValue) after Stop"
+            )
+        }
+
+        // The next prompt starts a turn, and its tool calls count again.
+        #expect(stateAfter([.userPromptSubmit], session: session, on: registry, from: 300) == .working(since: Date(timeIntervalSince1970: 300)))
+        // SessionStart (a resume, or a compaction) is not a prompt, so the
+        // turn stays settled across it, as it does in the hook store.
+        #expect(stateAfter([.stop, .sessionStart, .preToolUse], session: session, on: registry, from: 400) == .idle)
+    }
+
+    @MainActor
+    @Test("A Claude tool hook with no Stop before it still marks the session working")
+    func claudeToolHookWithoutAPriorStopMarksTheSessionWorking() {
+        // First seen mid-turn, for example after the app relaunched.
+        let registry = AgentChatSessionRegistry()
+        #expect(
+            stateAfter([.preToolUse], session: "seen-mid-turn", on: registry, from: 100)
+                == .working(since: Date(timeIntervalSince1970: 100))
+        )
+    }
+
+    @MainActor
+    @Test("A permission prompt raised after Stop clears when its tool finishes")
+    func permissionPromptAfterStopClearsWhenTheToolFinishes() {
+        let registry = AgentChatSessionRegistry()
+        let session = "plugin-permission"
+        #expect(stateAfter([.userPromptSubmit, .stop, .preToolUse], session: session, on: registry, from: 100) == .idle)
+        #expect(stateAfter([.permissionRequest], session: session, on: registry, from: 200) == .needsInput(since: Date(timeIntervalSince1970: 200)))
+        // Another call starting must not hide the prompt that is still open.
+        #expect(stateAfter([.preToolUse], session: session, on: registry, from: 201) == .needsInput(since: Date(timeIntervalSince1970: 200)))
+        #expect(stateAfter([.postToolUse], session: session, on: registry, from: 202) == .idle)
+        #expect(stateAfter([.preToolUse, .permissionRequest, .postToolUseFailure], session: session, on: registry, from: 300) == .idle)
+    }
+
+    @MainActor
+    @Test("A permission prompt answered in the terminal after Stop ends idle")
+    func permissionPromptAnsweredInTheTerminalAfterStopEndsIdle() {
+        let registry = AgentChatSessionRegistry()
+        let session = "plugin-permission-typed"
+        let surface = UUID().uuidString
+        #expect(
+            stateAfter([.userPromptSubmit, .stop, .preToolUse, .permissionRequest], session: session, surface: surface, on: registry, from: 100)
+                == .needsInput(since: Date(timeIntervalSince1970: 103))
+        )
+        // Typing the answer marks the session working ahead of the next hook.
+        #expect(registry.noteUserInput(surfaceID: surface, at: Date(timeIntervalSince1970: 200)) == 1)
+        #expect(registry.record(sessionID: session)?.state == .working(since: Date(timeIntervalSince1970: 200)))
+        #expect(stateAfter([.postToolUse], session: session, surface: surface, on: registry, from: 201) == .idle)
+    }
+
+    @MainActor
+    @Test("A session seeded from the hook store keeps its settled turn", arguments: [true, false])
+    func hookStoreSeedCarriesTheSettledTurn(turnSettled: Bool) async throws {
+        // After an app relaunch the registry starts from the hook store, which
+        // records whether the last turn ended with Stop.
+        let home = try temporaryHomeDirectory()
+        let sessionID = "5f0c1a52-7d0e-4b0b-9a53-0d1c6a4f1e27"
+        let surfaceID = UUID().uuidString
+        try writeClaudeHookStore(
+            home: home,
+            sessionID: sessionID,
+            workspaceID: UUID().uuidString,
+            surfaceID: surfaceID,
+            transcriptPath: "/Users/example/.claude/projects/-Users-example-project/\(sessionID).jsonl",
+            pid: Int(ProcessInfo.processInfo.processIdentifier),
+            turnSettled: turnSettled
+        )
+        let registry = AgentChatSessionRegistry(hookStore: AgentChatHookSessionStore(homeDirectory: home))
+        await registry.seedFromHookStores(agentSources: ["claude"])
+        #expect(registry.record(sessionID: sessionID)?.state == .idle)
+
+        let state = stateAfter([.preToolUse], session: sessionID, surface: surfaceID, on: registry, from: 200)
+        #expect(state == (turnSettled ? .idle : .working(since: Date(timeIntervalSince1970: 200))))
+    }
+
+    @MainActor
+    @Test("The hook store's settled turn reaches a record that exists before the seed")
+    func hookStoreSeedCarriesTheSettledTurnOntoAResumedRecord() async throws {
+        // On relaunch the resume path creates the record before the seed runs.
+        let home = try temporaryHomeDirectory()
+        let sessionID = "8a4de1f3-2b7c-4c55-b1a9-6f0e2d9c7b14"
+        let surfaceID = UUID().uuidString
+        let workspaceID = UUID().uuidString
+        try writeClaudeHookStore(
+            home: home,
+            sessionID: sessionID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            transcriptPath: "/Users/example/.claude/projects/-Users-example-project/\(sessionID).jsonl",
+            pid: Int(ProcessInfo.processInfo.processIdentifier),
+            turnSettled: true
+        )
+        let registry = AgentChatSessionRegistry(hookStore: AgentChatHookSessionStore(homeDirectory: home))
+        registry.noteResumeInitiated(
+            sessionID: sessionID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: "/Users/example/project"
+        )
+        await registry.seedFromHookStores(agentSources: ["claude"])
+
+        #expect(stateAfter([.preToolUse], session: sessionID, surface: surfaceID, on: registry, from: 200) == .idle)
+    }
+
+    @MainActor
+    @Test("The hook store's settled turn reaches a resumed session whose SessionStart came first")
+    func hookStoreSeedCarriesTheSettledTurnPastAnEarlierSessionStart() async throws {
+        // The resumed process can report SessionStart while the seed is still
+        // reading the store. SessionStart is no turn boundary, so the stored
+        // one still applies.
+        let home = try temporaryHomeDirectory()
+        let sessionID = "c2b7f6d0-93a1-4e8e-8f3b-51d0a7e4c9aa"
+        let surfaceID = UUID().uuidString
+        let workspaceID = UUID().uuidString
+        try writeClaudeHookStore(
+            home: home,
+            sessionID: sessionID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            transcriptPath: "/Users/example/.claude/projects/-Users-example-project/\(sessionID).jsonl",
+            pid: Int(ProcessInfo.processInfo.processIdentifier),
+            turnSettled: true
+        )
+        let registry = AgentChatSessionRegistry(hookStore: AgentChatHookSessionStore(homeDirectory: home))
+        registry.noteResumeInitiated(
+            sessionID: sessionID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: "/Users/example/project"
+        )
+        #expect(stateAfter([.sessionStart], session: sessionID, surface: surfaceID, on: registry, from: 150) == .idle)
+        await registry.seedFromHookStores(agentSources: ["claude"])
+
+        #expect(stateAfter([.preToolUse], session: sessionID, surface: surfaceID, on: registry, from: 200) == .idle)
+    }
+
+    @MainActor
+    @Test("A prompt seen before the seed outranks the hook store's settled turn")
+    func livePromptOutranksTheHookStoresSettledTurn() async throws {
+        let home = try temporaryHomeDirectory()
+        let sessionID = "0d5e8a77-41c2-4f6b-a2de-7b93c1f0e6d3"
+        let surfaceID = UUID().uuidString
+        try writeClaudeHookStore(
+            home: home,
+            sessionID: sessionID,
+            workspaceID: UUID().uuidString,
+            surfaceID: surfaceID,
+            transcriptPath: "/Users/example/.claude/projects/-Users-example-project/\(sessionID).jsonl",
+            pid: Int(ProcessInfo.processInfo.processIdentifier),
+            turnSettled: true
+        )
+        let registry = AgentChatSessionRegistry(hookStore: AgentChatHookSessionStore(homeDirectory: home))
+        #expect(stateAfter([.userPromptSubmit], session: sessionID, surface: surfaceID, on: registry, from: 150) == .working(since: Date(timeIntervalSince1970: 150)))
+        await registry.seedFromHookStores(agentSources: ["claude"])
+
+        // The turn the prompt opened is still running: a tool result must not settle it.
+        #expect(stateAfter([.preToolUse, .postToolUse], session: sessionID, surface: surfaceID, on: registry, from: 200) == .working(since: Date(timeIntervalSince1970: 150)))
+    }
+
+    @MainActor
+    @Test("AskUserQuestion after Stop still needs input")
+    func askUserQuestionAfterStopStillNeedsInput() {
+        let registry = AgentChatSessionRegistry()
+        #expect(
+            stateAfter([.userPromptSubmit, .stop, .preToolUse], tool: "AskUserQuestion", session: "ask-after-stop", on: registry, from: 100)
+                == .needsInput(since: Date(timeIntervalSince1970: 102))
+        )
+    }
+
+    @MainActor
+    @Test("Tool hooks after Stop still mark other agents working")
+    func toolHooksAfterStopStillMarkOtherAgentsWorking() {
+        let registry = AgentChatSessionRegistry()
+        #expect(
+            stateAfter([.userPromptSubmit, .stop, .preToolUse], source: "codex", session: "tool-after-stop", on: registry, from: 100)
+                == .working(since: Date(timeIntervalSince1970: 102))
+        )
     }
 
     @MainActor
@@ -698,22 +920,23 @@ struct AgentChatSessionRegistryLifecycleTests {
         workspaceID: String,
         surfaceID: String,
         transcriptPath: String,
-        pid: Int
+        pid: Int,
+        turnSettled: Bool? = nil
     ) throws {
         let directory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let payload: [String: Any] = [
-            "sessions": [
-                sessionID: [
-                    "workspaceId": workspaceID,
-                    "surfaceId": surfaceID,
-                    "cwd": "/Users/example/project",
-                    "transcriptPath": transcriptPath,
-                    "pid": pid,
-                    "updatedAt": 140.0,
-                ],
-            ],
+        var session: [String: Any] = [
+            "workspaceId": workspaceID,
+            "surfaceId": surfaceID,
+            "cwd": "/Users/example/project",
+            "transcriptPath": transcriptPath,
+            "pid": pid,
+            "updatedAt": 140.0,
         ]
+        if let turnSettled {
+            session["turnSettled"] = turnSettled
+        }
+        let payload: [String: Any] = ["sessions": [sessionID: session]]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         try data.write(to: directory.appendingPathComponent("claude-hook-sessions.json"))
     }

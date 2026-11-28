@@ -78,6 +78,7 @@ extension AgentChatSessionRegistry {
 
     nonisolated static func nextState(
         previous: ChatAgentState,
+        turn: AgentChatHookTurn = .unknown,
         event: WorkstreamEvent
     ) -> ChatAgentState {
         if stateIsEnded(previous), event.hookEventName != .sessionStart {
@@ -95,6 +96,14 @@ extension AgentChatSessionRegistry {
            let toolName = event.toolName,
            toolName == "AskUserQuestion" || toolName == "ExitPlanMode" {
             return .needsInput(since: event.receivedAt)
+        }
+        // A Claude plugin or helper can call tools after the turn's Stop, and
+        // no Stop follows those calls, so they must not leave this session
+        // working until the next prompt. Only Claude's hook handler has this
+        // rule for the built-in status, so only Claude gets it here.
+        if event.source == "claude",
+           let settled = turn.stateOverride(previous: previous, hook: turnHook(for: event)) {
+            return settled
         }
         switch event.hookEventName {
         case .sessionStart:
@@ -123,6 +132,22 @@ extension AgentChatSessionRegistry {
             return previous
         case .sessionEnd:
             return .ended
+        }
+    }
+
+    /// The part of `event` that matters to the session's turn.
+    nonisolated static func turnHook(for event: WorkstreamEvent) -> AgentChatHookTurn.Hook {
+        switch event.hookEventName {
+        case .userPromptSubmit:
+            return .promptSubmitted
+        case .stop:
+            return .stopped
+        case .preToolUse, .todoWrite:
+            return .toolStarting
+        case .postToolUse, .postToolUseFailure:
+            return .toolFinished
+        default:
+            return .other
         }
     }
 

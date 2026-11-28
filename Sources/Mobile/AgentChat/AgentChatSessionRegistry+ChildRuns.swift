@@ -12,7 +12,7 @@ import Foundation
 /// dedicated `SubagentStart`/`SubagentStop` pair, with the FIFO fallback when
 /// a request id is absent. Neither child ever runs hooks of its own, so this
 /// bookkeeping is the ONLY view cmux has of nested agents; the state machine
-/// in `nextState(previous:event:)` deliberately keeps ignoring these events
+/// in `nextState(previous:turn:event:)` deliberately keeps ignoring these events
 /// (a child's lifecycle says nothing about whether the PARENT is working).
 ///
 /// Honest limits: without per-child ids from the CLI, a dedicated stop event

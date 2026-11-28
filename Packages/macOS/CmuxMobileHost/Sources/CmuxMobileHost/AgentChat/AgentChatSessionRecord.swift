@@ -30,6 +30,9 @@ public struct AgentChatSessionRecord: Sendable {
     /// Process-table discovery proves presence and identity, but not idleness.
     public var hasHookLifecycleState: Bool = false
 
+    /// Where the hooks last placed the session relative to a turn.
+    public var hookTurn: AgentChatHookTurn = .unknown
+
     /// When the record entered `.ended`. Best-effort process observations sampled
     /// before this point must not revive it after a hook or exit watcher ended it.
     public var endedAt: Date?

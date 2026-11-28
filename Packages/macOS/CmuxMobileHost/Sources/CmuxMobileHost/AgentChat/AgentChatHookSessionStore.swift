@@ -25,6 +25,8 @@ public struct AgentChatHookSessionStore: Sendable {
         public let pid: Int?
         /// When the hook store last updated the record.
         public let updatedAt: Date?
+        /// Whether the store's last turn boundary for the session is a `Stop`.
+        public let turnSettled: Bool
 
         public init(
             sessionID: String,
@@ -33,7 +35,8 @@ public struct AgentChatHookSessionStore: Sendable {
             workingDirectory: String?,
             transcriptPath: String?,
             pid: Int?,
-            updatedAt: Date?
+            updatedAt: Date?,
+            turnSettled: Bool = false
         ) {
             self.sessionID = sessionID
             self.workspaceID = workspaceID
@@ -42,6 +45,7 @@ public struct AgentChatHookSessionStore: Sendable {
             self.transcriptPath = transcriptPath
             self.pid = pid
             self.updatedAt = updatedAt
+            self.turnSettled = turnSettled
         }
     }
 
@@ -79,7 +83,8 @@ public struct AgentChatHookSessionStore: Sendable {
                 workingDirectory: Self.nonEmpty(entry["cwd"] as? String),
                 transcriptPath: Self.nonEmpty(entry["transcriptPath"] as? String),
                 pid: entry["pid"] as? Int,
-                updatedAt: updatedAt
+                updatedAt: updatedAt,
+                turnSettled: entry["turnSettled"] as? Bool ?? false
             )
         }
     }
