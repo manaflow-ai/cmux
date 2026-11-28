@@ -544,7 +544,7 @@ private struct PairMacStep: View {
             art
         } content: {
             ConnectMacSteps(email: email, onlineMac: onlineMac, teamName: store.teams.count > 1 ? store.activeTeam?.name : nil,
-                            noMacsForAccount: store.accountMacCount == 0)
+                            noMacsForAccount: store.accountMacCount == 0, alignment: .center)
         } actions: {
             // One button for both states (D6): see `PairMacCallToAction`. Its
             // label and style change in place; nothing is inserted or removed,

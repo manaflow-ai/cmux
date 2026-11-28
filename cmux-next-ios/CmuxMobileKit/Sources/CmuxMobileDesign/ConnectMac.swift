@@ -20,9 +20,15 @@ public struct ConnectMacSteps: View {
     let noMacsForAccount: Bool
     /// Opens Settings → Account (the shell only).
     let openAccount: (() -> Void)?
+    /// How the status line and the Account link line up: centred under the centred title on both the setup
+    /// page and the Workspaces empty state (iOS release bar read-back, 2026-11-28: the link sat
+    /// left-aligned under centred content).
+    let alignment: HorizontalAlignment
 
     public init(email: String?, onlineMac: String?, teamName: String? = nil,
-                noMacsForAccount: Bool = false, openAccount: (() -> Void)? = nil) {
+                noMacsForAccount: Bool = false, openAccount: (() -> Void)? = nil,
+                alignment: HorizontalAlignment = .leading) {
+        self.alignment = alignment
         self.email = email
         self.onlineMac = onlineMac
         self.teamName = teamName
@@ -35,10 +41,8 @@ public struct ConnectMacSteps: View {
     /// One line of status. The two steps (what to do on the Mac) sit behind an info circle that opens a small popover
     /// (Leo, 2026-11-23: "NEVER THIS F***ING TMI ... THERE ARE HOVERS AND QUESTION MARK CIRCLES AND INFO CIRCLES").
     /// With no Mac on this account, the way to its settings stays out, styled as a link (iOS release bar read-back, 2026-11-22).
-    /// Both callers (the Workspaces empty state and first-run setup) center their icon and title, so the status
-    /// line and the link center under them too; a leading column read as an orphan (read-back 2026-11-28, hq#37893).
     public var body: some View {
-        VStack(alignment: .center, spacing: 10) {
+        VStack(alignment: alignment, spacing: 10) {
             HStack(spacing: 8) {
                 status
                 helpButton
@@ -58,7 +62,7 @@ public struct ConnectMacSteps: View {
                 .accessibilityIdentifier("connect-mac.account")
             }
         }
-        .frame(maxWidth: 340)
+        .frame(maxWidth: 340, alignment: Alignment(horizontal: alignment, vertical: .center))
     }
 
     private var helpButton: some View {
