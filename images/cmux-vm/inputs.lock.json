@@ -647,27 +647,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "589544f1e56b6a59d1cae2f6364f0a9524b4ffda",
-      "url": "https://files.cmux.com/cmux-tui/589544f1e56b6a59d1cae2f6364f0a9524b4ffda/machine/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "2a3fca13f68ef03e562ccc51ed6b59867cc7d19811fc4549f5f931a75a48e382",
-      "size": 221633264,
+      "version": "0d15ef715a339d803ff7068d28de6d88c21aec9f",
+      "url": "https://files.cmux.com/cmux-tui/0d15ef715a339d803ff7068d28de6d88c21aec9f/machine/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "d405d9ac5f317993173b85efeee34654fc7658c5becc75b3563e2d982edf816a",
+      "size": 231974768,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/589544f1e56b6a59d1cae2f6364f0a9524b4ffda/machine/ (the Cloud machine build, write-once; sha256 of the bytes; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/0d15ef715a339d803ff7068d28de6d88c21aec9f/machine/ (the Cloud machine build, write-once; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "589544f1e56b6a59d1cae2f6364f0a9524b4ffda",
-      "url": "https://files.cmux.com/cmux-tui/589544f1e56b6a59d1cae2f6364f0a9524b4ffda/machine/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "bbe957f7e46f849c5819c9abf16e8460a03e0d352f5b17a254583926ca69312d",
-      "size": 16233400,
+      "version": "0d15ef715a339d803ff7068d28de6d88c21aec9f",
+      "url": "https://files.cmux.com/cmux-tui/0d15ef715a339d803ff7068d28de6d88c21aec9f/machine/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "c49552d3ee346e5e97a4b0c9def43466fd67b8cbd42ce91d8b2d75a13d7dfb84",
+      "size": 16994552,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/589544f1e56b6a59d1cae2f6364f0a9524b4ffda/machine/ (the Cloud machine build, write-once; sha256 of the bytes; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/0d15ef715a339d803ff7068d28de6d88c21aec9f/machine/ (the Cloud machine build, write-once; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "optchat-chief",
