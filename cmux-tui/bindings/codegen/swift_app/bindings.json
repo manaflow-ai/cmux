@@ -192,6 +192,24 @@
             }
           },
           "response": "hand-written"
+        },
+        "record-notification-delivery": {
+          "name": "RecordNotificationDeliveryRequest",
+          "doc": [
+            "`record-notification-delivery {notification, desktop, reason?}`: what the app did with a notice's banner",
+            "(`shown` or `suppressed`, and why), which `list-notifications` returns as the row's `delivery`."
+          ],
+          "order": [
+            "notification",
+            "desktop",
+            "reason"
+          ],
+          "fields": {
+            "notification": {
+              "type": "NotificationID"
+            }
+          },
+          "response": "JSONValue"
         }
       },
       "objects": {
