@@ -1317,44 +1317,6 @@ function seedRoots(
 /// A paged read whose page said more but held nothing past its cursor: the machine answered and
 /// filled nothing. It fails as a read that did not come back does, so the hole is kept and read again
 /// later (a chat shown from the Mac's copy stays its offline copy, as when the machine is down).
-/// Ids, each with the seq of the record that named it (a turn's end, a prompt's echo): per-turn state the held window
-/// lets go of with its oldest records (`dropHeldRun` → `forgetBefore`), so a chat open for days holds what its window
-/// holds, not one entry per turn it ever ran. The `keep` newest stay whatever leaves: a late end or a stale summary
-/// names a recent turn, never one a window of records back.
-export class SeqIds {
-  private readonly ids = new Map<string, number>();
-  constructor(private readonly keep = 0) {}
-  get size(): number {
-    return this.ids.size;
-  }
-  has(id: string): boolean {
-    return this.ids.has(id);
-  }
-  add(id: string, seq: number | undefined): this {
-    const at = seq ?? 0;
-    const had = this.ids.get(id);
-    if (had === undefined || had < at) this.ids.set(id, at);
-    return this;
-  }
-  clear(): void {
-    this.ids.clear();
-  }
-  /// Lets go of every id named only before `seq`, but the `keep` newest of all.
-  forgetBefore(seq: number): void {
-    if (this.ids.size <= this.keep) return;
-    const older: number[] = [];
-    for (const at of this.ids.values()) if (at < seq) older.push(at);
-    if (older.length === 0) return;
-    const spare = Math.max(0, this.keep - (this.ids.size - older.length));
-    const cutoff = spare === 0 ? Infinity : older.sort((a, b) => b - a)[spare - 1]!;
-    for (const [id, at] of this.ids) if (at < seq && at < cutoff) this.ids.delete(id);
-  }
-}
-/// How many of the newest ended, superseded and shown ids a chat keeps past its held window (`SeqIds`).
-export const TURN_IDS_KEPT = 64;
-/// How many of this client's own prompt ids it remembers sending (`sentPrompts`): a refusal comes right after its send.
-export const SENT_PROMPTS_KEPT = 256;
-
 class StalledReadError extends Error {
   readonly reason = "read_stalled";
 }
@@ -1713,9 +1675,9 @@ export class AcpmuxDirectClient {
   private awaiting?: string;
   /// The turns this page saw end (`turn_result`): a summary that still names one as running was
   /// read before it ended (``staleRun``).
-  private endedTurns = new SeqIds(TURN_IDS_KEPT);
+  private endedTurns = new Set<string>();
   /// Named turns a newer turn opened over: an end naming one is late, whatever the running turn names.
-  private supersededTurns = new SeqIds(TURN_IDS_KEPT);
+  private supersededTurns = new Set<string>();
   /// A forced Stop retires its compaction. The next explicit prompt fences the old compaction's
   /// delayed boundary; a new running update after that prompt starts a fresh row but cannot
   /// attribute a later unscoped boundary. Only the turn's terminal result can settle that row.
@@ -1732,7 +1694,7 @@ export class AcpmuxDirectClient {
   private lateSteers: string[] = [];
   /// The promptIds drawn as prompts. An older page folds in after the rows below it, so the steer
   /// a held prompt re-ran comes after that prompt: it draws nothing. Kept across that fold.
-  private promptsShown = new SeqIds(TURN_IDS_KEPT);
+  private promptsShown = new Set<string>();
   /// Where each prompt was sent from, by prompt id (`sender_claim`, conversation/sentFromHarness.ts): a
   /// row drawn after its claim reads it here, and a claim after its row (the daemon writes it once
   /// the prompt is kept, an older page folds in later) updates that row.
@@ -8320,7 +8282,7 @@ export class AcpmuxDirectClient {
     const inRun = (seq: number) => seq >= from && seq < before;
     // What found a row that left.
     if (gone.size > 0) {
-      for (const map of [this.toolRows, this.steerRows, this.inboxClaimRows, this.offerRows, this.promptRowKeys])
+      for (const map of [this.toolRows, this.steerRows, this.inboxClaimRows, this.offerRows])
         for (const [key, rowId] of map) if (gone.has(rowId)) map.delete(key);
       for (const map of [this.messageRows, this.sourceLines])
         for (const [key, rowIds] of map) {
@@ -8348,10 +8310,6 @@ export class AcpmuxDirectClient {
       if (left(this.pausedReply?.row)) this.pausedReply = undefined;
       if (left(this.lastUnanswered?.rowId)) this.lastUnanswered = undefined;
     }
-    // The turns and prompts only the oldest records named: no record held names them again (the newest stay, `SeqIds`).
-    // A run of the newest records (a reader scrolled far up) comes back on a read forward: what it named stays.
-    if (older)
-      for (const ids of [this.endedTurns, this.supersededTurns, this.promptsShown]) ids.forgetBefore(before);
     this.runChanges = this.runChanges.filter((change) => !inRun(change.seq));
     for (const [callId, output] of this.streamedOutputs)
       if (inRun(output.first) && inRun(output.last ?? output.first)) this.streamedOutputs.delete(callId);
@@ -9756,7 +9714,7 @@ export class AcpmuxDirectClient {
   /// hold on what runs (a legacy turn with no id included).
   private stopSeesTurnOpen(event: EventRecord, turnId: string | undefined, opensNewTurn: boolean): void {
     for (const known of [this.runningTurnId, this.stopTurnId])
-      if (known !== undefined && known !== turnId) this.supersededTurns.add(known, event.seq);
+      if (known !== undefined && known !== turnId) this.supersededTurns.add(known);
     if (this.stopAfterSeq === undefined || event.seq <= this.stopAfterSeq) return;
     if (this.stopTurnId !== undefined) {
       if (turnId !== this.stopTurnId) this.stopSuperseded = true;
@@ -10858,7 +10816,7 @@ export class AcpmuxDirectClient {
           this.queue = this.queue.filter((entry) => entry.id !== promptId);
         // A newer prompt means any steer before it was read; a second steer can come in the same step.
         if (msg.steer !== true) this.landSteer();
-        if (msg.steer !== true && promptId) this.promptsShown.add(promptId, event.seq);
+        if (msg.steer !== true && promptId) this.promptsShown.add(promptId);
         if (promptId !== undefined && promptId === this.interrupting) this.interrupting = undefined;
         // A prompt sent now that ended the turn it went into goes on with that turn. Another prompt
         // opening a turn first means it never ran.
@@ -11103,7 +11061,7 @@ export class AcpmuxDirectClient {
         const turnId = resultTurnId;
         if (event.kind === "turn_result" && turnId) {
           if (msg.cancelForced === true && compactionWasRunning) this.retiredCompactionTurnId = turnId;
-          this.endedTurns.add(turnId, event.seq);
+          this.endedTurns.add(turnId);
           if (this.runningTurnId === turnId) this.runningTurnId = undefined;
         }
         // An older acpmux's record is read by the chat's harness (tokenSplit.ts `inputIsFresh`).
@@ -13313,9 +13271,7 @@ export class AcpmuxDirectClient {
       onTaken?.();
     };
     this.promptAccepts.set(promptId, accept);
-    this.sentPrompts.delete(promptId);
     this.sentPrompts.add(promptId);
-    if (this.sentPrompts.size > SENT_PROMPTS_KEPT) this.sentPrompts.delete(this.sentPrompts.values().next().value!);
     // A prompt behind the turn is drawn in the queue now: that row shows the send, so the composer
     // is free for the next prompt without waiting for acpmux (a lagged event stream can lose its
     // `queued` record). The context is spent only when acpmux takes it.
