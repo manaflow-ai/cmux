@@ -55,6 +55,8 @@ env:
 jobs:
   duress:
     name: cmux-duress tests, bench and scenarios
+    # A feat-cmux-next push saves the cargo build to R2; only next-cache-writer holds the write credentials, and its
+    # deployment branches are feat-cmux-next only (tests/test_ci_pull_request_caches_are_read_only.py).
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # A cold build of cmux-duress with ghostty-vt and cmux-agent-cli-render, debug and release, plus the bench
@@ -65,6 +67,7 @@ jobs:
       # The previous feat-cmux-next push's scenario lines (one run list, one artifact download).
       actions: read
     env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
       GHOSTTY_ZIG_SOURCE: ghostty-next
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
