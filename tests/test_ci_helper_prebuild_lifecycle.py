@@ -28,6 +28,11 @@ class LifecycleTests(unittest.TestCase):
             result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=8)
             return result
 
+    def test_optional_work_does_not_mutate_the_shared_cua_source_cache(self):
+        prebuild = (ROOT / "scripts/ci/prebuild-app-helpers.sh").read_text()
+        self.assertNotIn('run_helper cmux-cua', prebuild)
+        self.assertNotIn('"$ROOT/scripts/build-cmux-cua.sh"', prebuild)
+
     def test_failed_build_does_not_wait_for_hung_helper(self):
         result = self.run_case("import signal; signal.pause()", "raise SystemExit(17)")
         self.assertEqual(result.returncode, 17, result.stderr)
@@ -63,64 +68,6 @@ class LifecycleTests(unittest.TestCase):
         result, stopped = self.simulated(None, [0, 11])
         self.assertEqual(result, 0)
         self.assertEqual(len(stopped), 3)
-
-    def load(self):
-        spec = importlib.util.spec_from_file_location("runner", SCRIPT)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
-
-    def test_group_of_zombies_refusing_signal_is_already_stopped(self):
-        # macOS answers killpg with EPERM when only zombies are left in the
-        # group (nightly-next run 40607005697). That is "already gone", not a
-        # build failure.
-        module = self.load()
-        process = Mock(pid=4242)
-        process.poll.return_value = 0
-        with patch.object(module.os, "killpg", side_effect=PermissionError(1, "Operation not permitted")):
-            module.stop_group(process)
-        process.wait.assert_called_once()
-        process.kill.assert_not_called()
-
-    def test_refused_group_signal_still_stops_live_leader(self):
-        module = self.load()
-        process = Mock(pid=4242)
-        process.poll.return_value = None
-        with patch.object(module.os, "killpg", side_effect=PermissionError(1, "Operation not permitted")):
-            module.stop_group(process)
-        process.kill.assert_called_once()
-        process.wait.assert_called_once()
-
-    def test_refused_helper_group_signal_keeps_the_build_result(self):
-        module = self.load()
-        helper = Mock(pid=4242, returncode=0)
-        helper.poll.return_value = 0
-        build = Mock(pid=4343, returncode=0)
-        build.poll.side_effect = [None, 0, 0]
-        with tempfile.TemporaryDirectory() as tmp:
-            with patch.object(module.subprocess, "Popen", side_effect=[helper, build]), \
-                 patch.object(module.os, "killpg", side_effect=PermissionError(1, "Operation not permitted")), \
-                 patch.object(module.time, "monotonic", return_value=0), \
-                 patch.object(module.time, "sleep"):
-                self.assertEqual(module.run(["helper"], ["build"], str(Path(tmp) / "log"), 10), 0)
-        build.wait.assert_called()
-
-    def test_unreaped_exited_leader_is_stopped(self):
-        # A real exited, unreaped leader: EPERM on macOS, success on Linux.
-        module = self.load()
-        process = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
-        deadline = time.monotonic() + 3
-        while time.monotonic() < deadline:
-            try:
-                state = subprocess.run(["ps", "-o", "stat=", "-p", str(process.pid)],
-                                       capture_output=True, text=True).stdout.strip()
-            except OSError:
-                break
-            if not state or state.startswith("Z"):
-                break
-            time.sleep(.02)
-        module.stop_group(process)
-        self.assertEqual(process.returncode, 0)
 
     def test_cancellation_kills_helper_descendants(self):
         with tempfile.TemporaryDirectory() as tmp:

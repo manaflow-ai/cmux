@@ -14,6 +14,7 @@
 </p>
 
 <p align="center">
+  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
   <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
@@ -383,7 +384,7 @@ tmux เป็น terminal multiplexer ที่รันอยู่ภาย�
 
 ### ผมจะสนับสนุน cmux ได้อย่างไร?
 
-cmux ฟรีและโอเพนซอร์ส และจะเป็นเช่นนั้นเสมอ
+cmux ฟรีและโอเพนซอร์ส และจะเป็นเช่นนั้นเสมอ หากคุณต้องการสนับสนุนการพัฒนาและรับการเข้าถึงสิ่งที่กำลังจะมาก่อนใคร รวมถึง cmux AI, แอป iOS และ Cloud VMs ลองดู [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)
 
 ### ผมมีคำขอฟีเจอร์หรือพบบั๊ก?
 
@@ -403,7 +404,7 @@ cmux ฟรีและโอเพนซอร์ส และจะเป็�
 
 วิธีเข้าร่วม:
 
-- ติดตามเราบน X เพื่อรับข่าวสาร [@lawrencecchen](https://x.com/lawrencecchen) และ [@austinywang](https://x.com/austinywang)
+- ติดตามเราบน X เพื่อรับข่าวสาร [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen) และ [@austinywang](https://x.com/austinywang)
 - เข้าร่วมการสนทนาบน [Discord](https://discord.gg/xsgFEVrWCZ)
 - สร้างและเข้าร่วมใน [GitHub issues](https://github.com/manaflow-ai/cmux/issues) และ [discussions](https://github.com/manaflow-ai/cmux/discussions)
 - บอกเราว่าคุณกำลังสร้างอะไรด้วย cmux
@@ -413,6 +414,7 @@ cmux ฟรีและโอเพนซอร์ส และจะเป็�
 - [Discord](https://discord.gg/xsgFEVrWCZ)
 - [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
+- [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
@@ -421,6 +423,12 @@ cmux ฟรีและโอเพนซอร์ส และจะเป็�
   <strong>WeChat:</strong> สแกนคิวอาร์โค้ดเพื่อเข้าร่วมชุมชน<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="คิวอาร์โค้ด WeChat สำหรับเข้าร่วมชุมชน cmux" width="240" />
 </p>
+
+## cmux Pro
+
+cmux ฟรี โอเพนซอร์ส และจะเป็นเช่นนั้นเสมอ หากคุณต้องการสนับสนุนการพัฒนาและรับการเข้าถึงสิ่งที่กำลังจะมาก่อนใคร:
+
+**[รับ cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## สัญญาอนุญาต
 

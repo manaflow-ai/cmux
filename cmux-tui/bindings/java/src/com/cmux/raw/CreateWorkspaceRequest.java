@@ -14,23 +14,17 @@ import java.util.Objects;
 public final class CreateWorkspaceRequest implements WireValue {
     private final Field<String> expectedGeneration;
     private final Field<UInt64> expectedRevision;
-    /** The workspace's first tab, made in the same request: {kind: "browser"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply. */
-    private final Field<WorkspaceFirstTab> firstTab;
     private final Field<String> key;
     private final Field<String> mutationId;
     private final Field<String> name;
-    /** user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace. */
-    private final Field<NameSource> nameSource;
     private final Field<String> origin;
 
     private CreateWorkspaceRequest(Builder builder) {
         this.expectedGeneration = builder.expectedGeneration;
         this.expectedRevision = builder.expectedRevision;
-        this.firstTab = builder.firstTab;
         this.key = builder.key;
         this.mutationId = builder.mutationId;
         this.name = builder.name;
-        this.nameSource = builder.nameSource;
         this.origin = builder.origin;
     }
 
@@ -38,11 +32,9 @@ public final class CreateWorkspaceRequest implements WireValue {
 
     public Field<String> expectedGeneration() { return expectedGeneration; }
     public Field<UInt64> expectedRevision() { return expectedRevision; }
-    public Field<WorkspaceFirstTab> firstTab() { return firstTab; }
     public Field<String> key() { return key; }
     public Field<String> mutationId() { return mutationId; }
     public Field<String> name() { return name; }
-    public Field<NameSource> nameSource() { return nameSource; }
     public Field<String> origin() { return origin; }
 
     public static CreateWorkspaceRequest fromWire(Object value) {
@@ -56,10 +48,6 @@ public final class CreateWorkspaceRequest implements WireValue {
         if (!Wire.isMissing(rawExpectedRevision)) {
             builder.expectedRevision(rawExpectedRevision == null ? null : Wire.uint64(rawExpectedRevision, "CreateWorkspaceRequest.expected_revision"));
         }
-        Object rawFirstTab = Wire.optional(object, "first_tab");
-        if (!Wire.isMissing(rawFirstTab)) {
-            builder.firstTab(rawFirstTab == null ? null : WorkspaceFirstTab.fromWire(rawFirstTab));
-        }
         Object rawKey = Wire.optional(object, "key");
         if (!Wire.isMissing(rawKey)) {
             builder.key(rawKey == null ? null : Wire.string(rawKey, "CreateWorkspaceRequest.key"));
@@ -71,10 +59,6 @@ public final class CreateWorkspaceRequest implements WireValue {
         Object rawName = Wire.optional(object, "name");
         if (!Wire.isMissing(rawName)) {
             builder.name(rawName == null ? null : Wire.string(rawName, "CreateWorkspaceRequest.name"));
-        }
-        Object rawNameSource = Wire.optional(object, "name_source");
-        if (!Wire.isMissing(rawNameSource)) {
-            builder.nameSource(rawNameSource == null ? null : NameSource.fromWire(rawNameSource));
         }
         Object rawOrigin = Wire.optional(object, "origin");
         if (!Wire.isMissing(rawOrigin)) {
@@ -88,11 +72,9 @@ public final class CreateWorkspaceRequest implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "expected_generation", expectedGeneration);
         Wire.put(object, "expected_revision", expectedRevision);
-        Wire.put(object, "first_tab", firstTab);
         Wire.put(object, "key", key);
         Wire.put(object, "mutation_id", mutationId);
         Wire.put(object, "name", name);
-        Wire.put(object, "name_source", nameSource);
         Wire.put(object, "origin", origin);
         return Collections.unmodifiableMap(object);
     }
@@ -100,11 +82,11 @@ public final class CreateWorkspaceRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CreateWorkspaceRequest that)) return false;
-        return Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(firstTab, that.firstTab) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(nameSource, that.nameSource) && Objects.equals(origin, that.origin);
+        return Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(expectedGeneration, expectedRevision, firstTab, key, mutationId, name, nameSource, origin); }
+    public int hashCode() { return Objects.hash(expectedGeneration, expectedRevision, key, mutationId, name, origin); }
 
     @Override
     public String toString() { return "CreateWorkspaceRequest" + toWire(); }
@@ -112,11 +94,9 @@ public final class CreateWorkspaceRequest implements WireValue {
     public static final class Builder {
         private Field<String> expectedGeneration = Field.omitted();
         private Field<UInt64> expectedRevision = Field.omitted();
-        private Field<WorkspaceFirstTab> firstTab = Field.omitted();
         private Field<String> key = Field.omitted();
         private Field<String> mutationId = Field.omitted();
         private Field<String> name = Field.omitted();
-        private Field<NameSource> nameSource = Field.omitted();
         private Field<String> origin = Field.omitted();
 
         public Builder expectedGeneration(String value) {
@@ -125,10 +105,6 @@ public final class CreateWorkspaceRequest implements WireValue {
         }
         public Builder expectedRevision(UInt64 value) {
             this.expectedRevision = Field.ofNullable(value);
-            return this;
-        }
-        public Builder firstTab(WorkspaceFirstTab value) {
-            this.firstTab = Field.ofNullable(value);
             return this;
         }
         public Builder key(String value) {
@@ -141,10 +117,6 @@ public final class CreateWorkspaceRequest implements WireValue {
         }
         public Builder name(String value) {
             this.name = Field.ofNullable(value);
-            return this;
-        }
-        public Builder nameSource(NameSource value) {
-            this.nameSource = Field.ofNullable(value);
             return this;
         }
         public Builder origin(String value) {

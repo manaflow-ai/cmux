@@ -107,7 +107,7 @@ actor ReleasableConnectTransport: CmxByteTransport {
     }
 
     func waitUntilConnectStarted() async -> Bool {
-        for _ in 0..<5_000 {
+        for _ in 0..<200 {
             if connectStarted {
                 return true
             }

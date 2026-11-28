@@ -10,21 +10,16 @@ usage() {
 Usage:
   ./scripts/verify-cmux-tui-hosted.sh --filter <rust-test-name>
   ./scripts/verify-cmux-tui-hosted.sh --filter chatmux_relay
-  ./scripts/verify-cmux-tui-hosted.sh --filter windows
   ./scripts/verify-cmux-tui-hosted.sh --full
   ./scripts/verify-cmux-tui-hosted.sh [--cancel-on-timeout] --filter <name> | --full
 
 --filter runs matching Rust tests on hosted Linux and macOS.
-The reserved `windows` filter runs the Windows Rust tests alone, on the Windows
-runner, with no macOS or Linux test job (a Windows change before it merges).
 The reserved `chatmux_relay` filter runs the complete `chatmux-relay` package;
 Cargo test names do not include their package name, so a plain test-name filter
 cannot select that crate.
 --full runs the cross-platform merge gate, including real Windows execution.
-Both modes build and download the matching macOS arm64 cmux-tui artifact from the
-exact pushed HEAD. --full also downloads the separate userland agent-plugin artifact;
---filter builds the macOS target on a Linux runner, which stages the plugin inside the
-cmux-tui artifact (when it built) instead.
+Both modes build and download matching macOS arm64 cmux-tui and userland agent-plugin
+artifacts from the exact pushed HEAD.
 
 One open run per commit, mode and filter: when a cmux-tui run for the same
 commit, mode and test filter is still open (queued, in progress, waiting), the
@@ -35,11 +30,6 @@ The wait ends after CMUX_TUI_HOSTED_TIMEOUT_SECONDS (default 7200). The hosted
 run is not cancelled then: the script prints the run URL and how to keep
 waiting, and exits with status 3. Ctrl-C cancels the hosted run.
 --cancel-on-timeout also cancels the hosted run when the wait ends (exit 1).
-
-A run state that cannot be read is not "still running": after
-CMUX_TUI_HOSTED_UNREADABLE_READS (default 3) failed reads in a row the script
-stops waiting, prints the read's error and the run URL, and exits with status
-5. The run is not cancelled.
 EOF
 }
 
@@ -91,13 +81,6 @@ timeout_seconds="${CMUX_TUI_HOSTED_TIMEOUT_SECONDS:-7200}"
 rescue_window_seconds="${CMUX_TUI_HOSTED_RESCUE_WINDOW_SECONDS:-300}"
 # The shortest time between two waiter rounds.
 round_seconds="${CMUX_TUI_HOSTED_ROUND_SECONDS:-30}"
-# How many state reads in a row may fail before the wait ends as unreadable
-# (exit 5). A state that cannot be read is never "still running".
-unreadable_reads_limit="${CMUX_TUI_HOSTED_UNREADABLE_READS:-3}"
-if [[ ! "$unreadable_reads_limit" =~ ^[1-9][0-9]*$ ]]; then
-  echo "error: CMUX_TUI_HOSTED_UNREADABLE_READS must be a positive integer" >&2
-  exit 2
-fi
 if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: hosted verification timeout must be a positive integer" >&2
   exit 2
@@ -128,31 +111,17 @@ if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
 fi
 
 branch="$(git symbolic-ref --quiet --short HEAD || true)"
-if [[ -n "$branch" ]]; then
-  upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
-  if [[ "$upstream" == */* ]]; then
-    remote="${upstream%%/*}"
-    remote_branch="${upstream#*/}"
-  else
-    remote="origin"
-    remote_branch="$branch"
-  fi
+if [[ -z "$branch" ]]; then
+  echo "error: hosted verification requires a pushed branch, not detached HEAD" >&2
+  exit 1
+fi
+upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+if [[ "$upstream" == */* ]]; then
+  remote="${upstream%%/*}"
+  remote_branch="${upstream#*/}"
 else
-  # A detached HEAD is enough when this commit is already a pushed branch's head:
-  # the dispatch below names a ref, so the branch holding this commit is the ref,
-  # whether or not a local branch is checked out at it. A clean detached worktree
-  # at a commit whose branch is checked out elsewhere is the usual way to verify.
   remote="origin"
-  remote_branch="$(git for-each-ref --points-at HEAD --format='%(refname:lstrip=3)' \
-    "refs/remotes/$remote" | grep -v '^HEAD$' | head -n 1)"
-  if [[ -z "$remote_branch" ]]; then
-    echo "error: HEAD is detached and no $remote branch is known to point at it" >&2
-    echo "push this commit as a branch, then verify from that tree:" >&2
-    echo "  git push $remote HEAD:refs/heads/BRANCH" >&2
-    exit 1
-  fi
-  branch="$remote_branch"
-  echo "note: HEAD is detached at $(git rev-parse --short HEAD); verifying as $remote/$remote_branch, which points at it"
+  remote_branch="$branch"
 fi
 remote_ref="$remote/$remote_branch"
 remote_url="$(git remote get-url "$remote")"
@@ -347,7 +316,7 @@ dispatched_run() {
 }
 check_runs_hint="gh run list --repo $REPO --workflow $WORKFLOW --branch $remote_branch --event workflow_dispatch"
 dispatch_tries=3
-for ((try = 1; ; try++)); do
+for try in 1 2 3; do
   dispatch_status=0
   run_id="$(dispatch)" || dispatch_status=$?
   [[ $dispatch_status -eq 0 ]] && break
@@ -394,10 +363,12 @@ cancel_on_interrupt=true
 # the dispatch, and a run read sooner is titled only "cmux-tui".
 #
 # GitHub can answer 404 or 500 for a few seconds after it creates a run (run
-# 42688604218: HTTP 404; run 42688525295: HTTP 500). The run exists, so a
-# failed read is not a failure and is not retried here: the script names the
-# run, gives the wait to glaeda-gh wait run (the single poller), and checks the
-# revision again before it accepts the result or an artifact.
+# 42688604218: HTTP 404; run 42688525295: HTTP 500). The run exists, so such a
+# read is not a failure and is not retried here: the script names the run,
+# gives the wait to glaeda-gh wait run (the single poller), and checks the
+# revision again before it accepts the result or an artifact. A network drop
+# is waited out the same way. Any other error (401, 403, a broken gh) does
+# not heal by waiting: it exits 1 at once.
 run_identity_confirmed=false
 check_run_identity() {
   local identity
@@ -419,8 +390,18 @@ check_run_identity || identity_status=$?
 if [[ $identity_status -eq 1 ]]; then
   exit 1
 elif [[ $identity_status -eq 2 ]]; then
+  identity_error="$(tr '\n' ' ' < "$temp_dir/identity.err")"
+  # Waited out: 404 or 5xx (GitHub has not shown the new run yet) and a
+  # network drop with no HTTP code. Exit at once: any other HTTP error (401,
+  # 403) and a gh that fails without a network error (a broken gh).
+  if ! grep -Eqi 'HTTP (404|5[0-9][0-9])|error connecting to|connection (reset|refused)|timed? ?out|i/o timeout|no such host|TLS handshake|unexpected EOF' <<<"$identity_error" || \
+      grep -Eq 'HTTP (40[0-35-9]|4[1-9][0-9])' <<<"$identity_error"; then
+    printf 'error: could not read run %s that the dispatch created (%s); it is not cancelled: %s\n' \
+      "$run_id" "$identity_error" "$run_url" >&2
+    exit 1
+  fi
   printf 'note: GitHub created run %s but could not show it yet (%s); waiting on it, its revision is checked before the result counts\n' \
-    "$run_id" "$(tr '\n' ' ' < "$temp_dir/identity.err")" >&2
+    "$run_id" "$identity_error" >&2
 fi
 
 echo "Run: $run_url"
@@ -487,39 +468,17 @@ exec 3<> "$watch_result_fifo"
     exec 5>&-
     rm -f "$done_fifo"
   }
-  # Reads the run's status, conclusion and attempt. A gh that has no
-  # `attempt` field refuses the whole read (cmuxterm-hq#10604: every read
-  # failed, and the script waited out its 2-hour deadline after the run had
-  # passed), so that answer is read again without it, attempt "?". A read
-  # that fails or answers no known status sets run_status to "unreadable",
-  # never to a state that means "not done yet".
   read_run_state() {
     : > "$run_state_file"
     run_child 60 gh run view --repo "$REPO" "$run_id" --json status,conclusion,attempt \
-      --jq '"\(.status)|\(.conclusion)|\(.attempt)"' > "$run_state_file" 2> "$run_state_err"
-    if [[ "$child_status" -ne 0 ]] && grep -q 'Unknown JSON field: "attempt"' "$run_state_err"; then
-      : > "$run_state_file"
-      run_child 60 gh run view --repo "$REPO" "$run_id" --json status,conclusion \
-        --jq '"\(.status)|\(.conclusion)|?"' > "$run_state_file" 2> "$run_state_err"
-    fi
-    run_status="unreadable"
-    run_conclusion=""
+      --jq '"\(.status)|\(.conclusion)|\(.attempt)"' > "$run_state_file"
+    run_status="unknown"
+    run_conclusion="unknown"
     run_attempt="?"
     if [[ "$child_status" -eq 0 ]]; then
       # "|", not a tab: IFS whitespace would merge the empty conclusion of a
       # queued run into one separator.
-      local status="" conclusion="" attempt=""
-      IFS='|' read -r status conclusion attempt < "$run_state_file" || true
-      case "$status" in
-        queued|in_progress|completed|waiting|requested|pending)
-          run_status="$status"
-          run_conclusion="$conclusion"
-          run_attempt="${attempt:-?}"
-          ;;
-        *) printf 'gh answered no known run status: %s\n' "$(head -c 200 "$run_state_file")" > "$run_state_err" ;;
-      esac
-    elif [[ ! -s "$run_state_err" ]]; then
-      echo "gh run view exited $child_status" > "$run_state_err"
+      IFS='|' read -r run_status run_conclusion run_attempt < "$run_state_file" || true
     fi
   }
 
@@ -535,8 +494,6 @@ exec 3<> "$watch_result_fifo"
   deadline=$((SECONDS + timeout_seconds))
   waiter_log="$temp_dir/waiter.log"
   run_state_file="$temp_dir/run-state"
-  run_state_err="$temp_dir/run-state.err"
-  unreadable_reads=0
   have_glaeda=false
   command -v glaeda-gh >/dev/null 2>&1 && have_glaeda=true
   use_glaeda=$have_glaeda
@@ -562,15 +519,6 @@ exec 3<> "$watch_result_fifo"
     waiter_status=$child_status
     waited=$((SECONDS - round_start))
     read_run_state
-    if [[ "$run_status" == "unreadable" ]]; then
-      unreadable_reads=$((unreadable_reads + 1))
-      echo "warning: could not read the run's state (${unreadable_reads} of ${unreadable_reads_limit} in a row): $(tr '\n' ' ' < "$run_state_err" | head -c 300)" >&2
-      if (( unreadable_reads >= unreadable_reads_limit )); then
-        break
-      fi
-    else
-      unreadable_reads=0
-    fi
 
     # A run that ended other than in success may be re-run by the CI rescue:
     # cancelled (the run waited for a busy owned pool) or failed (a runner
@@ -618,9 +566,7 @@ exec 3<> "$watch_result_fifo"
     fi
   done
   # The deadline came while a re-run may still follow: that is not a result.
-  if [[ "$run_status" == "unreadable" ]]; then
-    run_conclusion="$(tr '\n\t' '  ' < "$run_state_err" | head -c 300)"
-  elif [[ -n "$ended_since" ]]; then
+  if [[ -n "$ended_since" ]]; then
     run_status="ended-awaiting-rerun"
   fi
   set -e
@@ -637,15 +583,6 @@ if IFS=$'\t' read -r -t "$((timeout_seconds + 150))" run_status run_conclusion <
   watch_owner_pid=""
   [[ "$run_status" == "completed" ]] && run_finished=true
 fi
-# The run's state could not be read: that is not "still running". Say so and
-# leave the run alone.
-if [[ "$run_status" == "unreadable" ]]; then
-  cancel_on_interrupt=false
-  stop_owned_process watch_owner_pid
-  echo "error: could not read hosted run $run_id's state ${unreadable_reads_limit} times in a row (${run_conclusion}); not cancelled: $run_url" >&2
-  echo "Read it with: glaeda-gh status run $REPO/$run_id --jobs (or wait on it: glaeda-gh wait run $REPO/$run_id)" >&2
-  exit 5
-fi
 # The deadline came with the run not done. The macOS queue can be longer than
 # the wait, so by default the run keeps going and the caller waits on it; it is
 # not cancelled.
@@ -659,7 +596,12 @@ if [[ "$run_finished" != true ]]; then
   fi
   echo "Hosted verification is still running (run ${run_status:-still running}) after the wait of ${timeout_seconds}s: $run_url" >&2
   echo "still running, wait with glaeda-gh wait run $REPO/$run_id" >&2
-  echo "Running this script again for this commit and filter while the run is open exits 4 without a second run. When it is done: gh run view --repo $REPO $run_id --log-failed, or gh run download --repo $REPO $run_id" >&2
+  if [[ "$run_identity_confirmed" == true ]]; then
+    echo "Running this script again for this commit and filter while the run is open exits 4 without a second run. When it is done: gh run view --repo $REPO $run_id --log-failed, or gh run download --repo $REPO $run_id" >&2
+  else
+    # Its first read failed, so no artifact of it may be used until its revision is read.
+    echo "The run's revision is not confirmed (its first read failed). When it is done, check it with: gh run view --repo $REPO $run_id --json headSha,headBranch,event; it must be $commit on $remote_branch (workflow_dispatch) before its result or artifacts count." >&2
+  fi
   exit 3
 fi
 cancel_on_interrupt=false
@@ -696,13 +638,11 @@ gh run download \
 
 plugin_download_dir="$temp_dir/agent-plugin"
 mkdir -p "$plugin_download_dir"
-if [[ "$mode" == "full" ]]; then
-  gh run download \
-    --repo "$REPO" \
-    "$run_id" \
-    --name cmux-agent-screen-detection-aarch64-apple-darwin \
-    --dir "$plugin_download_dir"
-fi
+gh run download \
+  --repo "$REPO" \
+  "$run_id" \
+  --name cmux-agent-screen-detection-aarch64-apple-darwin \
+  --dir "$plugin_download_dir"
 
 downloaded_binary="$(find "$temp_dir" -type f -name cmux-tui-aarch64-apple-darwin -print | sed -n '1p')"
 if [[ -z "$downloaded_binary" ]]; then
@@ -710,20 +650,10 @@ if [[ -z "$downloaded_binary" ]]; then
   exit 1
 fi
 
-if [[ "$mode" == "full" ]]; then
-  downloaded_plugin="$(find "$plugin_download_dir" -type f -name cmux-agent-screen-detection-aarch64-apple-darwin -print | sed -n '1p')"
-  if [[ -z "$downloaded_plugin" ]]; then
-    echo "error: the macOS arm64 artifact did not contain the agent screen-detection plugin" >&2
-    exit 1
-  fi
-else
-  # Focused runs build on Linux (darwin_builder=linux): the plugin rides the
-  # cmux-tui artifact, and scripts/ci/stage-agent-detector.sh leaves it out
-  # with a warning when it did not build.
-  downloaded_plugin="$(find "$temp_dir" -type f -name cmux-tui-agent-screen-detection-aarch64-apple-darwin -print | sed -n '1p')"
-  if [[ -z "$downloaded_plugin" ]]; then
-    echo "warning: the macOS arm64 artifact has no agent screen-detection plugin; installing cmux-tui without it" >&2
-  fi
+downloaded_plugin="$(find "$plugin_download_dir" -type f -name cmux-agent-screen-detection-aarch64-apple-darwin -print | sed -n '1p')"
+if [[ -z "$downloaded_plugin" ]]; then
+  echo "error: the macOS arm64 artifact did not contain the agent screen-detection plugin" >&2
+  exit 1
 fi
 
 artifact_dir="cmux-tui/target/hosted/$commit"
@@ -731,13 +661,9 @@ artifact_binary="$artifact_dir/cmux-tui"
 artifact_plugin="$artifact_dir/cmux-agent-screen-detection"
 mkdir -p "$artifact_dir"
 install -m 0755 "$downloaded_binary" "$artifact_binary"
-if [[ -n "$downloaded_plugin" ]]; then
-  install -m 0755 "$downloaded_plugin" "$artifact_plugin"
-fi
+install -m 0755 "$downloaded_plugin" "$artifact_plugin"
 
 echo "Hosted verification passed: $run_url"
 echo "Artifact: $artifact_binary"
-if [[ -n "$downloaded_plugin" ]]; then
-  echo "Artifact: $artifact_plugin"
-fi
+echo "Artifact: $artifact_dir/cmux-agent-screen-detection"
 echo "Dogfood: $artifact_binary --session verify-${commit:0:8}"

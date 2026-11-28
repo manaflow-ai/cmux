@@ -37,10 +37,14 @@ from test_ci_required_checks_are_bounded import context_of, load
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
 
-# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
-if str(ROOT / "scripts/ci") not in sys.path:
-    sys.path.insert(0, str(ROOT / "scripts/ci"))
-import required_status_checks as _required_status_checks  # noqa: E402
+_SPEC = importlib.util.spec_from_file_location(
+    "required_status_checks", ROOT / "scripts/ci/required_status_checks.py"
+)
+_required_status_checks = importlib.util.module_from_spec(_SPEC)
+assert _SPEC.loader is not None
+# Registered before execution: the module defines a dataclass.
+sys.modules["required_status_checks"] = _required_status_checks
+_SPEC.loader.exec_module(_required_status_checks)
 REQUIRED_CHECKS = _required_status_checks.REQUIRED_CHECKS
 
 # The events a required check has to report on before a pull request can merge.
@@ -147,7 +151,9 @@ class PathFilterTests(unittest.TestCase):
 
     def test_renamed_required_job_is_reported(self) -> None:
         document = self.backend_migrations()
-        document["jobs"]["gate"]["name"] = "renamed"
+        # gate-no-change reports the same name (the persistent-pool echo when the plan found no migrations).
+        for job in ("gate", "gate-no-change"):
+            document["jobs"][job]["name"] = "renamed"
         self.assertTrue(any("matches no job" in f for f in self.check(document)))
 
 

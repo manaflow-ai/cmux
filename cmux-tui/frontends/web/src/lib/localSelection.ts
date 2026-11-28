@@ -55,7 +55,9 @@ export function selectionSnapshot(tree: Tree): SelectionSnapshot {
 function serverDefault(snapshot: SelectionSnapshot): Omit<LocalSelectionState, "snapshot"> {
   const workspace = snapshot.workspaces.find((candidate) => candidate.active) ?? snapshot.workspaces[0];
   const screen = workspace?.screens.find((candidate) => candidate.active) ?? workspace?.screens[0];
-  const paneId = screen?.paneIds.includes(screen.activePaneId) ? screen.activePaneId : (screen?.paneIds[0] ?? null);
+  const paneId = screen?.paneIds.includes(screen.activePaneId)
+    ? screen.activePaneId
+    : (screen?.paneIds[0] ?? null);
   return {
     selectedWorkspaceId: workspace?.id ?? null,
     selectedScreenId: screen?.id ?? null,
@@ -84,10 +86,16 @@ function nearestSurvivingId<T extends { id: Id }>(
 function updateFromTree(state: LocalSelectionState, snapshot: SelectionSnapshot): LocalSelectionState {
   if (state.snapshot === null) return { ...serverDefault(snapshot), snapshot };
 
-  const previousWorkspace = state.snapshot.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
+  const previousWorkspace = state.snapshot.workspaces.find(
+    (workspace) => workspace.id === state.selectedWorkspaceId,
+  );
   let workspace = snapshot.workspaces.find((candidate) => candidate.id === state.selectedWorkspaceId);
   if (!workspace) {
-    const fallbackId = nearestSurvivingId(state.selectedWorkspaceId, state.snapshot.workspaces, snapshot.workspaces);
+    const fallbackId = nearestSurvivingId(
+      state.selectedWorkspaceId,
+      state.snapshot.workspaces,
+      snapshot.workspaces,
+    );
     workspace = snapshot.workspaces.find((candidate) => candidate.id === fallbackId);
   }
   if (!workspace) return { ...serverDefault(snapshot), snapshot };
@@ -100,7 +108,11 @@ function updateFromTree(state: LocalSelectionState, snapshot: SelectionSnapshot)
     ? workspace.screens.find((candidate) => candidate.id === state.selectedScreenId)
     : undefined;
   if (!screen && workspacePreserved && previousWorkspace) {
-    const fallbackId = nearestSurvivingId(state.selectedScreenId, previousWorkspace.screens, workspace.screens);
+    const fallbackId = nearestSurvivingId(
+      state.selectedScreenId,
+      previousWorkspace.screens,
+      workspace.screens,
+    );
     screen = workspace.screens.find((candidate) => candidate.id === fallbackId);
   }
   if (!screen) {
@@ -116,10 +128,11 @@ function updateFromTree(state: LocalSelectionState, snapshot: SelectionSnapshot)
   }
 
   const screenPreserved = workspacePreserved && screen.id === state.selectedScreenId;
-  let paneId =
-    screenPreserved && state.selectedPaneId !== null && screen.paneIds.includes(state.selectedPaneId)
-      ? state.selectedPaneId
-      : null;
+  let paneId = screenPreserved
+    && state.selectedPaneId !== null
+    && screen.paneIds.includes(state.selectedPaneId)
+    ? state.selectedPaneId
+    : null;
   if (paneId === null && screenPreserved && previousScreen) {
     paneId = nearestSurvivingId(
       state.selectedPaneId,
@@ -128,10 +141,9 @@ function updateFromTree(state: LocalSelectionState, snapshot: SelectionSnapshot)
     );
   }
   if (paneId === null) {
-    paneId =
-      screenPreserved && screen.paneIds.includes(screen.activePaneId)
-        ? screen.activePaneId
-        : (screen.paneIds[0] ?? null);
+    paneId = screenPreserved && screen.paneIds.includes(screen.activePaneId)
+      ? screen.activePaneId
+      : (screen.paneIds[0] ?? null);
   }
 
   return {
@@ -142,7 +154,10 @@ function updateFromTree(state: LocalSelectionState, snapshot: SelectionSnapshot)
   };
 }
 
-export function localSelectionReducer(state: LocalSelectionState, action: LocalSelectionAction): LocalSelectionState {
+export function localSelectionReducer(
+  state: LocalSelectionState,
+  action: LocalSelectionAction,
+): LocalSelectionState {
   switch (action.type) {
     case "reset":
       return initialLocalSelectionState;
@@ -152,10 +167,9 @@ export function localSelectionReducer(state: LocalSelectionState, action: LocalS
       const workspace = state.snapshot?.workspaces.find((candidate) => candidate.id === action.workspaceId);
       const screen = workspace?.screens.find((candidate) => candidate.id === action.screenId);
       if (!workspace || !screen) return state;
-      const preservePane =
-        state.selectedScreenId === screen.id &&
-        state.selectedPaneId !== null &&
-        screen.paneIds.includes(state.selectedPaneId);
+      const preservePane = state.selectedScreenId === screen.id
+        && state.selectedPaneId !== null
+        && screen.paneIds.includes(state.selectedPaneId);
       return {
         ...state,
         selectedWorkspaceId: workspace.id,
@@ -164,7 +178,9 @@ export function localSelectionReducer(state: LocalSelectionState, action: LocalS
       };
     }
     case "select-pane": {
-      const workspace = state.snapshot?.workspaces.find((candidate) => candidate.id === state.selectedWorkspaceId);
+      const workspace = state.snapshot?.workspaces.find(
+        (candidate) => candidate.id === state.selectedWorkspaceId,
+      );
       const screen = workspace?.screens.find((candidate) => candidate.id === state.selectedScreenId);
       if (!screen?.paneIds.includes(action.paneId)) return state;
       return { ...state, selectedPaneId: action.paneId };

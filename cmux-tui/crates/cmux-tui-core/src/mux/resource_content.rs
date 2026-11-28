@@ -8,35 +8,16 @@ use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::{Node, State};
 use crate::resource::{
     ContentPublicId, PanePublicId, SplitPublicId, TabPublicId, TabResourceIdentity,
-    TerminalPublicId,
+    TerminalPublicId, WorkspacePublicId,
 };
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
-    RegistryLayoutNode, RegistryPane, RegistryTab, RegistryWorkspace, ResourceChange,
-    ResourcePatch, ResourcePatchCommit, WorkspaceMutation, WorkspaceRegistry,
+    RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
+    RegistryViewportColumn, RegistryWorkspace, ResourceChange, ResourcePatch, ResourcePatchCommit,
+    WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
-use live_screen::registry_screen_from_live;
-pub(crate) use projection_crosscheck::JournalCheck;
-use published_screens::PublishedScreens;
-pub(crate) use scoped_projection::CHANGED_WORKSPACES_MAX;
-pub(crate) use scoped_projection::WorkspaceRows;
-pub(crate) use scoped_projection::crosscheck_enabled;
-#[cfg(all(test, unix))]
-pub(crate) use scoped_projection::without_crosscheck;
-pub(crate) use split_ids::collect_screen_split_ids;
-pub(crate) use split_ids::ensure_screen_split_public_ids;
-use split_ids::ensure_split_public_ids;
-
-mod full_projection;
-mod live_screen;
-mod projection_crosscheck;
-mod published_screens;
-mod scoped_projection;
-#[cfg(test)]
-mod scoped_projection_tests;
-mod split_ids;
 
 impl Mux {
     pub(crate) fn resource_project_terminal_selected(
@@ -48,9 +29,6 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        // Reopen Closed of a tab whose terminal still runs: the new view is
-        // that same tab again, under its retired id (durable-links-DESIGN.md).
-        let reopen_tab = super::tab_strip::reopen_identity::take();
         let fingerprint = json!({
             "operation": "terminal.project",
             "selectors": selectors,
@@ -59,15 +37,13 @@ impl Mux {
             "name": name,
         });
         let mux = std::sync::Arc::clone(self);
-        let (first_view, registered) = super::app_terminals::FirstView::pair();
-        let mut projected_surface = None;
-        let commit = self.commit_resource_mutation_plan(
+        self.commit_resource_mutation_plan(
             mutation,
             "terminal.project",
             &fingerprint,
             None,
             expected_revision,
-            |state, registry| {
+            move |state, registry| {
                 let source = mux
                     .resolve_resource_path_in_state(
                         state,
@@ -102,29 +78,12 @@ impl Mux {
                     .find(|candidate| candidate.public_id == pane_id)
                     .cloned()
                     .context("destination pane has no durable projection")?;
-                let first = mux.app_terminal_first_view(state, &terminal, pane)?;
-                let host = match &first {
-                    Some((host, _)) => host.clone(),
-                    None => mux.resource_terminal_host_identity(&terminal).context("no host")?,
-                };
+                let host = mux
+                    .resource_terminal_host_identity(&terminal)
+                    .context("terminal omitted its durable host identity")?;
                 let host_id = host.terminal_id;
-                let retired = reopen_tab
-                    .as_deref()
-                    .and_then(|tab| TabPublicId::parse(tab.to_string()).ok())
-                    .filter(|tab| !state.resource_indexes.tabs.contains_key(tab));
-                let tab_id = match retired {
-                    Some(tab)
-                        if super::tab_strip::reopen_identity::is_retired_tab(
-                            &registry.connection.get(),
-                            tab.as_str(),
-                        )? =>
-                    {
-                        tab
-                    }
-                    _ => TabPublicId::random()?,
-                };
+                let tab_id = TabPublicId::random()?;
                 let surface_id = mux.next_id();
-                projected_surface = Some(surface_id);
                 let content_id = ContentPublicId::Terminal(terminal_id.clone());
                 let projected = terminal.project_terminal(
                     surface_id,
@@ -172,46 +131,29 @@ impl Mux {
                     .cloned()
                     .collect::<Vec<_>>();
                 all_tabs.extend(tabs.iter().cloned());
-                let terminal_tab_ids = terminal_tab_ids(&all_tabs, &terminal_id);
-                let durable = match &first {
-                    Some((_, record)) => record.clone(),
-                    None => registry.terminal_record(&host_id)?.context("no durable host")?,
-                };
+                let mut terminal_tab_order =
+                    terminal_tab_ids_in_canonical_order(all_tabs.iter().filter_map(|tab| {
+                        match &tab.content_id {
+                            ContentPublicId::Terminal(id) => Some((
+                                id.clone(),
+                                tab.pane_id.clone(),
+                                tab.position,
+                                tab.public_id.clone(),
+                            )),
+                            ContentPublicId::Browser(_) => None,
+                        }
+                    }));
+                let terminal_tab_ids = terminal_tab_order.remove(&terminal_id).unwrap_or_default();
+                let durable = registry
+                    .terminal_record(&host_id)?
+                    .context("terminal projection has no durable host")?;
                 let terminal_value = public_terminal_snapshot(
                     &terminal_id,
                     &durable,
                     Some(terminal.as_ref()),
                     terminal_tab_ids,
                 )?;
-                // The destination screen's layout lists its panes' tabs, so
-                // the new view restates the screen, as a tab create's
-                // projection does (cx-gzh.24): a client that builds pane
-                // tabs from the layout shows the view in this delta.
-                let screen = topology
-                    .screens
-                    .iter()
-                    .find(|screen| screen.public_id == destination_pane.screen_id)
-                    .context("destination pane has no durable screen")?;
-                let mut panes = topology.panes.clone();
-                for candidate in &mut panes {
-                    if candidate.public_id == pane_id {
-                        *candidate = destination_pane.clone();
-                    }
-                }
-                let screen_value = crate::resource_screen::public_screen_value(
-                    &topology,
-                    screen,
-                    &crate::resource_screen::tabs_by_pane(&all_tabs),
-                    &crate::resource_screen::panes_by_id(&panes),
-                )?;
-                let mut deltas = Vec::with_capacity(tabs.len().saturating_add(2));
-                deltas.push(json!({
-                    "kind":"upsert",
-                    "sequence":0,
-                    "resource":"screen",
-                    "id":screen.public_id,
-                    "value":screen_value,
-                }));
+                let mut deltas = Vec::with_capacity(tabs.len().saturating_add(1));
                 for tab in &tabs {
                     push_tab_delta(
                         &mut deltas,
@@ -228,7 +170,7 @@ impl Mux {
                     "value":terminal_value,
                 }));
 
-                let mut patch_changes = first_view.record(first, &terminal_id, terminal.id);
+                let mut patch_changes = Vec::with_capacity(if focused { 3 } else { 2 });
                 if focused {
                     patch_changes.push(ResourceChange::UpsertPane(destination_pane));
                 }
@@ -294,24 +236,7 @@ impl Mux {
                     },
                 ))
             },
-        )?;
-        self.finish_app_terminal_first_view(&registered)?;
-        if let Some(surface) = projected_surface {
-            self.refresh_terminal_size_policy(surface);
-        }
-        self.emit_raw_tree_changed(&commit);
-        Ok(commit)
-    }
-
-    /// Raw clients subscribed with `tree_events` learn about a tab that a
-    /// resource content mutation (`terminal.project`, `terminal.move`) added
-    /// or moved: the resource journal alone reaches only resource API v2
-    /// subscribers, and the delta set has no entry for these. A replay
-    /// commits nothing new and stays quiet.
-    fn emit_raw_tree_changed(&self, commit: &ResourcePatchCommit) {
-        if !commit.replayed {
-            self.emit(super::MuxEvent::TreeChanged);
-        }
+        )
     }
 
     pub(crate) fn resource_move_terminal_selected(
@@ -328,14 +253,13 @@ impl Mux {
             "destination": destination,
             "index": index,
         });
-        let mut moved_surface = None;
         let commit = self.commit_resource_mutation_plan(
             mutation,
             "terminal.move",
             &fingerprint,
             None,
             expected_revision,
-            |state, registry| {
+            move |state, registry| {
                 let source = self
                     .resolve_resource_path_in_state(
                         state,
@@ -354,7 +278,6 @@ impl Mux {
                     .map_err(anyhow::Error::new)?;
                 let surface =
                     source.tab.context("terminal selector did not resolve a live surface")?;
-                moved_surface = Some(surface);
                 let source_pane_slot =
                     source.pane.context("terminal selector did not resolve a source pane")?;
                 let target_pane_slot =
@@ -387,30 +310,22 @@ impl Mux {
                     .find(|tab| tab.public_id == source_tab_id)
                     .cloned()
                     .context("selected terminal view has no durable tab")?;
-                // The result is the terminal's public snapshot (the catalog's
-                // TerminalSnapshot), from the one terminal builder, read from
-                // the terminal's runtime as the session snapshot reads it.
                 let terminal_surface = state
-                    .terminal_catalog
-                    .get(&terminal_id)
-                    .or_else(|| state.surfaces.get(&surface))
-                    .cloned()
+                    .surfaces
+                    .get(&surface)
                     .context("terminal selector resolved a missing surface")?;
-                let host_id = self
-                    .resource_terminal_host_identity(&terminal_surface)
-                    .map(|host| host.terminal_id)
-                    .or_else(|| source_tab.terminal_id.clone())
-                    .context("terminal omitted its durable host identity")?;
-                let durable_terminal =
-                    registry.terminal_record(&host_id)?.context("terminal has no durable host")?;
-                let terminal_snapshot = |tabs: &[RegistryTab]| {
-                    public_terminal_snapshot(
-                        &terminal_id,
-                        &durable_terminal,
-                        Some(terminal_surface.as_ref()),
-                        terminal_tab_ids(tabs, &terminal_id),
-                    )
-                };
+                let (terminal_cols, terminal_rows) = terminal_surface.size();
+                let mut terminal_value = json!({
+                    "id":terminal_id,
+                    "tab_id":source_tab.public_id,
+                    "title":terminal_surface.title(),
+                    "cols":terminal_cols.max(1),
+                    "rows":terminal_rows.max(1),
+                    "running":!terminal_surface.is_dead(),
+                });
+                if let Some(cwd) = terminal_surface.spawn_cwd() {
+                    terminal_value["cwd"] = json!(cwd);
+                }
                 let source_pane_id = source_tab.pane_id.clone();
                 let structural = source_pane_slot != target_pane_slot
                     && state.panes.get(&source_pane_slot).is_some_and(|pane| pane.tabs.len() == 1);
@@ -424,10 +339,7 @@ impl Mux {
                         source_pane_slot,
                         target_pane_slot,
                         index,
-                        |after| {
-                            let value = terminal_snapshot(&after.tabs)?;
-                            Ok(json!({"terminal":terminal_id,"value":value}))
-                        },
+                        json!({"terminal":terminal_id,"value":terminal_value}),
                     );
                 }
                 let mut source_pane = topology
@@ -494,7 +406,8 @@ impl Mux {
                         target_tabs.get(new_index).map(|tab| tab.public_id.clone());
                 }
 
-                let mut changes = vec![ResourceChange::UpsertPane(source_pane.clone())];
+                let mut changes = Vec::new();
+                changes.push(ResourceChange::UpsertPane(source_pane.clone()));
                 if target_pane_id != source_pane_id {
                     changes.push(ResourceChange::UpsertPane(target_pane.clone()));
                 }
@@ -523,27 +436,7 @@ impl Mux {
                     .find(|screen| screen.public_id == target_screen_id)
                     .cloned()
                     .context("destination screen is absent from durable topology")?;
-                crate::mux::resource_topology::floating_panes::focus_registry_pane(
-                    &mut target_screen,
-                    &target_pane_id,
-                );
-                // The topology after the move, for the screens it restates.
-                let mut after = topology.clone();
-                after.screens.retain(|screen| screen.public_id != target_screen.public_id);
-                after.screens.push(target_screen.clone());
-                let target_screen_public = target_screen.public_id.clone();
-                after.panes.retain(|pane| {
-                    pane.public_id != source_pane.public_id && pane.public_id != target_pane_id
-                });
-                after.panes.push(source_pane.clone());
-                if target_pane_id != source_pane_id {
-                    after.panes.push(target_pane.clone());
-                }
-                after.active_workspace = Some(target_workspace_id.clone());
-                after.active_screens.retain(|(workspace, _)| workspace != &target_workspace_id);
-                after
-                    .active_screens
-                    .push((target_workspace_id.clone(), Some(target_screen_id.clone())));
+                target_screen.active_pane = target_pane_id.clone();
                 changes.push(ResourceChange::UpsertScreen(target_screen));
                 let durable_workspace = snapshot
                     .workspaces
@@ -560,51 +453,19 @@ impl Mux {
                     workspace_id: Some(target_workspace_id),
                 });
 
-                let moved_tabs = topology
-                    .tabs
-                    .iter()
-                    .filter(|tab| tab.pane_id != source_pane_id && tab.pane_id != target_pane_id)
-                    .chain(&source_tabs)
-                    .chain(&target_tabs)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                let terminal_value = terminal_snapshot(&moved_tabs)?;
-                after.tabs = moved_tabs;
-                // The focus change and the source and destination screens,
-                // whose layouts list the moved tab, come first (cx-gzh.25,
-                // cx-gzh.26).
-                let mut deltas = super::resource_topology::focus_change_deltas(
-                    state,
-                    &topology,
-                    &after,
-                    &[source_pane.screen_id.clone(), target_screen_public],
-                    &[&source_pane.public_id, &target_pane.public_id],
-                )?;
                 let source_public = source_pane.public_id.clone();
                 let target_public = target_pane.public_id.clone();
                 let source_delta_tabs = source_tabs.clone();
                 let target_delta_tabs = target_tabs.clone();
-                // The source pane's active tab, chosen once here: the live
-                // pane takes the same tab the durable row stores (cx-gzh.27).
-                let source_active = source_pane
-                    .active_tab
-                    .as_ref()
-                    .and_then(|active| source_tabs.iter().position(|tab| &tab.public_id == active))
-                    .unwrap_or(0);
                 let source_delta_pane = source_pane;
                 let target_delta_pane = target_pane;
-                deltas.extend(move_deltas(
-                    state,
-                    &after,
+                let deltas = move_deltas(
                     &source_delta_pane,
                     &target_delta_pane,
                     &source_delta_tabs,
                     &target_delta_tabs,
                     source_pane_id == target_pane_id,
-                )?);
-                for (sequence, delta) in deltas.iter_mut().enumerate() {
-                    delta["sequence"] = json!(sequence);
-                }
+                );
 
                 let source_old_index = state
                     .panes
@@ -653,7 +514,8 @@ impl Mux {
                                     .get_mut(&source_pane_slot)
                                     .expect("source pane validated before commit");
                                 source.tabs.remove(source_old_index);
-                                source.active_tab = source_active;
+                                source.active_tab =
+                                    source.active_tab.min(source.tabs.len().saturating_sub(1));
                             }
                             let target = state
                                 .panes
@@ -674,8 +536,8 @@ impl Mux {
                             .expect("destination screen validated before commit");
                         state.active_workspace = workspace_index;
                         state.workspaces[workspace_index].active_screen = screen_index;
-                        state.workspaces[workspace_index].screens[screen_index]
-                            .set_active_pane(session_path.2);
+                        state.workspaces[workspace_index].screens[screen_index].active_pane =
+                            session_path.2;
                     },
                 )
                 .with_metrics(ResourceMutationMetrics {
@@ -683,14 +545,10 @@ impl Mux {
                     order_entries: source_delta_tabs.len() + target_delta_tabs.len(),
                     terminal_queries: 0,
                     changed_rows: source_delta_tabs.len() + target_delta_tabs.len() + 3,
-                })
-                .moving_tab(surface, target_pane_slot, index))
+                }))
             },
         )?;
 
-        if let Some(surface) = moved_surface {
-            self.refresh_terminal_size_policy(surface);
-        }
         if !commit.replayed
             && let Some(tab_id) = commit.result["tab"].as_str()
             && let Ok(tab_id) = TabPublicId::parse(tab_id)
@@ -717,7 +575,6 @@ impl Mux {
                 );
             }
         }
-        self.emit_raw_tree_changed(&commit);
         Ok(commit)
     }
 }
@@ -728,14 +585,6 @@ pub(crate) struct ResourceEffectProjection {
     pub(crate) patch: ResourcePatch,
     pub(crate) changes: Value,
     pub(crate) result: Value,
-    /// `changes` restate every live resource (a full projection), so a
-    /// commit may seed the registry's public topology fold from them.
-    pub(crate) restates_all: bool,
-    /// The workspaces of which `changes` state each live value again (a scoped walk of a
-    /// workspace that the fold did not hold whole). The commit marks them whole
-    /// (`WorkspaceRegistry::mark_workspaces_whole`). Empty for a full projection: the fold
-    /// that folds it is complete.
-    pub(crate) restated: Vec<crate::resource::WorkspacePublicId>,
 }
 
 impl ResourceEffectProjection {
@@ -796,6 +645,492 @@ impl ResourceEffectProjection {
     }
 }
 
+impl Mux {
+    /// Project the complete live tree into one durable patch while the caller
+    /// holds the registry -> state writer fence. The matching effect receipt
+    /// must be committed before either guard is released.
+    pub(super) fn resource_effect_projection_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        state: &mut State,
+        result: Value,
+    ) -> anyhow::Result<ResourceEffectProjection> {
+        let before = registry.resource_topology_snapshot()?;
+        let terminal_records = registry
+            .terminal_snapshot()?
+            .terminals
+            .into_iter()
+            .map(|terminal| (terminal.terminal_id.clone(), terminal))
+            .collect::<HashMap<_, _>>();
+        // Local UI mutations can attach resource-identified surfaces before
+        // their reverse indexes are populated. Full projection is the
+        // reconciliation boundary, so rebuild from the live tree first.
+        state.rebuild_resource_indexes();
+        state.ensure_tab_identity_coverage()?;
+        ensure_split_public_ids(state)?;
+        let terminal_tab_order = ordered_terminal_tab_ids(state)?;
+
+        let before_browsers = before
+            .browsers
+            .iter()
+            .map(|browser| (browser.public_id.clone(), browser.clone()))
+            .collect::<HashMap<_, _>>();
+        let before_tabs = before
+            .tabs
+            .iter()
+            .map(|tab| (tab.public_id.clone(), tab.clone()))
+            .collect::<HashMap<_, _>>();
+        let before_pane_ordinals = before
+            .panes
+            .iter()
+            .map(|pane| (pane.public_id.clone(), pane.creation_ordinal))
+            .collect::<HashMap<_, _>>();
+        let mut live_workspaces = HashSet::new();
+        let mut live_screens = HashSet::new();
+        let mut live_panes = HashSet::new();
+        let mut live_tabs = HashSet::new();
+        let mut live_terminals = HashSet::new();
+        let mut live_browsers = HashSet::new();
+        let mut changes = Vec::new();
+        let mut public = Vec::new();
+
+        for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
+            live_workspaces.insert(workspace.public_id.clone());
+            changes.push(ResourceChange::UpsertWorkspace {
+                workspace: RegistryWorkspace {
+                    id: workspace.id,
+                    public_id: workspace.public_id.clone(),
+                    key: workspace.key.clone(),
+                    name: workspace.name.clone(),
+                    group_key: self.session.clone(),
+                },
+                position: workspace_index,
+                active_screen: workspace
+                    .screens
+                    .get(workspace.active_screen)
+                    .map(|screen| screen.public_id.clone()),
+            });
+            public.push((
+                "workspace",
+                workspace.public_id.to_string(),
+                json!({
+                    "id":workspace.public_id,
+                    "session_id":before.session_id,
+                    "name":workspace.name,
+                    "index":workspace_index,
+                    "focused":workspace_index == state.active_workspace,
+                }),
+            ));
+            let screen_ids =
+                workspace.screens.iter().map(|screen| screen.public_id.clone()).collect::<Vec<_>>();
+            changes.push(ResourceChange::SetScreenOrder {
+                workspace_id: workspace.public_id.clone(),
+                screen_ids,
+            });
+
+            for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                live_screens.insert(screen.public_id.clone());
+                let durable =
+                    registry_screen_from_live(state, &workspace.public_id, screen_index, screen)?;
+                let public_layout = public_layout_from_registry(&durable, state)?;
+                changes.push(ResourceChange::UpsertScreen(durable.clone()));
+                public.push((
+                    "screen",
+                    screen.public_id.to_string(),
+                    json!({
+                        "id":screen.public_id,
+                        "workspace_id":workspace.public_id,
+                        "name":screen.name,
+                        "index":screen_index,
+                        "focused":workspace_index == state.active_workspace
+                            && workspace.active_screen == screen_index,
+                        "layout":public_layout,
+                    }),
+                ));
+
+                for pane_slot in screen.root.pane_ids_vec() {
+                    let pane = state
+                        .panes
+                        .get(&pane_slot)
+                        .with_context(|| format!("screen references missing pane {pane_slot}"))?;
+                    live_panes.insert(pane.public_id.clone());
+                    let active_tab = pane
+                        .tabs
+                        .get(pane.active_tab)
+                        .and_then(|slot| state.resource_indexes.tab_ids.get(slot).cloned());
+                    let creation_ordinal =
+                        before_pane_ordinals.get(&pane.public_id).copied().unwrap_or(pane.id);
+                    changes.push(ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane.public_id.clone(),
+                        screen_id: screen.public_id.clone(),
+                        name: pane.name.clone(),
+                        active_tab,
+                        creation_ordinal,
+                    }));
+                    public.push((
+                        "pane",
+                        pane.public_id.to_string(),
+                        json!({
+                            "id":pane.public_id,
+                            "screen_id":screen.public_id,
+                            "name":pane.name,
+                            "focused":workspace_index == state.active_workspace
+                                && workspace.active_screen == screen_index
+                                && screen.active_pane == pane.id,
+                            "zoomed":screen.zoomed_pane == Some(pane.id),
+                        }),
+                    ));
+
+                    let mut tab_order = Vec::with_capacity(pane.tabs.len());
+                    for (position, surface_slot) in pane.tabs.iter().enumerate() {
+                        let surface = state.surfaces.get(surface_slot);
+                        let identity =
+                            tab_resource_identity(state, *surface_slot).with_context(|| {
+                                format!("pane surface {surface_slot} has no resource identity")
+                            })?;
+                        let before_tab = before_tabs.get(&identity.tab_id);
+                        live_tabs.insert(identity.tab_id.clone());
+                        tab_order.push(identity.tab_id.clone());
+                        let (browser_url, terminal_id, first_terminal_placement) = match &identity
+                            .content_id
+                        {
+                            ContentPublicId::Terminal(terminal_id) => {
+                                let first_terminal_placement =
+                                    live_terminals.insert(terminal_id.clone());
+                                let runtime = state.terminal_catalog.get(terminal_id).or(surface);
+                                let host_id = runtime
+                                    .and_then(|surface| {
+                                        self.resource_terminal_host_identity(surface)
+                                            .map(|host| host.terminal_id)
+                                    })
+                                    .or_else(|| before_tab.and_then(|tab| tab.terminal_id.clone()))
+                                    .context("terminal view omitted its durable host identity")?;
+                                if first_terminal_placement {
+                                    let terminal = terminal_records
+                                        .get(&host_id)
+                                        .cloned()
+                                        .context("terminal view has no durable host")?;
+                                    changes.push(ResourceChange::UpsertTerminal {
+                                        public_id: terminal_id.clone(),
+                                        terminal,
+                                    });
+                                }
+                                (None, Some(host_id), first_terminal_placement)
+                            }
+                            ContentPublicId::Browser(browser_id) => {
+                                // A browser view can also outlive its runtime,
+                                // so the durable row is the fallback rather
+                                // than a hard requirement.
+                                live_browsers.insert(browser_id.clone());
+                                let durable = before_browsers.get(browser_id).cloned();
+                                let url = surface
+                                    .and_then(|surface| surface.browser_url())
+                                    .or_else(|| durable.as_ref().map(|browser| browser.url.clone()))
+                                    .or_else(|| before_tab.and_then(|tab| tab.browser_url.clone()))
+                                    .unwrap_or_else(|| "about:blank".to_string());
+                                let (cols, rows) = match surface {
+                                    Some(surface) => surface.size(),
+                                    None => durable
+                                        .as_ref()
+                                        .map(|browser| (browser.cols, browser.rows))
+                                        .unwrap_or((1, 1)),
+                                };
+                                let live_status =
+                                    surface.and_then(|surface| surface.browser_status());
+                                let mut browser = durable.unwrap_or_else(|| {
+                                    RegistryBrowser::recreate(
+                                        browser_id.clone(),
+                                        url.clone(),
+                                        cols.max(1),
+                                        rows.max(1),
+                                    )
+                                });
+                                browser.url = url.clone();
+                                browser.cols = cols.max(1);
+                                browser.rows = rows.max(1);
+                                browser.status = match live_status.as_ref() {
+                                    Some(BrowserStatus::Starting) => {
+                                        RegistryBrowserStatus::Starting
+                                    }
+                                    Some(BrowserStatus::Live) => RegistryBrowserStatus::Live,
+                                    Some(BrowserStatus::Failed(_)) => RegistryBrowserStatus::Failed,
+                                    None if surface.is_some_and(|surface| surface.is_dead()) => {
+                                        RegistryBrowserStatus::Failed
+                                    }
+                                    None => browser.status,
+                                };
+                                if let Some(source) =
+                                    surface.and_then(|surface| surface.browser_source())
+                                {
+                                    browser.source = match source {
+                                        BrowserSource::External => RegistryBrowserSource::External,
+                                        BrowserSource::Launched => RegistryBrowserSource::Launched,
+                                        BrowserSource::Provider => RegistryBrowserSource::External,
+                                    };
+                                }
+                                changes.push(ResourceChange::UpsertBrowser(browser));
+                                (Some(url), None, false)
+                            }
+                        };
+                        let tab = RegistryTab {
+                            name_source: before_tab.map(|tab| tab.name_source).unwrap_or_default(),
+                            name_revision: before_tab
+                                .map(|tab| tab.name_revision)
+                                .unwrap_or_default(),
+                            public_id: identity.tab_id.clone(),
+                            pane_id: pane.public_id.clone(),
+                            position,
+                            content_id: identity.content_id.clone(),
+                            name: surface
+                                .and_then(|surface| surface.name())
+                                .or_else(|| before_tab.and_then(|tab| tab.name.clone())),
+                            browser_url,
+                            terminal_id,
+                        };
+                        changes.push(ResourceChange::UpsertTab(tab.clone()));
+                        public.push((
+                            "tab",
+                            tab.public_id.to_string(),
+                            tab.public_value(pane.active_tab == position),
+                        ));
+                        match &tab.content_id {
+                            ContentPublicId::Terminal(id) if first_terminal_placement => {
+                                let runtime = state.terminal_catalog.get(id).or(surface);
+                                let durable = tab
+                                    .terminal_id
+                                    .as_deref()
+                                    .and_then(|host| terminal_records.get(host))
+                                    .context("terminal view has no durable host")?;
+                                let tab_ids =
+                                    terminal_tab_order.get(id).cloned().unwrap_or_default();
+                                let value = public_terminal_snapshot(
+                                    id,
+                                    durable,
+                                    runtime.map(std::sync::Arc::as_ref),
+                                    tab_ids,
+                                )?;
+                                public.push(("terminal", id.to_string(), value));
+                            }
+                            ContentPublicId::Terminal(_) => {}
+                            ContentPublicId::Browser(id) => {
+                                let durable = before_browsers.get(id);
+                                let (cols, rows) = match surface {
+                                    Some(surface) => surface.size(),
+                                    None => durable
+                                        .map(|browser| (browser.cols, browser.rows))
+                                        .unwrap_or((1, 1)),
+                                };
+                                let status = surface.and_then(|surface| surface.browser_status());
+                                let status_name = status
+                                    .as_ref()
+                                    .map(|status| status.as_str())
+                                    .unwrap_or(match surface {
+                                        Some(surface) if surface.is_dead() => "failed",
+                                        Some(_) => "live",
+                                        None => match durable.map(|browser| &browser.status) {
+                                            Some(RegistryBrowserStatus::Starting) => "starting",
+                                            Some(RegistryBrowserStatus::Live) => "live",
+                                            Some(RegistryBrowserStatus::Failed) | None => "failed",
+                                        },
+                                    });
+                                let source = surface
+                                    .and_then(|surface| surface.browser_source())
+                                    .map(|source| source.as_str())
+                                    .or_else(|| {
+                                        before_browsers.get(id).map(|browser| {
+                                            match browser.source {
+                                                RegistryBrowserSource::External => "external",
+                                                RegistryBrowserSource::Launched => "launched",
+                                                RegistryBrowserSource::Unknown => {
+                                                    match browser.launch {
+                                                        RegistryBrowserLaunch::Create => "external",
+                                                        RegistryBrowserLaunch::Adopted => {
+                                                            "external"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        })
+                                    })
+                                    .unwrap_or("external");
+                                public.push((
+                                    "browser",
+                                    id.to_string(),
+                                    json!({
+                                        "id":id,
+                                        "tab_id":tab.public_id,
+                                        "url":tab.browser_url,
+                                        "title":surface.map(|surface| surface.title()),
+                                        "loading":status_name == "starting",
+                                        "source":source,
+                                        "status":status_name,
+                                        "error":status.and_then(|status| status.error()),
+                                        "frames_stalled":surface
+                                            .and_then(|surface| surface.browser_frames_stalled())
+                                            .unwrap_or(false),
+                                        "size":{
+                                            "cols":cols.max(1),
+                                            "rows":rows.max(1),
+                                        },
+                                    }),
+                                ));
+                            }
+                        }
+                    }
+                    changes.push(ResourceChange::SetTabOrder {
+                        pane_id: pane.public_id.clone(),
+                        tab_ids: tab_order,
+                    });
+                }
+            }
+        }
+        for (terminal_id, surface) in &state.terminal_catalog {
+            if !live_terminals.insert(terminal_id.clone()) {
+                continue;
+            }
+            let host = self
+                .resource_terminal_host_identity(surface)
+                .context("catalog terminal omitted its durable host identity")?;
+            let terminal = terminal_records
+                .get(&host.terminal_id)
+                .cloned()
+                .context("catalog terminal has no durable host")?;
+            changes
+                .push(ResourceChange::UpsertTerminal { public_id: terminal_id.clone(), terminal });
+            let (cols, rows) = surface.size();
+            let mut value = json!({
+                "id":terminal_id,
+                "tab_id":Value::Null,
+                "tab_ids":[],
+                "title":surface.title(),
+                "cols":cols.max(1),
+                "rows":rows.max(1),
+                "running":!surface.is_dead(),
+            });
+            if let Some(cwd) = surface.spawn_cwd() {
+                value["cwd"] = json!(cwd);
+            }
+            public.push(("terminal", terminal_id.to_string(), value));
+        }
+        changes.push(ResourceChange::SetWorkspaceOrder {
+            workspace_ids: state
+                .workspaces
+                .iter()
+                .map(|workspace| workspace.public_id.clone())
+                .collect(),
+        });
+        changes.push(ResourceChange::SetActiveWorkspace {
+            workspace_id: state
+                .workspaces
+                .get(state.active_workspace)
+                .map(|workspace| workspace.public_id.clone()),
+        });
+
+        let mut tombstoned_terminals = HashSet::new();
+        let mut tombstoned_browsers = HashSet::new();
+        for tab in &before.tabs {
+            if !live_tabs.contains(&tab.public_id) {
+                changes.push(ResourceChange::TombstoneTab {
+                    tab_id: tab.public_id.clone(),
+                    close_content: true,
+                });
+            }
+            match &tab.content_id {
+                ContentPublicId::Terminal(id)
+                    if !live_terminals.contains(id) && tombstoned_terminals.insert(id.clone()) =>
+                {
+                    changes.push(ResourceChange::TombstoneTerminal {
+                        public_id: id.clone(),
+                        expected_incarnation: None,
+                    });
+                }
+                ContentPublicId::Browser(id)
+                    if !live_browsers.contains(id) && tombstoned_browsers.insert(id.clone()) =>
+                {
+                    changes.push(ResourceChange::TombstoneBrowser { public_id: id.clone() });
+                }
+                _ => {}
+            }
+        }
+        for pane in &before.panes {
+            if !live_panes.contains(&pane.public_id) {
+                changes.push(ResourceChange::TombstonePane { pane_id: pane.public_id.clone() });
+            }
+        }
+        for screen in &before.screens {
+            if !live_screens.contains(&screen.public_id) {
+                changes
+                    .push(ResourceChange::TombstoneScreen { screen_id: screen.public_id.clone() });
+            }
+        }
+        for (workspace_id, _) in &before.active_screens {
+            if !live_workspaces.contains(workspace_id) {
+                changes.push(ResourceChange::TombstoneWorkspace {
+                    workspace_id: workspace_id.clone(),
+                });
+            }
+        }
+
+        let mut deltas = Vec::new();
+        let live_keys = public
+            .iter()
+            .map(|(kind, id, _)| ((*kind).to_string(), id.clone()))
+            .collect::<HashSet<_>>();
+        for (kind, id, value) in public {
+            let sequence = deltas.len();
+            deltas.push(json!({
+                "kind":"upsert",
+                "sequence":sequence,
+                "resource":kind,
+                "id":id,
+                "value":value,
+            }));
+        }
+        let mut deleted_content = HashSet::new();
+        for tab in &before.tabs {
+            let (kind, id) = match &tab.content_id {
+                ContentPublicId::Terminal(id) => ("terminal", id.as_str()),
+                ContentPublicId::Browser(id) => ("browser", id.as_str()),
+            };
+            if !live_keys.contains(&(kind.to_string(), id.to_string()))
+                && deleted_content.insert((kind, id))
+            {
+                push_delete_delta(&mut deltas, kind, id);
+            }
+            if !live_keys.contains(&("tab".to_string(), tab.public_id.to_string())) {
+                push_delete_delta(&mut deltas, "tab", tab.public_id.as_str());
+            }
+        }
+        for pane in &before.panes {
+            if !live_keys.contains(&("pane".to_string(), pane.public_id.to_string())) {
+                push_delete_delta(&mut deltas, "pane", pane.public_id.as_str());
+            }
+        }
+        for screen in &before.screens {
+            if !live_keys.contains(&("screen".to_string(), screen.public_id.to_string())) {
+                push_delete_delta(&mut deltas, "screen", screen.public_id.as_str());
+            }
+        }
+        for (workspace_id, _) in &before.active_screens {
+            if !live_keys.contains(&("workspace".to_string(), workspace_id.to_string())) {
+                push_delete_delta(&mut deltas, "workspace", workspace_id.as_str());
+            }
+        }
+        Ok(ResourceEffectProjection {
+            patch: ResourcePatch { changes },
+            changes: Value::Array(deltas),
+            result,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn resource_effect_projection(&self) -> anyhow::Result<ResourceEffectProjection> {
+        let registry = self.workspace_registry.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
+        self.resource_effect_projection_locked(&registry, &mut state, json!({}))
+    }
+}
+
 /// Durable identity of one pane tab. The topology owns this, written once by
 /// `State::register_tab_identity`. Restored tabs exist before their host is
 /// adopted and an unadoptable host never gets a surface at all, so identity
@@ -828,10 +1163,90 @@ fn ordered_terminal_tab_ids(
     Ok(terminal_tab_ids_in_canonical_order(tabs))
 }
 
+fn registry_screen_from_live(
+    state: &State,
+    workspace_id: &WorkspacePublicId,
+    position: usize,
+    screen: &crate::model::Screen,
+) -> anyhow::Result<RegistryScreen> {
+    let layout = registry_layout_node(state, &screen.root)?;
+    let viewport = if screen.layout_columns.is_empty() {
+        RegistryViewport::default()
+    } else {
+        RegistryViewport {
+            base_width: screen.viewport_base_width,
+            columns: screen
+                .layout_columns
+                .iter()
+                .map(|column| {
+                    Ok(RegistryViewportColumn {
+                        id: split_public_id(state, column.id)?,
+                        width: column.width,
+                        layout: registry_layout_node(state, &column.root)?,
+                        auto_layout: column
+                            .creation_order_auto_layout
+                            .as_ref()
+                            .map(|panes| pane_public_ids(state, panes))
+                            .transpose()?,
+                    })
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?,
+        }
+    };
+    Ok(RegistryScreen {
+        public_id: screen.public_id.clone(),
+        workspace_id: workspace_id.clone(),
+        position,
+        name: screen.name.clone(),
+        layout,
+        active_pane: pane_public_id(state, screen.active_pane)?,
+        zoomed_pane: screen.zoomed_pane.map(|pane| pane_public_id(state, pane)).transpose()?,
+        auto_layout: screen
+            .creation_order_auto_layout
+            .as_ref()
+            .map(|panes| pane_public_ids(state, panes))
+            .transpose()?,
+        viewport,
+    })
+}
+
+fn ensure_split_public_ids(state: &mut State) -> anyhow::Result<()> {
+    let mut splits = HashSet::new();
+    for workspace in &state.workspaces {
+        for screen in &workspace.screens {
+            collect_node_split_ids(&screen.root, &mut splits);
+            for column in &screen.layout_columns {
+                splits.insert(column.id);
+                collect_node_split_ids(&column.root, &mut splits);
+            }
+        }
+    }
+    for split in splits {
+        if state.resource_indexes.split_ids.contains_key(&split) {
+            continue;
+        }
+        let public_id = SplitPublicId::random()?;
+        state.resource_indexes.splits.insert(public_id.clone(), split);
+        state.resource_indexes.split_ids.insert(split, public_id);
+    }
+    Ok(())
+}
+
+fn collect_node_split_ids(node: &Node, splits: &mut HashSet<crate::SplitId>) {
+    match node {
+        Node::Leaf(_) | Node::Stack { .. } => {}
+        Node::Split { id, a, b, .. } => {
+            splits.insert(*id);
+            collect_node_split_ids(a, splits);
+            collect_node_split_ids(b, splits);
+        }
+    }
+}
+
 fn registry_layout_node(state: &State, node: &Node) -> anyhow::Result<RegistryLayoutNode> {
     Ok(match node {
         Node::Leaf(pane) => RegistryLayoutNode::Leaf { pane: pane_public_id(state, *pane)? },
-        Node::Split { id, dir, ratio, a, b, divider_hidden } => RegistryLayoutNode::Split {
+        Node::Split { id, dir, ratio, a, b } => RegistryLayoutNode::Split {
             split: split_public_id(state, *id)?,
             direction: match dir {
                 crate::SplitDir::Right => "right",
@@ -841,7 +1256,6 @@ fn registry_layout_node(state: &State, node: &Node) -> anyhow::Result<RegistryLa
             ratio: *ratio,
             first: Box::new(registry_layout_node(state, a)?),
             second: Box::new(registry_layout_node(state, b)?),
-            divider_hidden: *divider_hidden,
         },
         Node::Stack { panes, expanded } => RegistryLayoutNode::Stack {
             panes: pane_public_ids(state, panes.as_slice())?,
@@ -872,6 +1286,53 @@ fn split_public_id(state: &State, split: crate::SplitId) -> anyhow::Result<Split
         .with_context(|| format!("split {split} has no public identity"))
 }
 
+fn public_layout_from_registry(screen: &RegistryScreen, state: &State) -> anyhow::Result<Value> {
+    Ok(json!({
+        "version":1,
+        "screen_id":screen.public_id,
+        "active_pane_id":screen.active_pane,
+        "zoomed_pane_id":screen.zoomed_pane,
+        "root":public_layout_node(&screen.layout, state)?,
+    }))
+}
+
+fn public_layout_node(node: &RegistryLayoutNode, state: &State) -> anyhow::Result<Value> {
+    Ok(match node {
+        RegistryLayoutNode::Leaf { pane } => {
+            let slot =
+                state.resource_indexes.panes.get(pane).context("layout pane has no live slot")?;
+            let pane_state = state.panes.get(slot).context("layout pane is missing")?;
+            json!({
+                "kind":"leaf",
+                "pane_id":pane,
+                "tab_ids":pane_state.tabs.iter().filter_map(|surface| {
+                    state.resource_indexes.tab_ids.get(surface)
+                }).collect::<Vec<_>>(),
+                "active_tab_id":pane_state.tabs.get(pane_state.active_tab).and_then(|surface| {
+                    state.resource_indexes.tab_ids.get(surface)
+                }),
+            })
+        }
+        RegistryLayoutNode::Split { split, direction, ratio, first, second } => json!({
+            "kind":"split",
+            "split_id":split,
+            "direction":match direction.as_str() {
+                "right" => "horizontal",
+                "down" => "vertical",
+                other => other,
+            },
+            "ratio":f64::from(*ratio),
+            "first":public_layout_node(first, state)?,
+            "second":public_layout_node(second, state)?,
+        }),
+        RegistryLayoutNode::Stack { panes, expanded } => json!({
+            "kind":"stack",
+            "pane_ids":panes,
+            "expanded_pane_id":expanded,
+        }),
+    })
+}
+
 fn push_delete_delta(changes: &mut Vec<Value>, resource: &str, id: &str) {
     let sequence = changes.len();
     changes.push(json!({
@@ -895,28 +1356,17 @@ fn reindex_tabs(tabs: &mut [RegistryTab], pane: &PanePublicId) {
     }
 }
 
-/// The pane and tab upserts of a move; each pane value comes from the one
-/// pane builder over `after`, so focus and zoom match the stored state.
 fn move_deltas(
-    state: &State,
-    after: &crate::workspace_registry::ResourceTopologySnapshot,
     source_pane: &RegistryPane,
     target_pane: &RegistryPane,
     source_tabs: &[RegistryTab],
     target_tabs: &[RegistryTab],
     same_pane: bool,
-) -> anyhow::Result<Vec<Value>> {
+) -> Vec<Value> {
     let mut changes = Vec::new();
-    let panes = if same_pane { vec![source_pane] } else { vec![source_pane, target_pane] };
-    for pane in panes {
-        let value = super::resource_topology::pane_value(state, pane, after)?;
-        changes.push(json!({
-            "kind": "upsert",
-            "sequence": changes.len(),
-            "resource": "pane",
-            "id": pane.public_id,
-            "value": value,
-        }));
+    push_pane_delta(&mut changes, source_pane, same_pane);
+    if !same_pane {
+        push_pane_delta(&mut changes, target_pane, true);
     }
     for tab in source_tabs {
         push_tab_delta(&mut changes, tab, source_pane.active_tab.as_ref() == Some(&tab.public_id));
@@ -930,19 +1380,24 @@ fn move_deltas(
             );
         }
     }
-    Ok(changes)
+    changes
 }
 
-/// `terminal`'s tab ids in canonical order among `tabs`.
-fn terminal_tab_ids(tabs: &[RegistryTab], terminal: &TerminalPublicId) -> Vec<TabPublicId> {
-    terminal_tab_ids_in_canonical_order(tabs.iter().filter_map(|tab| match &tab.content_id {
-        ContentPublicId::Terminal(id) => {
-            Some((id.clone(), tab.pane_id.clone(), tab.position, tab.public_id.clone()))
-        }
-        ContentPublicId::Browser(_) => None,
-    }))
-    .remove(terminal)
-    .unwrap_or_default()
+fn push_pane_delta(changes: &mut Vec<Value>, pane: &RegistryPane, focused: bool) {
+    let sequence = changes.len();
+    changes.push(json!({
+        "kind": "upsert",
+        "sequence": sequence,
+        "resource": "pane",
+        "id": pane.public_id,
+        "value": {
+            "id": pane.public_id,
+            "screen_id": pane.screen_id,
+            "name": pane.name,
+            "focused": focused,
+            "zoomed": false,
+        },
+    }));
 }
 
 fn push_tab_delta(changes: &mut Vec<Value>, tab: &RegistryTab, focused: bool) {

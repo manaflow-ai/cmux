@@ -234,8 +234,8 @@ export function AppPricingContent({
                 <DisabledButton>{pricing.currentPlan}</DisabledButton>
               )}
             </div>
-          ) : appStorePaymentGated || pending ? (
-            <DisabledButton>{pending ? pricing.go.cta : pricing.billingUnavailable}</DisabledButton>
+          ) : appStorePaymentGated ? (
+            <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
           ) : (
             <PricingCheckoutButton
               href={appPricingCheckoutURL(
@@ -262,7 +262,7 @@ export function AppPricingContent({
         name={pricing.pro.name}
         surface="app_pricing"
         monthlyOnly={isGo}
-        initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
+        initialInterval={firstParam(params.interval) === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={proCheckoutHrefs}
         location="app_pricing"
@@ -294,7 +294,7 @@ export function AppPricingContent({
         pricing={MAX_PRICING_USD}
         surface="app_pricing"
         monthlyOnly={false}
-        initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
+        initialInterval={firstParam(params.interval) === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={maxCheckoutHrefs}
         location="app_pricing"
@@ -408,18 +408,8 @@ export function AppPricingContent({
         style={appPricingStyle(theme)}
       >
         <div className="mx-auto w-full max-w-6xl">
-          <div className="mb-8 grid">
-            {/* Account state can resolve after the cards paint. Size the slot
-                with the signed-out notice at the actual viewport width. */}
-            <div
-              aria-hidden="true"
-              className={`invisible ${billingBannerClassName}`}
-            >
-              {pricing.signedOutNotice} {pricing.signedOutSignIn}
-            </div>
-            {personalization?.banner ??
-              (banner ? <BillingBanner banner={banner} /> : null)}
-          </div>
+          {personalization?.banner ??
+            (banner ? <BillingBanner banner={banner} /> : null)}
 
           <>
             <h1 className="text-2xl font-medium tracking-tight">
@@ -563,6 +553,18 @@ type BillingBannerModel = {
   action?: { href: string; label: string };
 };
 
+/** The page's own sign-in link, built from the request before the page renders. */
+export function appPricingRequestSignInHref(
+  params: Record<string, string | string[] | undefined>,
+  headersList: Headers,
+): string {
+  const cmuxScheme = validatedNativeCallbackScheme(
+    firstParam(params.cmux_scheme),
+    appPricingRequest(headersList),
+  );
+  return appPricingSignInHref(cmuxScheme, params);
+}
+
 /// In-webview sign-in that also signs the native app in: Stack sign-in sets
 /// the webview's session cookies, then /handler/after-sign-in hands tokens to
 /// the app through its <scheme>://auth-callback URL. The app applies this
@@ -651,14 +653,11 @@ function pricingMessage(
   });
 }
 
-const billingBannerClassName =
-  "col-start-1 row-start-1 border border-border bg-code-bg px-4 py-3 text-sm";
-
 function BillingBanner({ banner }: { banner: BillingBannerModel }) {
   return (
     <div
       role="status"
-      className={billingBannerClassName}
+      className="mb-8 border border-border bg-code-bg px-4 py-3 text-sm"
     >
       {banner.message}
       {banner.action ? (

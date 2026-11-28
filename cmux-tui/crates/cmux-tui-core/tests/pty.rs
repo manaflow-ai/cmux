@@ -4,18 +4,29 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
-mod support;
+
 use base64::Engine;
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::{AttachFrame, CursorShape, DefaultColors, Mux, MuxEvent, Rgb, SurfaceOptions};
 use ghostty_vt::RenderState;
-use support::{DaemonMuxOps, wait_for};
 
-/// A test shell runs `script`. A shell kept alive for the test ends with `sleep 600`, not a
-/// short sleep: under a full workspace run a test can take over 30 s, and a shell that ended
-/// first took its surface with it ("unknown surface 2" in control_socket_wait_for_* and
-/// control_socket_broadcasts_surface_resized_*, 944d5cc59f05, 49 s and 52 s). The surface's
-/// close (or the PTY's hang-up) ends the sleep.
+fn wait_for<T>(mut f: impl FnMut() -> Option<T>, timeout: Duration) -> Option<T> {
+    let timeout_scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|scale| *scale > 0)
+        .unwrap_or(1);
+    let timeout = timeout.saturating_mul(timeout_scale);
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if let Some(v) = f() {
+            return Some(v);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    None
+}
+
 fn shell_opts(script: &str) -> SurfaceOptions {
     SurfaceOptions {
         command: Some(vec!["/bin/sh".to_string(), "-c".to_string(), script.to_string()]),
@@ -123,7 +134,7 @@ fn assert_vt_state_size(
 
 #[test]
 fn surface_runs_command_and_screen_updates() {
-    let mux = Mux::new("test-pty", shell_opts("printf 'marker-42\\n'; sleep 600"));
+    let mux = Mux::new("test-pty", shell_opts("printf 'marker-42\\n'; sleep 30"));
     let events = mux.subscribe();
     let surface = mux.new_workspace(None, None).unwrap();
 
@@ -153,7 +164,7 @@ fn surface_runs_command_and_screen_updates() {
 
 #[test]
 fn surface_resize_reports_whether_the_size_changed() {
-    let mux = Mux::new(unique_session("test-resize-bool"), shell_opts("sleep 600"));
+    let mux = Mux::new(unique_session("test-resize-bool"), shell_opts("sleep 30"));
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
     assert!(!surface.resize(80, 24).unwrap());
@@ -170,7 +181,7 @@ fn surface_resize_reports_whether_the_size_changed() {
 
 #[test]
 fn headless_creation_uses_explicit_or_authoritative_client_size() {
-    let mux = Mux::new(unique_session("test-headless-client-size"), shell_opts("sleep 600"));
+    let mux = Mux::new(unique_session("test-headless-client-size"), shell_opts("sleep 30"));
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = connect(&sock_path);
     let mut writer = stream.try_clone_box().unwrap();
@@ -265,9 +276,7 @@ fn headless_creation_uses_explicit_or_authoritative_client_size() {
     )["data"]["surface"]
         .as_u64()
         .unwrap();
-    // The one size rule (`clamp_terminal_size`, 7598506d0d5): the sizing
-    // engine's 2 x 1 minimum, as for a hosted terminal and a viewport report.
-    assert_vt_state_size(&mut writer, &mut reader, 15, clamped, (2, 1));
+    assert_vt_state_size(&mut writer, &mut reader, 15, clamped, (1, 1));
 
     mux.shutdown();
     cmux_tui_core::server::cleanup(&sock_path);
@@ -317,7 +326,7 @@ fn surface_exit_detaches_terminal_view_and_emits_event() {
         || {
             events
                 .try_iter()
-                .find(|e| matches!(e, MuxEvent::SurfaceExited(id, _) if *id == surface.id))
+                .find(|e| matches!(e, MuxEvent::SurfaceExited(id) if *id == surface.id))
         },
         Duration::from_secs(10),
     );
@@ -326,8 +335,8 @@ fn surface_exit_detaches_terminal_view_and_emits_event() {
     mux.with_state(|state| {
         assert!(!state.surfaces.contains_key(&surface.id));
         assert_eq!(state.pane_of(surface.id), None, "exited view remained in the layout");
-        // The process end took the last tab, so the workspace closed with it.
-        assert!(state.workspaces.is_empty(), "an emptied workspace was kept");
+        assert_eq!(state.workspaces.len(), 1);
+        assert!(state.workspaces[0].screens.is_empty());
     });
     mux.shutdown();
 }
@@ -335,7 +344,7 @@ fn surface_exit_detaches_terminal_view_and_emits_event() {
 #[test]
 fn control_socket_round_trip() {
     let mux =
-        Mux::new(unique_session("test-sock"), shell_opts("printf 'socket-check\\n'; sleep 600"));
+        Mux::new(unique_session("test-sock"), shell_opts("printf 'socket-check\\n'; sleep 30"));
     let surface = mux.new_workspace(None, None).unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
@@ -544,7 +553,7 @@ fn process_info_reports_live_foreground_cwd() {
     // The top-level PTY child changes directory and then replaces itself, so
     // the live foreground process group leader's cwd diverges from every
     // piece of recorded spawn metadata.
-    let script = format!("cd '{}' && exec sleep 600", target.display());
+    let script = format!("cd '{}' && exec sleep 30", target.display());
     let mux = Mux::new(unique_session("test-foreground-cwd"), shell_opts(&script));
     let surface = mux.new_workspace(None, None).unwrap();
 
@@ -588,7 +597,7 @@ fn control_socket_read_screen_reports_rendered_viewport_after_scrollback_clear()
     for row in 0..12 {
         output.push_str(&format!("row{row:02}\\r\\n"));
     }
-    let script = format!("printf '{output}'; printf '\\033[H\\033[2Jprompt$ '; sleep 600");
+    let script = format!("printf '{output}'; printf '\\033[H\\033[2Jprompt$ '; sleep 30");
     let mux = Mux::new(unique_session("test-read-screen-viewport"), shell_opts(&script));
     let surface = mux.new_workspace(None, Some((17, 5))).unwrap();
 
@@ -625,7 +634,7 @@ fn control_socket_read_screen_reports_rendered_viewport_after_scrollback_clear()
 fn control_socket_wait_for_matches_one_shot_output_already_on_screen() {
     let mux = Mux::new(
         unique_session("test-wait-for-one-shot"),
-        shell_opts("printf 'one-shot-ready\\n'; sleep 600"),
+        shell_opts("printf 'one-shot-ready\\n'; sleep 30"),
     );
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
@@ -664,128 +673,6 @@ fn control_socket_wait_for_matches_one_shot_output_already_on_screen() {
     assert_eq!(value["ok"], true, "wait-for failed after one-shot output: {line}");
     assert_eq!(value["data"]["matched"], true);
 
-    mux.close_surface(surface.id).unwrap();
-    cmux_tui_core::server::cleanup(&sock_path);
-}
-
-/// Reads lines into `replies` (by their string `id`, with the time each arrived) until `id`
-/// has a reply or `deadline` passes. Lines without a string id (events) are skipped.
-fn read_reply_until(
-    reader: &mut impl BufRead,
-    replies: &mut std::collections::HashMap<String, (serde_json::Value, Instant)>,
-    id: &str,
-    deadline: Instant,
-) -> bool {
-    while !replies.contains_key(id) {
-        if Instant::now() >= deadline {
-            return false;
-        }
-        if let Some(value) = read_json_line(reader)
-            && let Some(reply_id) = value["id"].as_str()
-        {
-            replies.insert(reply_id.to_string(), (value.clone(), Instant::now()));
-        }
-    }
-    true
-}
-
-/// A pending `wait-for` never holds a later request on its connection. The app sends two
-/// 60 s waits on a Cloud machine's main connection while it delivers secrets; a split sent
-/// meanwhile used to wait until the wait ended. Here a lookup, a list and a terminal create
-/// sent behind a wait are answered while it is pending, input on the same connection then
-/// makes the pattern appear, and the wait answers under its own id.
-#[test]
-fn control_socket_wait_for_off_dispatch_answers_later_requests_while_pending() {
-    // Generous on a loaded runner and far below the wait's own timeout, which is when
-    // every request queued behind the wait used to be answered.
-    let quick = Duration::from_secs(2);
-    let create_bound = Duration::from_secs(10);
-    let wait_timeout = Duration::from_secs(20);
-    let mux = Mux::new(unique_session("test-wait-for-off-dispatch"), shell_opts("cat"));
-    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
-    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
-    let stream = connect(&sock_path);
-    stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
-    let mut writer = stream.try_clone_box().unwrap();
-    let mut reader = BufReader::new(stream);
-    let mut replies = std::collections::HashMap::new();
-
-    let sent = Instant::now();
-    let wait = serde_json::json!({
-        "id": "wait",
-        "cmd": "wait-for",
-        "surface": surface.id,
-        "pattern": "release-wait-[0-9]+",
-        "timeout_ms": wait_timeout.as_millis() as u64,
-    });
-    writeln!(writer, "{wait}").unwrap();
-    for request in [
-        serde_json::json!({"id": "identify", "cmd": "identify"}),
-        serde_json::json!({"id": "list", "cmd": "list-workspaces"}),
-        serde_json::json!({"id": "tab", "cmd": "new-tab", "cols": 80, "rows": 24}),
-    ] {
-        writeln!(writer, "{request}").unwrap();
-    }
-    for (id, bound) in [("identify", quick), ("list", quick), ("tab", create_bound)] {
-        if !read_reply_until(&mut reader, &mut replies, id, sent + bound) {
-            // Measure how long the request really waited, then fail with it.
-            read_reply_until(
-                &mut reader,
-                &mut replies,
-                id,
-                sent + wait_timeout + Duration::from_secs(10),
-            );
-            let answered_after = replies.get(id).map(|(_, at)| at.duration_since(sent));
-            panic!(
-                "`{id}`, sent behind a pending wait-for on the same connection, was not \
-                 answered within {bound:?} (answered after {answered_after:?}; the wait's \
-                 reply: {:?})",
-                replies.get("wait").map(|(reply, _)| reply)
-            );
-        }
-        let (reply, at) = &replies[id];
-        assert_eq!(reply["ok"], true, "`{id}` failed: {reply}");
-        eprintln!(
-            "wait-for-off-dispatch: `{id}` answered {:?} after it was sent behind a pending wait-for",
-            at.duration_since(sent)
-        );
-    }
-    assert!(
-        !replies.contains_key("wait"),
-        "the wait answered before its pattern appeared: {:?}",
-        replies.get("wait")
-    );
-
-    // Input on the same connection makes the pattern appear (`cat` echoes it).
-    let send_sent = Instant::now();
-    let send = serde_json::json!({
-        "id": "send",
-        "cmd": "send",
-        "surface": surface.id,
-        "text": "release-wait-42\n",
-    });
-    writeln!(writer, "{send}").unwrap();
-    assert!(
-        read_reply_until(&mut reader, &mut replies, "send", send_sent + quick),
-        "send was not answered while the wait was pending"
-    );
-    assert_eq!(replies["send"].0["ok"], true, "send failed: {}", replies["send"].0);
-    assert!(
-        read_reply_until(&mut reader, &mut replies, "wait", send_sent + Duration::from_secs(10)),
-        "the wait did not answer after its pattern appeared"
-    );
-    let wait_reply = &replies["wait"].0;
-    assert_eq!(wait_reply["ok"], true, "wait-for failed: {wait_reply}");
-    assert_eq!(wait_reply["data"]["matched"], true, "{wait_reply}");
-    assert!(
-        wait_reply["data"]["text"].as_str().unwrap_or_default().contains("release-wait-42"),
-        "the wait answered without the pattern on screen: {wait_reply}"
-    );
-    assert!(wait_reply["data"]["elapsed_ms"].as_u64().is_some(), "{wait_reply}");
-
-    if let Some(tab) = replies["tab"].0["data"]["surface"].as_u64() {
-        let _ = mux.close_surface(tab);
-    }
     mux.close_surface(surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }
@@ -1004,7 +891,7 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
     let mux = Mux::new(
         unique_session("test-colors-changed"),
         shell_opts(
-            "read line; printf '\\033]21;0_1=#112233;foreground=#445566\\033\\\\'; read line; printf '\\033c'; sleep 600",
+            "read line; printf '\\033]21;0_1=#112233;foreground=#445566\\033\\\\'; read line; printf '\\033c'; sleep 30",
         ),
     );
     mux.set_default_colors(DefaultColors {
@@ -1122,7 +1009,7 @@ fn control_socket_attach_palette_is_full_sparse_state_and_reset_clears_all_256()
 
 #[test]
 fn control_socket_broadcasts_surface_resized_once_per_changed_size() {
-    let mux = Mux::new(unique_session("test-resize-event"), shell_opts("sleep 600"));
+    let mux = Mux::new(unique_session("test-resize-event"), shell_opts("sleep 30"));
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
@@ -1260,7 +1147,7 @@ fn attach_stream_replays_then_streams_without_duplication() {
     let mux = Mux::new(
         "test-attach",
         shell_opts(
-            "printf 'before-attach\\n'; read line; printf 'after-%s\\n' \"$line\"; sleep 600",
+            "printf 'before-attach\\n'; read line; printf 'after-%s\\n' \"$line\"; sleep 30",
         ),
     );
     let surface = mux.new_workspace(None, None).unwrap();
@@ -1563,7 +1450,7 @@ fn attach_stream_orders_resize_between_output_frames() {
     let mux = Mux::new(
         unique_session("test-attach-resize"),
         shell_opts(
-            "printf '\\033]4;4;#112233\\007before-resize\\n'; read line; printf 'after-resize\\n'; sleep 600",
+            "printf '\\033]4;4;#112233\\007before-resize\\n'; read line; printf 'after-resize\\n'; sleep 30",
         ),
     );
     let surface = mux.new_workspace(None, None).unwrap();
@@ -1848,7 +1735,7 @@ fn render_attach_resize_is_a_full_replacement_at_the_new_size() {
 #[test]
 fn read_scrollback_pages_oldest_rows_and_clamps_bounds() {
     let script =
-        "i=0; while [ $i -lt 30 ]; do printf 'history-%02d\\n' $i; i=$((i+1)); done; sleep 600";
+        "i=0; while [ $i -lt 30 ]; do printf 'history-%02d\\n' $i; i=$((i+1)); done; sleep 30";
     let mux = Mux::new(unique_session("test-read-scrollback"), shell_opts(script));
     let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
     wait_for(
@@ -1912,7 +1799,7 @@ fn read_scrollback_pages_oldest_rows_and_clamps_bounds() {
 
 #[test]
 fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
-    let mux = Mux::new(unique_session("test-tree-event-modes"), shell_opts("sleep 600"));
+    let mux = Mux::new(unique_session("test-tree-event-modes"), shell_opts("sleep 30"));
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
 
     let coarse = connect(&sock_path);
@@ -2003,7 +1890,7 @@ fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
 
 #[test]
 fn create_empty_workspace_is_visible_and_materialized_in_place() {
-    let mux = Mux::new(unique_session("test-empty-workspace"), shell_opts("sleep 600"));
+    let mux = Mux::new(unique_session("test-empty-workspace"), shell_opts("sleep 30"));
     let sock_path = cmux_tui_core::server::serve(mux, None).unwrap();
     let commands = connect(&sock_path);
     let mut writer = commands.try_clone_box().unwrap();
@@ -2253,7 +2140,7 @@ fn frontend_projection_round_trips_without_advancing_workspace_revision() {
 
 #[test]
 fn send_paste_wraps_only_while_dec_mode_2004_is_enabled() {
-    let script = "stty -echo -icanon min 1 time 0; printf 'paste-ready\\n'; od -An -tx1 -N 14; od -An -tx1 -N 3; sleep 600";
+    let script = "stty -echo -icanon min 1 time 0; printf 'paste-ready\\n'; od -An -tx1 -N 14; od -An -tx1 -N 3; sleep 30";
     let mux = Mux::new(unique_session("test-paste-mode"), shell_opts(script));
     let surface = mux.new_workspace(None, Some((80, 8))).unwrap();
     wait_for(

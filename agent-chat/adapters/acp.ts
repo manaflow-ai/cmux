@@ -1,6 +1,8 @@
 import type {
   Adapter,
   AgentEvent,
+  AgentPlanEntry,
+  AgentPlanStatus,
   CommandEntry,
   OptionChoice,
   OptionValue,
@@ -498,6 +500,24 @@ function withAcpLocalOptions(options: SessionOption[], autoApprove: boolean): Se
   ];
 }
 
+function normalizeAcpPlanStatus(status: unknown): AgentPlanStatus {
+  return status === "pending" || status === "in_progress" || status === "completed" ? status : "unknown";
+}
+
+function normalizeAcpPlanEntries(entries: unknown): AgentPlanEntry[] {
+  if (!Array.isArray(entries)) return [];
+  return entries.map((entry: any) => ({
+    text: typeof entry?.content === "string" ? entry.content : String(entry?.content ?? ""),
+    status: normalizeAcpPlanStatus(entry?.status),
+    ...(entry?.priority == null ? {} : { priority: String(entry.priority) }),
+  }));
+}
+
+function acpPlanEvent(entries: unknown): Extract<AgentEvent, { kind: "plan" }> | null {
+  const normalized = normalizeAcpPlanEntries(entries);
+  return normalized.length ? { kind: "plan", entries: normalized } : null;
+}
+
 // Notifications and reverse requests from the agent.
 function handleAgentMessage(sess: SessionCtx, st: AcpState, def: ProviderDef, msg: any, writeMsg: (m: unknown) => void) {
   if (sess.internal.acpDisposed) return;
@@ -519,29 +539,22 @@ function handleAgentMessage(sess: SessionCtx, st: AcpState, def: ProviderDef, ms
           detail: acpToolCallDetail(u.locations, u.rawInput),
         });
         break;
-      case "tool_call_update": {
-        const output = truncate(contentText(u.content), 400);
+      case "tool_call_update":
         if (u.status === "completed" || u.status === "failed") {
           sess.emit({
             kind: "tool-end",
             toolId: u.toolCallId,
             ok: u.status === "completed",
-            detail: output,
-          });
-        } else if (output || typeof u.title === "string") {
-          // ACP may stream several in-progress updates before the terminal
-          // one. Keep them on the existing tool row so the pane can show
-          // live output without duplicating tool entries. The start detail is
-          // the input summary, so progress belongs in the output field.
-          sess.emit({
-            kind: "tool-update",
-            toolId: u.toolCallId,
-            ...(typeof u.title === "string" && u.title ? { name: u.title } : {}),
-            ...(output ? { out: output } : {}),
+            detail: truncate(contentText(u.content), 400),
           });
         }
         break;
-      }
+      case "plan":
+        {
+          const plan = acpPlanEvent(u.entries);
+          if (plan) sess.emit(plan);
+        }
+        break;
       case "available_commands_update":
         st.commands = normalizeCommands(u.availableCommands);
         sess.emit({ kind: "commands", trigger: "/", commands: st.commands });

@@ -1,20 +1,15 @@
 // Every reply the page agent's world sends to the session goes through one
 // reply budget (page-agent.js `reply`, applied by runtime-core.js
-// Frame._call to every agent-world call and by the host's frame.observe
-// script to every read), and a reply past it fails with the page-read cut
-// note (core.readCutNote). The test lists the agent's exports at run time:
-// an export without a case below fails, and every export, called with the
-// reply budget lowered to 0, must come back cut. Ported from classic
-// tests/browser-parity/unit/page-reply-budget.test.mjs. Runs on Playwright
-// WebKit through the dev driver and the reference host.
+// Frame._call to every agent-world call), and a reply past it fails with the
+// page-read cut note (core.readCutNote). The test lists the agent's exports
+// at run time: an export without a case below fails, and every export,
+// called with the reply budget lowered to 0, must come back cut. Runs on
+// Playwright WebKit through the dev driver.
 //
 //   node --test tests/browser-parity/unit/page-reply-budget.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadRuntime, createDevBrowser, createNodeHost, createHostedRepl } from "../lib/dev-driver.mjs";
-
-const ns = loadRuntime();
-const createDevRepl = ({ host, driver }) => createHostedRepl(ns, { host, driver }).repl;
+import { createDevBrowser, createNodeHost, createDevRepl } from "../lib/dev-driver.mjs";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
 import { makeTestDir, removeTestDir } from "../lib/test-dirs.mjs";
 
@@ -53,13 +48,19 @@ const CALLS = {
   dispatchEvent: { agent: ["$t", "click", {}] },
   retarget: { agent: ["$t", "follow-label"] },
   read: { agent: ["$t", "tagName"] },
-  iframeHandles: { agent: [] },
+  readBounded: { agent: ["$t", "textContent"] },
+  readAllBounded: { agent: [["$t", "$u"], "textContent"] },
+  documentHTML: { agent: [] },
+  framePosition: { agent: [] },
+  iframeHandles: { agent: [0] },
   contentBox: { agent: ["$frame"] },
-  annotate: { agent: [[["e1", "1"]]] },
+  ownerPoint: { agent: ["$frame", { x: 1, y: 1 }, false] },
+  pressCheck: { agent: ["$t", { x: 1, y: 1 }] },
+  annotate: { agent: [[["e1", "1"]], "doc"] },
   clearAnnotations: { agent: [] },
   budget: { world: "() => A.budget({})" },
+  slotAssigned: { world: "(el) => [...A.slotAssigned(el, () => true)]", handles: ["$t"] },
   reply: { world: "() => A.reply('a reply', 0)" },
-  adoptClosedRoot: { world: "(el) => A.adoptClosedRoot(el, null)", handles: ["$t"] },
 };
 
 test("every page agent export replies through the reply budget, and a reply past it is cut with the page-read note", async () => {
@@ -92,7 +93,7 @@ test("every page agent export replies through the reply budget, and a reply past
           if (!c) { outcomes[name] = "no case"; continue; }
           const call = c.world
             ? frame._call("agent", "(...a) => { const A = " + AGENT + "; return (" + c.world + ")(...a); }", [], (c.handles || []).map(resolve), name)
-            : frame._call("agent", "(m, ...a) => " + AGENT + "[m](...a)", [name, ...resolve(c.agent)], [], name);
+            : frame._agent(name, ...resolve(c.agent));
           outcomes[name] = await call.then((v) => "replied " + JSON.stringify(v), (e) => String(e.message || e));
         }
       } finally {

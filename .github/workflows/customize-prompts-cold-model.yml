@@ -3,7 +3,7 @@ name: Customize copy-paste prompts (cold model, nightly)
 # Every copy-paste prompt in skills/cmux-extension-author/prompts/ handed, as a person would paste it, to a fresh
 # Claude Code in an empty folder (scripts/cmux-next/ext-recipe-cold-model.py --prompts). A prompt passes only when
 # the folder it leaves ends in a working customization: `cmux ext dev --once --headless --json` exits 0 (the real
-# QuickJS app host runs without cmux) and the scene or command behavior matches the page's prompt-check.
+# QuickJS app host loads and renders it, no cmux running) and its scene shows the text the page's prompt-check names.
 #
 # Leo: "good docs for agents and good copy-paste prompts for agents"
 #
@@ -32,13 +32,27 @@ concurrency:
 jobs:
   prompts:
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: credentialed job, frozen to today's label
-    timeout-minutes: 75
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Allow the tree publication wait (30 min), GitHub retry budget (60 min), and cold agent (60 min).
+    timeout-minutes: 165
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -119,4 +133,4 @@ jobs:
           name: customize-prompts-cold-model
           path: ${{ runner.temp }}/prompts.json
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report

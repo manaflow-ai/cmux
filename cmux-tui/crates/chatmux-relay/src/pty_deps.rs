@@ -11,6 +11,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{Read, Write};
+use std::mem::{offset_of, size_of};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
@@ -31,15 +32,6 @@ use crate::pty::{
 };
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
-/// The option that makes an owner end a terminal left with no tab after a grace.
-const REAP_GRACE_OPTION: &str = "--terminal-reap-grace-seconds";
-/// The reap grace of the owner the relay starts, in seconds: the default every owner `ensure`
-/// starts gets (`cmux_tui_core::DEFAULT_TERMINAL_REAP_GRACE`). Its socket is the session's default
-/// one, so a later `cmux` client reuses this owner, and a tab closed in the relay's `cmux-tui
-/// attach` viewer only detaches its terminal.
-const DAEMON_TERMINAL_REAP_GRACE_SECONDS: &str = "30";
-/// The bound on one help probe of the cmux-tui binary (`accepts_reap_grace`).
-const REAP_GRACE_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 const THREAD_OUTPUT_BACKLOG_CAP: usize = 1024 * 1024;
 const THREAD_OUTPUT_OVERFLOW_EXIT: i64 = 75;
 const PIPE_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(250);
@@ -95,13 +87,13 @@ fn session_socket_path(socket_dir: &Path, uid: u32, session: &str) -> Result<Pat
     }
     let leaf = format!("{session}.sock");
     let preferred = socket_dir.join(&leaf);
-    if cmux_unix_socket::fits(&preferred) {
+    if unix_socket_path_fits(&preferred) {
         return Ok(preferred);
     }
 
     let fallback_dir = Path::new("/tmp").join(format!("cmux-tui-{uid}"));
     let fallback = fallback_dir.join(&leaf);
-    if cmux_unix_socket::fits(&fallback) {
+    if unix_socket_path_fits(&fallback) {
         return Ok(fallback);
     }
 
@@ -112,7 +104,7 @@ fn session_socket_path(socket_dir: &Path, uid: u32, session: &str) -> Result<Pat
         .unwrap_or_else(|| Path::new("/tmp"));
     let hashed =
         preferred_base.join(format!("cmux-tui-hashed-{uid}")).join(format!("{digest}.sock"));
-    if cmux_unix_socket::fits(&hashed) {
+    if unix_socket_path_fits(&hashed) {
         return Ok(hashed);
     }
     Ok(Path::new("/tmp").join(format!("cmux-tui-hashed-{uid}")).join(format!("{digest}.sock")))
@@ -161,6 +153,15 @@ async fn prepare_private_directory(dir: &Path, uid: u32) -> Result<(), String> {
             .map_err(|error| format!("control socket directory permissions failed: {error}"))?;
     }
     Ok(())
+}
+
+fn unix_socket_path_fits(path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+
+    // Unix-domain socket paths include a trailing NUL in `sun_path`.
+    const SUN_PATH_CAPACITY: usize =
+        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
 }
 
 /// Buffers output until the manager subscribes, then drains one FIFO queue.
@@ -854,34 +855,6 @@ async fn socket_exists(path: &Path) -> bool {
     tokio::fs::metadata(path).await.is_ok()
 }
 
-/// Whether `cmux_tui` accepts `--terminal-reap-grace-seconds`: its root help (older binaries) or
-/// `help start` (current ones) lists the option as a line's first word, the probe the app's
-/// launcher runs (`cmux_daemon_launch_core::ensure::reap_grace_probes`). A cmux-tui that does not
-/// list it would refuse the option and never start, and an owner that never reaps is better than
-/// no owner, so a failed probe answers false.
-async fn accepts_reap_grace(cmux_tui: &CmuxTui, env: &HashMap<String, String>) -> bool {
-    const PROBES: [&[&str]; 2] = [&["--help"], &["help", "start"]];
-    for probe in PROBES {
-        let mut command = tokio::process::Command::new(&cmux_tui.file);
-        command.args(&cmux_tui.prefix).args(probe).env_clear().envs(env).current_dir("/");
-        command.stdin(std::process::Stdio::null());
-        command.stdout(std::process::Stdio::piped());
-        command.stderr(std::process::Stdio::null());
-        command.kill_on_drop(true);
-        let Ok(Ok(output)) = tokio::time::timeout(REAP_GRACE_PROBE_TIMEOUT, command.output()).await
-        else {
-            continue;
-        };
-        let help = String::from_utf8_lossy(&output.stdout);
-        let lists =
-            help.lines().any(|line| line.split_whitespace().next() == Some(REAP_GRACE_OPTION));
-        if output.status.success() && lists {
-            return true;
-        }
-    }
-    false
-}
-
 /// Stop a daemon that was started by `ensure_daemon` but never became ready.
 /// The daemon is placed in its own process group, so cleanup also covers
 /// children it may have spawned before readiness failed.
@@ -1010,12 +983,6 @@ impl PtyDeps for RealPtyDeps {
             "--socket".to_owned(),
             socket_path.to_string_lossy().into_owned(),
         ]);
-        if accepts_reap_grace(cmux_tui, env).await {
-            args.extend([
-                REAP_GRACE_OPTION.to_owned(),
-                DAEMON_TERMINAL_REAP_GRACE_SECONDS.to_owned(),
-            ]);
-        }
         let mut command = tokio::process::Command::new(&cmux_tui.file);
         command.args(&args).env_clear();
         for (key, value) in env {
@@ -1129,5 +1096,372 @@ pub fn valid_session(name: &str) -> bool {
 }
 
 #[cfg(test)]
-#[path = "pty_deps_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use std::os::unix::net::UnixStream;
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex, mpsc};
+    use std::thread;
+
+    struct TestControl {
+        kills: TestArc<AtomicUsize>,
+        drops: TestArc<AtomicUsize>,
+    }
+
+    impl Drop for TestControl {
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, AtomicOrdering::Relaxed);
+        }
+    }
+
+    impl PtyControl for TestControl {
+        fn write(&self, _data: &[u8]) {}
+        fn resize(&self, _cols: u16, _rows: u16) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn kill(&self) {
+            self.kills.fetch_add(1, AtomicOrdering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn session_socket_path_matches_core_fallback_order() {
+        let session = format!("legacy-{}", "x".repeat(200));
+        let preferred_dir = PathBuf::from("/run/user/501/cmux-tui-501");
+        let preferred = session_socket_path(&preferred_dir, 501, &session).unwrap();
+        assert_eq!(
+            preferred,
+            PathBuf::from("/run/user/501/cmux-tui-hashed-501")
+                .join("e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2.sock")
+        );
+
+        let long_dir = PathBuf::from("/tmp").join("x".repeat(200)).join("cmux-tui-501");
+        let fallback = session_socket_path(&long_dir, 501, &session).unwrap();
+        assert!(fallback.starts_with("/tmp/cmux-tui-hashed-501/"));
+        assert!(unix_socket_path_fits(&fallback));
+    }
+
+    #[tokio::test]
+    async fn private_session_socket_refuses_a_shared_fallback_parent() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        // SAFETY: getuid is always safe.
+        let uid = unsafe { libc::getuid() };
+        // A short base keeps the hashed fallback below it within sun_path,
+        // while this session name is too long for the preferred and /tmp
+        // leaves. The test never touches the real /tmp/cmux-tui-<uid>.
+        let base = PathBuf::from(format!("/tmp/r{}", std::process::id()));
+        let _ = tokio::fs::remove_dir_all(&base).await;
+        tokio::fs::create_dir(&base).await.unwrap();
+        let socket_dir = base.join(format!("cmux-tui-{uid}"));
+        let hashed_dir = base.join(format!("cmux-tui-hashed-{uid}"));
+        let elsewhere = base.join("elsewhere");
+        tokio::fs::create_dir(&elsewhere).await.unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &hashed_dir).unwrap();
+        let session = "s".repeat(110);
+
+        let error = prepare_session_socket(&socket_dir, uid, &session)
+            .await
+            .expect_err("a symlinked fallback directory is refused");
+        assert!(error.contains("not owned"), "{error}");
+
+        tokio::fs::remove_file(&hashed_dir).await.unwrap();
+        tokio::fs::create_dir(&hashed_dir).await.unwrap();
+        tokio::fs::set_permissions(&hashed_dir, std::fs::Permissions::from_mode(0o777))
+            .await
+            .unwrap();
+        let socket_path = prepare_session_socket(&socket_dir, uid, &session)
+            .await
+            .expect("an own fallback directory is made private");
+        assert_eq!(socket_path.parent(), Some(hashed_dir.as_path()));
+        let mode = tokio::fs::symlink_metadata(&hashed_dir).await.unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        let _ = tokio::fs::remove_dir_all(&base).await;
+    }
+
+    #[test]
+    fn session_socket_path_rejects_invalid_names_before_path_use() {
+        let error = session_socket_path(Path::new("/run/cmux-tui-501"), 501, "bad/name")
+            .expect_err("path separator must be rejected");
+        assert!(error.contains("invalid session"));
+    }
+
+    #[tokio::test]
+    async fn canonical_executable_rejects_relative_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!("cmux-relay-cwd-test-{}", std::process::id()));
+        let cwd = root.join("request");
+        let bin = cwd.join("bin");
+        let executable = bin.join("cmux-tui");
+        tokio::fs::create_dir_all(&bin).await.unwrap();
+        tokio::fs::write(&executable, b"#!/bin/sh\n").await.unwrap();
+        tokio::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755))
+            .await
+            .unwrap();
+
+        let resolved = canonical_executable(Path::new("bin/cmux-tui")).await;
+        assert_eq!(resolved, None);
+        let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[tokio::test]
+    async fn resolver_rejects_relative_override_and_path_entries() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-relay-relative-executable-policy-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let cwd = root.join("launch");
+        let executable = cwd.join("bin/cmux-tui");
+        tokio::fs::create_dir_all(executable.parent().unwrap()).await.unwrap();
+        tokio::fs::write(&executable, b"#!/bin/sh\n").await.unwrap();
+        tokio::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755))
+            .await
+            .unwrap();
+
+        let mut env = HashMap::new();
+        env.insert("CHATMUX_RELAY_CMUX_TUI".to_owned(), "bin/cmux-tui".to_owned());
+        env.insert("PATH".to_owned(), "bin".to_owned());
+        let mut deps = RealPtyDeps::new(env);
+
+        assert!(deps.resolve_cmux_tui().await.is_none());
+
+        deps.env.remove("CHATMUX_RELAY_CMUX_TUI");
+        assert!(deps.resolve_cmux_tui().await.is_none());
+
+        deps.env
+            .insert("CHATMUX_RELAY_CMUX_TUI".to_owned(), executable.to_string_lossy().into_owned());
+        assert_eq!(
+            deps.resolve_cmux_tui().await.map(|resolved| resolved.file),
+            Some(std::fs::canonicalize(&executable).unwrap().to_string_lossy().into_owned())
+        );
+        let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[test]
+    fn directory_entry_read_errors_fail_closed() {
+        let mut names = vec!["before-error".to_owned()];
+        let result = append_dir_name(&mut names, Err(()));
+
+        assert_eq!(result, Err(()));
+        assert_eq!(names, vec!["before-error".to_owned()]);
+    }
+
+    #[test]
+    fn subscribe_replay_stays_ahead_of_concurrent_output_and_exit() {
+        let output = ThreadOutput::new();
+        output.push_data(Bytes::from_static(b"buffered"));
+
+        let seen = TestArc::new(TestMutex::new(Vec::<String>::new()));
+        let invocations = TestArc::new(AtomicUsize::new(0));
+        let entered = TestArc::new(Barrier::new(2));
+        let release = TestArc::new(Barrier::new(2));
+
+        let callback_seen = TestArc::clone(&seen);
+        let callback_invocations = TestArc::clone(&invocations);
+        let callback_entered = TestArc::clone(&entered);
+        let callback_release = TestArc::clone(&release);
+        let on_data: DataSink = TestArc::new(move |chunk| {
+            let value = String::from_utf8_lossy(&chunk).into_owned();
+            let invocation = callback_invocations.fetch_add(1, AtomicOrdering::Relaxed) + 1;
+            if invocation == 1 {
+                callback_entered.wait();
+                callback_release.wait();
+            }
+            callback_seen.lock().expect("seen lock").push(value);
+        });
+        let callback_seen = TestArc::clone(&seen);
+        let on_exit: ExitSink = TestArc::new(move |code| {
+            callback_seen.lock().expect("seen lock").push(format!("exit:{code}"));
+        });
+
+        let subscribe_output = TestArc::clone(&output);
+        let join = thread::spawn(move || subscribe_output.subscribe(on_data, on_exit));
+
+        entered.wait();
+        output.push_data(Bytes::from_static(b"live"));
+        output.push_exit(7);
+        release.wait();
+        join.join().expect("subscribe thread");
+
+        assert_eq!(
+            *seen.lock().expect("seen lock"),
+            vec!["buffered".to_owned(), "live".to_owned(), "exit:7".to_owned()]
+        );
+    }
+
+    #[test]
+    fn backlog_overflow_preserves_prefix_and_emits_terminal_exit_once() {
+        let output = ThreadOutput::new();
+        let kills = TestArc::new(AtomicUsize::new(0));
+        let kill_counter = TestArc::clone(&kills);
+        output.set_overflow_handler(TestArc::new(move || {
+            kill_counter.fetch_add(1, AtomicOrdering::Relaxed);
+        }));
+        output.push_data(Bytes::from(vec![b'x'; THREAD_OUTPUT_BACKLOG_CAP]));
+        output.push_data(Bytes::from_static(b"overflow"));
+        output.push_exit(0);
+        let seen = TestArc::new(TestMutex::new(Vec::new()));
+        let data_seen = TestArc::clone(&seen);
+        let exit_seen = TestArc::clone(&seen);
+        output.subscribe(
+            TestArc::new(move |chunk| {
+                data_seen.lock().expect("seen lock").push(format!("data:{}", chunk.len()));
+            }),
+            TestArc::new(move |code| {
+                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"));
+            }),
+        );
+        assert_eq!(
+            *seen.lock().expect("seen lock"),
+            vec![format!("data:{THREAD_OUTPUT_BACKLOG_CAP}"), "exit:75".to_owned()]
+        );
+        output.push_data(Bytes::from_static(b"another overflow"));
+        assert_eq!(kills.load(AtomicOrdering::Relaxed), 1);
+    }
+
+    #[test]
+    fn overflow_control_kills_live_owner_without_retaining_it() {
+        let output = ThreadOutput::new();
+        let kills = TestArc::new(AtomicUsize::new(0));
+        let drops = TestArc::new(AtomicUsize::new(0));
+        let control = TestArc::new(TestControl {
+            kills: TestArc::clone(&kills),
+            drops: TestArc::clone(&drops),
+        });
+        let weak_control = TestArc::downgrade(&control);
+        output.set_overflow_control(&control);
+
+        output.push_data(Bytes::from(vec![b'x'; THREAD_OUTPUT_BACKLOG_CAP]));
+        output.push_data(Bytes::from_static(b"overflow"));
+        assert_eq!(kills.load(AtomicOrdering::Relaxed), 1);
+
+        drop(control);
+        assert!(weak_control.upgrade().is_none());
+        assert_eq!(drops.load(AtomicOrdering::Relaxed), 1);
+    }
+
+    #[test]
+    fn pipe_control_sends_one_kill_request_to_owned_child() {
+        let (command_tx, command_rx) = mpsc::channel();
+        let control = PipeControl {
+            stdin: Mutex::new(None),
+            command_tx,
+            kill_requested: AtomicBool::new(false),
+        };
+
+        control.kill();
+        control.kill();
+
+        assert!(matches!(command_rx.recv(), Ok(PipeChildCommand::Kill)));
+        assert!(command_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn child_exit_observer_leaves_child_owned_for_wait() {
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", "exit 23"])
+            .spawn()
+            .expect("spawn child");
+        wait_for_child_exit_without_reaping(child.id() as libc::pid_t).expect("observe child");
+        assert_eq!(child.wait().expect("reap child").code(), Some(23));
+    }
+
+    #[test]
+    fn empty_chunks_do_not_bypass_backlog_cap() {
+        let output = ThreadOutput::new();
+        for _ in 0..10_000 {
+            output.push_data(Bytes::new());
+        }
+
+        let state = output.state.lock().expect("source lock");
+        assert!(state.backlog.is_empty());
+        assert_eq!(state.backlog_bytes, 0);
+    }
+
+    #[test]
+    fn pipe_exit_waits_for_reader_eof_before_delivering_late_bytes() {
+        let output = ThreadOutput::new();
+        let completion = ProcessOutputCompletion::new(1, TestArc::clone(&output));
+        completion.child_exited(23);
+        output.push_data(Bytes::from_static(b"tail"));
+        completion.reader_finished();
+
+        let seen = TestArc::new(TestMutex::new(Vec::<String>::new()));
+        let data_seen = TestArc::clone(&seen);
+        let exit_seen = TestArc::clone(&seen);
+        output.subscribe(
+            TestArc::new(move |chunk| {
+                data_seen
+                    .lock()
+                    .expect("seen lock")
+                    .push(String::from_utf8_lossy(&chunk).into_owned());
+            }),
+            TestArc::new(move |code| {
+                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"));
+            }),
+        );
+
+        assert_eq!(*seen.lock().expect("seen lock"), vec!["tail".to_owned(), "exit:23".to_owned()]);
+    }
+
+    #[test]
+    fn inherited_pty_descriptor_cannot_hold_exit_forever() {
+        // The PTY completion path uses the same bounded grace coordinator as
+        // pipe fallback. An open stream models a background descendant that
+        // inherited the PTY slave and keeps the reader from reaching EOF.
+        let output = ThreadOutput::new();
+        let completion = ProcessOutputCompletion::new(1, TestArc::clone(&output));
+        let (reader, _writer) = UnixStream::pair().expect("pipe pair");
+        let (exit_tx, exit_rx) = mpsc::channel();
+        let (reader_done_tx, reader_done_rx) = mpsc::channel();
+        let pump_output = TestArc::clone(&output);
+        let pump_completion = TestArc::clone(&completion);
+        thread::spawn(move || {
+            pump_pipe(reader, pump_output, pump_completion);
+            reader_done_tx.send(()).expect("reader completion");
+        });
+        output.subscribe(
+            TestArc::new(|_| {}),
+            TestArc::new(move |code| exit_tx.send(code).expect("exit delivery")),
+        );
+
+        completion.child_exited(41);
+
+        assert_eq!(
+            exit_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("inherited descriptors must not suppress exit"),
+            41
+        );
+        reader_done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("reader must stop after bounded post-exit recovery");
+    }
+
+    #[test]
+    fn pty_reader_cancellation_wakes_a_blocked_poll() {
+        let output = ThreadOutput::new();
+        let (completion, cancel_reader) =
+            ProcessOutputCompletion::with_pty_cancellation(1, TestArc::clone(&output))
+                .expect("cancellation wake");
+        let (reader_stream, _writer_stream) = UnixStream::pair().expect("PTY-like stream pair");
+        let reader = reader_stream;
+        let (reader_done_tx, reader_done_rx) = mpsc::channel();
+        let pump_output = TestArc::clone(&output);
+        let pump_completion = TestArc::clone(&completion);
+        thread::spawn(move || {
+            pump_pty(reader, cancel_reader, pump_output, pump_completion);
+            reader_done_tx.send(()).expect("reader completion");
+        });
+
+        completion.child_exited(41);
+
+        reader_done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("cancellation must wake a blocked PTY poll");
+    }
+}

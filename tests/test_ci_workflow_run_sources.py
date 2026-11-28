@@ -4,7 +4,9 @@
 `on.workflow_run.workflows:` matches the triggering workflow's `name:`. That
 name is presentation text. Renaming a workflow for clarity stops every consumer
 of it from triggering, and nothing turns red: the consumer simply never runs
-again.
+again. `merge-group-fail-fast.yml` is the expensive version of that failure --
+it cancels a merge group's CI run at the first failed job, so when it stops
+firing every queue entry behind a doomed one burns full runner time instead.
 
 The Actions API does carry stable identity. A workflow run object has `path`
 (`.github/workflows/ci.yml`) and `workflow_id` next to the presentation `name`,
@@ -41,11 +43,6 @@ DECLARATION = "SOURCE_WORKFLOW_PATHS"
 # (consumer, producer, job id); the expected display name is derived from the
 # producer's job rather than written out a second time here.
 PINNED_JOB_NAMES = (
-    (
-        ".github/workflows/ios-testflight.yml",
-        ".github/workflows/ios-testflight.yml",
-        "upload",
-    ),
     # The nightly signing admission takes each variant's digest from this job.
     (
         "scripts/ci/nightly_sign_admit.py",
@@ -58,6 +55,12 @@ PINNED_JOB_NAMES = (
         ".github/workflows/ci.yml",
         "changes",
     ),
+    # ... and, for an E2E run, the job that runs e2e_runner_pool.py.
+    (
+        "scripts/ci/owned_pool_rescue.py",
+        ".github/workflows/test-e2e.yml",
+        "runner",
+    ),
     # ... and, for an iOS dispatch, the job that runs ios_runner_pool.py.
     (
         "scripts/ci/owned_pool_rescue.py",
@@ -69,6 +72,13 @@ PINNED_JOB_NAMES = (
         ".github/workflows/ios-screenshots.yml",
         "runner",
     ),
+)
+
+# The fail-fast watcher is started by a display name but must not act on one.
+# Display names are not unique, and the run object that arrives here carries
+# the stable path, so it can confirm what woke it before it cancels anything.
+IDENTITY_CHECKED = (
+    ".github/workflows/merge-group-fail-fast.yml",
 )
 
 # `repos/:owner/:repo/actions/workflows/<file>/runs` is the identity-based way
@@ -169,6 +179,17 @@ def check_runs_lookups_by_path(documents: dict[Path, dict], failures: list[str])
                 )
 
 
+def check_identity_before_acting(failures: list[str]) -> None:
+    for relative in IDENTITY_CHECKED:
+        watcher = (ROOT / relative).read_text(encoding="utf-8")
+        if "github.event.workflow_run.path" not in watcher or f"${DECLARATION}" not in watcher:
+            failures.append(
+                f"{relative}: must compare github.event.workflow_run.path "
+                f"against {DECLARATION} before it cancels anything, so a workflow "
+                "that merely shares a display name cannot drive it"
+            )
+
+
 def test_pr_ci_does_not_cancel_independent_jobs() -> None:
     # GitHub has no job-cancel REST endpoint. A PR-wide watcher hides useful
     # sibling failures and spends a hosted runner polling for the entire run.
@@ -203,6 +224,9 @@ def test_ci_failfast_keeps_failure_rollups_and_bounds_observed_tails() -> None:
     assert "timeout-minutes: 60" in job_block(
         ".github/workflows/ci-macos.yml", "swift-package-tests"
     )
+    assert "timeout-minutes: 25" in job_block(
+        ".github/workflows/test-ios.yml", "ios-simulator"
+    )
 
 
 def main() -> int:
@@ -213,6 +237,7 @@ def main() -> int:
     check_workflow_run_sources(documents, failures)
     check_pinned_job_names(documents, failures)
     check_runs_lookups_by_path(documents, failures)
+    check_identity_before_acting(failures)
 
     if failures:
         for failure in failures:

@@ -15,9 +15,10 @@ Inputs, from the workflow's expression context (no token can read variables):
   CMUX_CI_XCODE_APP_PR      pairs a class entry in the slots with an Xcode
   CI_CLOUD_OVERFLOW_SAVED   the cloud overflow switch's record, present while
                             Blacksmith overflow is off (cloud_overflow_switch.py)
-  RUNNER_POOLS              the pool labels runs-on reads; only a pool
-                            .github/runners.json declares hosted may name a
-                            GitHub-hosted runner
+  CI_NEXT_DAEMON_POOL       the pool of feat-cmux-next's daemon tests, which gate
+                            the nightly-next promotion (cmux-tui-artifacts.yml)
+  CI_PIN_DAEMON_POOL        the pool of cmux-tui-pin-* pushes' daemon tests; empty,
+                            they take CI_LIGHT_LANE_RUNNER (cmux-tui-artifacts.yml)
 
 While that record exists, a runner variable holding exactly the failover the
 switch wrote there is expected, not drift: an owned pool label in
@@ -27,25 +28,27 @@ MACOS_RUNNER_* is otherwise refused.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pr_runner_pool import PR_XCODE_VARIABLE, SLOTS_VARIABLE, slot_problems  # noqa: E402
-from runner_label_policy import PolicyUnreadable, drifted_runner_variables  # noqa: E402
-from cloud_overflow_switch import RECORD_VARIABLE, parse_record  # noqa: E402
+from runner_label_policy import HOSTED_MACOS_LABEL, PolicyUnreadable, drifted_runner_variables  # noqa: E402
+from cloud_overflow_switch import (RECORD_VARIABLE, TRUSTED_ACCEPTED_LABELS, TRUSTED_VARIABLE,  # noqa: E402
+                                   parse_record)
 from signing_runner_variables import allowed_value  # noqa: E402
 
 RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
-# The JSON every `fromJSON(vars.RUNNER_POOLS).<pool>` reads, passed on its own (one line, not NAME=value).
-POOLS_VARIABLE = "RUNNER_POOLS"
-# Blacksmith's 12 vCPU macOS 26 label stalls for hours at a time (2026-10-20, -26, -28: no job started from
-# about 02:11Z with 61 queued). These variables are a job's last resort after its picker, so one naming that
-# label strands every job whose picker answered nothing. MACOS_RUNNER_26_LARGE names it on purpose and is read
-# only where a picker already skips a stalled label. tests/test_ci_runs_on_fallback.py keeps literals off it.
-LARGE_MAC = "blacksmith-12vcpu-macos-26"
-LAST_RESORT_VARIABLES = ("MACOS_RUNNER_PR", "MACOS_RUNNER_26", "MACOS_RUNNER_IOS")
+# A GitHub-hosted image label (ubuntu-24.04, ubuntu-latest, macos-15, windows-2025). No runner variable names one,
+# a recorded overflow failover included. Leo, 2026-11-19, after a 2026-11-17 outage override kept cmux Linux jobs on
+# GitHub-hosted Ubuntu all day: "Like, why the f*** do you keep having the f***ing GitHub hosted runners? F*** GitHub."
+HOSTED_LABEL = re.compile(r"^(?:ubuntu|macos|windows)(?:-[\w.-]+)?$")
+DAEMON_POOL_VARIABLE = "CI_NEXT_DAEMON_POOL"
+SIDE_LANE_VARIABLE = "CI_SIDE_LANE_RUNNER"
+PIN_POOL_VARIABLE = "CI_PIN_DAEMON_POOL"
+LIGHT_LANE_VARIABLE = "CI_LIGHT_LANE_RUNNER"
 
 
 def parse_runner_variables(raw: str) -> dict[str, str]:
@@ -60,6 +63,49 @@ def parse_runner_variables(raw: str) -> dict[str, str]:
             raise ValueError(f"{RUNNER_VARIABLES_ENV} repeats {name}: a variable's value spans lines")
         variables[name] = value
     return variables
+
+
+def pin_pool_findings(pin_pool: str, daemon_pool: str, variables: dict[str, str]) -> tuple[list[str], list[str]]:
+    """(problems, warnings) for the pool of cmux-tui-pin-* pushes' daemon tests.
+
+    2026-10-21: every merged pull request pushes a cmux-tui-pin-* branch, and
+    its daemon tests flooded the pull request side lane; on CI_NEXT_DAEMON_POOL
+    they queue ahead of the tests that gate nightly-next. A set
+    CI_PIN_DAEMON_POOL equal to either fails, and so does the light-lane
+    fallback equal to the side lane. The fallback equal to CI_NEXT_DAEMON_POOL
+    only warns: the light minis serve both until promotion gets its own label
+    (claude-sr2). Empty values match nothing.
+    """
+    side = variables.get(SIDE_LANE_VARIABLE, "").strip()
+    fix = f"Fix: set {PIN_POOL_VARIABLE} to a pool neither {DAEMON_POOL_VARIABLE} nor {SIDE_LANE_VARIABLE} uses"
+    if pin_pool:
+        for other, label, why in (
+            (DAEMON_POOL_VARIABLE, daemon_pool, "ahead of the daemon tests that gate the nightly-next promotion"),
+            (SIDE_LANE_VARIABLE, side, "in the pull request side lane"),
+        ):
+            if label and pin_pool == label:
+                return [f"{PIN_POOL_VARIABLE}={pin_pool!r} is also {other}, so every cmux-tui-pin-* push queues "
+                        f"its daemon tests {why}. {fix}"], []
+        return [], []
+    light = variables.get(LIGHT_LANE_VARIABLE, "").strip()
+    via = f"{LIGHT_LANE_VARIABLE}={light!r} ({PIN_POOL_VARIABLE} is empty, so cmux-tui-pin-* daemon tests take it)"
+    if light and light == side:
+        return [f"{via} is also {SIDE_LANE_VARIABLE}, so every cmux-tui-pin-* push queues its daemon tests "
+                f"in the pull request side lane. {fix}"], []
+    if light and light == daemon_pool:
+        return [], [f"{via} is also {DAEMON_POOL_VARIABLE}: pin pushes share {light!r} with the daemon tests "
+                    f"that gate the nightly-next promotion. {fix}"]
+    return [], []
+
+
+def warnings(env: dict[str, str]) -> list[str]:
+    """Shared pools that do not fail the run yet (pin_pool_findings)."""
+    try:
+        variables = {k: v for k, v in parse_runner_variables(env.get(RUNNER_VARIABLES_ENV, "")).items() if v.strip()}
+    except ValueError:
+        return []  # problems() reports it
+    return pin_pool_findings(env.get(PIN_POOL_VARIABLE, "").strip(), env.get(DAEMON_POOL_VARIABLE, "").strip(),
+                             variables)[1]
 
 
 def problems(env: dict[str, str]) -> list[str]:
@@ -78,24 +124,41 @@ def problems(env: dict[str, str]) -> list[str]:
     else:
         try:
             variables = {k: v for k, v in parse_runner_variables(raw).items() if v.strip()}
-            for name, value, reason in drifted_runner_variables(variables):
-                if switched.get(name) == value and allowed_value(name, value):
-                    # The overflow switch's failover while Blacksmith is down. A variable signing
-                    # jobs read is never excused for naming a reused machine, record or not.
+            daemon_pool = env.get(DAEMON_POOL_VARIABLE, "").strip()
+            if daemon_pool and daemon_pool == variables.get(SIDE_LANE_VARIABLE, "").strip():
+                # 2026-10-21: both named glaeda-side-std; the daemon tests queued 3 h behind
+                # pull request side lanes and no nightly-next was promoted.
+                found.append(f"{DAEMON_POOL_VARIABLE}={daemon_pool!r} is also {SIDE_LANE_VARIABLE}, so the daemon tests "
+                             "that gate the nightly-next promotion queue behind pull request side lanes. "
+                             "Fix: point it at a pool pull requests do not fill, or clear it for the promote pool")
+            found.extend(pin_pool_findings(env.get(PIN_POOL_VARIABLE, "").strip(), daemon_pool, variables)[0])
+            hosted = {name for name, value in variables.items() if HOSTED_LABEL.match(value.strip().lower())}
+            for name in sorted(hosted):
+                found.append(f"{name}={variables[name]!r}: a GitHub-hosted label, and no cmux job runs on GitHub-hosted "
+                             f"runners. Fix: gh variable delete {name} -R manaflow-ai/cmux, or name a Blacksmith or "
+                             "owned label")
+            drifted = [entry for entry in drifted_runner_variables(variables) if entry[0] not in hosted]
+            reported = {name for name, _, _ in drifted} | hosted
+            for name, value in sorted(variables.items()):
+                # Checked on their own: the drift policy accepts some labels (an older provider's,
+                # say) that no signing job may run on.
+                if name not in reported and not allowed_value(name, value):
+                    found.append(f"{name}={value!r}: signing jobs run on it, so it may only name blacksmith-* "
+                                 "or ubuntu-* (scripts/ci/signing_runner_variables.py)")
+            for name, value, reason in drifted:
+                if (switched.get(name) == value and not HOSTED_MACOS_LABEL.search(value.strip().lower())
+                        and allowed_value(name, value)):
+                    # The overflow switch's failover while Blacksmith is down; never a hosted Mac, and a
+                    # variable signing jobs read is never excused for naming a reused machine, record or not.
                     continue
                 found.append(f"{name}={value!r}: {reason}")
-            for name in LAST_RESORT_VARIABLES:
-                if variables.get(name, "").strip() == LARGE_MAC and switched.get(name) != LARGE_MAC:
-                    found.append(f"{name}={LARGE_MAC!r}: a job's last resort on the 12 vCPU Blacksmith label, which "
-                                 "stalls for hours. Fix: gh variable set " + name + " --body blacksmith-6vcpu-macos-26")
+            trusted = variables.get(TRUSTED_VARIABLE, "").strip()
+            if trusted and TRUSTED_VARIABLE not in hosted and trusted not in TRUSTED_ACCEPTED_LABELS:
+                # Its readers accept only these, so any other value silently falls back to Blacksmith 4 vCPU.
+                found.append(f"{TRUSTED_VARIABLE}={trusted!r}: its readers accept only "
+                             + ", ".join(sorted(TRUSTED_ACCEPTED_LABELS)) + "; anything else falls back")
         except (ValueError, PolicyUnreadable) as error:
             found.append(str(error))
-    pools = env.get(POOLS_VARIABLE, "")
-    if not pools.strip():
-        found.append(f"{POOLS_VARIABLE} is empty: the workflow passed no runner pools to check")
-    else:
-        for name, value, reason in drifted_runner_variables({POOLS_VARIABLE: pools}):
-            found.append(f"{name}: {reason}. Fix: the pool writer, never a hand edit")
     for problem in slot_problems(env.get(SLOTS_VARIABLE), env.get(PR_XCODE_VARIABLE)):
         found.append(
             f"{problem}. The picker counts that as no owned machines. "
@@ -106,11 +169,15 @@ def problems(env: dict[str, str]) -> list[str]:
 
 def main() -> int:
     found = problems(dict(os.environ))
+    warned = warnings(dict(os.environ))
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = [f"- {p}" for p in found] or ["- every checked repository variable reads as intended"]
+    lines += [f"- warning: {w}" for w in warned]
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write("### Repository variables\n\n" + "\n".join(lines) + "\n")
+    for warning in warned:
+        print(f"::warning title=Repository variable::{warning}")
     for problem in found:
         print(f"::error title=Repository variable::{problem}")
     if not found:

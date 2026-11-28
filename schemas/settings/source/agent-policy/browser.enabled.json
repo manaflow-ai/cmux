@@ -1,4 +1,0 @@
-{
-  "agent": "userOnly",
-  "why": "Off, the person's links leave cmux and no page opens: an agent must not turn the browser it drives off or on."
-}

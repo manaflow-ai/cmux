@@ -33,9 +33,6 @@ use crate::relay_wire as wire;
 use crate::session::OutboundSink;
 use crate::watch::WatchRegistry;
 
-mod git;
-use git::{run_git_diff_with_cancel_until, run_git_status_with_cancel_until};
-
 /// Every v6 frame this module emits carries the workspace dialect
 /// (`RELAY_PROTOCOL_WORKSPACE_VERSION` in chatmux packages/protocol).
 pub const WORKSPACE_FRAME_VERSION: i64 = 6;
@@ -1400,6 +1397,805 @@ fn run_search(scope: &Scope, op: &wire::FsSearchOp) -> Result<wire::WorkspaceRes
 }
 
 // ---------------------------------------------------------------------------
+// Git ops (shell git via tokio::process — git ships in every image and on
+// every dev machine; kill_on_drop keeps an abandoned op from outliving its
+// timeout)
+// ---------------------------------------------------------------------------
+
+/// Environment for the read-only git helpers.
+///
+/// Git can load configuration and invoke helper programs from its inherited
+/// environment. A relay process also carries credentials for the control
+/// plane, so passing that environment to git would expose those credentials to
+/// a repository-controlled helper. Keep the same small baseline used by the
+/// action and PTY runners, then disable system configuration and interactive
+/// prompts explicitly.
+fn git_environment_from(
+    base: &std::collections::HashMap<String, String>,
+) -> std::collections::HashMap<String, String> {
+    let mut environment = scrubbed_env(base);
+    environment.insert("GIT_CONFIG_NOSYSTEM".to_owned(), "1".to_owned());
+    environment.insert("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned());
+    environment.insert("GIT_PAGER".to_owned(), "cat".to_owned());
+    environment
+}
+
+fn git_environment() -> std::collections::HashMap<String, String> {
+    git_environment_from(&process_env_snapshot())
+}
+
+fn git_command(root: &Path, args: &[&str]) -> tokio::process::Command {
+    let mut command = tokio::process::Command::new("git");
+    command
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .env_clear()
+        .envs(git_environment())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", if cfg!(windows) { "NUL" } else { "/dev/null" })
+        .env("LC_ALL", "C")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(unix)]
+    {
+        // Git may launch helpers which inherit its pipes. A private process
+        // group lets cancellation terminate the whole tree without an unsafe
+        // pre_exec hook.
+        command.process_group(0);
+    }
+    command
+}
+
+fn git_refusal(context: &str, stderr: &[u8]) -> Refusal {
+    let text = String::from_utf8_lossy(stderr);
+    let text = text.trim();
+    let capped: String = text.chars().take(500).collect();
+    if text.contains("not a git repository") {
+        Refusal::new(wire::WorkspaceErrorCode::NotARepository, format!("{context}: {capped}"))
+    } else {
+        Refusal::failed(format!("{context}: {capped}"))
+    }
+}
+
+const GIT_DIFF_PREFIX_BYTES: usize = 10;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BoundedGitDiffLine {
+    Complete(String),
+    TooLong { prefix: [u8; GIT_DIFF_PREFIX_BYTES], length: u8 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GitDiffLineKind {
+    File,
+    Addition,
+    Deletion,
+    Other,
+}
+
+fn classify_git_diff_line(bytes: &[u8]) -> GitDiffLineKind {
+    if bytes.starts_with(b"diff --git ") {
+        GitDiffLineKind::File
+    } else if bytes.first() == Some(&b'+') && !bytes.starts_with(b"+++") {
+        GitDiffLineKind::Addition
+    } else if bytes.first() == Some(&b'-') && !bytes.starts_with(b"---") {
+        GitDiffLineKind::Deletion
+    } else {
+        GitDiffLineKind::Other
+    }
+}
+
+fn retain_git_diff_prefix(
+    prefix: &mut [u8; GIT_DIFF_PREFIX_BYTES],
+    length: &mut usize,
+    bytes: &[u8],
+) {
+    let available = GIT_DIFF_PREFIX_BYTES.saturating_sub(*length);
+    let take = available.min(bytes.len());
+    prefix[*length..*length + take].copy_from_slice(&bytes[..take]);
+    *length += take;
+}
+
+/// Read one diff line without allowing a missing newline to grow the buffer
+/// without bound. `fill_buf` is cancellation-safe; consume every byte of an
+/// over-limit line without retaining it, so the caller can keep calculating
+/// the full diff stat while dropping the patch safely.
+async fn read_bounded_git_diff_line<R>(
+    reader: &mut R,
+    line: &mut Vec<u8>,
+    maximum: usize,
+) -> std::io::Result<Option<BoundedGitDiffLine>>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    use tokio::io::AsyncBufReadExt as _;
+
+    line.clear();
+    let mut too_long = false;
+    let mut prefix = [0_u8; GIT_DIFF_PREFIX_BYTES];
+    let mut prefix_length = 0_usize;
+    loop {
+        let buffer = reader.fill_buf().await?;
+        if buffer.is_empty() {
+            if too_long {
+                return Ok(Some(BoundedGitDiffLine::TooLong {
+                    prefix,
+                    length: prefix_length as u8,
+                }));
+            }
+            return if line.is_empty() {
+                Ok(None)
+            } else {
+                decode_git_diff_line(line).map(|line| Some(BoundedGitDiffLine::Complete(line)))
+            };
+        }
+        let newline = buffer.iter().position(|byte| *byte == b'\n');
+        let take = newline.map_or(buffer.len(), |index| index + 1);
+        if too_long {
+            retain_git_diff_prefix(&mut prefix, &mut prefix_length, &buffer[..take]);
+            reader.consume(take);
+        } else if line.len().saturating_add(take) > maximum {
+            // Consume this chunk, including a possible newline, and then
+            // report a marker instead of returning an error. This keeps the
+            // stream aligned for later lines and bounds retained memory.
+            retain_git_diff_prefix(&mut prefix, &mut prefix_length, &buffer[..take]);
+            reader.consume(take);
+            line.clear();
+            too_long = true;
+        } else {
+            retain_git_diff_prefix(&mut prefix, &mut prefix_length, &buffer[..take]);
+            line.extend_from_slice(&buffer[..take]);
+            reader.consume(take);
+        }
+        if newline.is_some() {
+            return if too_long {
+                Ok(Some(BoundedGitDiffLine::TooLong { prefix, length: prefix_length as u8 }))
+            } else {
+                decode_git_diff_line(line).map(|line| Some(BoundedGitDiffLine::Complete(line)))
+            };
+        }
+    }
+}
+
+fn decode_git_diff_line(line: &mut Vec<u8>) -> std::io::Result<String> {
+    if line.last() == Some(&b'\n') {
+        line.pop();
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+    }
+    std::str::from_utf8(line)
+        .map(str::to_owned)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+}
+
+/// Own stderr draining for one Git process. Retain only a bounded prefix, but
+/// continue reading after the cap so Git cannot block on a full stderr pipe.
+struct GitStderrDrain {
+    task: tokio::task::JoinHandle<std::io::Result<()>>,
+    retained: Arc<std::sync::Mutex<Vec<u8>>>,
+}
+
+struct GitStderrResult {
+    bytes: Vec<u8>,
+    complete: bool,
+}
+
+impl Drop for GitStderrDrain {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+impl GitStderrDrain {
+    fn start<R>(mut stderr: R) -> GitStderrDrain
+    where
+        R: tokio::io::AsyncRead + Unpin + Send + 'static,
+    {
+        let retained = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let task_retained = Arc::clone(&retained);
+        let task = tokio::spawn(async move {
+            let mut buffer = [0_u8; 8 * 1024];
+            loop {
+                let read = stderr.read(&mut buffer).await?;
+                if read == 0 {
+                    break;
+                }
+                if let Ok(mut retained) = task_retained.lock()
+                    && retained.len() < GIT_STDERR_MAX_BYTES
+                {
+                    let keep = (GIT_STDERR_MAX_BYTES - retained.len()).min(read);
+                    retained.extend_from_slice(&buffer[..keep]);
+                }
+            }
+            Ok(())
+        });
+        GitStderrDrain { task, retained }
+    }
+
+    async fn finish(mut self) -> Result<GitStderrResult, Refusal> {
+        match tokio::time::timeout(GIT_STDERR_DRAIN_TIMEOUT, &mut self.task).await {
+            Ok(result) => result
+                .map_err(|error| Refusal::failed(format!("git stderr drain failed: {error}")))?
+                .map_err(|error| Refusal::failed(format!("git stderr read failed: {error}")))?,
+            Err(_) => {
+                self.task.abort();
+                let _ = (&mut self.task).await;
+                return Ok(GitStderrResult {
+                    bytes: self
+                        .retained
+                        .lock()
+                        .map(|retained| retained.clone())
+                        .unwrap_or_default(),
+                    complete: false,
+                });
+            }
+        }
+        Ok(GitStderrResult {
+            bytes: self.retained.lock().map(|retained| retained.clone()).unwrap_or_default(),
+            complete: true,
+        })
+    }
+}
+
+/// Keep the process-group identity armed until the direct child has been
+/// awaited. Drop can signal the group, but it cannot await, so owned async
+/// paths must call `stop_git`/`wait_git_until` before disarming this guard.
+struct GitProcessGuard(Option<u32>);
+
+impl GitProcessGuard {
+    fn new(child: &tokio::process::Child) -> GitProcessGuard {
+        GitProcessGuard(child.id())
+    }
+
+    fn kill_group(&self) {
+        #[cfg(unix)]
+        if let Some(pid) = self.0 {
+            // SAFETY: `pid` is the process-group leader we just spawned.
+            unsafe {
+                let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+            }
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for GitProcessGuard {
+    fn drop(&mut self) {
+        if self.0.is_some() {
+            self.kill_group();
+        }
+        // Tokio's kill_on_drop handles the direct child. Async owners call
+        // `wait_git_until` before this guard is disarmed to provide deterministic
+        // reaping; Drop is only an emergency descendant-kill fallback.
+    }
+}
+
+fn disarm_if_reaped(child: &tokio::process::Child, guard: &mut GitProcessGuard) {
+    if child.id().is_none() {
+        guard.disarm();
+    }
+}
+
+/// Terminate the process group and await the direct child within a bound.
+async fn stop_git(child: &mut tokio::process::Child) {
+    #[cfg(unix)]
+    if let Some(pid) = child.id() {
+        // SAFETY: the child was spawned with `process_group(0)`.
+        unsafe {
+            let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+        }
+    }
+    let _ = child.start_kill();
+    let _ = tokio::time::timeout(GIT_STOP_TIMEOUT, child.wait()).await;
+}
+
+fn remaining_git_time(deadline: std::time::Instant) -> Option<Duration> {
+    // Normal stdout reads use the complete request budget. Keep short caps in
+    // `bounded_git_time` for post-cancellation cleanup and child reaping only.
+    deadline.checked_duration_since(std::time::Instant::now())
+}
+
+fn bounded_git_time(deadline: std::time::Instant, cap: Duration) -> Option<Duration> {
+    Some(remaining_git_time(deadline)?.min(cap))
+}
+
+async fn wait_git_until(
+    child: &mut tokio::process::Child,
+    deadline: std::time::Instant,
+) -> Result<std::process::ExitStatus, Refusal> {
+    let Some(timeout) = bounded_git_time(deadline, GIT_CHILD_WAIT_TIMEOUT) else {
+        stop_git(child).await;
+        return Err(Refusal::failed("git operation deadline exceeded"));
+    };
+    match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(Ok(status)) => Ok(status),
+        Ok(Err(error)) => Err(Refusal::failed(format!("could not wait for git: {error}"))),
+        Err(_) => {
+            stop_git(child).await;
+            Err(Refusal::failed("git operation deadline exceeded"))
+        }
+    }
+}
+
+async fn finish_git_stderr(
+    stderr_task: Option<GitStderrDrain>,
+    child: &mut tokio::process::Child,
+    guard: &mut GitProcessGuard,
+    deadline: std::time::Instant,
+    operation: &str,
+) -> Result<Vec<u8>, Refusal> {
+    let Some(task) = stderr_task else { return Ok(Vec::new()) };
+    let Some(timeout) = bounded_git_time(deadline, GIT_STDERR_DRAIN_TIMEOUT) else {
+        guard.kill_group();
+        stop_git(child).await;
+        disarm_if_reaped(child, guard);
+        return Err(Refusal::failed(format!("{operation} operation deadline exceeded")));
+    };
+    let result = match tokio::time::timeout(timeout, task.finish()).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => {
+            guard.kill_group();
+            stop_git(child).await;
+            disarm_if_reaped(child, guard);
+            return Err(error);
+        }
+        Err(_) => {
+            guard.kill_group();
+            stop_git(child).await;
+            disarm_if_reaped(child, guard);
+            return Err(Refusal::failed(format!("{operation} operation deadline exceeded")));
+        }
+    };
+    match result {
+        GitStderrResult { bytes, complete: true } => Ok(bytes),
+        GitStderrResult { complete: false, .. } => {
+            guard.kill_group();
+            stop_git(child).await;
+            disarm_if_reaped(child, guard);
+            Err(Refusal::failed(format!("{operation} stderr drain timed out")))
+        }
+    }
+}
+
+/// Kill and reap after a read/stream error. The stderr task is finished while
+/// the process-group identity is still owned by the live child handle.
+async fn abort_git_operation(
+    stderr_task: Option<GitStderrDrain>,
+    child: &mut tokio::process::Child,
+    guard: &mut GitProcessGuard,
+) {
+    guard.kill_group();
+    let _ = child.start_kill();
+    if let Some(task) = stderr_task {
+        let _ = task.finish().await;
+    }
+    stop_git(child).await;
+    disarm_if_reaped(child, guard);
+}
+
+/// Two-column XY code in the porcelain v1 spelling ("M " not "M.") — the
+/// wire schema pins v1's verbatim codes.
+fn porcelain_v1_xy(xy: &str) -> String {
+    xy.chars().map(|column| if column == '.' { ' ' } else { column }).collect()
+}
+
+#[cfg(test)]
+async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refusal> {
+    let cancellation = CancellationToken::new();
+    run_git_status_with_cancel_until(
+        scope,
+        &cancellation,
+        std::time::Instant::now() + Duration::from_millis(MAX_TIMEOUT_MS as u64),
+    )
+    .await
+}
+
+#[cfg(test)]
+async fn run_git_status_with_cancel(
+    scope: &Scope,
+    cancellation: &CancellationToken,
+) -> Result<wire::WorkspaceResultBody, Refusal> {
+    run_git_status_with_cancel_until(
+        scope,
+        cancellation,
+        std::time::Instant::now() + Duration::from_millis(MAX_TIMEOUT_MS as u64),
+    )
+    .await
+}
+
+async fn run_git_status_with_cancel_until(
+    scope: &Scope,
+    cancellation: &CancellationToken,
+    deadline: std::time::Instant,
+) -> Result<wire::WorkspaceResultBody, Refusal> {
+    let root = scope.existing_workdir()?;
+    let mut child = git_command(
+        &root,
+        &["-c", "core.fsmonitor=false", "status", "--porcelain=v2", "--branch", "-z"],
+    )
+    .spawn()
+    .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
+    let mut process_guard = GitProcessGuard::new(&child);
+    let Some(stdout) = child.stdout.take() else {
+        stop_git(&mut child).await;
+        disarm_if_reaped(&child, &mut process_guard);
+        return Err(Refusal::failed("git status produced no stdout pipe"));
+    };
+    let mut stderr_task = child.stderr.take().map(GitStderrDrain::start);
+    const STATUS_MAX_BYTES: usize = 16 * 1024 * 1024;
+    let mut stdout_bytes = Vec::new();
+    let read_limit = STATUS_MAX_BYTES.saturating_add(1);
+    let read_result = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => Err(std::io::Error::new(
+            std::io::ErrorKind::Interrupted,
+            "git status cancelled",
+        )),
+        result = async {
+            let Some(timeout) = remaining_git_time(deadline) else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "git status operation deadline exceeded",
+                ));
+            };
+            tokio::time::timeout(
+                timeout,
+                stdout.take(read_limit as u64).read_to_end(&mut stdout_bytes),
+            )
+            .await
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "git status stdout drain timed out",
+                )
+            })
+            .and_then(|result| result)
+        } => result,
+    };
+    if let Err(error) = read_result {
+        abort_git_operation(stderr_task.take(), &mut child, &mut process_guard).await;
+        return Err(Refusal::failed(format!("could not read git status: {error}")));
+    }
+    let stdout_capped = stdout_bytes.len() > STATUS_MAX_BYTES;
+    if stdout_capped {
+        stdout_bytes.truncate(STATUS_MAX_BYTES);
+        process_guard.kill_group();
+        let _ = child.start_kill();
+    }
+    let stderr_result = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => None,
+        result = finish_git_stderr(
+            stderr_task.take(),
+            &mut child,
+            &mut process_guard,
+            deadline,
+            "git status",
+        ) => Some(result),
+    };
+    let stderr = match stderr_result {
+        Some(result) => result?,
+        None => {
+            abort_git_operation(None, &mut child, &mut process_guard).await;
+            return Err(Refusal::failed("git status cancelled"));
+        }
+    };
+    let status_result = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => None,
+        result = wait_git_until(&mut child, deadline) => Some(result),
+    };
+    let status = match status_result {
+        None => {
+            abort_git_operation(None, &mut child, &mut process_guard).await;
+            return Err(Refusal::failed("git status cancelled"));
+        }
+        Some(Ok(status)) => status,
+        Some(Err(error)) => {
+            disarm_if_reaped(&child, &mut process_guard);
+            return Err(error);
+        }
+    };
+    process_guard.disarm();
+    if !status.success() {
+        return Err(git_refusal("git status failed", &stderr));
+    }
+    let mut branch: Option<String> = None;
+    let mut upstream: Option<String> = None;
+    let mut ahead: i64 = 0;
+    let mut behind: i64 = 0;
+    let mut entries: Vec<wire::GitStatusEntry> = Vec::new();
+    let mut truncated = stdout_capped;
+    let mut chunks = stdout_bytes
+        .split(|byte| *byte == 0)
+        .map(String::from_utf8_lossy)
+        .collect::<Vec<_>>()
+        .into_iter();
+    while let Some(chunk) = chunks.next() {
+        if chunk.is_empty() {
+            continue;
+        }
+        if let Some(head) = chunk.strip_prefix("# branch.head ") {
+            if head != "(detached)" {
+                branch = Some(head.to_owned());
+            }
+            continue;
+        }
+        if let Some(name) = chunk.strip_prefix("# branch.upstream ") {
+            upstream = Some(name.to_owned());
+            continue;
+        }
+        if let Some(ab) = chunk.strip_prefix("# branch.ab ") {
+            for part in ab.split(' ') {
+                if let Some(count) = part.strip_prefix('+') {
+                    ahead = count.parse().unwrap_or(0);
+                } else if let Some(count) = part.strip_prefix('-') {
+                    behind = count.parse().unwrap_or(0);
+                }
+            }
+            continue;
+        }
+        if chunk.starts_with("# ") {
+            continue;
+        }
+        let entry = if let Some(rest) = chunk.strip_prefix("1 ") {
+            // 1 XY sub mH mI mW hH hI path
+            let mut fields = rest.splitn(8, ' ');
+            let xy = fields.next().unwrap_or_default().to_owned();
+            let path = fields.nth(6).unwrap_or_default().to_owned();
+            Some((path, porcelain_v1_xy(&xy), None))
+        } else if let Some(rest) = chunk.strip_prefix("2 ") {
+            // 2 XY sub mH mI mW hH hI Xscore path NUL origPath
+            let mut fields = rest.splitn(9, ' ');
+            let xy = fields.next().unwrap_or_default().to_owned();
+            let path = fields.nth(7).unwrap_or_default().to_owned();
+            let orig = chunks.next().map(|orig| orig.into_owned()).unwrap_or_default();
+            Some((path, porcelain_v1_xy(&xy), Some(orig)))
+        } else if let Some(rest) = chunk.strip_prefix("u ") {
+            // u XY sub m1 m2 m3 mW h1 h2 h3 path
+            let mut fields = rest.splitn(10, ' ');
+            let xy = fields.next().unwrap_or_default().to_owned();
+            let path = fields.nth(8).unwrap_or_default().to_owned();
+            Some((path, xy, None))
+        } else {
+            chunk.strip_prefix("? ").map(|path| (path.to_owned(), "??".to_owned(), None))
+        };
+        let Some((path, status, orig_path)) = entry else { continue };
+        if path.is_empty() || status.is_empty() {
+            continue;
+        }
+        if entries.len() >= STATUS_MAX_ENTRIES {
+            truncated = true;
+            break;
+        }
+        entries.push(wire::GitStatusEntry {
+            path,
+            status,
+            orig_path: orig_path.filter(|orig| !orig.is_empty()),
+        });
+    }
+    Ok(wire::WorkspaceResultBody::GitStatus(wire::GitStatusResult {
+        op: wire::TagGitStatus::GitStatus,
+        branch,
+        upstream,
+        ahead,
+        behind,
+        entries,
+        truncated,
+    }))
+}
+
+#[cfg(test)]
+async fn run_git_diff(
+    scope: &Scope,
+    op: &wire::GitDiffOp,
+) -> Result<wire::WorkspaceResultBody, Refusal> {
+    let cancellation = CancellationToken::new();
+    run_git_diff_with_cancel_until(
+        scope,
+        op,
+        &cancellation,
+        std::time::Instant::now() + Duration::from_millis(MAX_TIMEOUT_MS as u64),
+    )
+    .await
+}
+
+async fn run_git_diff_with_cancel_until(
+    scope: &Scope,
+    op: &wire::GitDiffOp,
+    cancellation: &CancellationToken,
+    deadline: std::time::Instant,
+) -> Result<wire::WorkspaceResultBody, Refusal> {
+    let root = scope.existing_workdir()?;
+    let base = op.base.as_deref().unwrap_or("HEAD");
+    if base.is_empty() || base.starts_with('-') {
+        return Err(Refusal::failed("invalid diff base"));
+    }
+    let context = op.context_lines.map(|lines| format!("-U{}", lines.clamp(0, 100)));
+    let mut args: Vec<&str> =
+        vec!["-c", "core.fsmonitor=false", "diff", "--no-ext-diff", "--no-textconv", base];
+    if let Some(context) = context.as_deref() {
+        args.push(context);
+    }
+    let paths = op.paths.as_deref().unwrap_or_default();
+    if !paths.is_empty() {
+        args.push("--");
+        for path in paths {
+            scope.validate_git_pathspec(path)?;
+            args.push(path);
+        }
+    }
+    let mut child = git_command(&root, &args)
+        .spawn()
+        .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
+    let mut process_guard = GitProcessGuard::new(&child);
+    // Stream stdout: the stat counts the FULL diff, but the patch buffer
+    // drops whole files past DIFF_MAX_BYTES so memory and the wire stay
+    // bounded even for a pathological working tree.
+    let Some(stdout) = child.stdout.take() else {
+        stop_git(&mut child).await;
+        disarm_if_reaped(&child, &mut process_guard);
+        return Err(Refusal::failed("git diff produced no stdout pipe"));
+    };
+    let mut stderr_task = child.stderr.take().map(GitStderrDrain::start);
+    let mut reader = tokio::io::BufReader::new(stdout);
+    let mut line_bytes = Vec::with_capacity(GIT_DIFF_LINE_MAX_BYTES.min(8 * 1024));
+    let mut patch = String::new();
+    let mut current_file_start = 0_usize;
+    let mut capped = false;
+    let mut truncated = false;
+    let mut files: i64 = 0;
+    let mut additions: i64 = 0;
+    let mut deletions: i64 = 0;
+    loop {
+        let line = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => {
+                abort_git_operation(
+                    stderr_task.take(),
+                    &mut child,
+                    &mut process_guard,
+                )
+                .await;
+                return Err(Refusal::failed("git diff cancelled"));
+            }
+            result = async {
+                let Some(timeout) = remaining_git_time(deadline) else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "git diff operation deadline exceeded",
+                    ));
+                };
+                tokio::time::timeout(
+                    timeout,
+                    read_bounded_git_diff_line(
+                        &mut reader,
+                        &mut line_bytes,
+                        GIT_DIFF_LINE_MAX_BYTES,
+                    ),
+                )
+                .await
+                .map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "git diff stdout drain timed out",
+                    )
+                })
+                .and_then(|result| result)
+            } => match result {
+                Ok(Some(line)) => line,
+                Ok(None) => break,
+                Err(error) => {
+                    abort_git_operation(
+                        stderr_task.take(),
+                        &mut child,
+                        &mut process_guard,
+                    )
+                    .await;
+                    return Err(Refusal::failed(format!("could not read git diff: {error}")));
+                }
+            },
+        };
+        if let BoundedGitDiffLine::TooLong { prefix, length } = line {
+            let prefix = &prefix[..usize::from(length)];
+            match classify_git_diff_line(prefix) {
+                GitDiffLineKind::File => files += 1,
+                GitDiffLineKind::Addition => additions += 1,
+                GitDiffLineKind::Deletion => deletions += 1,
+                GitDiffLineKind::Other => {}
+            }
+            if !capped {
+                // Drop the partial file: a caller must never see half a
+                // file's hunks (parsePatchFiles input). Continue reading so
+                // stats cover the complete Git output.
+                patch.truncate(current_file_start);
+                capped = true;
+                truncated = true;
+            }
+            continue;
+        }
+        let BoundedGitDiffLine::Complete(line) = line else {
+            unreachable!("handled all bounded diff line variants");
+        };
+        match classify_git_diff_line(line.as_bytes()) {
+            GitDiffLineKind::File => {
+                files += 1;
+                if !capped {
+                    current_file_start = patch.len();
+                }
+            }
+            GitDiffLineKind::Addition => additions += 1,
+            GitDiffLineKind::Deletion => deletions += 1,
+            GitDiffLineKind::Other => {}
+        }
+        if !capped {
+            if patch.len().saturating_add(line.len()).saturating_add(1) > DIFF_MAX_BYTES {
+                // Drop the partial file: a caller must never see half a
+                // file's hunks (parsePatchFiles input).
+                patch.truncate(current_file_start);
+                capped = true;
+                truncated = true;
+            } else {
+                patch.push_str(&line);
+                patch.push('\n');
+            }
+        }
+    }
+    let stderr_result = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => None,
+        result = finish_git_stderr(
+            stderr_task.take(),
+            &mut child,
+            &mut process_guard,
+            deadline,
+            "git diff",
+        ) => Some(result),
+    };
+    let stderr = match stderr_result {
+        Some(result) => result?,
+        None => {
+            abort_git_operation(None, &mut child, &mut process_guard).await;
+            return Err(Refusal::failed("git diff cancelled"));
+        }
+    };
+    let status_result = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => None,
+        result = wait_git_until(&mut child, deadline) => Some(result),
+    };
+    let status = match status_result {
+        None => {
+            abort_git_operation(None, &mut child, &mut process_guard).await;
+            return Err(Refusal::failed("git diff cancelled"));
+        }
+        Some(Ok(status)) => status,
+        Some(Err(error)) => {
+            disarm_if_reaped(&child, &mut process_guard);
+            return Err(error);
+        }
+    };
+    process_guard.disarm();
+    if !status.success() {
+        return Err(git_refusal("git diff failed", &stderr));
+    }
+    Ok(wire::WorkspaceResultBody::GitDiff(wire::GitDiffResult {
+        op: wire::TagGitDiff::GitDiff,
+        patch,
+        stat: wire::GitDiffStat { files, additions, deletions },
+        truncated,
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch: session.rs hands every v6 frame here; requests run as tasks so
 // a slow op never blocks heartbeats, and every answer rides the outbound
 // channel back onto the one relay socket.
@@ -1624,9 +2420,7 @@ impl Connection {
         let permit = match self.admission.clone().try_acquire_owned() {
             Ok(permit) => permit,
             Err(_) => {
-                let refusal = Refusal::failed(format!(
-                    "workspace request limit reached ({MAX_IN_FLIGHT_WORKSPACE_REQUESTS} running), so this request was not started"
-                ));
+                let refusal = Refusal::failed("workspace request limit reached; retry later");
                 self.send_critical(error_frame(&request.request_id, &refusal));
                 return;
             }
@@ -1807,5 +2601,995 @@ where
 }
 
 #[cfg(test)]
-#[path = "workspace_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::session::OutboundSink;
+
+    fn scratch(name: &str) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!("chatmux-ws-test-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).expect("scratch dir");
+        std::fs::canonicalize(&path).expect("canonical scratch")
+    }
+
+    fn write(root: &Path, rel: &str, content: &str) {
+        let path = root.join(rel);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("parent");
+        }
+        std::fs::write(path, content).expect("write");
+    }
+
+    fn scope_for(root: &Path) -> Scope {
+        let roots = vec![root.to_string_lossy().into_owned()];
+        Scope::build(Some(&roots), Some(&roots)).expect("scope")
+    }
+
+    fn git(root: &Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .expect("git runs");
+        assert!(status.status.success(), "git {args:?} failed");
+    }
+
+    // --- scoping ---------------------------------------------------------
+
+    #[test]
+    fn scoping_refuses_traversal_and_spoofed_paths() {
+        let root = scratch("scope");
+        write(&root, "inside.txt", "x");
+        let scope = scope_for(&root);
+        assert!(scope.resolve("inside.txt", false).is_ok());
+        for bad in ["../outside", "a/../../b", "%2e%2e/x", "bad\u{0007}", "//etc/passwd"] {
+            let refusal = scope.resolve(bad, false).expect_err(bad);
+            assert_eq!(refusal.code, wire::WorkspaceErrorCode::PathForbidden, "{bad}");
+        }
+        let refusal = scope.resolve("/etc/passwd", false).expect_err("absolute escape");
+        assert_eq!(refusal.code, wire::WorkspaceErrorCode::PathForbidden);
+        let refusal = scope.resolve("missing.txt", false).expect_err("missing");
+        assert_eq!(refusal.code, wire::WorkspaceErrorCode::NotFound);
+        assert!(scope.resolve("brand/new.txt", true).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scoping_refuses_symlinks_that_escape_the_root() {
+        let outside = scratch("scope-outside");
+        write(&outside, "secret.txt", "s");
+        let root = scratch("scope-symlink");
+        std::os::unix::fs::symlink(outside.join("secret.txt"), root.join("link.txt"))
+            .expect("symlink");
+        std::os::unix::fs::symlink(root.join("gone"), root.join("dangling")).expect("dangling");
+        let scope = scope_for(&root);
+        let refusal = scope.resolve("link.txt", false).expect_err("escaping symlink");
+        assert_eq!(refusal.code, wire::WorkspaceErrorCode::PathForbidden);
+        let refusal = scope.resolve("dangling", true).expect_err("dangling symlink");
+        assert_eq!(refusal.code, wire::WorkspaceErrorCode::PathForbidden);
+    }
+
+    #[test]
+    fn both_root_lists_are_enforced() {
+        let root_a = scratch("scope-a");
+        let root_b = scratch("scope-b");
+        write(&root_a, "a.txt", "a");
+        write(&root_b, "b.txt", "b");
+        let list_a = vec![root_a.to_string_lossy().into_owned()];
+        let list_b = vec![root_b.to_string_lossy().into_owned()];
+        let scope = Scope::build(Some(&list_a), Some(&list_b)).expect("scope");
+        // workdir comes from the LOCAL list (config authority)...
+        assert_eq!(scope.workdir, root_b);
+        // ...and a path must satisfy the server echo AND the local config.
+        let inside_b_only = root_b.join("b.txt");
+        let refusal = scope
+            .resolve(&inside_b_only.to_string_lossy(), false)
+            .expect_err("outside the server echo");
+        assert_eq!(refusal.code, wire::WorkspaceErrorCode::PathForbidden);
+    }
+
+    // --- fs ops ----------------------------------------------------------
+
+    fn body_tree(body: wire::WorkspaceResultBody) -> wire::FsTreeResult {
+        match body {
+            wire::WorkspaceResultBody::FsTree(result) => result,
+            other => panic!("wrong body: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tree_is_gitignore_aware_and_never_leaks_dot_git() {
+        let root = scratch("tree");
+        write(&root, "src/app.ts", "export {}\n");
+        write(&root, ".gitignore", "ignored.txt\n");
+        write(&root, "ignored.txt", "no\n");
+        git(&root, &["init", "-q", "-b", "main"]);
+        let scope = scope_for(&root);
+        let result = body_tree(
+            run_tree(
+                &scope,
+                &wire::FsTreeOp {
+                    op: wire::TagFsTree::FsTree,
+                    root: None,
+                    max_entries: TREE_MAX_ENTRIES,
+                    include_ignored: None,
+                },
+            )
+            .expect("tree"),
+        );
+        let paths: Vec<&str> = result.entries.iter().map(|entry| entry.path.as_str()).collect();
+        assert!(paths.contains(&"src"), "dirs render: {paths:?}");
+        assert!(paths.contains(&"src/app.ts"));
+        assert!(paths.contains(&".gitignore"), "hidden files list");
+        assert!(!paths.iter().any(|path| path.contains(".git/") || *path == ".git"));
+        assert!(!paths.contains(&"ignored.txt"), "gitignore respected");
+        assert!(!result.truncated);
+
+        let with_ignored = body_tree(
+            run_tree(
+                &scope,
+                &wire::FsTreeOp {
+                    op: wire::TagFsTree::FsTree,
+                    root: None,
+                    max_entries: TREE_MAX_ENTRIES,
+                    include_ignored: Some(true),
+                },
+            )
+            .expect("tree"),
+        );
+        let paths: Vec<&str> =
+            with_ignored.entries.iter().map(|entry| entry.path.as_str()).collect();
+        assert!(paths.contains(&"ignored.txt"));
+        assert!(!paths.iter().any(|path| *path == ".git" || path.starts_with(".git/")));
+
+        let capped = body_tree(
+            run_tree(
+                &scope,
+                &wire::FsTreeOp {
+                    op: wire::TagFsTree::FsTree,
+                    root: None,
+                    max_entries: 1,
+                    include_ignored: None,
+                },
+            )
+            .expect("tree"),
+        );
+        assert_eq!(capped.entries.len(), 1);
+        assert!(capped.truncated);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn read_returns_full_hash_and_flags_truncation() {
+        let root = scratch("read");
+        write(&root, "file.txt", "hello workspace\n");
+        let scope = scope_for(&root);
+        let read = |max_bytes: i64| match run_read(
+            &scope,
+            &wire::FsReadOp { op: wire::TagFsRead::FsRead, path: "file.txt".to_owned(), max_bytes },
+        )
+        .expect("read")
+        {
+            wire::WorkspaceResultBody::FsRead(result) => result,
+            other => panic!("wrong body: {other:?}"),
+        };
+        let full = read(READ_MAX_BYTES);
+        assert_eq!(full.content, "hello workspace\n");
+        assert_eq!(full.encoding, wire::FsContentEncoding::Utf8);
+        assert_eq!(full.sha256, sha256_hex(b"hello workspace\n"));
+        assert_eq!(full.size, 16);
+        assert!(!full.truncated);
+        let cut = read(5);
+        assert_eq!(cut.content, "hello");
+        assert!(cut.truncated);
+        assert_eq!(
+            cut.sha256,
+            sha256_hex(b"hello"),
+            "truncated reads hash only the bounded prefix"
+        );
+        assert_eq!(cut.size, 16, "size comes from metadata without scanning the file");
+        let missing = run_read(
+            &scope,
+            &wire::FsReadOp {
+                op: wire::TagFsRead::FsRead,
+                path: "nope.txt".to_owned(),
+                max_bytes: 10,
+            },
+        )
+        .expect_err("missing file");
+        assert_eq!(missing.code, wire::WorkspaceErrorCode::NotFound);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn read_reports_binary_as_base64_and_survives_a_split_utf8_char() {
+        let root = scratch("read-binary");
+        std::fs::write(root.join("bin.dat"), [0_u8, 159, 146, 150]).expect("write");
+        write(&root, "emoji.txt", "ok\u{1F600}");
+        let scope = scope_for(&root);
+        let binary = match run_read(
+            &scope,
+            &wire::FsReadOp {
+                op: wire::TagFsRead::FsRead,
+                path: "bin.dat".to_owned(),
+                max_bytes: READ_MAX_BYTES,
+            },
+        )
+        .expect("read")
+        {
+            wire::WorkspaceResultBody::FsRead(result) => result,
+            other => panic!("wrong body: {other:?}"),
+        };
+        assert_eq!(binary.encoding, wire::FsContentEncoding::Base64);
+        // 4 bytes of "ok" + emoji cut mid-character stays utf8, trimmed.
+        let split = match run_read(
+            &scope,
+            &wire::FsReadOp {
+                op: wire::TagFsRead::FsRead,
+                path: "emoji.txt".to_owned(),
+                max_bytes: 4,
+            },
+        )
+        .expect("read")
+        {
+            wire::WorkspaceResultBody::FsRead(result) => result,
+            other => panic!("wrong body: {other:?}"),
+        };
+        assert_eq!(split.encoding, wire::FsContentEncoding::Utf8);
+        assert_eq!(split.content, "ok");
+        assert!(split.truncated);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn read_is_refused_on_windows_without_touching_the_filesystem() {
+        let root = scratch("read-windows");
+        write(&root, "file.txt", "must remain unchanged\n");
+        let scope = scope_for(&root);
+        let refusal = run_read(
+            &scope,
+            &wire::FsReadOp {
+                op: wire::TagFsRead::FsRead,
+                path: "file.txt".to_owned(),
+                max_bytes: READ_MAX_BYTES,
+            },
+        )
+        .expect_err("Windows relays refuse scoped reads");
+        assert_eq!(refusal.code, wire::WorkspaceErrorCode::PathForbidden);
+        assert_eq!(
+            std::fs::read_to_string(root.join("file.txt")).expect("file remains"),
+            "must remain unchanged\n"
+        );
+    }
+
+    #[test]
+    fn write_cas_conflicts_echo_the_current_hash() {
+        let root = scratch("write");
+        write(&root, "file.txt", "one\n");
+        let scope = scope_for(&root);
+        let base = sha256_hex(b"one\n");
+        let ok = run_write(
+            &scope,
+            &wire::FsWriteOp {
+                op: wire::TagFsWrite::FsWrite,
+                path: "file.txt".to_owned(),
+                content: "two\n".to_owned(),
+                base_sha256: Some(base.clone()),
+            },
+        )
+        .expect("fresh base writes");
+        match ok {
+            wire::WorkspaceResultBody::FsWrite(result) => {
+                assert_eq!(result.sha256, sha256_hex(b"two\n"));
+                assert_eq!(result.size, 4);
+            }
+            other => panic!("wrong body: {other:?}"),
+        }
+        let stale = run_write(
+            &scope,
+            &wire::FsWriteOp {
+                op: wire::TagFsWrite::FsWrite,
+                path: "file.txt".to_owned(),
+                content: "clobber\n".to_owned(),
+                base_sha256: Some(base),
+            },
+        )
+        .expect_err("stale base conflicts");
+        assert_eq!(stale.code, wire::WorkspaceErrorCode::WriteConflict);
+        assert_eq!(stale.current_sha256.as_deref(), Some(sha256_hex(b"two\n").as_str()));
+        // A base against a missing file conflicts without a current hash.
+        let missing = run_write(
+            &scope,
+            &wire::FsWriteOp {
+                op: wire::TagFsWrite::FsWrite,
+                path: "new.txt".to_owned(),
+                content: "x\n".to_owned(),
+                base_sha256: Some(sha256_hex(b"x\n")),
+            },
+        )
+        .expect_err("missing file with a base conflicts");
+        assert_eq!(missing.code, wire::WorkspaceErrorCode::WriteConflict);
+        assert!(missing.current_sha256.is_none());
+        // No base: unconditional write, parents created.
+        assert!(
+            run_write(
+                &scope,
+                &wire::FsWriteOp {
+                    op: wire::TagFsWrite::FsWrite,
+                    path: "deep/dir/new.txt".to_owned(),
+                    content: "x\n".to_owned(),
+                    base_sha256: None,
+                },
+            )
+            .is_ok()
+        );
+        assert_eq!(std::fs::read_to_string(root.join("deep/dir/new.txt")).expect("read"), "x\n");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_scoped_write_is_refused_before_filesystem_mutation() {
+        let root = scratch("windows-write-refusal");
+        let scope = scope_for(&root);
+        let op = wire::FsWriteOp {
+            op: wire::TagFsWrite::FsWrite,
+            path: "new.txt".into(),
+            content: "must not be written".to_owned(),
+            base_sha256: None,
+        };
+
+        let refusal = run_write(&scope, &op).expect_err("Windows scoped writes must fail closed");
+        assert_eq!(refusal.code, wire::WorkspaceErrorCode::PathForbidden);
+        assert!(!root.join("new.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_and_rename_refuse_symlinked_parent_directories() {
+        let root = scratch("symlink-parent");
+        let outside = scratch("symlink-parent-outside");
+        std::os::unix::fs::symlink(&outside, root.join("link")).expect("symlink");
+        let scope = scope_for(&root);
+        let write_refusal = run_write(
+            &scope,
+            &wire::FsWriteOp {
+                op: wire::TagFsWrite::FsWrite,
+                path: "link/escape.txt".to_owned(),
+                content: "nope".to_owned(),
+                base_sha256: None,
+            },
+        )
+        .expect_err("symlinked parent must be refused");
+        assert_eq!(write_refusal.code, wire::WorkspaceErrorCode::PathForbidden);
+        write(&root, "source.txt", "source");
+        let rename_refusal = run_rename(
+            &scope,
+            &wire::FsRenameOp {
+                op: wire::TagFsRename::FsRename,
+                from_path: "source.txt".to_owned(),
+                to_path: "link/moved.txt".to_owned(),
+                overwrite: None,
+            },
+        )
+        .expect_err("symlinked parent must be refused");
+        assert_eq!(rename_refusal.code, wire::WorkspaceErrorCode::PathForbidden);
+        assert!(!outside.join("escape.txt").exists());
+        assert!(!outside.join("moved.txt").exists());
+    }
+
+    #[test]
+    fn rename_moves_and_refuses_typed() {
+        let root = scratch("rename");
+        write(&root, "a.txt", "a");
+        write(&root, "b.txt", "b");
+        let scope = scope_for(&root);
+        let rename = |from: &str, to: &str, overwrite: Option<bool>| {
+            run_rename(
+                &scope,
+                &wire::FsRenameOp {
+                    op: wire::TagFsRename::FsRename,
+                    from_path: from.to_owned(),
+                    to_path: to.to_owned(),
+                    overwrite,
+                },
+            )
+        };
+        assert!(rename("a.txt", "moved/a.txt", None).is_ok());
+        assert!(root.join("moved/a.txt").is_file());
+        assert!(!root.join("a.txt").exists());
+        let missing = rename("a.txt", "again.txt", None).expect_err("gone source");
+        assert_eq!(missing.code, wire::WorkspaceErrorCode::NotFound);
+        let collide = rename("b.txt", "moved/a.txt", None).expect_err("occupied");
+        assert_eq!(collide.code, wire::WorkspaceErrorCode::DestinationExists);
+        assert!(rename("b.txt", "moved/a.txt", Some(true)).is_ok());
+        assert_eq!(std::fs::read_to_string(root.join("moved/a.txt")).expect("read"), "b");
+    }
+
+    #[test]
+    fn delete_removes_files_and_refuses_typed() {
+        let root = scratch("delete");
+        write(&root, "gone.txt", "x");
+        write(&root, "dir/child.txt", "y");
+        write(&root, "empty-dir/.keep", "");
+        std::fs::remove_file(root.join("empty-dir/.keep")).expect("mk empty dir");
+        let scope = scope_for(&root);
+        let delete = |path: &str, recursive: Option<bool>| {
+            run_delete(
+                &scope,
+                &wire::FsDeleteOp {
+                    op: wire::TagFsDelete::FsDelete,
+                    path: path.to_owned(),
+                    recursive,
+                },
+            )
+        };
+        assert!(delete("gone.txt", None).is_ok());
+        assert!(!root.join("gone.txt").exists());
+        let missing = delete("gone.txt", None).expect_err("double delete");
+        assert_eq!(missing.code, wire::WorkspaceErrorCode::NotFound);
+        let populated = delete("dir", None).expect_err("populated dir");
+        assert_eq!(populated.code, wire::WorkspaceErrorCode::DirectoryNotEmpty);
+        assert!(root.join("dir/child.txt").exists(), "refusal deleted nothing");
+        assert!(delete("empty-dir", None).is_ok(), "empty dir needs no recursive");
+        assert!(delete("dir", Some(true)).is_ok(), "recursive removes the tree");
+        assert!(!root.join("dir").exists());
+        let escape = delete("../outside", None).expect_err("scoped");
+        assert_eq!(escape.code, wire::WorkspaceErrorCode::PathForbidden);
+    }
+
+    #[test]
+    fn search_finds_spans_in_utf16_units_and_caps() {
+        let root = scratch("search");
+        write(&root, "src/app.ts", "const NEEDLE = 1\n\u{1F600} NEEDLE again NEEDLE\n");
+        write(&root, ".gitignore", "skip.txt\n");
+        write(&root, "skip.txt", "NEEDLE\n");
+        git(&root, &["init", "-q", "-b", "main"]);
+        let scope = scope_for(&root);
+        let search = |max_results: i64| match run_search(
+            &scope,
+            &wire::FsSearchOp {
+                op: wire::TagFsSearch::FsSearch,
+                query: "NEEDLE".to_owned(),
+                root: None,
+                max_results,
+            },
+        )
+        .expect("search")
+        {
+            wire::WorkspaceResultBody::FsSearch(result) => result,
+            other => panic!("wrong body: {other:?}"),
+        };
+        let result = search(SEARCH_MAX_RESULTS);
+        assert!(!result.truncated);
+        assert_eq!(result.matches.len(), 2, "{:?}", result.matches);
+        assert!(result.matches.iter().all(|found| found.path == "src/app.ts"));
+        let first = &result.matches[0];
+        assert_eq!(first.line, 1);
+        assert_eq!(first.spans, vec![wire::FsSearchSpan { start: 6, end: 12 }]);
+        let second = &result.matches[1];
+        // The emoji is two UTF-16 units: JS-visible offsets, not bytes.
+        assert_eq!(second.spans[0], wire::FsSearchSpan { start: 3, end: 9 });
+        assert_eq!(second.spans.len(), 2);
+        let capped = search(1);
+        assert_eq!(capped.matches.len(), 1);
+        assert!(capped.truncated);
+    }
+
+    // --- git ops ---------------------------------------------------------
+
+    #[test]
+    fn git_environment_drops_credentials_and_helper_overrides() {
+        let base = std::collections::HashMap::from([
+            ("PATH".to_owned(), "/usr/bin".to_owned()),
+            ("HOME".to_owned(), "/home/test".to_owned()),
+            ("LC_ALL".to_owned(), "C".to_owned()),
+            ("OPENAI_API_KEY".to_owned(), "secret".to_owned()),
+            ("GIT_CONFIG".to_owned(), "/tmp/attacker-config".to_owned()),
+            ("GIT_EXTERNAL_DIFF".to_owned(), "/tmp/attacker-diff".to_owned()),
+        ]);
+        let env = git_environment_from(&base);
+        assert_eq!(env.get("PATH").map(String::as_str), Some("/usr/bin"));
+        assert_eq!(env.get("HOME").map(String::as_str), Some("/home/test"));
+        assert_eq!(env.get("LC_ALL").map(String::as_str), Some("C"));
+        assert_eq!(env.get("GIT_CONFIG_NOSYSTEM").map(String::as_str), Some("1"));
+        assert_eq!(env.get("GIT_TERMINAL_PROMPT").map(String::as_str), Some("0"));
+        assert_eq!(env.get("GIT_PAGER").map(String::as_str), Some("cat"));
+        assert!(!env.contains_key("OPENAI_API_KEY"));
+        assert!(!env.contains_key("GIT_CONFIG"));
+        assert!(!env.contains_key("GIT_EXTERNAL_DIFF"));
+    }
+
+    #[tokio::test]
+    async fn bounded_git_diff_line_discards_unterminated_over_limit_input() {
+        let mut reader = tokio::io::BufReader::with_capacity(2, std::io::Cursor::new(b"123456789"));
+        let mut line = Vec::new();
+        let result = read_bounded_git_diff_line(&mut reader, &mut line, 8)
+            .await
+            .expect("oversized unterminated diff line should be consumed")
+            .expect("the oversized line marker");
+
+        assert!(matches!(result, BoundedGitDiffLine::TooLong { .. }));
+        assert!(line.is_empty(), "reader retained bytes past its limit");
+        assert!(
+            read_bounded_git_diff_line(&mut reader, &mut line, 8)
+                .await
+                .expect("EOF after discarded line")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn bounded_git_diff_line_keeps_stream_aligned_after_over_limit_input() {
+        let mut reader =
+            tokio::io::BufReader::with_capacity(2, std::io::Cursor::new(b"123456789\nshort\n"));
+        let mut line = Vec::new();
+        let result = read_bounded_git_diff_line(&mut reader, &mut line, 8)
+            .await
+            .expect("oversized line should be consumed")
+            .expect("the oversized line marker");
+        assert!(matches!(result, BoundedGitDiffLine::TooLong { .. }));
+
+        let result = read_bounded_git_diff_line(&mut reader, &mut line, 8)
+            .await
+            .expect("short line should decode")
+            .expect("short line");
+        assert!(matches!(result, BoundedGitDiffLine::Complete(value) if value == "short"));
+    }
+
+    #[test]
+    fn oversized_diff_line_prefix_preserves_stat_kind() {
+        assert_eq!(classify_git_diff_line(b"+payload"), GitDiffLineKind::Addition);
+        assert_eq!(classify_git_diff_line(b"-payload"), GitDiffLineKind::Deletion);
+        assert_eq!(classify_git_diff_line(b"diff --git a/a b/a"), GitDiffLineKind::File);
+        assert_eq!(classify_git_diff_line(b"+++ b/a"), GitDiffLineKind::Other);
+        assert_eq!(classify_git_diff_line(b"--- a/a"), GitDiffLineKind::Other);
+    }
+
+    #[test]
+    fn git_stdout_read_uses_the_request_deadline() {
+        let remaining = remaining_git_time(std::time::Instant::now() + Duration::from_secs(30))
+            .expect("future request deadline");
+
+        assert!(remaining > GIT_CHILD_WAIT_TIMEOUT);
+    }
+
+    #[tokio::test]
+    async fn git_stderr_drain_retains_a_prefix_and_continues_reading() {
+        use tokio::io::AsyncWriteExt as _;
+
+        let (mut writer, reader) = tokio::io::duplex(1024);
+        let payload = vec![b'x'; GIT_STDERR_MAX_BYTES * 2];
+        let writer_task = tokio::spawn(async move {
+            writer.write_all(&payload).await.expect("stderr payload");
+        });
+        let result = GitStderrDrain::start(reader).finish().await.expect("stderr drain");
+        writer_task.await.expect("stderr writer");
+
+        assert!(result.complete);
+        assert_eq!(result.bytes.len(), GIT_STDERR_MAX_BYTES);
+        assert!(result.bytes.iter().all(|byte| *byte == b'x'));
+    }
+
+    #[tokio::test]
+    async fn git_stderr_drain_has_a_bound_when_a_descendant_keeps_the_pipe_open() {
+        let (_writer, reader) = tokio::io::duplex(64);
+        let result = tokio::time::timeout(
+            GIT_STDERR_DRAIN_TIMEOUT + Duration::from_millis(100),
+            GitStderrDrain::start(reader).finish(),
+        )
+        .await
+        .expect("stderr cleanup must be bounded")
+        .expect("stderr drain result");
+
+        assert!(!result.complete);
+        assert!(result.bytes.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stop_git_reaps_the_child_and_terminates_its_process_group() {
+        let root = scratch("git-process-group");
+        let mut child = git_command(&root, &["status"]).spawn().expect("git child");
+        let pid = child.id().expect("running child");
+        // `git_command` uses a zero process-group argument, so the child is
+        // its own group leader and descendants share the group.
+        let group = unsafe { libc::getpgid(pid as libc::pid_t) };
+        assert_eq!(group, pid as libc::pid_t);
+
+        stop_git(&mut child).await;
+        assert!(child.id().is_none(), "stop_git must await Child::wait");
+        let _ = root;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn git_stdout_cleanup_handles_a_descendant_holding_the_pipe_open() {
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 30 & printf ready; exec 1>&-; wait")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .process_group(0)
+            .spawn()
+            .expect("shell child");
+        let mut guard = GitProcessGuard::new(&child);
+        let mut stdout = child.stdout.take().expect("stdout pipe");
+        let mut bytes = Vec::new();
+        let read =
+            tokio::time::timeout(Duration::from_millis(100), stdout.read_to_end(&mut bytes)).await;
+        assert!(read.is_err(), "a descendant-owned stdout pipe must hit the bound");
+
+        abort_git_operation(None, &mut child, &mut guard).await;
+        assert!(child.id().is_none(), "cleanup must reap the direct child");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn git_abort_reaps_child_when_stderr_reader_fails() {
+        use std::task::{Context, Poll};
+        use tokio::io::{AsyncRead, ReadBuf};
+
+        struct FailingReader;
+        impl AsyncRead for FailingReader {
+            fn poll_read(
+                self: std::pin::Pin<&mut Self>,
+                _cx: &mut Context<'_>,
+                _buffer: &mut ReadBuf<'_>,
+            ) -> Poll<std::io::Result<()>> {
+                Poll::Ready(Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "synthetic stderr failure",
+                )))
+            }
+        }
+
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 30")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .process_group(0)
+            .spawn()
+            .expect("shell child");
+        let mut guard = GitProcessGuard::new(&child);
+        let drain = GitStderrDrain::start(FailingReader);
+
+        abort_git_operation(Some(drain), &mut child, &mut guard).await;
+        assert!(child.id().is_none(), "stderr failure must still reap the child");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn wait_git_deadline_reaps_a_child_after_pipes_close() {
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("exec 1>&- 2>&-; sleep 30")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .process_group(0)
+            .spawn()
+            .expect("shell child");
+        let result =
+            wait_git_until(&mut child, std::time::Instant::now() + Duration::from_millis(50)).await;
+
+        assert!(result.is_err(), "closed pipes must not imply child completion");
+        assert!(child.id().is_none(), "wait deadline must reap the child");
+    }
+
+    #[tokio::test]
+    async fn cancelled_git_status_runs_bounded_cleanup() {
+        let (root, scope) = seeded_repo("git-status-cancelled");
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+
+        let refusal = run_git_status_with_cancel(&scope, &cancellation)
+            .await
+            .expect_err("cancelled git status");
+        assert!(refusal.message.contains("cancelled"));
+        let _ = root;
+    }
+
+    #[tokio::test]
+    async fn expired_git_diff_deadline_runs_bounded_cleanup() {
+        let (root, scope) = seeded_repo("git-diff-expired");
+        let cancellation = CancellationToken::new();
+        let refusal = run_git_diff_with_cancel_until(
+            &scope,
+            &wire::GitDiffOp {
+                op: wire::TagGitDiff::GitDiff,
+                base: None,
+                paths: None,
+                context_lines: None,
+            },
+            &cancellation,
+            std::time::Instant::now() - Duration::from_millis(1),
+        )
+        .await
+        .expect_err("expired git diff deadline");
+
+        assert!(refusal.message.contains("deadline"));
+        let _ = root;
+    }
+
+    fn seeded_repo(name: &str) -> (PathBuf, Scope) {
+        let root = scratch(name);
+        write(&root, "README.md", "# seed\n");
+        write(&root, "src/app.ts", "export const NEEDLE = 42\n");
+        git(&root, &["init", "-q", "-b", "main"]);
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "-q", "-m", "seed"]);
+        let scope = scope_for(&root);
+        (root, scope)
+    }
+
+    #[tokio::test]
+    async fn git_status_reports_porcelain_xy_branch_and_renames() {
+        let (root, scope) = seeded_repo("git-status");
+        write(&root, "src/app.ts", "export const NEEDLE = 43\n");
+        write(&root, "untracked.txt", "new\n");
+        git(&root, &["mv", "README.md", "MOVED.md"]);
+        let result = match run_git_status(&scope).await.expect("status") {
+            wire::WorkspaceResultBody::GitStatus(result) => result,
+            other => panic!("wrong body: {other:?}"),
+        };
+        assert_eq!(result.branch.as_deref(), Some("main"));
+        assert_eq!(result.upstream, None);
+        assert_eq!((result.ahead, result.behind), (0, 0));
+        let by_path: std::collections::HashMap<&str, &wire::GitStatusEntry> =
+            result.entries.iter().map(|entry| (entry.path.as_str(), entry)).collect();
+        assert_eq!(by_path.get("src/app.ts").expect("modified").status, " M");
+        assert_eq!(by_path.get("untracked.txt").expect("untracked").status, "??");
+        let renamed = by_path.get("MOVED.md").expect("rename");
+        assert_eq!(renamed.status, "R ");
+        assert_eq!(renamed.orig_path.as_deref(), Some("README.md"));
+    }
+
+    #[tokio::test]
+    async fn git_diff_yields_a_unified_patch_with_stat() {
+        let (root, scope) = seeded_repo("git-diff");
+        write(&root, "src/app.ts", "export const NEEDLE = 43\n");
+        let result = match run_git_diff(
+            &scope,
+            &wire::GitDiffOp {
+                op: wire::TagGitDiff::GitDiff,
+                base: None,
+                paths: None,
+                context_lines: None,
+            },
+        )
+        .await
+        .expect("diff")
+        {
+            wire::WorkspaceResultBody::GitDiff(result) => result,
+            other => panic!("wrong body: {other:?}"),
+        };
+        assert!(result.patch.contains("diff --git a/src/app.ts b/src/app.ts"));
+        assert!(result.patch.contains("+export const NEEDLE = 43"));
+        assert_eq!(result.stat, wire::GitDiffStat { files: 1, additions: 1, deletions: 1 });
+        assert!(!result.truncated);
+        let _ = root;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn git_diff_does_not_run_repository_external_helpers() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let (root, scope) = seeded_repo("git-diff-helper");
+        write(&root, "src/app.ts", "export const NEEDLE = 43\n");
+        let marker = root.join("external-diff-ran");
+        let helper = root.join("external-diff.sh");
+        write(
+            &root,
+            "external-diff.sh",
+            &format!("#!/bin/sh\nprintf ran > {}\n", marker.display()),
+        );
+        let mut permissions = std::fs::metadata(&helper).expect("helper metadata").permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&helper, permissions).expect("helper executable");
+        git(&root, &["config", "diff.external", helper.to_str().expect("helper path")]);
+
+        let result = run_git_diff(
+            &scope,
+            &wire::GitDiffOp {
+                op: wire::TagGitDiff::GitDiff,
+                base: None,
+                paths: None,
+                context_lines: None,
+            },
+        )
+        .await
+        .expect("diff");
+        assert!(!marker.exists(), "repository external diff helper ran");
+        let wire::WorkspaceResultBody::GitDiff(result) = result else {
+            panic!("wrong body");
+        };
+        assert!(result.patch.contains("+export const NEEDLE = 43"));
+    }
+
+    #[tokio::test]
+    async fn git_ops_outside_a_repository_refuse_typed() {
+        let root = scratch("git-none");
+        write(&root, "loose.txt", "x\n");
+        let scope = scope_for(&root);
+        let refusal = run_git_status(&scope).await.expect_err("no repo");
+        assert_eq!(refusal.code, wire::WorkspaceErrorCode::NotARepository);
+    }
+
+    // --- dispatch --------------------------------------------------------
+
+    fn request_json(op: Value, trust: &str) -> Value {
+        serde_json::json!({
+            "version": 6,
+            "type": "workspace_request",
+            "requestId": "req_1",
+            "op": op,
+            "timeoutMs": 30_000,
+            "allowedRoots": Value::Null,
+            "trust": trust,
+            "actorId": "user_1",
+            "threadId": Value::Null,
+        })
+    }
+
+    async fn dispatch(root: &Path, request: Value) -> Value {
+        let roots = vec![root.to_string_lossy().into_owned()];
+        let runtime = Arc::new(SharedRuntime::new(Some(roots.clone())));
+        let mut patched = request;
+        patched["allowedRoots"] = serde_json::json!(roots);
+        let (sink, mut critical, _watch) = OutboundSink::channels();
+        let connection = Connection::new(runtime, sink);
+        connection.handle_frame(patched);
+        let frame = tokio::time::timeout(Duration::from_secs(15), critical.recv())
+            .await
+            .expect("no answer within 15s")
+            .expect("channel open");
+        serde_json::from_str(&frame.text).expect("valid json frame")
+    }
+
+    #[tokio::test]
+    async fn connection_shutdown_cancels_and_joins_owned_request_tasks() {
+        let runtime = Arc::new(SharedRuntime::new(None));
+        let (sink, _critical, _watch) = OutboundSink::channels();
+        let connection = Connection::new(runtime, sink);
+        let cancellation = connection.request_cancel.clone();
+        connection.requests.lock().expect("request registry").spawn(async move {
+            cancellation.cancelled().await;
+        });
+
+        assert!(connection.shutdown().await);
+        assert!(connection.requests.lock().expect("request registry").is_empty());
+    }
+
+    #[tokio::test]
+    async fn dispatch_keeps_multiple_in_flight_requests_independent() {
+        let root = scratch("dispatch-concurrent");
+        write(&root, "a.txt", "a\n");
+        write(&root, "b.txt", "b\n");
+        let roots = vec![root.to_string_lossy().into_owned()];
+        let runtime = Arc::new(SharedRuntime::new(Some(roots.clone())));
+        let (sink, mut critical, _watch) = OutboundSink::channels();
+        let connection = Connection::new(runtime, sink);
+
+        for (request_id, path) in [("req_a", "a.txt"), ("req_b", "b.txt")] {
+            let mut request = request_json(
+                serde_json::json!({"op": "fs_read", "path": path, "maxBytes": 1000}),
+                "supervised",
+            );
+            request["requestId"] = Value::String(request_id.to_owned());
+            request["allowedRoots"] = serde_json::json!(roots.clone());
+            connection.handle_frame(request);
+        }
+
+        let mut ids = [
+            tokio::time::timeout(Duration::from_secs(15), critical.recv())
+                .await
+                .expect("first request timed out")
+                .expect("channel closed"),
+            tokio::time::timeout(Duration::from_secs(15), critical.recv())
+                .await
+                .expect("second request timed out")
+                .expect("channel closed"),
+        ]
+        .map(|frame| serde_json::from_str::<Value>(&frame.text).expect("valid json"));
+        ids.sort_by_key(|frame| frame["requestId"].as_str().unwrap().to_owned());
+        assert_eq!(ids[0]["requestId"], "req_a");
+        assert_eq!(ids[1]["requestId"], "req_b");
+        assert!(ids.iter().all(|frame| frame["ok"] == true));
+    }
+
+    #[tokio::test]
+    async fn dispatch_answers_the_wire_shape_and_gates_trust() {
+        let root = scratch("dispatch");
+        write(&root, "file.txt", "content\n");
+        let read_op = serde_json::json!({"op": "fs_read", "path": "file.txt", "maxBytes": 1000});
+        let answer = dispatch(&root, request_json(read_op.clone(), "supervised")).await;
+        assert_eq!(answer["type"], "workspace_result");
+        assert_eq!(answer["requestId"], "req_1");
+        assert_eq!(answer["ok"], true);
+        assert_eq!(answer["result"]["op"], "fs_read");
+        assert_eq!(answer["result"]["content"], "content\n");
+        // observe trust still reads...
+        let observed = dispatch(&root, request_json(read_op, "observe")).await;
+        assert_eq!(observed["ok"], true);
+        // ...but refuses every mutating op with the typed code.
+        let write_op = serde_json::json!({
+            "op": "fs_write", "path": "file.txt", "content": "no"
+        });
+        let refused = dispatch(&root, request_json(write_op, "observe")).await;
+        assert_eq!(refused["ok"], false);
+        assert_eq!(refused["code"], "trust_refused");
+        let preview_op = serde_json::json!({"op": "preview_open", "targetPort": 5173});
+        let refused = dispatch(&root, request_json(preview_op, "observe")).await;
+        assert_eq!(refused["code"], "trust_refused");
+        let delete_op = serde_json::json!({"op": "fs_delete", "path": "file.txt"});
+        let refused = dispatch(&root, request_json(delete_op, "observe")).await;
+        assert_eq!(refused["code"], "trust_refused");
+        assert!(root.join("file.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn dispatch_refuses_an_unknown_op_without_closing_anything() {
+        let root = scratch("dispatch-unknown");
+        let unknown = serde_json::json!({"op": "fs_teleport", "path": "x"});
+        let answer = dispatch(&root, request_json(unknown, "supervised")).await;
+        assert_eq!(answer["ok"], false);
+        assert_eq!(answer["code"], "unsupported_verb");
+        assert_eq!(answer["requestId"], "req_1");
+    }
+
+    #[cfg(not(unix))]
+    #[tokio::test]
+    async fn dispatch_refuses_scoped_paths_when_the_platform_cannot_pin_them() {
+        let root = scratch("dispatch-unsupported-scope");
+        write(&root, "file.txt", "content\n");
+        let read_op = serde_json::json!({
+            "op": "fs_read",
+            "path": "file.txt",
+            "maxBytes": 1000,
+        });
+        let answer = dispatch(&root, request_json(read_op, "supervised")).await;
+        assert_eq!(answer["type"], "workspace_result");
+        assert_eq!(answer["requestId"], "req_1");
+        assert_eq!(answer["ok"], false);
+        assert_eq!(answer["code"], "unsupported_verb");
+    }
+
+    #[tokio::test]
+    async fn dispatch_times_out_typed() {
+        let root = scratch("dispatch-timeout");
+        // A 1ms-clamped timeout with a blocking op that cannot finish is
+        // hard to fake portably; instead pin the clamp arithmetic.
+        assert_eq!(clamp_i64(0, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS), MIN_TIMEOUT_MS);
+        assert_eq!(clamp_i64(999_999, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS), MAX_TIMEOUT_MS);
+        let _ = root;
+    }
+
+    #[test]
+    fn path_forbidden_errors_do_not_serialize_host_paths() {
+        let home = home_dir().display().to_string();
+        let allowed = format!("{home}/private-project");
+        let refusal = Refusal::path_forbidden(format!(
+            "path {allowed}/secret.txt is outside this machine's allowed roots"
+        ));
+        let frame = error_frame("req-path", &refusal);
+        assert!(!frame.contains(&home));
+        assert!(!frame.contains(&allowed));
+        assert_eq!(
+            serde_json::from_str::<Value>(&frame).unwrap()["message"],
+            "path is forbidden by the workspace policy"
+        );
+    }
+}

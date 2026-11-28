@@ -1,4 +1,0 @@
-config-file = inc/colors.conf
-config-file = ?inc/missing.conf
-background = #111111
-foreground = #eeeeee

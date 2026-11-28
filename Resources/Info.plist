@@ -2,30 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleLocalizations</key>
-	<array>
-		<string>en</string>
-		<string>ja</string>
-		<string>ar</string>
-		<string>bs</string>
-		<string>da</string>
-		<string>de</string>
-		<string>es</string>
-		<string>fr</string>
-		<string>it</string>
-		<string>ko</string>
-		<string>nb</string>
-		<string>pl</string>
-		<string>pt-BR</string>
-		<string>ru</string>
-		<string>th</string>
-		<string>tr</string>
-		<string>km</string>
-		<string>uk</string>
-		<string>vi</string>
-		<string>zh-Hans</string>
-		<string>zh-Hant</string>
-	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -42,7 +18,6 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>public.folder</string>
-				<string>public.directory</string>
 			</array>
 		</dict>
 		<dict>
@@ -59,35 +34,6 @@
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>Web page</string>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>LSHandlerRank</key>
-			<string>Default</string>
-			<key>LSItemContentTypes</key>
-			<array>
-				<string>public.html</string>
-				<string>public.xhtml</string>
-			</array>
-		</dict>
-		<dict>
-			<key>CFBundleTypeName</key>
-			<string>Shell script</string>
-			<key>CFBundleTypeRole</key>
-			<string>Shell</string>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
-			<key>LSItemContentTypes</key>
-			<array>
-				<string>public.shell-script</string>
-				<string>public.zsh-script</string>
-				<string>public.bash-script</string>
-				<string>public.csh-script</string>
-				<string>public.perl-script</string>
-			</array>
-		</dict>
-		<dict>
-			<key>CFBundleTypeName</key>
 			<string>UNIX executable</string>
 			<key>CFBundleTypeRole</key>
 			<string>Shell</string>
@@ -97,23 +43,6 @@
 			<array>
 				<string>public.unix-executable</string>
 			</array>
-		</dict>
-		<dict>
-			<key>CFBundleTypeExtensions</key>
-			<array>
-				<string>command</string>
-				<string>tool</string>
-				<string>sh</string>
-				<string>zsh</string>
-				<string>csh</string>
-				<string>pl</string>
-			</array>
-			<key>CFBundleTypeName</key>
-			<string>Terminal scripts</string>
-			<key>CFBundleTypeRole</key>
-			<string>Shell</string>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
@@ -139,7 +68,6 @@
 				<string>public.source-code</string>
 				<string>public.json</string>
 				<string>public.yaml</string>
-				<string>com.netscape.javascript-source</string>
 			</array>
 		</dict>
 		<dict>
@@ -152,73 +80,6 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>public.plain-text</string>
-				<string>public.text</string>
-			</array>
-		</dict>
-		<dict>
-			<key>CFBundleTypeName</key>
-			<string>Image</string>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
-			<key>LSItemContentTypes</key>
-			<array>
-				<string>com.compuserve.gif</string>
-				<string>public.jpeg</string>
-				<string>public.png</string>
-				<string>org.webmproject.webp</string>
-				<string>public.avif</string>
-				<string>public.svg-image</string>
-				<string>public.heic</string>
-				<string>public.tiff</string>
-				<string>public.image</string>
-			</array>
-		</dict>
-		<dict>
-			<key>CFBundleTypeName</key>
-			<string>PDF document</string>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
-			<key>LSItemContentTypes</key>
-			<array>
-				<string>com.adobe.pdf</string>
-			</array>
-		</dict>
-		<dict>
-			<key>CFBundleTypeName</key>
-			<string>Audio and video</string>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
-			<key>LSItemContentTypes</key>
-			<array>
-				<string>org.xiph.ogg-audio</string>
-				<string>org.xiph.ogv</string>
-				<string>org.webmproject.webm</string>
-				<string>public.mpeg-4</string>
-				<string>com.apple.quicktime-movie</string>
-				<string>com.apple.m4v-video</string>
-				<string>public.mp3</string>
-				<string>com.apple.m4a-audio</string>
-				<string>public.aac-audio</string>
-				<string>com.microsoft.waveform-audio</string>
-				<string>org.xiph.flac</string>
-			</array>
-		</dict>
-		<dict>
-			<key>CFBundleTypeName</key>
-			<string>Saved web page</string>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
-			<key>LSItemContentTypes</key>
-			<array>
-				<string>org.ietf.mhtml</string>
 			</array>
 		</dict>
 	</array>
@@ -232,10 +93,18 @@
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<key>CMUX_IROH_V2_ENVIRONMENT</key>
+	<string>$(CMUX_IROH_V2_ENVIRONMENT)</string>
+	<key>CMUX_IROH_V2_BASE_URL</key>
+	<string>$(CMUX_IROH_V2_BASE_URL)</string>
+	<key>CMUX_IROH_V2_FORCE_RELAY</key>
+	<string>$(CMUX_IROH_V2_FORCE_RELAY)</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSDockTilePlugIn</key>
+	<string>CmuxDockTilePlugin.plugin</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.developer-tools</string>
 	<key>LSArchitecturePriority</key>
@@ -243,8 +112,6 @@
 		<string>arm64</string>
 		<string>x86_64</string>
 	</array>
-	<key>LSMinimumSystemVersion</key>
-	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
 	<key>NSMainStoryboardFile</key>
@@ -318,7 +185,7 @@
 				<string>https</string>
 			</array>
 			<key>LSHandlerRank</key>
-			<string>$(CMUX_WEB_URL_HANDLER_RANK)</string>
+			<string>Default</string>
 		</dict>
 		<dict>
 			<key>CFBundleTypeRole</key>
@@ -340,30 +207,6 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>ssh</string>
-			</array>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
-		</dict>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>CFBundleURLName</key>
-			<string>Manual page URL</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>x-man-page</string>
-			</array>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
-		</dict>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>CFBundleURLName</key>
-			<string>Local file URL</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>file</string>
 			</array>
 			<key>LSHandlerRank</key>
 			<string>Alternate</string>
@@ -405,27 +248,12 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSAppleScriptEnabled</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
 	<key>NSServices</key>
 	<array>
-		<dict>
-			<key>NSMenuItem</key>
-			<dict>
-				<key>default</key>
-				<string>New $(PRODUCT_NAME) Tab Here</string>
-			</dict>
-			<key>NSMessage</key>
-			<string>newTabHere</string>
-			<key>NSRequiredContext</key>
-			<dict>
-				<key>NSTextContent</key>
-				<string>FilePath</string>
-			</dict>
-			<key>NSSendTypes</key>
-			<array>
-				<string>NSFilenamesPboardType</string>
-				<string>public.plain-text</string>
-			</array>
-		</dict>
 		<dict>
 			<key>NSMenuItem</key>
 			<dict>
@@ -464,38 +292,11 @@
 				<string>public.plain-text</string>
 			</array>
 		</dict>
-		<dict>
-			<key>NSMenuItem</key>
-			<dict>
-				<key>default</key>
-				<string>Send to $(PRODUCT_NAME) Chat</string>
-			</dict>
-			<key>NSMessage</key>
-			<string>sendToChat</string>
-			<key>NSRequiredContext</key>
-			<dict/>
-			<key>NSSendFileTypes</key>
-			<array>
-				<string>public.image</string>
-			</array>
-			<key>NSSendTypes</key>
-			<array>
-				<string>public.png</string>
-				<string>public.tiff</string>
-				<string>public.image</string>
-			</array>
-		</dict>
 	</array>
-	<key>NSUserActivityTypes</key>
-	<array>
-		<string>NSUserActivityTypeBrowsingWeb</string>
-	</array>
-	<key>NSAppleScriptEnabled</key>
-	<true/>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
+	<key>OSAScriptingDefinition</key>
+	<string>cmux.sdef</string>
 	<key>SUAutomaticallyUpdate</key>
-	<true/>
+	<false/>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>
@@ -503,7 +304,7 @@
 	<key>SUPublicEDKey</key>
 	<string>$(SPARKLE_PUBLIC_KEY)</string>
 	<key>SUScheduledCheckInterval</key>
-	<integer>900</integer>
+	<integer>86400</integer>
 	<key>SUSendProfileInfo</key>
 	<false/>
 	<key>UTImportedTypeDeclarations</key>
@@ -550,95 +351,68 @@
 				</array>
 			</dict>
 		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
 		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.audio</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>Ogg audio</string>
 			<key>UTTypeIdentifier</key>
-			<string>org.xiph.ogg-audio</string>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>ogg</string>
-					<string>oga</string>
-				</array>
-				<key>public.mime-type</key>
-				<array>
-					<string>audio/ogg</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.movie</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>Ogg video</string>
-			<key>UTTypeIdentifier</key>
-			<string>org.xiph.ogv</string>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>ogv</string>
-					<string>ogm</string>
-				</array>
-				<key>public.mime-type</key>
-				<array>
-					<string>video/ogg</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.movie</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>WebM media</string>
-			<key>UTTypeIdentifier</key>
-			<string>org.webmproject.webm</string>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>webm</string>
-				</array>
-				<key>public.mime-type</key>
-				<array>
-					<string>video/webm</string>
-					<string>audio/webm</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
+			<string>com.cmux.cloud-sidebar-row</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>
-				<string>public.content</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>MIME HTML document</string>
+			<string>Cloud Sidebar Row</string>
+		</dict>
+		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>org.ietf.mhtml</string>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>mhtml</string>
-					<string>mht</string>
-				</array>
-				<key>public.mime-type</key>
-				<array>
-					<string>multipart/related</string>
-					<string>application/x-mimearchive</string>
-				</array>
-			</dict>
+			<string>com.splittabbar.tabtransfer</string>
+			<key>UTTypeDescription</key>
+			<string>Bonsplit Tab Transfer</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.sidebar-tab-reorder</string>
+			<key>UTTypeDescription</key>
+			<string>cmux Sidebar Tab Reorder</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.right-sidebar-mode-reorder</string>
+			<key>UTTypeDescription</key>
+			<string>cmux Right Sidebar Tab Reorder</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.filepreview.transfer</string>
+			<key>UTTypeDescription</key>
+			<string>cmux File Preview Transfer</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.surface-resource</string>
+			<key>UTTypeDescription</key>
+			<string>cmux Surface Resource</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
 		</dict>
 	</array>
 </dict>

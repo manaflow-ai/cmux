@@ -80,61 +80,11 @@ public final class Layout {
         }
     }
 
-    /**
-     * A pinned column's edge ("left", "right", "top" or "bottom") and mode
-     * ("docked" or "overlay").
-     */
-    public record Dock(String edge, String mode) {
-        public Dock {
-            if (!List.of("left", "right", "top", "bottom").contains(edge)) {
-                throw new IllegalArgumentException("dock edge " + edge + " is not known");
-            }
-            if (!List.of("docked", "overlay").contains(mode)) {
-                throw new IllegalArgumentException("dock mode " + mode + " is not known");
-            }
-        }
-    }
-
-    /**
-     * One row of a column (rows-v1): its stable id and its height in permille
-     * of the column's viewport height (100 to 1000). Only row 1 may omit
-     * {@code rowId}, in a document sent to {@code applyLayout}.
-     */
-    public record Row(Optional<Ids.SplitId> rowId, int height) {
-        public Row {
-            Objects.requireNonNull(rowId, "rowId");
-            if (height < 100 || height > 1000) {
-                throw new IllegalArgumentException("row height must be from 100 to 1000");
-            }
-        }
-    }
-
-    /**
-     * A viewport column; {@code dock} is empty while it scrolls. {@code rows}
-     * are its rows top to bottom (rows-v1), empty for a column with one row;
-     * row 2..n's id is its compat chain split in {@code root}.
-     */
-    public record Column(
-        Ids.SplitId columnId,
-        double width,
-        Node root,
-        Optional<Dock> dock,
-        List<Row> rows
-    ) {
+    public record Column(Ids.SplitId columnId, double width, Node root) {
         public Column {
             Objects.requireNonNull(columnId, "columnId");
             boundedWidth(width, "width");
             Objects.requireNonNull(root, "root");
-            Objects.requireNonNull(dock, "dock");
-            rows = List.copyOf(rows);
-        }
-
-        public Column(Ids.SplitId columnId, double width, Node root, Optional<Dock> dock) {
-            this(columnId, width, root, dock, List.of());
-        }
-
-        public Column(Ids.SplitId columnId, double width, Node root) {
-            this(columnId, width, root, Optional.empty());
         }
     }
 

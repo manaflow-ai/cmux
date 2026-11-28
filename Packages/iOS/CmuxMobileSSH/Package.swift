@@ -1,6 +1,5 @@
 // swift-tools-version: 6.0
 
-import Foundation
 import PackageDescription
 
 let package = Package(
@@ -53,12 +52,3 @@ let package = Package(
         ),
     ]
 )
-
-// Network.framework (NIOTransportServices) is Apple only; a build for Linux uses NIOPosix sockets.
-// Only the Linux package jobs set CMUX_SWIFTPM_TARGET_LINUX, so a build for an Apple platform on a
-// Linux host (the fleet) keeps the manifest above.
-if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
-    package.targets.first { $0.name == "CmuxMobileSSH" }?.dependencies.append(
-        .product(name: "NIOPosix", package: "swift-nio")
-    )
-}

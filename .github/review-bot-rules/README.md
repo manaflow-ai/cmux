@@ -9,6 +9,7 @@ Greptile is configured to publish a GitHub status check and inline findings. Cod
 Current rules:
 
 - `algorithmic-complexity.md`
+- `browser-automation-webkit-waits-off-main.md`
 - `cache-substitution-correctness.md`
 - `cloud-persistent-session-and-early-input.md`
 - `full-internationalization.md`
@@ -22,6 +23,7 @@ Current rules:
 - `swiftpm-package-resolved.md`
 - `swift-actor-isolation.md`
 - `swift-architectural-rethink.md`
+- `swift-auxiliary-window-close-shortcuts.md`
 - `swift-blocking-runtime.md`
 - `swift-concurrency-modernization.md`
 - `swift-concurrent-annotation.md`
@@ -33,7 +35,5 @@ Current rules:
 - `readme-site-feature-parity.md`
 - `landing-page-registry-parity.md`
 - `remote-relay-authorization.md`
-- `native-chrome-layer.md`
-- `pressed-state.md`
 
 Open source repository note: review bots should apply the configuration from the base branch. A PR that edits these rules should not be able to weaken its own review.

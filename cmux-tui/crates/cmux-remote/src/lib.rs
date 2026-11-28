@@ -1,6 +1,15 @@
 //! Native remote runtime for cmux-tui.
 
-pub mod acpmux_bridge;
+#[cfg(test)]
+pub(crate) fn test_observation_timeout(timeout: std::time::Duration) -> std::time::Duration {
+    let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|scale| *scale > 0)
+        .unwrap_or(1);
+    timeout.saturating_mul(scale)
+}
+
 #[cfg(unix)]
 pub mod admin;
 pub mod bridge;
@@ -8,49 +17,29 @@ pub mod client;
 pub mod connection;
 pub mod crypto;
 pub mod daemon;
-pub mod first_dial;
-pub mod grant;
 pub mod http;
 pub mod identity;
 pub mod link;
-pub mod link_ports;
-#[cfg(all(test, unix))]
-mod lock_keeper_tests;
-pub mod network_watch;
-mod route_source;
 pub use mux_client::MuxLineClient;
-mod mux_carrier_role;
 mod mux_client;
 mod mux_codec;
 mod mux_input;
 mod mux_lanes;
 pub mod observability;
 mod owner_lock;
-mod per_lane;
-mod port_holder;
+pub mod peer_trust;
 pub mod provider;
-pub mod resume_hold;
-pub mod resume_pipe;
 pub mod secret_file;
-pub mod secrets;
 pub mod secure_directory;
 pub mod service;
 pub mod services;
 pub mod session;
 mod ssh_args;
-pub use ssh_artifacts::{
-    LinuxPin, PinnedPayload, SSH_PAYLOAD_DOWNLOAD_CAPABILITY,
-    SSH_PAYLOAD_MACOS_FROM_CLIENT_CAPABILITY, pinned_linux_payload, pinned_linux_pin,
-};
 mod ssh_artifacts;
 pub mod ssh_bootstrap;
-pub mod ssh_control;
 mod ssh_payload_proxy;
 #[cfg(unix)]
-pub mod unix_socket;
-pub mod update_need;
+mod unix_socket;
 #[cfg(feature = "wireguard-transport")]
 pub mod wireguard_hub;
-#[cfg(all(feature = "wireguard-transport", unix))]
-pub mod wireguard_hub_control;
 pub mod workspace;

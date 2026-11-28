@@ -1,9 +1,7 @@
 public import CMUXAuthCore
 import Foundation
 public import Observation
-#if canImport(OSLog)
 import OSLog
-#endif
 import StackAuth
 
 private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
@@ -73,7 +71,7 @@ public final class AuthCoordinator {
 
     let client: any AuthClient
     let sessionCache: CMUXAuthSessionCache
-    let userCache: CMUXAuthIdentityStore
+    private let userCache: CMUXAuthIdentityStore
     private let teamSelection: CMUXAuthTeamSelectionStore
     private let anchor: any AuthPresentationAnchoring
     private let config: AuthConfig
@@ -94,7 +92,7 @@ public final class AuthCoordinator {
     var isRevalidatingSession = false
     var sessionRevalidationWaiters: [CheckedContinuation<Void, Never>] = []
     /// Monotonic session epoch, advanced by every session transition: each
-    /// ``clearAuthState(reason:preservePendingCode:sessionTransitionAlreadyAnnounced:)`` AND each published sign-in
+    /// ``clearAuthState()`` AND each published sign-in
     /// (``applySignedInUser(_:)``). Flows that touch session state after
     /// suspension points (launch restore, foreground revalidation, sign-in
     /// completion) capture it at entry and drop their writes when it has
@@ -114,8 +112,6 @@ public final class AuthCoordinator {
     /// would read the stale published flag and skip the rollback that keeps
     /// its raced store write from surviving the sign-out.
     @ObservationIgnored var signOutEpoch: UInt64 = 0
-    /// Why the app last signed out locally (``clearAuthState(reason:preservePendingCode:sessionTransitionAlreadyAnnounced:)``).
-    @ObservationIgnored private(set) var lastSignOutReason: String?
     /// Monotonic sign-in attempt count, allocating each flow's attempt id.
     @ObservationIgnored var signInAttemptCounter: UInt64 = 0
     @ObservationIgnored var authenticatedSessionIdentityContinuations: [
@@ -169,15 +165,10 @@ public final class AuthCoordinator {
     @ObservationIgnored var timedOutTokenTouchingPhaseStates: [AuthPhase: AuthPhaseTimedOutState] = [:]
     @ObservationIgnored var tokenTouchingTimedOutResetNanoseconds: UInt64 = 30_000_000_000
     @ObservationIgnored var teamMutationGeneration: UInt64 = 0
-    /// Bumped by a team delete or rename: a team-list read that started
-    /// before one answers with the list it changed.
-    @ObservationIgnored var teamListGeneration: UInt64 = 0
     /// Whether a team switch is still waiting on its server request.
     public internal(set) var isSelectingTeam = false
     /// Whether a team create is still waiting on its server request.
     public internal(set) var isCreatingTeam = false
-    /// Whether a team delete is still waiting on its server request (and its fallback selection).
-    public internal(set) var isDeletingTeam = false
     /// Every switch remains here until its request returns, even if a later
     /// switch replaces its pending UI projection.
     @ObservationIgnored var activeTeamSwitches: Set<UUID> = []
@@ -320,22 +311,15 @@ public final class AuthCoordinator {
 
     // MARK: - Sign-in flows
 
-    /// Send a sign-in code to `email`, or run the debug `42` shortcut (dev account from the launch environment).
+    /// Send a sign-in code to `email`, or run the debug `42` shortcut.
     public func sendCode(to email: String) async throws {
         try await requireOnline()
         isLoading = true
         defer { isLoading = false }
 
-        // The DEBUG dev account comes from the launch environment
-        // (`CMUX_UITEST_STACK_EMAIL` / `CMUX_UITEST_STACK_PASSWORD`), never from
-        // the source: with neither set, `42` is an ordinary email.
         if launch.includesDevAuth,
-           email.trimmingCharacters(in: .whitespacesAndNewlines) == "42",
-           let creds = CMUXAuthAutoLoginCredentials(
-               environment: launch.environment,
-               clearAuth: false,
-               mockDataEnabled: false
-           ) {
+           email.trimmingCharacters(in: .whitespacesAndNewlines) == "42" {
+            let creds = CMUXAuthAutoLoginCredentials(email: "l@l.com", password: "abc123")
             try await signInWithPassword(email: creds.email, password: creds.password, setLoading: false)
             debugCredentials = creds
             return
@@ -349,7 +333,7 @@ public final class AuthCoordinator {
             }
             pendingNonce = nonce
         } catch {
-            throw AuthError(displaySafe: error, backend: config.backendName, redirectURL: config.magicLinkCallbackURL) ?? error
+            throw AuthError(displaySafe: error) ?? error
         }
     }
 
@@ -374,7 +358,7 @@ public final class AuthCoordinator {
             }
             try await completeSignIn(flow: flow)
         } catch {
-            throw AuthError(displaySafe: error, backend: config.backendName) ?? error
+            throw AuthError(displaySafe: error) ?? error
         }
         pendingNonce = nil
     }
@@ -396,7 +380,7 @@ public final class AuthCoordinator {
             }
             try await completeSignIn(flow: flow)
         } catch {
-            throw AuthError(displaySafe: error, backend: config.backendName) ?? error
+            throw AuthError(displaySafe: error) ?? error
         }
     }
 
@@ -430,7 +414,7 @@ public final class AuthCoordinator {
             try await completeSignIn(flow: flow)
         } catch {
             log.log("auth.oauth provider=\(provider) failed: \(error)")
-            throw AuthError(displaySafe: error, backend: config.backendName) ?? error
+            throw AuthError(displaySafe: error) ?? error
         }
     }
 
@@ -522,7 +506,7 @@ public final class AuthCoordinator {
             try await completeSignIn(flow: flow)
         } catch {
             lastExternalSignInFailureDetail = AuthError.failureDetail(for: error)
-            throw AuthError(displaySafe: error, backend: config.backendName) ?? error
+            throw AuthError(displaySafe: error) ?? error
         }
     }
 
@@ -599,7 +583,7 @@ public final class AuthCoordinator {
         await client.clearLocalSession()
         finishSignOutCredentialCapture()
         if launch.includesDevAuth { debugCredentials = nil }
-        clearAuthState(reason: "signed out by the person", sessionTransitionAlreadyAnnounced: true)
+        clearAuthState(sessionTransitionAlreadyAnnounced: true)
         await waitForPostSignInHooksAfterSignOut(timeout: teardownTimeout)
 
         // Best-effort bounded server-side teardown with the captured tokens:
@@ -739,10 +723,6 @@ public final class AuthCoordinator {
     /// the writes when a sign-out raced the fetch, so a signed-out shell does
     /// not get the old account's teams persisted back.
     func refreshTeams(generation: UInt64) async {
-        // A selection made while this read was in flight is newer than the
-        // server's answer to it: the read must not put the old team back.
-        let mutationGeneration = teamMutationGeneration
-        let listGeneration = teamListGeneration
         activeTeamRefreshCount += 1
         let result: Result<([CMUXAuthTeam], String?), any Error>
         do {
@@ -765,13 +745,10 @@ public final class AuthCoordinator {
             teamScopeRateLimit = nil
             rateLimitTelemetry.succeeded(.sessionCheck)
             authenticatedTeamsSessionGeneration = generation
-            // A delete or rename that landed while this read was in flight is newer than
-            // its list: keep the list the change left (the change re-reads after it).
-            if listGeneration == teamListGeneration { availableTeams = teams }
-            let selectionChanged = mutationGeneration != teamMutationGeneration
+            availableTeams = teams
             selectedTeamID = Self.resolveTeamID(
-                selectedTeamID: selectionChanged ? selectedTeamID : serverSelectedTeamID ?? selectedTeamID,
-                teams: availableTeams
+                selectedTeamID: serverSelectedTeamID ?? selectedTeamID,
+                teams: teams
             )
         case let .failure(error):
             authLog.error("Failed to list teams: \(error.localizedDescription, privacy: .private)")
@@ -793,17 +770,10 @@ public final class AuthCoordinator {
         }
         return teams.first?.id
     }
-    /// Signs the app out locally: the one place every sign-out goes through,
-    /// so each one leaves a record of why (`reason`, logged at error level
-    /// and kept in ``lastSignOutReason``). A field sign-out that logged
-    /// nothing could not be diagnosed (manaflow-ai/cmuxterm-hq#8831).
     func clearAuthState(
-        reason: String,
         preservePendingCode: Bool = false,
         sessionTransitionAlreadyAnnounced: Bool = false
     ) {
-        authLog.error("Signing out locally reason=\(reason, privacy: .public)")
-        lastSignOutReason = reason
         advanceSessionGeneration(notifySessionWillTransition: !sessionTransitionAlreadyAnnounced)
         cancelTeamScopeRecovery()
         latestSignInRefreshToken = nil

@@ -129,6 +129,14 @@ import Testing
         #expect(title == "No Internet Connection")
     }
 
+    @Test func errorDetailsIncludesLogPath() {
+        let err = NSError(domain: "cmux.update", code: 7, userInfo: [NSLocalizedDescriptionKey: "boom"])
+        let details = UpdateErrorDetailsFormatter().details(for: err, technicalDetails: "ctx", feedURLString: "https://feed", logPath: "/tmp/x.log")
+        #expect(details.contains("Log: /tmp/x.log"))
+        #expect(details.contains("Feed: https://feed"))
+        #expect(details.contains("Debug: ctx"))
+    }
+
     @Test func normalizedVersionTrimsAndRejectsEmpty() {
         #expect(UpdateStateModel.normalizedDetectedUpdateVersion(from: "  1.2.3 ") == "1.2.3")
         #expect(UpdateStateModel.normalizedDetectedUpdateVersion(from: "   ") == nil)
@@ -176,7 +184,10 @@ import Testing
         let message = UpdateStateModel.userFacingErrorMessage(for: err)
         #expect(!message.localizedCaseInsensitiveContains("security software"))
         #expect(message.localizedCaseInsensitiveContains("Applications"))
-        #expect(UpdateManualDownloadRecovery().url(for: err)?.absoluteString.hasSuffix("cmux-macos.dmg") == true)
+        #expect(UpdateManualDownloadRecovery(hostArchitecture: .arm64).url(for: err)?.absoluteString
+            == "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos-arm64.dmg")
+        #expect(UpdateManualDownloadRecovery(hostArchitecture: .x86_64).url(for: err)?.absoluteString
+            == "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos-x86_64.dmg")
     }
 
     @Test func agentInvalidationErrorIsTreatedAsAgentFailure() {
@@ -264,5 +275,20 @@ import Testing
     @Test func nonSparkleErrorHasNoManualDownload() {
         let err = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
         #expect(UpdateManualDownloadRecovery().url(for: err) == nil)
+    }
+
+    @Test func errorDetailsNamesInstallationError() {
+        let err = NSError(
+            domain: "SUSparkleErrorDomain",
+            code: 4005,
+            userInfo: [NSLocalizedDescriptionKey: "boom"]
+        )
+        let details = UpdateErrorDetailsFormatter().details(
+            for: err,
+            technicalDetails: nil,
+            feedURLString: nil,
+            logPath: "/tmp/x.log"
+        )
+        #expect(details.contains("SUInstallationError"))
     }
 }

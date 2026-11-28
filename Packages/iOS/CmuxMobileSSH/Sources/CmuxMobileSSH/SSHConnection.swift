@@ -1,6 +1,7 @@
 import Foundation
 import NIOCore
 import NIOSSH
+import NIOTransportServices
 
 /// Result of a non-interactive command.
 public struct SSHExecResult: Sendable, Equatable {
@@ -62,7 +63,7 @@ public actor SSHConnection {
         // a line that reaches an empty pipeline is dropped, stalling the
         // handshake until the timeout. So it is installed by the transport's
         // channel initializer, never after the connect returns.
-        let eventLoop: any EventLoop = jump?.eventLoop ?? SSHTransport.nextEventLoop()
+        let eventLoop: any EventLoop = jump?.eventLoop ?? NIOTSEventLoopGroup.singleton.next()
         let handshake = eventLoop.makePromise(of: Void.self)
         // Network phases spend this budget; host key verification, which can
         // wait on a trust prompt, pauses it (see SSHHostKeyAuthDelegate).
@@ -90,10 +91,12 @@ public actor SSHConnection {
                     child.pipeline.addHandler(SSHChannelDataUnwrapper()).flatMap { installSSH(child) }
                 }
             } else {
-                channel = try await SSHTransport.connect(
-                    eventLoop: eventLoop, host: endpoint.host, port: endpoint.port,
-                    timeout: connectTimeout, initializer: installSSH
-                )
+                channel = try await NIOTSConnectionBootstrap(group: eventLoop)
+                    .connectTimeout(connectTimeout)
+                    .channelOption(NIOTSChannelOptions.waitForActivity, value: false)
+                    .channelInitializer(installSSH)
+                    .connect(host: endpoint.host, port: endpoint.port)
+                    .get()
             }
             sshHandler = try await channel.pipeline.handler(type: NIOSSHHandler.self).get()
         } catch {

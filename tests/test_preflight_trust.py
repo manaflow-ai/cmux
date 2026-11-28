@@ -6,13 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-import importlib.util as _git_fixture_importlib  # noqa: E402
-from os import path as _git_fixture_path  # noqa: E402
-_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
-    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
-git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
+import git_fixture_env  # disables git auto maintenance
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -42,36 +36,20 @@ class PreflightTrustTests(unittest.TestCase):
         self.git("init", "--quiet", "--initial-branch=main")
         self.git("config", "user.name", "Trust fixture")
         self.git("config", "user.email", "fixture@example.invalid")
-        git_fixture_env.init_repo(self.remote, "--bare", cwd=self.repo, env=self.env)
+        self.git("init", "--quiet", "--bare", str(self.remote))
         self.git("remote", "add", "origin", str(self.remote))
         # Copy installed behavior, including the vulnerable hook when running
-        # this regression against the before-fix source tree. Everything the
-        # installer installs must be here, or it exits before wiring any hook.
+        # this regression against the before-fix source tree.
         for relative in (
             "scripts/git-hooks",
             "scripts/install-git-hooks.sh",
-            "scripts/web_lint_prepush.py",
-            "scripts/cmux-next/prepush-gate.py",
-            "scripts/cmux-next/push_range.py",
-            "scripts/cmux-next/git_batch.py",
-            "scripts/ci/base_merge_warning.py",
-            "scripts/ci/github_release_download.py",
-            "scripts/ci/deadline_http.py",
-            "scripts/ci/workflow_job_bounds.py",
-            "scripts/ci/check_reusable_workflow_permissions.py",
-            "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
-            "scripts/merge-baseline.py",
-            "scripts/merge-daemon-capabilities.py",
-            "scripts/merge-insertions.py",
-            "scripts/merge-cargo-lock.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/normalize-pbxproj.py",
-            "scripts/webviews_bun_version.py",
             "scripts/verify-push.py",
         ):
             source, target = SOURCE / relative, self.repo / relative
@@ -84,20 +62,14 @@ class PreflightTrustTests(unittest.TestCase):
             hook.chmod(0o755)
         (self.repo / ".gitignore").write_text(".local/\n")
         self.commit("base")
-        # The base is on origin, as in a real clone: the pre-push gate judges only a push's own commits
-        # (push_range.py) and refuses a push that shares no history with any origin ref.
-        self.git("push", "--quiet", "--no-verify", "origin", "main")
-        self.git("fetch", "--quiet", "origin")
         subprocess.run(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo,
                        env=self.env, check=True, capture_output=True)
 
     def test_hook_installation_has_no_candidate_code_runner(self):
-        """The installed hook set must never execute code from a pushed tree.
-
-        The pre-push hook (web lint, cmux-next checks) is a reviewed copy outside the
-        checkout, and it runs only the helpers installed beside it, never code the push
-        changes. (The web lint still runs the checkout's unchanged `check` script.)"""
+        """The installed hook set must never execute code from a pushed tree."""
+        self.assertFalse((SOURCE / "scripts/git-hooks/pre-push").exists())
         self.assertFalse((SOURCE / "scripts/verify-push.py").exists())
+        self.assertFalse((self.repo / "scripts/git-hooks/pre-push").exists())
         common = Path(self.git("rev-parse", "--git-common-dir").stdout.strip())
         if not common.is_absolute():
             common = self.repo / common
@@ -106,14 +78,7 @@ class PreflightTrustTests(unittest.TestCase):
             Path(self.git("config", "--get", "core.hooksPath").stdout.strip()).resolve(),
             installed_hooks.resolve(),
         )
-        hook = installed_hooks / "pre-push"
-        self.assertEqual(hook.read_bytes(), (SOURCE / "scripts/git-hooks/pre-push").read_bytes())
-        text = hook.read_text()
-        for helper in ("web_lint_prepush.py", "cmux_next_prepush_gate.py", "base_merge_warning.py"):
-            self.assertIn(f'"$HOOK_DIR/{helper}"', text)
-            self.assertTrue((installed_hooks / helper).is_file(), helper)
-        self.assertNotIn("$REPO_ROOT/scripts", text)
-        self.assertNotIn("verify-local.py", text)
+        self.assertFalse((installed_hooks / "pre-push").exists())
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,

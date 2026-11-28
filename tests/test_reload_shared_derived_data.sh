@@ -10,19 +10,16 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 # Use the real functions, not copies.
 eval "$(awk '/^tagged_derived_data_path\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
 eval "$(awk '/^resolve_tagged_derived_data\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
-eval "$(awk '/^reload_is_measurement_step\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
-eval "$(awk '/^measurement_derived_data_path\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
-SCRIPT_DIR="$ROOT/scripts"
 declare -F resolve_tagged_derived_data >/dev/null || fail "resolve_tagged_derived_data not found in reload.sh"
 
-unset CMUX_DERIVED_DATA CMUX_CI_STEP_CLASS
+unset CMUX_DERIVED_DATA
 [[ "$(resolve_tagged_derived_data one 0 "")" == "$HOME/Library/Developer/Xcode/DerivedData/cmux-one" ]] \
   || fail "without CMUX_DERIVED_DATA the default must stay one directory per tag"
 [[ "$(resolve_tagged_derived_data one 0 "")" != "$(resolve_tagged_derived_data two 0 "")" ]] \
   || fail "two tags must not share a DerivedData by default"
 
-export CMUX_DERIVED_DATA="/Volumes/cmux warm/DerivedData"
-[[ "$(resolve_tagged_derived_data one 0 "")" == "/Volumes/cmux warm/DerivedData" ]] || fail "CMUX_DERIVED_DATA ignored"
+export CMUX_DERIVED_DATA="/tmp/cmux warm/DerivedData"
+[[ "$(resolve_tagged_derived_data one 0 "")" == "/tmp/cmux warm/DerivedData" ]] || fail "CMUX_DERIVED_DATA ignored"
 [[ "$(resolve_tagged_derived_data one 0 "")" == "$(resolve_tagged_derived_data two 0 "")" ]] \
   || fail "tags must share the warm DerivedData when CMUX_DERIVED_DATA is set"
 [[ "$(resolve_tagged_derived_data one 1 "/explicit/dd")" == "/explicit/dd" ]] \
@@ -37,107 +34,6 @@ fi
   || fail "--derived-data must not be blocked by an invalid CMUX_DERIVED_DATA"
 unset CMUX_DERIVED_DATA
 
-# A fleet measurement step's HOME is per step, so its default is the checkout's .build, which a warm
-# worker checkout keeps; the tags of that checkout share it, and the explicit choices still win.
-measure_dd="$(cd "$ROOT" && pwd -P)/.build/DerivedData/cmux-measure"
-export CMUX_CI_STEP_CLASS=exclusive
-[[ "$(resolve_tagged_derived_data one 0 "")" == "$measure_dd" ]] \
-  || fail "a measurement step must build in the checkout's .build, got $(resolve_tagged_derived_data one 0 "")"
-[[ "$(resolve_tagged_derived_data two 0 "")" == "$measure_dd" ]] || fail "a measurement step's tags must share its DerivedData"
-[[ "$(resolve_tagged_derived_data one 1 "/explicit/dd")" == "/explicit/dd" ]] \
-  || fail "--derived-data must win in a measurement step"
-[[ "$(CMUX_DERIVED_DATA=/warm/dd resolve_tagged_derived_data one 0 "")" == "/warm/dd" ]] \
-  || fail "CMUX_DERIVED_DATA must win in a measurement step"
-# devtools-calls.sh moves the app out and removes "the arm's per-tag DerivedData": a directory named cmux-*.
-[[ "$(basename "$measure_dd")" == cmux-* ]] || fail "the measurement DerivedData must keep a cmux-* name"
-export CMUX_CI_STEP_CLASS=isolated
-[[ "$(resolve_tagged_derived_data one 0 "")" == "$HOME/Library/Developer/Xcode/DerivedData/cmux-one" ]] \
-  || fail "only a measurement step (class exclusive) builds in the checkout"
-unset CMUX_CI_STEP_CLASS
-grep -Fq 'rev-parse HEAD > "$(dirname "$(dirname "$DERIVED_DATA")")/.cmux-ci-built-ref"' "$ROOT/scripts/reload.sh" \
-  || fail "reload.sh no longer marks a finished measurement build for the worker (.build/.cmux-ci-built-ref)"
-grep -Fq 'rm -f "$(dirname "$(dirname "$DERIVED_DATA")")/.cmux-ci-built-ref"' "$ROOT/scripts/reload.sh" \
-  || fail "reload.sh no longer drops the last build's marker before a measurement build (an interrupted build must leave none)"
-
-# The worker keeps a measurement step's DerivedData between steps, so a later step can meet a module of the app
-# FFI that is older than its header: xcodebuild then fails with exit 65 (the line in `stale` below). That
-# build goes through stale-module-second-build.sh: it clears the folder's build state and builds ONE more
-# time. Another build error, a second failure and a build that passed build once. A DerivedData that is not
-# the measurement one and a reload that is no measurement step run xcodebuild itself: once, and its failure
-# is the failure.
-eval "$(awk '/^set_xcodebuild_command\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
-declare -F set_xcodebuild_command >/dev/null || fail "set_xcodebuild_command not found in reload.sh"
-grep -Fq '"${XCODEBUILD_COMMAND[@]}" "${XCODEBUILD_ARGS[@]}"' "$ROOT/scripts/reload.sh" \
-  || fail "reload.sh's locked build does not run the command of set_xcodebuild_command"
-[[ -x "$ROOT/scripts/cmux-next/stale-module-second-build.sh" ]] \
-  || fail "scripts/cmux-next/stale-module-second-build.sh is missing or not executable"
-(
-  co="$(mktemp -d /var/tmp/cmux-reload-second-build.XXXXXX)"; trap 'rm -rf "$co"' EXIT
-  co="$(cd "$co" && pwd -P)"
-  mkdir -p "$co/scripts/cmux-next" "$co/bin"
-  cp "$ROOT/scripts/cmux-next/stale-module-second-build.sh" "$ROOT/scripts/cmux-next/stale-pcm-retry-needed.sh" \
-    "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$co/scripts/cmux-next/"
-  # xcodebuild's stand-in: each call is one line (its arguments) in $FAKE_BUILDS; the first $FAKE_FAILS calls
-  # print $FAKE_LINE and exit $FAKE_CODE.
-  cat > "$co/bin/xcodebuild" <<'EOF'
-#!/bin/bash
-echo "$*" >> "$FAKE_BUILDS"
-if [[ "$(wc -l < "$FAKE_BUILDS")" -le "$FAKE_FAILS" ]]; then printf '%s\n** BUILD FAILED **\n' "$FAKE_LINE"; exit "$FAKE_CODE"; fi
-echo "** BUILD SUCCEEDED **"
-EOF
-  chmod +x "$co/bin/xcodebuild"
-  SCRIPT_DIR="$co/scripts"; RELOAD_LOG="$co/reload.log"; measure="$co/.build/DerivedData/cmux-measure"
-  stale="<unknown>:0: error: file '/checkout/.build/DerivedData/cmux-measure/Build/Products/Release/include/CAcpmuxClientFFI/acpmux_client.h' has been modified since the module file '/checkout/.build/DerivedData/cmux-measure/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules/CAcpmuxClientFFI-B8DKNIPA8HRBV100IOQXLN9HL.pcm' was built"
-  other="/checkout/Packages/macOS/CmuxNext/Sources/CmuxNextAgentList/AcpmuxClient.swift:12:5: error: cannot find 'missing' in scope"
-  # A DerivedData that holds a build and its packages, an empty log, no build yet.
-  fresh() {
-    DERIVED_DATA="$1"; rm -rf "$co/.build" "$co/elsewhere" "$co/builds" "$co/terminal"
-    mkdir -p "$DERIVED_DATA/Build/Products" "$DERIVED_DATA/SourcePackages"; : > "$RELOAD_LOG"
-  }
-  # The build as reload.sh runs it: the command of the real set_xcodebuild_command with the build's arguments,
-  # its output in the reload log, the terminal on fd 4.
-  build() {
-    fresh "$1"; set_xcodebuild_command; status=0
-    PATH="$co/bin:$PATH" FAKE_BUILDS="$co/builds" FAKE_FAILS="$fails" FAKE_LINE="$line" FAKE_CODE="$code" \
-      "${XCODEBUILD_COMMAND[@]}" -scheme cmux build >> "$RELOAD_LOG" 2>&1 4>"$co/terminal" || status=$?
-    builds="$(wc -l < "$co/builds" | tr -d ' ')"
-  }
-  export CMUX_CI_STEP_CLASS=exclusive
-  fails=1 line="$stale" code=65; build "$measure"
-  [[ "$status" -eq 0 && "$builds" -eq 2 ]] || fail "a stale module in a measurement step: exit $status after $builds builds (want 0 after 2)"
-  [[ "$(sort -u "$co/builds")" == "-scheme cmux build" ]] || fail "the two builds did not get the build's arguments: $(cat "$co/builds")"
-  grep -q 'stale module: second build' "$RELOAD_LOG" || fail "the second build is not said in the log"
-  grep -q 'stale module: second build' "$co/terminal" || fail "the second build is not said on the terminal (fd 4)"
-  [[ ! -e "$measure/Build" && -d "$measure/SourcePackages" ]] || fail "the second build kept the stale build state or lost the packages"
-  fails=1 line="$other" code=65; build "$measure"
-  [[ "$status" -eq 65 && "$builds" -eq 1 && -d "$measure/Build/Products" ]] \
-    || fail "another build error: exit $status after $builds builds (want 65 after 1, the build state kept)"
-  if grep -q 'stale module' "$RELOAD_LOG" "$co/terminal"; then fail "another build error was said to be a stale module"; fi
-  fails=2 line="$stale" code=66; build "$measure"
-  [[ "$status" -eq 66 && "$builds" -eq 2 ]] || fail "a second failure: exit $status after $builds builds (want 66 after 2, no third build)"
-  fails=0 line="$stale" code=65; build "$measure"
-  [[ "$status" -eq 0 && "$builds" -eq 1 && -d "$measure/Build/Products" ]] || fail "a build that passed: exit $status after $builds builds"
-  fails=1 line="$stale" code=65; build "$co/elsewhere/cmux-one"
-  [[ "${XCODEBUILD_COMMAND[*]}" == xcodebuild ]] || fail "a DerivedData that is not the measurement one builds with: ${XCODEBUILD_COMMAND[*]}"
-  [[ "$status" -eq 65 && "$builds" -eq 1 && -d "$co/elsewhere/cmux-one/Build/Products" ]] \
-    || fail "a DerivedData that is not the measurement one: exit $status after $builds builds (want 65 after 1)"
-  # A person's reload (no measurement step) does not change: xcodebuild itself, once.
-  unset CMUX_CI_STEP_CLASS
-  fails=1 line="$stale" code=65; build "$measure"
-  [[ "${XCODEBUILD_COMMAND[*]}" == xcodebuild ]] || fail "a reload that is no measurement step builds with: ${XCODEBUILD_COMMAND[*]}"
-  [[ "$status" -eq 65 && "$builds" -eq 1 && -d "$measure/Build/Products" ]] \
-    || fail "a reload that is no measurement step: exit $status after $builds builds (want 65 after 1)"
-  # The helper by itself: with no fd 4 the line goes to the log only; with no command it is a usage error.
-  fresh "$measure"; status=0
-  env -i PATH="$co/bin:/usr/bin:/bin" FAKE_BUILDS="$co/builds" FAKE_FAILS=1 FAKE_LINE="$stale" FAKE_CODE=65 \
-    /bin/bash "$co/scripts/cmux-next/stale-module-second-build.sh" "$measure" "$RELOAD_LOG" xcodebuild build >> "$RELOAD_LOG" 2>&1 4>&- || status=$?
-  [[ "$status" -eq 0 && "$(wc -l < "$co/builds" | tr -d ' ')" -eq 2 ]] || fail "the helper with no fd 4: exit $status"
-  grep -q 'stale module: second build' "$RELOAD_LOG" || fail "the helper with no fd 4 did not say the second build in the log"
-  status=0
-  /bin/bash "$co/scripts/cmux-next/stale-module-second-build.sh" "$measure" "$RELOAD_LOG" >/dev/null 2>&1 || status=$?
-  [[ "$status" -eq 2 ]] || fail "the helper with no command exited $status (want 2)"
-)
-
 # The parser must record --derived-data and the tag default must go through the resolver with it.
 awk '/^    --derived-data\)/,/;;/' "$ROOT/scripts/reload.sh" | grep -q 'DERIVED_SET=1' \
   || fail "the --derived-data parser no longer sets DERIVED_SET=1"
@@ -145,24 +41,8 @@ grep -Fq 'DERIVED_DATA="$(resolve_tagged_derived_data "$TAG_SLUG" "$DERIVED_SET"
   || fail "reload.sh does not resolve the tag's DerivedData through resolve_tagged_derived_data"
 
 # cmux-debug-cli.sh must look for the tagged CLI where reload.sh built it.
-# A private folder under /tmp (short enough for a Unix socket path on macOS), never a fixed name in /tmp itself.
-tmp="$(mktemp -d /tmp/cmux-dd.XXXXXXXX)"; trap 'rm -rf "$tmp"' EXIT
-# reload.sh and the dev shim keep their tag links in the shared /tmp (/tmp/cmux-<tag>). The functions below run
-# with every /tmp path moved to this stand-in (sticky and world-writable, like /tmp), so the test never makes
-# or deletes a fixed name in the real /tmp, where another user could have planted it.
-shared="$tmp/shared-tmp"
-mkdir -p "$shared"; chmod 1777 "$shared"
-move_tmp() {
-  python3 -c '
-import re, sys
-text = sys.stdin.read()
-moved = re.sub(r"""(?<![\w.$/])/tmp(?=[/"\x27}\s]|$)""", lambda _: sys.argv[1], text, flags=re.M)
-sys.exit("no /tmp path to move") if moved == text else sys.stdout.write(moved)' "$shared"
-}
-# cmux-debug-cli.sh finds a cmux-next tag's socket in the state folder first (HOME below).
-cli_home="$tmp/cli-home"
-sock="$cli_home/.local/state/cmux/cmux-debug-ddtest-$$.sock"
-mkdir -p "$(dirname "$sock")"
+tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+sock="/tmp/cmux-debug-ddtest-$$.sock"
 command -v python3 >/dev/null || fail "python3 is required for the test listener"
 mkfifo "$tmp/ready"
 # The listener accepts until the EXIT trap kills it, and reports readiness through the FIFO.
@@ -178,13 +58,13 @@ while True:
 PY
 server=$!
 disown "$server" 2>/dev/null || true
-trap 'kill "$server" 2>/dev/null || true; rm -rf "$tmp"' EXIT
+trap 'kill "$server" 2>/dev/null || true; rm -f "$sock"; rm -rf "$tmp"' EXIT
 read -r _ < "$tmp/ready" || true
 [[ -S "$sock" ]] || fail "test socket was not created"
 cli_dir="$tmp/dd/Build/Products/Debug/cmux DEV ddtest-$$.app/Contents/Resources/bin"
 mkdir -p "$cli_dir"
 printf '#!/bin/sh\necho shared-cli "$@"\n' > "$cli_dir/cmux"; chmod +x "$cli_dir/cmux"
-out="$(HOME="$cli_home" CMUX_TAG="ddtest-$$" CMUX_DERIVED_DATA="$tmp/dd" "$ROOT/scripts/cmux-debug-cli.sh" ping 2>&1)" \
+out="$(CMUX_TAG="ddtest-$$" CMUX_DERIVED_DATA="$tmp/dd" "$ROOT/scripts/cmux-debug-cli.sh" ping 2>&1)" \
   || fail "cmux-debug-cli.sh did not find the CLI in CMUX_DERIVED_DATA: $out"
 [[ "$out" == *"shared-cli"* ]] || fail "cmux-debug-cli.sh ran something else: $out"
 
@@ -198,15 +78,12 @@ fi
 # The cmux shim must run the CLI from the DerivedData the tag was built into, even when
 # a stale build of the same tag sits in the default per-tag directory.
 tag="ddtest-$$"
-link="$shared/cmux-$tag"
-# reload.sh sources the shim writer (and its socket probe) from scripts/lib/cmux-dev-shim-install,
-# the one source of the managed shim; load it the same way. Sourcing runs no command.
-grep -Fq 'source "$SCRIPT_DIR/lib/cmux-dev-shim-install"' "$ROOT/scripts/reload.sh" \
-  || fail "reload.sh no longer sources scripts/lib/cmux-dev-shim-install"
-# shellcheck source=scripts/lib/cmux-dev-shim-install
-source "$ROOT/scripts/lib/cmux-dev-shim-install"
-declare -F write_dev_cli_shim >/dev/null || fail "write_dev_cli_shim not found in scripts/lib/cmux-dev-shim-install"
-declare -F reload_socket_is_live >/dev/null || fail "reload_socket_is_live not found in scripts/lib/cmux-dev-shim-install"
+link="/tmp/cmux-$tag"
+trap 'kill "$server" 2>/dev/null || true; rm -f "$sock" "$link" "/tmp/cmux-ddstale-$$"; rm -rf "$tmp"' EXIT
+eval "$(awk '/^reload_socket_is_live\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
+# The shim body is a heredoc with its own top-level braces, so the function ends at the first "}" after it.
+eval "$(awk '/^write_dev_cli_shim\(\) \{/ { on = 1 } on { print } on && /<<EOF$/ { doc = 1 } on && /^EOF$/ { doc = 0 } on && !doc && /^}/ { exit }' "$ROOT/scripts/reload.sh")"
+declare -F write_dev_cli_shim >/dev/null || fail "write_dev_cli_shim not found in reload.sh"
 fake_home="$tmp/home"
 stale_app="$fake_home/Library/Developer/Xcode/DerivedData/cmux-$tag/Build/Products/Debug/cmux DEV $tag.app"
 shared_app="$tmp/dd/Build/Products/Debug/cmux DEV $tag.app"
@@ -221,49 +98,36 @@ PLIST
 done
 ln -s "$tmp/dd" "$link"
 write_dev_cli_shim "$tmp/bin/cmux" "$tmp/no-fallback" "$tmp/no-pointer"
-grep -Fq '"/tmp/cmux-$TAG"/Build/Products' "$tmp/bin/cmux" || fail "the shim no longer looks for the tag's /tmp/cmux-<tag> link"
-# With no PlistBuddy (Linux) the shim takes a tag's socket from its old /tmp name; cmux-next keeps a symlink
-# there to the socket in its state folder, and so does this stand-in.
-ln -s "$sock" "$shared/cmux-debug-$tag.sock"
-move_tmp < "$tmp/bin/cmux" > "$tmp/bin/cmux.moved" || fail "could not move the shim's /tmp paths"
-mv "$tmp/bin/cmux.moved" "$tmp/bin/cmux"; chmod +x "$tmp/bin/cmux"
 out="$(env -u CMUX_SOCKET -u CMUX_SOCKET_PATH -u CMUX_BUNDLED_CLI_PATH HOME="$fake_home" \
   "$tmp/bin/cmux" --socket "$sock" ping 2>&1)" || fail "the shim found no CLI for a shared DerivedData: $out"
 [[ "$out" == "shared-cli --socket $sock ping" ]] || fail "the shim did not run the CLI built into the shared DerivedData: $out"
 
 # The cleanup reminder must name what holds the tag's build, and never a directory other tags share.
-grep -Fq 'link="/tmp/cmux-${tag}"' "$ROOT/scripts/reload.sh" || fail "reload.sh no longer keeps a tag's link at /tmp/cmux-<tag>"
-grep -Fq "find /tmp/ -maxdepth 1 -name 'cmux-*'" "$ROOT/scripts/reload.sh" || fail "the reminder no longer scans /tmp for tag links"
-eval "$(awk '/^tag_build_cleanup_paths\(\) \{/,/^}/' "$ROOT/scripts/reload.sh" | move_tmp)"
-eval "$(awk '/^print_tag_cleanup_commands\(\) \{/,/^}/' "$ROOT/scripts/reload.sh" | move_tmp)"
-# shellcheck source=scripts/lib/mobile-attach.sh
-source "$ROOT/scripts/lib/mobile-attach.sh"
-eval "$(awk '/^sanitize_bundle\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
-SCRIPT_DIR="$ROOT/scripts"
-eval "$(awk '/^print_tag_cleanup_reminder\(\) \{/,/^}/' "$ROOT/scripts/reload.sh" | move_tmp)"
+eval "$(awk '/^tag_build_cleanup_paths\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
+eval "$(awk '/^print_tag_cleanup_commands\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
+eval "$(awk '/^print_tag_cleanup_reminder\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
 sandbox="$tmp/sandbox"
 mkdir -p "$sandbox"
 # Reads this test's commands out of a reminder the way a shell would after a paste, with
-# bash (the app quit line) and rm recording their arguments, one per line, instead of
-# running.
+# pkill and rm recording their arguments, one per line, instead of running.
 reminder_args() {
   local output="$1" record="$2" line=""
   : > "$record"
   (
     cd "$sandbox"
-    bash() { printf '%s\n' "$@" >> "$record"; }
+    pkill() { printf '%s\n' "$@" >> "$record"; }
     rm() { printf '%s\n' "$@" >> "$record"; }
     while IFS= read -r line; do
       [[ "$line" == *"-$$"* ]] || continue
       case "$line" in
-        "  bash "*|"  rm "*) eval "$line" || true ;;
+        "  pkill "*|"  rm "*) eval "$line" || true ;;
       esac
     done <<< "$output"
   ) >/dev/null 2>&1 || true
 }
 has_arg() { grep -Fxq -- "$1" "$2"; }
 args="$tmp/args"
-ln -s "$tmp/dd" "$shared/cmux-ddstale-$$"
+ln -s "$tmp/dd" "/tmp/cmux-ddstale-$$"
 out="$(HOME="$fake_home" print_tag_cleanup_reminder "$tag" "$tmp/dd")"
 reminder_args "$out" "$args"
 has_arg "$shared_app" "$args" || fail "the reminder does not remove the current tag's app from the shared DerivedData: $out"
@@ -274,27 +138,15 @@ out="$(HOME="$fake_home" print_tag_cleanup_reminder "$tag" "$fake_home/Library/D
 reminder_args "$out" "$args"
 has_arg "$fake_home/Library/Developer/Xcode/DerivedData/cmux-$tag" "$args" \
   || fail "the reminder must still remove a per-tag DerivedData: $out"
-# Deleting a tag's bundle leaves its detached cmux-tui owner running from the deleted
-# executable. The reminder stops the OWNER through the bundle's own binary before any rm.
-# It never ends terminals: a pasted command cannot check that no terminal runs a job, and
-# terminals end only through their owner (never a signal); their hosts keep running.
-own_app="$fake_home/Library/Developer/Xcode/DerivedData/cmux-$tag/Build/Products/Debug/cmux DEV $tag.app"
-stop_line="$(printf '%s\n' "$out" | grep -F -- "--session cmux-app-$tag server stop" || true)"
-[[ -n "$stop_line" ]] || fail "the reminder does not stop the tag's cmux-tui owner: $out"
-[[ "$stop_line" == *"$(printf '%q' "$own_app/Contents/Resources/bin/cmux-tui")"* ]] \
-  || fail "the stop does not run the tag bundle's own cmux-tui: $stop_line"
-[[ "$out" != *"--end-terminals"* ]] || fail "the reminder must never force the tag's terminals: $out"
-first_rm="$(printf '%s\n' "$out" | grep -n '^  rm ' | head -1 | cut -d: -f1)"
-stop_at="$(printf '%s\n' "$out" | grep -nF -- "server stop" | head -1 | cut -d: -f1)"
-(( stop_at < first_rm )) || fail "the owner must be stopped before the bundle is removed: $out"
 
 # The reminder is pasted into a shell, so a path carrying shell syntax must come back out
 # as that literal path and must never run.
 evil_dd="$tmp/dd \"warm\" \$(touch pwned-subst) \`touch pwned-tick\`"
 evil_home="$tmp/home \"two\" \$(touch pwned-home)"
-evil_tag_dir="$shared/cmux-ddbad-$$-\$(touch pwned-tag)"
+evil_tag_dir="/tmp/cmux-ddbad-$$-\$(touch pwned-tag)"
+trap 'kill "$server" 2>/dev/null || true; rm -f "$sock" "$link" "/tmp/cmux-ddstale-$$" "/tmp/cmux-ddevil-$$"; rm -rf "$tmp" "$evil_tag_dir"' EXIT
 mkdir -p "$evil_dd/Build/Products/Debug" "$evil_tag_dir/Build/Products/Debug"
-ln -s "$evil_dd" "$shared/cmux-ddevil-$$"
+ln -s "$evil_dd" "/tmp/cmux-ddevil-$$"
 out="$(HOME="$evil_home" print_tag_cleanup_reminder "$tag" "$evil_dd")"
 reminder_args "$out" "$args"
 pwned="$(cd "$sandbox" && ls)"
@@ -305,20 +157,7 @@ has_arg "$evil_dd/Build/Products/Debug/cmux DEV ddevil-$$.app" "$args" \
   || fail "a stale tag's app behind a symlink target with shell syntax does not parse back to its path: $out"
 has_arg "$evil_home/Library/Application Support/cmux/cmuxd-dev-$tag.sock" "$args" \
   || fail "a HOME with shell syntax does not parse back to its path: $out"
-has_arg "cmux DEV $tag.app/Contents/MacOS/cmux DEV" "$args" || fail "the app quit line does not parse back to the app's executable: $out"
-has_arg "com.cmuxterm.app.debug.$(sanitize_bundle "$tag")" "$args" || fail "the app quit line does not name the tag's bundle id: $out"
-# Never a pattern kill (rule c, cx-6so.49): the reminder quits the app through
-# cmux_stop_app_instances, which signals exact PIDs only.
-! printf '%s\n' "$out" | grep -Eq '(^|[[:space:];&|(])(pkill|killall)[[:space:]]' \
-  || fail "the reminder must never pkill or killall: $out"
-quit_line="$(printf '%s\n' "$out" | grep -F 'cmux_stop_app_instances' | head -1)"
-[[ -n "$quit_line" ]] || fail "the reminder does not quit the app through cmux_stop_app_instances: $out"
-spy="$tmp/spy"; mkdir -p "$spy"
-for tool in pkill killall; do
-  printf '#!/bin/sh\necho %s "$@" >> %q\n' "$tool" "$tmp/signals" > "$spy/$tool"; chmod +x "$spy/$tool"
-done
-(cd "$sandbox" && PATH="$spy:$PATH" eval "$quit_line") >/dev/null 2>&1 || true
-[[ ! -s "$tmp/signals" ]] || fail "the app quit line ran pkill or killall: $(cat "$tmp/signals")"
+has_arg "cmux DEV $tag.app/Contents/MacOS/cmux DEV" "$args" || fail "the pkill pattern does not parse back to the app's process: $out"
 [[ "$out" != *"pwned-tag"* ]] || fail "the reminder offers cleanup for a /tmp name that is not a tag slug: $out"
 
 echo "PASS: reload.sh shared DerivedData default"

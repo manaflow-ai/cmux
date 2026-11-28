@@ -163,6 +163,7 @@ copy_fixture() {
 }
 
 copy_fixture "$repo_root/web/public/blog/cmd-shift-u.mp4" "CMUX Sample Video.mp4"
+copy_fixture "$repo_root/vendor/bonsplit/www/public/demo-compressed.mov" "Bonsplit Sample Video.mov"
 copy_fixture "$repo_root/web/public/avatars/schrockn.jpg" "Sample JPEG Fixture.jpg"
 
 printf 'cmux cmd-click file preview fixtures\n'
@@ -181,7 +182,8 @@ for file in \
   "Data Fixture.json" \
   "Table Fixture.csv" \
   "Generated Audio Fixture.wav" \
-  "CMUX Sample Video.mp4"; do
+  "CMUX Sample Video.mp4" \
+  "Bonsplit Sample Video.mov"; do
   path="$fixture_dir/$file"
   if [[ -f "$path" ]]; then
     paths+=("$path")
@@ -191,7 +193,7 @@ done
 
 if command -v swift >/dev/null 2>&1 && ((${#paths[@]} > 0)); then
   printf '\nmacOS external app detection:\n'
-  swift - ${paths[@]+"${paths[@]}"} <<'SWIFT'
+  swift - "${paths[@]}" <<'SWIFT'
 import AppKit
 import Foundation
 

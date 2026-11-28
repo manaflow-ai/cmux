@@ -19,7 +19,6 @@ it builds its own scratch HOME, its own unix socket, and unique panel ids.
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import select
 import shutil
@@ -33,10 +32,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ZSH_INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-zsh-integration.zsh"
-# tests/process_gone.py by path: `python3 -I` puts no script folder on sys.path.
-_process_gone_spec = importlib.util.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
-process_gone = importlib.util.module_from_spec(_process_gone_spec)
-_process_gone_spec.loader.exec_module(process_gone)
 
 # Start identities are epoch seconds from both Darwin providers.
 FAKE_START_TIME = "1000000000"
@@ -78,13 +73,22 @@ def run_shell(
 
 
 def pid_alive(pid: int) -> bool:
-    """PID is live now: not gone and not a zombie."""
-    return process_gone.running(pid)
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
 
 
 def wait_pid_gone(pid: int, deadline_s: float) -> bool:
-    """PID has exited (a zombie not reaped yet counts) within DEADLINE_S seconds."""
-    return process_gone.died(pid, within=deadline_s)
+    deadline = time.time() + deadline_s
+    while time.time() < deadline:
+        if not pid_alive(pid):
+            return True
+        time.sleep(0.2)
+    return not pid_alive(pid)
 
 
 def wait_ready(read_fd: int, expected: int = 1, timeout_s: float = 5.0) -> bool:

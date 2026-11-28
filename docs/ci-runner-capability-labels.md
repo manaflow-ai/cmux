@@ -94,7 +94,7 @@ proposed for a requirement no job has.
 | `x86_64` | Intel silicon | `ci-macos-compat.yml`'s `macos-15-intel` leg, the only job in the tree that needs it | the bare hosted labels the guard exempts by exact line |
 | `sdk-15` | carries an SDK 15 Xcode *alongside* the pinned one | `swift-package-tests`, which pins `CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15` for the Release helper and then asserts `HELPER_SDK_VERSION == 15.*` | `MACOS_RUNNER_DUAL_XCODE` |
 | `gui` | a foreground Aqua login session, not just a macOS shell | `tests-build-and-lag` (XCUITest, virtual display) | `MACOS_RUNNER_DISPLAY` |
-| `ios-simulator` | installed iOS runtimes and a working `simctl` | `test-ios.yml`, `ios-testflight.yml`, `ios-screenshots.yml`, `ios-app-store.yml`, `iroh-v2.yml` | `MACOS_RUNNER_IOS` |
+| `ios-simulator` | installed iOS runtimes and a working `simctl` | `test-ios.yml`, `ios-screenshots.yml`, `ios-app-store.yml`, `iroh-v2.yml` | `MACOS_RUNNER_IOS` |
 | `macos-large` | the larger machine tier: more vCPU, memory and disk | the changed-revision universal Nightly build | `MACOS_RUNNER_26_LARGE` |
 
 Plus `self-hosted`, which GitHub requires as the first element of a

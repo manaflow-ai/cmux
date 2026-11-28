@@ -21,20 +21,14 @@ use tokio::sync::{Semaphore, oneshot, watch};
 use tokio::task::JoinSet;
 
 use crate::daemon::RemoteDaemon;
-use crate::identity::{BoundDevice, EnrollmentRelayAccess, IdentityError};
-use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup, UnixSocketError};
+use crate::identity::{EnrollmentRelayAccess, IdentityError};
+use crate::unix_socket::{
+    OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup, UnixSocketError,
+};
 
 const MAX_ADMIN_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_ADMIN_CONNECTIONS: usize = 32;
 const ADMIN_IO_TIMEOUT: Duration = Duration::from_secs(5);
-
-mod link;
-mod mux_binding;
-pub use link::{
-    LINK_AWAIT_LIMIT, LinkStatus, link_admin_socket, serve_link_admin, serve_link_cell_admin,
-    serve_link_cell_admin_with_ports,
-};
-pub use mux_binding::{MuxBinding, verify_mux_binding};
 
 /// Failure to authenticate the process on the other end of a Unix socket.
 #[derive(Debug)]
@@ -86,8 +80,6 @@ fn effective_uid() -> u32 {
 #[serde(tag = "method", rename_all = "kebab-case")]
 pub enum AdminRequest {
     Status,
-    /// Read the running service's immutable mux destination, never a state-file claim.
-    MuxBinding,
     CreateInvitation {
         #[serde(default = "default_invitation_ttl")]
         ttl_seconds: u64,
@@ -95,14 +87,6 @@ pub enum AdminRequest {
         route_hints: Vec<String>,
         #[serde(default)]
         relay_access: Vec<EnrollmentRelayAccess>,
-        /// Bind the invitation to this device public key (as `cmux remote
-        /// device-key` prints it): only that key can claim it, and it enrolls
-        /// with no approval step. Absent from older admin clients.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        device_public_key: Option<String>,
-        /// The bound device's name in the device list; only with a key.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        device_name: Option<String>,
     },
     Pending,
     Approve {
@@ -123,32 +107,6 @@ pub enum AdminRequest {
     Shutdown,
     ShutdownLifecycle {
         lifecycle_id: String,
-    },
-    /// The link's state. Served only by a link's own socket ([`serve_link_admin`]).
-    LinkState,
-    /// Wait until the link is connected or `within_ms` passes; the answer is the state, `down`
-    /// with the reason past the deadline. Served only by a link's own socket.
-    AwaitReady {
-        within_ms: u64,
-    },
-    /// Forward the machine's loopback `host:port` (host default 127.0.0.1) to 127.0.0.1 and a
-    /// port this computer picks ([`crate::link_ports::LinkPorts`]). Served only by a link's own
-    /// socket; the answer is a [`crate::link_ports::LinkForward`].
-    PortForward {
-        port: u16,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        host: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        workspace_root: Option<String>,
-    },
-    /// The link's forwards ([`crate::link_ports::LinkForwards`]). Served only by a link's socket.
-    PortList,
-    /// Stop forwarding the machine's `host:port` ([`crate::link_ports::LinkForwardClosed`]).
-    /// Served only by a link's own socket.
-    PortClose {
-        port: u16,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        host: Option<String>,
     },
 }
 
@@ -243,25 +201,6 @@ pub async fn serve_admin_with_shutdown(
     lifecycle_id: Option<String>,
     owner_shutdown: Option<watch::Sender<bool>>,
 ) -> Result<AdminServer, AdminError> {
-    serve_admin_with_mux_binding(
-        daemon,
-        path,
-        default_route_hints,
-        lifecycle_id,
-        owner_shutdown,
-        None,
-    )
-    .await
-}
-
-pub async fn serve_admin_with_mux_binding(
-    daemon: Arc<RemoteDaemon>,
-    path: impl Into<PathBuf>,
-    default_route_hints: Vec<String>,
-    lifecycle_id: Option<String>,
-    owner_shutdown: Option<watch::Sender<bool>>,
-    mux_binding: Option<MuxBinding>,
-) -> Result<AdminServer, AdminError> {
     let path = path.into();
     let listener = OwnedUnixListener::bind(path.clone()).await.map_err(|error| match error {
         UnixSocketError::Io(error) => AdminError::Io(error),
@@ -273,7 +212,7 @@ pub async fn serve_admin_with_mux_binding(
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_ADMIN_CONNECTIONS));
     let task = tokio::spawn(async move {
-        let mut accept_backoff = crate::unix_socket::accept_backoff();
+        let mut accept_backoff = UnixAcceptBackoff::new();
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -289,7 +228,7 @@ pub async fn serve_admin_with_mux_binding(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = cmux_tui_util::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
+                            let Some(delay) = accept_backoff.retry_delay(&error) else {
                                 if let Some(owner_shutdown) = &owner_shutdown {
                                     let _ = owner_shutdown.send(true);
                                 }
@@ -318,7 +257,6 @@ pub async fn serve_admin_with_mux_binding(
                     let default_route_hints = default_route_hints.clone();
                     let lifecycle_id = lifecycle_id.clone();
                     let owner_shutdown = owner_shutdown.clone();
-                    let mux_binding = mux_binding.clone();
                     connections.spawn(async move {
                         let _permit = permit;
                         let _ = serve_connection(
@@ -326,7 +264,6 @@ pub async fn serve_admin_with_mux_binding(
                             default_route_hints,
                             lifecycle_id,
                             owner_shutdown,
-                            mux_binding,
                             stream,
                         )
                         .await;
@@ -407,6 +344,13 @@ impl LinuxProcStat {
     }
 }
 
+#[cfg(all(test, target_os = "linux"))]
+std::thread_local! {
+    static FORCE_PIDFD_UNAVAILABLE: std::cell::Cell<bool> = const {
+        std::cell::Cell::new(false)
+    };
+}
+
 impl UnixPeerProcessExit {
     #[cfg(target_os = "linux")]
     fn observe(pid: libc::pid_t) -> io::Result<Self> {
@@ -424,6 +368,10 @@ impl UnixPeerProcessExit {
 
     #[cfg(target_os = "linux")]
     fn open_pidfd(pid: libc::pid_t) -> io::Result<OwnedFd> {
+        #[cfg(test)]
+        if FORCE_PIDFD_UNAVAILABLE.with(std::cell::Cell::get) {
+            return Err(io::Error::from_raw_os_error(libc::ENOSYS));
+        }
         let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
         if descriptor < 0 {
             return Err(io::Error::last_os_error());
@@ -636,6 +584,17 @@ fn parse_linux_proc_stat(contents: &[u8]) -> io::Result<LinuxProcStat> {
     Ok(LinuxProcStat { state, start_time })
 }
 
+#[cfg(test)]
+async fn call_admin_with_expected_uid(
+    path: impl AsRef<Path>,
+    request: &AdminRequest,
+    expected_uid: u32,
+) -> Result<AdminResponse, AdminError> {
+    let stream = UnixStream::connect(path).await?;
+    verify_unix_peer_uid(&stream, expected_uid)?;
+    call_admin_over_stream(stream, request).await
+}
+
 async fn call_admin_over_stream(
     mut stream: UnixStream,
     request: &AdminRequest,
@@ -650,14 +609,11 @@ async fn call_admin_over_stream(
     // daemon's one-response close and return ENOTCONN on macOS.
     let mut reader = BufReader::new(stream);
     let mut response = Vec::new();
-    let size = tokio::time::timeout(
-        link::response_timeout(request),
+    let size = timeout_admin_io(
+        "reading admin response",
         read_bounded_admin_message(&mut reader, &mut response),
     )
-    .await
-    .map_err(|_| {
-        AdminError::Io(io::Error::new(io::ErrorKind::TimedOut, "timed out reading admin response"))
-    })??;
+    .await?;
     if size == 0 {
         return Err(AdminError::Protocol("daemon closed the admin connection".into()));
     }
@@ -672,7 +628,6 @@ async fn serve_connection(
     default_route_hints: Vec<String>,
     lifecycle_id: Option<String>,
     owner_shutdown: Option<watch::Sender<bool>>,
-    mux_binding: Option<MuxBinding>,
     stream: UnixStream,
 ) -> Result<(), AdminError> {
     let (reader, mut writer) = stream.into_split();
@@ -695,7 +650,6 @@ async fn serve_connection(
                     &default_route_hints,
                     lifecycle_id.as_deref(),
                     owner_shutdown.as_ref(),
-                    mux_binding.as_ref(),
                     request,
                 )
                 .await
@@ -750,74 +704,40 @@ async fn dispatch(
     default_route_hints: &[String],
     lifecycle_id: Option<&str>,
     owner_shutdown: Option<&watch::Sender<bool>>,
-    mux_binding: Option<&MuxBinding>,
     request: AdminRequest,
 ) -> AdminResponse {
     let auth = daemon.auth();
     let result: Result<Value, IdentityError> = match request {
-        AdminRequest::MuxBinding => mux_binding
-            .ok_or_else(|| IdentityError::Invalid("mux binding is unavailable".into()))
-            .and_then(|binding| serde_json::to_value(binding).map_err(IdentityError::Json)),
-        AdminRequest::Status => serde_json::to_value(DaemonStatus {
+        AdminRequest::Status => Ok(serde_json::to_value(DaemonStatus {
             daemon_name: auth.daemon_name().to_string(),
             daemon_fingerprint: auth.identity().fingerprint(),
             connected_clients: daemon.connections().await.len(),
         })
-        .map_err(IdentityError::Json),
-        AdminRequest::CreateInvitation {
-            ttl_seconds,
-            route_hints,
-            relay_access,
-            device_public_key,
-            device_name,
-        } => {
-            let bound_device = match (device_public_key, device_name) {
-                (Some(key), name) => BoundDevice::parse(&key, name).map(Some),
-                (None, Some(_)) => Err(IdentityError::Invalid(
-                    "a device name needs the device public key it names".into(),
-                )),
-                (None, None) => Ok(None),
-            };
-            match bound_device {
-                Ok(bound_device) => auth
-                    .create_invitation_for_device(
-                        Duration::from_secs(ttl_seconds),
-                        if route_hints.is_empty() {
-                            default_route_hints.to_vec()
-                        } else {
-                            route_hints
-                        },
-                        relay_access,
-                        bound_device,
-                    )
-                    .await
-                    .and_then(|invitation| invitation.to_uri())
-                    .map(|uri| serde_json::json!({ "uri": uri })),
-                Err(error) => Err(error),
-            }
-        }
-        AdminRequest::Pending => {
-            serde_json::to_value(auth.pending_enrollments().await).map_err(IdentityError::Json)
-        }
+        .expect("daemon status is serializable")),
+        AdminRequest::CreateInvitation { ttl_seconds, route_hints, relay_access } => auth
+            .create_invitation_with_relay_access(
+                Duration::from_secs(ttl_seconds),
+                if route_hints.is_empty() { default_route_hints.to_vec() } else { route_hints },
+                relay_access,
+            )
+            .await
+            .and_then(|invitation| invitation.to_uri())
+            .map(|uri| serde_json::json!({ "uri": uri })),
+        AdminRequest::Pending => Ok(serde_json::to_value(auth.pending_enrollments().await)
+            .expect("pending enrollments are serializable")),
         AdminRequest::Approve { invitation_id } => auth
             .approve(&invitation_id)
             .await
-            .and_then(|record| serde_json::to_value(record).map_err(IdentityError::Json)),
+            .map(|record| serde_json::to_value(record).expect("device record is serializable")),
         AdminRequest::Deny { invitation_id } => {
             auth.deny(&invitation_id).await.map(|()| serde_json::json!({}))
         }
-        AdminRequest::Devices => {
-            serde_json::to_value(auth.list_devices().await).map_err(IdentityError::Json)
-        }
-        AdminRequest::Connections => {
-            serde_json::to_value(daemon.connection_snapshots().await).map_err(IdentityError::Json)
-        }
+        AdminRequest::Devices => Ok(serde_json::to_value(auth.list_devices().await)
+            .expect("device records are serializable")),
+        AdminRequest::Connections => Ok(serde_json::to_value(daemon.connection_snapshots().await)
+            .expect("connection snapshots are serializable")),
         AdminRequest::Revoke { device_id } => {
-            // The revoked device's record (name, fingerprint, revoked_at_unix):
-            // an older client printed the reply as is, and `{}` said nothing.
-            auth.revoke(&device_id)
-                .await
-                .and_then(|record| serde_json::to_value(record).map_err(IdentityError::Json))
+            auth.revoke(&device_id).await.map(|()| serde_json::json!({}))
         }
         AdminRequest::Disconnect { device_id, session_id } => {
             match SessionId::from_hex(&session_id) {
@@ -836,13 +756,6 @@ async fn dispatch(
         AdminRequest::Shutdown => request_shutdown(lifecycle_id, None, owner_shutdown),
         AdminRequest::ShutdownLifecycle { lifecycle_id: requested_lifecycle_id } => {
             request_shutdown(lifecycle_id, Some(&requested_lifecycle_id), owner_shutdown)
-        }
-        AdminRequest::LinkState
-        | AdminRequest::AwaitReady { .. }
-        | AdminRequest::PortForward { .. }
-        | AdminRequest::PortList
-        | AdminRequest::PortClose { .. } => {
-            Err(IdentityError::Invalid("link requests are served by a link's own socket".into()))
         }
     };
     match result {
@@ -902,18 +815,7 @@ pub enum AdminError {
 impl fmt::Display for AdminError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io(error) => {
-                write!(formatter, "admin socket failed: {error}")?;
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
-                ) {
-                    formatter.write_str(
-                        "; no remote daemon answers there. Start one with `cmux daemon start --remote-ws 127.0.0.1:PORT`, or name the one that runs with `--session NAME` or `--state-dir PATH`",
-                    )?;
-                }
-                Ok(())
-            }
+            Self::Io(error) => write!(formatter, "admin socket failed: {error}"),
             Self::Json(error) => write!(formatter, "admin JSON failed: {error}"),
             Self::Protocol(message) => write!(formatter, "admin protocol failed: {message}"),
             Self::MessageTooLarge(size) => write!(formatter, "admin message is too large: {size}"),
@@ -947,24 +849,15 @@ impl From<UnixPeerAuthError> for AdminError {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn a_missing_admin_socket_names_the_next_command() {
-        let gone = AdminError::Io(io::Error::from(io::ErrorKind::NotFound)).to_string();
-        assert!(gone.starts_with("admin socket failed: "), "{gone}");
-        assert!(gone.contains("cmux daemon start --remote-ws"), "{gone}");
-        assert!(gone.contains("--session NAME"), "{gone}");
-        let denied = AdminError::Io(io::Error::from(io::ErrorKind::PermissionDenied)).to_string();
-        assert!(!denied.contains("cmux daemon start"), "{denied}");
-    }
-
     use tempfile::tempdir;
-    use tokio::io::AsyncWriteExt;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixListener;
     use tokio::time::{Duration as TokioDuration, timeout};
 
     use super::*;
     use crate::identity::AuthDatabase;
     use crate::session::SessionLimits;
+    use crate::unix_socket::TestFileDescriptorExhaustion;
 
     #[test]
     fn admin_listener_retries_recoverable_accept_errors() {
@@ -979,6 +872,37 @@ mod tests {
             .unwrap();
 
         assert!(status.success(), "admin listener stopped after a recoverable accept error");
+    }
+
+    #[tokio::test]
+    async fn admin_listener_accept_exhaustion_fixture() {
+        if std::env::var_os("CMUX_TEST_ADMIN_ACCEPT_EXHAUSTION").is_none() {
+            return;
+        }
+
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(
+            directory.path().join("state"),
+            "accept-retry-admin",
+            true,
+        )
+        .unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("admin.sock");
+        let server = serve_admin(daemon, &socket, Vec::new()).await.unwrap();
+        let _queued = std::os::unix::net::UnixStream::connect(&socket).unwrap();
+        let mut exhaustion = TestFileDescriptorExhaustion::exhaust();
+
+        tokio::time::sleep(TokioDuration::from_millis(75)).await;
+        exhaustion.restore();
+
+        let response =
+            timeout(TokioDuration::from_secs(2), call_admin(&socket, &AdminRequest::Status))
+                .await
+                .expect("admin listener never retried after file-descriptor exhaustion")
+                .unwrap();
+        assert!(response.ok);
+        server.shutdown().await.unwrap();
     }
 
     #[tokio::test]
@@ -1017,71 +941,12 @@ mod tests {
                 ttl_seconds: 60,
                 route_hints: vec![],
                 relay_access: vec![],
-                device_public_key: None,
-                device_name: None,
             },
         )
         .await
         .unwrap();
         assert!(invitation.ok);
         assert!(invitation.result.unwrap()["uri"].as_str().unwrap().starts_with("cmux://enroll/"));
-        server.shutdown().await.unwrap();
-    }
-
-    #[test]
-    fn an_older_admin_client_create_request_has_no_device_binding() {
-        let request: AdminRequest =
-            serde_json::from_str(r#"{"method":"create-invitation","ttl_seconds":60}"#).unwrap();
-        assert!(matches!(
-            request,
-            AdminRequest::CreateInvitation { device_public_key: None, device_name: None, .. }
-        ));
-        let unbound = AdminRequest::CreateInvitation {
-            ttl_seconds: 60,
-            route_hints: vec![],
-            relay_access: vec![],
-            device_public_key: None,
-            device_name: None,
-        };
-        let encoded = serde_json::to_value(&unbound).unwrap();
-        assert!(encoded.get("device_public_key").is_none(), "{encoded}");
-    }
-
-    #[tokio::test]
-    async fn owner_can_create_an_invitation_bound_to_one_device() {
-        let directory = tempdir().unwrap();
-        let auth =
-            AuthDatabase::load_or_create(directory.path().join("state"), "test", false).unwrap();
-        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
-        let socket = directory.path().join("admin.sock");
-        let server =
-            serve_admin(daemon, &socket, vec!["ws://127.0.0.1:1/v1/link".into()]).await.unwrap();
-        let device = crate::crypto::StaticIdentity::generate().unwrap();
-        let device_key = base64::Engine::encode(
-            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-            device.public_key(),
-        );
-        let create = |device_public_key: Option<String>, device_name: Option<String>| {
-            AdminRequest::CreateInvitation {
-                ttl_seconds: 60,
-                route_hints: vec![],
-                relay_access: vec![],
-                device_public_key,
-                device_name,
-            }
-        };
-
-        let bound =
-            call_admin(&socket, &create(Some(device_key), Some("agent-vm".into()))).await.unwrap();
-        assert!(bound.ok, "{:?}", bound.error);
-        let uri = bound.result.unwrap()["uri"].as_str().unwrap().to_owned();
-        assert!(!crate::identity::EnrollmentInvitation::from_uri(&uri).unwrap().approval_required);
-
-        let unnamed_key =
-            call_admin(&socket, &create(None, Some("agent-vm".into()))).await.unwrap();
-        assert!(!unnamed_key.ok);
-        let bad_key = call_admin(&socket, &create(Some("short".into()), None)).await.unwrap();
-        assert!(!bad_key.ok);
         server.shutdown().await.unwrap();
     }
 
@@ -1296,5 +1161,78 @@ mod tests {
 
         assert_eq!(response.error.as_deref(), Some("admin response is too large"));
         server.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn exact_maximum_response_payload_is_accepted_before_decode() {
+        let empty = AdminResponse::failure("");
+        let fixed_bytes = serde_json::to_vec(&empty).unwrap().len();
+        let expected =
+            AdminResponse::failure("x".repeat(MAX_ADMIN_MESSAGE_BYTES - fixed_bytes - 1));
+        let mut encoded = serde_json::to_vec(&expected).unwrap();
+        assert_eq!(encoded.len() + 1, MAX_ADMIN_MESSAGE_BYTES);
+        encoded.push(b'\n');
+        let (client, server) = UnixStream::pair().unwrap();
+        let responder = tokio::spawn(async move {
+            let (reader, mut writer) = server.into_split();
+            let mut reader = BufReader::new(reader);
+            let mut request = Vec::new();
+            reader.read_until(b'\n', &mut request).await.unwrap();
+            writer.write_all(&encoded).await.unwrap();
+        });
+
+        let actual = call_admin_over_stream(client, &AdminRequest::Status).await.unwrap();
+
+        assert_eq!(actual, expected);
+        responder.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn client_rejects_wrong_uid_responder_before_writing_request() {
+        let directory = tempdir().unwrap();
+        let socket = directory.path().join("impostor-admin.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let responder = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut byte = [0_u8; 1];
+            timeout(TokioDuration::from_secs(1), stream.read(&mut byte))
+                .await
+                .expect("admin client kept the rejected connection open")
+                .unwrap()
+        });
+        let wrong_uid = unsafe { libc::geteuid() }.wrapping_add(1);
+
+        let error = call_admin_with_expected_uid(&socket, &AdminRequest::Status, wrong_uid)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, AdminError::UnauthorizedPeer(_)));
+        assert_eq!(responder.await.unwrap(), 0, "admin request leaked to the wrong-uid responder");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn peer_exit_observer_falls_back_when_pidfd_is_unavailable() {
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "sleep 30"])
+            .spawn()
+            .expect("could not start fallback process fixture");
+        FORCE_PIDFD_UNAVAILABLE.with(|forced| forced.set(true));
+        let observer = UnixPeerProcessExit::observe(child.id() as libc::pid_t);
+        FORCE_PIDFD_UNAVAILABLE.with(|forced| forced.set(false));
+
+        let mut observer =
+            observer.expect("pidfd unavailability disabled remote daemon process fencing");
+        assert!(!observer.has_exited().unwrap());
+        child.kill().unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !observer.has_exited().unwrap() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "procfs fallback did not observe process exit"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        child.wait().unwrap();
     }
 }

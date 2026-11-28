@@ -1,488 +1,79 @@
 name: iOS reliability matrix
 
-# The iOS connectivity and reliability matrix
-# (cmux-next-ios/reliability-matrix/cells.json): network, app state, host side,
-# scale and pairing cells, each with a small and a degenerate ("god") variant
-# held to 1.2x of the small one. Pattern page: cmuxterm-hq
-# docs/handbook/patterns/ios-connectivity-matrix.md.
-#
-# - protocol (Linux): every test of the cmux-next-ios/rust workspace, which no
-#   other job ran: the link suites (roaming, loopback, hybrid, media), the
-#   host suites and the matrix cells in
-#   cmux-mobile-host/tests/reliability_matrix.rs (real Link, real host
-#   services, fake daemon, a toxic pipe for latency, loss and outages).
-# - ios (an owned simulator mini, iOS simulator): the phone's cells in
-#   CmuxMobileLiveTests/ConnectivityMatrixTests.swift and the existing tests
-#   the catalog names (link recovery, cached lists), and the terminal
-#   projection's resize harness on the phone (TerminalProjectionResizeHarnessTests).
-#   Nightly and dispatched runs also run the TickHarness cells
-#   (CmuxMobileLiveTests/TickHarnessCellsTests, CMUX_TICK_HARNESS=1) in an
-#   xcodebuild of their own; pull requests skip them.
-# - report: one table in the run summary (scripts/ci/ios_reliability_matrix.py);
-#   it fails when a cell marked `gate: true` fails. Nightly runs the same full
-#   matrix on feat-cmux-next.
-# A feat-cmux-next pull request runs the matrix as steps of ci/steps.toml (CI v2 step 11): the protocol cells as
-# the linux job's `ios-matrix-protocol`, the phone cells as the ios job's `ios-phone-cells`, each with its suite's
-# report. A merge runs the same steps in the post-merge batch (cmux-next-post-merge.yml: suite pr-pipeline-linux
-# for the protocol cells, suite pr-pipeline-ios for the phone cells), whose judge bisects a red to its commit. This
-# workflow keeps the nightly (the full matrix, TickHarness cells included) and the dispatch.
+# The iOS connectivity and reliability matrix runs from feat-cmux-next's
+# ios-reliability-matrix.yml (#40289): Linux protocol cells, iOS simulator
+# cells and one report. GitHub runs a schedule, and registers a dispatch, only
+# from the default branch, so this file is on main too. Here the nightly cron
+# (08:17 UTC) runs job start, which dispatches the workflow on feat-cmux-next.
+# That dispatch runs feat-cmux-next's own file (event workflow_dispatch, branch
+# feat-cmux-next), never this one, so this file holds no matrix jobs to drift
+# from it. A dispatch on main does nothing.
 on:
   schedule:
-    # Nightly, full matrix (08:17Z).
     - cron: "17 8 * * *"
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
+# At most one queued run: a newer schedule run replaces a pending one.
 concurrency:
-  # A dispatch (main's nightly cron) or a schedule gets a group of its own: with
-  # cancel-in-progress false, GitHub still cancels a run pending in a group when a newer
-  # one joins it, so a nightly queued behind a running push run would be dropped by the
-  # next push (cmux-next-ios-kit.yml's nightly 43572826977, 2026-11-14).
-  group: ios-reliability-matrix-${{ github.ref }}${{ contains(fromJSON('["workflow_dispatch","schedule"]'), github.event_name) && format('-nightly-{0}', github.run_id) || '' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ios-reliability-matrix
+  cancel-in-progress: false
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
-  CARGO_TERM_COLOR: never
 
 jobs:
-  # Pick an idle owned Mac with an iOS simulator with the phone-cells lane of
-  # scripts/ci/ios_runner_pool.py (one simulator job on one Mac; when the
-  # pool's simulator runners are full, a mini's sim-first runner with a free
-  # simulator), then fall back to Blacksmith on retries. The markers let the
-  # pool charge this run's simulator while it holds one.
-  runner:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
-    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+  # No secrets: it only dispatches this workflow on feat-cmux-next.
+  start:
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'schedule'
     permissions:
+      actions: write # dispatch ios-reliability-matrix.yml
       contents: read
-      actions: read
-    outputs:
-      runs_on: ${{ steps.pool.outputs.runs_on }}
-      retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
-      label: ${{ steps.pool.outputs.label }}
-      persistent: ${{ steps.pool.outputs.persistent }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          sparse-checkout: |
-            scripts/ci/ios_runner_pool.py
-            scripts/ci/e2e_runner_pool.py
-            scripts/ci/pr_runner_pool.py
-            scripts/ci/github_spend.py
-            scripts/ci/simple_pool_picker.py
-            scripts/ci/deadline_http.py
-            scripts/ci/warm_distance.py
-            .gitmodules
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-      - name: Mint the owned-pool routing token
-        id: route-token
-        if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-administration: read
-          # Queue, job and capacity-snapshot reads use this App's quota.
-          permission-actions: read
-          permission-organization-self-hosted-runners: read
-      - name: Mint the repository routing token
-        id: route-token-repo
-        if: steps.route-token.outcome == 'failure'
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-administration: read
-          permission-actions: read
-      - name: Pick the macOS pool
-        id: pool
-        env:
-          # The overflow switch the granted default reads (ios_runner_pool.py granted_default()).
-          CI_OVERFLOW_MAC: ${{ vars.CI_OVERFLOW_MAC }}
-          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
-          FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-          RUNNER_VARIABLE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
-          IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
-          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
-          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
-          PR_XCODE_APP: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
-          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
-          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/ios_runner_pool.py \
-            --lane phone-cells --fork "$FORK_PULL_REQUEST" --requested auto \
-            --variable "$RUNNER_VARIABLE" --ios-owned "$IOS_OWNED" --owned "$POOL_OWNED" \
-            --owned-slots "$OWNED_SLOTS" --pr-xcode-app "$PR_XCODE_APP" --order "$POOL_ORDER" \
-            --max-queued "$POOL_MAX_QUEUED" --queue-rounds 0 \
-            --device-family iphone | tee -a "$GITHUB_OUTPUT"
-      - name: Create the owned-pool marker
-        id: marker
-        if: steps.pool.outputs.persistent == 'true' && github.run_attempt == 1
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          marker="$RUNNER_TEMP/macos-pool-persistent.json"
-          echo '{}' > "$marker"
-          echo "path=$marker" >> "$GITHUB_OUTPUT"
-      - name: Upload the persistent pool marker
-        if: steps.marker.outputs.path != ''
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
-          path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
-      - name: Upload the simulator capacity marker
-        if: steps.marker.outputs.path != ''
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-glaeda-ios-sim
-          path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
-      - name: Upload the owned-pool watch marker
-        if: steps.marker.outputs.path != ''
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: owned-pool-watch
-          path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
-
-  # Which jobs a pull request can affect. The protocol cells run the Rust workspace only, so a
-  # pull request that changes nothing but the phone's Swift sources and tests (CmuxMobileKit/)
-  # skips them: they measured 6.5-11 runner-minutes a run on changes that cannot reach them.
-  # Every other event (push, nightly, dispatch) runs everything.
-  scope:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 3
-    outputs:
-      protocol: ${{ steps.scope.outputs.protocol }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          fetch-depth: 2
-          sparse-checkout: |
-            .github
-            .gitmodules
-          sparse-checkout-cone-mode: false
-      - name: Does the protocol suite see this change
-        id: scope
-        env:
-          EVENT: ${{ github.event_name }}
-        run: |
-          set -uo pipefail
-          protocol=true
-          # A pull request's checkout is the merge commit: HEAD^1 is the base, so the diff is the change.
-          if [ "$EVENT" = pull_request ] && files="$(git diff --name-only HEAD^1 HEAD 2>/dev/null)" && [ -n "$files" ]; then
-            # Anything the workflow's path filter admits that is not the phone's Swift (CmuxMobileKit/) can reach the Rust workspace.
-            if ! printf '%s\n' "$files" | grep -qvE '^cmux-next-ios/CmuxMobileKit/'; then
-              protocol=false
-            fi
-          fi
-          echo "protocol=$protocol" >> "$GITHUB_OUTPUT"
-          echo "protocol cells: $protocol"
-
-  protocol:
-    needs: [scope]
-    if: ${{ !cancelled() && needs.scope.outputs.protocol != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
-    name: protocol cells (Linux)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ github.event_name == 'schedule' && 'feat-cmux-next' || '' }}
-
-      - name: Set up pinned Rust
-        uses: ./.github/actions/setup-cmux-tui-rust
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
-          add-rust-environment-hash-key: false
-          cache-bin: false
-          workspaces: cmux-next-ios/rust
-          # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the
-          # first save was restored forever and its stale third-party crates rebuilt on every run (2026-11-24).
-          key: ios-reliability-matrix-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-next-ios/rust/Cargo.lock', '.cargo/config.toml') }}
-
-      - name: cargo test (cmux-next-ios/rust workspace, matrix cells included)
-        working-directory: cmux-next-ios/rust
-        run: |
-          set -o pipefail
-          mkdir -p "$RUNNER_TEMP/matrix"
-          # Every suite, no early stop: the report decides what gates. The
-          # matrix cells time themselves, so they run one at a time, in
-          # release (the app's host and the phone's FFI ship optimized).
-          { cargo test --locked --workspace --no-fail-fast ;
-            cargo test --release --locked -p cmux-mobile-host --test reliability_matrix --no-fail-fast -- --ignored --nocapture --test-threads=1 ; } \
-            2>&1 | tee "$RUNNER_TEMP/matrix/rust.log" || true
-
-      # Mac scroll to iPhone display (Leo, 2026-11-22, ask-0e9bbe35bb), Mac idle and Mac CPU busy
-      # (one spinning thread per core), over the good-wifi shaper: this step fails when either
-      # arm's p95 passes tests/scroll_to_display_baseline.json's limit. The rows go to the summary.
-      - name: Scroll-to-display gate (idle and loaded Mac CPU)
-        working-directory: cmux-next-ios/rust
-        run: |
-          set -o pipefail
-          cargo test --release --locked -p cmux-mobile-host --test scroll_to_display -- --ignored --nocapture --test-threads=1 \
-            2>&1 | tee "$RUNNER_TEMP/matrix/scroll.log"
-        timeout-minutes: 10
-
-      - name: Scroll-to-display rows
-        if: ${{ !cancelled() }}
-        run: |
-          { echo '### Mac scroll to phone display (ms)'; echo '```';
-            grep -E '^SCROLL-(ROW|GATE)' "$RUNNER_TEMP/matrix/scroll.log" || echo 'no rows';
-            echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
-        with:
-          name: matrix-rust-log
-          path: |
-            ${{ runner.temp }}/matrix/rust.log
-            ${{ runner.temp }}/matrix/scroll.log
-          retention-days: 3
-
-  ios:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
-    needs: [runner]
-    name: phone cells (iOS simulator)
-    # An owned simulator mini from the runner job, Blacksmith macOS 26 on a re-run or a fork.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
-    # 60 for the cells, plus room for the nightly's TickHarness run.
-    timeout-minutes: 75
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["cmux-gcp-secret-jit-x64","cmux-gcp-nightly-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'cmux-gcp-nightly-jit-x64' }}
+    # Room for one full wait through github.token's hour (below) when the App token cannot be minted.
+    timeout-minutes: 70
     env:
-      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh). An hour:
+      # the 11-25 dispatch was refused with the reset 1610 s away, past the old 900 s, and no nightly ran.
+      GH_BUDGET_WAIT_MAX_SECONDS: "3600"
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
+      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
+      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'schedule' && 'feat-cmux-next' || '' }}
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      # CmuxMobileLinkFFI.xcframework is built only when what it is built from changes. The key is the one
-      # cmux-next-ios-kit.yml uses (scripts/ci/ios_link_ffi_key.py: the packages the FFI library compiles, the lock,
-      # the toolchain, the build script and the checked-in bindings, plus the selected Xcode), so the entry a
-      # feat-cmux-next kit run saves is this job's hit too. The older key (.github/scripts/ios_link_ffi_key.py) hashed
-      # the whole cmux-next-ios/rust tree, cmux-mobile-host and every tests/ included, so most Rust merges moved it and
-      # the build (150-275 s of a Mac) ran on 13 of 19 runs (2026-11-24). A pull request only reads the cache; other
-      # events save what they built when its bindings match the checked-in ones (the kit's drift check). A key that
-      # cannot be read (no Python 3.11 tomllib, a ref from before the script) builds, as before.
-      - name: The framework's inputs
-        id: ffi-key
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          if [ -f scripts/ci/ios_link_ffi_key.py ]; then
-            inputs="$(python3 scripts/ci/ios_link_ffi_key.py)"
-            xcode="$(xcodebuild -version | tr -cs 'A-Za-z0-9.' '-')"
-            echo "key=cmux-next-ios-link-ffi-xcf-${RUNNER_OS}-${RUNNER_ARCH}-${xcode}-${inputs}" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::no cache key for CmuxMobileLinkFFI.xcframework; building it"
-          fi
-      - name: Restore the framework built from the same inputs
-        id: ffi
-        if: steps.ffi-key.outputs.key != ''
-        continue-on-error: true
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
-          key: ${{ steps.ffi-key.outputs.key }}
-      - name: Set up pinned Rust
-        if: steps.ffi.outputs.cache-hit != 'true'
-        uses: ./.github/actions/setup-cmux-tui-rust
-
-      - name: Cache cargo
-        if: steps.ffi.outputs.cache-hit != 'true'
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
-          add-rust-environment-hash-key: false
-          cache-bin: false
-          workspaces: cmux-next-ios/rust
-          # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the
-          # first save was restored forever and its stale third-party crates rebuilt on every run (2026-11-24).
-          key: ios-reliability-matrix-apple-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-next-ios/rust/Cargo.lock', '.cargo/config.toml') }}
-
-      - name: Build CmuxMobileLinkFFI.xcframework
-        if: steps.ffi.outputs.cache-hit != 'true'
-        env:
-          JOBS: "4"
-        run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
-      - name: Do the built bindings match the checked-in ones
-        id: ffi-drift
-        if: steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
-        run: |
-          # The build rewrites the bindings and restores Cargo.lock: a tracked change is drift, and the kit's
-          # entries promise none, so a drifted build is used here but not saved.
-          if git diff --quiet -- cmux-next-ios/; then echo "clean=true" >> "$GITHUB_OUTPUT"; fi
-      - name: Save the framework for later runs
-        if: steps.ffi-drift.outputs.clean == 'true'
-        # Another job saving the same key first is not a failure.
-        continue-on-error: true
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
-          key: ${{ steps.ffi-key.outputs.key }}
-
-      - name: xcodebuild test (matrix cells)
-        id: cells
-        working-directory: cmux-next-ios/CmuxMobileKit
-        run: |
-          set -o pipefail
-          mkdir -p "$RUNNER_TEMP/matrix"
-          udid="$(xcrun simctl list devices available -j | python3 -c '
-          import json, sys
-          devices = json.load(sys.stdin)["devices"]
-          found = sorted(
-              (runtime, device["udid"])
-              for runtime, items in devices.items()
-              if ".SimRuntime.iOS-26" in runtime
-              for device in items
-              if device["name"].startswith("iPhone")
-          )
-          print(found[-1][1] if found else "")
-          ')"
-          if [[ -z "$udid" ]]; then
-            echo "::error::no available iOS 26 iPhone simulator on this runner" >&2
-            exit 1
-          fi
-          echo "simulator $udid"
-          # Not -quiet: the report reads each test's result and its MATRIX lines.
-          xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
-            -enableCodeCoverage NO -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-ios-sim}" CODE_SIGNING_ALLOWED=NO \
-            -only-testing:CmuxMobileLiveTests/ConnectivityMatrixTests \
-            -only-testing:CmuxMobileLiveTests/LinkRecoveryTests \
-            -only-testing:CmuxMobileLiveTests/PairingRetryTests \
-            -only-testing:CmuxMobileWorkspacesTests/WorkspacesLaunchStateTests \
-            -only-testing:CmuxMobileTerminalTests/TerminalProjectionResizeHarnessTests \
-            2>&1 | tee "$RUNNER_TEMP/matrix/ios.log" || true
-          echo "udid=$udid" >> "$GITHUB_OUTPUT"
-
-      # The TickHarness cells (axis tick: 10,000 reconnects, deltas and Feed events on virtual
-      # time) run alone, in an xcodebuild of their own with the suite's opt-in, on the nightly
-      # and dispatched runs only: pull requests stay cheap. Reported, not gating (gate: false
-      # in cells.json); tick.log is the report's --tick log.
-      - name: xcodebuild test (TickHarness cells, nightly and dispatch)
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        working-directory: cmux-next-ios/CmuxMobileKit
-        env:
-          TEST_RUNNER_CMUX_TICK_HARNESS: "1"
-          UDID: ${{ steps.cells.outputs.udid }}
-        run: |
-          set -o pipefail
-          if [[ -z "$UDID" ]]; then
-            echo "::warning::no simulator from the matrix cells step; the tick cells read not run"
-            exit 0
-          fi
-          # The same derived data: the build above is reused, only the tests run.
-          xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$UDID,arch=arm64" \
-            -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO \
-            -only-testing:CmuxMobileLiveTests/TickHarnessCellsTests \
-            2>&1 | tee "$RUNNER_TEMP/matrix/tick.log" || true
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
-        with:
-          name: matrix-ios-log
-          path: ${{ runner.temp }}/matrix/ios.log
-          retention-days: 3
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        with:
-          name: matrix-tick-log
-          path: ${{ runner.temp }}/matrix/tick.log
-          retention-days: 3
-          if-no-files-found: ignore
-
-  report:
-    name: matrix report
-    needs: [protocol, ios]
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled()) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
           sparse-checkout: |
-            scripts/ci/ios_reliability_matrix.py
-            cmux-next-ios/reliability-matrix
-            .gitmodules
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
           sparse-checkout-cone-mode: false
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
+      # The job token shares the repository's per-hour Actions budget with every other workflow: the
+      # 2026-11-23 and 2026-11-25 nightlies ended "HTTP 403: API rate limit exceeded for installation"
+      # (runs 45138996666, 45576360618), so no matrix ran and the ios-app-store-live probe's matrix part
+      # went stale. The cmux bot App's token has its own hour (cmux#55829 does the same for the post-merge
+      # batch); the job token stays the fallback when the App cannot be minted.
+      - name: Mint the cmux bot App token
+        id: app-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          pattern: matrix-*-log
-          path: logs
-          merge-multiple: true
-      - name: Matrix table
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
+      - name: Dispatch the full matrix on feat-cmux-next
         env:
-          PROTOCOL_RESULT: ${{ needs.protocol.result }}
-          IOS_RESULT: ${{ needs.ios.result }}
-        run: |
-          set -o pipefail
-          needs_verdict() {  # scripts/ci/needs_verdict.py SHELL_RULE, copied verbatim (tests/test_needs_verdict.py)
-            local what=$1 failed="" unjudged="" pair name result; shift
-            for pair in "$@"; do
-              name=${pair%%=*}; result=${pair#*=}
-              if [[ "$name" == *"?" ]]; then name=${name%"?"}; [[ "$result" == skipped ]] && result=success; fi
-              case "${result%%[ :]*}" in
-                success) ;;
-                failure|invalid) failed+=" $name: $result;" ;;
-                *) unjudged+=" $name ${result:-none}," ;;
-              esac
-            done
-            if [[ -n "$failed" ]]; then echo "::error::summary red: $what:${failed%;}"; return 1; fi
-            if [[ -n "$unjudged" ]]; then
-              echo "::error::no verdict: $what:${unjudged%,}; nothing it summarizes was judged: re-run the run"; return 3
-            fi
-            echo "$what: every job passed"
-          }
-          # The jobs' results first (scripts/ci/needs_verdict.py): one that judged nothing is no verdict, never a
-          # table read from a partial log; a red still prints the table, then stays red.
-          verdict=0
-          needs_verdict "iOS reliability matrix" "protocol?=$PROTOCOL_RESULT" "ios?=$IOS_RESULT" || verdict=$?
-          (( verdict != 3 )) || exit 3
-          args=()
-          [[ "$PROTOCOL_RESULT" != "skipped" ]] && args+=(--rust logs/rust.log)
-          [[ "$IOS_RESULT" != "skipped" ]] && args+=(--ios logs/ios.log)
-          # Nightly and dispatch only (the ios job's TickHarness step); without it the tick cells read not run.
-          [[ -f logs/tick.log ]] && args+=(--tick logs/tick.log)
-          if (( verdict )); then
-            python3 scripts/ci/ios_reliability_matrix.py "${args[@]}" --json matrix.json | tee -a "$GITHUB_STEP_SUMMARY" || true
-            exit "$verdict"
-          fi
-          python3 scripts/ci/ios_reliability_matrix.py "${args[@]}" --json matrix.json | tee -a "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
-        with:
-          name: matrix-results
-          path: matrix.json
-          retention-days: 3
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: gh workflow run ios-reliability-matrix.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next

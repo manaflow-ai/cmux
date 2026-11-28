@@ -85,14 +85,9 @@ def plan(verdict: dict, ctx: dict, run: dict, pr_head: str | None) -> tuple[str,
     if dead:
         return "skipped", dead, None  # pending: the sweep asks again next pass, once the pool is fixed
     jobs = [j for j in (ctx.get("class_jobs") or [ctx.get("job_id")]) if j]
-    if not jobs:
-        return "gave_up", "no job id to re-run", None
-    if ctx.get("all_failed") is True:
-        # every failed job of the run is infra: one call re-runs them (and the jobs that need them)
+    if ctx.get("all_failed") or len(jobs) != 1:
         return "retried", f"re-ran the failed jobs of attempt {attempt}", f"repos/{repo}/actions/runs/{run_id}/rerun-failed-jobs"
-    # some failed job is another class (a panic: signing, migration, security): re-run only the infra jobs, by id
-    return "retried", f"re-ran {len(jobs)} infra job(s) of attempt {attempt} by id", [
-        f"repos/{repo}/actions/jobs/{j}/rerun" for j in jobs]
+    return "retried", f"re-ran job {ctx.get('job')!r} of attempt {attempt}", f"repos/{repo}/actions/jobs/{jobs[0]}/rerun"
 
 
 def act(verdict: dict, ctx: dict, dry_run: bool, runner=subprocess.run) -> dict:
@@ -112,18 +107,10 @@ def act(verdict: dict, ctx: dict, dry_run: bool, runner=subprocess.run) -> dict:
         if note.startswith(DEAD_LABEL_NOTE):
             got["pending"] = True
         return got
-    endpoints = endpoint if isinstance(endpoint, list) else [endpoint]
     if dry_run:
-        return {"outcome": "retried", "note": "dry run: would POST " + ", ".join(endpoints), "dry_run": True}
-    done = []
-    for path in endpoints:
-        try:
-            gh("POST", path, runner)
-            done.append(path)
-        except RuntimeError as err:
-            # a second job's re-run is refused while the first one's runs (GitHub: one re-run per run at a time)
-            if not done:
-                return {"outcome": "gave_up", "note": f"re-run refused: {err}"[:300]}
-            return {"outcome": outcome, "note": f"{note}; {len(endpoints) - len(done)} left (refused: {err})"[:300],
-                    "next_attempt": int(ctx.get("run_attempt") or 1) + 1}
+        return {"outcome": "retried", "note": "dry run: would POST " + endpoint, "dry_run": True}
+    try:
+        gh("POST", endpoint, runner)
+    except RuntimeError as err:
+        return {"outcome": "gave_up", "note": f"re-run refused: {err}"[:300]}
     return {"outcome": outcome, "note": note, "next_attempt": int(ctx.get("run_attempt") or 1) + 1}

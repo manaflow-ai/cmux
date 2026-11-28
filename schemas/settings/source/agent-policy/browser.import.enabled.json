@@ -1,4 +1,0 @@
-{
-  "agent": "privacy",
-  "why": "On, agents can ask to read another browser's cookies and data again (`browser.importCookies`, `import.suggest`)."
-}

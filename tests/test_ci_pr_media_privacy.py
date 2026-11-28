@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""PR media privacy gate on feat-cmux-next: what counts as a private name, what gets removed, and every feat writer checks first."""
+"""PR media privacy gate: what counts as a private name, what gets removed, and how CI publishes."""
 from __future__ import annotations
 
-import argparse
 import contextlib
 import importlib.util
 import io
@@ -20,23 +19,11 @@ from unittest import mock
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tests"))
-import workflow_jobs  # noqa: E402
-from nightly_workflow_text import nightly_text  # noqa: E402
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-import importlib.util as _git_fixture_importlib  # noqa: E402
-from os import path as _git_fixture_path  # noqa: E402
-_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
-    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
-git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
-# Imported by name, never loaded by path: one module object per file, so a test that patches it
-# patches what every other test reads (tests/test_script_module_loads.py).
-if str(ROOT / "scripts/ci") not in sys.path:
-    sys.path.insert(0, str(ROOT / "scripts/ci"))
-import pr_media_privacy as privacy  # noqa: E402
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
-import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
+spec = importlib.util.spec_from_file_location("pr_media_privacy", ROOT / "scripts/ci/pr_media_privacy.py")
+assert spec and spec.loader
+privacy = importlib.util.module_from_spec(spec)
+sys.modules["pr_media_privacy"] = privacy
+spec.loader.exec_module(privacy)
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com",
@@ -173,7 +160,7 @@ class TermSourceTests(unittest.TestCase):
             self.assertEqual(privacy.local_names(Path("/h")), ["glow-box", "glow-box.local"])
 
     def test_agent_authors_come_from_the_variable_or_the_workspace_list(self) -> None:
-        env = git_fixture_env.fixture_env({"HOME": str(self.home)})
+        env = {"HOME": str(self.home)}
         self.assertEqual(privacy.load_agent_authors(env), frozenset())
         self.write("Projects/leo-workspace/machines/agent-authors.json", ["Bot-A"])
         self.assertEqual(privacy.load_agent_authors(env), frozenset({"bot-a"}))
@@ -182,7 +169,7 @@ class TermSourceTests(unittest.TestCase):
 
     def test_the_workspace_list_is_read_in_its_own_format(self) -> None:
         # leo-workspace's file is {"_doc": ..., "authors": [...]}, as tools/agent_authors.py reads it.
-        env = git_fixture_env.fixture_env({"HOME": str(self.home)})
+        env = {"HOME": str(self.home)}
         self.write("Projects/leo-workspace/machines/agent-authors.json", {"_doc": "who", "authors": ["Bot-A"]})
         self.assertEqual(privacy.load_agent_authors(env), frozenset({"bot-a"}))
         self.write("Projects/leo-workspace/machines/agent-authors.json", {"authors": "bot-a"})
@@ -234,7 +221,7 @@ class CheckFilesTests(unittest.TestCase):
         self.assertNotIn("g1ow", json.dumps(report))
 
     def test_a_refusal_names_the_category_and_the_fix_never_the_term(self) -> None:
-        env = git_fixture_env.fixture_env({"HOME": str(self.root), "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]', "PR_MEDIA_AGENT_AUTHORS": "bot-a"})
+        env = {"HOME": str(self.root), "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]', "PR_MEDIA_AGENT_AUTHORS": "bot-a"}
         lookup = mock.Mock(return_value={10: "teammate"})
         with contextlib.redirect_stderr(io.StringIO()) as err, self.assertRaises(privacy.Refused) as raised:
             privacy.check_upload([("10/notes.html", self.file("notes.html", "ssh glow-box")),
@@ -280,9 +267,9 @@ class CheckCommandTests(unittest.TestCase):
         tool = self.root / "ocr.sh"
         tool.write_text('#!/bin/sh\ncase "$1" in *leak*) echo "ssh glоw-bоx" ;; *) echo ok ;; esac\n')
         tool.chmod(0o755)
-        self.env = git_fixture_env.fixture_env({"HOME": str(self.root), "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVACY_OCR": str(tool),
+        self.env = {"HOME": str(self.root), "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVACY_OCR": str(tool),
                     "PR_MEDIA_PRIVATE_TERMS": '{"terms": ["glow-box"]}', "PR_MEDIA_AGENT_AUTHORS": "bot-a",
-                    "PR_MEDIA_PRIVATE_TERMS_FILE": "", "CMUX_HQ": ""})
+                    "PR_MEDIA_PRIVATE_TERMS_FILE": "", "CMUX_HQ": ""}
 
     def run_check(self, prefix: str, *names: str):
         paths = []
@@ -316,6 +303,34 @@ class CheckCommandTests(unittest.TestCase):
                 self.assertEqual(privacy.main(["check", "--path-prefix", "10", str(self.root / "a.md")]), 2)
 
 
+class FuzzUploadTests(unittest.TestCase):
+    def test_a_refused_frame_stops_every_put(self) -> None:
+        sys.path.insert(0, str(ROOT / "dogfood" / "fuzz"))
+        self.addCleanup(sys.path.remove, str(ROOT / "dogfood" / "fuzz"))
+        from cmuxfuzz import triage
+        with tempfile.TemporaryDirectory(prefix="cmux-pr-media-fuzz-test-") as directory:
+            frames = []
+            for name in ("step-00000.png", "step-00001.png"):
+                frames.append(Path(directory) / name)
+                frames[-1].write_bytes(b"x")
+            tool = Path(directory) / "ocr.sh"
+            tool.write_text('#!/bin/sh\ncase "$1" in *00001*) echo "cmux@cmux7s-Mac-mini" ;; *) echo ok ;; esac\n')
+            tool.chmod(0o755)
+            env = {"HOME": directory, "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVACY_OCR": str(tool),
+                   "PR_MEDIA_PRIVATE_TERMS": "", "PR_MEDIA_PRIVATE_TERMS_FILE": "", "CMUX_HQ": "",
+                   "PR_MEDIA_AGENT_AUTHORS": ""}
+            with mock.patch.dict(os.environ, env), mock.patch.object(triage, "_gh") as gh, \
+                    contextlib.redirect_stderr(io.StringIO()) as err:
+                with self.assertRaises(RuntimeError) as raised:
+                    triage.upload(frames, "digest/7")
+                gh.assert_not_called()
+                self.assertIn("fuzz/digest/7/step-00001.png", str(raised.exception))
+                self.assertNotIn("cmux7s", str(raised.exception) + err.getvalue())
+                gh.return_value = ""
+                urls = triage.upload(frames[:1], "digest/7")
+                self.assertEqual(gh.call_count, 1)
+                self.assertTrue(urls[0].endswith("/pr-media/fuzz/digest/7/step-00000.png"))
+
 
 class RepoCase(unittest.TestCase):
     """A bare remote with a pr-media branch and a blob:none-style checkout of it."""
@@ -326,7 +341,7 @@ class RepoCase(unittest.TestCase):
         self.root = Path(temporary.name)
         self.remote = self.root / "remote.git"
         self.work = self.root / "work"
-        git_fixture_env.init_repo(self.remote, "--bare", cwd=self.root, env={**os.environ, **GIT_ENV})
+        git("init", "-q", "--bare", str(self.remote), cwd=self.root)
         git("init", "-q", "-b", privacy.BRANCH, str(self.work), cwd=self.root)
         git("remote", "add", "origin", str(self.remote), cwd=self.work)
         self.ocr = self.root / "ocr.sh"
@@ -372,6 +387,24 @@ class ScanTests(RepoCase):
         report, out = self.scan(start, end, apply=False)
         self.assertEqual([item["path"] for item in report["files"]], ["7/index.html"])
         self.assertNotIn("cmux3s", out)  # matched text is never printed
+
+    def test_budget_stops_at_a_chunk_and_moves_the_marker_there(self) -> None:
+        start = self.commit({"README.md": "hi"})
+        first = self.commit({"1/a.png": "x"})
+        self.commit({"2/leak.png": "x"})
+        third = self.commit({"3/c.png": "x"})
+        env = {"PR_MEDIA_SCAN_CHUNK_COMMITS": "1", "PR_MEDIA_SCAN_BUDGET_SECONDS": "0.0001"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(privacy.time, "monotonic", side_effect=[0, 5, 10, 15, 20]):
+            report, out = self.scan(start, third, apply=False)
+        self.assertEqual(report["marker"], first)
+        self.assertTrue(report["partial"])
+        self.assertEqual(report["files"], [])
+        self.assertIn("time budget spent", out)
+        # The next run starts at the marker and reaches the tip, finding the leak.
+        report, _ = self.scan(first, third, apply=False)
+        self.assertEqual(report["marker"], third)
+        self.assertEqual([item["path"] for item in report["files"]], ["2/leak.png"])
+        self.assertEqual(privacy.chunk_boundaries(self.work, start, third)[-1], third)
 
     def test_no_marker_scans_nothing(self) -> None:
         end = self.commit({"5/leak.png": "x"})
@@ -490,122 +523,8 @@ class AuthorLookupTests(unittest.TestCase):
             self.assertEqual(privacy.github_authors([10]), {10: "teamleaderleo"})
 
 
-
-def load_script(name: str, path: Path):
-    script_spec = importlib.util.spec_from_file_location(name, path)
-    assert script_spec and script_spec.loader
-    module = importlib.util.module_from_spec(script_spec)
-    sys.modules[script_spec.name] = module
-    script_spec.loader.exec_module(module)
-    return module
-
-
-PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
-# A local file holding LEAK reads as a fleet prompt to the fake OCR below.
-FAKE_OCR = '#!/bin/sh\nif grep -q LEAK "$1"; then echo "cmux@cmux7s-Mac-mini ~ %"; else echo ok; fi\n'
-
-
-class FeatWriterCase(unittest.TestCase):
-    """The real scripts/pr-media.py and privacy module, a fake OCR tool and a fake gh.
-
-    A hit refuses in every folder; no PR author is looked up.
-    """
-
-    def setUp(self) -> None:
-        temporary = tempfile.TemporaryDirectory(prefix="cmux-pr-media-feat-writer-test-")
-        self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
-        ocr = self.root / "ocr.sh"
-        ocr.write_text(FAKE_OCR)
-        ocr.chmod(0o755)
-        environment = mock.patch.dict(os.environ, {
-            "HOME": str(self.root), "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVACY_OCR": str(ocr),
-            "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]', "PR_MEDIA_PRIVATE_TERMS_FILE": "", "CMUX_HQ": "",
-            "PR_MEDIA_AGENT_AUTHORS": "", "PR_MEDIA_PUBLISH_GATE": "1"})
-        environment.start()
-        self.addCleanup(environment.stop)
-        self.pr_media = load_script("pr_media_feat_writer_test", ROOT / "scripts/pr-media.py")
-        self.puts: list[str] = []
-
-        # The branch write itself (a git commit and push, tests/test_pr_media.py covers it) is recorded here
-        # instead: these tests are about what reaches it.
-        def put(store, files, message, expect=None):
-            self.puts.extend(files)
-            return "0" * 40
-
-        patched = mock.patch.object(self.pr_media.MediaBranch, "put", put)
-        patched.start()
-        self.addCleanup(patched.stop)
-
-
-def publish_module():
-    return load_script("media_publish_privacy_test", ROOT / "scripts/cmux-next/media/publish.py")
-
-
-class TourPublisherTests(FeatWriterCase):
-    """scripts/cmux-next/media/publish.py (cmux-next-media.yml's "Post the tour media")."""
-
-    def tour(self, leak_in: str) -> tuple[Path, dict]:
-        directory = self.root / "media" / "agent-pane"
-        (directory / "shots").mkdir(parents=True)
-        for name in ("01-open.png", "01-open--w7.png"):
-            (directory / "shots" / name).write_bytes(PNG + (b"LEAK" if name == leak_in else b""))
-        step = {"index": 1, "title": "Open", "status": "ok", "shot": "shots/01-open.png",
-                "windows": [{"id": 7, "kind": "panel", "shot": "shots/01-open--w7.png"}]}
-        return directory, {"title": "Agent pane", "steps": [publish_module().clean_step(step)], "frames": []}
-
-    def publish(self, leak_in: str) -> str:
-        publish = publish_module()
-        directory, manifest = self.tour(leak_in)
-        scratch = self.root / "scratch"
-        scratch.mkdir()
-        args = argparse.Namespace(pr=21672, sha="a" * 40, repo="o/r", dry_run=False)
-        with contextlib.redirect_stderr(io.StringIO()):
-            return publish.publish_tour(directory, manifest, args, self.pr_media, scratch)
-
-    def test_a_tour_whose_last_window_shows_a_private_name_uploads_nothing(self) -> None:
-        with self.assertRaises(self.pr_media.PrivacyError) as raised:
-            self.publish("01-open--w7.png")
-        self.assertEqual(self.puts, [])
-        self.assertIn("21672/aaaaaaaa/next-agent-pane/shots/01-open--w7.png", str(raised.exception))
-        self.assertNotIn("cmux7s", str(raised.exception))
-
-    def test_a_clean_tour_is_uploaded(self) -> None:
-        self.publish("none")
-        self.assertEqual(sorted(self.puts), ["21672/aaaaaaaa/next-agent-pane/shots/01-open--w7.png",
-                                             "21672/aaaaaaaa/next-agent-pane/shots/01-open.png"])
-
-
-class NightlyReelTests(FeatWriterCase):
-    """scripts/cmux-next/media/reel.py --publish (nightly.yml's publish-nightly-reel)."""
-
-    def publish(self, page: str) -> None:
-        reel = load_script("cmux_next_reel_privacy_test", ROOT / "scripts/cmux-next/media/reel.py")
-        reel.pr_media = self.pr_media
-        out = self.root / "reel"
-        out.mkdir()
-        (out / "reel.mp4").write_bytes(b"\x00\x00\x00\x18ftypisom")
-        (out / "reel.json").write_text('{"build": "100"}')
-        (out / "index.html").write_text(page)
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            reel.publish_build(argparse.Namespace(out=out, build="100", repo="o/r"))
-
-    def test_a_page_that_names_a_private_machine_uploads_nothing(self) -> None:
-        # The page goes up last, so a check per file would already have put the reel.
-        with self.assertRaises(self.pr_media.PrivacyError) as raised:
-            self.publish("<p>recorded on glow-box</p>")
-        self.assertEqual(self.puts, [])
-        self.assertIn("nightly-next/100/index.html", str(raised.exception))
-        self.assertNotIn("glow-box", str(raised.exception))
-
-    def test_a_clean_reel_is_uploaded_page_last(self) -> None:
-        self.publish("<p>cmux NEXT build 100</p>")
-        self.assertEqual(self.puts, ["nightly-next/100/reel.mp4", "nightly-next/100/reel.json",
-                                     "nightly-next/100/index.html"])
-
-
 class WriterInventoryTests(unittest.TestCase):
-    """Every file on feat-cmux-next that writes to the pr-media branch runs the shared check first.
+    """Every file that writes to the pr-media branch runs the shared check first.
 
     A file counts as a writer when it names the branch and writes (a contents API
     PUT, a git push, or pr-media.py's put_file or CLI). A new writer fails this
@@ -618,23 +537,15 @@ class WriterInventoryTests(unittest.TestCase):
     DIRECT = re.compile(r"""\bPUT\b|(?i:-xput\b|\.put\(|--method[\s"',=]+put\b)|\bgit\b(?:[^\n]|\\\n){0,120}?\bpush\b|"push",|git/refs|createCommitOnBranch""")
     VIA_TOOL = re.compile(r"put_file\(|pr-media\.py")
     # Writes with its own PUT or push, after check_privacy()/check_upload().
-    CHECKS_ITSELF = {"scripts/pr-media.py"}
+    CHECKS_ITSELF = {"scripts/pr-media.py", "dogfood/fuzz/cmuxfuzz/triage.py"}
     # Writes only through scripts/pr-media.py, which checks.
-    THROUGH_PR_MEDIA_PY = {"scripts/cmux-next/media/publish.py", "scripts/cmux-next/media/reel.py",
-                           "scripts/cmux-next/media/whats-new-clips.py", "scripts/cmux-next/media/whats-new-gallery.py",
-                           ".github/workflows/cmux-next-media.yml", ".github/workflows/cmux-next-iphone-clips.yml",
-                           ".github/workflows/nightly.yml",
-                           ".github/workflows/whats-new-gallery.yml", ".github/workflows/cmux-next-hot-verify.yml",
-                           ".github/actions/pr-media-publish/action.yml"}
+    THROUGH_PR_MEDIA_PY = {"scripts/ci/pr_media.py", "scripts/showcase-publish.py",
+                           ".github/workflows/pr-media.yml", ".github/actions/pr-media-publish/action.yml"}
     # Remove files or rewrite the retention index; they add no capture.
-    REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", "scripts/ci/prune_pr_media.py"}
-    # Name the branch or pr-media.py's file names for links; write nothing.
-    # Name pr-media URLs and push words but write nothing there (release-notes.py reads clip URLs).
-    NOT_WRITERS = {"scripts/gallery-matrix/report.ts", "scripts/gallery-matrix/compare.test.ts",
-                   "scripts/cmux-next/hot-verify-ci.py",
-                   "scripts/cmux-next/release-notes.py",
-                   # Names pr-media.py's GIF encoder and its upload check in help text; writes local files only.
-                   "scripts/media/media_polish.py"}
+    REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", ".github/workflows/pr-media-privacy.yml",
+                    "scripts/ci/prune_pr_media.py"}
+    # Names the files for CI routing; writes nothing.
+    NOT_WRITERS = {"scripts/ci/workflow_guard_groups.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
 
     @classmethod
@@ -653,9 +564,6 @@ class WriterInventoryTests(unittest.TestCase):
                 text = (ROOT / path).read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
-            if path == ".github/workflows/nightly.yml":
-                # With its moved step scripts (scripts/ci/nightly-steps/) put back inline.
-                text = nightly_text()
             if cls.MEDIA.search(text) and (cls.DIRECT.search(text) or cls.VIA_TOOL.search(text)):
                 found[path] = text
         return found
@@ -674,20 +582,8 @@ class WriterInventoryTests(unittest.TestCase):
                 self.assertIn("pr_media_privacy", found[path])
                 self.assertRegex(found[path], r"\bcheck_(privacy|upload)\(")
         for path in sorted(self.THROUGH_PR_MEDIA_PY):
-            for part in self.media_parts(path, found[path]):
-                with self.subTest(path=path, part=part[:40]):
-                    self.assertIsNone(self.DIRECT.search(part), f"{path} writes without scripts/pr-media.py")
-
-    def media_parts(self, path: str, text: str) -> list[str]:
-        """A script whole; a workflow's jobs that name the branch or run a writer
-        (nightly.yml also creates release tags through git/refs in other jobs)."""
-        if not path.endswith(".yml") or "\njobs:\n" not in text:
-            return [text]
-        jobs = re.split(r"(?m)^(?=  [A-Za-z0-9_-]+:\s*$)", text.split("\njobs:\n", 1)[1])
-        writers = ("pr-media", "scripts/cmux-next/media/publish.py", "scripts/cmux-next/media/reel.py")
-        parts = [job for job in jobs if any(writer in job for writer in writers)]
-        self.assertTrue(parts, f"{path} has no job that writes pr-media")
-        return parts
+            with self.subTest(path=path):
+                self.assertIsNone(self.DIRECT.search(found[path]), f"{path} writes without scripts/pr-media.py")
 
     def test_the_writer_patterns_catch_common_upload_shapes(self) -> None:
         for line in ('gh api -X PUT "repos/o/r/contents/x"', "curl -XPUT https://api.github.com/x",
@@ -697,21 +593,64 @@ class WriterInventoryTests(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertIsNotNone(self.DIRECT.search(line))
 
-    def test_a_python_writer_checks_its_whole_batch_before_the_first_put(self) -> None:
-        for path in sorted(path for path in self.THROUGH_PR_MEDIA_PY if path.endswith(".py")):
-            with self.subTest(path=path):
-                text = (ROOT / path).read_text(encoding="utf-8")
-                self.assertRegex(text, r"\bcheck_privacy\(")
-                for call in re.finditer(r"put_file\((?:[^()]|\([^()]*\))*\)", text):
-                    self.assertIn("checked=True", call.group(0), f"{path}: {call.group(0)}")
+
+def load_script(name: str, path: Path):
+    script_spec = importlib.util.spec_from_file_location(name, path)
+    assert script_spec and script_spec.loader
+    module = importlib.util.module_from_spec(script_spec)
+    sys.modules[script_spec.name] = module
+    script_spec.loader.exec_module(module)
+    return module
 
 
-class PublishGateTests(FeatWriterCase):
-    """scripts/pr-media.py in GitHub Actions writes only inside .github/actions/pr-media-publish."""
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
+# A local file holding LEAK reads as a fleet prompt to the fake OCR below.
+FAKE_OCR = '#!/bin/sh\nif grep -q LEAK "$1"; then echo "cmux@cmux7s-Mac-mini ~ %"; else echo ok; fi\n'
+
+
+class GatedWriterCase(unittest.TestCase):
+    """The real scripts/pr-media.py and privacy module inside the publishing
+    action's environment, with a fake OCR tool and a fake gh.
+
+    A hit refuses in every folder; no PR author is looked up.
+    """
+
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory(prefix="cmux-pr-media-gated-writer-test-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        ocr = self.root / "ocr.sh"
+        ocr.write_text(FAKE_OCR)
+        ocr.chmod(0o755)
+        environment = mock.patch.dict(os.environ, {
+            "HOME": str(self.root), "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVACY_OCR": str(ocr),
+            "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]', "PR_MEDIA_PRIVATE_TERMS_FILE": "", "CMUX_HQ": "",
+            "PR_MEDIA_AGENT_AUTHORS": "", "PR_MEDIA_PUBLISH_GATE": "1"})
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.pr_media = load_script("pr_media_gated_writer_test", ROOT / "scripts/pr-media.py")
+        self.puts: list[str] = []
+        real_run = subprocess.run
+
+        def run(argv, *args, **kwargs):
+            if argv[:2] != ["gh", "api"]:
+                return real_run(argv, *args, **kwargs)
+            if "PUT" in argv:
+                self.puts.append(argv[4].split("/contents/", 1)[1].split("?", 1)[0])
+                return subprocess.CompletedProcess(argv, 0, stdout="{}", stderr="")
+            return subprocess.CompletedProcess(argv, 1, stdout="", stderr="gh: Not Found (HTTP 404)")
+
+        patched = mock.patch.object(self.pr_media.subprocess, "run", side_effect=run)
+        patched.start()
+        self.addCleanup(patched.stop)
 
     def put(self, remote: str, local: Path) -> None:
         with contextlib.redirect_stderr(io.StringIO()):
             self.pr_media.put_file("o/r", "pr-media", remote, local, "msg")
+
+
+class PublishGateTests(GatedWriterCase):
+    """scripts/pr-media.py in GitHub Actions writes only inside .github/actions/pr-media-publish."""
 
     def test_a_ci_step_outside_the_action_writes_nothing(self) -> None:
         shot = self.root / "shot.png"
@@ -740,12 +679,18 @@ class PublishGateTests(FeatWriterCase):
         self.assertEqual(self.puts, [])
         self.assertIn("OCR", str(raised.exception))
 
-    def test_a_seeded_private_term_in_a_text_file_is_refused_before_the_write(self) -> None:
-        page = self.root / "index.html"
-        page.write_text("<p>recorded on glow-box</p>")
+    def test_a_tours_private_name_is_refused_before_the_write(self) -> None:
+        shot = self.root / "shot.png"
+        shot.write_bytes(PNG + b"LEAK")
         with self.assertRaises(self.pr_media.PrivacyError):
-            self.put("nightly-next/1/index.html", page)
+            self.put("nightly-next/1/shot.png", shot)
         self.assertEqual(self.puts, [])
+
+    def test_a_clean_shot_is_written(self) -> None:
+        shot = self.root / "shot.png"
+        shot.write_bytes(PNG)
+        self.put("nightly-next/1/shot.png", shot)
+        self.assertEqual(self.puts, ["nightly-next/1/shot.png"])
 
     def test_off_ci_the_gate_is_not_needed(self) -> None:
         page = self.root / "index.html"
@@ -814,9 +759,9 @@ class GatePreflightTests(unittest.TestCase):
         tool = self.ocr("cmux@cmux-mac-mini-7 ~ %")
         out = io.StringIO()
         with contextlib.redirect_stderr(io.StringIO()):
-            self.gate.preflight(CANARY, env=git_fixture_env.fixture_env({"HOME": str(self.root), "GITHUB_ACTIONS": "true",
+            self.gate.preflight(CANARY, env={"HOME": str(self.root), "GITHUB_ACTIONS": "true",
                                              "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]',
-                                             "PR_MEDIA_PRIVACY_OCR": tool}), privacy=privacy, out=out)
+                                             "PR_MEDIA_PRIVACY_OCR": tool}, privacy=privacy, out=out)
         self.assertNotIn("glow-box", out.getvalue())
         self.assertIn("1 private term", out.getvalue())
 
@@ -854,9 +799,9 @@ class TesseractToolTests(unittest.TestCase):
             (bin_dir / name).chmod(0o755)
         self.env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
 
-    def run_tool(self, path: Path) -> subprocess.CompletedProcess:
+    def run_tool(self, path: Path, env: dict | None = None) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, str(TESSERACT_TOOL), str(path)], capture_output=True, text=True,
-                              env=self.env, timeout=60)
+                              env=env or self.env, timeout=60)
 
     def test_a_still_prints_both_modes_once_each(self) -> None:
         shot = self.root / "shot.png"
@@ -882,26 +827,59 @@ class TesseractToolTests(unittest.TestCase):
         shot.write_text("BROKEN")
         self.assertEqual(self.run_tool(shot).returncode, 2)
         self.assertEqual(self.run_tool(self.root / "missing.png").returncode, 2)
-        with self.assertRaises(RuntimeError):
-            self.ocr_through_module(shot)
-
-    def ocr_through_module(self, local: Path) -> list[str]:
-        with mock.patch.dict(os.environ, {"PATH": self.env["PATH"]}):
-            return privacy.ocr_file(str(TESSERACT_TOOL), local)
+        with mock.patch.dict(os.environ, {"PATH": self.env["PATH"]}), self.assertRaises(RuntimeError):
+            privacy.ocr_file(str(TESSERACT_TOOL), shot)
 
     def test_without_tesseract_the_tool_refuses(self) -> None:
         shot = self.root / "shot.png"
         shot.write_text("X")
         (self.root / "bin" / "tesseract").unlink()
-        env = {**self.env, "PATH": str(self.root / "bin")}
-        done = subprocess.run([sys.executable, str(TESSERACT_TOOL), str(shot)], capture_output=True, text=True,
-                              env=env, timeout=60)
+        done = self.run_tool(shot, env={**self.env, "PATH": str(self.root / "bin")})
         self.assertEqual(done.returncode, 2)
         self.assertIn("tesseract is not installed", done.stderr)
 
+    def test_the_tools_get_no_secret_or_token(self) -> None:
+        # The media comes from a pull request's run; tesseract and ffmpeg parse it.
+        bin_dir = self.root / "bin"
+        (bin_dir / "tesseract").write_text("#!/bin/sh\ncat >/dev/null\nenv\n")
+        shot = self.root / "shot.png"
+        shot.write_text("X")
+        done = self.run_tool(shot, env={**self.env, "GH_TOKEN": "t0ken", "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]'})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn("t0ken", done.stdout)
+        self.assertNotIn("glow-box", done.stdout)
+        self.assertIn("OMP_THREAD_LIMIT=1", done.stdout)
+
+
+@unittest.skipUnless(shutil.which("ffmpeg"), "needs a real ffmpeg (the scan job installs it)")
+class GifFrameCoverageTests(unittest.TestCase):
+    """A GIF frame shown for 100 ms between two others is still read: every distinct GIF frame, not one a second."""
+
+    def test_every_distinct_gif_frame_is_read(self) -> None:
+        tool = load_script("pr_media_ocr_tesseract_frames", TESSERACT_TOOL)
+        with tempfile.TemporaryDirectory(prefix="cmux-pr-media-gif-test-") as scratch:
+            root = Path(scratch)
+            for index, color in enumerate(("black", "red", "black")):
+                subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i",
+                                f"color=c={color}:s=16x16:d=0.1:r=10", "-frames:v", "1", str(root / f"in{index}.png")],
+                               check=True, timeout=60)
+            gif = root / "flash.gif"
+            subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-framerate", "10", "-i", str(root / "in%d.png"),
+                            str(gif)], check=True, timeout=60)
+            out = root / "frames"
+            out.mkdir()
+            pictures = tool.frames(gif, out)
+            reds = 0
+            for picture in pictures:
+                pixel = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(picture), "-vf", "scale=1:1",
+                                        "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], check=True, capture_output=True,
+                                       timeout=60).stdout
+                reds += pixel[0] > 128 and pixel[1] < 64
+            self.assertEqual(reds, 1, f"the red frame was not read ({len(pictures)} frames)")
+
 
 @unittest.skipUnless(shutil.which("tesseract"), "needs a real tesseract (the publishing action installs it)")
-class SeededTermEndToEndTests(FeatWriterCase):
+class SeededTermEndToEndTests(GatedWriterCase):
     """Real tesseract, the real check and pr-media.py's real put_file with a fake gh:
     a picture that shows a seeded private term is refused before anything is written."""
 
@@ -911,10 +889,6 @@ class SeededTermEndToEndTests(FeatWriterCase):
                                                    "PR_MEDIA_PRIVATE_TERMS": '["zephyrquill"]'})
         environment.start()
         self.addCleanup(environment.stop)
-
-    def put(self, remote: str, local: Path) -> None:
-        with contextlib.redirect_stderr(io.StringIO()):
-            self.pr_media.put_file("o/r", "pr-media", remote, local, "msg")
 
     def test_the_seeded_term_is_refused_and_nothing_is_written(self) -> None:
         with self.assertRaises(self.pr_media.PrivacyError) as raised:
@@ -945,66 +919,59 @@ class SeededTermEndToEndTests(FeatWriterCase):
             self.assertEqual(gate.preflight(CANARY, privacy=privacy), str(TESSERACT_TOOL))
 
 
-class FeatWorkflowTests(unittest.TestCase):
+class PublishWorkflowTests(unittest.TestCase):
     """Every workflow job that writes pr-media does it through .github/actions/pr-media-publish,
-    inside the pr-media environment; nothing else reads the private-terms secret."""
+    inside the pr-media environment; nothing else reads the private-terms secret but the
+    rescan, and no pull_request_target job comes near either."""
 
     # workflow -> job id -> the script its publishing step runs
-    WRITER_JOBS = {
-        ".github/workflows/cmux-next-media.yml": {"publish": "scripts/cmux-next/media/publish.py",
-                                                  "whats-new-clips": "scripts/cmux-next/media/whats-new-clips.py"},
-        ".github/workflows/cmux-next-iphone-clips.yml": {"publish": "scripts/cmux-next/media/whats-new-clips.py"},
-        ".github/workflows/nightly.yml": {"publish-nightly-reel": "scripts/cmux-next/media/reel.py"},
-        ".github/workflows/whats-new-gallery.yml": {"publish": "scripts/cmux-next/media/whats-new-gallery.py"},
-        ".github/workflows/cmux-next-hot-verify.yml": {"publish": "scripts/pr-media.py"},
+    WRITER_JOBS = {".github/workflows/pr-media.yml": {"publish": "scripts/ci/pr_media.py"}}
+    # Removal jobs rewrite the branch but do not capture media. Keep this exception
+    # job-scoped so another writer added to the shared maintenance workflow cannot
+    # bypass the publishing action checks.
+    REMOVES_ONLY_JOBS = {
+        (".github/workflows/storage-maintenance.yml", "pr-media"),
+        (".github/workflows/pr-media-privacy.yml", "scan"),
     }
-    # Keep removal exceptions job-scoped inside the shared dispatcher.
-    REMOVES_ONLY_JOBS = {(".github/workflows/storage-maintenance.yml", "pr-media")}
+    # The 10-minute Vision rescan reads the repository's copy of the terms secret.
+    RESCAN = (".github/workflows/pr-media-privacy.yml", "scan")
     ACTION_USE = "./.github/actions/pr-media-publish"
     NEEDED = (".github/actions/pr-media-publish", "scripts/pr-media.py", "scripts/ci/pr_media_privacy.py",
               "scripts/ci/pr_media_gate.py", "scripts/ci/pr_media_ocr_tesseract.py", "scripts/ci/pr_media_ocr.swift")
-    WRITERS = ("scripts/pr-media.py", "scripts/cmux-next/media/publish.py", "scripts/cmux-next/media/reel.py",
-               "scripts/cmux-next/media/whats-new-gallery.py", "scripts/cmux-next/media/whats-new-clips.py")
+    WRITERS = ("scripts/pr-media.py", "scripts/ci/pr_media.py", "scripts/showcase-publish.py")
 
     @staticmethod
     def runs_a_writer(run: str, script: str | None = None) -> bool:
         """The step runs the writer (`python3 <script>`, `./<script>`), not merely names it
         (`[ -f <script> ]`, a comment)."""
-        scripts = [script] if script else list(FeatWorkflowTests.WRITERS)
+        scripts = [script] if script else list(PublishWorkflowTests.WRITERS)
         for name in scripts:
             for found in re.finditer(re.escape(name), run):
                 before = run[run.rfind("\n", 0, found.start()) + 1:found.start()]
                 if before.lstrip().startswith("#") or re.search(r"-[efsx]\s+[\"']?(?:\./)?$", before):
                     continue
-                # reel.py without --publish only builds the reel.
-                if name.endswith("media/reel.py") and "--publish" not in run[found.start():found.start() + 400]:
-                    continue
-                # whats-new-gallery.py writes only in its `publish` command (plan and manifest read).
-                # whats-new-clips.py too, in `publish` and `publish-auto` (plan, tours and render read).
-                if (name.endswith(("media/whats-new-gallery.py", "media/whats-new-clips.py"))
-                        and not re.match(r"\s*publish\b", run[found.end():])):
+                # pr_media.py plans and tours too; only `publish` writes.
+                if name == "scripts/ci/pr_media.py" and not re.match(r"\s+publish\b", run[found.end():]):
                     continue
                 return True
         return False
 
+    @staticmethod
+    def publish_command(given: dict) -> str:
+        """The command the action's Publish step runs for these `with:` inputs."""
+        args = [line for line in str(given.get("args", "")).splitlines() if line]
+        return " ".join(["python3", str(given.get("script", "")), *args])
+
     def test_the_writer_shapes_are_recognized(self) -> None:
         for run in ("python3 scripts/pr-media.py --pr 1 a.png", "./scripts/pr-media.py --pr 1 a.png",
-                    "python3 -u scripts/cmux-next/media/publish.py --repo r",
-                    "python3 scripts/cmux-next/media/reel.py --build 1 --publish",
-                    "python3 scripts/cmux-next/media/whats-new-gallery.py publish --plan p --results r"):
+                    'python3 scripts/ci/pr_media.py publish --media "$RUNNER_TEMP/media"',
+                    "python3 scripts/showcase-publish.py --pr 1"):
             with self.subTest(run=run):
                 self.assertTrue(self.runs_a_writer(run))
-        for run in ("[ -f scripts/cmux-next/media/publish.py ] && echo yes", "# scripts/pr-media.py uploads",
-                    "python3 scripts/cmux-next/media/reel.py --build 1 --dry-run",
-                    "python3 scripts/cmux-next/media/whats-new-gallery.py plan --out p.json"):
+        for run in ("[ -f scripts/pr-media.py ] && echo yes", "# scripts/pr-media.py uploads",
+                    "python3 scripts/ci/pr_media.py plan", 'exec "$PY" scripts/ci/pr_media.py tour'):
             with self.subTest(run=run):
                 self.assertFalse(self.runs_a_writer(run))
-
-    def test_only_the_action_sets_the_publish_gate(self) -> None:
-        for workflow in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
-            with self.subTest(workflow=workflow.name):
-                self.assertNotIn("PR_MEDIA_PUBLISH_GATE", workflow.read_text(encoding="utf-8"))
-        self.assertIn("PR_MEDIA_PUBLISH_GATE", ACTION.read_text(encoding="utf-8"))
 
     @staticmethod
     def covers(sparse: str, path: str) -> bool:
@@ -1017,7 +984,6 @@ class FeatWorkflowTests(unittest.TestCase):
 
     @classmethod
     def load(cls, workflow: str) -> dict:
-        """A workflow parsed once per run (nightly.yml alone is 7000 lines)."""
         if workflow not in cls._loaded:
             cls._loaded[workflow] = yaml.load((ROOT / workflow).read_text(encoding="utf-8"),
                                               Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)) or {}
@@ -1029,6 +995,17 @@ class FeatWorkflowTests(unittest.TestCase):
             workflow = path.relative_to(ROOT).as_posix()
             yield workflow, cls.load(workflow)
 
+    @staticmethod
+    def triggers(loaded: dict) -> set[str]:
+        on = loaded.get(True, loaded.get("on")) or {}
+        return {on} if isinstance(on, str) else set(on)
+
+    @staticmethod
+    def in_pr_media_environment(job: dict) -> bool:
+        environment = job.get("environment")
+        name = environment.get("name") if isinstance(environment, dict) else environment
+        return "pr-media" in str(name or "")
+
     def writes_pr_media(self, job: dict) -> bool:
         """The job runs a writer, publishes through the action, or names the branch and writes to it."""
         text = yaml.dump(job)
@@ -1036,6 +1013,12 @@ class FeatWorkflowTests(unittest.TestCase):
             if str(step.get("uses", "")).startswith(self.ACTION_USE) or self.runs_a_writer(str(step.get("run", ""))):
                 return True
         return bool(WriterInventoryTests.MEDIA.search(text) and WriterInventoryTests.DIRECT.search(text))
+
+    def test_only_the_action_sets_the_publish_gate(self) -> None:
+        for workflow in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
+            with self.subTest(workflow=workflow.name):
+                self.assertNotIn("PR_MEDIA_PUBLISH_GATE", workflow.read_text(encoding="utf-8"))
+        self.assertIn("PR_MEDIA_PUBLISH_GATE", ACTION.read_text(encoding="utf-8"))
 
     def test_every_job_that_writes_pr_media_publishes_through_the_action(self) -> None:
         found = {}
@@ -1047,14 +1030,14 @@ class FeatWorkflowTests(unittest.TestCase):
                     continue
                 found.setdefault(workflow, set()).add(job_id)
                 with self.subTest(workflow=workflow, job=job_id):
-                    self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "pr-media"},
+                    self.assertEqual(job.get("environment"), "pr-media",
                                      "a pr-media writer runs in the pr-media environment (the terms list lives there)")
                     for step in job.get("steps") or []:
                         self.assertFalse(self.runs_a_writer(str(step.get("run", ""))),
                                          f"step {step.get('name')!r} writes pr-media outside {self.ACTION_USE}")
-                        if "run" in step:
-                            self.assertIsNone(WriterInventoryTests.DIRECT.search(str(step["run"])) if
-                                              WriterInventoryTests.MEDIA.search(str(step["run"])) else None,
+                        run = str(step.get("run", ""))
+                        if WriterInventoryTests.MEDIA.search(run):
+                            self.assertIsNone(WriterInventoryTests.DIRECT.search(run),
                                               f"step {step.get('name')!r} pushes to pr-media itself")
                     uses = [step for step in job.get("steps") or [] if step.get("uses") == self.ACTION_USE]
                     self.assertTrue(uses, f"no step uses {self.ACTION_USE}")
@@ -1062,7 +1045,7 @@ class FeatWorkflowTests(unittest.TestCase):
                         given = step.get("with") or {}
                         self.assertEqual(given.get("private-terms"), "${{ secrets.PR_MEDIA_PRIVATE_TERMS }}")
                         self.assertEqual(given.get("agent-authors"), "${{ vars.PR_MEDIA_AGENT_AUTHORS }}")
-                        self.assertTrue(self.runs_a_writer(str(given.get("command", ""))))
+                        self.assertTrue(self.runs_a_writer(self.publish_command(given)))
                         self.assertNotIn("PR_MEDIA_PRIVATE_TERMS", step.get("env") or {})
         expected = {workflow: set(jobs) for workflow, jobs in self.WRITER_JOBS.items()}
         self.assertEqual(found, expected, "a new pr-media writer job: publish through the action, then list it")
@@ -1078,18 +1061,29 @@ class FeatWorkflowTests(unittest.TestCase):
                     sparse = checkouts[0].get("with", {}).get("sparse-checkout", "")
                     for path in (*self.NEEDED, script):
                         self.assertTrue(self.covers(sparse, path), f"{workflow} {job_id} does not check out {path}")
-                    commands = [str((step.get("with") or {}).get("command", "")) for step in steps
+                    commands = [self.publish_command(step.get("with") or {}) for step in steps
                                 if step.get("uses") == self.ACTION_USE]
                     self.assertTrue(any(self.runs_a_writer(command, script) for command in commands),
                                     f"{workflow} {job_id} no longer publishes {script} through the action")
 
-    @staticmethod
-    def triggers(loaded: dict) -> set[str]:
-        """The events a workflow runs on (YAML 1.1 reads the `on:` key as True)."""
-        on = loaded.get("on", loaded.get(True))
-        if isinstance(on, str):
-            return {on}
-        return set(on or ())
+    def test_only_the_action_in_the_pr_media_environment_reads_the_terms_secret(self) -> None:
+        readers = set()
+        for workflow, loaded in self.workflows():
+            with self.subTest(workflow=workflow):
+                # A workflow-level env reaches every job, so the terms are only ever read inside a job.
+                self.assertFalse(self.may_read_terms(self.text_of(loaded.get("env") or {})))
+            for job_id, job in (loaded.get("jobs") or {}).items():
+                if not self.may_read_terms(self.text_of(job)):
+                    continue
+                readers.add((workflow, job_id))
+                if (workflow, job_id) == self.RESCAN:
+                    continue
+                with self.subTest(workflow=workflow, job=job_id):
+                    self.assertEqual(job.get("environment"), "pr-media")
+                    for step in job.get("steps") or []:
+                        if self.may_read_terms(self.text_of(step)):
+                            self.assertEqual(step.get("uses"), self.ACTION_USE)
+        self.assertIn(self.RESCAN, readers, "the rescan no longer reads the terms; drop its exemption")
 
     # Events whose runs take the default or base branch's ref (which the environment admits) while someone
     # outside the repo chooses when they fire: a PR (pull_request_target), a fork's finished run (workflow_run),
@@ -1098,8 +1092,8 @@ class FeatWorkflowTests(unittest.TestCase):
 
     @staticmethod
     def environment(job: dict) -> str:
-        spec = workflow_jobs.environment_spec(job)
-        return str((spec or {}).get("name") or "")
+        env = job.get("environment")
+        return str((env.get("name") if isinstance(env, dict) else env) or "")
 
     @staticmethod
     def split_top(text: str, op: str) -> list[str]:
@@ -1140,35 +1134,78 @@ class FeatWorkflowTests(unittest.TestCase):
         """The environment can be pr-media: GitHub matches names without case, and an expression whose value
         comes from outside it could be anything."""
         names = [""]
-        for i, piece in enumerate(gh_expressions.EXPRESSION.split(name)):
+        for i, piece in enumerate(re.split(r"\$\{\{(.*?)\}\}", name, flags=re.S)):
             values = self.outcomes(piece) if i % 2 else [piece]
             if values is None:
                 return True
             names = [n + v for n in names for v in values]
         return any("pr-media" in n.lower() for n in names)
 
+    TERMS = "PR_MEDIA_PRIVATE_TERMS"
+
+    @classmethod
+    def text_of(cls, node) -> str:
+        """Every key and string in a loaded job or step, as written (yaml.dump would re-quote `'` as `''`)."""
+        if isinstance(node, dict):
+            return "\n".join(cls.text_of(k) + "\n" + cls.text_of(v) for k, v in node.items())
+        if isinstance(node, list):
+            return "\n".join(cls.text_of(v) for v in node)
+        return node if isinstance(node, str) else ""
+
+    @classmethod
+    def may_read_terms(cls, text: str) -> bool:
+        """text may read the terms secret: by name in any case, through toJSON(secrets), or through a secrets[...]
+        index unless it is a literal (read by name above) or a format() whose fixed prefix rules the name out
+        (nightly.yml's `format('APPLE_{0}_...', ...)`). GitHub matches contexts, functions and secret names
+        without case."""
+        if cls.TERMS.lower() in text.lower() or re.search(r"tojson\(\s*secrets\s*\)", text, re.I):
+            return True
+        # The whole secrets object in an expression (not secrets.NAME or secrets[...]) can carry every secret.
+        for expression in re.findall(r"\$\{\{(.*?)\}\}", text, re.S):
+            if re.search(r"(?<![\w.])secrets(?!\w)(?!\s*[.\[])", expression, re.I):
+                return True
+        for index in re.findall(r"secrets\s*\[([^\]]*)\]", text, re.I):
+            if re.fullmatch(r"\s*'[^']*'\s*", index):
+                continue
+            prefix = re.match(r"\s*format\(\s*'([^'{]*)", index, re.I)
+            if not prefix or cls.TERMS.startswith(prefix.group(1).upper()):
+                return True
+        return False
+
     def holds_pr_media(self, job: dict) -> bool:
-        """The job may enter the pr-media environment, reads its terms secret or publishes through the action."""
+        """The job may enter the pr-media environment, read its terms secret, hand every secret to a workflow
+        outside this repository (whose jobs this scan cannot read) or publish through the action."""
         return (self.may_name_pr_media(self.environment(job))
-                or "pr_media_private_terms" in yaml.dump(job).lower()
+                or self.may_read_terms(self.text_of(job))
+                or (job.get("secrets") == "inherit" and not str(job.get("uses", "")).startswith("./"))
                 or any(str(step.get("uses", "")).startswith(self.ACTION_USE) for step in job.get("steps") or []))
 
     def untrusted_event_jobs(self, workflows) -> list[tuple[str, str, dict]]:
         """(workflow, job, job) for every job an untrusted event runs, including the jobs of the local reusable
-        workflows it calls: those run in the caller's event, on the caller's ref."""
+        workflows it calls: those run in the caller's event, on the caller's ref. A WRITER_JOBS job is left out
+        when workflow_run is its workflow's only untrusted event: the publisher runs the default branch's copy of
+        itself and checks what it reads (test_the_writer_runs_only_on_workflow_run_or_dispatch)."""
         loaded = dict(workflows)
         out, seen = [], set()
-        todo = [w for w, doc in loaded.items() if self.UNTRUSTED_EVENTS & self.triggers(doc)]
+        # (workflow, called): a called workflow runs in its caller's event, whatever its own triggers say.
+        todo = [(w, False) for w, doc in loaded.items() if self.UNTRUSTED_EVENTS & self.triggers(doc)]
         while todo:
-            workflow = todo.pop()
-            if workflow in seen:
+            workflow, called = todo.pop()
+            if (workflow, called) in seen:
                 continue
-            seen.add(workflow)
-            for job_id, job in (loaded.get(workflow, {}).get("jobs") or {}).items():
-                called = str(job.get("uses", ""))
-                if called.startswith("./.github/workflows/"):
-                    todo.append(called[2:].split("@")[0])
-                out.append((workflow, job_id, job))
+            seen.add((workflow, called))
+            doc = loaded.get(workflow, {})
+            exempt = self.WRITER_JOBS.get(workflow, {}) if (
+                not called and (self.UNTRUSTED_EVENTS & self.triggers(doc)) == {"workflow_run"}) else {}
+            for job_id, job in (doc.get("jobs") or {}).items():
+                uses = str(job.get("uses", ""))
+                if uses.startswith("./.github/workflows/"):
+                    todo.append((uses[2:].split("@")[0], True))
+                if job_id not in exempt:
+                    # Every job inherits the workflow's env.
+                    if doc.get("env"):
+                        job = {**job, "env": {**doc["env"], **(job.get("env") or {})}}
+                    out.append((workflow, job_id, job))
         return out
 
     def test_the_untrusted_event_scan_finds_called_workflows_and_expression_environments(self) -> None:
@@ -1188,11 +1225,35 @@ class FeatWorkflowTests(unittest.TestCase):
                 "other": {"environment": "${{ (needs.plan.outputs.go == 'true' && ('ci-bot')) || '' }}"},
                 "pairs": {"environment": "${{ (inputs.x) && ('ci-bot') }}"},
                 "plain": {"environment": "ci-bot"},
+                "dyn": {"steps": [{"run": "echo ${{ secrets[format('PR_MEDIA_{0}', 'PRIVATE_TERMS')] }}"}]},
+                "open": {"steps": [{"env": {"X": "${{ secrets[format('{0}', vars.NAME)] }}"}}]},
+                "mixed": {"steps": [{"run": "echo ${{ Secrets[FORMAT('pr_media_{0}', 'PRIVATE_TERMS')] }}"}]},
+                "var": {"steps": [{"env": {"X": "${{ secrets[vars.NAME] }}"}}]},
+                "all": {"steps": [{"env": {"X": "${{ toJSON(secrets) }}"}}]},
+                "whole": {"steps": [{"with": {"x": "${{ fromJSON(format('{0}', Secrets)) }}"}}]},
+                "apple": {"steps": [{"env": {"X": "${{ secrets[format('APPLE_{0}_KEY', inputs.channel)] }}"}}]},
+                "lit": {"steps": [{"env": {"X": "${{ secrets['APPLE_KEY'] }}"}}]},
+                "away": {"uses": "someone/else/.github/workflows/x.yml@main", "secrets": "inherit"},
+                "home": {"uses": "./.github/workflows/b2.yml", "secrets": "inherit"},
             }}),
+            (".github/workflows/b2.yml", {"on": "workflow_call", "jobs": {"quiet": {"steps": []}}}),
+            (".github/workflows/f.yml", {True: {"issue_comment": None},
+                                         "env": {"TERMS": "${{ secrets.PR_MEDIA_PRIVATE_TERMS }}"},
+                                         "jobs": {"inherits": {"steps": [{"run": 'printf %s "$TERMS"'}]}}}),
+            # The writer is exempt only when workflow_run fires it: not another job beside it, and not when an
+            # untrusted event's workflow calls it.
+            (".github/workflows/pr-media.yml", {True: {"workflow_run": None, "workflow_call": None}, "jobs": {
+                "publish": {"environment": "pr-media"}, "extra": {"environment": "pr-media"}}}),
+            (".github/workflows/e.yml", {True: {"issues": None}, "jobs": {
+                "call": {"uses": "./.github/workflows/pr-media.yml"}}}),
         ]
         found = sorted((w, j) for w, j, job in self.untrusted_event_jobs(workflows) if self.holds_pr_media(job))
         self.assertEqual(found, [(".github/workflows/b.yml", "post")] + [
-            (".github/workflows/d.yml", j) for j in ("case", "cond", "fallback", "named", "output", "secret")])
+            (".github/workflows/d.yml", j) for j in ("all", "away", "case", "cond", "dyn", "fallback", "mixed", "named",
+                                                     "open", "output", "secret", "var", "whole")] + [
+            (".github/workflows/f.yml", "inherits"),
+            (".github/workflows/pr-media.yml", "extra"), (".github/workflows/pr-media.yml", "extra"),
+            (".github/workflows/pr-media.yml", "publish")])
 
     def test_no_untrusted_event_job_holds_the_pr_media_environment_or_its_secret(self) -> None:
         # A deployment branch policy matches GITHUB_REF, and these events run on the base or default branch's ref,
@@ -1202,35 +1263,11 @@ class FeatWorkflowTests(unittest.TestCase):
                 self.assertFalse(self.holds_pr_media(job),
                                  "a job an untrusted event runs may be in the pr-media environment or read its terms")
 
-    def test_only_the_action_in_the_pr_media_environment_reads_the_terms_secret(self) -> None:
-        for workflow, loaded in self.workflows():
-            for job_id, job in (loaded.get("jobs") or {}).items():
-                if not workflow_jobs.reads_secret(job, "PR_MEDIA_PRIVATE_TERMS"):
-                    continue
-                with self.subTest(workflow=workflow, job=job_id):
-                    self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "pr-media"})
-                    for step in job.get("steps") or []:
-                        if workflow_jobs.reads_secret(step, "PR_MEDIA_PRIVATE_TERMS"):
-                            self.assertEqual(step.get("uses"), self.ACTION_USE)
-
-    def test_a_pull_request_run_never_holds_the_secret_or_the_write_token(self) -> None:
-        jobs = self.load(".github/workflows/cmux-next-media.yml")["jobs"]
-        publish, hand_off = jobs["publish"], jobs["hand-off"]
-        # The publisher runs on a merge push or the hand-off's dispatch, never on a pull request event.
-        self.assertNotIn("pull_request", publish["if"])
-        self.assertIn("inputs.publish_run != ''", publish["if"])
-        self.assertIn("github.event_name == 'pull_request'", hand_off["if"])
-        self.assertEqual(hand_off["permissions"], {"actions": "write"})
-        self.assertNotIn("environment", hand_off)
-        self.assertEqual(workflow_jobs.secret_names(hand_off), set())
-        dispatch = "\n".join(str(step.get("run", "")) for step in hand_off["steps"])
-        self.assertRegex(dispatch, r"gh workflow run cmux-next-media\.yml .*--ref feat-cmux-next")
-        self.assertIn('publish_run="$GITHUB_RUN_ID"', dispatch)
-        # The publisher takes the pull request and head from the run's record, and only this workflow's.
-        target = next(step for step in publish["steps"] if step.get("id") == "target")["run"]
-        self.assertIn('.path == ".github/workflows/cmux-next-media.yml"', target)
-        self.assertIn('.event == "pull_request"', target)
-        self.assertIn(".head_repository.full_name == .repository.full_name", target)
+    def test_the_writer_runs_only_on_workflow_run_or_dispatch(self) -> None:
+        for workflow in self.WRITER_JOBS:
+            with self.subTest(workflow=workflow):
+                # The writer runs on the default branch's copy of itself only.
+                self.assertLessEqual(self.triggers(self.load(workflow)), {"workflow_run", "workflow_dispatch"})
 
     def test_the_action_checks_the_canary_before_it_publishes(self) -> None:
         steps = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"]
@@ -1243,8 +1280,41 @@ class FeatWorkflowTests(unittest.TestCase):
         self.assertEqual(env["PR_MEDIA_PRIVATE_TERMS"], "${{ inputs.private-terms }}")
         self.assertEqual(env["PR_MEDIA_PRIVACY_OCR"], "${{ steps.gate.outputs.ocr }}")
         self.assertTrue(CANARY.is_file())
-        # The publisher command reaches bash through the environment, never by expression expansion.
-        self.assertNotIn("${{", steps[publish]["run"])
+        # The publisher and its arguments reach bash through the environment, never by expression expansion,
+        # and are run as a listed script with plain arguments, never as a shell string.
+        run = steps[publish]["run"]
+        self.assertNotIn("${{", run)
+        self.assertNotIn("-c ", run)
+        self.assertNotIn("eval", run)
+        self.assertIn('python3 "$PUBLISH_SCRIPT" "${args[@]}"', run)
+        self.assertNotIn("command", yaml.safe_load(ACTION.read_text(encoding="utf-8"))["inputs"])
+        listed = set(re.findall(r"^\s*([\w./-]+\.py)\) ;;$", run, re.M))
+        self.assertEqual(listed, {script for jobs in self.WRITER_JOBS.values() for script in jobs.values()},
+                         "the action lists exactly the publishers its callers run")
+        # A runner image's own apt run holds the lock for a while after boot.
+        install = steps[names.index("Install the OCR tools")]["run"]
+        self.assertEqual(install.count("apt-get"), install.count("apt-get -o DPkg::Lock::Timeout="))
+
+
+class WorkflowTests(unittest.TestCase):
+    def test_the_tick_is_one_ls_remote_and_the_scan_writes_only_contents(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/pr-media-privacy.yml").read_text())
+        self.assertEqual(workflow["permissions"], {})
+        self.assertEqual(workflow["concurrency"], {"group": "pr-media-privacy", "cancel-in-progress": False})
+        self.assertEqual(workflow[True]["schedule"], [{"cron": "*/10 * * * *"}])
+        check, scan = workflow["jobs"]["check"], workflow["jobs"]["scan"]
+        self.assertIn("refs/heads/main", check["if"])
+        self.assertEqual(check["permissions"], {"contents": "read"})
+        self.assertEqual([step["run"].count("git ls-remote") for step in check["steps"]], [1])
+        self.assertNotIn("uses", str(check["steps"]))
+        self.assertEqual(scan["needs"], "check")
+        self.assertEqual(scan["permissions"], {"contents": "write", "pull-requests": "read"})
+        text = yaml.safe_dump(scan)
+        self.assertIn("refs/pr-media-privacy/scanned", text)
+        self.assertIn("secrets.PR_MEDIA_PRIVATE_TERMS", text)
+        self.assertIn("vars.PR_MEDIA_AGENT_AUTHORS", text)
+        for forbidden in ("gh pr comment", "gh issue", "statuses", "check-runs"):
+            self.assertNotIn(forbidden, text)
 
 
 if __name__ == "__main__":

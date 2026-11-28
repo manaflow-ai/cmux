@@ -336,18 +336,6 @@ public final class Client implements AutoCloseable {
         return List.copyOf(machines);
     }
 
-    public List<Machine> listMachinesWith(Options.MachineRead options) {
-        Objects.requireNonNull(options, "options");
-        return listMachines(new Options.Read(options.params()));
-    }
-
-    public List<Machine> findMachinesByNameWith(String name, Options.MachineRead options) {
-        Objects.requireNonNull(name, "name");
-        return listMachinesWith(options).stream()
-            .filter(machine -> machine.cached().map(Snapshots.MachineSnapshot::name).map(name::equals).orElse(false))
-            .toList();
-    }
-
     public List<Machine> findMachinesByName(String name) {
         Objects.requireNonNull(name, "name");
         return listMachines(Options.Read.defaults()).stream()
@@ -2094,22 +2082,9 @@ public final class Client implements AutoCloseable {
                 "status",
                 "connectable",
                 "deleted",
-                "recoverable", "platform", "capabilities"
-            ),
-            decodeMachinePlatform(fields.get("platform")),
-            fields.containsKey("capabilities") ? Wire.array(fields.get("capabilities"), "machine capabilities")
-                .stream().map(valueItem -> Wire.string(valueItem, "machine capability")).toList() : List.of()
+                "recoverable"
+            )
         );
-    }
-
-    static Optional<Snapshots.MachinePlatform> decodeMachinePlatform(Object value) {
-        if (value == null) return Optional.empty();
-        Map<String, Object> fields = Wire.object(value, "machine platform");
-        requireExactFields(fields, "machine platform", "os", "arch");
-        return Optional.of(new Snapshots.MachinePlatform(
-            Optional.ofNullable(fields.get("os")).map(item -> Wire.string(item, "machine OS")),
-            Optional.ofNullable(fields.get("arch")).map(item -> Wire.string(item, "machine architecture"))
-        ));
     }
 
     static Snapshots.SessionSnapshot decodeSession(Object value) {
@@ -2672,59 +2647,13 @@ public final class Client implements AutoCloseable {
             "layout column",
             "column_id",
             Wire.WIDTH,
-            "root",
-            "dock",
-            "sticky",
-            "rows"
+            "root"
         );
-        // `sticky` is the pre-R87 name of `dock`: a replayed or older
-        // result still decodes; `dock` wins when both are present.
-        Object dock = fields.containsKey("dock") ? fields.get("dock") : fields.get("sticky");
-        List<Layout.Row> rows = fields.containsKey("rows")
-            ? Wire.array(fields.get("rows"), "layout column rows").stream()
-                .map(Client::decodeLayoutRow).toList()
-            : List.of();
         return new Layout.Column(
             requiredExactId(fields, "column_id", Ids.SplitId::new),
             finiteDouble(fields.get(Wire.WIDTH), "layout column width"),
-            decodeLayoutNode(fields.get("root")),
-            decodeLayoutColumnDock(dock),
-            rows
+            decodeLayoutNode(fields.get("root"))
         );
-    }
-
-    /** One row of a column (rows-v1); only row 1 may omit row_id. */
-    private static Layout.Row decodeLayoutRow(Object value) {
-        Map<String, Object> fields = Wire.object(value, "layout row");
-        requireExactFields(fields, "layout row", "row_id", "height");
-        if (!fields.containsKey("height")) {
-            throw new ProtocolError("layout row height is required");
-        }
-        long height = uint32(fields, "height");
-        if (height < 100 || height > 1000) {
-            throw new ProtocolError("layout row height must be from 100 to 1000");
-        }
-        return new Layout.Row(
-            optionalExactId(fields, "row_id", Ids.SplitId::new),
-            (int) height
-        );
-    }
-
-    /** An omitted or null flag is empty (the column scrolls). */
-    private static Optional<Layout.Dock> decodeLayoutColumnDock(Object value) {
-        if (value == null) {
-            return Optional.empty();
-        }
-        Map<String, Object> fields = Wire.object(value, "layout column dock");
-        requireExactFields(fields, "layout column dock", "edge", "mode");
-        try {
-            return Optional.of(new Layout.Dock(
-                Wire.string(fields.get("edge"), "layout column dock edge"),
-                Wire.string(fields.get("mode"), "layout column dock mode")
-            ));
-        } catch (IllegalArgumentException error) {
-            throw new ProtocolError(error.getMessage());
-        }
     }
 
     static ResourceSnapshot decodeResourceSnapshot(Object value) {

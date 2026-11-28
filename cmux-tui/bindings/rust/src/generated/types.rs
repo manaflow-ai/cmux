@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.rs.
+// cmux-tui mux protocol 12, IR 93af6692f7f686eafe3bfcb03c01e8570f8cf4dfa8a84ad93824ed07160b504d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -16,76 +16,17 @@ pub type DetachClientTarget = serde_json::Value;
 pub type Id = u64;
 #[rustfmt::skip]
 pub type JsonValue = serde_json::Value;
-#[rustfmt::skip]
-pub type PaneRef = serde_json::Value;
-#[rustfmt::skip]
-pub type TabRef = serde_json::Value;
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ActivitySnapshot {
-    pub attached_clients: u32,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub echo_at_ms: Optional<u64>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub echo_input_at_ms: Optional<u64>,
-    pub last_agent_action_at_ms: Nullable<u64>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub last_person_attach_at_ms: Optional<u64>,
-    pub last_user_input_at_ms: Nullable<u64>,
-    pub live_agents: u32,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ActivitySubscribeResult {
-    pub activity: ActivitySnapshot,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AgentPresenceActivity {
-    #[serde(rename = "thinking")]
-    Thinking,
-    #[serde(rename = "editing")]
-    Editing,
-    #[serde(rename = "reading")]
-    Reading,
-    #[serde(rename = "running")]
-    Running,
-    #[serde(rename = "browsing")]
-    Browsing,
-    #[serde(rename = "computer_use")]
-    ComputerUse,
-    #[serde(rename = "waiting")]
-    Waiting,
-}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentRecord {
-    /// Adapter identity (\`claude\`, \`codex\`, ...) when a hook claimed the terminal; null for socket-only reports.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub agent: Optional<String>,
-    /// The harness's own session id that the agent's hooks reported (\`claude\`, \`codex\` session ids), checked to \`\[A-Za-z0-9._:-\]\` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep \`session\` for a human label, so clients find a terminal's agent session by this.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub agent_session_id: Optional<String>,
-    /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub last_prompt: Optional<String>,
     pub session: Nullable<String>,
-    /// When the agent entered \`state\` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use \`updated_at_ms\`.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub since_ms: Option<u64>,
     pub source: AgentSource,
     pub state: AgentState,
     /// What the person sees: \`working\`, \`blocked\`, \`done\` (the agent finished a turn and no client has shown its tab since; \`state\` is \`idle\` then), \`idle\` or \`unknown\`; null for an ended session (\`state\` \`done\`). Reading never clears \`done\`; a frontend's tab acknowledgement does. Absent from older daemons: use \`state\`.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub status: Optional<AgentState>,
     pub surface: Id,
-    /// The terminal's public id (\`term_…\`). The record's \`surface\` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub terminal_id: Option<String>,
     pub updated_at_ms: u64,
 }
 
@@ -96,22 +37,6 @@ pub enum AgentReportSource {
     Socket,
     #[serde(rename = "hook")]
     Hook,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AgentSessionSource {
-    /// The agent kind the chat was started with.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub harness: Optional<String>,
-    /// install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it.
-    pub host: String,
-    /// Display name of the host machine: 1 to 255 bytes, no control characters.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub host_name: Optional<String>,
-    /// The acpmux session id; null for a new chat until bind-conversation-tab-session.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub session: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -174,78 +99,11 @@ pub struct AttachedViewResizeResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Bookmark {
-    pub browser_profile_id: String,
-    pub created_ms: u64,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub favicon_key: Option<String>,
-    /// Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-{hex} or svg:sha256-{hex}.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub icon: Option<String>,
-    /// \`bm_\` and 32 lowercase hex digits.
-    pub id: String,
-    /// Dense 0-based position among the node's siblings.
-    pub index: u64,
-    /// Known values: url, folder. Other values are future kinds.
-    pub kind: String,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub last_used_ms: Option<u64>,
-    /// \`bar\`, \`other\`, or a folder's id.
-    pub parent: String,
-    /// Folders only.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub source_key: Option<String>,
-    pub title: String,
-    /// url nodes.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    #[serde(flatten)]
-    pub additional: BTreeMap<String, serde_json::Value>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BookmarkChangeResult {
-    pub bookmark: Bookmark,
-    pub changed: bool,
-    pub replayed: bool,
-    #[serde(flatten)]
-    pub additional: BTreeMap<String, serde_json::Value>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BookmarkImportNode {
-    /// A folder's nodes.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub children: Option<Vec<Box<BookmarkImportNode>>>,
-    /// Defaults to now.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub created_ms: Option<u64>,
-    /// url or folder.
-    pub kind: String,
-    pub title: String,
-    /// Required for a url node; refused for a folder.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrowserFrame {
     pub data: Base64,
     pub height: u32,
     pub seq: u64,
     pub width: u32,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BrowserHostProviderResult {
-    pub host_pid: u32,
-    pub listener_pid: u32,
-    pub secret: String,
-    pub socket: String,
 }
 
 #[rustfmt::skip]
@@ -258,15 +116,6 @@ pub enum BrowserProviderAuthentication {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum BrowserProviderHosting {
-    #[serde(rename = "daemon")]
-    Daemon,
-    #[serde(rename = "native")]
-    Native,
-}
-
-#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrowserProviderSnapshot {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -276,8 +125,6 @@ pub struct BrowserProviderSnapshot {
     pub clients: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub hosting: Option<BrowserProviderHosting>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
     pub revision: u64,
@@ -322,63 +169,6 @@ pub struct CellPixelSurface {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ChiefWorkAgentState {
-    #[serde(rename = "working")]
-    Working,
-    #[serde(rename = "waiting")]
-    Waiting,
-    #[serde(rename = "idle")]
-    Idle,
-    #[serde(rename = "failed")]
-    Failed,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChiefWorkAgent {
-    pub id: String,
-    pub name: String,
-    #[serde(rename = "startedAt")]
-    pub started_at: Nullable<u64>,
-    pub state: ChiefWorkAgentState,
-    pub task: Nullable<String>,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: Nullable<u64>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ChiefWorkTaskStatus {
-    #[serde(rename = "running")]
-    Running,
-    #[serde(rename = "done")]
-    Done,
-    #[serde(rename = "failed")]
-    Failed,
-    #[serde(rename = "cancelled")]
-    Cancelled,
-    #[serde(rename = "unknown")]
-    Unknown,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChiefWorkTask {
-    pub command: String,
-    pub detail: Nullable<String>,
-    #[serde(rename = "endedAt")]
-    pub ended_at: Nullable<u64>,
-    pub id: String,
-    #[serde(rename = "sessionId")]
-    pub session_id: String,
-    #[serde(rename = "startedAt")]
-    pub started_at: Nullable<u64>,
-    pub status: ChiefWorkTaskStatus,
-    pub title: String,
-}
-
-#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClientInfo {
     pub attached: Vec<Id>,
@@ -413,13 +203,6 @@ pub enum ClientTransport {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CloseReason {
-    #[serde(rename = "session_end")]
-    SessionEnd,
-}
-
-#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloseTerminalResult {
     pub already_closed: bool,
@@ -430,298 +213,6 @@ pub struct CloseTerminalResult {
     pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
     pub terminal_revision: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CloudConversationPresenceParticipant {
-    pub participant: String,
-    pub viewing: bool,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ColumnMoveDirection {
-    #[serde(rename = "left")]
-    Left,
-    #[serde(rename = "right")]
-    Right,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ColumnPin {
-    pub edge: String,
-    pub mode: String,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub role: Optional<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ColumnSide {
-    #[serde(rename = "left")]
-    Left,
-    #[serde(rename = "right")]
-    Right,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationChange {
-    /// kind conversation.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub conversation: Option<ConversationSummary>,
-    /// Known values: message and message-updated (message), read-cursor (participant, seq), conversation (conversation). A change of another kind keeps its fields in the additional properties.
-    pub kind: String,
-    /// kind message or message-updated.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub message: Option<ConversationMessage>,
-    /// kind read-cursor.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub participant: Option<String>,
-    /// kind read-cursor.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub seq: Option<u64>,
-    #[serde(flatten)]
-    pub additional: BTreeMap<String, serde_json::Value>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationImportMessage {
-    pub author: String,
-    pub client_msg_id: String,
-    pub created_at: String,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub id: Optional<String>,
-    pub parts: Vec<ConversationPart>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationMessage {
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub answers: Option<Vec<String>>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub answers_pending: Option<Vec<String>>,
-    pub author: String,
-    pub client_msg_id: String,
-    pub conversation: String,
-    pub created_at: String,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub edited_at: Option<String>,
-    pub id: String,
-    pub parts: Vec<ConversationPart>,
-    pub reactions: Vec<ConversationReaction>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub reply_to: Option<ConversationPartRef>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub retracted_at: Option<String>,
-    pub seq: u64,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub thread: Option<ConversationThreadState>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub thread_root: Option<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationPart {
-    /// type work.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub host: Option<String>,
-    /// type work: the reply preview (a string). type attachment (local-attachments-v1): an image's preview object {hash, mime_type, byte_count}.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub preview: Option<JsonValue>,
-    /// type text.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub runs: Option<Vec<ConversationTextRun>>,
-    /// type work.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub session: Option<String>,
-    /// type work. Known values: running, done, failed, waiting.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
-    /// type text.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
-    /// Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview) and link_preview (url, title, site, image; see spec/commands.md). A part of another type keeps its fields in the additional properties.
-    #[serde(rename = "type")]
-    pub type_: String,
-    #[serde(flatten)]
-    pub additional: BTreeMap<String, serde_json::Value>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationPartRef {
-    pub message_id: String,
-    pub part_index: u32,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationParticipant {
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub acp_session: Option<String>,
-    /// Known values: mux, agent. Other values are future classes.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub agent_class: Option<String>,
-    pub display_name: String,
-    pub id: String,
-    /// Known values: human, agent. Other values are future kinds.
-    pub kind: String,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationReaction {
-    pub at: String,
-    pub author: String,
-    pub kind: ConversationReactionKind,
-    pub part_index: u32,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct ConversationReactionKind {
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub emoji: Option<String>,
-    /// Known values: love, like, dislike, laugh, emphasize, question.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub tapback: Option<String>,
-    #[serde(flatten)]
-    pub additional: BTreeMap<String, serde_json::Value>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationSearchHit {
-    pub author: String,
-    pub conversation: String,
-    pub created_at: String,
-    pub message_id: String,
-    pub seq: u64,
-    pub snippet: String,
-    pub title: String,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationSummary {
-    pub created_at: String,
-    pub id: String,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub last_message: Option<ConversationMessage>,
-    pub last_seq: u64,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub marked_unread: Option<bool>,
-    pub owner: String,
-    pub participants: Vec<ConversationParticipant>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub pin_position: Option<u64>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub pinned: Option<bool>,
-    pub read_cursors: BTreeMap<String, u64>,
-    pub rev: u64,
-    pub title: String,
-    pub updated_at: String,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct ConversationTabRecord {
-    /// Agent session source (agent-session-tabs-v1); exclusive with the other sources.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub agent_session: Option<AgentSessionSource>,
-    /// Conversation source: a conv_ id, with owner.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub conversation: Option<String>,
-    /// Conversation source: local or cloud.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub owner: Option<String>,
-    /// Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub page: Option<String>,
-    /// What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub route: Option<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationTabSplit {
-    /// The split the new split wraps whole, as split-around-v1 on split: pane must be that split's last pane and direction right or down.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub around: Optional<Id>,
-    /// The side of pane the new pane takes: right, down, left or up.
-    pub direction: String,
-    /// Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub pane_id: Optional<String>,
-    /// Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub split_id: Optional<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationTextRun {
-    pub length: u32,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub link: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub mention: Option<String>,
-    pub start: u32,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationThreadResolution {
-    pub at: String,
-    pub by: String,
-    pub seq: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct ConversationThreadState {
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub owner: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub resolved: Option<ConversationThreadResolution>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ConversationThreadStatus {
-    #[serde(rename = "open")]
-    Open,
-    #[serde(rename = "resolved")]
-    Resolved,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationThreadSummary {
-    pub authors: Vec<String>,
-    pub last_reply_at: Nullable<String>,
-    pub last_reply_seq: Nullable<u64>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub owner: Option<String>,
-    pub reply_count: u64,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub resolved_at: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub resolved_by: Option<String>,
-    pub root: String,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub status: Option<ConversationThreadStatus>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -905,13 +396,6 @@ pub struct GetCellPixelsResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GetHostSizePolicyResult {
-    pub mac_participants: Vec<String>,
-    pub policy: HostSizePolicy,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetSizeStateResult {
     pub self_participant: Nullable<String>,
     pub state: SizeState,
@@ -942,104 +426,6 @@ pub struct GuestUrlSubscribeResult {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HistorySearchHit {
-    pub at_ms: i64,
-    pub highlights: Vec<HistorySearchRange>,
-    pub key: String,
-    pub kind: String,
-    pub position: Nullable<i64>,
-    pub snippet: String,
-    pub target: String,
-    pub title: String,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HistorySearchRange {
-    pub end: u32,
-    pub start: u32,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum HomeChiefState {
-    #[serde(rename = "working")]
-    Working,
-    #[serde(rename = "waiting")]
-    Waiting,
-    #[serde(rename = "idle")]
-    Idle,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum HomeInboxKind {
-    #[serde(rename = "chief")]
-    Chief,
-    #[serde(rename = "direct")]
-    Direct,
-    #[serde(rename = "channel")]
-    Channel,
-    #[serde(rename = "group")]
-    Group,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HomeInboxRow {
-    pub activity_at: String,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub chief: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub chief_state: Option<HomeChiefState>,
-    pub id: String,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub index: Option<u64>,
-    pub kind: HomeInboxKind,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub last_author: Option<String>,
-    pub marked_unread: bool,
-    pub muted: bool,
-    pub name: String,
-    pub owner: String,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub pin_position: Option<u64>,
-    pub pinned: bool,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub preview: Option<String>,
-    pub unread: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum HostSizeMode {
-    #[serde(rename = "smallest")]
-    Smallest,
-    #[serde(rename = "mac")]
-    Mac,
-    #[serde(rename = "latest")]
-    Latest,
-    #[serde(rename = "priority")]
-    Priority,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HostSizePolicy {
-    pub mode: HostSizeMode,
-    pub order: Vec<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HostSizePolicyRequest {
-    pub mode: HostSizeMode,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub order: Optional<Vec<String>>,
-}
-
-#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IdMappingKind {
     #[serde(rename = "workspace")]
@@ -1062,73 +448,23 @@ pub struct IdMapping {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct IdentifyRestore {
-    pub done: Nullable<u64>,
-    pub elapsed_ms: u64,
-    pub last_advance_ms: u64,
-    pub phase: String,
-    pub total: Nullable<u64>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IdentifyResult {
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub api_revision: Optional<u32>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub api_version: Optional<String>,
     pub app: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub build_commit: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub build_id: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub build_time: Optional<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub cli_path: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub crate_version: Optional<String>,
     pub daemon_handoff: u64,
     pub generation: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub ghostty_commit: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub install: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub launch_snapshot_path: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub lifecycle_ready: Option<bool>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub machine_capabilities: Option<Vec<String>>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub machine_device: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub machine_id: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub machine_name: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub machine_platform: Option<MachinePlatform>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub machine_symbol: Option<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub min_api_revision: Optional<u32>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub min_api_version: Optional<String>,
     pub pid: u32,
     pub protocol: u32,
     pub registry_id: String,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub restore: Option<IdentifyRestore>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub screen_device_id: Optional<String>,
     pub session: String,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
     pub terminal_revision: u64,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub update_command: Optional<String>,
     pub version: String,
     pub workspace_revision: u64,
 }
@@ -1176,58 +512,12 @@ pub enum Layout {
         ratio: f32,
         #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
         split: Option<Id>,
-        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-        split_id: Option<String>,
     },
     #[serde(rename = "stack")]
     Stack {
         expanded: Id,
         panes: Vec<Id>,
     },
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LayoutColumnNode {
-    /// dock-columns-v1: the viewport edge the column is pinned to.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub dock: Option<JsonValue>,
-    pub id: Id,
-    pub layout: Layout,
-    /// rows-v1: only for a column with two or more rows.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub rows: Option<Vec<LayoutRowNode>>,
-    pub width: f64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LayoutRowNode {
-    pub height: u64,
-    pub id: Id,
-    pub layout: Layout,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LayoutSizePaneWidth {
-    pub pane: Id,
-    pub width: f32,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LayoutSizeSplitRatio {
-    pub ratio: f32,
-    pub split: Id,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum LayoutSizeValue {
-    LayoutSizeSplitRatio(LayoutSizeSplitRatio),
-    LayoutSizePaneWidth(LayoutSizePaneWidth),
 }
 
 #[rustfmt::skip]
@@ -1274,30 +564,6 @@ pub struct ListTerminalsResult {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct ListWorkspacesKnown {
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub generation: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub pane_revision: Optional<u64>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub registry_id: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub terminal_revision: Optional<u64>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub tree_revision: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub workspace_revision: Optional<u64>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ListWorkspacesSince {
-    pub epoch: String,
-    pub seq: u64,
-}
-
-#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LivePane {
     pub active_tab: u64,
@@ -1305,14 +571,8 @@ pub struct LivePane {
     pub focused_at: Option<u64>,
     pub id: Id,
     pub name: Nullable<String>,
-    /// The pane's public id.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub resource_id: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
-    /// The pane's tab group runs.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub tab_groups: Option<Vec<TabGroupRun>>,
     pub tabs: Vec<Tab>,
 }
 
@@ -1320,13 +580,6 @@ pub struct LivePane {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MachineListeningTcpResult {
     pub stdout: String,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MachinePlatform {
-    pub arch: String,
-    pub os: String,
 }
 
 #[rustfmt::skip]
@@ -1366,57 +619,15 @@ pub struct MoveTerminalResult {
     pub generation: String,
     pub lifecycle: TerminalLifecycle,
     pub pane: Nullable<Id>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub pane_id: Option<String>,
     pub registry_id: String,
     pub replayed: bool,
     pub screen: Nullable<Id>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub screen_id: Option<String>,
     pub surface: Nullable<Id>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub tab_id: Option<String>,
     pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub terminal_resource_id: Option<String>,
     pub terminal_revision: u64,
     pub workspace: Nullable<Id>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub workspace_id: Option<String>,
     pub workspace_key: String,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum NameSource {
-    #[serde(rename = "user")]
-    User,
-    #[serde(rename = "auto")]
-    Auto,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NewRowResult {
-    pub pane: Id,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub pane_id: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub screen_id: Option<String>,
-    pub surface: Id,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub tab_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub terminal_id: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub terminal_incarnation: Optional<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub terminal_resource_id: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub transaction: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub workspace_id: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -1442,22 +653,7 @@ pub enum NotificationLevel {
 pub struct NotificationMarker {
     pub level: NotificationLevel,
     pub notification: Id,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub source: Option<NotificationSource>,
     pub unread: bool,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum NotificationSource {
-    #[serde(rename = "cli")]
-    Cli,
-    #[serde(rename = "terminal")]
-    Terminal,
-    #[serde(rename = "agent")]
-    Agent,
-    #[serde(rename = "daemon")]
-    Daemon,
 }
 
 #[rustfmt::skip]
@@ -1488,46 +684,9 @@ pub enum PaneDirection {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PaneKind {
-    #[serde(rename = "pty")]
-    Pty,
-    #[serde(rename = "browser")]
-    Browser,
-}
-
-#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaneNeighborResult {
     pub pane: Nullable<Id>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PaneSurfaceResult {
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub pane_id: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub replayed: Optional<bool>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub screen_id: Option<String>,
-    pub surface: Id,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub tab_id: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub terminal_id: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub terminal_incarnation: Optional<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub terminal_resource_id: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub workspace_id: Option<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PhoneLinkOfferResult {
-    pub offered: bool,
 }
 
 #[rustfmt::skip]
@@ -1554,19 +713,6 @@ pub struct ProcessInfoResult {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub foreground_executable: Optional<String>,
     pub pid: Nullable<u32>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ProgramStatusState {
-    #[serde(rename = "working")]
-    Working,
-    #[serde(rename = "blocked")]
-    Blocked,
-    #[serde(rename = "error")]
-    Error,
-    #[serde(rename = "done")]
-    Done,
 }
 
 #[rustfmt::skip]
@@ -1597,32 +743,6 @@ pub struct ReadScrollbackResult {
 pub struct ReattachViewResult {
     pub participant: String,
     pub state: SizeState,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ReleaseWorkspaceNamesResult {
-    /// Workspace names this call handed back to the automatic namer.
-    pub released: u64,
-    /// User-owned names left pinned: a row renamed between the read and its release.
-    pub still_pinned: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct RemoteHostAppPermissions {
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub accessibility: Optional<bool>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub screen_recording: Optional<bool>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RemoteHostAppResult {
-    pub host_pid: u32,
-    pub secret: String,
-    pub socket: String,
 }
 
 #[rustfmt::skip]
@@ -1765,21 +885,11 @@ pub struct ResolveTerminalResult {
     pub generation: String,
     pub launch_spec: JsonValue,
     pub lifecycle: TerminalLifecycle,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub pane_id: Option<String>,
     pub registry_id: String,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub screen_id: Option<String>,
     pub surface: Nullable<Id>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub tab_id: Option<String>,
     pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub terminal_resource_id: Option<String>,
     pub terminal_revision: u64,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub workspace_id: Option<String>,
     pub workspace_key: String,
 }
 
@@ -1822,82 +932,17 @@ pub struct ResourceSelectors {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RowHeight {
-    pub height: u64,
-    pub row: Id,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RowMarkerPoint {
-    pub col: u16,
-    pub row_marker: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunResult {
     pub already_exited: bool,
     pub exit: Nullable<TerminalExit>,
     pub lifecycle: TerminalLifecycle,
     pub pane: Nullable<Id>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub pane_id: Option<String>,
     pub screen: Nullable<Id>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub screen_id: Option<String>,
     pub surface: Nullable<Id>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub tab_id: Option<String>,
     pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub terminal_resource_id: Option<String>,
     pub terminal_revision: u64,
     pub workspace: Nullable<Id>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub workspace_id: Option<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SavedTabGroupMember {
-    /// kind terminal.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub cwd: Optional<String>,
-    /// kind browser. Known values: webkit, cef.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub engine: Optional<String>,
-    /// Known values: terminal (terminal_id, cwd, title) and browser (url, engine, profile_id, title). A member of another kind keeps its fields in the additional properties.
-    pub kind: String,
-    /// kind browser.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub profile_id: Optional<String>,
-    /// kind terminal.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub terminal_id: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub title: Optional<String>,
-    /// kind browser.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    #[serde(flatten)]
-    pub additional: BTreeMap<String, serde_json::Value>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SavedTabGroupRecord {
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
-    pub color: String,
-    pub id: String,
-    pub members: Vec<SavedTabGroupMember>,
-    pub name: String,
-    /// The room whose bar shows the saved group (\`default\` for groups saved by these commands).
-    pub room: String,
-    pub updated_at_ms: u64,
-    #[serde(flatten)]
-    pub additional: BTreeMap<String, serde_json::Value>,
 }
 
 #[rustfmt::skip]
@@ -1905,115 +950,13 @@ pub struct SavedTabGroupRecord {
 pub struct Screen {
     pub active: bool,
     pub active_pane: Id,
-    /// The screen color.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub color: Optional<String>,
-    /// The screen's layout columns.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub columns: Option<Vec<LayoutColumnNode>>,
-    /// floating-panes-v1: panes above the tiled layout, back to front.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub floating: Option<JsonValue>,
-    /// The screen group the screen is in.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub group: Optional<String>,
-    /// split-divider-visibility-v1: splits whose divider is hidden.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub hidden_dividers: Option<Vec<Id>>,
-    /// The screen icon.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub icon: Optional<String>,
     pub id: Id,
     pub layout: Layout,
     pub name: Nullable<String>,
     pub panes: Vec<Pane>,
-    /// The screen is pinned.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub pinned: Option<bool>,
-    /// quick-terminal-v1: the screen's quick terminal.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub quick_terminal: Option<JsonValue>,
-    /// The screen's public id.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub resource_id: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
-    /// The viewport width the split widths are relative to.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub viewport_base_width: Option<f64>,
-    /// Viewport widths of splits.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub viewport_splits: Option<Vec<ViewportSplitWidth>>,
     pub zoomed_pane: Nullable<Id>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ScreenGroupRun {
-    pub collapsed: bool,
-    pub color: String,
-    pub count: u64,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub icon: Optional<String>,
-    pub id: String,
-    pub name: String,
-    pub saved_id: Nullable<String>,
-    pub screens: Vec<Id>,
-    /// The index of the run's first screen.
-    pub start: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SelectionPane {
-    pub active_tab: u64,
-    pub focused_at: u64,
-    pub id: Id,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SelectionScreen {
-    pub active: bool,
-    pub active_pane: Id,
-    pub id: Id,
-    pub panes: Vec<SelectionPane>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct SendExpectAgent {
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub session: Optional<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsCommandConnections {
-    pub accepted: u64,
-    pub kind: String,
-    pub refused: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsCommandRow {
-    pub count: u64,
-    pub hist: Vec<u64>,
-    pub kind: String,
-    pub max_ns: u64,
-    pub name: String,
-    pub total_ns: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsCommands {
-    pub connections: Vec<ServerStatsCommandConnections>,
-    pub hist_bounds_ns: Vec<u64>,
-    pub name_limit: u64,
-    pub names: u64,
-    pub rows: Vec<ServerStatsCommandRow>,
 }
 
 #[rustfmt::skip]
@@ -2028,95 +971,6 @@ pub struct ServerStatsConnections {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsDisk {
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub checkpoints: Optional<ServerStatsDiskCheckpoints>,
-    pub error: Nullable<String>,
-    pub files: Vec<ServerStatsDiskFile>,
-    pub files_truncated: bool,
-    pub files_unlisted: u64,
-    pub freelist_pages: u64,
-    pub journal: Nullable<ServerStatsDiskJournal>,
-    pub page_count: u64,
-    pub page_size: u64,
-    pub registry_bytes: u64,
-    pub segments: Nullable<ServerStatsDiskSegments>,
-    pub shm_bytes: u64,
-    pub wal_bytes: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsDiskCheckpoints {
-    pub budget_bytes: u64,
-    pub bytes: u64,
-    pub checkpoints: u64,
-    pub largest_bytes: u64,
-    pub over_budget: bool,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsDiskFile {
-    pub bytes: u64,
-    pub files: u64,
-    pub name: String,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsDiskJournal {
-    pub estimated_live_bytes: u64,
-    pub first_sequence: u64,
-    pub head_sequence: u64,
-    pub kinds: Vec<ServerStatsDiskJournalKind>,
-    pub live_rows: u64,
-    pub sample_bytes: u64,
-    pub sample_rows: u64,
-    pub sample_span_ms: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsDiskJournalKind {
-    pub budget_bytes_per_day: u64,
-    pub bytes_per_day: Nullable<u64>,
-    pub kind: String,
-    pub over_budget: bool,
-    pub sample_bytes: u64,
-    pub sample_rows: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsDiskSegmentCodec {
-    pub codec: String,
-    pub compressed_bytes: u64,
-    pub records: u64,
-    pub segments: u64,
-    pub uncompressed_bytes: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsDiskSegmentKind {
-    pub kind: String,
-    pub segments: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsDiskSegments {
-    pub by_codec: Vec<ServerStatsDiskSegmentCodec>,
-    pub compressed_bytes: u64,
-    pub kinds: Vec<ServerStatsDiskSegmentKind>,
-    pub records: u64,
-    pub segments: u64,
-    pub uncompressed_bytes: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsHistogram {
     pub count: u64,
     pub max: u64,
@@ -2124,39 +978,6 @@ pub struct ServerStatsHistogram {
     pub p50: u64,
     pub p90: u64,
     pub p99: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsHookQueue {
-    pub queued_events: u64,
-    pub reset_dropped_events: u64,
-    pub undeliverable_events: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsJournalFollower {
-    pub client: u64,
-    pub connected_ms: u64,
-    pub keeps_hook_rows: bool,
-    pub keeps_report_rows: bool,
-    pub kinds: Vec<String>,
-    pub left_ms: Nullable<u64>,
-    pub max_sensitivity: Nullable<String>,
-    pub remote: bool,
-    pub stream_id: String,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsJournalFollowers {
-    pub followers: Vec<ServerStatsJournalFollower>,
-    pub grace_ms: u64,
-    pub hook_rows_kept: bool,
-    pub journal_hook_keeps_rows: Nullable<bool>,
-    pub keep_all_ms: u64,
-    pub report_rows_kept: bool,
 }
 
 #[rustfmt::skip]
@@ -2179,20 +1000,6 @@ pub struct ServerStatsJournalWriter {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsLockDetail {
-    pub by_hold_p99: Vec<ServerStatsLockSiteDetail>,
-    pub by_hold_total: Vec<ServerStatsLockSiteDetail>,
-    pub contended_acquisitions: u64,
-    pub hold_us: ServerStatsHistogram,
-    pub holder: Nullable<ServerStatsLockHolder>,
-    pub last_stall: Nullable<ServerStatsLockStall>,
-    pub sites: u64,
-    pub stalls: u64,
-    pub wait_us: ServerStatsHistogram,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsLockHolder {
     pub held_for_us: u64,
     pub site: String,
@@ -2209,30 +1016,10 @@ pub struct ServerStatsLockSite {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsLockSiteDetail {
-    pub acquisitions: u64,
-    pub hold_max_us: u64,
-    pub hold_p99_us: u64,
-    pub hold_total_us: u64,
-    pub site: String,
-    pub wait_max_us: u64,
-    pub wait_p99_us: u64,
-    pub wait_total_us: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsLockStall {
     pub blocker: Nullable<String>,
     pub waited_us: u64,
     pub waiter: String,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsLocks {
-    pub registry: ServerStatsLockDetail,
-    pub state: ServerStatsLockDetail,
 }
 
 #[rustfmt::skip]
@@ -2249,68 +1036,12 @@ pub struct ServerStatsRegistryLock {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsResourceProjection {
-    pub commit_apply_us: ServerStatsHistogram,
-    pub commit_journal_us: ServerStatsHistogram,
-    pub commit_prune_us: ServerStatsHistogram,
-    pub commit_us: ServerStatsHistogram,
-    pub commits: u64,
-    pub crosscheck_mismatches: u64,
-    pub crosschecks: u64,
-    pub diff_us: ServerStatsHistogram,
-    pub full_projections: u64,
-    pub index_us: ServerStatsHistogram,
-    pub journaled_changes: ServerStatsHistogram,
-    pub projected_changes: ServerStatsHistogram,
-    pub projections: u64,
-    pub read_us: ServerStatsHistogram,
-    pub scope_fallbacks: u64,
-    pub scoped_projections: u64,
-    pub written_changes: ServerStatsHistogram,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsResult {
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub commands: Option<ServerStatsCommands>,
     pub connections: ServerStatsConnections,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub disk: Option<ServerStatsDisk>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub hook_queue: Option<ServerStatsHookQueue>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub journal_followers: Option<ServerStatsJournalFollowers>,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub locks: Option<ServerStatsLocks>,
     pub registry_lock: ServerStatsRegistryLock,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub resource_projection: Option<ServerStatsResourceProjection>,
     pub schema: u32,
     pub uptime_ms: u64,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub write_path: Option<ServerStatsWritePath>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerStatsWritePath {
-    pub effect_intent_batches: u64,
-    pub effect_intent_failures: u64,
-    pub effect_intents: u64,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub registry_wal_file_bytes: Option<u64>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub registry_wal_file_high_water_bytes: Option<u64>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub registry_wal_frame_bytes: Option<u64>,
-    pub request_effect_commits: u64,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub wal_commits: Option<u64>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub wal_synced_commits: Option<u64>,
-    pub writer_registry_locks: u64,
 }
 
 #[rustfmt::skip]
@@ -2329,21 +1060,6 @@ pub enum ServerStatsWriterPhase {
 pub struct SetCellPixelsResult {
     pub failures: Vec<CellPixelFailure>,
     pub resizes: Vec<CellPixelResize>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct SetClientInfoResult {
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub api_revision: Option<u32>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub api_version: Option<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SetHostSizePolicyResult {
-    pub policy: HostSizePolicy,
 }
 
 #[rustfmt::skip]
@@ -2372,33 +1088,8 @@ pub struct SetTerminalIdlePolicyResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SetTerminalKeepResult {
-    pub keep: bool,
-    pub terminal_id: String,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub terminal_resource_id: Optional<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SetTerminalTailPinResult {
-    pub pinned: bool,
-    pub terminal: String,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ShownProgramStatus {
-    pub progress: Nullable<u16>,
-    pub state: ProgramStatusState,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShutdownDaemonResult {
     pub accepted: bool,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub ended_terminals: Optional<u64>,
     pub generation: String,
     pub pid: u32,
 }
@@ -2442,11 +1133,7 @@ pub enum SizeDeviceKind {
     Tui,
     #[serde(rename = "browser")]
     Browser,
-    #[serde(rename = "linux")]
-    Linux,
-    #[serde(rename = "windows")]
-    Windows,
-    #[serde(rename = "unknown", other)]
+    #[serde(rename = "unknown")]
     Unknown,
 }
 
@@ -2539,41 +1226,6 @@ pub struct SizingIdentity {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct SnapshotRequestHave {
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub generation: Optional<u64>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub offset: Optional<u64>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub snapshot_version: Optional<u16>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SnapshotRequestResultStatus {
-    #[serde(rename = "accepted")]
-    Accepted,
-    #[serde(rename = "collapsed")]
-    Collapsed,
-    #[serde(rename = "snapshot_throttled")]
-    SnapshotThrottled,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SnapshotRequestResult {
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub reason: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub request_id: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub retry_after_ms: Optional<u64>,
-    pub status: SnapshotRequestResultStatus,
-    pub surface: Id,
-}
-
-#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SplitDirection {
     #[serde(rename = "right")]
@@ -2584,54 +1236,12 @@ pub enum SplitDirection {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SplitRespawn {
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub cwd: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub engine: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub env: Optional<BTreeMap<String, String>>,
-    pub kind: String,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub profile_id: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub shell_args: Optional<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub terminal_id: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub url: Optional<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SurfaceResult {
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub pane_id: Optional<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub screen_id: Option<String>,
     pub surface: Id,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub tab_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_incarnation: Optional<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub terminal_resource_id: Option<String>,
-    /// The transaction of a new-tab request, when it sent one.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub transaction: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub workspace_id: Option<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TabBrowserRenderer {
-    #[serde(rename = "daemon")]
-    Daemon,
-    #[serde(rename = "frontend")]
-    Frontend,
 }
 
 #[rustfmt::skip]
@@ -2661,247 +1271,36 @@ pub enum TabKind {
     Pty,
     #[serde(rename = "browser")]
     Browser,
-    #[serde(rename = "conversation")]
-    Conversation,
-    #[serde(rename = "remote-terminal")]
-    RemoteTerminal,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tab {
-    /// app-screens-v1: the app (and route) an app tab shows.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub app: Option<JsonValue>,
-    /// tab-attention-v1: an agent needs the person in this tab.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub attention: Optional<TabAttention>,
-    /// A frontend browser's engine.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub browser_engine: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub browser_error: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub browser_frames_stalled: Optional<bool>,
-    /// The frontend that owns the browser.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub browser_owner: Optional<String>,
-    /// A frontend browser's profile.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub browser_profile_id: Optional<String>,
-    /// Who renders a browser tab.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub browser_renderer: Optional<TabBrowserRenderer>,
     pub browser_source: Nullable<TabBrowserSource>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub browser_status: Optional<TabBrowserStatus>,
-    /// The public id of what the tab shows.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub content_resource_id: Optional<String>,
-    /// What a conversation tab shows.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub conversation: Optional<ConversationTabRecord>,
-    /// The terminal's working directory.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub cwd: Optional<String>,
     pub dead: bool,
-    /// terminal-state-v1: why a dead terminal ended.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub end: Optional<JsonValue>,
-    /// A frontend browser's favicon.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub favicon_url: Optional<String>,
-    /// The git branch of cwd.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub git_branch: Optional<String>,
-    /// cwd's checkout has a detached HEAD.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub git_detached: Option<bool>,
-    /// The tab group the tab is in.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub group: Optional<String>,
-    /// The record version of a terminal its host has but cannot adopt.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub host_record_version: Optional<u64>,
     pub kind: TabKind,
     pub name: Nullable<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub notification: Optional<NotificationMarker>,
-    /// The tab is pinned.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub pinned: Option<bool>,
-    /// A pinned browser tab's home URL.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub pinned_url: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub program_status: Optional<ShownProgramStatus>,
-    /// How the tab relaunches after a restart.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub relaunch: Optional<JsonValue>,
-    /// A remote terminal tab's record.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub remote: Option<JsonValue>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     pub size: Nullable<Size>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub supports_clear_history_key_fallback: Option<bool>,
     pub surface: Id,
-    /// The tab's public id.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub tab_resource_id: Optional<String>,
-    /// Why a terminal will end with something other than its shell although terminal hosts are on: \`breakaway_denied\` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or \`host_start_failed\` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub terminal_host_fallback: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_incarnation: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_resource_id: Optional<String>,
-    /// running, reconnecting, failed or exited, for a terminal tab.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub terminal_state: Optional<String>,
     pub title: String,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub title_activity: Optional<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub title_text: Option<String>,
-    /// A browser tab's URL.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub url: Optional<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TabAttention {
-    /// When it was marked, in Unix milliseconds.
-    pub at_ms: u64,
-    /// Why the tab needs the person.
-    pub reason: String,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TabGroupEndedTerminal {
-    pub terminal_id: String,
-    pub terminal_incarnation: Nullable<String>,
-    #[serde(flatten)]
-    pub additional: BTreeMap<String, serde_json::Value>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TabGroupOutcome {
-    /// Null when the command left no group.
-    pub group: Nullable<TabGroupRecord>,
-    pub pane: Nullable<Id>,
-    /// Members in strip order.
-    pub surfaces: Vec<Id>,
-    /// The workspace of the group's pane.
-    pub workspace: Nullable<Id>,
-    #[serde(flatten)]
-    pub additional: BTreeMap<String, serde_json::Value>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TabGroupRecord {
-    pub collapsed: bool,
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
-    pub color: String,
-    pub id: String,
-    /// May be empty: the group shows only its color.
-    pub name: String,
-    /// The linked saved group.
-    pub saved_id: Nullable<String>,
-    #[serde(flatten)]
-    pub additional: BTreeMap<String, serde_json::Value>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TabGroupRun {
-    pub collapsed: bool,
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
-    pub color: String,
-    pub count: u64,
-    /// tab-group-icon-v1: the group's icon string.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub icon: Optional<String>,
-    pub id: String,
-    pub name: String,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub pane: Option<Id>,
-    pub saved_id: Nullable<String>,
-    /// Strip index of the first member.
-    pub start: u64,
-    pub surfaces: Vec<Id>,
-    #[serde(flatten)]
-    pub additional: BTreeMap<String, serde_json::Value>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct TabPlace {
-    /// Right after this tab of pane.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub after: Optional<Id>,
-    /// Right after the tab of an earlier create request of this connection for pane: the transaction of that request (1 to 128 printable ASCII). That tab does not have to be there yet.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub after_creation: Optional<String>,
-    /// Right before this tab of pane.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub before: Optional<Id>,
-    /// true: the tab joins the tab group of the tab that after, after_creation or before names. Refused with start.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub joins: Optional<bool>,
-    /// true: the first tab after the pinned tabs.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub start: Optional<bool>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalClipboardHost {
-    pub kind: TerminalClipboardHostKind,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TerminalClipboardHostKind {
-    #[serde(rename = "local")]
-    Local,
-    #[serde(rename = "remote")]
-    Remote,
-    #[serde(rename = "cloud")]
-    Cloud,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TerminalClipboardLocation {
-    #[serde(rename = "standard")]
-    Standard,
-    #[serde(rename = "selection")]
-    Selection,
-    #[serde(rename = "primary")]
-    Primary,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalClipboardReplyResult {
-    pub accepted: bool,
-    pub granted: bool,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalClipboardSubscribeResult {
-    pub clipboard_read_ready: bool,
 }
 
 #[rustfmt::skip]
@@ -2929,67 +1328,6 @@ pub struct TerminalColors {
     pub palette: Option<BTreeMap<String, ColorHex>>,
     pub selection_bg: Nullable<ColorHex>,
     pub selection_fg: Nullable<ColorHex>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalCommandContext {
-    pub command: Nullable<String>,
-    pub cwd: Nullable<String>,
-    pub exit_code: Nullable<i32>,
-    pub output: String,
-    pub text: String,
-    pub truncated: bool,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TerminalCommandContextIntent {
-    #[serde(rename = "context")]
-    Context,
-    #[serde(rename = "fix")]
-    Fix,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalCommandContextResult {
-    pub context: Nullable<TerminalCommandContext>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalCommandDeleteResult {
-    pub deleted: u64,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalCommandHistoryResult {
-    pub enabled: bool,
-    pub retention_days: u32,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalCommandList {
-    pub commands: Vec<TerminalCommandRecord>,
-    pub deletions: String,
-    pub registry_id: String,
-    pub retention_days: u32,
-    pub truncated: bool,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalCommandRecord {
-    pub command: Nullable<String>,
-    pub cwd: Nullable<String>,
-    pub duration_ms: String,
-    pub exit_code: Nullable<i32>,
-    pub id: String,
-    pub started_at_ms: String,
-    pub terminal_id: String,
 }
 
 #[rustfmt::skip]
@@ -3025,26 +1363,6 @@ pub enum TerminalExitOutcome {
     Unknown {
         reason: String,
     },
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalHistoryPage {
-    pub data: String,
-    pub marker: u64,
-    pub rows: u16,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalHistoryPagesResult {
-    pub done: bool,
-    pub marker_epoch: u64,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub next_before: Optional<u64>,
-    pub pages: Vec<TerminalHistoryPage>,
-    pub snapshot_version: u16,
-    pub surface: Id,
 }
 
 #[rustfmt::skip]
@@ -3310,22 +1628,6 @@ pub struct TerminalKeyInput {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalLastCommand {
-    pub command: String,
-    pub ended_at_ms: String,
-    pub exit_code: Nullable<i32>,
-    pub started_at_ms: String,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalLastCommandResult {
-    pub last_command: Nullable<TerminalLastCommand>,
-    pub terminal_id: String,
-}
-
-#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TerminalLifecycle {
     #[serde(rename = "launching")]
@@ -3361,53 +1663,14 @@ pub struct TerminalPlacement {
     pub key: String,
     pub lifecycle: TerminalLifecycle,
     pub pane: Nullable<Id>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub pane_id: Option<String>,
     pub registry_id: String,
     pub replayed: bool,
     pub screen: Nullable<Id>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub screen_id: Option<String>,
     pub surface: Nullable<Id>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub tab_id: Option<String>,
     pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub terminal_resource_id: Option<String>,
     pub terminal_revision: u64,
     pub workspace: Nullable<Id>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub workspace_id: Option<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalPortsListener {
-    /// The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1.
-    pub bound: String,
-    /// The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, \[::1\], ...
-    pub host: String,
-    pub port: u16,
-    /// The printed URL, or http://HOST:PORT/ when the text had no scheme.
-    pub url: String,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalPortsResult {
-    /// Ports the text names that refused the connect.
-    pub closed: Vec<u16>,
-    pub listeners: Vec<TerminalPortsListener>,
-    pub surface: Id,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalReadRangeResult {
-    pub surface: Id,
-    pub text: String,
-    pub truncated: bool,
 }
 
 #[rustfmt::skip]
@@ -3435,85 +1698,15 @@ pub struct TerminalRegistryEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalResourceHost {
-    pub cpu_ns: u64,
-    pub memory_bytes: u64,
-    pub pid: u32,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalResourceProcess {
-    pub cpu_ns: u64,
-    pub memory_bytes: u64,
-    pub name: String,
-    pub pid: u32,
-    pub ppid: u32,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalResources {
-    pub host: Nullable<TerminalResourceHost>,
-    pub pid: Nullable<u32>,
-    pub processes: Vec<TerminalResourceProcess>,
-    pub surface: Id,
-    pub terminal_id: Nullable<String>,
-    pub truncated: bool,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalResourcesResult {
-    pub missing: Vec<Id>,
-    pub sampled_at_ns: u64,
-    pub terminals: Vec<TerminalResources>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalResumeCommandResult {
-    pub command: Nullable<String>,
-    pub terminal_id: String,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tree {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub changed: Option<Vec<Workspace>>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub delta: Option<bool>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub epoch: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub generation: Option<String>,
-    /// The sidebar workspace groups.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub groups: Option<Vec<WorkspaceGroup>>,
-    /// How many lines the connection had written when the tree was read: a later line may carry a change the tree lacks.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub lines_written_before_read: Option<u64>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub next: Option<u64>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub order: Option<Vec<Id>>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub pane_revision: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub registry_id: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub removed: Option<Vec<Id>>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub seq: Option<u64>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub terminal_revision: Option<u64>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub total: Option<u64>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub tree_revision: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub unchanged: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub workspace_revision: Option<u64>,
     pub workspaces: Vec<Workspace>,
@@ -3528,19 +1721,6 @@ pub enum ViewAttachmentOutcome {
     Passive,
     #[serde(rename = "superseded")]
     Superseded,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ViewportPaneWidthResult {
-    pub width: f32,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ViewportSplitWidth {
-    pub split: Id,
-    pub width: f64,
 }
 
 #[rustfmt::skip]
@@ -3564,107 +1744,16 @@ pub struct WaitForResult {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum WorkspaceKind {
-    #[serde(rename = "normal")]
-    Normal,
-    #[serde(rename = "home")]
-    Home,
-    #[serde(rename = "app")]
-    App,
-}
-
-#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Workspace {
     pub active: bool,
-    /// The app an app workspace shows.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub app: Optional<String>,
-    /// The workspace color.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub color: Optional<String>,
-    /// The sidebar group the workspace is in.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub group: Optional<String>,
-    /// The workspace icon.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub icon: Optional<String>,
     pub id: Id,
-    /// workspace-keep-awake-v1: the freeing timer never ends this workspace's shells.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub keep_awake: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
-    /// What the workspace is.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub kind: Option<WorkspaceKind>,
-    /// The person marked the workspace unread.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub marked_unread: Option<bool>,
     pub name: String,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub name_revision: Option<String>,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub name_source: Option<NameSource>,
-    /// The workspace is pinned.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub pinned: Option<bool>,
-    /// workspace-recovered-v1: every tab is a recovered terminal.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub recovered: Option<bool>,
-    /// The workspace's public id.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub resource_id: Optional<String>,
-    /// The workspace's screen group runs.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub screen_groups: Option<Vec<ScreenGroupRun>>,
     pub screens: Vec<Screen>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
-    /// The workspace title.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub title: Optional<String>,
-    /// Tabs with an unread notification.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub unread_count: Option<u64>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind")]
-pub enum WorkspaceFirstTab {
-    #[serde(rename = "browser")]
-    Browser {
-        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-        activate: Option<bool>,
-        #[serde(default, skip_serializing_if = "Optional::is_missing")]
-        cols: Optional<u16>,
-        engine: String,
-        #[serde(default, skip_serializing_if = "Optional::is_missing")]
-        favicon_url: Optional<String>,
-        #[serde(default, skip_serializing_if = "Optional::is_missing")]
-        idempotency_key: Optional<String>,
-        #[serde(default, skip_serializing_if = "Optional::is_missing")]
-        owner: Optional<String>,
-        #[serde(default, skip_serializing_if = "Optional::is_missing")]
-        profile_id: Optional<String>,
-        #[serde(default, skip_serializing_if = "Optional::is_missing")]
-        rows: Optional<u16>,
-        #[serde(default, skip_serializing_if = "Optional::is_missing")]
-        title: Optional<String>,
-        url: String,
-    },
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct WorkspaceGroup {
-    pub collapsed: bool,
-    pub color: Nullable<String>,
-    pub id: String,
-    pub index: u64,
-    pub name: String,
 }
 
 #[rustfmt::skip]
@@ -3672,12 +1761,6 @@ pub struct WorkspaceGroup {
 pub struct WorkspaceMutationResult {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub changed: Option<bool>,
-    /// close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub closed_ids: Option<Vec<String>>,
-    /// create-workspace with first_tab (workspace-first-tab-v1): the new-frontend-browser-tab reply for the workspace's first tab.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub first_tab: Option<JsonValue>,
     pub generation: String,
     pub index: u64,
     pub key: String,

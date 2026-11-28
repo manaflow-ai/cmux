@@ -9,37 +9,18 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime, timedelta
 from urllib.parse import quote
 from xml.dom import minidom
 
 MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.I)
 SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+COMMIT_BATCH = 4
+PR_LIMIT = 5
+LABEL_LIMIT = 20
+MAX_PAGES = 50
+FILE_LIMIT = 30
+TRANSIENT = re.compile(r"HTTP 5\d\d|timed? ?out|timeout", re.I)
 REPAIR = "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
-# Pages of merged PRs read before giving up (newest update first). The pages
-# carry only what picks the range's PRs; the details (labels, files) are read
-# afterwards for those PRs alone. Heavy 25-PR pages back to a day before the
-# baseline took 60-90 s of publish-nightly, right before the feed upload.
-MERGED_PR_PAGE_SIZE = 100
-MERGED_PR_PAGES = 20
-# A PR merged into the range was updated at or after its merge, which is after
-# the base commit landed; an hour covers clock skew between the two.
-UPDATED_SLACK = timedelta(hours=1)
-PR_PICK_FIELDS = "number mergedAt baseRefName mergeCommit { oid } updatedAt"
-PR_FIELDS = """number title url mergedAt baseRefName mergeCommit { oid }
-                labels(first: 20) { pageInfo { hasNextPage endCursor } nodes { name } }
-                files(first: 30) { totalCount nodes { path } }"""
-# PRs whose details one query reads.
-PR_DETAIL_BATCH = 10
-
-
-class TransientGitHubError(RuntimeError):
-    """A GitHub 5xx or timeout that persisted through the request retries."""
-
-
-# A 4xx is a real access or request error. Anything else (a 5xx, a timeout,
-# an empty or cut-off body: "unexpected end of JSON input") is retried.
-CLIENT_ERROR = re.compile(r"HTTP 4\d\d")
 
 
 class GitHub:
@@ -48,20 +29,18 @@ class GitHub:
 
     @staticmethod
     def request(args: list[str]) -> dict:
-        for attempt in range(3):
+        # GitHub answers a heavy GraphQL batch with a transient 5xx now and
+        # then; retry those with backoff. Other failures stop immediately.
+        for attempt in range(4):
             try:
-                result = subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=90)
+                result = subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=60)
             except subprocess.TimeoutExpired:
-                result = None
-            if result is not None and not result.returncode:
+                result = subprocess.CompletedProcess(args, 1, "", "timeout")
+            if not result.returncode or not TRANSIENT.search(result.stderr) or attempt == 3:
                 break
-            transient = result is None or not CLIENT_ERROR.search(result.stderr or "")
-            if not transient:
-                raise RuntimeError("GitHub metadata request failed; check Actions token contents/pull-requests read access and API availability")
-            if attempt < 2:
-                time.sleep(5 * (attempt + 1))
-        else:
-            raise TransientGitHubError("GitHub metadata request kept failing with a server error or timeout; retry later")
+            time.sleep(2 ** (attempt + 1))
+        if result.returncode:
+            raise RuntimeError("GitHub metadata request failed; check Actions token contents/pull-requests read access and API availability")
         value = json.loads(result.stdout)
         if isinstance(value, dict) and value.get("errors"):
             raise RuntimeError("GitHub GraphQL metadata query returned errors; retry after checking API access")
@@ -105,73 +84,71 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
     owner, name = github.repo.split("/")
     repository = "repository(owner: " + json.dumps(owner) + ", name: " + json.dumps(name) + ")"
     members = set(commits)
-    base_date = ((comparison.get("base_commit") or {}).get("commit") or {}).get("committer", {}).get("date")
-    if not base_date:
-        raise RuntimeError("GitHub compare returned no base commit date; retry metadata generation")
-    cutoff = datetime.fromisoformat(base_date.replace("Z", "+00:00")) - UPDATED_SLACK
     prs = {}
-    cursor = None
-    for _ in range(MERGED_PR_PAGES):
+    # Keep each query small (was 10 commits x 10 PRs x 100 labels x 100 files,
+    # which timed out in run 45858610960). Larger lists are paged, never cut:
+    # a commit's PRs and a PR's labels page with `after:`; a PR whose files
+    # exceed FILE_LIMIT counts as product (see infrastructure()).
+    pr_fields = (f"pageInfo {{ hasNextPage endCursor }} nodes {{ number title url mergedAt baseRefName mergeCommit {{ oid }} "
+                 f"labels(first: {LABEL_LIMIT}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ name }} }} "
+                 f"files(first: {FILE_LIMIT}) {{ totalCount nodes {{ path }} }} }}")
+
+    def commit_query(alias: str, sha: str, cursor: str | None = None) -> str:
         after = f", after: {json.dumps(cursor)}" if cursor else ""
-        result = github.graphql(
-            "query { " + repository + f" {{ pullRequests(baseRefName: {json.dumps(branch)}, states: MERGED, "
-            f"first: {MERGED_PR_PAGE_SIZE}, orderBy: {{field: UPDATED_AT, direction: DESC}}{after}) {{ "
-            f"pageInfo {{ hasNextPage endCursor }} nodes {{ {PR_PICK_FIELDS} }} }} }} }}")
-        page = result["pullRequests"]
-        for pr in page["nodes"]:
-            merged = pr.get("mergeCommit") or {}
-            # An RC branch is cut from main and gets picks, so its notes
-            # include PRs merged to main in the compared range.
-            bases = {branch, "main"} if branch.startswith("rc/") else {branch}
-            if pr["mergedAt"] and pr["baseRefName"] in bases and merged.get("oid") in members:
-                prs[pr["number"]] = pr
-        nodes = page["nodes"]
-        oldest = min((datetime.fromisoformat(pr["updatedAt"].replace("Z", "+00:00")) for pr in nodes), default=None)
-        if not page["pageInfo"]["hasNextPage"] or oldest is None or oldest < cutoff:
-            break
-        cursor = page["pageInfo"].get("endCursor")
-        if not cursor:
-            raise RuntimeError("GitHub merged PRs pagination returned no cursor; retry metadata generation")
-    else:
-        raise RuntimeError(f"More than {MERGED_PR_PAGES * MERGED_PR_PAGE_SIZE} merged PRs since the published build; inspect the channel marker")
-    return pr_details(github, repository, sorted(prs))
+        return (f'{alias}: object(oid: "{sha}") {{ ... on Commit {{ associatedPullRequests(first: {PR_LIMIT}{after}) '
+                f"{{ {pr_fields} }} }} }}")
 
+    def read(fields: str) -> dict:
+        return github.graphql("query { " + repository + " { " + fields + " } }")
 
-def pr_details(github: GitHub, repository: str, numbers: list[int]) -> list[dict]:
-    """Read the summary fields of the picked PRs, PR_DETAIL_BATCH per query."""
-    details = []
-    for start in range(0, len(numbers), PR_DETAIL_BATCH):
-        batch = numbers[start:start + PR_DETAIL_BATCH]
-        fields = " ".join(f"pr{number}: pullRequest(number: {number}) {{ {PR_FIELDS} }}" for number in batch)
-        result = github.graphql("query { " + repository + " { " + fields + " } }")
-        for number in batch:
-            pr = result.get(f"pr{number}")
-            if not pr:
-                raise RuntimeError(f"GitHub returned no details for merged PR #{number}; retry metadata generation")
-            complete_labels(github, repository, pr)
-            details.append(pr)
-    return details
+    def associated_prs(obj: dict, sha: str) -> list[dict]:
+        nodes = []
+        for _ in range(MAX_PAGES):
+            associated = obj["associatedPullRequests"]
+            nodes += associated["nodes"]
+            if not associated["pageInfo"]["hasNextPage"]:
+                return nodes
+            cursor = associated["pageInfo"].get("endCursor")
+            if not cursor:
+                raise RuntimeError("GitHub associated PR pagination returned no cursor; retry metadata generation")
+            obj = read(commit_query("c0", sha, cursor))["c0"]
+            if obj is None:
+                raise RuntimeError("GitHub could not resolve a compared commit; retry metadata generation")
+        raise RuntimeError("A commit has too many associated PRs; inspect its associations before retrying")
 
+    def complete_labels(pr: dict) -> None:
+        """category() needs the call labels wherever they sit in the list."""
+        labels = pr.get("labels") or {}
+        for _ in range(MAX_PAGES):
+            info = labels.get("pageInfo") or {}
+            if not info.get("hasNextPage") or any(CALL_LABEL(x["name"]) for x in labels.get("nodes", [])):
+                return
+            cursor = info.get("endCursor")
+            if not cursor:
+                raise RuntimeError("GitHub label pagination returned no cursor; retry metadata generation")
+            page = read(f'pr: pullRequest(number: {int(pr["number"])}) {{ labels(first: {LABEL_LIMIT}, after: {json.dumps(cursor)}) '
+                        "{ pageInfo { hasNextPage endCursor } nodes { name } } }")["pr"]["labels"]
+            labels = {"pageInfo": page["pageInfo"], "nodes": labels.get("nodes", []) + page["nodes"]}
+            pr["labels"] = labels
+        raise RuntimeError("A PR has too many labels; inspect its labels before retrying")
 
-def call_label(name: str) -> bool:
-    return name.lower().replace("-", " ") in {"default call", "needs a call"}
-
-
-def complete_labels(github: GitHub, repository: str, pr: dict) -> None:
-    """category() needs the call labels wherever they sit: page labels until one matches or none are left."""
-    labels = pr.get("labels") or {}
-    for _ in range(50):
-        info = labels.get("pageInfo") or {}
-        if not info.get("hasNextPage") or any(call_label(x["name"]) for x in labels.get("nodes", [])):
-            return
-        cursor = info.get("endCursor")
-        if not cursor:
-            raise RuntimeError("GitHub label pagination returned no cursor; retry metadata generation")
-        page = github.graphql("query { " + repository + f" {{ pr: pullRequest(number: {int(pr['number'])}) {{ "
-                              f"labels(first: 20, after: {json.dumps(cursor)}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ name }} }} }} }} }}")["pr"]["labels"]
-        labels = {"pageInfo": page["pageInfo"], "nodes": labels.get("nodes", []) + page["nodes"]}
-        pr["labels"] = labels
-    raise RuntimeError("A PR has too many labels; inspect its labels before retrying")
+    for offset in range(0, len(commits), COMMIT_BATCH):
+        batch = commits[offset:offset + COMMIT_BATCH]
+        result = read(" ".join(commit_query(f"c{index}", sha) for index, sha in enumerate(batch)))
+        for index, sha in enumerate(batch):
+            obj = result.get(f"c{index}")
+            if obj is None:
+                raise RuntimeError("GitHub could not resolve a compared commit; retry metadata generation")
+            for pr in associated_prs(obj, sha):
+                merged = pr.get("mergeCommit") or {}
+                # An RC branch is cut from main and gets picks, so its notes
+                # include PRs merged to main in the compared range.
+                bases = {branch, "main"} if branch.startswith("rc/") else {branch}
+                if pr["mergedAt"] and pr["baseRefName"] in bases and merged.get("oid") in members:
+                    if pr["number"] not in prs:
+                        complete_labels(pr)
+                    prs[pr["number"]] = pr
+    return list(prs.values())
 
 
 def infrastructure(pr: dict) -> bool:
@@ -184,6 +161,10 @@ def infrastructure(pr: dict) -> bool:
         return False
     return all(p.startswith((".github/", "docs/", "tests/", "cmuxTests/", "cmuxUITests/", "scripts/ci/"))
                or p.endswith((".md", ".mdx")) or "/Tests/" in p for p in paths)
+
+
+def CALL_LABEL(name: str) -> bool:
+    return name.lower().replace("-", " ") in {"default call", "needs a call"}
 
 
 def category(pr: dict) -> str:
@@ -237,35 +218,21 @@ def summarize(prs: list[dict], repo: str, base: str | None, head: str, limit: in
     return "\n".join(lines), plain
 
 
-def metadata_fallback(repo: str, base: str | None, head: str) -> tuple[str, str]:
-    """Notes for a build whose PR metadata GitHub would not serve."""
-    if base:
-        link = f"https://github.com/{repo}/compare/{base}...{head}"
-        plain = f"Change list unavailable; see {link}"
-    else:
-        link = f"https://github.com/{repo}/commit/{head}"
-        plain = "Change list unavailable; see the release page for build details."
-    return f"## Changes\n\nThe change list could not be read from GitHub for this build. [Compare the changes]({link}).\n", plain
-
-
-# Main's nightly publishes every variant's feed; nightly-next publishes only appcast-arm64.xml.
 ALL_FEEDS = ("appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml")
 
 
-CMUX = "https://cmux.com/xml-namespaces/cmux"
+def update_appcasts(directory: Path, build: str, summary: str, feeds_expected: tuple[str, ...] = ALL_FEEDS) -> None:
+    """Writes the build's item's <description> in exactly the feeds this track publishes (`feeds_expected`).
 
-
-def update_appcasts(directory: Path, build: str, summary: str, feeds: tuple[str, ...] = ALL_FEEDS,
-                    since: str | None = None, pull_requests: list[int] | None = None) -> None:
-    """Writes the build's item's <description>, and with `since`, its PR list: <cmux:sinceCommit> (the commit the
-    build's span starts after, the previous feed item's source) and <cmux:pullRequests> (numbers, newest first)."""
-    expected = set(feeds)
-    found = sorted(directory.glob("appcast*.xml"))
-    if {feed.name for feed in found} != expected:
+    The nightly publishes appcast-arm64.xml alone since #57110 (Intel and universal ship from the stable release), so
+    its callers pass --feeds appcast-arm64.xml; a feed missing or extra still fails before any is written."""
+    expected = set(feeds_expected)
+    feeds = sorted(directory.glob("appcast*.xml"))
+    if {feed.name for feed in feeds} != expected:
         raise RuntimeError(f"Expected exactly the published appcasts ({', '.join(sorted(expected))}) before generating notes; download the complete signed variant artifacts")
     # Build all replacements before writing, so a missing current item fails cleanly.
     replacements = []
-    for feed in found:
+    for feed in feeds:
         doc = minidom.parse(str(feed))
         matches = []
         for item in doc.getElementsByTagName("item"):
@@ -282,15 +249,6 @@ def update_appcasts(directory: Path, build: str, summary: str, feeds: tuple[str,
         description = doc.createElement("description")
         description.appendChild(doc.createTextNode(summary))
         item.appendChild(description)
-        if since:
-            for tag in ("sinceCommit", "pullRequests"):
-                for old in list(item.getElementsByTagNameNS(CMUX, tag)):
-                    item.removeChild(old)
-            for tag, text in (("sinceCommit", since), ("pullRequests", " ".join(str(n) for n in pull_requests or []))):
-                element = doc.createElementNS(CMUX, f"cmux:{tag}")
-                element.setAttribute("xmlns:cmux", CMUX)  # bound on the item: items move between feeds as bytes
-                element.appendChild(doc.createTextNode(text))
-                item.appendChild(element)
         replacements.append((feed, doc.toxml(encoding="utf-8")))
     for feed, xml in replacements:
         feed.write_bytes(xml)
@@ -307,28 +265,16 @@ def main() -> int:
     parser.add_argument("--appcasts", type=Path, required=True)
     parser.add_argument("--build", required=True)
     parser.add_argument("--feeds", nargs="+", default=list(ALL_FEEDS), help="the appcasts this track publishes")
-    parser.add_argument("--base", default="", help="the previous published commit, from the live feed; the release "
-                        "body's cmux-published-sha marker when empty (a run's tail writes it after the feed)")
     args = parser.parse_args()
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", args.repo) or not re.fullmatch(r"[0-9a-f]{40}", args.head):
         raise ValueError("Expected owner/repo and a full built SHA")
-    if args.base and not re.fullmatch(r"[0-9a-f]{40}", args.base):
-        raise ValueError("Expected --base to be a full published SHA")
     github = GitHub(args.repo)
-    base = None
-    try:
-        release = github.rest(f"releases/tags/{quote(args.tag, safe='')}")
-        base = args.base or published_sha(release.get("body") or "")
-        if base is None:
-            print(f"::warning::No previous publication marker; restore cmux-published-sha in the release body to recover the change range. Repair: {REPAIR}")
-        prs = collect_prs(github, base, args.head, args.branch) if base else []
-        markdown, plain = summarize(prs, args.repo, base, args.head)
-    except (RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError) as error:
-        # The change list is cosmetic: a nightly is never lost to GitHub metadata. The marker below
-        # and the appcast descriptions still name this build, and the compare link covers the range.
-        print(f"::warning::Publishing without a change list: {error}")
-        markdown, plain = metadata_fallback(args.repo, base, args.head)
-        prs = []
+    release = github.rest(f"releases/tags/{quote(args.tag, safe='')}")
+    base = published_sha(release.get("body") or "")
+    if base is None:
+        print(f"::warning::No previous publication marker; restore cmux-published-sha in the release body to recover the change range. Repair: {REPAIR}")
+    prs = collect_prs(github, base, args.head, args.branch) if base else []
+    markdown, plain = summarize(prs, args.repo, base, args.head)
     body = markdown + "\n## Downloads\n\n" + args.details.read_text()
     args.out.write_text(body)
     args.out.with_suffix(".published.md").write_text(f"<!-- cmux-published-sha: {args.head} -->\n" + body)

@@ -8,15 +8,9 @@
 //! owner-only Unix socket; each sidecar dials VPC addresses through the hub
 //! with [`crate::provider::SocksDialer`].
 //!
-//! The hub is deliberately narrow: the Unix socket is `0600` and the peer's
-//! uid is checked; with a [`HubClientToken`] a client must also present that
-//! per-launch token (SOCKS5 username/password), so another program of the
-//! same user that finds the socket still cannot reach the VMs' services. The
-//! one exception is ssh ([`OPEN_PORTS`]): `cmux wg dial` (an ssh
-//! `ProxyCommand`) reaches port 22 without the token, since ssh authenticates
-//! both ends itself (the user's key, the host key pinned at enrollment).
-//! CONNECT only, literal IP targets only, and only targets inside the
-//! tunnel's routes. It
+//! The hub is deliberately narrow: no authentication method other than "none"
+//! (the Unix socket is `0600` and the peer's uid is checked), CONNECT only,
+//! literal IP targets only, and only targets inside the tunnel's routes. It
 //! is a carrier, not an authority: the cmux Noise handshake still runs end to
 //! end inside every tunneled connection.
 
@@ -33,13 +27,14 @@ use tokio::sync::{Semaphore, oneshot};
 use tokio::task::JoinSet;
 
 use crate::admin::verify_unix_peer_owner;
-pub use crate::provider::HubClientToken;
 use crate::provider::socks::{
     self, COMMAND_CONNECT, REPLY_ADDRESS_TYPE_NOT_SUPPORTED, REPLY_COMMAND_NOT_SUPPORTED,
     REPLY_CONNECTION_REFUSED, REPLY_GENERAL_FAILURE, REPLY_NETWORK_UNREACHABLE, REPLY_NOT_ALLOWED,
     REPLY_SUCCEEDED, Target,
 };
-use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup, UnixSocketError};
+use crate::unix_socket::{
+    OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup, UnixSocketError,
+};
 
 /// Concurrent tunneled connections the hub serves. Each VM link uses at most
 /// four lanes; this leaves room for many links plus reconnect overlap.
@@ -134,8 +129,7 @@ impl Drop for WireGuardHub {
     }
 }
 
-/// Serve SOCKS5 CONNECT for `net` on the Unix socket at `path`. With a
-/// `token`, only clients presenting it are served.
+/// Serve SOCKS5 CONNECT for `net` on the Unix socket at `path`.
 ///
 /// The parent directory is created `0700` if missing and must be owned by
 /// this user and not writable by others without the sticky bit; the socket is
@@ -143,7 +137,6 @@ impl Drop for WireGuardHub {
 pub async fn serve_wireguard_hub(
     net: Arc<WgNet>,
     path: impl Into<PathBuf>,
-    token: Option<HubClientToken>,
 ) -> Result<WireGuardHub, HubError> {
     let path = path.into();
     let listener = OwnedUnixListener::bind(path.clone()).await?;
@@ -152,7 +145,7 @@ pub async fn serve_wireguard_hub(
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_HUB_CONNECTIONS));
     let task = tokio::spawn(async move {
-        let mut accept_backoff = crate::unix_socket::accept_backoff();
+        let mut accept_backoff = UnixAcceptBackoff::new();
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -168,7 +161,7 @@ pub async fn serve_wireguard_hub(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = cmux_tui_util::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
+                            let Some(delay) = accept_backoff.retry_delay(&error) else {
                                 return Err(HubError::Io(io::Error::new(
                                     error.kind(),
                                     format!("hub Unix listener accept failed: {error}"),
@@ -193,10 +186,9 @@ pub async fn serve_wireguard_hub(
                         continue;
                     };
                     let net = Arc::clone(&net);
-                    let token = token.clone();
                     connections.spawn(async move {
                         let _permit = permit;
-                        let _ = serve_connection(net, stream, token.as_ref()).await;
+                        let _ = serve_connection(net, stream).await;
                     });
                 }
             }
@@ -205,28 +197,20 @@ pub async fn serve_wireguard_hub(
     Ok(WireGuardHub { path, routes, socket_cleanup, shutdown: Some(shutdown_tx), task: Some(task) })
 }
 
-/// The ports a client without the hub's token may reach: ssh only, which authenticates
-/// both ends itself. The VMs' unauthenticated services (noVNC, the desktop hosts, dev
-/// servers) need the token.
-pub const OPEN_PORTS: &[u16] = &[22];
-
 /// One SOCKS5 exchange, then a bidirectional copy until either side closes.
 async fn serve_connection(
     net: Arc<WgNet>,
     mut stream: UnixStream,
-    token: Option<&HubClientToken>,
 ) -> Result<(), socks::SocksError> {
-    let greeted = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
-        let greeting =
-            socks::server_greet(&mut stream, token.map(HubClientToken::as_bytes), true).await?;
-        if greeting == socks::Greeting::Refused {
+    let request = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
+        if !socks::server_greet(&mut stream).await? {
             return Ok(None);
         }
-        socks::server_read_request(&mut stream).await.map(|request| Some((greeting, request)))
+        socks::server_read_request(&mut stream).await.map(Some)
     })
     .await
     .map_err(|_| socks::SocksError::Protocol("handshake timed out".into()))??;
-    let Some((greeting, request)) = greeted else { return Ok(()) };
+    let Some(request) = request else { return Ok(()) };
 
     if request.command != COMMAND_CONNECT {
         socks::server_reply(&mut stream, REPLY_COMMAND_NOT_SUPPORTED, None).await?;
@@ -241,8 +225,7 @@ async fn serve_connection(
             return Ok(());
         }
     };
-    let open_only = greeting == socks::Greeting::Open;
-    if !net.routes_contain(target.ip()) || (open_only && !OPEN_PORTS.contains(&target.port())) {
+    if !net.routes_contain(target.ip()) {
         socks::server_reply(&mut stream, REPLY_NOT_ALLOWED, None).await?;
         return Ok(());
     }
@@ -280,5 +263,50 @@ fn reply_for(error: &WgError) -> u8 {
 }
 
 #[cfg(test)]
-#[path = "wireguard_hub_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use cmux_wg::testing::loopback_pair;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn cancelled_hub_dial_releases_its_connection_permit() {
+        let pair = loopback_pair().await.unwrap();
+        // Keep the peer's UDP socket bound but do not start a peer: the TCP
+        // connect cannot finish and must be cancelled by the SOCKS client EOF.
+        let net = Arc::new(WgNet::start(pair.client, pair.client_socket).await.unwrap());
+        let permits = Arc::new(Semaphore::new(1));
+        let (mut client, server) = UnixStream::pair().unwrap();
+        let mut served = tokio::spawn({
+            let net = Arc::clone(&net);
+            let permits = Arc::clone(&permits);
+            async move {
+                let _permit = permits.acquire_owned().await.unwrap();
+                serve_connection(net, server).await
+            }
+        });
+        client.write_all(&[5, 1, 0]).await.unwrap();
+        let mut greeting = [0; 2];
+        client.read_exact(&mut greeting).await.unwrap();
+        assert_eq!(greeting, [5, 0]);
+        assert_eq!(permits.available_permits(), 0);
+        let mut request = vec![5, 1, 0, 4];
+        let std::net::IpAddr::V6(remote) = pair.server_v6 else {
+            panic!("fixture must provide an IPv6 address");
+        };
+        request.extend_from_slice(&remote.octets());
+        request.extend_from_slice(&1337u16.to_be_bytes());
+        client.write_all(&request).await.unwrap();
+        drop(client);
+
+        let finished = tokio::time::timeout(Duration::from_secs(1), &mut served).await;
+        let released = finished.as_ref().is_ok_and(|result| matches!(result, Ok(Ok(()))));
+        if finished.is_err() {
+            served.abort();
+            let _ = served.await;
+        }
+        let available = permits.available_permits();
+        Arc::try_unwrap(net).unwrap().shutdown().await;
+        assert!(released, "SOCKS EOF must release the slot before the 60-second TCP timeout");
+        assert_eq!(available, 1);
+    }
+}

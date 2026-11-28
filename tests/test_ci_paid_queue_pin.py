@@ -20,8 +20,7 @@ workflow's runner input that a caller passes such a value.
 
 A job that must stay on an ephemeral Mac is listed in PAID_ONLY_JOBS with why.
 A listed job that offers an owned pool now, or no longer exists, fails too, so
-the list only shrinks. Each branch carries its own copy, read against its own tree (main's
-from cmux#43319, this one for feat-cmux-next, cmuxterm-hq retro re46a1d4b). The handbook pattern page "job pinned to a paid queue"
+the list only shrinks. The handbook pattern page "job pinned to a paid queue"
 (cmuxterm-hq docs/handbook) names this test as its detector.
 """
 
@@ -43,6 +42,9 @@ PAID_MACOS = re.compile(r"blacksmith-\d+vcpu-macos-[a-z0-9]+|\bvars\.MACOS_RUNNE
 # The fork branches: `github.repository_owner != 'manaflow-ai' && '<hosted>'` (a fork's own
 # repository) and a fork pull request's `... head.repo.full_name != github.repository [&& !contains(...)]
 # && '<label>'`. Only these short-circuits are taken out; anything after them still counts.
+# The shared Mac pool a plain-Mac job names behind vars.CI_OVERFLOW_MAC (docs/design/ci-v2.md). Leo:
+# "unfuck the labels. idk why you guys named them such stupid things in the first place."
+CMUX_MAC = "'cmux-mac'"
 FORK_BRANCHES = (
     re.compile(r"github\.repository_owner != 'manaflow-ai' && '[^']+'"),
     re.compile(r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name "
@@ -56,13 +58,53 @@ SIGNING = ("holds a release signing, notary or App Store key; an owned Mac takes
 PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
     ("auto-resume-nightly-notarization.yml", "wait-and-staple"): SIGNING,
     ("auto-resume-nightly-notarization.yml", "staple-outer"): SIGNING,
+    ("auto-resume-nightly-notarization.yml", "staple-stapled"): SIGNING,
+    ("auto-resume-nightly-notarization.yml", "verify-stapled"): SIGNING,
+    ("auto-resume-nightly-notarization.yml", "generate-deltas"): SIGNING,
+    ("cmux-next-cua-helper-dev-sign.yml", "sign"): SIGNING + " (its unsigned build takes an owned Mac first)",
     ("ios-app-store.yml", "upload-and-validate"): SIGNING,
     ("ios-appstore-upload.yml", "upload"): SIGNING,
+    ("ios-screenshots.yml", "app-store-upload"): SIGNING,
+    ("release.yml", "build-sign-notarize"): SIGNING,
+    ("repair-v0-64-25-helper-rpaths.yml", "verify-shipped"): SIGNING,
+    ("repair-v0-64-25-helper-rpaths.yml", "repair"): SIGNING,
     ("resume-nightly-notarization.yml", "resume"): SIGNING,
-    ("cmux-tui-team-signed.yml", "sign"): SIGNING + " (Developer ID, environment release-next)",
-    ("cmux-tui-team-signed.yml", "sign-helper"): SIGNING + " (Developer ID, environment release-next)",
-    ("ios-internal-nightly.yml", "upload"): SIGNING + " (App Store Connect key and iOS distribution certificate)",
-    ("ios-testflight.yml", "upload"): SIGNING + " (App Store Connect key and iOS distribution certificate)",
+    ("resume-nightly-notarization.yml", "verify-stapled"): SIGNING,
+    ("rcodesign-parity-proof.yml", "sign-codesign"): SIGNING,
+    ("rcodesign-parity-proof.yml", "dmg"): SIGNING,
+    ("rcodesign-parity-proof.yml", "gatekeeper"): SIGNING,
+    ("rcodesign-parity-proof.yml", "gatekeeper-reference"): SIGNING,
+    ("rcodesign-parity-proof.yml", "sparkle"): SIGNING,
+    ("signing-keychain-macos.yml", "real-import"): "imports a real certificate into a keychain to test the import itself",
+    ("cloud-mvp-nightly-readback.yml", "readback"):
+        "signs the production agent Stack account in; a secret-bearing job runs only on a throwaway VM",
+    ("relay-tls.yml", "system-keychain"): "writes the System keychain's trust settings, which only a throwaway VM may",
+    ("build-ghosttykit.yml", "build-ghosttykit"):
+        "builds the published GhosttyKit against the macOS 15 SDK image and holds the Ghostty release token",
+    ("release.yml", "build-ghostty-cli-helper"): "builds the release Ghostty CLI helper against the macOS 15 SDK image",
+    ("nightly.yml", "build-nightly-ghostty-cli-helper"):
+        "builds the nightly Ghostty CLI helper against the macOS 15 SDK image",
+    ("plain-paste-worker.yml", "paste-worker-macos-15"): "exists to exercise the paste worker on the macOS 15 image",
+    ("seed-swiftpm-manifests.yml", "seed"): "seeds the Blacksmith macOS 15 pool's own SwiftPM manifest cache",
+    ("nightly.yml", "refresh-compilation-cache"): "refreshes the Blacksmith macOS pool's own compilation cache",
+    ("ci.yml", "dogfood-build"):
+        "a member's dev-build label on a same-repository pull request; ci.yml's macos_pr_runner may reach a job "
+        "only the ways check_owned_pools_route_through_picker allows, a follow-up",
+    ("cmux-terminal-client-xcframework.yml", "build"):
+        "runs `rustup target add` on the host toolchain; an owned mini needs a job-local toolchain first",
+    ("tmux-corpus.yml", "terminal-nightly"): "runs an XCTest app host, which needs a gui runner, not a side lane",
+    ("test-feed-reply-providers.yml", "verify"): "launches the tagged app and drives it, which needs a gui runner",
+    ("test-macos-suite.yml", "tests"): "a reusable suite whose callers pick its runner (vars.MACOS_RUNNER_TESTS)",
+    ("dogfood-artifact-publish.yml", "capture"):
+        "a workflow_run consumer, which the rescue does not trust with an owned Mac (it can carry fork code)",
+    ("command-palette-search-benchmarks.yml", "command-palette-search-benchmarks"):
+        "a benchmark: other jobs on a shared mini skew it; dispatch with runner=<owned label> to measure there",
+    ("perf-activation.yml", "activation-session-benchmark"):
+        "a benchmark: other jobs on a shared mini skew it; dispatch with runner=<owned label> to measure there",
+    ("ios-e2e.yml", "mac-ios-e2e"): "needs a simulator runner and the ios-e2e environment's account; ios_runner_pool.py follow-up",
+    ("ios-streamed-validate.yml", "validate"):
+        "needs a simulator runner and dogfood account secrets; ios_runner_pool.py follow-up",
+    ("iroh-release-gate.yml", "simulator-e2e"): "a release-environment simulator gate; ios_runner_pool.py follow-up",
 }
 
 
@@ -114,7 +156,7 @@ def pinned_jobs(tree: sources.Tree) -> dict[tuple[str, str], str]:
             runs_on = str(job.get("runs-on") or "")
             if not PAID_MACOS.search(strip_fork_branches(runs_on)):
                 continue
-            if workflow.why(runs_on, key, set()):
+            if workflow.why(runs_on, key, set()) or CMUX_MAC in runs_on:
                 continue
             if read_inputs(workflow, key, runs_on) & passed.get(path, set()):
                 continue

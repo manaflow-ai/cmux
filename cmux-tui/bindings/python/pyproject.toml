@@ -9,8 +9,7 @@ description = "Typed Python resource client for cmux"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = []
-license = "GPL-3.0-or-later"
-license-files = ["LICENSE"]
+license = "MIT"
 
 [project.urls]
 Homepage = "https://github.com/manaflow-ai/cmux/tree/main/cmux-tui/bindings/python"

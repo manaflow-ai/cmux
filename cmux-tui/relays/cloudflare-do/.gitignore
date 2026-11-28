@@ -2,4 +2,3 @@
 /node_modules/
 /target/
 /.wrangler/
-/.dev.vars

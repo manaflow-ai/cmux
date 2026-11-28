@@ -3,21 +3,16 @@ import type { ClientInfo, CmuxClient, Id, LivePane, Tab } from "cmux/raw";
 import { t } from "../i18n";
 import type { PaneLayoutView } from "../lib/layout";
 import { layoutToViewModel, visibleStackPanes } from "../lib/layout";
-import { shownTitle, type ScreenView } from "../lib/tree";
+import type { ScreenView } from "../lib/tree";
 import { contextMenuReducer, type ContextMenuPoint } from "../lib/contextMenu";
 import { clientSizingMenuItems, paneClientSummary } from "../lib/clientSizing";
 import { renameCanCommit, renameReducer } from "../lib/rename";
 import { splitDividerTarget, splitRatioFromPointer, splitRatioToCommit } from "../lib/splitDrag";
 import { useContextTrigger } from "../hooks/useContextTrigger";
 import { ByteTerminal } from "./ByteTerminal";
-import { GhosttyTerminal } from "./GhosttyTerminal";
 import { ContextMenu } from "./ContextMenu";
 import { InlineRename } from "./InlineRename";
 import { RenderTerminal } from "./RenderTerminal";
-import { terminalRendererChoice } from "../lib/terminalRenderer";
-
-/** Read once per page load: `?terminal=ghostty` opts into ghostty-web. */
-const TERMINAL_RENDERER = terminalRendererChoice(typeof window === "undefined" ? "" : window.location.search);
 
 interface TerminalPaneProps {
   client: CmuxClient | null;
@@ -40,17 +35,21 @@ interface TerminalPaneProps {
   onRenameSurface(surface: Id, name: string): void;
 }
 
-type PaneMenuState = { open: false } | { open: true; point: ContextMenuPoint; surface: Id | null };
+type PaneMenuState =
+  | { open: false }
+  | { open: true; point: ContextMenuPoint; surface: Id | null };
 
-type PaneMenuAction = { type: "open"; point: ContextMenuPoint; surface: Id | null } | { type: "close" };
+type PaneMenuAction =
+  | { type: "open"; point: ContextMenuPoint; surface: Id | null }
+  | { type: "close" };
 
 function paneMenuReducer(state: PaneMenuState, action: PaneMenuAction): PaneMenuState {
   if (action.type === "close") return { open: false };
   if (
-    state.open &&
-    state.surface === action.surface &&
-    state.point.x === action.point.x &&
-    state.point.y === action.point.y
+    state.open
+    && state.surface === action.surface
+    && state.point.x === action.point.x
+    && state.point.y === action.point.y
   ) {
     return state;
   }
@@ -91,9 +90,7 @@ function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: 
         />
       ) : (
         <button className={pane.active_tab === BigInt(index) ? "active" : ""} onClick={onSelect} type="button">
-          <span className="tab-rail" aria-hidden="true">
-            {pane.active_tab === BigInt(index) ? "▎" : " "}
-          </span>
+          <span className="tab-rail" aria-hidden="true">{pane.active_tab === BigInt(index) ? "▎" : " "}</span>
           <span className="tab-label">{label}</span>
         </button>
       )}
@@ -104,8 +101,7 @@ function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: 
           items={[
             {
               label: t("renameTab"),
-              onSelect: () =>
-                dispatchRename({ type: "begin", target: { kind: "surface", id: tab.surface, value: label } }),
+              onSelect: () => dispatchRename({ type: "begin", target: { kind: "surface", id: tab.surface, value: label } }),
             },
             { label: t("newTabRight"), onSelect: onNewTab },
             { label: t("closeTab"), danger: true, onSelect: () => onClose(tab.surface) },
@@ -169,16 +165,23 @@ function PaneLeaf({
     useAll: onUseAllClientSizing,
     detach: onDetachClient,
   };
-  const clientMenuSummary = clientMenu.open ? paneClientSummary(clients, clientMenu.surface) : null;
-  const clientMenuItems = clientMenuSummary ? clientSizingMenuItems(clientMenuSummary, sizingActions) : [];
+  const clientMenuSummary = clientMenu.open
+    ? paneClientSummary(clients, clientMenu.surface)
+    : null;
+  const clientMenuItems = clientMenuSummary
+    ? clientSizingMenuItems(clientMenuSummary, sizingActions)
+    : [];
   const paneMenuSummary = menu.open ? paneClientSummary(clients, menu.surface) : null;
-  const paneMenuClientItems = paneMenuSummary ? clientSizingMenuItems(paneMenuSummary, sizingActions) : [];
+  const paneMenuClientItems = paneMenuSummary
+    ? clientSizingMenuItems(paneMenuSummary, sizingActions)
+    : [];
   const reportError = useCallback(
     (error: Error) => setErrorState({ client, surface, message: error.message }),
     [client, surface],
   );
-  const terminalError =
-    errorState !== null && errorState.client === client && errorState.surface === surface ? errorState.message : null;
+  const terminalError = errorState !== null && errorState.client === client && errorState.surface === surface
+    ? errorState.message
+    : null;
   const commitPaneRename = () => {
     if (!renameCanCommit(rename)) return;
     onRenamePane(paneId, rename.value.trim());
@@ -197,9 +200,7 @@ function PaneLeaf({
       }}
     >
       <div className="tab-bar">
-        <span className="pane-corner" aria-hidden="true">
-          ┌
-        </span>
+        <span className="pane-corner" aria-hidden="true">┌</span>
         {rename?.kind === "pane" && rename.id === paneId && (
           <InlineRename
             value={rename.value}
@@ -220,27 +221,14 @@ function PaneLeaf({
             onRename={onRenameSurface}
           />
         ))}
-        <button className="new-tab" aria-label={t("newTab")} onClick={() => onNewTab(paneId)} type="button">
-          {" "}
-          +{" "}
-        </button>
+        <button className="new-tab" aria-label={t("newTab")} onClick={() => onNewTab(paneId)} type="button"> + </button>
         <span className="pane-rule" aria-hidden="true" />
-        <span className="pane-corner" aria-hidden="true">
-          ┐
-        </span>
+        <span className="pane-corner" aria-hidden="true">┐</span>
       </div>
       <div className="pane-body">
         <span className="pane-side" aria-hidden="true" />
         <div className="pane-content">
-          {surface !== null && TERMINAL_RENDERER === "ghostty" ? (
-            <GhosttyTerminal
-              client={client}
-              surface={surface}
-              error={terminalError}
-              focusOnMount={focusTerminalOnMount}
-              onError={reportError}
-            />
-          ) : surface !== null && client !== null && (client.protocol ?? 0) >= 7 ? (
+          {surface !== null && client !== null && (client.protocol ?? 0) >= 7 ? (
             <RenderTerminal
               client={client}
               surface={surface}
@@ -261,20 +249,14 @@ function PaneLeaf({
             <div className="terminal-stage">
               {!tab && <div className="terminal-empty">{t("noSurface")}</div>}
               {tab?.kind === "browser" && <div className="terminal-empty">{t("browserSurface")}</div>}
-              {terminalError && (
-                <div className="terminal-error" role="alert">
-                  {terminalError}
-                </div>
-              )}
+              {terminalError && <div className="terminal-error" role="alert">{terminalError}</div>}
             </div>
           )}
         </div>
         <span className="pane-side" aria-hidden="true" />
       </div>
       <div className="pane-bottom">
-        <span className="pane-corner" aria-hidden="true">
-          └
-        </span>
+        <span className="pane-corner" aria-hidden="true">└</span>
         {clientSummary && (
           <button
             aria-expanded={clientMenu.open && clientMenu.surface === clientSummary.surface}
@@ -295,9 +277,7 @@ function PaneLeaf({
           </button>
         )}
         <span className="pane-rule" />
-        <span className="pane-corner" aria-hidden="true">
-          ┘
-        </span>
+        <span className="pane-corner" aria-hidden="true">┘</span>
       </div>
       {clientMenu.open && clientMenuSummary && (
         <ContextMenu
@@ -315,11 +295,12 @@ function PaneLeaf({
             { label: t("splitDown"), onSelect: () => onSplit(paneId, "down") },
             {
               label: t("renamePane"),
-              onSelect: () =>
-                dispatchRename({ type: "begin", target: { kind: "pane", id: paneId, value: pane?.name || "" } }),
+              onSelect: () => dispatchRename({ type: "begin", target: { kind: "pane", id: paneId, value: pane?.name || "" } }),
             },
             { label: zoomed ? t("restorePane") : t("zoomPane"), onSelect: () => onZoomPane(paneId) },
-            ...(paneMenuSummary ? [{ label: paneMenuSummary.label, children: paneMenuClientItems }] : []),
+            ...(paneMenuSummary
+              ? [{ label: paneMenuSummary.label, children: paneMenuClientItems }]
+              : []),
             { label: t("closePane"), danger: true, onSelect: () => onClosePane(paneId) },
           ]}
         />
@@ -351,7 +332,11 @@ interface StackPaneHeaderProps {
   onSelect(pane: Id): void;
 }
 
-const StackPaneHeader = memo(function StackPaneHeader({ label, pane, onSelect }: StackPaneHeaderProps) {
+const StackPaneHeader = memo(function StackPaneHeader({
+  label,
+  pane,
+  onSelect,
+}: StackPaneHeaderProps) {
   return (
     <div className="pane-leaf collapsed">
       <button
@@ -368,29 +353,34 @@ const StackPaneHeader = memo(function StackPaneHeader({ label, pane, onSelect }:
   );
 });
 
-function LayoutStackNode({ node, screen, paneById, basis, onSelectPane, ...actions }: LayoutStackNodeProps) {
+function LayoutStackNode({
+  node,
+  screen,
+  paneById,
+  basis,
+  onSelectPane,
+  ...actions
+}: LayoutStackNodeProps) {
   const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
   const panes = visibleStackPanes(node.panes, node.expanded, null);
   const expandedIndex = panes.indexOf(node.expanded);
   const expandedPane = paneById.get(node.expanded) ?? null;
   const [focusRequest, setFocusRequest] = useState<Id | null>(null);
-  const selectHeader = useCallback(
-    (pane: Id) => {
-      setFocusRequest(pane);
-      onSelectPane(pane);
-    },
-    [onSelectPane],
-  );
+  const selectHeader = useCallback((pane: Id) => {
+    setFocusRequest(pane);
+    onSelectPane(pane);
+  }, [onSelectPane]);
   const renderHeader = (pane: Id) => {
     const livePane = paneById.get(pane) ?? null;
     const activeTab = livePane?.tabs[Number(livePane.active_tab)] ?? null;
-    const label =
-      livePane?.name || activeTab?.name || (activeTab && shownTitle(activeTab)) || t("pane", { number: String(pane) });
+    const label = livePane?.name || activeTab?.name || activeTab?.title || t("pane", { number: String(pane) });
     return <StackPaneHeader key={pane} label={label} pane={pane} onSelect={selectHeader} />;
   };
   return (
     <div className="pane-stack" style={style}>
-      <div className="stack-pane-headers before">{panes.slice(0, expandedIndex).map(renderHeader)}</div>
+      <div className="stack-pane-headers before">
+        {panes.slice(0, expandedIndex).map(renderHeader)}
+      </div>
       <div className="pane-leaf expanded" key={node.expanded}>
         <PaneLeaf
           {...actions}
@@ -402,7 +392,9 @@ function LayoutStackNode({ node, screen, paneById, basis, onSelectPane, ...actio
           zoomed={screen.zoomedPane === node.expanded}
         />
       </div>
-      <div className="stack-pane-headers after">{panes.slice(expandedIndex + 1).map(renderHeader)}</div>
+      <div className="stack-pane-headers after">
+        {panes.slice(expandedIndex + 1).map(renderHeader)}
+      </div>
     </div>
   );
 }
@@ -440,38 +432,34 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
   // off the snapshot it was based on. The moment the server's layout event
   // lands (confirm or foreign change), validity flips and the authoritative
   // ratio renders; the stale record is cleared lazily on the next pointerdown.
-  const keyboardRequestActive =
-    keyboardResize.current?.split === target.split &&
-    (keyboardResize.current.inFlightRatio !== null || keyboardResize.current.scheduled !== null);
-  const pendingConfirmed =
-    !keyboardRequestActive &&
-    pendingRatio !== null &&
-    target.split === pendingRatio.split &&
-    Math.abs(authoritativeRatio - pendingRatio.ratio) <= 1e-6;
-  const pendingValid =
-    !pendingConfirmed &&
-    pendingRatio !== null &&
-    target.split === pendingRatio.split &&
-    pendingRatio.validRatios.some((ratio) => Math.abs(authoritativeRatio - ratio) <= 1e-6);
-  const reconcileDividerRef = useCallback(
-    (divider: HTMLDivElement | null) => {
-      if (divider === null) {
-        keyboardGeneration.current += 1;
-        keyboardResize.current = null;
-        return;
-      }
-      if (!pendingConfirmed) return;
-      activeRequestId.current = null;
+  const keyboardRequestActive = keyboardResize.current?.split === target.split
+    && (keyboardResize.current.inFlightRatio !== null || keyboardResize.current.scheduled !== null);
+  const pendingConfirmed = !keyboardRequestActive
+    && pendingRatio !== null
+    && target.split === pendingRatio.split
+    && Math.abs(authoritativeRatio - pendingRatio.ratio) <= 1e-6;
+  const pendingValid = !pendingConfirmed
+    && pendingRatio !== null
+    && target.split === pendingRatio.split
+    && pendingRatio.validRatios.some((ratio) => Math.abs(authoritativeRatio - ratio) <= 1e-6);
+  const reconcileDividerRef = useCallback((divider: HTMLDivElement | null) => {
+    if (divider === null) {
+      keyboardGeneration.current += 1;
       keyboardResize.current = null;
-      setPendingRatio(null);
-    },
-    [pendingConfirmed],
-  );
+      return;
+    }
+    if (!pendingConfirmed) return;
+    activeRequestId.current = null;
+    keyboardResize.current = null;
+    setPendingRatio(null);
+  }, [pendingConfirmed]);
 
   const firstRatio = previewRatio ?? (pendingValid && pendingRatio !== null ? pendingRatio.ratio : authoritativeRatio);
   const firstPercent = firstRatio * 100;
   const secondPercent = 100 - firstPercent;
-  const dividerStyle = node.direction === "row" ? { left: `${firstPercent}%` } : { top: `${firstPercent}%` };
+  const dividerStyle = node.direction === "row"
+    ? { left: `${firstPercent}%` }
+    : { top: `${firstPercent}%` };
 
   const commitRatio = (previousRatio: number, nextRatio: number) => {
     const ratio = splitRatioToCommit(previousRatio, nextRatio);
@@ -490,15 +478,12 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
     });
     keyboardGeneration.current += 1;
     keyboardResize.current = null;
-    void actions
-      .onSetSplitRatio(target.split, ratio)
-      .catch(() => false)
-      .then((succeeded) => {
-        if (succeeded || activeRequestId.current !== requestId) return;
-        activeRequestId.current = null;
-        setPendingRatio(null);
-        setPreviewRatio(null);
-      });
+    void actions.onSetSplitRatio(target.split, ratio).catch(() => false).then((succeeded) => {
+      if (succeeded || activeRequestId.current !== requestId) return;
+      activeRequestId.current = null;
+      setPendingRatio(null);
+      setPreviewRatio(null);
+    });
   };
 
   function scheduleKeyboardResize(resize: NonNullable<typeof keyboardResize.current>) {
@@ -515,140 +500,140 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
     if (keyboardResize.current !== resize || resize.inFlightRatio !== null) return;
     const ratio = resize.desiredRatio;
     resize.inFlightRatio = ratio;
-    void actions
-      .onSetSplitRatio(resize.split, ratio)
-      .catch(() => false)
-      .then((succeeded) => {
-        if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
-        resize.inFlightRatio = null;
-        if (!succeeded) {
-          keyboardGeneration.current += 1;
-          keyboardResize.current = null;
-          activeRequestId.current = null;
-          setPendingRatio(null);
-          setPreviewRatio(null);
-          return;
-        }
-        if (Math.abs(resize.desiredRatio - ratio) > 1e-6) {
-          if (resize.scheduled === null) scheduleKeyboardResize(resize);
-        } else {
-          setPendingRatio((current) => (current === null ? current : { ...current }));
-        }
-      });
+    void actions.onSetSplitRatio(resize.split, ratio).catch(() => false).then((succeeded) => {
+      if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
+      resize.inFlightRatio = null;
+      if (!succeeded) {
+        keyboardGeneration.current += 1;
+        keyboardResize.current = null;
+        activeRequestId.current = null;
+        setPendingRatio(null);
+        setPreviewRatio(null);
+        return;
+      }
+      if (Math.abs(resize.desiredRatio - ratio) > 1e-6) {
+        if (resize.scheduled === null) scheduleKeyboardResize(resize);
+      } else {
+        setPendingRatio((current) => current === null ? current : { ...current });
+      }
+    });
   }
 
   return (
     <div className={`pane-group ${node.direction}`} style={style}>
-      <LayoutNode {...actions} node={node.first} screen={screen} paneById={paneById} basis={firstPercent} />
+      <LayoutNode
+        {...actions}
+        node={node.first}
+        screen={screen}
+        paneById={paneById}
+        basis={firstPercent}
+      />
       <div
-        aria-valuemax={95}
-        aria-valuemin={5}
-        aria-valuenow={Math.round(firstPercent)}
-        aria-orientation={node.direction === "row" ? "vertical" : "horizontal"}
-        className="split-divider"
-        ref={reconcileDividerRef}
-        role="separator"
-        style={dividerStyle}
-        tabIndex={0}
-        onKeyDown={(event) => {
-          const delta =
-            node.direction === "row"
-              ? event.key === "ArrowLeft"
-                ? -0.05
-                : event.key === "ArrowRight"
-                  ? 0.05
-                  : null
-              : event.key === "ArrowUp"
-                ? -0.05
-                : event.key === "ArrowDown"
-                  ? 0.05
-                  : null;
-          if (delta === null) return;
-          event.preventDefault();
-          event.stopPropagation();
-          if (pendingRatio && !pendingValid && !pendingConfirmed) {
-            activeRequestId.current = null;
-            setPendingRatio(null);
+          aria-valuemax={95}
+          aria-valuemin={5}
+          aria-valuenow={Math.round(firstPercent)}
+          aria-orientation={node.direction === "row" ? "vertical" : "horizontal"}
+          className="split-divider"
+          ref={reconcileDividerRef}
+          role="separator"
+          style={dividerStyle}
+          tabIndex={0}
+          onKeyDown={(event) => {
+            const delta = node.direction === "row"
+              ? event.key === "ArrowLeft" ? -0.05 : event.key === "ArrowRight" ? 0.05 : null
+              : event.key === "ArrowUp" ? -0.05 : event.key === "ArrowDown" ? 0.05 : null;
+            if (delta === null) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (pendingRatio && !pendingValid && !pendingConfirmed) {
+              activeRequestId.current = null;
+              setPendingRatio(null);
+              keyboardGeneration.current += 1;
+              keyboardResize.current = null;
+            }
+            const existingResize = keyboardResize.current;
+            const canReuseResize = existingResize?.split === target.split && (pendingValid || pendingConfirmed);
+            const baseRatio = canReuseResize
+              ? existingResize.desiredRatio
+              : pendingValid && pendingRatio !== null
+                ? pendingRatio.ratio
+                : authoritativeRatio;
+            const ratio = Math.max(0.05, Math.min(0.95, baseRatio + delta));
+            if (Math.abs(ratio - baseRatio) <= 1e-6) return;
+            const resize = canReuseResize
+              ? existingResize
+              : {
+                  desiredRatio: baseRatio,
+                  generation: ++keyboardGeneration.current,
+                  inFlightRatio: null,
+                  scheduled: null,
+                  split: target.split,
+                };
+            resize.desiredRatio = ratio;
+            keyboardResize.current = resize;
+            const requestId = ++nextRequestId.current;
+            activeRequestId.current = requestId;
+            const validRatios = [authoritativeRatio, baseRatio, ratio];
+            if (resize.inFlightRatio !== null) validRatios.push(resize.inFlightRatio);
+            setPendingRatio({ requestId, validRatios, ratio, split: target.split });
+            setPreviewRatio(null);
+            scheduleKeyboardResize(resize);
+          }}
+          onPointerDown={(event) => {
+            if (event.pointerType === "mouse" && event.button !== 0) return;
+            if (pendingRatio && pendingValid) return;
             keyboardGeneration.current += 1;
             keyboardResize.current = null;
-          }
-          const existingResize = keyboardResize.current;
-          const canReuseResize = existingResize?.split === target.split && (pendingValid || pendingConfirmed);
-          const baseRatio = canReuseResize
-            ? existingResize.desiredRatio
-            : pendingValid && pendingRatio !== null
-              ? pendingRatio.ratio
-              : authoritativeRatio;
-          const ratio = Math.max(0.05, Math.min(0.95, baseRatio + delta));
-          if (Math.abs(ratio - baseRatio) <= 1e-6) return;
-          const resize = canReuseResize
-            ? existingResize
-            : {
-                desiredRatio: baseRatio,
-                generation: ++keyboardGeneration.current,
-                inFlightRatio: null,
-                scheduled: null,
-                split: target.split,
-              };
-          resize.desiredRatio = ratio;
-          keyboardResize.current = resize;
-          const requestId = ++nextRequestId.current;
-          activeRequestId.current = requestId;
-          const validRatios = [authoritativeRatio, baseRatio, ratio];
-          if (resize.inFlightRatio !== null) validRatios.push(resize.inFlightRatio);
-          setPendingRatio({ requestId, validRatios, ratio, split: target.split });
-          setPreviewRatio(null);
-          scheduleKeyboardResize(resize);
-        }}
-        onPointerDown={(event) => {
-          if (event.pointerType === "mouse" && event.button !== 0) return;
-          if (pendingRatio && pendingValid) return;
-          keyboardGeneration.current += 1;
-          keyboardResize.current = null;
-          if (pendingRatio) {
-            activeRequestId.current = null;
-            setPendingRatio(null);
-          }
-          const group = event.currentTarget.parentElement;
-          if (!group) return;
-          event.preventDefault();
-          event.stopPropagation();
-          event.currentTarget.setPointerCapture(event.pointerId);
-          drag.current = {
-            pointerId: event.pointerId,
-            bounds: group.getBoundingClientRect(),
-            initialRatio: authoritativeRatio,
-            lastRatio: authoritativeRatio,
-          };
-        }}
-        onPointerMove={(event) => {
-          if (!drag.current || drag.current.pointerId !== event.pointerId) return;
-          event.preventDefault();
-          const ratio = splitRatioFromPointer(node.direction, event, drag.current.bounds);
-          if (ratio === null) return;
-          drag.current.lastRatio = ratio;
-          setPreviewRatio(ratio);
-        }}
-        onPointerUp={(event) => {
-          const currentDrag = drag.current;
-          if (!currentDrag || currentDrag.pointerId !== event.pointerId) return;
-          event.preventDefault();
-          event.stopPropagation();
-          const pointerRatio = splitRatioFromPointer(node.direction, event, currentDrag.bounds);
-          const nextRatio = pointerRatio ?? currentDrag.lastRatio;
-          drag.current = null;
-          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-            event.currentTarget.releasePointerCapture(event.pointerId);
-          }
-          commitRatio(currentDrag.initialRatio, nextRatio);
-        }}
-        onPointerCancel={(event) => {
-          if (!drag.current || drag.current.pointerId !== event.pointerId) return;
-          drag.current = null;
-          setPreviewRatio(null);
-        }}
+            if (pendingRatio) {
+              activeRequestId.current = null;
+              setPendingRatio(null);
+            }
+            const group = event.currentTarget.parentElement;
+            if (!group) return;
+            event.preventDefault();
+            event.stopPropagation();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            drag.current = {
+              pointerId: event.pointerId,
+              bounds: group.getBoundingClientRect(),
+              initialRatio: authoritativeRatio,
+              lastRatio: authoritativeRatio,
+            };
+          }}
+          onPointerMove={(event) => {
+            if (!drag.current || drag.current.pointerId !== event.pointerId) return;
+            event.preventDefault();
+            const ratio = splitRatioFromPointer(node.direction, event, drag.current.bounds);
+            if (ratio === null) return;
+            drag.current.lastRatio = ratio;
+            setPreviewRatio(ratio);
+          }}
+          onPointerUp={(event) => {
+            const currentDrag = drag.current;
+            if (!currentDrag || currentDrag.pointerId !== event.pointerId) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const pointerRatio = splitRatioFromPointer(node.direction, event, currentDrag.bounds);
+            const nextRatio = pointerRatio ?? currentDrag.lastRatio;
+            drag.current = null;
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+            commitRatio(currentDrag.initialRatio, nextRatio);
+          }}
+          onPointerCancel={(event) => {
+            if (!drag.current || drag.current.pointerId !== event.pointerId) return;
+            drag.current = null;
+            setPreviewRatio(null);
+          }}
+        />
+      <LayoutNode
+        {...actions}
+        node={node.second}
+        screen={screen}
+        paneById={paneById}
+        basis={secondPercent}
       />
-      <LayoutNode {...actions} node={node.second} screen={screen} paneById={paneById} basis={secondPercent} />
     </div>
   );
 }
@@ -670,7 +655,15 @@ function LayoutNode({ node, screen, paneById, basis, ...actions }: LayoutNodePro
     );
   }
   if (node.type === "stack") {
-    return <LayoutStackNode {...actions} node={node} screen={screen} paneById={paneById} basis={basis} />;
+    return (
+      <LayoutStackNode
+        {...actions}
+        node={node}
+        screen={screen}
+        paneById={paneById}
+        basis={basis}
+      />
+    );
   }
   return (
     <div className="pane-leaf" style={style}>
@@ -686,7 +679,10 @@ function LayoutNode({ node, screen, paneById, basis, ...actions }: LayoutNodePro
 }
 
 export function TerminalPane({ screen, ...props }: TerminalPaneProps) {
-  const paneById = useMemo(() => new Map(screen?.panes.map((pane) => [pane.id, pane] as const) ?? []), [screen?.panes]);
+  const paneById = useMemo(
+    () => new Map(screen?.panes.map((pane) => [pane.id, pane] as const) ?? []),
+    [screen?.panes],
+  );
   if (!screen) return <section className="terminal-empty terminal-root">{t("noSurface")}</section>;
   const node = layoutToViewModel(screen.layout, screen.zoomedPane, screen.activePane);
   return (

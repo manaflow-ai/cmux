@@ -71,20 +71,13 @@ export interface Snapshot<Id extends string> {
   readonly extra: Document;
 }
 
-export interface MachinePlatform {
-  readonly os?: string | null;
-  readonly arch?: string | null;
-}
-
 export interface MachineSnapshot extends Snapshot<MachineId> {
   readonly name: string;
-  readonly origin: "local" | "cloud" | "ssh" | "server";
+  readonly origin: "local";
   readonly status: "running" | "connecting" | "sleeping" | "stopped" | "unavailable";
   readonly connectable: boolean;
   readonly deleted: boolean;
   readonly recoverable: boolean;
-  readonly platform?: MachinePlatform | null;
-  readonly capabilities?: readonly string[];
 }
 export interface SessionSnapshot extends Snapshot<SessionId> {
   readonly machineId: MachineId;
@@ -484,33 +477,10 @@ export interface LayoutStack {
   readonly expandedPaneId: PaneId;
 }
 
-export interface LayoutColumnDock {
-  readonly edge: "left" | "right" | "top" | "bottom";
-  readonly mode: "docked" | "overlay";
-}
-
 export interface LayoutColumn {
   readonly columnId: SplitId;
   readonly width: number;
   readonly root: LayoutNode;
-  /** The column's dock flag (dock-columns-v1); absent while it scrolls. */
-  readonly dock?: LayoutColumnDock;
-  /**
-   * The column's rows top to bottom (rows-v1); absent for a column with one
-   * row. Row 2..n's `rowId` is its compat chain split in `root`. In
-   * `applyLayout` absent keeps the stored rows and `[]` leaves one row.
-   */
-  readonly rows?: readonly LayoutRow[];
-}
-
-/**
- * One row of a column (rows-v1): its stable id and its height in permille of
- * the column's viewport height (100 to 1000). Only row 1 may omit `rowId`,
- * in a document sent to `applyLayout`.
- */
-export interface LayoutRow {
-  readonly rowId?: SplitId;
-  readonly height: number;
 }
 
 export interface LayoutViewport {

@@ -1,5 +1,5 @@
 import type { Block } from "../src/session";
-import { activityRowHoverTitle, activityRowLabel, groupTurns, summarizeTurnActivity } from "../src/turns";
+import { activityRowLabel, groupTurns, summarizeTurnActivity } from "../src/turns";
 import { measureVirtualRow, measureVirtualRowFromResize, scrollCompensationDelta, virtualFirstVisibleIndex, virtualRange } from "../src/hooks/useVirtualTurns";
 
 (globalThis as any).location ??= { pathname: "/" };
@@ -28,7 +28,7 @@ const claudeTurn: Block[] = [
   { kind: "tool", toolId: "g", name: "Grep", detail: "func runExport", status: "ok" },
   { kind: "tool", toolId: "r", name: "Read", detail: "/work/Export.swift", status: "ok" },
   { kind: "tool", toolId: "e1", name: "Edit", detail: "/work/Export.swift", status: "ok" },
-  { kind: "tool", toolId: "b1", name: "Bash", detail: "swift test --filter ExportTests", description: "Run focused tests", status: "ok" },
+  { kind: "tool", toolId: "b1", name: "Bash", detail: "swift test --filter ExportTests", status: "ok" },
   { kind: "tool", toolId: "e2", name: "Edit", detail: "/work/Row.swift", status: "ok" },
   { kind: "tool", toolId: "b2", name: "Bash", detail: "swift test --filter ExportTests", status: "ok" },
   { kind: "tool", toolId: "w", name: "WebFetch", detail: "https://example.com", status: "ok" },
@@ -39,27 +39,8 @@ if (claudeSummary !== "Edited 2 files, read 1 file, searched code, ran 2 command
 }
 
 const claudeLabels = claudeTurn.map((block) => activityRowLabel(block)).join("|");
-if (claudeLabels !== "Searched func runExport|Read /work/Export.swift|Edited /work/Export.swift|Run focused tests|Edited /work/Row.swift|Ran command|Used WebFetch https://example.com") {
+if (claudeLabels !== "Searched func runExport|Read /work/Export.swift|Edited /work/Export.swift|Ran swift test --filter ExportTests|Edited /work/Row.swift|Ran swift test --filter ExportTests|Used WebFetch https://example.com") {
   throw new Error(`unexpected Claude activity labels: ${claudeLabels}`);
-}
-const longCommand = claudeTurn.find((block) => block.kind === "tool" && block.name === "Bash");
-if (!longCommand || activityRowHoverTitle(longCommand) !== "swift test --filter ExportTests") {
-  throw new Error("shell command should keep its full text for hover");
-}
-if (activityRowHoverTitle(activity[0]) !== undefined) {
-  throw new Error("structured tool detail should not become a command hover title");
-}
-const heuristicConflict: Block = { kind: "tool", toolId: "shell-cat", name: "Bash", detail: "cat package.json", description: "Inspect package metadata", status: "ok" };
-if (activityRowLabel(heuristicConflict) !== "Inspect package metadata") {
-  throw new Error(`description should win over shell heuristics: ${activityRowLabel(heuristicConflict)}`);
-}
-const descriptionOnly: Block = { kind: "tool", toolId: "described", name: "Bash", description: "Run the focused suite", status: "running" };
-if (activityRowLabel(descriptionOnly) !== "Run the focused suite") {
-  throw new Error(`description-only shell calls should keep their description: ${activityRowLabel(descriptionOnly)}`);
-}
-const noDescription: Block = { kind: "tool", toolId: "bare-shell", name: "Bash", status: "running" };
-if (activityRowLabel(noDescription) !== "Ran command") {
-  throw new Error(`shell calls without detail or description should use fallback: ${activityRowLabel(noDescription)}`);
 }
 
 const labels = activity.map((block) => activityRowLabel(block));
@@ -275,17 +256,6 @@ const expectedShape = [
 ];
 if (JSON.stringify(turnShape) !== JSON.stringify(expectedShape)) {
   throw new Error(`agent messages grouped wrong: ${JSON.stringify(turnShape)}`);
-}
-
-const sameTurnMessages = groupTurns([
-  { kind: "user", text: "keep these in order" },
-  { kind: "message", id: "m1", from: "one", body: "first" },
-  { kind: "message", id: "m2", from: "two", body: "second" },
-  { kind: "message", id: "m3", from: "three", body: "third" },
-  { kind: "assistant", text: "done", open: false },
-], "idle");
-if (JSON.stringify(sameTurnMessages[0]?.messages?.map((message) => message.id)) !== JSON.stringify(["m1", "m2", "m3"])) {
-  throw new Error("agent messages in one turn lost their arrival order");
 }
 
 // A sender name is shown as written, even with replacement patterns in it.

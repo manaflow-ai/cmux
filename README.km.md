@@ -14,6 +14,7 @@
 </p>
 
 <p align="center">
+  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
   <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
@@ -383,7 +384,7 @@ tmux គឺ​ជា terminal multiplexer ដែល​ដំណើរ​កា�
 
 ### តើ​ខ្ញុំ​អាច​គាំទ្រ cmux យ៉ាង​ដូចម្ដេច?
 
-cmux ឥត​គិត​ថ្លៃ​និង open source ហើយ​នឹង​នៅ​តែ​បែប​នេះ​ជានិច្ច។
+cmux ឥត​គិត​ថ្លៃ​និង open source ហើយ​នឹង​នៅ​តែ​បែប​នេះ​ជានិច្ច។ ប្រសិន​បើ​អ្នក​ចង់​គាំទ្រ​ការ​អភិវឌ្ឍ​និង​ទទួល​បាន​ការ​ចូល​ដំណើរ​ការ​មុន​គេ​ចំពោះ​អ្វី​ដែល​នឹង​មក​ដល់ រួម​ទាំង cmux AI, កម្មវិធី iOS និង Cloud VMs សូម​មើល [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)។
 
 ### ខ្ញុំ​មាន​សំណើ​មុខងារ ឬ​រក​ឃើញ​កំហុស?
 
@@ -403,7 +404,7 @@ cmux ឥត​គិត​ថ្លៃ​និង open source ហើយ​ន�
 
 មធ្យោបាយដើម្បីចូលរួម៖
 
-- តាមដានពួកយើងនៅលើ X សម្រាប់ព័ត៌មានថ្មីៗ [@lawrencecchen](https://x.com/lawrencecchen), និង [@austinywang](https://x.com/austinywang)
+- តាមដានពួកយើងនៅលើ X សម្រាប់ព័ត៌មានថ្មីៗ [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen), និង [@austinywang](https://x.com/austinywang)
 - ចូលរួមការសន្ទនានៅលើ [Discord](https://discord.gg/xsgFEVrWCZ)
 - បង្កើត និងចូលរួមនៅក្នុង [GitHub issues](https://github.com/manaflow-ai/cmux/issues) និង [discussions](https://github.com/manaflow-ai/cmux/discussions)
 - ប្រាប់ពួកយើងពីអ្វីដែលអ្នកកំពុងបង្កើតជាមួយ cmux
@@ -413,6 +414,7 @@ cmux ឥត​គិត​ថ្លៃ​និង open source ហើយ​ន�
 - [Discord](https://discord.gg/xsgFEVrWCZ)
 - [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
+- [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
@@ -421,6 +423,12 @@ cmux ឥត​គិត​ថ្លៃ​និង open source ហើយ​ន�
   <strong>WeChat:</strong> ស្កេនកូដ QR ដើម្បីចូលរួមសហគមន៍។<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="កូដ QR WeChat សម្រាប់ចូលរួមសហគមន៍ cmux" width="240" />
 </p>
+
+## cmux Pro
+
+cmux គឺឥតគិតថ្លៃ បើកប្រភពកូដ និងនឹងនៅតែជានិច្ច។ ប្រសិនបើអ្នកចង់គាំទ្រការអភិវឌ្ឍន៍ និងទទួលបានសិទ្ធិចូលប្រើមុនគេចំពោះអ្វីដែលនឹងមកដល់បន្ទាប់៖
+
+**[Get cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## អាជ្ញាបណ្ណ
 

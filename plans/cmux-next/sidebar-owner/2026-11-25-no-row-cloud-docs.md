@@ -1,1 +1,0 @@
-- 2026-11-25 (next-cloud-chat-naming, cmux#55668): Sidebar-Look: the user, 2026-11-25: "NO cloud icon on the left sidebar workspace row. The cloud icon belongs ONLY on the top tab of the Cloud chat." Comments only: `SidebarRowIndex` and `WorkspaceRowView` no longer describe a row cloud mark (the look is unchanged from 2026-11-25-no-row-cloud).

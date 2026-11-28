@@ -18,10 +18,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import product_input_identity as product_inputs  # noqa: E402
 
-# The GITHUB_ENV variable each test scheme's relocated manifest is published
-# under. Empty while product_input_identity.TEST_SCHEMES is: the product holds
-# only the app, so stamp and restore check and relocate the receipt alone.
-SCHEME_OUTPUTS: dict[str, str] = {}
+SCHEME_OUTPUTS = {
+    "cmux": "CMUX_UI_XCTESTRUN",
+    "cmux-unit": "CMUX_APP_HOST_XCTESTRUN",
+    # cmuxCLITests has no app host: its bundle is loaded by the platform's own
+    # xctest agent, so the manifest names no product as its test host.
+    "cmux-cli-tests": "CMUX_CLI_TESTS_XCTESTRUN",
+}
+OUTPUT_ALIASES = {
+    "CMUX_NUMERIC_LOCALE_XCTESTRUN": "CMUX_APP_HOST_XCTESTRUN",
+}
 RECEIPT = "cmux-test-products.json"
 
 
@@ -77,18 +83,15 @@ def check_xcode(produced: str | None, current: str) -> None:
 
 
 def manifests(products: Path) -> dict[str, Path]:
-    """Require one test manifest per test scheme the active profile builds.
+    """Require one test manifest per scheme the active profile builds.
 
-    Exactly the profile's test schemes, never a subset: a product missing a
-    manifest its key claims is a partial product, and a consumer restoring it
-    would test something that was never built. The scheme set comes from
-    PRODUCT_PROFILES and TEST_SCHEMES so this check and the build cannot
-    disagree. A plainly built scheme (the app) writes no manifest.
+    Exactly the profile's schemes, never a subset: a product missing a manifest
+    its key claims is a partial product, and a consumer restoring it would test
+    something that was never built. The scheme set comes from PRODUCT_PROFILES
+    so this check and the build cannot disagree.
     """
     found = {}
     for scheme in product_inputs.profile_schemes():
-        if scheme not in product_inputs.TEST_SCHEMES:
-            continue
         matches = list(products.glob(f"{scheme}_*.xctestrun"))
         if len(matches) != 1:
             raise ValueError(f"expected one {scheme} test manifest, found {len(matches)}")
@@ -179,6 +182,13 @@ def restore(derived: Path, current: dict[str, str]) -> dict[str, str]:
         outputs[SCHEME_OUTPUTS[scheme]] = str(manifest.resolve())
     for manifest, data in rewrites.items():
         manifest.write_bytes(data)
+    # The numeric-locale gate selects only GhosttyNumericLocaleTests and
+    # disables parallel testing at invocation time. Its scheme has the same
+    # app/test product contract as cmux-unit; tests lock that equivalence.
+    # A profile without cmux-unit (the cli profile) has no numeric-locale gate.
+    for alias, source in OUTPUT_ALIASES.items():
+        if source in outputs:
+            outputs[alias] = outputs[source]
     return outputs
 
 

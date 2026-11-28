@@ -37,7 +37,9 @@ on:
       - scripts/cmux-next/rfd0135_gates.py
       - tests/test_rfd0135_gates.py
       - cmux-tui/crates/cmux-tui/tests/lid_close_gate.rs
-      - cmux-tui/crates/cmux-tui/tests/move_times.rs
+      - cmux-tui/crates/cmux-tui/tests/phone_direct_gate.rs
+      - cmux-tui/crates/cmux-cloud-phone-acp/**
+      - cmux-tui/crates/cmux-tui/src/link/phone_chat.rs
       - .github/workflows/rfd0135-gates.yml
 
 permissions:
@@ -50,7 +52,7 @@ concurrency:
 
 jobs:
   unit:
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -66,7 +68,7 @@ jobs:
 
   gates:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}  # frozen-label: RUNNER_POOLS.linux_8 (#54437)
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.RUNNER_POOLS && fromJSON(vars.RUNNER_POOLS).linux_8 || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # A pull request runs one short lid (60 s) and no matrix; the nightly, 10 lids of 30 min at once and the matrix.
     timeout-minutes: 300
     strategy:
@@ -81,23 +83,14 @@ jobs:
           persist-credentials: false
           submodules: false
       - name: Initialize Ghostty protocol submodules
-        if: matrix.gate != 'phone'
         run: git submodule update --init --depth 1 ghostty ghostty-next
       - name: Install Linux cmux-tui build dependencies
-        if: matrix.gate != 'phone'
         run: |
-          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
-          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
-            echo "clang libclang-dev pkg-config: already installed"
-          else
-            sudo apt-get update
-            sudo apt-get install -y clang libclang-dev pkg-config
-          fi
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
       - name: Set up cmux-tui Rust
-        if: matrix.gate != 'phone'
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Resolve Ghostty Zig version
-        if: matrix.gate != 'phone'
         id: ghostty-zig-version
         env:
           GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -107,13 +100,11 @@ jobs:
           [[ -n "$version" ]]
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Set up Zig for Ghostty
-        if: matrix.gate != 'phone'
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
           use-cache: false
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
-        if: matrix.gate != 'phone'
         uses: ./.github/actions/zig-global-cache
       - name: Gate ${{ matrix.gate }}
         if: matrix.gate != 'move' || github.event_name == 'schedule' || inputs.move_matrix
@@ -139,12 +130,12 @@ jobs:
           name: rfd0135-gate-${{ matrix.gate }}-${{ github.run_id }}
           path: ${{ runner.temp }}/rfd0135/${{ matrix.gate }}/*.json
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   summary:
     needs: gates
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -160,10 +151,12 @@ jobs:
       - name: RFD 0135 gates 2 to 4
         run: |
           set -euo pipefail
-          python3 scripts/cmux-next/rfd0135_gates.py summary "$RUNNER_TEMP"/gates/* --out "$RUNNER_TEMP/summary" || true
+          # A lone gate artifact (a PR skips move, and a gate with no JSON uploads nothing) lands flat in gates/;
+          # several land one folder each. Pass both: the root holds JSON only in the lone case, so nothing doubles.
+          python3 scripts/cmux-next/rfd0135_gates.py summary "$RUNNER_TEMP/gates" "$RUNNER_TEMP"/gates/*/ --out "$RUNNER_TEMP/summary" || true
           { echo "## RFD 0135 gates 2 to 4"; echo; cat "$RUNNER_TEMP/summary/summary.md" 2>/dev/null || echo "(no result)"; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rfd0135-gates-${{ github.run_id }}
           path: ${{ runner.temp }}/summary
-          retention-days: 3
+          retention-days: 3  # retention-class: report

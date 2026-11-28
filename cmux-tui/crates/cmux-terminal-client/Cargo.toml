@@ -8,14 +8,12 @@ publish.workspace = true
 description = "Small C ABI for the cmux TerminalBytes smart-renderer stream"
 
 [lib]
-# rlib first: dx (daemon hot-patching) keys a crate by its first --crate-type.
-crate-type = ["rlib", "staticlib"]
+crate-type = ["staticlib", "rlib"]
 
 [lints]
 workspace = true
 
 [dependencies]
-cmux-json.workspace = true
 base64.workspace = true
 bytes.workspace = true
 cmux-remote = { workspace = true, default-features = false, features = ["iroh-transport"] }

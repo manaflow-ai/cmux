@@ -1,20 +1,12 @@
 //! Opaque public resource identities and protocol-v2 shared types.
 
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::OnceLock;
 
-use scope::canonical_resource_scope;
+use crate::{PaneId, ScreenId, SplitId, SurfaceId, WorkspaceId};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-
-mod selector_tokens;
-pub use selector_tokens::is_reserved_selector_token;
-mod error;
-mod idempotency;
-mod request_id;
-pub use error::*;
-pub use idempotency::{MAX_IDEMPOTENCY_KEY_BYTES, validate_idempotency_key};
-pub use request_id::RequestId;
 
 pub const PROTOCOL: &str = "cmux.protocol/2";
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -22,6 +14,103 @@ pub const STREAM_EVENT_CAPACITY: usize = 256;
 pub const STREAM_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 pub const JOURNAL_CAPACITY: usize = 4096;
 pub const JOURNAL_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+pub const MAX_IDEMPOTENCY_KEY_BYTES: usize = 128;
+
+pub fn validate_idempotency_key(value: &str) -> Result<(), ResourceError> {
+    if value.trim().is_empty() {
+        return Err(ResourceError::validation_invalid(
+            Some("idempotency_key"),
+            "idempotency_key must contain at least one non-whitespace Unicode scalar",
+        ));
+    }
+    if value.len() > MAX_IDEMPOTENCY_KEY_BYTES {
+        return Err(ResourceError::validation_invalid(
+            Some("idempotency_key"),
+            "idempotency_key must contain 1 to 128 UTF-8 bytes",
+        ));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(ResourceError::validation_invalid(
+            Some("idempotency_key"),
+            "idempotency_key must not contain Unicode control characters",
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub struct RequestId(String);
+
+impl RequestId {
+    pub const MAX_BYTES: usize = 128;
+
+    pub fn parse(value: impl Into<String>) -> Result<Self, ResourceError> {
+        let value = value.into();
+        if value.is_empty() || value.len() > Self::MAX_BYTES {
+            return Err(ResourceError::validation_invalid(
+                Some("id"),
+                "request id must contain 1 to 128 UTF-8 bytes",
+            ));
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for RequestId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Self::parse(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct WireDecimal(u64);
+
+impl WireDecimal {
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
+impl Serialize for WireDecimal {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.0.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for WireDecimal {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value.len() > 20
+            || value.starts_with('+')
+            || (value.starts_with('0') && value.len() != 1)
+        {
+            return Err(serde::de::Error::custom("invalid unsigned decimal string"));
+        }
+        value
+            .parse::<u64>()
+            .map(Self)
+            .map_err(|_| serde::de::Error::custom("invalid unsigned decimal string"))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EnvelopeType {
     #[serde(rename = "request")]
@@ -110,154 +199,12 @@ pub enum ResourceOperation {
     FrontendProjectionGet,
     #[serde(rename = "frontend_projection.put")]
     FrontendProjectionPut,
-    #[serde(rename = "git.checkpoint.create")]
-    GitCheckpointCreate,
-    #[serde(rename = "git.checkpoint.diff")]
-    GitCheckpointDiff,
-    #[serde(rename = "git.checkpoint.get")]
-    GitCheckpointGet,
-    #[serde(rename = "git.checkpoint.list")]
-    GitCheckpointList,
-    #[serde(rename = "git.checkpoint.pin")]
-    GitCheckpointPin,
-    #[serde(rename = "git.checkpoint.unpin")]
-    GitCheckpointUnpin,
-    #[serde(rename = "chief.engine.get")]
-    ChiefEngineGet,
-    #[serde(rename = "chief.engine.set")]
-    ChiefEngineSet,
-    #[serde(rename = "chief.stop")]
-    ChiefStop,
-    #[serde(rename = "chief.automation.list")]
-    ChiefAutomationList,
-    #[serde(rename = "chief.automation.update")]
-    ChiefAutomationUpdate,
-    #[serde(rename = "chief.continue")]
-    ChiefContinue,
-    #[serde(rename = "chief.retry")]
-    ChiefRetry,
-    #[serde(rename = "chief.profile.list")]
-    ChiefProfileList,
-    #[serde(rename = "chief.profile.get")]
-    ChiefProfileGet,
-    #[serde(rename = "chief.profile.create")]
-    ChiefProfileCreate,
-    #[serde(rename = "chief.profile.adopt")]
-    ChiefProfileAdopt,
-    #[serde(rename = "chief.profile.update")]
-    ChiefProfileUpdate,
-    #[serde(rename = "chief.profile.delete")]
-    ChiefProfileDelete,
-    #[serde(rename = "chief.profile.avatar.set")]
-    ChiefProfileAvatarSet,
-    #[serde(rename = "chief.profile.avatar.get")]
-    ChiefProfileAvatarGet,
-    #[serde(rename = "chief.profile.history")]
-    ChiefProfileHistory,
-    #[serde(rename = "chief.profile.undo")]
-    ChiefProfileUndo,
-    #[serde(rename = "participant.avatar.set")]
-    ParticipantAvatarSet,
-    #[serde(rename = "participant.avatar.get")]
-    ParticipantAvatarGet,
-    #[serde(rename = "credential.verify")]
-    CredentialVerify,
-    #[serde(rename = "credential.mint")]
-    CredentialMint,
-    #[serde(rename = "credential.rotate")]
-    CredentialRotate,
-    #[serde(rename = "conversation.list")]
-    ConversationList,
-    #[serde(rename = "conversation.get")]
-    ConversationGet,
-    #[serde(rename = "conversation.history")]
-    ConversationHistory,
-    #[serde(rename = "conversation.search")]
-    ConversationSearch,
-    #[serde(rename = "conversation.send")]
-    ConversationSend,
-    #[serde(rename = "conversation.typing")]
-    ConversationTyping,
-    #[serde(rename = "conversation.draft")]
-    ConversationDraft,
-    #[serde(rename = "conversation.events")]
-    ConversationEvents,
-    #[serde(rename = "diff.comments.delete")]
-    DiffCommentsDelete,
-    #[serde(rename = "diff.comments.list")]
-    DiffCommentsList,
-    #[serde(rename = "diff.comments.save")]
-    DiffCommentsSave,
-    #[serde(rename = "diff.comments.send")]
-    DiffCommentsSend,
-    #[serde(rename = "diff.comments.thread")]
-    DiffCommentsThread,
-    #[serde(rename = "git.branches")]
-    GitBranches,
-    #[serde(rename = "git.review.comment")]
-    GitReviewComment,
-    #[serde(rename = "git.review.post")]
-    GitReviewPost,
-    #[serde(rename = "git.review.start")]
-    GitReviewStart,
-    #[serde(rename = "git.commit")]
-    GitCommit,
-    #[serde(rename = "git.diff")]
-    GitDiff,
-    #[serde(rename = "git.files.list")]
-    GitFilesList,
-    #[serde(rename = "git.fingerprint")]
-    GitFingerprint,
-    #[serde(rename = "git.files.search")]
-    GitFilesSearch,
-    #[serde(rename = "git.push")]
-    GitPush,
-    #[serde(rename = "git.status")]
-    GitStatus,
-    #[serde(rename = "git.worktree.create")]
-    GitWorktreeCreate,
-    #[serde(rename = "git.worktree.apply")]
-    GitWorktreeApply,
-    #[serde(rename = "git.worktree.remove")]
-    GitWorktreeRemove,
-    #[serde(rename = "git.worktree.setup")]
-    GitWorktreeSetup,
-    #[serde(rename = "git.worktree.setup.run")]
-    GitWorktreeSetupRun,
-    #[serde(rename = "history.entries.list")]
-    HistoryEntriesList,
-    #[serde(rename = "history.entries.remove")]
-    HistoryEntriesRemove,
-    #[serde(rename = "history.site.remove")]
-    HistorySiteRemove,
-    #[serde(rename = "history.clear")]
-    HistoryClear,
-    #[serde(rename = "history.restore")]
-    HistoryRestore,
-    #[serde(rename = "history.backups.purge")]
-    HistoryBackupsPurge,
-    #[serde(rename = "history.visit.record")]
-    HistoryVisitRecord,
-    #[serde(rename = "history.visit.title")]
-    HistoryVisitTitle,
-    #[serde(rename = "history.visit.remove")]
-    HistoryVisitRemove,
-    #[serde(rename = "history.visit.summaries")]
-    HistoryVisitSummaries,
-    #[serde(rename = "history.visit.import")]
-    HistoryVisitImport,
-    #[serde(rename = "history.trail.record")]
-    HistoryTrailRecord,
     #[serde(rename = "workspace.list")]
     WorkspaceList,
     #[serde(rename = "workspace.get")]
     WorkspaceGet,
     #[serde(rename = "workspace.create")]
     WorkspaceCreate,
-    #[serde(rename = "workspace.ensure_home")]
-    WorkspaceEnsureHome,
-    #[serde(rename = "workspace.ensure_app")]
-    WorkspaceEnsureApp,
     #[serde(rename = "workspace.rename")]
     WorkspaceRename,
     #[serde(rename = "workspace.move")]
@@ -304,16 +251,12 @@ pub enum ResourceOperation {
     PaneNeighborGet,
     #[serde(rename = "pane.swap")]
     PaneSwap,
-    #[serde(rename = "pane.move")]
-    PaneMove,
     #[serde(rename = "pane.zoom")]
     PaneZoom,
     #[serde(rename = "pane.split_ratio.set")]
     PaneSplitRatioSet,
     #[serde(rename = "pane.viewport_width.set")]
     PaneViewportWidthSet,
-    #[serde(rename = "column.update")]
-    ColumnUpdate,
     #[serde(rename = "pane.close")]
     PaneClose,
     #[serde(rename = "pane.run")]
@@ -422,22 +365,6 @@ pub enum ResourceOperation {
     AgentList,
     #[serde(rename = "agent.report")]
     AgentReport,
-    #[serde(rename = "agent.message.send")]
-    AgentMessageSend,
-    #[serde(rename = "agent.message.list")]
-    AgentMessageList,
-    #[serde(rename = "agent.message.mark")]
-    AgentMessageMark,
-    #[serde(rename = "agent.message.release")]
-    AgentMessageRelease,
-    #[serde(rename = "agent.message.unsend")]
-    AgentMessageUnsend,
-    #[serde(rename = "chat.list")]
-    ChatList,
-    #[serde(rename = "chat.mark_read")]
-    ChatMarkRead,
-    #[serde(rename = "chat.pin")]
-    ChatPin,
     #[serde(rename = "sidebar_view.get")]
     SidebarViewGet,
     #[serde(rename = "sidebar_view.ensure")]
@@ -452,384 +379,6 @@ pub enum ResourceOperation {
     SidebarViewReload,
     #[serde(rename = "stream.cancel")]
     StreamCancel,
-    #[serde(rename = "origin.confirmation.issue")]
-    OriginConfirmationIssue,
-    #[serde(rename = "closed.list")]
-    ClosedList,
-    #[serde(rename = "closed.delete")]
-    ClosedDelete,
-    #[serde(rename = "closed.reopen")]
-    ClosedReopen,
-    #[serde(rename = "settings.schema")]
-    SettingsSchema,
-    #[serde(rename = "settings.list")]
-    SettingsList,
-    #[serde(rename = "settings.get")]
-    SettingsGet,
-    #[serde(rename = "settings.snapshot")]
-    SettingsSnapshot,
-    #[serde(rename = "settings.set")]
-    SettingsSet,
-    #[serde(rename = "settings.reset")]
-    SettingsReset,
-    #[serde(rename = "settings.reset_all")]
-    SettingsResetAll,
-    #[serde(rename = "settings.edit")]
-    SettingsEdit,
-    #[serde(rename = "settings.history")]
-    SettingsHistory,
-    #[serde(rename = "settings.undo")]
-    SettingsUndo,
-    #[serde(rename = "settings.restore")]
-    SettingsRestore,
-    #[serde(rename = "settings.reset_group")]
-    SettingsResetGroup,
-    #[serde(rename = "keybindings.get")]
-    KeybindingsGet,
-    #[serde(rename = "keybindings.set")]
-    KeybindingsSet,
-    #[serde(rename = "keybindings.remove")]
-    KeybindingsRemove,
-    #[serde(rename = "keybindings.reset")]
-    KeybindingsReset,
-    #[serde(rename = "language_packs.ensure")]
-    LanguagePacksEnsure,
-    #[serde(rename = "window_record.list")]
-    WindowRecordList,
-    #[serde(rename = "window_record.put")]
-    WindowRecordPut,
-    #[serde(rename = "window_record.delete")]
-    WindowRecordDelete,
-    #[serde(rename = "sidebar_layout.get")]
-    SidebarLayoutGet,
-    #[serde(rename = "sidebar_layout.update")]
-    SidebarLayoutUpdate,
-    #[serde(rename = "sidebar.get")]
-    SidebarGet,
-    #[serde(rename = "sidebar.move")]
-    SidebarMove,
-    #[serde(rename = "sidebar.pin")]
-    SidebarPin,
-    #[serde(rename = "sidebar.unpin")]
-    SidebarUnpin,
-    #[serde(rename = "sidebar.item.add")]
-    SidebarItemAdd,
-    #[serde(rename = "sidebar.item.remove")]
-    SidebarItemRemove,
-    #[serde(rename = "sidebar.item.update")]
-    SidebarItemUpdate,
-    #[serde(rename = "sidebar.item.remove_ref")]
-    SidebarItemRemoveRef,
-    #[serde(rename = "sidebar.section.add")]
-    SidebarSectionAdd,
-    #[serde(rename = "sidebar.section.update")]
-    SidebarSectionUpdate,
-    #[serde(rename = "sidebar.section.move")]
-    SidebarSectionMove,
-    #[serde(rename = "sidebar.section.remove")]
-    SidebarSectionRemove,
-    #[serde(rename = "sidebar.group.create")]
-    SidebarGroupCreate,
-    #[serde(rename = "sidebar.group.update")]
-    SidebarGroupUpdate,
-    #[serde(rename = "sidebar.group.ungroup")]
-    SidebarGroupUngroup,
-    #[serde(rename = "sidebar.adopt")]
-    SidebarAdopt,
-    #[serde(rename = "sidebar.apply")]
-    SidebarApply,
-    #[serde(rename = "sidebar.reset")]
-    SidebarReset,
-    #[serde(rename = "project.list")]
-    ProjectList,
-    #[serde(rename = "project.actions.list")]
-    ProjectActionsList,
-    #[serde(rename = "project.observe")]
-    ProjectObserve,
-    #[serde(rename = "project.add")]
-    ProjectAdd,
-    #[serde(rename = "project.update")]
-    ProjectUpdate,
-    #[serde(rename = "project.remove")]
-    ProjectRemove,
-    #[serde(rename = "project.sync")]
-    ProjectSync,
-    #[serde(rename = "project.source.update")]
-    ProjectSourceUpdate,
-    #[serde(rename = "browser.devices.list")]
-    BrowserDevicesList,
-    #[serde(rename = "browser.devices.add_custom")]
-    BrowserDevicesAddCustom,
-    #[serde(rename = "browser.devices.remove_custom")]
-    BrowserDevicesRemoveCustom,
-    #[serde(rename = "browser.tab.emulate")]
-    BrowserTabEmulate,
-    #[serde(rename = "browser.tab.emulate.clear")]
-    BrowserTabEmulateClear,
-    #[serde(rename = "browser.tab.set_profile")]
-    BrowserTabSetProfile,
-    #[serde(rename = "browser.profile.list")]
-    BrowserProfileList,
-    #[serde(rename = "browser.profile.create")]
-    BrowserProfileCreate,
-    #[serde(rename = "browser.profile.open")]
-    BrowserProfileOpen,
-    #[serde(rename = "palette_usage.get")]
-    PaletteUsageGet,
-    #[serde(rename = "palette_usage.record")]
-    PaletteUsageRecord,
-    #[serde(rename = "palette_usage.import")]
-    PaletteUsageImport,
-    #[serde(rename = "palette_usage.hide")]
-    PaletteUsageHide,
-    #[serde(rename = "palette_usage.forget")]
-    PaletteUsageForget,
-    #[serde(rename = "palette.rank")]
-    PaletteRank,
-    #[serde(rename = "theme.scheme.convert")]
-    ThemeSchemeConvert,
-    #[serde(rename = "theme.scheme.export")]
-    ThemeSchemeExport,
-    #[serde(rename = "theme.scheme.from_image")]
-    ThemeSchemeFromImage,
-    #[serde(rename = "theme.slots.resolve")]
-    ThemeSlotsResolve,
-    #[serde(rename = "stash.create")]
-    StashCreate,
-    #[serde(rename = "stash.list")]
-    StashList,
-    #[serde(rename = "stash.restore")]
-    StashRestore,
-    #[serde(rename = "stash.delete")]
-    StashDelete,
-    #[serde(rename = "stash.import")]
-    StashImport,
-    #[serde(rename = "classic_import.plan")]
-    ClassicImportPlan,
-    #[serde(rename = "classic_import.record")]
-    ClassicImportRecord,
-    #[serde(rename = "conductor_import.plan")]
-    ConductorImportPlan,
-    #[serde(rename = "conductor_import.record")]
-    ConductorImportRecord,
-    #[serde(rename = "browser_import.read")]
-    BrowserImportRead,
-    #[serde(rename = "cloud.vm.scp_endpoint")]
-    CloudVmScpEndpoint,
-    #[serde(rename = "cloud.vm.tunnel_enroll")]
-    CloudVmTunnelEnroll,
-    #[serde(rename = "cloud.vm.tunnel_revoke")]
-    CloudVmTunnelRevoke,
-    #[serde(rename = "cloud.vm.tunnel_attach")]
-    CloudVmTunnelAttach,
-    #[serde(rename = "cloud.vm.tunnel_detach")]
-    CloudVmTunnelDetach,
-    #[serde(rename = "cloud.vm.tunnel_rotate_key")]
-    CloudVmTunnelRotateKey,
-    #[serde(rename = "cloud.vm.firewall_list")]
-    CloudVmFirewallList,
-    #[serde(rename = "cloud.vm.firewall_get")]
-    CloudVmFirewallGet,
-    #[serde(rename = "cloud.vm.firewall_create")]
-    CloudVmFirewallCreate,
-    #[serde(rename = "cloud.vm.firewall_delete")]
-    CloudVmFirewallDelete,
-    #[serde(rename = "cloud.vm.networks")]
-    CloudVmNetworks,
-    #[serde(rename = "cloud.vm.domains")]
-    CloudVmDomains,
-    #[serde(rename = "cloud.vm.publications")]
-    CloudVmPublications,
-    #[serde(rename = "cloud.vm.provision_api")]
-    CloudVmProvisionApi,
-    #[serde(rename = "cloud.vm.publication_api_keys")]
-    CloudVmPublicationApiKeys,
-    #[serde(rename = "cloud.vm.revoke_publication_api_key")]
-    CloudVmRevokePublicationApiKey,
-    #[serde(rename = "cloud.runs.create")]
-    CloudRunsCreate,
-    #[serde(rename = "cloud.runs.start")]
-    CloudRunsStart,
-    #[serde(rename = "cloud.runs.wait")]
-    CloudRunsWait,
-    #[serde(rename = "cloud.runs.cancel")]
-    CloudRunsCancel,
-    #[serde(rename = "cloud.runs.sandbox")]
-    CloudRunsSandbox,
-    #[serde(rename = "cloud.owner.acpmux_person_holds")]
-    CloudOwnerAcpmuxPersonHolds,
-    #[serde(rename = "cloud.owner.acpmux_keyed_start")]
-    CloudOwnerAcpmuxKeyedStart,
-    #[serde(rename = "cloud.owner.fork_run")]
-    CloudOwnerForkRun,
-    #[serde(rename = "cloud.owner.handoff_wait")]
-    CloudOwnerHandoffWait,
-    #[serde(rename = "cloud.owner.handoffs")]
-    CloudOwnerHandoffs,
-    #[serde(rename = "cloud.owner.handoff_open")]
-    CloudOwnerHandoffOpen,
-    #[serde(rename = "cloud.owner.handoff_begin_turn")]
-    CloudOwnerHandoffBeginTurn,
-    #[serde(rename = "cloud.owner.harness_login_copy")]
-    CloudOwnerHarnessLoginCopy,
-    #[serde(rename = "cloud.owner.github_app")]
-    CloudOwnerGithubApp,
-    #[serde(rename = "cloud.owner.github_repos")]
-    CloudOwnerGithubRepos,
-    #[serde(rename = "cloud.owner.github_connect")]
-    CloudOwnerGithubConnect,
-    #[serde(rename = "cloud.owner.op")]
-    CloudOwnerOp,
-    #[serde(rename = "cloud.owner.github_complete")]
-    CloudOwnerGithubComplete,
-    #[serde(rename = "cloud.owner.github_list")]
-    CloudOwnerGithubList,
-    #[serde(rename = "cloud.owner.github_clone_token")]
-    CloudOwnerGithubCloneToken,
-    #[serde(rename = "cloud.owner.slack")]
-    CloudOwnerSlack,
-    #[serde(rename = "cloud.owner.slack_awake")]
-    CloudOwnerSlackAwake,
-    #[serde(rename = "cloud.owner.turn_checkpoint")]
-    CloudOwnerTurnCheckpoint,
-    #[serde(rename = "cloud.owner.turn_rewind")]
-    CloudOwnerTurnRewind,
-    #[serde(rename = "cloud.owner.turns")]
-    CloudOwnerTurns,
-    #[serde(rename = "cloud.previews.refresh")]
-    CloudPreviewsRefresh,
-    #[serde(rename = "cloud.previews.create_link")]
-    CloudPreviewsCreateLink,
-    #[serde(rename = "cloud.previews.revoke_link")]
-    CloudPreviewsRevokeLink,
-    #[serde(rename = "cloud.machine.io")]
-    CloudMachineIo,
-    #[serde(rename = "cloud.machine.chat_access")]
-    CloudMachineChatAccess,
-    #[serde(rename = "cloud.machine.share_chat")]
-    CloudMachineShareChat,
-    #[serde(rename = "cloud.machine.chief_start")]
-    CloudMachineChiefStart,
-    #[serde(rename = "cloud.machine.chief_resize")]
-    CloudMachineChiefResize,
-    #[serde(rename = "cloud.machine.setup_desktop")]
-    CloudMachineSetupDesktop,
-    #[serde(rename = "cloud.machine.fork")]
-    CloudMachineFork,
-    #[serde(rename = "room.create")]
-    RoomCreate,
-    #[serde(rename = "room.delete")]
-    RoomDelete,
-    #[serde(rename = "room.follow")]
-    RoomFollow,
-    #[serde(rename = "room.list")]
-    RoomList,
-    #[serde(rename = "room.move")]
-    RoomMove,
-    #[serde(rename = "room.pin")]
-    RoomPin,
-    #[serde(rename = "room.unpin")]
-    RoomUnpin,
-    #[serde(rename = "room.update")]
-    RoomUpdate,
-    #[serde(rename = "saved_tab_group.delete")]
-    SavedTabGroupDelete,
-    #[serde(rename = "saved_tab_group.list")]
-    SavedTabGroupList,
-    #[serde(rename = "saved_tab_group.reopen")]
-    SavedTabGroupReopen,
-    #[serde(rename = "saved_tab_group.save")]
-    SavedTabGroupSave,
-    #[serde(rename = "screen.move")]
-    ScreenMove,
-    #[serde(rename = "screen.update")]
-    ScreenUpdate,
-    #[serde(rename = "screen_group.add_screens")]
-    ScreenGroupAddScreens,
-    #[serde(rename = "screen_group.create")]
-    ScreenGroupCreate,
-    #[serde(rename = "screen_group.get")]
-    ScreenGroupGet,
-    #[serde(rename = "screen_group.list")]
-    ScreenGroupList,
-    #[serde(rename = "screen_group.remove_screens")]
-    ScreenGroupRemoveScreens,
-    #[serde(rename = "screen_group.ungroup")]
-    ScreenGroupUngroup,
-    #[serde(rename = "screen_group.update")]
-    ScreenGroupUpdate,
-    #[serde(rename = "tab.pin")]
-    TabPin,
-    #[serde(rename = "tab.unpin")]
-    TabUnpin,
-    #[serde(rename = "tab.update")]
-    TabUpdate,
-    #[serde(rename = "tab_group.add_tabs")]
-    TabGroupAddTabs,
-    #[serde(rename = "tab_group.close")]
-    TabGroupClose,
-    #[serde(rename = "layout.bulk")]
-    LayoutBulk,
-    #[serde(rename = "tab_group.create")]
-    TabGroupCreate,
-    #[serde(rename = "tab_group.get")]
-    TabGroupGet,
-    #[serde(rename = "tab_group.list")]
-    TabGroupList,
-    #[serde(rename = "tab_group.move")]
-    TabGroupMove,
-    #[serde(rename = "tab_group.remove_tabs")]
-    TabGroupRemoveTabs,
-    #[serde(rename = "tab_group.ungroup")]
-    TabGroupUngroup,
-    #[serde(rename = "tab_group.update")]
-    TabGroupUpdate,
-    #[serde(rename = "workspace.place")]
-    WorkspacePlace,
-    #[serde(rename = "workspace.placement.list")]
-    WorkspacePlacementList,
-    #[serde(rename = "workspace.update")]
-    WorkspaceUpdate,
-    #[serde(rename = "workspace.agent_folder.set")]
-    WorkspaceAgentFolderSet,
-    #[serde(rename = "workspace.agent_start.get")]
-    WorkspaceAgentStartGet,
-    #[serde(rename = "workspace.open_url")]
-    WorkspaceOpenUrl,
-    #[serde(rename = "workspace_group.create")]
-    WorkspaceGroupCreate,
-    #[serde(rename = "workspace_group.delete")]
-    WorkspaceGroupDelete,
-    #[serde(rename = "workspace_group.list")]
-    WorkspaceGroupList,
-    #[serde(rename = "workspace_group.move")]
-    WorkspaceGroupMove,
-    #[serde(rename = "workspace_group.update")]
-    WorkspaceGroupUpdate,
-    #[serde(rename = "workspace_log.append")]
-    WorkspaceLogAppend,
-    #[serde(rename = "workspace_log.clear")]
-    WorkspaceLogClear,
-    #[serde(rename = "workspace_log.list")]
-    WorkspaceLogList,
-    #[serde(rename = "workspace_checklist.add")]
-    WorkspaceChecklistAdd,
-    #[serde(rename = "workspace_checklist.list")]
-    WorkspaceChecklistList,
-    #[serde(rename = "workspace_checklist.remove")]
-    WorkspaceChecklistRemove,
-    #[serde(rename = "workspace_checklist.update")]
-    WorkspaceChecklistUpdate,
-    #[serde(rename = "workspace_progress.clear")]
-    WorkspaceProgressClear,
-    #[serde(rename = "workspace_progress.set")]
-    WorkspaceProgressSet,
-    #[serde(rename = "workspace_status.clear")]
-    WorkspaceStatusClear,
-    #[serde(rename = "workspace_status.list")]
-    WorkspaceStatusList,
-    #[serde(rename = "workspace_status.set")]
-    WorkspaceStatusSet,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -864,26 +413,387 @@ impl LocalOperation {
     }
 }
 
-mod class;
-mod envelope;
-mod hex;
-mod journal;
-mod name_index;
-pub use name_index::{PublicSlotIndexes, resolve_name};
-#[cfg(test)]
-#[path = "resource/wire_name_tests.rs"]
-mod resource_operation_wire_name_tests;
-mod scope;
-mod wire_decimal;
-mod wire_name;
+impl ResourceOperation {
+    pub const fn class(self) -> OperationClass {
+        if matches!(
+            self,
+            Self::SessionEvents
+                | Self::SessionJournalSubscribe
+                | Self::TerminalAttach
+                | Self::BrowserAttach
+                | Self::SidebarViewAttach
+        ) {
+            OperationClass::StreamOpen
+        } else if matches!(
+            self,
+            Self::RequestCancel
+                | Self::StreamCancel
+                | Self::ClientMetadataUpdate
+                | Self::ClientSizingSet
+                | Self::ClientSizingRelease
+                | Self::ClientCellPixelsSet
+                | Self::ClientDetach
+                | Self::TerminalRendererGrantCreate
+                | Self::TerminalViewerResize
+                | Self::TerminalViewerRelease
+                | Self::BrowserViewerResize
+                | Self::BrowserViewerRelease
+        ) {
+            OperationClass::ConnectionControl
+        } else if matches!(
+            self,
+            Self::MachineList
+                | Self::MachineGet
+                | Self::SessionList
+                | Self::SessionGet
+                | Self::SessionSnapshot
+                | Self::SessionCreationResolve
+                | Self::SessionPing
+                | Self::SessionJournalProducerList
+                | Self::SessionJournalHookList
+                | Self::SessionJournalCheckpointList
+                | Self::SessionJournalRestorePreview
+                | Self::SessionJournalSegmentList
+                | Self::ClientList
+                | Self::ClientGet
+                | Self::PairingRequestList
+                | Self::FrontendProjectionGet
+                | Self::WorkspaceList
+                | Self::WorkspaceGet
+                | Self::ScreenList
+                | Self::ScreenGet
+                | Self::ScreenLayoutExport
+                | Self::PaneList
+                | Self::PaneGet
+                | Self::PaneNeighborGet
+                | Self::TabList
+                | Self::TabGet
+                | Self::TerminalList
+                | Self::TerminalGet
+                | Self::TerminalScreenRead
+                | Self::TerminalStateRead
+                | Self::TerminalHistoryRead
+                | Self::TerminalOutputRead
+                | Self::TerminalWait
+                | Self::TerminalWaitExit
+                | Self::TerminalCopy
+                | Self::TerminalProcessGet
+                | Self::BrowserList
+                | Self::BrowserGet
+                | Self::NotificationList
+                | Self::AgentList
+                | Self::SidebarViewGet
+        ) {
+            OperationClass::Read
+        } else {
+            OperationClass::Mutation
+        }
+    }
 
-pub use envelope::{
-    RequestEnvelope, ResourceCursor, ResponseEnvelope, StreamEndEnvelope, StreamEndReason,
-    StreamItemEnvelope,
-};
-use hex::encode_hex;
-pub use journal::{ResourceDelta, ResourceDeltaBatch, ResourceJournal};
-pub use wire_decimal::WireDecimal;
+    pub const fn is_mutation(self) -> bool {
+        matches!(self.class(), OperationClass::Mutation)
+    }
+}
+
+#[cfg(test)]
+mod resource_operation_wire_name_tests {
+    use super::ResourceOperation;
+
+    #[test]
+    fn wire_name_round_trips_through_serde() {
+        for name in [
+            "machine.list",
+            "session.journal.append",
+            "workspace.create",
+            "terminal.output_read",
+            "browser.close",
+            "stream.cancel",
+        ] {
+            let operation: ResourceOperation =
+                serde_json::from_str(&format!("\"{name}\"")).expect("known operation");
+            assert_eq!(operation.wire_name(), name);
+            assert_eq!(serde_json::to_string(&operation).unwrap(), format!("\"{name}\""));
+        }
+    }
+}
+
+impl ResourceOperation {
+    pub const fn wire_name(self) -> &'static str {
+        match self {
+            Self::MachineList => "machine.list",
+            Self::MachineGet => "machine.get",
+            Self::SessionList => "session.list",
+            Self::SessionOpen => "session.open",
+            Self::SessionGet => "session.get",
+            Self::SessionSnapshot => "session.snapshot",
+            Self::SessionCreationResolve => "session.creation.resolve",
+            Self::SessionEvents => "session.events",
+            Self::SessionJournalSubscribe => "session.journal.subscribe",
+            Self::SessionJournalProducerList => "session.journal.producer.list",
+            Self::SessionJournalProducerPut => "session.journal.producer.put",
+            Self::SessionJournalAppend => "session.journal.append",
+            Self::SessionJournalCheckpointCreate => "session.journal.checkpoint.create",
+            Self::SessionJournalCheckpointList => "session.journal.checkpoint.list",
+            Self::SessionJournalHookList => "session.journal.hook.list",
+            Self::SessionJournalHookPut => "session.journal.hook.put",
+            Self::SessionJournalRestorePreview => "session.journal.restore.preview",
+            Self::SessionJournalSegmentList => "session.journal.segment.list",
+            Self::SessionJournalSegmentSeal => "session.journal.segment.seal",
+            Self::SessionPing => "session.ping",
+            Self::SessionShutdown => "session.shutdown",
+            Self::SessionReloadConfig => "session.reload_config",
+            Self::SessionTerminalDefaultsUpdate => "session.terminal_defaults.update",
+            Self::ClientList => "client.list",
+            Self::ClientGet => "client.get",
+            Self::ClientMetadataUpdate => "client.metadata.update",
+            Self::ClientSizingSet => "client.sizing.set",
+            Self::ClientSizingRelease => "client.sizing.release",
+            Self::ClientCellPixelsSet => "client.cell_pixels.set",
+            Self::ClientDetach => "client.detach",
+            Self::SessionWindowTitleSet => "session.window.title.set",
+            Self::SessionWindowTitleClear => "session.window.title.clear",
+            Self::PairingRequestList => "pairing_request.list",
+            Self::PairingRequestResolve => "pairing_request.resolve",
+            Self::RequestCancel => "request.cancel",
+            Self::FrontendProjectionGet => "frontend_projection.get",
+            Self::FrontendProjectionPut => "frontend_projection.put",
+            Self::WorkspaceList => "workspace.list",
+            Self::WorkspaceGet => "workspace.get",
+            Self::WorkspaceCreate => "workspace.create",
+            Self::WorkspaceRename => "workspace.rename",
+            Self::WorkspaceMove => "workspace.move",
+            Self::WorkspaceFocus => "workspace.focus",
+            Self::WorkspaceClose => "workspace.close",
+            Self::WorkspaceRun => "workspace.run",
+            Self::WorkspaceLayoutApply => "workspace.layout.apply",
+            Self::ScreenList => "screen.list",
+            Self::ScreenGet => "screen.get",
+            Self::ScreenCreate => "screen.create",
+            Self::ScreenRename => "screen.rename",
+            Self::ScreenFocus => "screen.focus",
+            Self::ScreenClose => "screen.close",
+            Self::ScreenLayoutExport => "screen.layout.export",
+            Self::ScreenLayoutUndo => "screen.layout.undo",
+            Self::PaneList => "pane.list",
+            Self::PaneGet => "pane.get",
+            Self::PaneCreate => "pane.create",
+            Self::PaneSplit => "pane.split",
+            Self::PaneRename => "pane.rename",
+            Self::PaneFocus => "pane.focus",
+            Self::PaneFocusDirection => "pane.focus_direction",
+            Self::PaneNeighborGet => "pane.neighbor.get",
+            Self::PaneSwap => "pane.swap",
+            Self::PaneZoom => "pane.zoom",
+            Self::PaneSplitRatioSet => "pane.split_ratio.set",
+            Self::PaneViewportWidthSet => "pane.viewport_width.set",
+            Self::PaneClose => "pane.close",
+            Self::PaneRun => "pane.run",
+            Self::TabList => "tab.list",
+            Self::TabGet => "tab.get",
+            Self::TabCreateTerminal => "tab.create_terminal",
+            Self::TabCreateBrowser => "tab.create_browser",
+            Self::TabRename => "tab.rename",
+            Self::TabMove => "tab.move",
+            Self::TabFocus => "tab.focus",
+            Self::TabClose => "tab.close",
+            Self::TerminalList => "terminal.list",
+            Self::TerminalGet => "terminal.get",
+            Self::TerminalInputWrite => "terminal.input.write",
+            Self::TerminalInputKeys => "terminal.input.keys",
+            Self::TerminalInputMouse => "terminal.input.mouse",
+            Self::TerminalInputFocus => "terminal.input.focus",
+            Self::TerminalScreenRead => "terminal.screen.read",
+            Self::TerminalStateRead => "terminal.state.read",
+            Self::TerminalHistoryRead => "terminal.history.read",
+            Self::TerminalHistoryClear => "terminal.history.clear",
+            Self::TerminalOutputRead => "terminal.output_read",
+            Self::TerminalWait => "terminal.wait",
+            Self::TerminalWaitExit => "terminal.wait_exit",
+            Self::TerminalCopy => "terminal.copy",
+            Self::TerminalProcessGet => "terminal.process.get",
+            Self::TerminalRendererGrantCreate => "terminal.renderer_grant.create",
+            Self::TerminalViewerResize => "terminal.viewer.resize",
+            Self::TerminalViewerRelease => "terminal.viewer.release",
+            Self::TerminalViewportScroll => "terminal.viewport.scroll",
+            Self::TerminalMove => "terminal.move",
+            Self::TerminalProject => "terminal.project",
+            Self::TerminalAttach => "terminal.attach",
+            Self::TerminalClose => "terminal.close",
+            Self::BrowserList => "browser.list",
+            Self::BrowserGet => "browser.get",
+            Self::BrowserNavigate => "browser.navigate",
+            Self::BrowserBack => "browser.back",
+            Self::BrowserForward => "browser.forward",
+            Self::BrowserReload => "browser.reload",
+            Self::BrowserActivate => "browser.activate",
+            Self::BrowserInputKey => "browser.input.key",
+            Self::BrowserInputText => "browser.input.text",
+            Self::BrowserInputMouse => "browser.input.mouse",
+            Self::BrowserInputWheel => "browser.input.wheel",
+            Self::BrowserViewerResize => "browser.viewer.resize",
+            Self::BrowserViewerRelease => "browser.viewer.release",
+            Self::BrowserAttach => "browser.attach",
+            Self::BrowserClose => "browser.close",
+            Self::NotificationList => "notification.list",
+            Self::NotificationCreate => "notification.create",
+            Self::NotificationAck => "notification.ack",
+            Self::NotificationClear => "notification.clear",
+            Self::AgentList => "agent.list",
+            Self::AgentReport => "agent.report",
+            Self::SidebarViewGet => "sidebar_view.get",
+            Self::SidebarViewEnsure => "sidebar_view.ensure",
+            Self::SidebarViewAttach => "sidebar_view.attach",
+            Self::SidebarViewInput => "sidebar_view.input",
+            Self::SidebarViewResize => "sidebar_view.resize",
+            Self::SidebarViewReload => "sidebar_view.reload",
+            Self::StreamCancel => "stream.cancel",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RequestEnvelope {
+    pub protocol: String,
+    #[serde(rename = "type")]
+    pub envelope_type: EnvelopeType,
+    pub id: RequestId,
+    pub operation: ResourceOperation,
+    pub params: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+}
+
+impl RequestEnvelope {
+    pub fn validate(&self) -> Result<(), ResourceError> {
+        if self.protocol != PROTOCOL || self.envelope_type != EnvelopeType::Request {
+            return Err(ResourceError::validation_invalid(
+                Some("protocol"),
+                "expected a cmux.protocol/2 request envelope",
+            ));
+        }
+        if !self.params.is_object() {
+            return Err(ResourceError::validation_invalid(
+                Some("params"),
+                "request params must be an object",
+            ));
+        }
+        match (&self.idempotency_key, self.operation.class()) {
+            (None, OperationClass::Mutation) => Err(ResourceError::validation_invalid(
+                Some("idempotency_key"),
+                "mutations require idempotency_key",
+            )),
+            (Some(_), class) if class != OperationClass::Mutation => {
+                Err(ResourceError::validation_invalid(
+                    Some("idempotency_key"),
+                    "only mutations accept idempotency_key",
+                ))
+            }
+            (Some(key), OperationClass::Mutation) => validate_idempotency_key(key),
+            _ => Ok(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResponseEnvelope {
+    pub protocol: String,
+    #[serde(rename = "type")]
+    pub envelope_type: EnvelopeType,
+    pub id: RequestId,
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<ResourceError>,
+}
+
+impl ResponseEnvelope {
+    pub fn success(id: RequestId, result: Value) -> Self {
+        Self {
+            protocol: PROTOCOL.to_string(),
+            envelope_type: EnvelopeType::Response,
+            id,
+            ok: true,
+            result: Some(result),
+            error: None,
+        }
+    }
+
+    pub fn failure(id: RequestId, error: ResourceError) -> Self {
+        Self {
+            protocol: PROTOCOL.to_string(),
+            envelope_type: EnvelopeType::Response,
+            id,
+            ok: false,
+            result: None,
+            error: Some(error),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), ResourceError> {
+        if self.protocol != PROTOCOL || self.envelope_type != EnvelopeType::Response {
+            return Err(ResourceError::validation_invalid(
+                Some("protocol"),
+                "expected a cmux.protocol/2 response envelope",
+            ));
+        }
+        match (self.ok, self.result.is_some(), self.error.is_some()) {
+            (true, true, false) | (false, false, true) => Ok(()),
+            _ => Err(ResourceError::validation_invalid(
+                None,
+                "response must contain exactly one matching result or error",
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceCursor {
+    pub generation: String,
+    pub revision: WireDecimal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StreamItemEnvelope {
+    pub protocol: String,
+    #[serde(rename = "type")]
+    pub envelope_type: EnvelopeType,
+    pub stream_id: StreamPublicId,
+    pub sequence: WireDecimal,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<ResourceCursor>,
+    pub item: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamEndReason {
+    Completed,
+    Canceled,
+    Closed,
+    Gap,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StreamEndEnvelope {
+    pub protocol: String,
+    #[serde(rename = "type")]
+    pub envelope_type: EnvelopeType,
+    pub stream_id: StreamPublicId,
+    pub reason: StreamEndReason,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<ResourceCursor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<ResourceError>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<String>,
+}
 
 macro_rules! public_id {
     ($name:ident, $prefix:literal) => {
@@ -1015,6 +925,351 @@ impl ContentPublicId {
     }
 }
 
+fn encode_hex(bytes: [u8; 16]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(32);
+    for byte in bytes {
+        output.push(char::from(HEX[(byte >> 4) as usize]));
+        output.push(char::from(HEX[(byte & 0x0f) as usize]));
+    }
+    output
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResourceError {
+    pub code: String,
+    pub message: String,
+    pub details: Value,
+    pub retryable: bool,
+}
+
+impl ResourceError {
+    pub fn new(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        details: Value,
+        retryable: bool,
+    ) -> Self {
+        let code = code.into();
+        assert!(
+            is_catalog_error_code(&code),
+            "resource error code {code:?} is absent from spec/resource-operations-v2.json"
+        );
+        assert!(
+            catalog_error_contract_matches(&code, &details, retryable),
+            "resource error {code:?} violates its catalog details or retryable contract: {details}"
+        );
+        Self { code, message: message.into(), details, retryable }
+    }
+
+    pub fn operation_failed(
+        operation: impl Into<String>,
+        reason: impl Into<String>,
+        extra: Value,
+    ) -> Self {
+        let operation = operation.into();
+        let reason = reason.into();
+        assert!(extra.is_object(), "operation.failed extra must be an object");
+        let mut details = json!({
+            "operation":operation,
+            "reason":reason,
+        });
+        if extra.as_object().is_some_and(|extra| !extra.is_empty()) {
+            details["extra"] = extra;
+        }
+        Self::new("operation.failed", reason, details, false)
+    }
+
+    fn invalid_id(kind: &str, value: &str) -> Self {
+        let scope = canonical_resource_scope(kind);
+        Self::new(
+            "selector.invalid",
+            format!("invalid {kind} {value:?}"),
+            json!({
+                "scope":scope,
+                "selector":value,
+                "reason":format!("invalid {kind} resource identity"),
+            }),
+            false,
+        )
+    }
+
+    pub fn not_found(kind: &str, selector: &str) -> Self {
+        let scope = canonical_resource_scope(kind);
+        Self::new(
+            "selector.not_found",
+            format!("no {kind} matches {selector:?}"),
+            json!({"scope":scope,"selector":selector}),
+            false,
+        )
+    }
+
+    pub fn ambiguous(kind: &str, selector: &str, candidates: Vec<String>) -> Self {
+        let scope = canonical_resource_scope(kind);
+        Self::new(
+            "selector.ambiguous",
+            format!("more than one {kind} is named {selector:?}"),
+            json!({"scope":scope,"selector":selector,"candidates":candidates}),
+            false,
+        )
+    }
+
+    pub fn allocation(kind: &str) -> Self {
+        Self::operation_failed(
+            "resource.allocate",
+            format!("could not allocate {kind} identity"),
+            json!({"kind":kind}),
+        )
+    }
+
+    pub fn selector_invalid(scope: &str, selector: &str, reason: impl Into<String>) -> Self {
+        let reason = reason.into();
+        Self::new(
+            "selector.invalid",
+            reason.clone(),
+            json!({
+                "scope":canonical_resource_scope(scope),
+                "selector":selector,
+                "reason":reason,
+            }),
+            false,
+        )
+    }
+
+    pub fn validation_invalid(field: Option<&str>, reason: impl Into<String>) -> Self {
+        let reason = reason.into();
+        let mut details = json!({"reason":reason});
+        if let Some(field) = field {
+            details["field"] = json!(field);
+        }
+        Self::new("validation.invalid", reason, details, false)
+    }
+
+    pub fn transport_closed(reason: impl Into<String>) -> Self {
+        let reason = reason.into();
+        Self::new("transport.closed", reason.clone(), json!({"reason":reason}), true)
+    }
+
+    pub fn terminal_closed(terminal_id: &TerminalPublicId) -> Self {
+        Self::new(
+            "terminal.closed",
+            format!("terminal {terminal_id} is closed"),
+            json!({"terminal_id":terminal_id}),
+            false,
+        )
+    }
+
+    pub fn idempotency_conflict(idempotency_key: &str, committed_operation: &str) -> Self {
+        Self::new(
+            "idempotency.conflict",
+            "the idempotency key was already committed with different input",
+            json!({
+                "idempotency_key":idempotency_key,
+                "committed_operation":committed_operation,
+            }),
+            false,
+        )
+    }
+
+    pub fn creation_conflict(
+        correlation_key: &str,
+        existing_operation: &str,
+        requested_operation: &str,
+        existing_fingerprint: &str,
+        requested_fingerprint: &str,
+    ) -> Self {
+        Self::new(
+            "creation.conflict",
+            "the creation correlation key is bound to different semantics",
+            json!({
+                "correlation_key":correlation_key,
+                "existing_operation":existing_operation,
+                "requested_operation":requested_operation,
+                "existing_fingerprint":existing_fingerprint,
+                "requested_fingerprint":requested_fingerprint,
+            }),
+            false,
+        )
+    }
+
+    pub fn revision_conflict(expected: u64, actual: u64) -> Self {
+        Self::new(
+            "revision.conflict",
+            "the resource revision changed",
+            json!({
+                "expected":expected.to_string(),
+                "actual":actual.to_string(),
+            }),
+            true,
+        )
+    }
+}
+
+fn canonical_resource_scope(kind: &str) -> &'static str {
+    match kind.trim_end_matches('s') {
+        "machine" | "MachinePublicId" => "machine",
+        "session" | "SessionPublicId" => "session",
+        "client" | "ClientPublicId" => "client",
+        "workspace" | "WorkspacePublicId" | "ws" => "workspace",
+        "screen" | "ScreenPublicId" => "screen",
+        "pane" | "PanePublicId" => "pane",
+        "split" | "SplitPublicId" => "split",
+        "tab" | "TabPublicId" => "tab",
+        "terminal" | "TerminalPublicId" | "term" => "terminal",
+        "browser" | "BrowserPublicId" => "browser",
+        "notification" | "NotificationPublicId" => "notification",
+        "agent" | "AgentPublicId" => "agent",
+        "frontend_projection" | "FrontendProjectionPublicId" | "projection" => {
+            "frontend_projection"
+        }
+        "pairing_request" | "PairingRequestPublicId" | "pairing" => "pairing_request",
+        "sidebar_view" | "SidebarViewPublicId" => "sidebar_view",
+        "sidebar_plugin" | "SidebarPluginPublicId" => "sidebar_plugin",
+        "stream" | "StreamPublicId" => "stream",
+        other => panic!("unknown catalog resource scope {other:?}"),
+    }
+}
+
+pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
+    "confirmation.required",
+    "creation.conflict",
+    "cursor.gap",
+    "cursor.invalid",
+    "idempotency.conflict",
+    "local.io",
+    "mutation.indeterminate",
+    "operation.failed",
+    "operation.unsupported",
+    "resource.not_found",
+    "revision.conflict",
+    "selector.ambiguous",
+    "selector.invalid",
+    "selector.not_found",
+    "selector.wrong_parent",
+    "terminal.closed",
+    "transport.closed",
+    "validation.invalid",
+];
+
+pub(crate) fn is_catalog_error_code(code: &str) -> bool {
+    RESOURCE_ERROR_CODES.contains(&code)
+}
+
+fn error_catalog() -> &'static Value {
+    static CATALOG: OnceLock<Value> = OnceLock::new();
+    CATALOG.get_or_init(|| {
+        serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json"))
+            .expect("checked-in resource operation catalog")
+    })
+}
+
+fn catalog_error_contract_matches(code: &str, details: &Value, retryable: bool) -> bool {
+    let Some(error) = error_catalog()["errors"].get(code) else { return false };
+    error["retryable"].as_bool() == Some(retryable)
+        && catalog_value_matches(details, &error["details"])
+}
+
+fn catalog_value_matches(value: &Value, descriptor: &Value) -> bool {
+    match descriptor["kind"].as_str() {
+        Some("primitive") => match descriptor["name"].as_str() {
+            Some("json") => true,
+            Some("string") => {
+                let Some(value) = value.as_str() else { return false };
+                descriptor["min_length"]
+                    .as_u64()
+                    .is_none_or(|minimum| value.len() >= minimum as usize)
+                    && descriptor["max_length"]
+                        .as_u64()
+                        .is_none_or(|maximum| value.len() <= maximum as usize)
+            }
+            Some("decimal") => value.as_str().is_some_and(|value| {
+                value == "0"
+                    || (!value.starts_with('0')
+                        && value.len() <= 20
+                        && value.bytes().all(|byte| byte.is_ascii_digit())
+                        && value.parse::<u64>().is_ok())
+            }),
+            Some("boolean") => value.is_boolean(),
+            Some("uint32") => value.as_u64().is_some_and(|value| u32::try_from(value).is_ok()),
+            Some("uint64") => value.is_u64(),
+            _ => false,
+        },
+        Some("resource_id") => {
+            let Some(value) = value.as_str() else { return false };
+            let Some(resource) = descriptor["resource"].as_str() else { return false };
+            resource_id_has_kind(value, resource)
+        }
+        Some("enum") => {
+            descriptor["values"].as_array().is_some_and(|values| values.contains(value))
+        }
+        Some("array") => {
+            let Some(values) = value.as_array() else { return false };
+            descriptor["min_items"].as_u64().is_none_or(|minimum| values.len() >= minimum as usize)
+                && descriptor["max_items"]
+                    .as_u64()
+                    .is_none_or(|maximum| values.len() <= maximum as usize)
+                && values.iter().all(|value| catalog_value_matches(value, &descriptor["items"]))
+        }
+        Some("map") => value.as_object().is_some_and(|values| {
+            values.values().all(|value| catalog_value_matches(value, &descriptor["values"]))
+        }),
+        Some("object") => {
+            let Some(value) = value.as_object() else { return false };
+            let Some(fields) = descriptor["fields"].as_object() else { return false };
+            if descriptor["extra"] == Value::Bool(false)
+                && value.keys().any(|name| !fields.contains_key(name))
+            {
+                return false;
+            }
+            fields.iter().all(|(name, field)| match value.get(name) {
+                Some(value) => catalog_value_matches(value, &field["type"]),
+                None => field["required"] != Value::Bool(true),
+            })
+        }
+        Some("ref") => descriptor["name"]
+            .as_str()
+            .and_then(|name| error_catalog()["types"].get(name))
+            .is_some_and(|descriptor| catalog_value_matches(value, descriptor)),
+        _ => false,
+    }
+}
+
+fn resource_id_has_kind(value: &str, kind: &str) -> bool {
+    let prefix = match kind {
+        "machine" => "machine_",
+        "session" => "session_",
+        "client" => "client_",
+        "workspace" => "ws_",
+        "screen" => "screen_",
+        "pane" => "pane_",
+        "split" => "split_",
+        "tab" => "tab_",
+        "terminal" => "term_",
+        "browser" => "browser_",
+        "notification" => "notification_",
+        "agent" => "agent_",
+        "frontend_projection" => "projection_",
+        "pairing_request" => "pairing_",
+        "sidebar_view" => "sidebar_view_",
+        "stream" => "stream_",
+        _ => return false,
+    };
+    value.strip_prefix(prefix).is_some_and(is_lower_hex_128)
+}
+
+fn is_lower_hex_128(value: &str) -> bool {
+    value.len() == 32
+        && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+impl fmt::Display for ResourceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ResourceError {}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Selector {
     Current,
@@ -1023,17 +1278,6 @@ pub enum Selector {
 }
 
 impl Selector {
-    /// Parses one selector word. `current` is the session's focused object
-    /// (the daemon has no caller; the CLI puts the caller's ids in place of
-    /// `current` itself). A full public id and a unique id prefix of at
-    /// least [`MIN_ID_PREFIX_DIGITS`] hex digits (`pane_3f0a`, which was
-    /// never a name) are ids: the resolver expands a
-    /// prefix to the full id ([`id_prefix_parts`]). `focused`, a bare id
-    /// (the 32 hex digits without the prefix, [`is_bare_id`]) and a
-    /// terminal's host id stay names, as they were: the resolver takes them
-    /// as `current` or as ids only when no object has that name, so a
-    /// request that selected a named object still selects it. `name:`
-    /// forces a name.
     pub fn parse(value: &str) -> Result<Self, ResourceError> {
         if let Some(name) = value.strip_prefix("name:") {
             return Ok(Self::Name(name.to_string()));
@@ -1041,7 +1285,7 @@ impl Selector {
         if value == "current" {
             return Ok(Self::Current);
         }
-        if is_registered_public_id(value) || id_prefix_parts(value).is_some() {
+        if is_registered_public_id(value) {
             return Ok(Self::Id(value.to_string()));
         }
         if let Some(reason) = mistyped_id_reason(value) {
@@ -1058,6 +1302,95 @@ impl Selector {
         }
         Ok(Self::Name(value.to_string()))
     }
+}
+
+/// Tokens consumed by the noun-first CLI grammar. A resource may retain any
+/// of these exact names, but callers must select it with the `name:` escape.
+pub fn is_reserved_selector_token(value: &str) -> bool {
+    matches!(
+        value,
+        "machine"
+            | "session"
+            | "client"
+            | "window"
+            | "pairing"
+            | "request"
+            | "frontend"
+            | "projection"
+            | "workspace"
+            | "screen"
+            | "pane"
+            | "tab"
+            | "terminal"
+            | "browser"
+            | "split"
+            | "notification"
+            | "agent"
+            | "sidebar"
+            | "view"
+            | "plugin"
+            | "provider"
+            | "scope"
+            | "action"
+            | "notice"
+            | "list"
+            | "get"
+            | "show"
+            | "create"
+            | "open"
+            | "rename"
+            | "delete"
+            | "restore"
+            | "purge"
+            | "connect"
+            | "snapshot"
+            | "events"
+            | "ping"
+            | "shutdown"
+            | "update"
+            | "metadata"
+            | "detach"
+            | "set"
+            | "clear"
+            | "resolve"
+            | "put"
+            | "move"
+            | "focus"
+            | "close"
+            | "run"
+            | "apply"
+            | "export"
+            | "undo"
+            | "neighbor"
+            | "swap"
+            | "zoom"
+            | "resize"
+            | "send"
+            | "keys"
+            | "read"
+            | "history"
+            | "state"
+            | "direction"
+            | "process"
+            | "renderer"
+            | "grant"
+            | "cell"
+            | "pixels"
+            | "copy"
+            | "attach"
+            | "navigate"
+            | "back"
+            | "forward"
+            | "reload"
+            | "activate"
+            | "install"
+            | "use"
+            | "builtin"
+            | "disable"
+            | "remove"
+            | "report"
+            | "notify"
+    )
 }
 
 /// Every public id prefix, with the CLI scope that lists such ids (if any).
@@ -1081,60 +1414,6 @@ const PUBLIC_ID_PREFIXES: &[(&str, Option<&str>)] = &[
     ("sidebar_plugin", None),
 ];
 
-/// The longest id payload: 32 lowercase hex digits.
-const ID_PAYLOAD_LEN: usize = 32;
-
-/// The fewest hex digits of an id prefix (`pane_3f0a`), as acpmux's chat
-/// ids: a shorter prefix could select another object once its own closes.
-pub const MIN_ID_PREFIX_DIGITS: usize = 4;
-
-/// The id prefixes whose ids the resolver expands from a unique prefix:
-/// the topology and content kinds. A session, machine, notification or
-/// agent id with digits missing stays a mistyped id.
-pub const EXPANDED_ID_PREFIXES: &[&str] = &["ws", "screen", "pane", "tab", "term", "browser"];
-
-fn is_lower_hex(payload: &str) -> bool {
-    payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-/// `(prefix, payload)` of a unique-prefix selector: one of
-/// [`EXPANDED_ID_PREFIXES`] and [`MIN_ID_PREFIX_DIGITS`] to 31 lowercase
-/// hex digits (`pane_3f0a`). `None` for a full id, a shorter or longer
-/// payload, another prefix, or other characters.
-pub fn id_prefix_parts(value: &str) -> Option<(&str, &str)> {
-    let (prefix, payload) = value.rsplit_once('_')?;
-    (EXPANDED_ID_PREFIXES.contains(&prefix)
-        && (MIN_ID_PREFIX_DIGITS..ID_PAYLOAD_LEN).contains(&payload.len())
-        && is_lower_hex(payload))
-    .then_some((prefix, payload))
-}
-
-/// Whether `value` is a bare id: 32 lowercase hex digits with no prefix.
-/// It names the object whose public id has that payload (`pane_<value>`)
-/// or, for a terminal, the terminal whose host id it is (the raw protocol's
-/// `terminal_id`).
-pub fn is_bare_id(value: &str) -> bool {
-    value.len() == ID_PAYLOAD_LEN && is_lower_hex(value)
-}
-
-/// The message for a unique-prefix selector that no id starts with. A
-/// mistyped id (one digit dropped) reads as a prefix, so the message names
-/// the id shape and where such ids come from, as the old refusal did.
-pub fn unmatched_id_prefix_message(kind: &str, value: &str) -> String {
-    let (prefix, payload) = value.rsplit_once('_').unwrap_or((kind, value));
-    let source = PUBLIC_ID_PREFIXES
-        .iter()
-        .find(|(known, _)| *known == prefix)
-        .and_then(|(_, scope)| *scope)
-        .map(|scope| format!("; copy one from `cmux {scope} list --json`"))
-        .unwrap_or_default();
-    format!(
-        "no {kind} id starts with {value}: an id is {prefix}_ and 32 hex digits, and this \
-         one has {}{source}, or pass name:{value} for a name",
-        payload.len()
-    )
-}
-
 fn is_registered_public_id(value: &str) -> bool {
     let Some((prefix, payload)) = value.rsplit_once('_') else {
         return false;
@@ -1152,16 +1431,7 @@ fn mistyped_id_reason(value: &str) -> Option<String> {
     let (prefix, payload) = value.rsplit_once('_')?;
     let (_, scope) = PUBLIC_ID_PREFIXES.iter().find(|(known, _)| *known == prefix)?;
     let hex = payload.bytes().all(|byte| byte.is_ascii_hexdigit());
-    let short_prefix = EXPANDED_ID_PREFIXES.contains(&prefix)
-        && is_lower_hex(payload)
-        && (1..MIN_ID_PREFIX_DIGITS).contains(&payload.len());
-    let shape = if short_prefix {
-        format!(
-            "an id prefix needs at least {MIN_ID_PREFIX_DIGITS} hex digits of the id, and this \
-             one has {}",
-            payload.len()
-        )
-    } else if !hex || payload.is_empty() {
+    let shape = if !hex || payload.is_empty() {
         format!("an id is {prefix}_ and 32 hex digits (0-9 and a-f, lowercase)")
     } else if payload.len() == 32 {
         format!("ids are lowercase: {prefix}_ and 32 hex digits in lowercase")
@@ -1175,5 +1445,633 @@ fn mistyped_id_reason(value: &str) -> Option<String> {
     Some(format!("{value} is not an id: {shape}; {source}pass name:{value} for a name"))
 }
 
+pub fn resolve_name<T: Clone>(
+    kind: &str,
+    selector: &str,
+    candidates: impl IntoIterator<Item = (String, Option<String>, T)>,
+) -> Result<T, ResourceError> {
+    let mut matches = candidates
+        .into_iter()
+        .filter(|(_, name, _)| name.as_deref() == Some(selector))
+        .collect::<Vec<_>>();
+    match matches.len() {
+        0 => Err(ResourceError::not_found(kind, selector)),
+        1 => Ok(matches.pop().expect("one match").2),
+        _ => {
+            let mut ids = matches.into_iter().map(|(id, _, _)| id).collect::<Vec<_>>();
+            ids.sort();
+            Err(ResourceError::ambiguous(kind, selector, ids))
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResourceDelta {
+    pub sequence: u32,
+    pub event: String,
+    pub data: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResourceDeltaBatch {
+    pub previous_revision: WireDecimal,
+    pub revision: WireDecimal,
+    pub deltas: Vec<ResourceDelta>,
+}
+
+/// Bounded contiguous journal. One commit advances the resource revision
+/// exactly once and may append several ordered deltas at that revision.
+#[derive(Debug)]
+pub struct ResourceJournal {
+    generation: String,
+    revision: u64,
+    batches: VecDeque<(ResourceDeltaBatch, usize)>,
+    capacity: usize,
+    byte_capacity: usize,
+    retained_bytes: usize,
+}
+
+impl ResourceJournal {
+    pub fn new(generation: String, revision: u64) -> Self {
+        Self {
+            generation,
+            revision,
+            batches: VecDeque::new(),
+            capacity: JOURNAL_CAPACITY,
+            byte_capacity: JOURNAL_BYTE_CAPACITY,
+            retained_bytes: 0,
+        }
+    }
+
+    pub fn generation(&self) -> &str {
+        &self.generation
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    pub fn commit(&mut self, events: Vec<(String, Value)>) -> anyhow::Result<u64> {
+        let previous_revision = self.revision;
+        let revision = self
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
+        let deltas = events
+            .into_iter()
+            .enumerate()
+            .map(|(sequence, (event, data))| {
+                Ok(ResourceDelta {
+                    sequence: u32::try_from(sequence).map_err(|_| {
+                        anyhow::anyhow!("too many deltas in one resource transaction")
+                    })?,
+                    event,
+                    data,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let batch = ResourceDeltaBatch {
+            previous_revision: WireDecimal::new(previous_revision),
+            revision: WireDecimal::new(revision),
+            deltas,
+        };
+        let bytes = serde_json::to_vec(&batch)?.len();
+        if bytes > self.byte_capacity {
+            anyhow::bail!("one resource delta batch exceeds journal byte capacity");
+        }
+        self.revision = revision;
+        self.batches.push_back((batch, bytes));
+        self.retained_bytes = self.retained_bytes.saturating_add(bytes);
+        while self.batches.len() > self.capacity || self.retained_bytes > self.byte_capacity {
+            let Some((_, removed)) = self.batches.pop_front() else { break };
+            self.retained_bytes = self.retained_bytes.saturating_sub(removed);
+        }
+        Ok(self.revision)
+    }
+
+    pub fn after(&self, revision: u64) -> Result<Vec<ResourceDeltaBatch>, ResourceError> {
+        if revision > self.revision {
+            return Err(ResourceError::new(
+                "cursor.invalid",
+                "resume cursor is ahead of the session revision",
+                json!({
+                    "requested":{
+                        "generation":self.generation,
+                        "revision":revision.to_string(),
+                    },
+                    "current":{
+                        "generation":self.generation,
+                        "revision":self.revision.to_string(),
+                    },
+                    "reason":"resume cursor is ahead of the session revision",
+                }),
+                false,
+            ));
+        }
+        let oldest = self.batches.front().map_or(self.revision, |(batch, _)| batch.revision.get());
+        if revision.saturating_add(1) < oldest {
+            return Err(ResourceError::new(
+                "cursor.gap",
+                "resume cursor is no longer retained",
+                json!({
+                    "requested":{
+                        "generation":self.generation,
+                        "revision":revision.to_string(),
+                    },
+                    "current":{
+                        "generation":self.generation,
+                        "revision":self.revision.to_string(),
+                    },
+                    "oldest_revision":oldest.to_string(),
+                }),
+                true,
+            ));
+        }
+        Ok(self
+            .batches
+            .iter()
+            .filter(|(batch, _)| batch.revision.get() > revision)
+            .map(|(batch, _)| batch.clone())
+            .collect())
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct PublicSlotIndexes {
+    pub workspaces: HashMap<WorkspacePublicId, WorkspaceId>,
+    pub screens: HashMap<ScreenPublicId, ScreenId>,
+    pub panes: HashMap<PanePublicId, PaneId>,
+    pub tabs: HashMap<TabPublicId, SurfaceId>,
+    /// Every view placement of a content resource. Terminal content may have
+    /// any number of placements; browser content currently has one.
+    pub content_placements: HashMap<ContentPublicId, Vec<SurfaceId>>,
+    pub workspace_ids: HashMap<WorkspaceId, WorkspacePublicId>,
+    pub screen_ids: HashMap<ScreenId, ScreenPublicId>,
+    pub pane_ids: HashMap<PaneId, PanePublicId>,
+    pub tab_ids: HashMap<SurfaceId, TabPublicId>,
+    pub content_ids: HashMap<SurfaceId, ContentPublicId>,
+    pub splits: HashMap<SplitPublicId, SplitId>,
+    pub split_ids: HashMap<SplitId, SplitPublicId>,
+    pub screen_workspace: HashMap<ScreenId, WorkspaceId>,
+    pub pane_screen: HashMap<PaneId, ScreenId>,
+    pub tab_pane: HashMap<SurfaceId, PaneId>,
+}
+
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn locally_emittable_error_codes_exactly_match_the_catalog() {
+        let catalog: Value =
+            serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json"))
+                .unwrap();
+        let mut declared =
+            catalog["errors"].as_object().unwrap().keys().map(String::as_str).collect::<Vec<_>>();
+        let mut emitted = RESOURCE_ERROR_CODES.to_vec();
+        declared.sort_unstable();
+        emitted.sort_unstable();
+        assert_eq!(emitted, declared);
+        for code in declared {
+            assert!(is_catalog_error_code(code));
+        }
+    }
+
+    #[test]
+    fn catalog_error_details_and_retryability_are_recursively_enforced() {
+        let cursor = json!({"generation":"generation","revision":"4"});
+        let cases = [
+            (
+                "confirmation.required",
+                json!({
+                    "confirmation_token":"layout-confirmation-token",
+                    "revision":"4",
+                    "closes_panes":[format!("pane_{}", "0".repeat(32))]
+                }),
+                false,
+            ),
+            (
+                "creation.conflict",
+                json!({
+                    "correlation_key":"create-42",
+                    "existing_operation":"workspace.create",
+                    "requested_operation":"screen.create",
+                    "existing_fingerprint":"fingerprint-a",
+                    "requested_fingerprint":"fingerprint-b",
+                }),
+                false,
+            ),
+            (
+                "cursor.gap",
+                json!({
+                    "requested":cursor,
+                    "current":cursor,
+                    "oldest_revision":"2",
+                }),
+                true,
+            ),
+            (
+                "cursor.invalid",
+                json!({"requested":cursor,"current":cursor,"reason":"ahead"}),
+                false,
+            ),
+            (
+                "idempotency.conflict",
+                json!({"idempotency_key":"key","committed_operation":"workspace.rename"}),
+                false,
+            ),
+            ("local.io", json!({"path":"/tmp/socket","reason":"closed"}), false),
+            (
+                "mutation.indeterminate",
+                json!({
+                    "idempotency_key":"key",
+                    "operation":"browser.navigate",
+                    "recovery":"inspect_state_then_retry_with_new_key",
+                }),
+                false,
+            ),
+            (
+                "operation.failed",
+                json!({"operation":"workspace.close","reason":"failed","extra":{"errno":5}}),
+                false,
+            ),
+            (
+                "operation.unsupported",
+                json!({"capability":"session-journal-v1","action":"restart_session"}),
+                false,
+            ),
+            (
+                "resource.not_found",
+                json!({"scope":"terminal","id":format!("term_{}", "0".repeat(32))}),
+                false,
+            ),
+            ("revision.conflict", json!({"expected":"3","actual":"4"}), true),
+            (
+                "selector.ambiguous",
+                json!({"scope":"workspace","selector":"name:api","candidates":["a","b"]}),
+                false,
+            ),
+            (
+                "selector.invalid",
+                json!({"scope":"workspace","selector":"_","reason":"invalid"}),
+                false,
+            ),
+            ("selector.not_found", json!({"scope":"workspace","selector":"name:missing"}), false),
+            (
+                "selector.wrong_parent",
+                json!({
+                    "scope":"pane",
+                    "selector":"current",
+                    "parent_scope":"screen",
+                    "expected_parent":"screen-a",
+                    "actual_parent":"screen-b",
+                }),
+                false,
+            ),
+            ("transport.closed", json!({"reason":"closed"}), true),
+            ("validation.invalid", json!({"field":"rows","reason":"must be positive"}), false),
+        ];
+        for (code, details, retryable) in cases {
+            assert!(catalog_error_contract_matches(code, &details, retryable), "{code}: {details}");
+        }
+        assert!(!catalog_error_contract_matches(
+            "operation.failed",
+            &json!({"operation":"workspace.close","required_context":"connection"}),
+            false,
+        ));
+        assert!(!catalog_error_contract_matches(
+            "transport.closed",
+            &json!({"reason":"closed"}),
+            false,
+        ));
+    }
+
+    #[test]
+    fn ids_reject_uppercase_wrong_prefix_and_wrong_width() {
+        let id = WorkspacePublicId::random().unwrap();
+        assert_eq!(WorkspacePublicId::parse(id.to_string()).unwrap(), id);
+        assert!(WorkspacePublicId::parse(format!("ws_{}", "A".repeat(32))).is_err());
+        assert!(WorkspacePublicId::parse(format!("term_{}", "a".repeat(32))).is_err());
+        assert!(WorkspacePublicId::parse(format!("ws_{}", "a".repeat(31))).is_err());
+    }
+
+    #[test]
+    fn projection_and_pairing_ids_use_the_canonical_prefix_registry() {
+        let payload = "0".repeat(32);
+        assert_eq!(
+            FrontendProjectionPublicId::parse(format!("projection_{payload}")).unwrap().as_str(),
+            format!("projection_{payload}")
+        );
+        assert!(PairingRequestPublicId::parse(format!("pairing_{payload}")).is_ok());
+    }
+
+    #[test]
+    fn w4j_a_mistyped_id_says_it_is_not_an_id_and_where_ids_come_from() {
+        // A Codex interop proof run dropped the last digit of a terminal id and
+        // got "reserved or ambiguous names must use the name: prefix", then
+        // guessed `terminal_id:`, `id:` and bare hex forms for minutes.
+        let short = format!("term_{}", "6".repeat(31));
+        let error = Selector::parse(&short).unwrap_err();
+        assert_eq!(error.code, "validation.invalid");
+        assert!(error.message.contains(&short), "{}", error.message);
+        assert!(error.message.contains("32 hex"), "{}", error.message);
+        assert!(error.message.contains("cmux terminal list"), "{}", error.message);
+        let upper = format!("ws_{}", "A".repeat(32));
+        let error = Selector::parse(&upper).unwrap_err();
+        assert!(error.message.contains("lowercase"), "{}", error.message);
+        assert!(error.message.contains("cmux workspace list"), "{}", error.message);
+        // A name with an underscore still names the escape.
+        let error = Selector::parse("hello_world").unwrap_err();
+        assert!(error.message.contains("name:"), "{}", error.message);
+    }
+
+    /// `cmux terminal term_zzz show` (bench rounds 1 and 3) said "reserved or
+    /// ambiguous names must use the name: prefix". A word with an id prefix is
+    /// a mistyped id: say so, and where ids come from.
+    #[test]
+    fn w4j_an_id_prefix_with_a_bad_payload_is_a_mistyped_id() {
+        for value in ["term_zzz", "pane_", "ws_Q1", "tab_0123456789abcdef0123456789abcdeg"] {
+            let error = Selector::parse(value).unwrap_err();
+            assert_eq!(error.code, "validation.invalid");
+            assert!(error.message.contains(&format!("{value} is not an id")), "{}", error.message);
+            assert!(error.message.contains("32 hex"), "{}", error.message);
+            assert!(error.message.contains(&format!("name:{value}")), "{}", error.message);
+        }
+        let error = Selector::parse("term_zzz").unwrap_err();
+        assert!(error.message.contains("cmux terminal list"), "{}", error.message);
+        // A name with an underscore and no id prefix still names the escape.
+        let error = Selector::parse("my_tab").unwrap_err();
+        assert!(error.message.contains("name:my_tab"), "{}", error.message);
+    }
+
+    #[test]
+    fn name_escape_selects_reserved_and_id_shaped_names() {
+        assert_eq!(Selector::parse("current").unwrap(), Selector::Current);
+        assert_eq!(Selector::parse("name:current").unwrap(), Selector::Name("current".into()));
+        assert!(matches!(
+            Selector::parse(&WorkspacePublicId::random().unwrap().to_string()).unwrap(),
+            Selector::Id(_)
+        ));
+        assert_eq!(
+            Selector::parse(&format!("name:ws_{}", "a".repeat(32))).unwrap(),
+            Selector::Name(format!("ws_{}", "a".repeat(32)))
+        );
+        assert_eq!(
+            Selector::parse("name:hello_world").unwrap(),
+            Selector::Name("hello_world".into())
+        );
+        assert_eq!(Selector::parse("hello_world").unwrap_err().code, "validation.invalid");
+        for reserved in ["create", "show", "close", "screen", "pane", "tab"] {
+            assert_eq!(Selector::parse(reserved).unwrap_err().code, "validation.invalid");
+            assert_eq!(
+                Selector::parse(&format!("name:{reserved}")).unwrap(),
+                Selector::Name(reserved.into())
+            );
+        }
+        for legacy in ["send-key", "clear-history", "vt-state", "focus-direction"] {
+            assert_eq!(Selector::parse(legacy).unwrap(), Selector::Name(legacy.into()));
+        }
+    }
+
+    #[test]
+    fn terminal_public_identity_is_independent_from_host_uuid_bits() {
+        let terminal = TerminalPublicId::parse("term_ffffffffffffffffffffffffffffffff").unwrap();
+        let tab = TabPublicId::parse("tab_00000000000000000000000000000001").unwrap();
+        let identity = TabResourceIdentity::persisted_terminal(tab, terminal.clone());
+        assert_eq!(identity.content_id, ContentPublicId::Terminal(terminal));
+    }
+
+    #[test]
+    fn duplicate_names_return_every_candidate_without_selecting() {
+        let result = resolve_name(
+            "workspace",
+            "api",
+            [("ws_1".into(), Some("api".into()), 1), ("ws_2".into(), Some("api".into()), 2)],
+        )
+        .unwrap_err();
+        assert_eq!(result.code, "selector.ambiguous");
+        assert_eq!(result.details["candidates"], json!(["ws_1", "ws_2"]));
+    }
+
+    #[test]
+    fn journal_revision_is_per_atomic_commit_and_detects_gaps() {
+        let mut journal = ResourceJournal::new("generation".into(), 8);
+        assert_eq!(
+            journal
+                .commit(vec![
+                    ("pane.created".into(), json!({"id":"pane"})),
+                    ("tab.created".into(), json!({"id":"tab"})),
+                ])
+                .unwrap(),
+            9
+        );
+        let batches = journal.after(8).unwrap();
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].previous_revision.get(), 8);
+        assert_eq!(batches[0].revision.get(), 9);
+        assert_eq!(batches[0].deltas[0].sequence, 0);
+        assert_eq!(batches[0].deltas[1].sequence, 1);
+    }
+
+    #[test]
+    fn wire_decimals_are_strings_and_reject_noncanonical_values() {
+        assert_eq!(serde_json::to_value(WireDecimal::new(42)).unwrap(), json!("42"));
+        assert_eq!(serde_json::from_value::<WireDecimal>(json!("0")).unwrap().get(), 0);
+        for invalid in
+            [json!(42), json!(""), json!("01"), json!("-1"), json!("18446744073709551616")]
+        {
+            assert!(serde_json::from_value::<WireDecimal>(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn terminal_multiview_uses_a_new_public_protocol_version() {
+        assert_eq!(PROTOCOL, "cmux.protocol/2");
+    }
+
+    #[test]
+    fn requests_enforce_envelope_and_idempotency_rules() {
+        let read: RequestEnvelope = serde_json::from_value(json!({
+            "protocol": PROTOCOL,
+            "type": "request",
+            "id": "read-1",
+            "operation": "workspace.list",
+            "params": {}
+        }))
+        .unwrap();
+        read.validate().unwrap();
+
+        let mutation: RequestEnvelope = serde_json::from_value(json!({
+            "protocol": PROTOCOL,
+            "type": "request",
+            "id": "write-1",
+            "operation": "workspace.create",
+            "params": {"name":"api"},
+            "idempotency_key": "create-api"
+        }))
+        .unwrap();
+        mutation.validate().unwrap();
+
+        let mut missing_key = mutation;
+        missing_key.idempotency_key = None;
+        assert_eq!(missing_key.validate().unwrap_err().code, "validation.invalid");
+
+        let mut read_with_key = read;
+        read_with_key.idempotency_key = Some("unexpected".into());
+        assert_eq!(read_with_key.validate().unwrap_err().code, "validation.invalid");
+
+        for invalid in [
+            "".to_string(),
+            " \u{00a0}\u{3000}".to_string(),
+            "key\nwith-control".to_string(),
+            "key\u{0085}with-control".to_string(),
+            "\u{00e9}".repeat(65),
+        ] {
+            let invalid_request: RequestEnvelope = serde_json::from_value(json!({
+                "protocol": PROTOCOL,
+                "type": "request",
+                "id": "write-invalid",
+                "operation": "workspace.create",
+                "params": {"name":"api"},
+                "idempotency_key": invalid,
+            }))
+            .unwrap();
+            let error = invalid_request.validate().unwrap_err();
+            assert_eq!(error.code, "validation.invalid");
+            assert_eq!(error.details["field"], "idempotency_key");
+        }
+
+        for valid in [
+            "key".to_string(),
+            " \u{00a0}key\u{3000} ".to_string(),
+            "\u{feff}".to_string(),
+            "\u{00e9}".repeat(64),
+        ] {
+            let request: RequestEnvelope = serde_json::from_value(json!({
+                "protocol": PROTOCOL,
+                "type": "request",
+                "id": "write-valid",
+                "operation": "workspace.create",
+                "params": {"name":"api"},
+                "idempotency_key": valid,
+            }))
+            .unwrap();
+            request.validate().unwrap();
+        }
+    }
+
+    #[test]
+    fn operation_classes_keep_stream_and_connection_control_out_of_durable_idempotency() {
+        for operation in [
+            ResourceOperation::SessionEvents,
+            ResourceOperation::SessionJournalSubscribe,
+            ResourceOperation::TerminalAttach,
+            ResourceOperation::BrowserAttach,
+            ResourceOperation::SidebarViewAttach,
+        ] {
+            assert_eq!(operation.class(), OperationClass::StreamOpen);
+        }
+        assert_eq!(ResourceOperation::RequestCancel.class(), OperationClass::ConnectionControl);
+        assert_eq!(ResourceOperation::StreamCancel.class(), OperationClass::ConnectionControl);
+        let connection_control = [
+            ResourceOperation::ClientMetadataUpdate,
+            ResourceOperation::ClientSizingSet,
+            ResourceOperation::ClientSizingRelease,
+            ResourceOperation::ClientCellPixelsSet,
+            ResourceOperation::ClientDetach,
+            ResourceOperation::TerminalRendererGrantCreate,
+            ResourceOperation::TerminalViewerResize,
+            ResourceOperation::TerminalViewerRelease,
+            ResourceOperation::BrowserViewerResize,
+            ResourceOperation::BrowserViewerRelease,
+        ];
+        for operation in connection_control {
+            assert_eq!(operation.class(), OperationClass::ConnectionControl);
+        }
+        assert_eq!(ResourceOperation::WorkspaceList.class(), OperationClass::Read);
+        assert_eq!(ResourceOperation::WorkspaceCreate.class(), OperationClass::Mutation);
+        assert_eq!(ResourceOperation::TabCreateTerminal.class(), OperationClass::Mutation);
+        assert_eq!(ResourceOperation::TabCreateBrowser.class(), OperationClass::Mutation);
+        assert_eq!(ResourceOperation::TerminalCopy.class(), OperationClass::Read);
+        assert_eq!(LocalOperation::SidebarPluginUseBuiltin.class(), OperationClass::Local);
+
+        for operation in [
+            ResourceOperation::SessionEvents,
+            ResourceOperation::SessionJournalSubscribe,
+            ResourceOperation::RequestCancel,
+            ResourceOperation::StreamCancel,
+            ResourceOperation::ClientMetadataUpdate,
+            ResourceOperation::ClientDetach,
+        ] {
+            let request = RequestEnvelope {
+                protocol: PROTOCOL.into(),
+                envelope_type: EnvelopeType::Request,
+                id: RequestId::parse("class").unwrap(),
+                operation,
+                params: json!({}),
+                idempotency_key: None,
+            };
+            request.validate().unwrap();
+            let mut keyed = request;
+            keyed.idempotency_key = Some("forbidden".into());
+            assert_eq!(keyed.validate().unwrap_err().code, "validation.invalid");
+        }
+    }
+
+    #[test]
+    fn envelopes_reject_unknown_fields_and_non_string_request_ids() {
+        assert!(
+            serde_json::from_value::<RequestEnvelope>(json!({
+                "protocol": PROTOCOL,
+                "type": "request",
+                "id": "request",
+                "operation": "workspace.list",
+                "params": {},
+                "extra": true
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<RequestEnvelope>(json!({
+                "protocol": PROTOCOL,
+                "type": "request",
+                "id": 1,
+                "operation": "workspace.list",
+                "params": {}
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn response_invariant_is_checked() {
+        ResponseEnvelope::success(RequestId::parse("ok").unwrap(), json!({"value":1}))
+            .validate()
+            .unwrap();
+        ResponseEnvelope::failure(
+            RequestId::parse("error").unwrap(),
+            ResourceError::not_found("workspace", "missing"),
+        )
+        .validate()
+        .unwrap();
+
+        let invalid = ResponseEnvelope {
+            protocol: PROTOCOL.into(),
+            envelope_type: EnvelopeType::Response,
+            id: RequestId::parse("invalid").unwrap(),
+            ok: true,
+            result: None,
+            error: None,
+        };
+        assert_eq!(invalid.validate().unwrap_err().code, "validation.invalid");
+    }
+
+    #[test]
+    fn oversized_journal_commit_does_not_advance_revision() {
+        let mut journal = ResourceJournal::new("generation".into(), 4);
+        journal.byte_capacity = 32;
+        assert!(journal.commit(vec![("event".into(), json!({"large":"x".repeat(128)}))]).is_err());
+        assert_eq!(journal.revision(), 4);
+        assert!(journal.after(4).unwrap().is_empty());
+    }
+}

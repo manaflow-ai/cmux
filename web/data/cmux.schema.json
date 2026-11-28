@@ -819,6 +819,12 @@
           "default": false,
           "description": "When true, creating a split resizes the panes in that split's row or column to equal sizes. When false, a new split halves the pane it was created from."
         },
+        "equalizeSplitsOnDividerDoubleClick": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, double-clicking a split divider makes the panes in its row or column equal in size. Other rows and columns keep their sizes.",
+          "descriptionKey": "schemaDescriptions.app.equalizeSplitsOnDividerDoubleClick"
+        },
         "preferredEditor": {
           "type": "string",
           "default": "",
@@ -973,26 +979,6 @@
           "type": "boolean",
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
-        },
-        "linkOpener": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "cmux-next. Where a URL goes when a program in a cmux terminal opens a browser (aws login, gh auth login, `open <url>`). See docs/cmux-next/terminal-link-opener.md.",
-          "properties": {
-            "default": {
-              "type": "string",
-              "default": "cmux",
-              "description": "cmux-next. Where a URL goes: `cmux` (a cmux browser tab by the link rules), `system`, `chrome`, `safari`, `arc`, `firefox`, `edge`, `brave`, `app:<name, bundle id or path>`, a profile after `@` (`chrome@Profile 1`), or `command:<shell command>`. A `BROWSER` you set wins."
-            },
-            "rules": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "default": [],
-              "description": "cmux-next. Ordered `<match> -> <target>` rules checked before the default; first match wins. `caller:<glob>[,<glob>]` matches the program that opened the URL or a parent process; text, `*`/`?` or `re:` match the URL. Example: `caller:aws -> chrome@Work`."
-            }
-          }
         },
         "scrollSpeed": {
           "type": "number",
@@ -1500,24 +1486,6 @@
           "descriptionKey": "schemaDescriptions.notifications.agentIdleReminder",
           "description": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert."
         },
-        "agentIdleTimers": {
-          "x-cmux-scopes": ["global"],
-          "type": "object",
-          "default": {},
-          "description": "One-shot cache-TTL reminders keyed by agent family. Each value is an array of {afterSeconds, id} objects.",
-          "additionalProperties": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["afterSeconds", "id"],
-              "properties": {
-                "afterSeconds": {"type": "integer", "minimum": 1, "maximum": 604800},
-                "id": {"type": "string", "minLength": 1}
-              }
-            }
-          }
-        },
         "sound": {
           "x-cmux-scopes": ["global"],
           "type": "string",
@@ -2017,10 +1985,27 @@
             "off",
             "cmuxOnly",
             "automation",
-            "notifications"
+            "password",
+            "allowAll",
+            "openAccess",
+            "fullOpenAccess",
+            "notifications",
+            "full"
           ],
-          "default": "automation",
-          "description": "Socket control mode. The automation default admits processes running as the same OS user; choose cmuxOnly to restrict calls to processes started inside this cmux. Legacy aliases are accepted and normalized."
+          "default": "cmuxOnly",
+          "description": "Socket control mode. Legacy aliases are accepted and normalized."
+        },
+        "socketPassword": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "",
+          "description": "Password for password-mode socket access. Use null or an empty string to clear it."
         },
         "claudeCodeIntegration": {
           "type": "boolean",
@@ -2180,6 +2165,47 @@
           "type": "boolean",
           "default": true,
           "description": "Allow agents to message each other through cmux. When false, cmux agent message fails, nothing is stored, and messages already queued are marked failed instead of being delivered."
+        }
+      }
+    },
+    "chief": {
+      "x-cmux-scopes": ["global"],
+      "title": "chief",
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Chief, the Home agent: whether it is shown and which harness, model, and effort it uses.",
+      "descriptionKey": "schemaDescriptions.chief.description",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Home row and Chief entry points. When false, the Home row, the Open Chief shortcut, menu item, and command palette entries are hidden.",
+          "descriptionKey": "schemaDescriptions.chief.enabled"
+        },
+        "harness": {
+          "type": "string",
+          "enum": ["claude", "codex"],
+          "default": "claude",
+          "description": "Agent harness Chief runs on: claude (Claude Code) or codex (Codex).",
+          "descriptionKey": "schemaDescriptions.chief.harness"
+        },
+        "model": {
+          "type": "string",
+          "default": "",
+          "description": "Model passed to the harness. Leave empty to use the harness default.",
+          "descriptionKey": "schemaDescriptions.chief.model"
+        },
+        "effort": {
+          "type": "string",
+          "default": "",
+          "description": "Reasoning effort passed to the harness, such as low, medium, or high. Leave empty to use the harness default.",
+          "descriptionKey": "schemaDescriptions.chief.effort"
+        },
+        "dangerouslySkipPermissions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow Chief's selected agent to bypass permission prompts and sandbox guardrails. Off by default.",
+          "descriptionKey": "schemaDescriptions.chief.dangerouslySkipPermissions"
         }
       }
     },
@@ -2538,7 +2564,7 @@
         "bindings": {
           "type": "object",
           "default": {},
-          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, a two-item array for a chord, {\"any\": [...]} for several keys on one action, null, an empty string, none, clear, unbound, or disabled to unbind.",
+          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, an array for a chord, null, an empty string, none, clear, unbound, or disabled to unbind.",
           "propertyNames": {
             "enum": [
               "openSettings",
@@ -2562,6 +2588,7 @@
               "goToWorkspace",
               "commandPalette",
               "agentInbox",
+              "openChief",
               "commandPaletteNext",
               "commandPalettePrevious",
               "sendFeedback",
@@ -2597,13 +2624,13 @@
               "prevSidebarTab",
               "nextSidebarTabInGroup",
               "prevSidebarTabInGroup",
-              "nextWorkspaceGroup",
-              "prevWorkspaceGroup",
               "moveWorkspaceUp",
               "moveWorkspaceDown",
               "focusHistoryBack",
               "focusHistoryForward",
               "focusHistoryLast",
+              "focusHistoryLastSurface",
+              "focusHistoryLastWorkspace",
               "selectWorkspaceByNumber",
               "renameTab",
               "renameWorkspace",
@@ -2619,7 +2646,6 @@
               "toggleFocusedWorkspaceGroupCollapsed",
               "reopenClosedWorkspace",
               "reopenClosedBrowserPanel",
-              "tab.search",
               "newSurface",
               "toggleTerminalCopyMode",
               "focusTextBoxInput",
@@ -2677,15 +2703,10 @@
               "toggleFileEditorWordWrap",
               "openBrowser",
               "focusBrowserAddressBar",
-              "omnibar.openInBackgroundTab",
-              "omnibar.openInForegroundTab",
               "browserBack",
               "browserForward",
               "browserReload",
               "browserHardReload",
-              "browserStop",
-              "browser.copyURL",
-              "browser.findPrevious",
               "browserZoomIn",
               "browserZoomOut",
               "browserZoomReset",
@@ -2721,15 +2742,6 @@
             ]
           },
           "properties": {
-            "selectSurfaceByNumber": {
-              "$ref": "#/$defs/numberedFamilyShortcutBindingNullable"
-            },
-            "selectWorkspaceByNumber": {
-              "$ref": "#/$defs/numberedFamilyShortcutBindingNullable"
-            },
-            "focusPaneByNumber": {
-              "$ref": "#/$defs/numberedFamilyShortcutBindingNullable"
-            },
             "fileExplorerOpenSelection": {
               "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
             },
@@ -2864,133 +2876,6 @@
             }
           ],
           "description": "Chorded shortcut. Example: [\"ctrl+b\", \"c\"]."
-        },
-        {
-          "type": "object",
-          "required": [
-            "any"
-          ],
-          "additionalProperties": false,
-          "properties": {
-            "any": {
-              "type": "array",
-              "items": {
-                "oneOf": [
-                  {
-                    "$ref": "#/$defs/shortcutFirstStroke"
-                  },
-                  {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 1,
-                    "prefixItems": [
-                      {
-                        "$ref": "#/$defs/shortcutFirstStroke"
-                      }
-                    ],
-                    "description": "One key written as a one-item array. The parser reads it as a single stroke, not a chord, so the chord rule does not apply."
-                  },
-                  {
-                    "type": "array",
-                    "minItems": 2,
-                    "maxItems": 2,
-                    "prefixItems": [
-                      {
-                        "$ref": "#/$defs/shortcutChordFirstStroke"
-                      },
-                      {
-                        "$ref": "#/$defs/shortcutStroke"
-                      }
-                    ]
-                  }
-                ]
-              }
-            }
-          },
-          "description": "Several shortcuts for one action, each a key or a chord. Example: {\"any\": [\"ctrl+tab\", \"cmd+]\"]}."
-        }
-      ]
-    },
-    "numberedFamilyShortcutBinding": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/unboundShortcutBinding",
-          "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
-        },
-        {
-          "$ref": "#/$defs/shortcutFirstStroke",
-          "description": "Single-stroke shortcut, for example cmd+n or cmd+space."
-        },
-        {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 2,
-          "prefixItems": [
-            {
-              "$ref": "#/$defs/shortcutFirstStroke"
-            },
-            {
-              "$ref": "#/$defs/shortcutStroke"
-            }
-          ],
-          "description": "Chorded shortcut. Example: [\"ctrl+b\", \"c\"]."
-        },
-        {
-          "type": "object",
-          "required": [
-            "any"
-          ],
-          "additionalProperties": false,
-          "properties": {
-            "any": {
-              "type": "array",
-              "items": {
-                "oneOf": [
-                  {
-                    "$ref": "#/$defs/shortcutFirstStroke"
-                  },
-                  {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 1,
-                    "prefixItems": [
-                      {
-                        "$ref": "#/$defs/shortcutFirstStroke"
-                      }
-                    ],
-                    "description": "One key written as a one-item array. The parser reads it as a single stroke, not a chord, so the chord rule does not apply."
-                  },
-                  {
-                    "type": "array",
-                    "minItems": 2,
-                    "maxItems": 2,
-                    "prefixItems": [
-                      {
-                        "$ref": "#/$defs/shortcutChordFirstStroke"
-                      },
-                      {
-                        "$ref": "#/$defs/shortcutStroke"
-                      }
-                    ]
-                  }
-                ]
-              },
-              "maxItems": 1
-            }
-          },
-          "description": "A numbered family takes one key, so this list holds at most one (an empty list unbinds). cmux NEXT keeps only the first key and reports the rest as invalid. Example: {\"any\": [\"cmd+opt+1\"]}."
-        }
-      ],
-      "description": "A numbered family's binding (cmd+1 means the whole cmd+1 through cmd+9 family). As shortcutBinding, except that {\"any\": [...]} holds at most one key."
-    },
-    "numberedFamilyShortcutBindingNullable": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/numberedFamilyShortcutBinding"
-        },
-        {
-          "type": "null",
-          "description": "Unbind this shortcut."
         }
       ]
     },
@@ -3014,37 +2899,6 @@
         {
           "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
           "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
-        },
-        {
-          "type": "object",
-          "required": [
-            "any"
-          ],
-          "additionalProperties": false,
-          "properties": {
-            "any": {
-              "type": "array",
-              "items": {
-                "oneOf": [
-                  {
-                    "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
-                  },
-                  {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 1,
-                    "prefixItems": [
-                      {
-                        "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
-                      }
-                    ],
-                    "description": "One key written as a one-item array. The parser reads it as a single stroke."
-                  }
-                ]
-              }
-            }
-          },
-          "description": "Several shortcuts for one action, each a single stroke. Bare first strokes are accepted for this action. Example: {\"any\": [\"return\", \"o\"]}."
         }
       ]
     },
@@ -3082,50 +2936,6 @@
             }
           ],
           "description": "Chorded shortcut. Bare first strokes are accepted for this action. Example: [\"g\", \"g\"]."
-        },
-        {
-          "type": "object",
-          "required": [
-            "any"
-          ],
-          "additionalProperties": false,
-          "properties": {
-            "any": {
-              "type": "array",
-              "items": {
-                "oneOf": [
-                  {
-                    "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
-                  },
-                  {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 1,
-                    "prefixItems": [
-                      {
-                        "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
-                      }
-                    ],
-                    "description": "One key written as a one-item array. The parser reads it as a single stroke, not a chord, so a bare key is accepted here as it is for this action's plain binding."
-                  },
-                  {
-                    "type": "array",
-                    "minItems": 2,
-                    "maxItems": 2,
-                    "prefixItems": [
-                      {
-                        "$ref": "#/$defs/shortcutChordFirstStroke"
-                      },
-                      {
-                        "$ref": "#/$defs/shortcutStroke"
-                      }
-                    ]
-                  }
-                ]
-              }
-            }
-          },
-          "description": "Several shortcuts for one action, each a single stroke or a chord. A bare single stroke is accepted for this action; a chord still needs Cmd or Ctrl in its first stroke. Example: {\"any\": [\"j\", \"ctrl+n\"]}."
         }
       ]
     },
@@ -3161,17 +2971,6 @@
         }
       ],
       "description": "First or only shortcut stroke. Must include a modifier unless the key is Space."
-    },
-    "shortcutChordFirstStroke": {
-      "allOf": [
-        {
-          "$ref": "#/$defs/shortcutStroke"
-        },
-        {
-          "pattern": "^(?:(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[sS][hH][iI][fF][tT]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⇧|⌥|⌃)\\+)*(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⌃)\\+"
-        }
-      ],
-      "description": "First stroke of a chord listed in {\"any\": [...]}. Must include Cmd or Ctrl: cmux NEXT drops a chord whose first stroke has neither, whether or not the action accepts a bare single stroke. The plain two-item chord form stays wider because classic also reads it, and classic ships bare-first chords such as [\"]\", \"f\"]."
     },
     "bareFirstStrokeShortcutFirstStroke": {
       "allOf": [

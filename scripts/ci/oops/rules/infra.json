@@ -44,19 +44,6 @@
       "fixture": "runner_refused_billing.log"
     },
     {
-      "id": "infra.stale_checkout",
-      "class": "infra",
-      "when": [
-        "checkout_failed"
-      ],
-      "any": [
-        "not uptodate; will not remove from working tree",
-        "Checking out the ref .* failed because the working tree is not clean"
-      ],
-      "why": "the checkout step failed on a reused runner's dirty workspace (cmux#47889 job 136241035294, 2026-11-20): runner state, not the PR. The same lines under a checkout that went on are git's warnings and blame nothing",
-      "fixture": "stale_checkout.log"
-    },
-    {
       "id": "infra.no_step_ran",
       "class": "infra",
       "when": [

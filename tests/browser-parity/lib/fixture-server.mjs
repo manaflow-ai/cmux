@@ -47,10 +47,6 @@ function handler(origins) {
     if (url.pathname === "/echo-cookie") {
       return send(200, "application/json", JSON.stringify({ cookie: req.headers.cookie ?? null }));
     }
-    // One redirect hop to `to` (host fetch scenarios: a hop to the peer origin).
-    if (url.pathname === "/redirect") {
-      return send(302, "text/plain; charset=utf-8", "", { location: url.searchParams.get("to") || "/" });
-    }
     if (url.pathname === "/api/data") {
       return send(200, "application/json", JSON.stringify({ ok: true, q: url.searchParams.get("q") }));
     }
@@ -120,10 +116,7 @@ export async function startFixtureServers({ primaryPort = 0, peerPort = 0 } = {}
     origins,
     close: () => {
       for (const socket of tunnels) socket.destroy();
-      // A browser that outlives the run (the app's Chromium in host-cef)
-      // keeps idle keep-alive connections open; close() would wait for
-      // them for ever (cx-04cy: host-cef runs hung until the job timeout).
-      return Promise.all([primary, peer].map((s) => new Promise((r) => { s.close(r); s.closeAllConnections(); })));
+      return Promise.all([primary, peer].map((s) => new Promise((r) => s.close(r))));
     },
   };
 }

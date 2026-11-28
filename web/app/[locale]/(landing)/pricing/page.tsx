@@ -68,11 +68,7 @@ import {
   TEAM_PRICING_USD,
 } from "../../../../services/billing/plans";
 import { isVaultEnabled } from "../../../../services/vault/config";
-import {
-  isWebPlusPlanEnabled as isGoPlanEnabled,
-  isWebPlusPlanEnabledImmediately,
-} from "../../../../services/billing/goPlanFlag";
-import { isCloudIntroEnabled } from "../../../../services/billing/cloudIntro";
+import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -135,7 +131,7 @@ export default async function PricingPage({
     t,
     query: {},
     snapshot: unknownPlan,
-    goPlanEnabled: isWebPlusPlanEnabledImmediately(),
+    goPlanEnabled: false,
     pending: true,
   };
   const personalize = (section: "individual" | "team" | "comparison") => (
@@ -352,8 +348,6 @@ function PricingContent({
                   <DisabledButton>{t("currentPlan")}</DisabledButton>
                 )}
               </div>
-            ) : pending ? (
-              <DisabledButton>{t("go.cta")}</DisabledButton>
             ) : (
               <PricingCheckoutButton
                 href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}
@@ -375,7 +369,7 @@ function PricingContent({
         name={t("pro.name")}
         surface="public_pricing"
         monthlyOnly={isGo}
-        initialInterval={query.interval === "month" ? "month" : "year"}
+        initialInterval={query.interval === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={proCheckoutHrefs}
         requiresSignIn={!pending && !snapshot.authenticated}
@@ -404,7 +398,7 @@ function PricingContent({
         pricing={MAX_PRICING_USD}
         surface="public_pricing"
         monthlyOnly={false}
-        initialInterval={query.interval === "month" ? "month" : "year"}
+        initialInterval={query.interval === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={{
           month: withCheckoutInterval(maxCheckoutHref, "month"),
@@ -462,8 +456,6 @@ function PricingContent({
           ) : (
             <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
           )
-        ) : pending ? (
-          <DisabledButton size="compact">{t("go.cta")}</DisabledButton>
         ) : (
           <PricingCheckoutButton
             href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}
@@ -576,7 +568,7 @@ function PricingContent({
       <main className="w-full max-w-6xl mx-auto px-6 py-16 sm:py-20">
         {/* Post-checkout / billing states from /api/billing/checkout */}
         <Suspense fallback={null}>
-          <ProWelcomeBanner cloudIntro={isCloudIntroEnabled()} />
+          <ProWelcomeBanner />
         </Suspense>
 
         <>

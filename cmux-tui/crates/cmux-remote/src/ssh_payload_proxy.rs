@@ -301,3 +301,37 @@ mod macos {
         String::from_utf8(buffer).ok()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ProxyRoute;
+
+    #[test]
+    fn routes_become_curl_arguments() {
+        assert_eq!(ProxyRoute::Direct.curl_args(), ["--noproxy", "*"]);
+        assert_eq!(
+            ProxyRoute::Via("socks5h://127.0.0.1:1080".into()).curl_args(),
+            ["--proxy", "socks5h://127.0.0.1:1080"]
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_pac_script_yields_its_routes_in_order() {
+        let routes = super::routes(
+            "https://files.example/cmux-tui/build",
+            Some(
+                "function FindProxyForURL(url, host) { \
+                 return \"PROXY proxy.example:3128; SOCKS 10.0.0.1:1080; DIRECT; DIRECT\"; }",
+            ),
+        );
+        assert_eq!(
+            routes,
+            [
+                ProxyRoute::Via("http://proxy.example:3128".into()),
+                ProxyRoute::Via("socks5h://10.0.0.1:1080".into()),
+                ProxyRoute::Direct,
+            ]
+        );
+    }
+}

@@ -3,45 +3,14 @@
 //! Plan construction validates input, allocates every new value, and reserves
 //! the exact in-memory capacities before SQLite commits. The post-commit step
 //! is an infallible closure over only the touched state. Plans must never clone
-//! or project the full mux tree, with one exception: an operation that must
-//! conserve tabs (see `mux::layout_invariants`) runs its state step before the
-//! commit, under the same locks, keeping a clone of the previous state so the
-//! layout checker can reject it and a failed commit can restore it. Plans that
-//! already project a clone hand it over with [`ResourceMutationPlan::replacing`],
-//! so staging them costs no second clone.
+//! or project the full mux tree.
 
 use serde_json::Value;
 
+use crate::State;
 use crate::workspace_registry::{ResourcePatch, ResourcePatchCommit, ResourceWorkspaceLedger};
-use crate::{PaneId, State, SurfaceId};
 
 type StateApply = Box<dyn FnOnce(&mut State) + Send + 'static>;
-
-#[cfg(test)]
-thread_local! {
-    /// Whole state clones that [`ResourceMutationPlan::stage`] made on this
-    /// thread for a closure step.
-    static STAGED_STATE_CLONES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-}
-
-/// State rows written in the plan's transaction after its patch applies.
-/// It may finalize the result and add changes (state resources and fresh
-/// upserts of resources whose only change is a state field).
-pub(crate) type PlanStateWrite = Box<
-    dyn FnOnce(&rusqlite::Transaction<'_>, &mut Value, &mut Vec<Value>) -> anyhow::Result<()>
-        + Send
-        + 'static,
->;
-/// How a plan changes the live state after its commit.
-enum StateStep {
-    /// Run this closure on the live state.
-    Apply(StateApply),
-    /// Replace the live state with this projected state.
-    Replace(Box<State>),
-    /// The step already ran before the commit (see
-    /// [`ResourceMutationPlan::stage`]).
-    Staged,
-}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ResourceMutationMetrics {
@@ -57,25 +26,7 @@ pub(crate) struct ResourceMutationPlan {
     pub(crate) deltas: Value,
     pub(crate) metrics: ResourceMutationMetrics,
     pub(crate) workspace_ledger: Option<ResourceWorkspaceLedger>,
-    /// State rows written in the same transaction as the patch.
-    pub(crate) state_write: Option<PlanStateWrite>,
-    /// The reducer op this plan performs, which the daemon checks the
-    /// plan's result against before the commit.
-    pub(crate) layout_op: Option<cmux_layout_reducer::LayoutOpKind>,
-    /// The state step changes no column, dock flag, column membership or
-    /// pane tab list (see [`Self::keeping_dock_columns`]).
-    keeps_dock_columns: bool,
-    /// The deltas restate every live topology resource (a full projection):
-    /// the commit may seed the registry's public fold with them.
-    pub(crate) restates_all: bool,
-    /// The deltas are a topology projection's: the commit drops the upserts
-    /// the journal already states (the registry's public fold).
-    pub(crate) prunes_stated: bool,
-    /// The workspaces of which the deltas state each live value again
-    /// (`ResourceEffectProjection::restated`): the commit marks them whole in
-    /// the registry's public fold.
-    pub(crate) restated: Vec<crate::resource::WorkspacePublicId>,
-    state_step: StateStep,
+    apply: StateApply,
 }
 
 impl ResourceMutationPlan {
@@ -91,162 +42,8 @@ impl ResourceMutationPlan {
             deltas,
             metrics: ResourceMutationMetrics::default(),
             workspace_ledger: None,
-            state_write: None,
-            layout_op: None,
-            keeps_dock_columns: false,
-            restates_all: false,
-            prunes_stated: false,
-            restated: Vec::new(),
-            state_step: StateStep::Apply(Box::new(apply)),
+            apply: Box::new(apply),
         }
-    }
-
-    /// A plan whose post-commit step replaces the live state with
-    /// `projected`, a clone the plan builder already mutated.
-    pub(crate) fn replacing(
-        patch: ResourcePatch,
-        result: Value,
-        deltas: Value,
-        projected: State,
-    ) -> Self {
-        let mut plan = Self::new(patch, result, deltas, |_| {});
-        plan.state_step = StateStep::Replace(Box::new(projected));
-        plan
-    }
-
-    /// Run the state step on the live `state` now, before the commit, and
-    /// return the state it replaced, which the caller restores if the change
-    /// is rejected or the commit fails. A closure step costs one clone of the
-    /// state; a projected state is swapped in without one. [`Self::apply`]
-    /// then changes nothing but the revisions.
-    pub(crate) fn stage(&mut self, state: &mut State) -> State {
-        match std::mem::replace(&mut self.state_step, StateStep::Staged) {
-            StateStep::Apply(apply) => {
-                #[cfg(test)]
-                STAGED_STATE_CLONES.with(|clones| clones.set(clones.get() + 1));
-                let before = state.clone();
-                apply(state);
-                before
-            }
-            StateStep::Replace(projected) => std::mem::replace(state, *projected),
-            StateStep::Staged => {
-                debug_assert!(false, "a plan's state step was staged twice");
-                state.clone()
-            }
-        }
-    }
-
-    /// Whole state clones that [`Self::stage`] made on this thread for a
-    /// closure step (test hook).
-    #[cfg(test)]
-    pub(crate) fn staged_state_clones_for_test() -> u64 {
-        STAGED_STATE_CLONES.with(std::cell::Cell::get)
-    }
-
-    /// Declare that the state step adds, removes or reorders no column, dock
-    /// flag, column pane or pane tab. It changes only focus (the active
-    /// workspace, screen, pane and tab, a stack's expanded pane and focus
-    /// stamps), or only the sizes, the divider flags or the zoom of one
-    /// screen. No dock rule can refuse such a step, so
-    /// [`Self::stage_checked`] skips scanning every workspace's columns and
-    /// cloning the state (a cost that grew with the session,
-    /// ask-bdd706af47).
-    pub(crate) fn keeping_dock_columns(mut self) -> Self {
-        self.keeps_dock_columns = true;
-        self
-    }
-
-    /// Declare the reducer op this plan performs.
-    pub(crate) fn with_layout_op(mut self, op: cmux_layout_reducer::LayoutOpKind) -> Self {
-        self.layout_op = Some(op);
-        self
-    }
-
-    /// Declare that this plan moves `tab` to `index` of `pane`.
-    pub(crate) fn moving_tab(self, tab: SurfaceId, pane: PaneId, index: usize) -> Self {
-        self.with_layout_op(cmux_layout_reducer::LayoutOpKind::MoveTab { tab, pane, index })
-    }
-
-    /// [`Self::stage`] for `operation`, checked when it must conserve tabs:
-    /// the layout reducer must accept the plan's op before the live state
-    /// changes, and the live result must keep I1-I3 and match the reducer's
-    /// placement, or the previous state is restored and the error returned.
-    /// Returns the replaced state only for a checked operation.
-    pub(crate) fn stage_checked(
-        &mut self,
-        state: &mut State,
-        operation: &str,
-    ) -> anyhow::Result<Option<State>> {
-        use crate::mux::layout_invariants as layout;
-        if self.keeps_dock_columns && !layout::conserves_tabs(operation) {
-            return Ok(None);
-        }
-        // `permanent-dock-v1`: with a permanent column anywhere, every plan is
-        // staged before the commit and refused if it removed one. With an
-        // agent chat dock anywhere, it is refused if it split that dock.
-        // `pinned-dock-v1`: with a pinned column (the Home dock), it is refused
-        // if its pinned tab went away or a tab entered it while it takes none.
-        let permanent = crate::mux::permanent_columns(state);
-        let chat = crate::mux::agent_chat_columns(state);
-        let pinned = crate::mux::pinned_columns(state);
-        let docks_kept = |operation: &str, state: &State| -> anyhow::Result<()> {
-            crate::mux::ensure_permanent_columns_kept(operation, &permanent, state)?;
-            crate::mux::ensure_pinned_columns_kept(operation, &pinned, state)?;
-            crate::mux::ensure_agent_chat_columns_unsplit(operation, &chat, state)
-        };
-        if !layout::conserves_tabs(operation) {
-            if permanent.is_empty() && chat.is_empty() && pinned.is_empty() {
-                return Ok(None);
-            }
-            let before = self.stage(state);
-            if let Err(error) = docks_kept(operation, state) {
-                *state = before;
-                return Err(error);
-            }
-            return Ok(Some(before));
-        }
-        let before_model = layout::project(state);
-        let model = self
-            .layout_op
-            .as_ref()
-            .map(|kind| layout::model_result(operation, &before_model, kind))
-            .transpose()?;
-        let before = self.stage(state);
-        let result =
-            layout::validate_layout_transition(operation, &before_model, model.as_ref(), state)
-                .and_then(|()| docks_kept(operation, state));
-        if let Err(error) = result {
-            *state = before;
-            return Err(error);
-        }
-        Ok(Some(before))
-    }
-
-    /// Declare that the deltas are a topology projection's
-    /// (`ResourceEffectProjection::changes`): the commit drops the upserts
-    /// the journal already states, and a full projection's (`restates_all`),
-    /// unpruned, may seed the registry's public fold. Every plan built from
-    /// a projection declares it: one that did not journaled an upsert of
-    /// every live resource on each commit (2.5 MB for one `tab.update` in a
-    /// session of 826 workspaces).
-    pub(crate) fn projected(mut self, restates_all: bool) -> Self {
-        self.restates_all = restates_all;
-        self.prunes_stated = true;
-        self
-    }
-
-    /// Declare the workspaces that the projection's deltas state again, each
-    /// live value of them (`ResourceEffectProjection::restated`): the commit
-    /// marks them whole in the registry's public fold.
-    pub(crate) fn restating(mut self, workspaces: Vec<crate::resource::WorkspacePublicId>) -> Self {
-        self.restated = workspaces;
-        self
-    }
-
-    /// Write state rows in the patch's transaction.
-    pub(crate) fn with_state_write(mut self, write: PlanStateWrite) -> Self {
-        self.state_write = Some(write);
-        self
     }
 
     pub(crate) fn with_metrics(mut self, metrics: ResourceMutationMetrics) -> Self {
@@ -275,11 +72,7 @@ impl ResourceMutationPlan {
         if commit.replayed {
             return;
         }
-        match self.state_step {
-            StateStep::Apply(apply) => apply(state),
-            StateStep::Replace(projected) => *state = *projected,
-            StateStep::Staged => {}
-        }
+        (self.apply)(state);
         if let Some(workspace_revision) = workspace_revision {
             state.workspace_revision = workspace_revision;
         }

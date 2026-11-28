@@ -29,6 +29,7 @@ CATALOG = MUX_DIR / "spec" / "resource-operations-v2.json"
 BUILD = HERE / ".build" / "resource-v2"
 LANGUAGES = ("python", "typescript", "rust", "go", "java", "cpp", "zig")
 PROTOCOL = "cmux.protocol/2"
+TRANSPORTED_OPERATION_COUNT = 127
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
 MAX_STREAM_MESSAGES = 256
 MAX_STREAM_BYTES = 16 * 1024 * 1024
@@ -1130,8 +1131,14 @@ def load_contract() -> tuple[dict[str, Any], dict[str, Any]]:
     if catalog.get("protocol") != PROTOCOL:
         raise ConformanceFailure("operation catalog targets the wrong protocol")
     operations = catalog.get("operations")
-    if not isinstance(operations, dict) or not operations:
-        raise ConformanceFailure("operation catalog has no transported operations")
+    if (
+        not isinstance(operations, dict)
+        or len(operations) != TRANSPORTED_OPERATION_COUNT
+    ):
+        raise ConformanceFailure(
+            f"expected {TRANSPORTED_OPERATION_COUNT} transported operations, got "
+            f"{len(operations) if isinstance(operations, dict) else 'invalid'}"
+        )
     return fixtures, catalog
 
 

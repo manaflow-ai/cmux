@@ -11,18 +11,6 @@ export interface TurnGroup {
   done: boolean;
 }
 
-export interface TurnHistoryWindow {
-  folded: TurnGroup[];
-  visible: TurnGroup[];
-}
-
-/** Keep the newest turns readable behind one stable disclosure boundary. */
-export function compactTurnGroups(groups: TurnGroup[], visibleTail = 3): TurnHistoryWindow {
-  const tail = Math.max(1, Math.floor(visibleTail));
-  const cutoff = Math.max(0, groups.length - tail);
-  return { folded: groups.slice(0, cutoff), visible: groups.slice(cutoff) };
-}
-
 export function groupTurns(blocks: Block[], status?: string): TurnGroup[] {
   const groups: TurnGroup[] = [];
   let current: TurnGroup | null = null;
@@ -53,10 +41,7 @@ export function groupTurns(blocks: Block[], status?: string): TurnGroup[] {
         current = { id: `turn-${groups.length}-message-${block.id}`, activity: [], done: false };
         pendingAssistantIndex = null;
       }
-      // This group is local to this pass, so append in place. Copying the
-      // accumulated array for every message made a long agent turn quadratic
-      // while the transcript rebuilt during a live stream.
-      (current.messages ??= []).push(block);
+      current.messages = [...(current.messages ?? []), block];
       continue;
     }
     if (!current) {
@@ -127,6 +112,10 @@ export function summarizeTurnActivity(blocks: Block[]): string {
       edited += block.files.length;
       continue;
     }
+    if (block.kind === "plan") {
+      other++;
+      continue;
+    }
     if (block.kind !== "tool") {
       other++;
       continue;
@@ -151,24 +140,18 @@ export function summarizeTurnActivity(blocks: Block[]): string {
   return sentenceCase(joinSentence(parts));
 }
 
-export function activityRowHoverTitle(block: Block): string | undefined {
-  if (block.kind !== "tool" || !block.detail || !SHELL_WRAPPER_TOOLS.has(block.name)) return undefined;
-  return block.detail;
-}
-
 export function activityRowLabel(block: Block): string {
   if (block.kind === "tool") {
     const name = block.name || "tool";
     const detail = block.detail ? ` ${block.detail}` : "";
-    if (SHELL_WRAPPER_TOOLS.has(name)) {
-      if (block.description?.trim()) return block.description.trim();
-      return "Ran command";
-    }
     const lower = `${name}${detail}`.toLowerCase();
     if (/\b(rg|grep|search)\b/.test(lower)) return `Searched ${detail.trim() || name}`;
     if (/\b(read|cat|sed|nl|open)\b/.test(lower)) return `Read ${detail.trim() || name}`;
     if (/\b(ls|find|list)\b/.test(lower)) return `Listed ${detail.trim() || name}`;
     if (/\b(edit|write|apply_patch|patch)\b/.test(lower)) return `Edited ${detail.trim() || name}`;
+    // Shell wrappers (Claude's Bash, Codex's exec_command) read better as the
+    // command itself.
+    if (SHELL_WRAPPER_TOOLS.has(name) && block.detail) return `Ran ${block.detail}`;
     return `${isShellCommandTool(name) ? "Ran" : "Used"} ${name}${detail}`;
   }
   if (block.kind === "files") return `Edited ${plural(block.files.length, "file")}`;

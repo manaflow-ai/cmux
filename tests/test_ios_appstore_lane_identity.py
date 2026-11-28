@@ -21,13 +21,7 @@ import urllib.parse
 import zipfile
 from pathlib import Path
 
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-import importlib.util as _git_fixture_importlib  # noqa: E402
-from os import path as _git_fixture_path  # noqa: E402
-_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
-    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
-git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,8 +30,16 @@ APPSTORE_BUNDLE_ID = "com.cmux.app"
 APPSTORE_APP_ID = f"{TEAM_ID}.{APPSTORE_BUNDLE_ID}"
 APPSTORE_EXTENSION_BUNDLE_ID = f"{APPSTORE_BUNDLE_ID}.NotificationService"
 APPSTORE_EXTENSION_PROFILE_NAME = "cmux App Store Notification Service Distribution"
+APPSTORE_CLOUD_VPN_BUNDLE_ID = f"{APPSTORE_BUNDLE_ID}.CloudVPN"
+APPSTORE_CLOUD_VPN_PROFILE_NAME = "cmux App Store CloudVPN Distribution"
 BETA_BUNDLE_ID = "dev.cmux.app.beta"
 BETA_APP_ID = f"{TEAM_ID}.{BETA_BUNDLE_ID}"
+CLASSIC_BUNDLE_ID = "dev.cmux.app.classic"
+CLASSIC_APP_ID = f"{TEAM_ID}.{CLASSIC_BUNDLE_ID}"
+CLASSIC_EXTENSION_BUNDLE_ID = f"{CLASSIC_BUNDLE_ID}.NotificationService"
+# A stand-in for the cmux CLASSIC App Store Connect app id (a repository variable).
+CLASSIC_ASC_APP_ID = "6799000001"
+CLASSIC_MARKETING_VERSION = "1.0.0"
 ASC_APP_ID = "6783338052"
 ASC_VERSION_ID = "version-1.0.0"
 ASC_BUILD_ID = "build-1.0.0"
@@ -117,6 +119,24 @@ def _extension_profile_plist() -> dict[str, object]:
     return profile
 
 
+def _cloud_vpn_profile_plist() -> dict[str, object]:
+    profile = _profile_plist(
+        APPSTORE_CLOUD_VPN_BUNDLE_ID,
+        APPSTORE_CLOUD_VPN_PROFILE_NAME,
+        "00000000-0000-0000-0000-000000000005",
+    )
+    entitlements = profile["Entitlements"]
+    assert isinstance(entitlements, dict)
+    entitlements.pop("aps-environment", None)
+    entitlements.pop("com.apple.developer.usernotifications.time-sensitive", None)
+    entitlements["keychain-access-groups"] = [f"{TEAM_ID}.*", "com.apple.token"]
+    entitlements["com.apple.developer.networking.networkextension"] = [
+        "app-proxy-provider",
+        "packet-tunnel-provider",
+    ]
+    return profile
+
+
 def _write_executable(path: Path, body: str) -> None:
     path.write_text(body, encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
@@ -135,6 +155,8 @@ APPSTORE_APP_ID = {APPSTORE_APP_ID!r}
 APPSTORE_EXTENSION_BUNDLE_ID = {APPSTORE_EXTENSION_BUNDLE_ID!r}
 APPSTORE_EXTENSION_APP_ID = TEAM_ID + "." + APPSTORE_EXTENSION_BUNDLE_ID
 APPSTORE_EXTENSION_PROFILE_NAME = {APPSTORE_EXTENSION_PROFILE_NAME!r}
+APPSTORE_CLOUD_VPN_BUNDLE_ID = {APPSTORE_CLOUD_VPN_BUNDLE_ID!r}
+APPSTORE_CLOUD_VPN_PROFILE_NAME = {APPSTORE_CLOUD_VPN_PROFILE_NAME!r}
 BETA_BUNDLE_ID = {BETA_BUNDLE_ID!r}
 BETA_APP_ID = {BETA_APP_ID!r}
 IDENTITY = {IDENTITY!r}
@@ -149,6 +171,7 @@ def write_plist(path, value):
 APPSTORE_PROFILE = plistlib.loads({_plist_bytes(_profile_plist())!r})
 BETA_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test", "00000000-0000-0000-0000-000000000002"))!r})
 EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_extension_profile_plist())!r})
+APPSTORE_CLOUD_VPN_PROFILE = plistlib.loads({_plist_bytes(_cloud_vpn_profile_plist())!r})
 BETA_EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID + ".NotificationServiceV2", "cmux Beta Notification Service Distribution", "00000000-0000-0000-0000-000000000004"))!r})
 BETA_EXTENSION_PROFILE["Entitlements"]["keychain-access-groups"] = [TEAM_ID + ".*"]
 FIXTURE_CERTIFICATE = {ssl.DER_cert_to_PEM_cert(FIXTURE_CERTIFICATE_DER)!r}
@@ -160,6 +183,15 @@ def profile_for_bundle(bundle_id):
         source = BETA_EXTENSION_PROFILE
     elif bundle_id == APPSTORE_EXTENSION_BUNDLE_ID:
         source = EXTENSION_PROFILE
+    elif bundle_id == APPSTORE_CLOUD_VPN_BUNDLE_ID:
+        source = APPSTORE_CLOUD_VPN_PROFILE
+    elif bundle_id and bundle_id != APPSTORE_BUNDLE_ID and not bundle_id.endswith((".NotificationService", ".CloudVPN")):
+        # Another App Store record (cmux CLASSIC): the same capabilities,
+        # bound to its own app id and keychain group.
+        source = dict(APPSTORE_PROFILE)
+        source["Entitlements"] = dict(APPSTORE_PROFILE["Entitlements"])
+        source["Entitlements"]["application-identifier"] = f"{{TEAM_ID}}.{{bundle_id}}"
+        source["Entitlements"]["keychain-access-groups"] = [f"{{TEAM_ID}}.{{bundle_id}}"]
     else:
         source = APPSTORE_PROFILE
     if os.environ.get("CMUX_FAKE_PROFILE_MISSING_TIME_SENSITIVE") != "1":
@@ -188,6 +220,10 @@ def entitlements_for_bundle(bundle_id):
             "get-task-allow": False,
         }}
     entitlements = dict(profile_for_bundle(bundle_id)["Entitlements"])
+    if bundle_id.endswith(".CloudVPN"):
+        entitlements["application-identifier"] = f"{{TEAM_ID}}.{{bundle_id}}"
+        entitlements.pop("com.apple.developer.networking.networkextension", None)
+        entitlements["keychain-access-groups"] = []
     override_group = os.environ.get("CMUX_FAKE_SIGNED_KEYCHAIN_GROUP")
     if override_group:
         entitlements["keychain-access-groups"] = [override_group]
@@ -439,6 +475,7 @@ if "archive" in args:
             "CMUXIrohBrokerBaseURL": setting("CMUX_IROH_BROKER_BASE_URL=") or "https://cmux.com",
             "CMUXPresenceBaseURL": setting("CMUX_PRESENCE_BASE_URL=") or "https://presence.cmux.dev",
             "CMUXDevTag": setting("CMUX_DEV_TAG="),
+            "CMUXAppStoreBuild": setting("CMUX_APPSTORE_BUILD="),
             # A manual archive builds with code signing disabled, so
             # $(AppIdentifierPrefix) expands to "" and the group bakes as the
             # bare bundle id, the exact mis-bake that made TestFlight builds
@@ -455,6 +492,13 @@ if "archive" in args:
             "CMUXKeychainAccessGroup": bundle_id,
         }},
     )
+    cloud_vpn = app / "PlugIns" / "CloudVPN.appex"
+    write_plist(
+        cloud_vpn / "Info.plist",
+        {{
+            "CFBundleIdentifier": f"{{bundle_id}}.CloudVPN",
+        }},
+    )
     # upload-testflight.sh refuses archives without dSYM bundles.
     (archive / "dSYMs" / "cmux.app.dSYM" / "Contents").mkdir(parents=True, exist_ok=True)
     sys.exit(0)
@@ -464,12 +508,17 @@ if "-exportArchive" in args:
     export_path = Path(after("-exportPath"))
     export_options = Path(after("-exportOptionsPlist"))
     shutil.copyfile(export_options, os.environ["CMUX_FAKE_EXPORT_OPTIONS_COPY"])
+    export_options_data = plistlib.loads(export_options.read_bytes())
+    export_profiles = export_options_data.get("provisioningProfiles", {{}})
     app_info = next((archive / "Products" / "Applications").glob("*.app/Info.plist"))
     archived_info = plistlib.loads(app_info.read_bytes())
     bundle_id = archived_info["CFBundleIdentifier"]
     payload_root = export_path / "Payload"
     app = payload_root / "cmux.app"
     write_plist(app / "Info.plist", archived_info)
+    archived_plugins = app_info.parent / "PlugIns"
+    for archived_extension in sorted(archived_plugins.glob("*.appex")):
+        shutil.copytree(archived_extension, app / "PlugIns" / archived_extension.name)
     extension = app / "PlugIns" / "NotificationService.appex"
     write_plist(
         extension / "Info.plist",
@@ -479,6 +528,20 @@ if "-exportArchive" in args:
             "CMUXKeychainAccessGroup": bundle_id,
         }},
     )
+    cloud_vpn = app / "PlugIns" / "CloudVPN.appex"
+    # Keep a CloudVPN directory in the fake export even when the App Store
+    # export options omit its profile. This models a stale exporter artifact so
+    # the lane's post-export strip is exercised instead of making the test pass
+    # only because the fixture silently omitted the extension.
+    if (
+        bundle_id == APPSTORE_BUNDLE_ID or f"{{bundle_id}}.CloudVPN" in export_profiles
+    ) and not cloud_vpn.exists():
+        write_plist(
+            cloud_vpn / "Info.plist",
+            {{
+                "CFBundleIdentifier": f"{{bundle_id}}.CloudVPN",
+            }},
+        )
     if os.environ.get("CMUX_FAKE_EMBED_INVALID_FRAMEWORK_SHELL") == "1":
         write_plist(
             app / "Frameworks" / "Iroh.framework" / "Info.plist",
@@ -499,6 +562,9 @@ if "-exportArchive" in args:
     profile_marker = "beta profile" if bundle_id == BETA_BUNDLE_ID else "fake profile"
     (app / "embedded.mobileprovision").write_text(profile_marker, encoding="utf-8")
     (extension / "embedded.mobileprovision").write_text("extension profile", encoding="utf-8")
+    if cloud_vpn.exists():
+        (cloud_vpn / "embedded.mobileprovision").write_text("cloud vpn profile", encoding="utf-8")
+        write_plist(cloud_vpn / "FakeSignedEntitlements.plist", entitlements_for_bundle(f"{{bundle_id}}.CloudVPN"))
     # upload-testflight.sh refuses IPAs without Symbols/*.symbols.
     symbols_root = export_path / "Symbols"
     symbols_root.mkdir(parents=True, exist_ok=True)
@@ -536,6 +602,8 @@ if "-d" in args and "--entitlements" in args:
         if marker is not None and marker.exists()
         else entitlements_for_bundle(bundle_id)
     )
+    if bundle_id.endswith(".CloudVPN") and os.environ.get("CMUX_FAKE_VPN_EMPTY_SIGNED_GROUP") == "1":
+        entitlements["keychain-access-groups"] = []
     if bundle_id in (APPSTORE_BUNDLE_ID, BETA_BUNDLE_ID) and os.environ.get("CMUX_FAKE_HOST_MISSING_PACKET_TUNNEL") == "1":
         entitlements.pop("com.apple.developer.networking.networkextension", None)
     if bundle_id in (APPSTORE_BUNDLE_ID, BETA_BUNDLE_ID) and os.environ.get("CMUX_FAKE_HOST_HOTSPOT_PROVIDER") == "1":
@@ -575,7 +643,7 @@ if args[:3] == ["find-identity", "-v", "-p"]:
     print(f'  1) ABCDEF "{{IDENTITY}}"')
     sys.exit(0)
 if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
-    profile = profile_for_bundle(APPSTORE_BUNDLE_ID)
+    profile = profile_for_bundle(os.environ.get("CMUX_FAKE_APP_BUNDLE_ID") or APPSTORE_BUNDLE_ID)
     if "-i" in args:
         source = Path(args[args.index("-i") + 1])
         if source.exists():
@@ -586,6 +654,19 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
                 profile = profile_for_bundle(BETA_BUNDLE_ID)
             elif b"beta extension profile" in body:
                 profile = BETA_EXTENSION_PROFILE
+            elif b"cloud vpn profile" in body:
+                profile = copy.deepcopy(APPSTORE_CLOUD_VPN_PROFILE)
+                if os.environ.get("CMUX_FAKE_VPN_UNAUTHORIZED_GROUP") == "1":
+                    profile["Entitlements"]["keychain-access-groups"] = [TEAM_ID + ".unrelated.*"]
+                try:
+                    cloud_vpn_info = source.parent / "Info.plist"
+                    cloud_vpn_bundle_id = plistlib.loads(cloud_vpn_info.read_bytes()).get(
+                        "CFBundleIdentifier", ""
+                    )
+                    profile["Entitlements"] = dict(profile["Entitlements"])
+                    profile["Entitlements"]["application-identifier"] = f"{{TEAM_ID}}.{{cloud_vpn_bundle_id}}"
+                except (OSError, plistlib.InvalidFileException):
+                    pass
             elif b"extension profile" in body:
                 profile = copy.deepcopy(EXTENSION_PROFILE)
                 try:
@@ -619,6 +700,14 @@ if log:
     Path(log).open("a", encoding="utf-8").write(json.dumps(sys.argv[1:]) + "\\n")
 
 args = sys.argv[1:]
+if "--help" in args:
+    # asc 5 names the build selector --build-id; the Homebrew asc 2.x bottle
+    # that CI runners install still names it --build.
+    flag = os.environ.get("CMUX_FAKE_ASC_BUILD_FLAG", "--build-id")
+    print("FLAGS")
+    print(f"  {flag:<14} Build ID to attach")
+    sys.exit(0)
+
 if args[:2] == ["apps", "view"]:
     app_id = args[args.index("--id") + 1]
     print(json.dumps({
@@ -649,6 +738,9 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
         "IOS_APPSTORE_APP_ID",
         "IOS_APPSTORE_BUNDLE_ID",
         "IOS_APPSTORE_BUNDLE_IDENTIFIER",
+        "IOS_CLASSIC_BUNDLE_ID",
+        "CMUX_FAKE_APP_BUNDLE_ID",
+        "CMUX_IOS_ALLOW_CLASSIC_APPSTORE_UPLOAD",
     ):
         env.pop(key, None)
     env["CMUX_FAKE_XCODEBUILD_LOG"] = str(tmp / "xcodebuild.jsonl")
@@ -661,7 +753,11 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     # profile (#12935); the lane refuses to export without the name.
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = APPSTORE_EXTENSION_PROFILE_NAME
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"extension profile").decode()
+    env["IOS_APPSTORE_ENABLE_CLOUD_VPN"] = "0"
+    env["IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_NAME"] = APPSTORE_CLOUD_VPN_PROFILE_NAME
+    env["IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"cloud vpn profile").decode()
     env["IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME"] = "cmux Beta Notification Service Distribution"
+    env["IOS_BETA_CLOUD_VPN_PROVISIONING_PROFILE_NAME"] = "cmux Beta CloudVPN Distribution"
     # Profile expiry is validated against this fixed instant, not the real clock.
     env["IOS_APPSTORE_PROFILE_VALIDATION_TIME"] = PROFILE_VALIDATION_TIME
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")
@@ -768,6 +864,7 @@ def _write_fake_archive(path: Path, *, bundle_id: str, build_number: str, market
         "CFBundleIdentifier": bundle_id,
         "CFBundleVersion": build_number,
         "CFBundleShortVersionString": marketing_version,
+        "CMUXAppStoreBuild": "",
         **PRODUCTION_RUNTIME_ORIGINS,
     }
     (path).mkdir(parents=True, exist_ok=True)
@@ -818,6 +915,7 @@ def _copy_isolated_ios_upload_repo(target: Path) -> Path:
         "ios/scripts/notification-service-bundle-id.sh",
         "ios/Config/Shared.xcconfig",
         "ios/Config/cmux-release.entitlements",
+        "ios/Config/CloudVPN.entitlements",
         "ios/Config/NotificationService.entitlements",
         "scripts/lib/verify-ios-release-origins.sh",
     ):
@@ -1119,6 +1217,37 @@ def test_upload_beta_archive_path_accepts_marketing_version_override(tmp: Path, 
     )
 
 
+def test_upload_appstore_rejects_unmarked_reused_archive(tmp: Path, fakebin: Path) -> None:
+    archive = tmp / "cmux-appstore.xcarchive"
+    _write_fake_archive(
+        archive,
+        bundle_id=APPSTORE_BUNDLE_ID,
+        build_number="20260710041748",
+        marketing_version=APPSTORE_MARKETING_VERSION,
+    )
+    env = _base_env(tmp, fakebin)
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "upload-app-store.sh"),
+            "--archive-path",
+            str(archive),
+            "--signing",
+            "manual",
+            "--export-only",
+        ],
+        env=env,
+        tmp=tmp,
+        log_failure=False,
+    )
+    _check(result.returncode != 0, "App Store rejects a reused archive without the VPN-free build marker")
+    _check(
+        "CMUXAppStoreBuild=YES" in result.stderr,
+        "unmarked App Store archive error names the required build marker",
+    )
+
+
 def test_upload_beta_auto_version_uses_checked_in_beta_floor(tmp: Path, fakebin: Path) -> None:
     isolated_repo = _copy_isolated_ios_upload_repo(tmp / "isolated")
     expected_version = _bump_patch(BETA_MARKETING_VERSION)
@@ -1285,6 +1414,18 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         "CMUX_CRASH_REPORTING_ENABLED=YES" in archive_call,
         "App Store archive keeps crash reporting enabled",
     )
+    _check(
+        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_APPSTORE" in archive_call,
+        "App Store archive adds the VPN-free condition on top of each target's own conditions",
+    )
+    _check(
+        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=CMUX_APPSTORE" not in archive_call,
+        "App Store archive does not replace package conditions such as swift-crypto's CRYPTO_IN_SWIFTPM",
+    )
+    _check(
+        "CMUX_APPSTORE_BUILD=YES" in archive_call,
+        "App Store archive carries the VPN-free build marker",
+    )
     for build_arg in PRODUCTION_RUNTIME_BUILD_ARGS:
         _check(build_arg in archive_call, f"App Store archive stamps {build_arg.split('=', 1)[0]}")
     _check(
@@ -1306,6 +1447,7 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         profiles.get(APPSTORE_EXTENSION_BUNDLE_ID) == APPSTORE_EXTENSION_PROFILE_NAME,
         "export options map the notification extension to its App Store profile",
     )
+    _check(APPSTORE_CLOUD_VPN_BUNDLE_ID not in profiles, "export options omit the disabled CloudVPN profile")
     _check("com.cmuxterm.app" not in profiles, "export options do not include the retired app id")
 
     ipa_line = next(line for line in result.stdout.splitlines() if line.startswith("IPA_PATH="))
@@ -1326,11 +1468,13 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
             in zf.namelist()
             else {}
         )
+        members = set(zf.namelist())
     _check(info.get("CFBundleIdentifier") == APPSTORE_BUNDLE_ID, "final signed IPA Info.plist is com.cmux.app")
     _check(
         info.get("CMUXKeychainAccessGroup") == APPSTORE_APP_ID,
         "final signed App Store IPA Info.plist carries the exact App Store keychain group",
     )
+    _check(info.get("CMUXAppStoreBuild") == "YES", "final signed App Store IPA carries the VPN-free build marker")
     _check(
         extension_info.get("CMUXKeychainAccessGroup") == APPSTORE_APP_ID,
         "notification extension Info.plist carries the exact App Store keychain group",
@@ -1338,6 +1482,10 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     _check(
         extension_entitlements.get("keychain-access-groups") == [APPSTORE_APP_ID],
         "notification extension signature carries the exact App Store keychain group",
+    )
+    _check(
+        "Payload/cmux.app/PlugIns/CloudVPN.appex/Info.plist" not in members,
+        "final signed App Store IPA omits the system-VPN extension",
     )
     _check(
         info.get("CFBundleShortVersionString") == APPSTORE_MARKETING_VERSION,
@@ -1362,21 +1510,279 @@ def test_official_testflight_workflow_publishes_generated_notes() -> None:
         "      - name: Archive, export, and upload to App Store Connect", 1
     )[1].split("      - name: Record completed upload before group assignment", 1)[0]
     _check(
-        "ARGS=(--lane appstore --signing manual)" in upload_step,
-        "official cmux.app TestFlight upload keeps the changelog notes path as the no-base fallback",
+        "ARGS=(--lane classic --signing manual)" in upload_step,
+        "cmux CLASSIC TestFlight upload uses the classic lane and keeps the changelog notes path as the no-base fallback",
     )
     _check(
         '--notes-from-range "$LAST_UPLOAD_SHA"' in upload_step,
-        "official cmux.app TestFlight upload generates What to Test notes from the commits since the previous upload",
+        "cmux CLASSIC TestFlight upload generates What to Test notes from the commits since the previous upload",
     )
     _check(
         "--skip-notes" not in upload_step,
-        "official cmux.app TestFlight upload does not suppress What to Test notes",
+        "cmux CLASSIC TestFlight upload does not suppress What to Test notes",
     )
+    _check(
+        "--lane appstore" not in workflow and "6783338052" not in workflow.split("\njobs:", 1)[1].replace(
+            '[ "$CLASSIC_APP_ID" = "6783338052" ]', ""
+        ).replace("IOS_CLASSIC_ASC_APP_ID is 6783338052", ""),
+        "cmux CLASSIC workflow never targets the com.cmux.app record except to refuse it",
+    )
+    _check(
+        "--bundle-id dev.cmux.app.classic" in workflow and "--bundle-id com.cmux.app" not in workflow,
+        "cmux CLASSIC workflow assigns the classic bundle's builds",
+    )
+
+
+def test_production_workflow_refuses_the_classic_app() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ios-app-store.yml").read_text(encoding="utf-8")
+    refuse = workflow.split("  refuse-classic:", 1)[1].split("\n  runners:", 1)[0]
+    _check("exit 1" in refuse and "cmux-next" in refuse, "production App Store workflow has a failing refuse-classic job")
+    _check(
+        "needs: [refuse-classic, runners]" in workflow,
+        "production App Store upload job depends on refuse-classic, so it never runs",
+    )
+
+
+def test_production_workflow_release_type_follows_release_when_approved() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ios-app-store.yml").read_text(encoding="utf-8")
+    _check(
+        "release_when_approved:" in workflow and "type: boolean" in workflow.split("release_when_approved:", 1)[1][:400],
+        "production App Store workflow offers a release_when_approved boolean input",
+    )
+    _check(
+        "IOS_APPSTORE_RELEASE_TYPE: ${{ github.event.inputs.release_when_approved == 'true' && 'AFTER_APPROVAL' || 'MANUAL' }}"
+        in workflow,
+        "production App Store release type is AFTER_APPROVAL only when release_when_approved is checked, else MANUAL",
+    )
+    _check(
+        "--release-type MANUAL" not in workflow
+        and workflow.count('--release-type "$IOS_APPSTORE_RELEASE_TYPE"') == 3,
+        "every App Store version create/update uses the dispatch's release type",
+    )
+
+
+def test_upload_appstore_refuses_classic_upload_without_override(tmp: Path, fakebin: Path) -> None:
+    env = _asc_upload_env(tmp, fakebin)
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    env["CMUX_BUILD_NUMBER_OUT_FILE"] = str(tmp / "build-number.txt")
+    result = _run(
+        ["bash", str(ROOT / "ios" / "scripts" / "upload-app-store.sh"), "--signing", "manual", "--skip-notes"],
+        env=env,
+        tmp=tmp,
+        log_failure=False,
+    )
+    _check(result.returncode != 0, "appstore lane refuses to upload the classic app to com.cmux.app")
+    _check("now ships cmux-next" in result.stderr, "appstore refusal says com.cmux.app ships cmux-next")
+    asc_log = tmp / "asc.jsonl"
+    calls = asc_log.read_text(encoding="utf-8").splitlines() if asc_log.exists() else []
+    _check(not any('"upload"' in line for line in calls), "appstore refusal happens before any upload call")
+
+
+def _classic_env(tmp: Path, fakebin: Path) -> dict[str, str]:
+    env = _base_env(tmp, fakebin)
+    env["CMUX_FAKE_APP_BUNDLE_ID"] = CLASSIC_BUNDLE_ID
+    env["CMUX_FAKE_ASC_APP_BUNDLE_ID"] = CLASSIC_BUNDLE_ID
+    env["IOS_APPSTORE_PROVISIONING_PROFILE_NAME"] = "cmux App Store CI dev.cmux.app.classic ABCDEF12"
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = "cmux Classic Notification Service CI"
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    env["CMUX_BUILD_NUMBER_OUT_FILE"] = str(tmp / "build-number.txt")
+    env["CMUX_TESTFLIGHT_NOTES_REQUEST_FILE"] = str(tmp / "testflight-notes-request.json")
+    return env
+
+
+def test_upload_classic_lane_builds_the_classic_identity(tmp: Path, fakebin: Path) -> None:
+    env = _classic_env(tmp, fakebin)
+    result = _run(
+        [
+            "bash", str(ROOT / "ios" / "scripts" / "upload-testflight.sh"),
+            "--lane", "classic", "--signing", "manual", "--export-only", "--build-number", "20261113120000",
+        ],
+        env=env,
+        tmp=tmp,
+    )
+    _check(result.returncode == 0, "classic export-only lane succeeds with fake Apple tools")
+    _check(
+        f"signed IPA bundle identity verified: {CLASSIC_BUNDLE_ID}" in result.stdout,
+        "classic signed IPA identity gate passes for dev.cmux.app.classic",
+    )
+    archive_call = next(
+        call
+        for call in (json.loads(line) for line in (tmp / "xcodebuild.jsonl").read_text(encoding="utf-8").splitlines())
+        if "archive" in call
+    )
+    for expected, label in (
+        (f"CMUX_APP_BUNDLE_IDENTIFIER={CLASSIC_BUNDLE_ID}", "stamps dev.cmux.app.classic"),
+        (f"CMUX_HOST_BUNDLE_IDENTIFIER={CLASSIC_BUNDLE_ID}", "stamps the classic host id"),
+        (f"CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER={CLASSIC_EXTENSION_BUNDLE_ID}", "stamps the classic notification extension id"),
+        ("PRODUCT_DISPLAY_NAME=cmux CLASSIC", "names the app cmux CLASSIC"),
+        (f"MARKETING_VERSION={CLASSIC_MARKETING_VERSION}", "stamps the classic marketing version"),
+        ("CMUX_APPSTORE_BUILD=YES", "builds the VPN-free App Store binary"),
+        ("CMUX_APP_CODE_SIGN_ENTITLEMENTS=Config/cmux-appstore-release.entitlements", "uses the App Store entitlements"),
+        ("CMUX_CLOUD_VPN_PROVIDER_BUNDLE_IDENTIFIER=", "omits the CloudVPN provider"),
+    ):
+        _check(expected in archive_call, f"classic archive {label}")
+    for build_arg in PRODUCTION_RUNTIME_BUILD_ARGS:
+        _check(build_arg in archive_call, f"classic archive stamps {build_arg.split('=', 1)[0]}")
+    _check(
+        not any(APPSTORE_BUNDLE_ID + "" == arg.split("=", 1)[-1] for arg in archive_call),
+        "classic archive never stamps com.cmux.app",
+    )
+
+    export_options = plistlib.loads((tmp / "ExportOptions.plist").read_bytes())
+    profiles = export_options.get("provisioningProfiles", {})
+    _check(
+        profiles.get(CLASSIC_BUNDLE_ID) == env["IOS_APPSTORE_PROVISIONING_PROFILE_NAME"],
+        "classic export maps the installed App Store profile to dev.cmux.app.classic",
+    )
+    _check(
+        profiles.get(CLASSIC_EXTENSION_BUNDLE_ID) == env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"],
+        "classic export maps the notification extension profile",
+    )
+    _check(set(profiles) == {CLASSIC_BUNDLE_ID, CLASSIC_EXTENSION_BUNDLE_ID}, "classic export maps only the classic identities")
+    _check(export_options.get("testFlightInternalTestingOnly") is True, "classic builds are internal TestFlight only")
+
+    ipa_line = next(line for line in result.stdout.splitlines() if line.startswith("IPA_PATH="))
+    with zipfile.ZipFile(Path(ipa_line.removeprefix("IPA_PATH="))) as zf:
+        info = plistlib.loads(zf.read("Payload/cmux.app/Info.plist"))
+        members = set(zf.namelist())
+        signed = plistlib.loads(zf.read("Payload/cmux.app/FakeSignedEntitlements.plist")) \
+            if "Payload/cmux.app/FakeSignedEntitlements.plist" in members else {}
+    _check(info.get("CFBundleIdentifier") == CLASSIC_BUNDLE_ID, "final classic IPA is dev.cmux.app.classic")
+    _check(info.get("CMUXKeychainAccessGroup") == CLASSIC_APP_ID, "final classic IPA carries keychain group 7WLXT3NR37.dev.cmux.app.classic")
+    _check(
+        signed.get("keychain-access-groups") == [CLASSIC_APP_ID],
+        "classic app is signed with keychain group 7WLXT3NR37.dev.cmux.app.classic",
+    )
+    _check(not any("CloudVPN.appex" in name for name in members), "classic IPA embeds no CloudVPN extension")
+
+
+def test_upload_classic_lane_uploads_to_its_own_record(tmp: Path, fakebin: Path) -> None:
+    env = _classic_env(tmp, fakebin)
+    env.update({key: value for key, value in _asc_upload_env(tmp, fakebin).items() if key.startswith("ASC_")})
+    env["ASC_APP_ID"] = CLASSIC_ASC_APP_ID
+    result = _run(
+        ["bash", str(ROOT / "ios" / "scripts" / "upload-testflight.sh"), "--lane", "classic", "--signing", "manual"],
+        env=env,
+        tmp=tmp,
+    )
+    _check(result.returncode == 0, "classic upload lane succeeds with fake asc")
+    _check(
+        f"configured app record verified: {CLASSIC_ASC_APP_ID} bundle id {CLASSIC_BUNDLE_ID}" in result.stdout,
+        "classic upload verifies the cmux CLASSIC record's bundle id before upload",
+    )
+    calls = [json.loads(line) for line in (tmp / "asc.jsonl").read_text(encoding="utf-8").splitlines()]
+    upload = next(call for call in calls if call[:2] == ["builds", "upload"])
+    _check(upload[upload.index("--app") + 1] == CLASSIC_ASC_APP_ID, "classic upload targets the cmux CLASSIC app id")
+
+
+def test_upload_classic_lane_refuses_the_com_cmux_app_record(tmp: Path, fakebin: Path) -> None:
+    for label, overrides in (
+        ("app id 6783338052", {"ASC_APP_ID": ASC_APP_ID}),
+        ("bundle com.cmux.app", {"IOS_CLASSIC_BUNDLE_ID": APPSTORE_BUNDLE_ID}),
+    ):
+        env = _classic_env(tmp / label.replace(" ", "-"), fakebin)
+        env.update(overrides)
+        result = _run(
+            ["bash", str(ROOT / "ios" / "scripts" / "upload-testflight.sh"), "--lane", "classic", "--export-only"],
+            env=env,
+            tmp=tmp,
+            log_failure=False,
+        )
+        _check(result.returncode == 2 and "ships cmux-next" in result.stderr, f"classic lane refuses {label}")
+    env = _classic_env(tmp / "classic-asc-mismatch", fakebin)
+    env.update({key: value for key, value in _asc_upload_env(tmp / "classic-asc-mismatch", fakebin).items() if key.startswith("ASC_")})
+    env["ASC_APP_ID"] = CLASSIC_ASC_APP_ID
+    env["CMUX_FAKE_ASC_APP_BUNDLE_ID"] = APPSTORE_BUNDLE_ID
+    result = _run(
+        ["bash", str(ROOT / "ios" / "scripts" / "upload-testflight.sh"), "--lane", "classic", "--signing", "manual", "--skip-notes"],
+        env=env,
+        tmp=tmp,
+        log_failure=False,
+    )
+    _check(
+        result.returncode != 0 and "refusing to upload" in result.stderr,
+        "classic lane refuses an app id whose record is com.cmux.app",
+    )
+
+
+def test_profile_installer_creates_an_active_classic_ci_profile(tmp: Path, fakebin: Path) -> None:
+    """The installer's App Store Connect path, for dev.cmux.app.classic.
+
+    A stale INVALID profile with the classic name (left by a run before the
+    bundle's capabilities were enabled) and com.cmux.app's historical
+    "cmux App Store CI <serial>" profile must both be ignored: the installer
+    creates "cmux App Store CI dev.cmux.app.classic <serial>" for the classic
+    bundle.
+    """
+    ascbin = tmp / "ascbin"
+    ascbin.mkdir(parents=True, exist_ok=True)
+    serial = subprocess.run(
+        ["openssl", "x509", "-inform", "DER", "-noout", "-serial"],
+        input=FIXTURE_CERTIFICATE_DER, capture_output=True, check=True,
+    ).stdout.decode().strip().split("=", 1)[1].upper()
+    suffix = serial[-8:]
+    _write_executable(
+        ascbin / "asc",
+        f"""#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+Path(os.environ["CMUX_FAKE_ASC_LOG"]).open("a").write(json.dumps(args) + "\\n")
+def out(data):
+    print(json.dumps({{"data": data}}))
+if args[:2] == ["bundle-ids", "list"]:
+    out([{{"id": "B-CLASSIC", "attributes": {{"identifier": "{CLASSIC_BUNDLE_ID}"}}}},
+         {{"id": "B-CLASSIC-NSE", "attributes": {{"identifier": "{CLASSIC_EXTENSION_BUNDLE_ID}"}}}},
+         {{"id": "B-APPSTORE", "attributes": {{"identifier": "{APPSTORE_BUNDLE_ID}"}}}}])
+elif args[:2] == ["certificates", "list"]:
+    out([{{"id": "CERT1", "attributes": {{"serialNumber": "{serial}"}}}}])
+elif args[:2] == ["profiles", "list"]:
+    out([{{"id": "P-STALE", "attributes": {{"name": "cmux App Store CI {CLASSIC_BUNDLE_ID} {suffix}", "profileState": "INVALID"}}}},
+         {{"id": "P-APPSTORE", "attributes": {{"name": "cmux App Store CI {suffix}", "profileState": "ACTIVE"}}}}])
+elif args[:2] == ["profiles", "create"]:
+    out({{"id": "P-NEW"}})
+elif args[:2] == ["profiles", "download"]:
+    Path(args[args.index("--output") + 1]).write_text("fake profile")
+""",
+    )
+    env = _base_env(tmp, fakebin)
+    env["PATH"] = f"{ascbin}{os.pathsep}{env['PATH']}"
+    env["CMUX_FAKE_APP_BUNDLE_ID"] = CLASSIC_BUNDLE_ID
+    env["IOS_APPSTORE_BUNDLE_IDENTIFIER"] = CLASSIC_BUNDLE_ID
+    env["IOS_APPSTORE_EXTENSION_BUNDLE_IDENTIFIER"] = CLASSIC_EXTENSION_BUNDLE_ID
+    env.pop("IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64", None)
+    env.pop("IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_BASE64", None)
+    env.update({"ASC_API_KEY_ID": "KEY123", "ASC_API_ISSUER_ID": "ISSUER123", "ASC_API_KEY_PATH": str(tmp / "key.p8")})
+    (tmp / "key.p8").write_text("fake p8")
+    env["RUNNER_TEMP"] = str(tmp / "runner")
+    env["HOME"] = str(tmp / "home")
+    env["GITHUB_ENV"] = str(tmp / "github-env")
+    Path(env["RUNNER_TEMP"]).mkdir(parents=True, exist_ok=True)
+    _run(
+        ["bash", str(ROOT / ".github" / "scripts" / "install-app-store-provisioning-profile.sh")],
+        env=env, tmp=tmp, log_failure=False,
+    )
+    calls = [json.loads(line) for line in (tmp / "asc.jsonl").read_text(encoding="utf-8").splitlines()]
+    creates = [call for call in calls if call[:2] == ["profiles", "create"]]
+    _check(bool(creates), "profile installer creates a profile for the classic bundle")
+    host = creates[0] if creates else []
+    _check(
+        host[host.index("--name") + 1] == f"cmux App Store CI {CLASSIC_BUNDLE_ID} {suffix}" if host else False,
+        "classic CI profile is named for its bundle, not com.cmux.app's historical name",
+    )
+    _check(host[host.index("--bundle") + 1] == "B-CLASSIC" if host else False, "classic CI profile targets dev.cmux.app.classic")
+    downloads = [call for call in calls if call[:2] == ["profiles", "download"]]
+    _check(
+        bool(downloads) and downloads[0][downloads[0].index("--id") + 1] == "P-NEW",
+        "installer downloads the new profile, never the stale INVALID or com.cmux.app one",
+    )
+    github_env = Path(env["GITHUB_ENV"]).read_text(encoding="utf-8") if Path(env["GITHUB_ENV"]).exists() else ""
+    _check("IOS_APPSTORE_PROVISIONING_PROFILE_NAME=" in github_env, "installer exports the classic host profile name")
 
 
 def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakebin: Path) -> None:
     env = _asc_upload_env(tmp, fakebin)
+    env["CMUX_IOS_ALLOW_CLASSIC_APPSTORE_UPLOAD"] = "1"
     env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
     env["CMUX_BUILD_NUMBER_OUT_FILE"] = str(tmp / "build-number.txt")
     env["CMUX_TESTFLIGHT_NOTES_REQUEST_FILE"] = str(tmp / "testflight-notes-request.json")
@@ -1417,6 +1823,7 @@ def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakeb
 
 def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
+    env["IOS_APPSTORE_ENABLE_CLOUD_VPN"] = "1"
     # These fixtures select profiles without an imported signing certificate.
     env.pop("IOS_DISTRIBUTION_IDENTITY", None)
     env["RUNNER_TEMP"] = str(tmp / "runner")
@@ -1441,8 +1848,12 @@ def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fake
         "profile installer exports a separate NotificationService profile name",
     )
     _check(
-        len(list((Path(env["HOME"]) / "Library/MobileDevice/Provisioning Profiles").glob("*.mobileprovision"))) == 2,
-        "profile installer keeps distinct app and notification profile files",
+        f"IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_NAME={APPSTORE_CLOUD_VPN_PROFILE_NAME}" in github_env,
+        "profile installer exports a separate CloudVPN profile name",
+    )
+    _check(
+        len(list((Path(env["HOME"]) / "Library/MobileDevice/Provisioning Profiles").glob("*.mobileprovision"))) == 3,
+        "profile installer keeps distinct app, notification, and CloudVPN profile files",
     )
 
 
@@ -1473,127 +1884,6 @@ def test_profile_installer_ignores_stale_primary_secret(tmp: Path, fakebin: Path
         f"IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME={APPSTORE_EXTENSION_PROFILE_NAME}" in github_env,
         "profile installer exports the fallback extension profile name",
     )
-
-
-def test_beta_profile_installer_requests_only_app_and_notification_profiles(
-    tmp: Path, fakebin: Path
-) -> None:
-    """Dry-run the TestFlight beta profile step against a recording fake asc.
-
-    The beta iOS app ships one app extension (NotificationService). The
-    installer must not ask App Store Connect for any other extension profile,
-    such as a retired `<bundle>.CloudVPN` packet-tunnel profile, even when a
-    stale caller still exports the old CloudVPN switch.
-    """
-    asc_bin = tmp / "asc-bin"
-    asc_bin.mkdir(parents=True, exist_ok=True)
-    cert_pem = tmp / "fixture-cert.pem"
-    cert_pem.write_text(ssl.DER_cert_to_PEM_cert(FIXTURE_CERTIFICATE_DER), encoding="utf-8")
-    serial = subprocess.run(
-        ["openssl", "x509", "-in", str(cert_pem), "-noout", "-serial"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip().split("=", 1)[1]
-    beta_extension_bundle_id = subprocess.run(
-        ["bash", str(ROOT / "ios" / "scripts" / "notification-service-bundle-id.sh"), BETA_BUNDLE_ID],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    # Every identifier ASC knows, including the retired CloudVPN one, so a
-    # lookup for it would succeed and be recorded instead of failing early.
-    registered = [
-        BETA_BUNDLE_ID,
-        beta_extension_bundle_id,
-        f"{BETA_BUNDLE_ID}.CloudVPN",
-    ]
-    _write_executable(
-        asc_bin / "asc",
-        f"""#!/usr/bin/env python3
-import json
-import os
-import sys
-from pathlib import Path
-
-args = sys.argv[1:]
-Path(os.environ["CMUX_FAKE_ASC_LOG"]).open("a", encoding="utf-8").write(json.dumps(args) + "\\n")
-
-def after(flag):
-    return args[args.index(flag) + 1]
-
-if args[:2] == ["bundle-ids", "list"]:
-    print(json.dumps({{"data": [
-        {{"id": "bundle:" + identifier, "attributes": {{"identifier": identifier}}}}
-        for identifier in {registered!r}
-    ]}}))
-elif args[:2] == ["certificates", "list"]:
-    print(json.dumps({{"data": [{{"id": "cert-1", "attributes": {{"serialNumber": {serial!r}}}}}]}}))
-elif args[:2] == ["profiles", "list"]:
-    print(json.dumps({{"data": []}}))
-elif args[:2] == ["profiles", "create"]:
-    print(json.dumps({{"data": {{"id": "profile:" + after("--bundle")}}}}))
-elif args[:2] == ["profiles", "download"]:
-    Path(after("--output")).write_bytes(b"beta extension profile")
-else:
-    sys.exit(2)
-""",
-    )
-    env = _base_env(tmp, fakebin)
-    env["PATH"] = f"{asc_bin}{os.pathsep}{env['PATH']}"
-    env["RUNNER_TEMP"] = str(tmp / "runner")
-    env["HOME"] = str(tmp / "home")
-    env["GITHUB_ENV"] = str(tmp / "extension-env")
-    Path(env["RUNNER_TEMP"]).mkdir(parents=True, exist_ok=True)
-    env.pop("IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64", None)
-    env["ASC_KEY_ID"] = "KEY123"
-    env["ASC_ISSUER_ID"] = "ISSUER123"
-    env["ASC_PRIVATE_KEY_PATH"] = str(tmp / "AuthKey.p8")
-    # Same inputs as the ios-testflight.yml beta profile step.
-    env["IOS_APPSTORE_TEAM_ID"] = TEAM_ID
-    env["IOS_APPSTORE_BUNDLE_IDENTIFIER"] = BETA_BUNDLE_ID
-    env["IOS_APPSTORE_EXTENSION_BUNDLE_IDENTIFIER"] = beta_extension_bundle_id
-    env["IOS_APPSTORE_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"beta profile").decode()
-    env["IOS_APPSTORE_KEYCHAIN_NAME"] = "ios-testflight.keychain"
-    # A stale caller that still exports the retired switch must not bring the
-    # CloudVPN request back.
-    env["IOS_APPSTORE_ENABLE_CLOUD_VPN"] = "1"
-    result = _run(
-        ["bash", str(ROOT / ".github" / "scripts" / "install-app-store-provisioning-profile.sh")],
-        env=env,
-        tmp=tmp,
-    )
-    _check(result.returncode == 0, "beta profile installer succeeds against the recording fake asc")
-    asc_calls = [
-        json.loads(line)
-        for line in (tmp / "asc.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
-    requested_bundles = [
-        call[call.index("--bundle") + 1].removeprefix("bundle:")
-        for call in asc_calls
-        if call[:2] == ["profiles", "create"]
-    ]
-    print(f"asc calls: {json.dumps(asc_calls)}")
-    print(f"bundle ids asked for a profile: {requested_bundles}")
-    _check(
-        requested_bundles == [beta_extension_bundle_id],
-        "beta profile installer asks ASC for exactly the NotificationService profile",
-    )
-    _check(
-        not any(bundle.endswith(".CloudVPN") for bundle in requested_bundles),
-        "beta profile installer never asks ASC for a <bundle>.CloudVPN profile",
-    )
-    _check(
-        not any("CloudVPN" in arg for call in asc_calls for arg in call),
-        "no ASC call mentions CloudVPN",
-    )
-    github_env = Path(env["GITHUB_ENV"]).read_text(encoding="utf-8")
-    _check(
-        "IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME=cmux Beta Notification Service Distribution"
-        in github_env,
-        "beta profile installer exports the NotificationService profile name",
-    )
-    _check("CLOUD_VPN" not in github_env, "beta profile installer exports no CloudVPN profile name")
 
 
 def test_validate_appstore_release_requires_numeric_app_id(tmp: Path, fakebin: Path) -> None:
@@ -1717,7 +2007,7 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
         None,
     )
     attach_build_call = next(
-        (call for call in asc_calls if call[:2] == ["versions", "attach-build"]),
+        (call for call in asc_calls if call[:2] == ["versions", "attach-build"] and "--help" not in call),
         None,
     )
     validate_call = next(
@@ -1741,7 +2031,7 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
             "attach-build",
             "--version-id",
             ASC_VERSION_ID,
-            "--build",
+            "--build-id",
             ASC_BUILD_ID,
         ],
         "submission preparation attaches the selected build to version 1.0.0",
@@ -1754,6 +2044,38 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
         )
     else:
         _check(False, "submission state is prepared before canonical readiness validation")
+
+
+def test_validate_appstore_release_matches_installed_asc_build_flag(tmp: Path, fakebin: Path) -> None:
+    """CI installs the Homebrew asc bottle (2.x, `--build`); local asc 5 uses `--build-id`."""
+    for flag in ("--build-id", "--build"):
+        run_tmp = tmp / flag.strip("-")
+        env = _base_env(run_tmp, fakebin)
+        env["ASC_APP_ID"] = ASC_APP_ID
+        env["CMUX_FAKE_ASC_BUILD_FLAG"] = flag
+        result = _run(
+            [
+                "bash",
+                str(ROOT / "ios" / "scripts" / "validate-app-store-release.sh"),
+                "--build-id",
+                ASC_BUILD_ID,
+                "--prepare-submission",
+            ],
+            env=env,
+            tmp=run_tmp,
+            log_failure=False,
+        )
+        _check(result.returncode == 0, f"validation helper runs with an asc that names the build flag {flag}")
+        asc_log = run_tmp / "asc.jsonl"
+        calls = [json.loads(line) for line in asc_log.read_text(encoding="utf-8").splitlines()] if asc_log.exists() else []
+        attach = next(
+            (c for c in calls if c[:2] == ["versions", "attach-build"] and "--help" not in c),
+            None,
+        )
+        _check(
+            attach is not None and flag in attach and ASC_BUILD_ID == attach[attach.index(flag) + 1],
+            f"attach-build passes the build with {flag} when the installed asc names it so",
+        )
 
 
 def test_bootstrap_appstore_availability_creates_all_territories_once(tmp: Path) -> None:
@@ -1996,12 +2318,16 @@ def main() -> None:
         test_bump_ios_version_accepts_trailing_appstore_lane(tmp / "version-bump-test", fakebin)
         test_upload_appstore_lane_uses_production_bundle_id(tmp / "upload-test", fakebin)
         test_official_testflight_workflow_publishes_generated_notes()
+        test_production_workflow_release_type_follows_release_when_approved()
+        test_production_workflow_refuses_the_classic_app()
+        test_upload_appstore_refuses_classic_upload_without_override(tmp / "upload-refuse-test", fakebin)
+        test_upload_classic_lane_builds_the_classic_identity(tmp / "classic-upload-test", fakebin)
+        test_upload_classic_lane_uploads_to_its_own_record(tmp / "classic-live-test", fakebin)
+        test_upload_classic_lane_refuses_the_com_cmux_app_record(tmp / "classic-refuse-test", fakebin)
+        test_profile_installer_creates_an_active_classic_ci_profile(tmp / "classic-profile-test", fakebin)
         test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp / "upload-live-test", fakebin)
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
         test_profile_installer_ignores_stale_primary_secret(tmp / "profile-stale-test", fakebin)
-        test_beta_profile_installer_requests_only_app_and_notification_profiles(
-            tmp / "beta-profile-asc-test", fakebin
-        )
         test_validate_appstore_release_requires_numeric_app_id(tmp / "validate-test", fakebin)
         test_validate_appstore_release_uses_device_screenshot_directories(
             tmp / "validate-screenshots-test", fakebin
@@ -2011,6 +2337,9 @@ def main() -> None:
         )
         test_bootstrap_appstore_availability_creates_all_territories_once(
             tmp / "availability-bootstrap-test"
+        )
+        test_validate_appstore_release_matches_installed_asc_build_flag(
+            tmp / "validate-build-flag-test", fakebin
         )
 
     if FAILURES:

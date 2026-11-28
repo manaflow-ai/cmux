@@ -37,8 +37,8 @@ machine. Personal machine and account names come from ``PR_MEDIA_PRIVATE_TERMS``
 no output ever echoes what they matched.
 
 Who owns a file: a numeric top folder ``<N>/`` is pull request N, an agent's
-when its author is listed in ``PR_MEDIA_AGENT_AUTHORS``; ``nightly-next/``,
-``fuzz/`` and ``whats-new/`` (whats-new-clips.py) are bots' own output. With ``--apply`` the scan removes agent-owned
+when its author is listed in ``PR_MEDIA_AGENT_AUTHORS``; ``nightly-next/`` and
+``fuzz/`` are bots' own output. With ``--apply`` the scan removes agent-owned
 hits in one ordinary commit on top of the tip (never a history rewrite). A
 teammate's file, any other folder, or an author that cannot be looked up is
 reported and kept (before the push every hit refuses, as above). Private terms shorter
@@ -69,13 +69,14 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Callable, Iterable, Mapping, TextIO
 import unicodedata
 
 BRANCH = "pr-media"
 REPOSITORY = "manaflow-ai/cmux"
 # Bots' own output; a hit there is always enforced.
-BOT_FOLDERS = frozenset({"nightly-next", "fuzz", "whats-new"})
+BOT_FOLDERS = frozenset({"nightly-next", "fuzz"})
 PR_FOLDER = re.compile(r"[1-9][0-9]{0,6}")
 MEDIA_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".mov"})
 TEXT_SUFFIXES = frozenset({".html", ".json", ".md", ".txt"})
@@ -605,19 +606,42 @@ def annotation_property(text: str) -> str:
     return annotation(text).replace(":", "%3A").replace(",", "%2C")
 
 
-def scan(repo: Path, start: str | None, end: str, ocr: str | None, patterns, apply: bool,
-         agents: frozenset[str], lookup, remote: str = "origin") -> dict:
-    report: dict = {"from": start, "to": end, "files": [], "unscanned": [], "removal": None, "marker": end}
-    if not start:
-        print(f"No scanned marker yet; recording {end[:12]} without scanning the existing branch.", flush=True)
-        return report
-    hits: dict[str, list[dict]] = {}
-    for path in changed_files(repo, start, end):
+def budget_seconds() -> float:
+    """PR_MEDIA_SCAN_BUDGET_SECONDS: stop at the next chunk boundary after this long; 0 or unset is no limit."""
+    try:
+        return float(os.environ.get("PR_MEDIA_SCAN_BUDGET_SECONDS") or 0)
+    except ValueError:
+        return 0.0
+
+
+def chunk_boundaries(repo: Path, start: str, end: str) -> list[str]:
+    """Commits oldest-first, every PR_MEDIA_SCAN_CHUNK_COMMITS-th (default 20), ending at end.
+
+    Falls back to [end] when start is not an ancestor (the weekly squash) or history is not fetched."""
+    try:
+        size = max(1, int(os.environ.get("PR_MEDIA_SCAN_CHUNK_COMMITS") or 20))
+    except ValueError:
+        size = 20
+    ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", start, end], cwd=repo,
+                              capture_output=True).returncode == 0
+    if not ancestor:
+        return [end]
+    commits = git("rev-list", "--reverse", "--first-parent", f"{start}..{end}", cwd=repo).split()
+    picks = commits[size - 1::size]
+    if not commits or picks[-1:] != commits[-1:]:
+        picks.append(end)
+    return picks
+
+
+def scan_chunk(repo: Path, start: str, boundary: str, end: str, ocr: str | None, patterns,
+               hits: dict[str, list[dict]], report: dict) -> None:
+    """OCR the files changed between two commits; blobs are read at the boundary that holds them."""
+    for path in changed_files(repo, start, boundary):
         is_text = Path(path).suffix.lower() in TEXT_SUFFIXES
         if not is_text and not ocr:
             raise BadInput("--ocr is required to scan media files")
         try:
-            lines = ocr_lines(ocr or "", repo, end, path)
+            lines = ocr_lines(ocr or "", repo, boundary, path)
         except (RuntimeError, subprocess.SubprocessError, OSError) as error:
             report["unscanned"].append({"path": path, "error": str(error)})
             print(f"::error file={annotation_property(path)},title=pr-media privacy::could not read {annotation(path)} ({error})",
@@ -626,6 +650,32 @@ def scan(repo: Path, start: str | None, end: str, ocr: str | None, patterns, app
         found = findings(lines, patterns)
         if found:
             hits[path] = found
+
+
+def scan(repo: Path, start: str | None, end: str, ocr: str | None, patterns, apply: bool,
+         agents: frozenset[str], lookup, remote: str = "origin") -> dict:
+    report: dict = {"from": start, "to": end, "files": [], "unscanned": [], "removal": None, "marker": end}
+    if not start:
+        print(f"No scanned marker yet; recording {end[:12]} without scanning the existing branch.", flush=True)
+        return report
+    hits: dict[str, list[dict]] = {}
+    started = time.monotonic()
+    boundaries = chunk_boundaries(repo, start, end)
+    previous = start
+    scanned_to = start
+    for index, boundary in enumerate(boundaries):
+        # A scan that stops at a chunk boundary still moves the marker there, so the next run
+        # resumes instead of rescanning from the old marker (the backlog once outlived the job timeout).
+        if budget_seconds() and index and time.monotonic() - started > budget_seconds():
+            print(f"pr-media privacy: time budget spent after {index}/{len(boundaries)} chunks; "
+                  f"marker moves to {scanned_to[:12]}, the next run continues.", flush=True)
+            report["marker"] = scanned_to
+            report["partial"] = True
+            break
+        scan_chunk(repo, previous, boundary, end, ocr, patterns, hits, report)
+        previous = scanned_to = boundary
+        print(f"pr-media privacy: chunk {index + 1}/{len(boundaries)} done at {boundary[:12]} "
+              f"({int(time.monotonic() - started)} s, {len(hits)} file(s) with hits)", flush=True)
     decisions = removable(hits, agents, lookup) if hits else {}
     blobs = {}
     if hits:
@@ -641,7 +691,8 @@ def scan(repo: Path, start: str | None, end: str, ocr: str | None, patterns, app
         lines += ["", "Found by scripts/ci/pr_media_privacy.py (.github/workflows/pr-media-privacy.yml)."]
         report["removal"] = apply_removal(repo, remote, to_remove, "\n".join(lines) + "\n")
         # The removal holds nothing new to scan when it sits right on the scanned tip.
-        if report["removal"] and git("rev-parse", f"{report['removal']}^", cwd=repo).strip() == end:
+        if (report["removal"] and not report.get("partial")
+                and git("rev-parse", f"{report['removal']}^", cwd=repo).strip() == end):
             report["marker"] = report["removal"]
     for path in sorted(hits):
         kinds = sorted({hit["kind"] for hit in hits[path]})

@@ -9,11 +9,11 @@ const env = await createSitesEnv();
 test.after(() => env.close());
 const s = env.session("google");
 
-test("googleAccounts.list: signed-in accounts with their uid, from ListAccounts", async () => {
+test("googleAccounts.list: signed-in accounts with their uid and Google account id, from ListAccounts", async () => {
   assert.deepEqual(await s.value("sites.googleAccounts.list()"), [
-    { uid: 0, name: "Ada Lovelace", email: "ada@example.com", signedOut: false },
-    { uid: 1, name: "Ada at Work", email: "ada@work.example", signedOut: false },
-    { uid: 2, name: "Old Account", email: "old@example.com", signedOut: true },
+    { uid: 0, id: "1001", name: "Ada Lovelace", email: "ada@example.com", signedOut: false },
+    { uid: 1, id: "1002", name: "Ada at Work", email: "ada@work.example", signedOut: false },
+    { uid: 2, id: "1003", name: "Old Account", email: "old@example.com", signedOut: true },
   ]);
 });
 

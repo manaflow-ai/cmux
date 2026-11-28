@@ -23,7 +23,7 @@ export function GET(request: Request): Response {
   const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID?.trim();
   const publishableClientKey =
     process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim();
-  if (!projectId) {
+  if (!projectId || !publishableClientKey) {
     return unavailableResponse();
   }
   const configuredHostedURL = process.env.SUBROUTER_HOSTED_URL?.trim();
@@ -55,9 +55,7 @@ export function GET(request: Request): Response {
           process.env.NEXT_PUBLIC_STACK_API_URL?.trim() ||
           DEFAULT_STACK_API_URL,
         projectId,
-        // Omitted when the project does not require one; clients then send no
-        // key, which Stack accepts, instead of a key that can be revoked.
-        ...(publishableClientKey ? { publishableClientKey } : {}),
+        publishableClientKey,
         // Start and complete the CLI login against the same deployment so the
         // confirmation page uses the Stack project that issued the login code.
         confirmUrl: cliAuthConfirmationURL(request),

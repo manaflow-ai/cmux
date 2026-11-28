@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Raw FFI bindings to libghostty-vt, built from the ghostty-next submodule via zig"
+description = "Raw FFI bindings to libghostty-vt, built from the vendored ghostty submodule via zig"
 links = "ghostty-vt"
 
 [lints]
@@ -13,4 +13,3 @@ workspace = true
 
 [build-dependencies]
 bindgen.workspace = true
-cmux-transport-rewrite.workspace = true

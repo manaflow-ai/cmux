@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/agent-pane.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentPane.generated.swift",
-  "type": "AgentPaneSettingsSchema",
-  "lists": {
-    "agentPane": ["descriptors", null]
-  }
-}

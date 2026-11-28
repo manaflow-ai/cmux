@@ -19,13 +19,12 @@ scripts/setup-team-dev.sh --refresh-agent  # simulator/test
 
 Setup also offers optional production credentials for developers who may want to verify against production. Press Enter or answer `no` to skip. Before opting in, set your own production account password through the Hexclave account portal for cmux production. Verified credentials go in `~/.secrets/cmuxterm-prod.env`; use `--refresh-production` to configure or replace them later. Production verification requires a launcher configured for production and an explicit `--credentials-file` selection. See [credential verification](contributor-verification.md#4-exercise-an-isolated-runtime) for profile and legacy-file details.
 
-A web or daemon change needs no build: `cmux app try .` in your checkout copies your NIGHTLY and swaps your code
-into the copy. For Swift, after development setup, launch a tagged build:
+After development setup, launch a tagged build:
 
 ```bash
 scripts/dev-setup.sh --tag <your-initials>
 ```
 
-That builds the tagged macOS DEBUG app signed in with your personal profile, then builds and launches the iOS dev build signed in with the same profile. The iOS app does not pair with the Mac; its own signed-in receipt is the launch gate. Use `--surface mac` for macOS only, or `--agent` to select the simulator/test profile for both the tagged Mac app and iOS Simulator. See `scripts/dev-setup.sh --help` for all flags.
+That builds the tagged macOS DEBUG app signed in with your personal profile, enables the iOS pairing host, mints an attach ticket, and launches the iOS dev build attached to your Mac. Use `--surface mac` for macOS only, or `--agent` to select the simulator/test profile for both the tagged Mac app and iOS Simulator. See `scripts/dev-setup.sh --help` for all flags.
 
 This is DEBUG-only and per-user. Credential files live outside the repo and are never committed; `scripts/cmuxterm-dev.env.example` is the development template. Release builds never read these credentials (the sign-in automation is compiled out of release).

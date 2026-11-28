@@ -15,6 +15,11 @@ name: Auto mode journey (staging, Mac -> Cloud -> Mac)
 # the pair cloud-rd-link-readback.yml reads) on this throwaway runner; nobody else's setting changes. The run's
 # machine and its `cli` install are removed by the journey and again in an always() step. Nothing gates on it.
 #
+# This copy on main only lets workflow_dispatch find the workflow: a dispatch at ref feat-cmux-next runs
+# feat-cmux-next's copy, which holds the journey. Its job never ran on main (it was gated to
+# refs/heads/feat-cmux-next), so main keeps no runner, secret or build here, and main's workflow guards see nothing
+# to route. Edit the journey in feat-cmux-next's copy.
+#
 # Lane VMs dispatch it through the lane broker's `auto_journey` action (cmuxterm-hq lane-gh-broker); the broker
 # checks only the input's shape, this job holds the rest: feat-cmux-next only, a `ref` that is on it, staging only.
 on:
@@ -22,11 +27,6 @@ on:
     inputs:
       ref:
         description: A commit on feat-cmux-next to build the Mac daemon from (7-40 hex), or empty for its tip
-        required: false
-        default: ""
-        type: string
-      nightly_build:
-        description: Numbered published NEXT NIGHTLY for isolated real-Claude journal recovery (leave ref empty)
         required: false
         default: ""
         type: string
@@ -43,237 +43,13 @@ env:
 
 jobs:
   journey:
-    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.nightly_build == ''
-    # Holds the stack pair: an ephemeral macOS VM from the declared pool, as cloud-rd-link-readback.yml.
-    environment:
-      name: cmux-next-vm-image-dev
-      deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
-    timeout-minutes: 90
+    name: journey (dispatch at feat-cmux-next)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 2
     steps:
-      - name: Refuse any ref but feat-cmux-next, and a malformed commit
+      - name: Refuse a dispatch at any ref but feat-cmux-next
         env:
           REF: ${{ github.ref }}
-          AT: ${{ inputs.ref }}
         run: |
-          if [ "$REF" != refs/heads/feat-cmux-next ]; then
-            echo "::error::auto-journey runs on feat-cmux-next only (got $REF)"
-            exit 1
-          fi
-          if [ -n "$AT" ] && ! printf '%s' "$AT" | grep -Eqx '[0-9a-f]{7,40}|feat-cmux-next'; then
-            echo "::error::ref must be a 7-40 character lowercase commit on feat-cmux-next, feat-cmux-next, or empty"
-            exit 1
-          fi
-
-      - name: Checkout cmux
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          submodules: false
-          fetch-depth: 0
-
-      # The driver runs from the branch tip; the Mac daemon is built from `ref`, which must be on feat-cmux-next.
-      - name: Pick the commit to build
-        id: at
-        env:
-          AT: ${{ inputs.ref }}
-        run: |
-          set -euo pipefail
-          src="$PWD"
-          if [ -n "$AT" ] && [ "$AT" != feat-cmux-next ]; then
-            sha="$(git rev-parse --verify --quiet "$AT^{commit}")" || sha=""
-            if [ -z "$sha" ]; then echo "::error::no commit $AT in this repository"; exit 1; fi
-            if ! git merge-base --is-ancestor "$sha" HEAD; then
-              echo "::error::$sha is not on feat-cmux-next; auto-journey builds only commits on it"
-              exit 1
-            fi
-            src="$RUNNER_TEMP/auto-journey-src"
-            git worktree add --detach "$src" "$sha"
-          fi
-          (cd "$src" && git submodule update --init --depth 1 ghostty ghostty-next)
-          echo "src=$src" >> "$GITHUB_OUTPUT"
-          echo "sha=$(git -C "$src" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      - name: Set up cmux-tui Rust
-        uses: ./.github/actions/setup-cmux-tui-rust
-
-      # The Zig ghostty-next's build.zig.zon names: the libghostty-vt source cmux-tui builds from.
-      - name: Install Zig
-        env:
-          GHOSTTY_ZIG_SOURCE: ghostty-next
-        working-directory: ${{ steps.at.outputs.src }}
-        run: ./scripts/install-zig-ci.sh
-
-      - name: Build the commit's macOS cmux-tui
-        id: build-cmux-tui
-        working-directory: ${{ steps.at.outputs.src }}/cmux-tui
-        env:
-          CARGO_NET_RETRY: "10"
-          CARGO_HTTP_TIMEOUT: "120"
-          GHOSTTY_ZIG_SOURCE: ghostty-next
-          CMUX_GHOSTTY_SRC: ""
-        run: |
-          set -euo pipefail
-          cargo build -p cmux-tui --bin cmux-tui --locked
-          binary="${CARGO_TARGET_DIR:-$PWD/target}/debug/cmux-tui"
-          case "$binary" in /*) ;; *) binary="$PWD/$binary" ;; esac
-          test -x "$binary"
-          file "$binary" | grep -q 'Mach-O'
-          echo "path=$binary" >> "$GITHUB_OUTPUT"
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
-
-      - name: Auto journey (staging)
-        timeout-minutes: 40
-        env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
-        run: |
-          set -euo pipefail
-          if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ]; then
-            echo "::error::the staging agent Stack pair is missing from cmux-next-vm-image-dev"
-            exit 1
-          fi
-          OUT="$RUNNER_TEMP/auto-journey"
-          mkdir -p "$OUT"
-          bun scripts/cmux-next/auto-journey.ts --backend staging --out "$OUT" --cmux "$CMUX_PATH"
-
-      - name: Summarize the journey
-        if: always()
-        env:
-          SHA: ${{ steps.at.outputs.sha }}
-        run: |
-          set -euo pipefail
-          OUT="$RUNNER_TEMP/auto-journey"
-          {
-            echo '## Auto mode journey (staging, Mac -> Cloud -> Mac)'
-            echo
-            echo "- Mac daemon built from \`${SHA:-?}\`"
-            echo
-            if [ -s "$OUT/summary.md" ]; then
-              if grep -Eiq '(cmvm|cmk|crt|crk|cmm|cmj)_[A-Za-z0-9_-]{8,}|sk-(ant-)?[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|bearer[[:space:]]+[A-Za-z0-9._~+/=-]+|((api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret|credential)"?[[:space:]]*[:=])' "$OUT/summary.md"; then
-                echo 'The summary holds a secret-shaped value; it is not shown.'
-              else
-                cat "$OUT/summary.md"
-              fi
-            else
-              echo 'No summary was written (the run stopped before the journey).'
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      # The steps and S4's phone-send numbers (auto-journey-s4.ts), for the AutoCloud slice probe. Neither file holds a
-      # token: the journey scrubs every detail, and s4.json is ids and milliseconds.
-      - name: Keep the journey's numbers
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: auto-journey
-          path: |
-            ${{ runner.temp }}/auto-journey/auto-journey.json
-            ${{ runner.temp }}/auto-journey/s4.json
-          if-no-files-found: ignore
-          retention-days: 30
-
-      - name: Remove the run's machine and install
-        if: always()
-        env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-        run: |
-          set -euo pipefail
-          OUT="$RUNNER_TEMP/auto-journey"
-          if [ ! -s "$OUT/owned.json" ]; then echo "no owned.json: the run made nothing"; exit 0; fi
-          if ! command -v bun >/dev/null 2>&1; then echo "::warning::no bun: the journey's own cleanup is the only one"; exit 0; fi
-          bun scripts/cmux-next/auto-journey.ts --backend staging --cleanup "$OUT"
-
-  nightly-journal-recovery:
-    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.nightly_build != ''
-    environment:
-      name: cmux-next-vm-image-dev
-      deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
-    timeout-minutes: 45
-    steps:
-      - name: Validate numbered publication input
-        env:
-          BUILD: ${{ inputs.nightly_build }}
-          AT: ${{ inputs.ref }}
-        run: |
-          set -euo pipefail
-          if [ -n "$AT" ] || ! printf '%s' "$BUILD" | grep -Eqx '[0-9]{3,20}'; then
-            echo '::error::nightly_build must be a numbered publication and ref must be empty'
-            exit 1
-          fi
-
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          submodules: false
-          fetch-depth: 0
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
-
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "24.22.1"
-
-      - name: Install the test's Claude CLI
-        timeout-minutes: 5
-        run: |
-          set -euo pipefail
-          npm install --prefix "$RUNNER_TEMP/recovery-claude" --no-fund --no-audit @anthropic-ai/claude-code@2.1.284
-          echo "$RUNNER_TEMP/recovery-claude/node_modules/.bin" >> "$GITHUB_PATH"
-
-      - name: Verify and unpack the published app
-        timeout-minutes: 15
-        env:
-          BUILD: ${{ inputs.nightly_build }}
-        run: |
-          set -euo pipefail
-          python3 scripts/cmux-next/auto-journal-nightly-artifact.py \
-            --build "$BUILD" --out "$RUNNER_TEMP/auto-journal-artifact" \
-            --contains 96ee46878c55c81ed64316b870a01cf6e3f2c71f
-
-      - name: Recover the test-owned running Claude conversation
-        id: recovery
-        timeout-minutes: 20
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: |
-          set -euo pipefail
-          receipt="$RUNNER_TEMP/auto-journal-artifact/provenance.json"
-          binary="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["binary_path"])' "$receipt")"
-          bun scripts/cmux-next/auto-journal-nightly-recovery.ts \
-            --backend staging --cmux-tui "$binary" --provenance "$receipt" \
-            --out "$RUNNER_TEMP/auto-journal-recovery"
-
-      - name: Clean up only this recovery run's resources
-        if: always() && steps.recovery.outcome != 'skipped'
-        timeout-minutes: 5
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/auto-journal-recovery"
-          if [ -f "$out/owned.json" ]; then
-            bun scripts/cmux-next/auto-journal-nightly-recovery.ts --backend staging --cleanup "$out"
-          fi
-
-      - name: Keep publication and recovery receipts
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: auto-journal-nightly-recovery
-          path: |
-            ${{ runner.temp }}/auto-journal-artifact/provenance.json
-            ${{ runner.temp }}/auto-journal-recovery/evidence.json
-          if-no-files-found: ignore
-          retention-days: 30
+          echo "::error::auto-journey runs from feat-cmux-next's copy: dispatch it with --ref feat-cmux-next (got $REF)"
+          exit 1

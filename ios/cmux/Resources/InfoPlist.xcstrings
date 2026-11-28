@@ -90,95 +90,6 @@
         }
       }
     },
-    "NSFaceIDUsageDescription": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux verwendet Face ID, um zu bestätigen, dass du den Schutz für Nachrichten an Chief verringern möchtest."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux usa Face ID para confirmar que quieres reducir la protección de los mensajes a Chief."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux utilise Face ID pour confirmer que vous souhaitez réduire la protection des messages envoyés à Chief."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux usa Face ID per confermare che vuoi ridurre la protezione dei messaggi a Chief."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief へのテキストの保護を下げることを確認するために、cmux は Face ID を使用します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux는 Chief에게 보내는 메시지의 보호 수준을 낮추려는 것을 확인하기 위해 Face ID를 사용합니다."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux gebruikt Face ID om te bevestigen dat je de beveiliging van berichten aan Chief wilt verlagen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux używa Face ID, aby potwierdzić, że chcesz obniżyć ochronę wiadomości do Chief."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O cmux usa o Face ID para confirmar que você quer reduzir a proteção das mensagens para o Chief."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux использует Face ID, чтобы подтвердить, что вы хотите снизить защиту сообщений для Chief."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux, Chief'e gönderilen mesajların korumasını düşürmek istediğinizi onaylamak için Face ID kullanır."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 使用面容 ID 来确认你要降低发送给 Chief 的消息的保护级别。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 使用 Face ID 來確認你要降低傳送給 Chief 的訊息的保護等級。"
-          }
-        }
-      }
-    },
     "NSLocalNetworkUsageDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -273,86 +184,86 @@
       "localizations": {
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nimmt deine Stimme für Nachrichten, Sprachnotizen und Anrufe an deinen Chief auf."
+            "state": "translated",
+            "value": "Audio aufnehmen, um Sprache in das Nachrichtenfeld zu transkribieren."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Record your voice for messages, voice notes and calls to your Chief."
+            "value": "Record audio to transcribe your voice into the message box."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Graba tu voz para mensajes, notas de voz y llamadas a tu Chief."
+            "state": "translated",
+            "value": "Grabar audio para transcribir tu voz en el cuadro de mensaje."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enregistre votre voix pour les messages, notes vocales et appels à votre Chief."
+            "state": "translated",
+            "value": "Enregistrez de l'audio pour transcrire votre voix dans la zone de message."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Registra la tua voce per messaggi, note vocali e chiamate al tuo Chief."
+            "state": "translated",
+            "value": "Registra audio per trascrivere la tua voce nella casella dei messaggi."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メッセージ、ボイスメモ、Chief との通話のために音声を録音します。"
+            "value": "音声をメッセージ欄に文字起こしするため、音声を録音します。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "메시지, 음성 메모, Chief와의 통화를 위해 음성을 녹음합니다."
+            "state": "translated",
+            "value": "음성을 녹음하여 메시지 박스에 텍스트로 변환합니다."
           }
         },
         "nl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Neemt je stem op voor berichten, spraaknotities en gesprekken met je Chief."
+            "state": "translated",
+            "value": "Audio opnemen om je stem te transcriberen in het berichtvak."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nagrywa Twój głos do wiadomości, notatek głosowych i rozmów z Chiefem."
+            "state": "translated",
+            "value": "Nagraj dźwięk, aby transkrybować głos do pola wiadomości."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Grava sua voz para mensagens, notas de voz e chamadas com seu Chief."
+            "state": "translated",
+            "value": "Gravar áudio para transcrever sua voz na caixa de mensagem."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Записывает ваш голос для сообщений, голосовых заметок и звонков Chief."
+            "state": "translated",
+            "value": "Запись аудио для транскрибации голоса в поле сообщения."
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mesajlar, sesli notlar ve Chief aramaları için sesinizi kaydeder."
+            "state": "translated",
+            "value": "Sesinizi mesaj kutusuna dönüştürmek için ses kaydedin."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "录制你的声音，用于消息、语音备忘和与 Chief 通话。"
+            "state": "translated",
+            "value": "录制音频以将语音转录到消息框中。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "錄製你的聲音，用於訊息、語音備忘和與 Chief 通話。"
+            "state": "translated",
+            "value": "錄製音訊以將語音轉錄至訊息輸入框。"
           }
         }
       }
@@ -451,86 +362,86 @@
       "localizations": {
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Transkribiert deine Sprache auf diesem iPhone in Nachrichten und Sprachnotizen für deinen Chief."
+            "state": "translated",
+            "value": "Sprache in das Nachrichtenfeld transkribieren."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Transcribe your speech on this iPhone into messages and voice notes for your Chief."
+            "value": "Transcribe your speech into the message box."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Transcribe tu voz en este iPhone en mensajes y notas de voz para tu Chief."
+            "state": "translated",
+            "value": "Transcribir tu voz en el cuadro de mensaje."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Transcrit votre parole sur cet iPhone en messages et notes vocales pour votre Chief."
+            "state": "translated",
+            "value": "Transcrivez votre discours dans la zone de message."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Trascrive la tua voce su questo iPhone in messaggi e note vocali per il tuo Chief."
+            "state": "translated",
+            "value": "Trascrivi il tuo parlato nella casella dei messaggi."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この iPhone 上で音声を文字起こしし、メッセージや Chief へのボイスメモにします。"
+            "value": "音声をメッセージ欄に文字起こしします。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "이 iPhone에서 음성을 받아써 메시지와 Chief에게 보낼 음성 메모로 만듭니다."
+            "state": "translated",
+            "value": "음성을 메시지 박스에 텍스트로 변환합니다."
           }
         },
         "nl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zet je spraak op deze iPhone om in berichten en spraaknotities voor je Chief."
+            "state": "translated",
+            "value": "Je spraak transcriberen in het berichtvak."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Transkrybuje Twoją mowę na tym iPhonie na wiadomości i notatki głosowe dla Chiefa."
+            "state": "translated",
+            "value": "Transkrybuj mowę do pola wiadomości."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Transcreve sua fala neste iPhone em mensagens e notas de voz para seu Chief."
+            "state": "translated",
+            "value": "Transcrever sua fala na caixa de mensagem."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Расшифровывает вашу речь на этом iPhone в сообщения и голосовые заметки для Chief."
+            "state": "translated",
+            "value": "Транскрибация речи в поле сообщения."
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Konuşmanızı bu iPhone’da mesajlara ve Chief için sesli notlara dönüştürür."
+            "state": "translated",
+            "value": "Konuşmanızı mesaj kutusuna dönüştürün."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "在这台 iPhone 上将你的语音转写为消息和给 Chief 的语音备忘。"
+            "state": "translated",
+            "value": "将您的语音转录到消息框中。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "在這支 iPhone 上將你的語音轉寫為訊息和給 Chief 的語音備忘。"
+            "state": "translated",
+            "value": "將您的語音轉錄至訊息輸入框。"
           }
         }
       }

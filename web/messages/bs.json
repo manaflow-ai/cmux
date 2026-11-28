@@ -1,5 +1,4 @@
 {
-  "guestCLI": { "useReasonSharedMachine": "obavezno: ova mašina se dijeli s timom" },
   "agentHarness": {
     "title": "Otkrivena konfiguracija harnessa",
     "selectionNotice": "Odabir provajdera ne pokreće niti omogućava ove harness-e.",
@@ -54,7 +53,7 @@
     "recreateRequired": {
       "title": "Ponovo kreirajte ovu mašinu",
       "message": "Ova mašina je kreirana prije ažuriranja Clouda i ne može se povezati.",
-      "action": "Kreirajte novu mašinu. Pripremite SCP pristup pomoću `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"`, zatim kopirajte datoteke putem SCP-a prije brisanja ove mašine."
+      "action": "Kreirajte novu mašinu, kopirajte datoteke pomoću cmux vm pull i cmux vm push, a zatim obrišite ovu."
     },
     "guestUnresponsive": {
       "title": "Mašina ne odgovara",
@@ -64,7 +63,7 @@
     "inProgress": {
       "title": "Još je u toku",
       "message": "Cloud provajder još nije završio ovu promjenu. Možda će se još završiti.",
-      "action": "Provjerite status mašine pomoću cmux cloud list-machines ili na listi mašina prije nego što pokušate ponovo."
+      "action": "Provjerite status mašine pomoću cmux vm ls ili na listi mašina prije nego što pokušate ponovo."
     },
     "providerTimeout": {
       "title": "Cloud provajder je spor",
@@ -79,7 +78,12 @@
     "stateConflict": {
       "title": "Mašina je zauzeta",
       "message": "Ova mašina se pokreće, pauzira ili ne radi, pa to sada ne može uraditi.",
-      "action": "Sačekajte trenutak i pokušajte ponovo. Provjerite status mašine pomoću cmux cloud list-machines i prvo je nastavite ako je pauzirana."
+      "action": "Sačekajte trenutak i pokušajte ponovo. Provjerite status mašine pomoću cmux vm ls i prvo je nastavite ako je pauzirana."
+    },
+    "hostRecovery": {
+      "title": "Host mašine se oporavlja",
+      "message": "Disk ove mašine nalazi se na Cloud hostu koji se oporavlja, pa se još ne može pokrenuti. Njeni fajlovi su sačuvani.",
+      "action": "Pokušajte ponovo za nekoliko minuta. Nemojte brisati niti ponovo kreirati mašinu: njen disk je sačuvan i vraća se s njom. Ako se ni nakon sat vremena ne pokrene, kontaktirajte podršku s ID-om praćenja."
     },
     "networkRuleCapacity": {
       "title": "Mrežna pravila su na kapacitetu",
@@ -102,15 +106,15 @@
       "action": {
         "snapshot": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
         "restore": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
-        "fork": "Ne pokušavajte ponovo. Kreirajte novi VM pomoću `cmux cloud new-machine`.",
-        "openPort": "Ne pokušavajte ponovo. Pristupite usluzi iz mašine pomoću `cmux cloud exec --target machine:<id> --command <command>` ili koristite tip mašine koji može otvoriti portove.",
-        "default": "Ne pokušavajte ponovo. Pokrenite `cmux cloud list-machines` ili kontaktirajte podršku ako mislite da je ovo greška."
+        "fork": "Ne pokušavajte ponovo. Kreirajte novi VM pomoću `cmux vm new`.",
+        "openPort": "Ne pokušavajte ponovo. Pristupite usluzi iz mašine pomoću `cmux vm exec` ili koristite tip mašine koji može otvoriti portove.",
+        "default": "Ne pokušavajte ponovo. Pokrenite `cmux vm ls` ili kontaktirajte podršku ako mislite da je ovo greška."
       }
     },
     "requiresPro": {
-      "title": "Potreban je cmux {plan}",
-      "message": "Cloud VM-ovi zahtijevaju cmux {plan} plan.",
-      "action": "Nadogradite na cmux {plan} na {upgradeUrl} da biste kreirali Cloud VM-ove."
+      "title": "Potreban je cmux Pro",
+      "message": "Cloud VM-ovi zahtijevaju cmux Pro plan.",
+      "action": "Nadogradite na cmux Pro na {upgradeUrl} da biste kreirali Cloud VM-ove."
     },
     "displayName": {
       "title": "Nevažeći naziv mašine",
@@ -120,35 +124,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Mašine sa {memory} GiB zahtijevaju cmux {plan}. Vaš paket podržava do {max} GiB.",
-      "action": "{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "Nije moguće provjeriti veličinu RAM-a izvorne mašine.",
-      "action": "cmux cloud new-machine"
+      "action": "cmux vm new --size 4g"
     },
     "memoryUnavailable": {
       "message": "Ova veličina mašine nije dostupna. Odaberite do {max} GiB.",
-      "action": "cmux cloud new-machine"
+      "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
       "savedMessage": "Plus: Ukupno 1 sačuvana mašina, uključujući pauziranu",
-      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
       "activeMessage": "Plus: 1 Cloud virtuelna mašina",
-      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
       "hoursMessage": "Plus: Bez mjesečnog ograničenja sati",
-      "hoursAction": "https://cmux.com/pricing",
+      "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
-      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
+      "shapeAction": "cmux vm new --size 8g\ncmux billing checkout --plan max"
     },
     "planBudget": {
       "computeTitle": "Kvota računanja za {plan} je potrošena",
       "computeMessage": "Vaš {plan} plan je potrošio svojih {included} računskih sati za ovaj obračunski period. Jedan računski sat je 1 vCPU sa 2 GB memorije tokom jednog sata. Vaše mašine se ponovo mogu pokrenuti {resetDate}.",
       "computeAction": "Pauzirane mašine zadržavaju svoje datoteke. Kontaktirajte podršku ako vam treba više računanja prije {resetDate}.",
-      "computeActionUpgrade": "https://cmux.com/pricing",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
       "storageTitle": "Kvota diska za {plan} je potrošena",
       "storageMessage": "Vaš {plan} plan uključuje ukupno {included} GB diska za sve sačuvane mašine. Sačuvane mašine koriste {used} GB, a ovaj zahtjev treba {requested} GB.",
-      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
-      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Nema dovoljno Cloud VM resursa",
@@ -376,6 +380,7 @@
     "typingCodingAgents": "agente za kodiranje",
     "typingMultitasking": "multitasking",
     "subtitle": "Besplatan i otvorenog koda nativni macOS terminal izgrađen na Ghostty. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i <cliLink>CLI</cliLink> za programabilnost.",
+    "nextCallout": "Novo: isprobajte <link>cmux NEXT</link>, pregled sljedeće verzije cmux-a.",
     "features": "Funkcionalnosti",
     "faq": "Česta pitanja",
     "communitySection": "Zajednica",
@@ -426,13 +431,13 @@
     "faqCustomizeQ": "Mogu li prilagoditi cmux?",
     "faqCustomizeA": "Da. Renderiranje terminala koristi vašu Ghostty konfiguraciju, pa se teme, fontovi, boje i kursor prenose direktno. Vlastite postavke cmux-a u <path>~/.config/cmux/cmux.json</path> kontrolišu bočnu traku, traku tabova, podijeljene panele i ponašanje, a svaka <shortcutsLink>tipkovnička prečica</shortcutsLink> je izmjenjiva. Pogledajte <link>konfiguraciju</link>.",
     "faqIosQ": "Postoji li iOS aplikacija?",
-    "faqIosA": "Da, u beta verziji. Uparite svoj iPhone sa svojim Mac-om iz Mobile Connect prozora i povežite se na svoje terminale s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija. Isporučuje se na TestFlight-u kao cmux BETA.",
+    "faqIosA": "Da, u beta verziji. Uparite svoj iPhone sa svojim Mac-om iz Mobile Connect prozora i povežite se na svoje terminale s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija. Isporučuje se na TestFlight-u kao cmux BETA. Rani pristup je uključen uz <proLink>cmux Pro</proLink>.",
     "faqSkillsQ": "Ima li cmux skills-e?",
     "faqSkillsA": "Da. Skills su ponovo iskoristivi tokovi rada koje možete dati bilo kojem agentu koji radi u cmux-u, za stvari poput kontrole CLI-ja, automatizacije radnog prostora, postavki i panela preglednika. Pregledajte otvorenu kolekciju na <skillsLink>cmux-skills</skillsLink> ili pročitajte <link>dokumentaciju za skills</link>.",
     "faqBrowserQ": "Šta može ugrađeni preglednik?",
     "faqBrowserA": "cmux može podijeliti pravi panel preglednika pored vašeg terminala i potpuno je programabilan: navigirajte, snimite DOM, kliknite, kucajte, izvršite JavaScript i čitajte aktivnost konzole i mreže preko istog socket API-ja. Agenti ga koriste da provjere vlastite web izmjene bez napuštanja cmux-a. Pogledajte <link>automatizaciju preglednika</link>.",
     "faqSupportQ": "Kako mogu podržati cmux?",
-    "faqSupportA": "cmux je besplatan i otvorenog koda, i uvijek će biti.",
+    "faqSupportA": "cmux je besplatan i otvorenog koda, i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što slijedi, uključujući cmux AI, iOS aplikaciju i Cloud VMs, pogledajte <proLink>cmux Pro</proLink>.",
     "faqFeatureQ": "Imam prijedlog za funkciju ili sam pronašao grešku",
     "faqFeatureA": "Želimo to čuti. Otvorite <issuesLink>issue</issuesLink> ili <prLink>pull request</prLink> na GitHub-u, ili nam <mailLink>pošaljite e-mail</mailLink>."
   },
@@ -513,7 +518,18 @@
         "grantedBody": "Tim cmux je timu {team} dodijelio pristup Team planu. Nema pretplate kojom treba upravljati.",
         "seatsUsed": "Iskorišteno {members} od {seats}",
         "overSeat": "{team} ima {members} članova i {seats} plaćenih mjesta. Mjesta prate broj članova, pa se pretplata ažurira sama.",
-        "addSeats": "Dodaj mjesta"
+        "addSeats": "Dodaj mjesta",
+        "enterprise": {
+          "current": "Trenutni plan",
+          "body": "{team} koristi prilagođeni plan dogovoren s cmux timom. Kontaktirajte cmux tim da ga promijenite.",
+          "price": "Cijena",
+          "perMonth": "{amount}/mjesečno",
+          "machines": "Cloud mašine",
+          "pool": "Dijeljeni vCPU / memorija",
+          "largest": "Najveća mašina",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Bez ograničenja"
+        }
       },
       "teamList": {
         "heading": "Opsezi naplate",
@@ -555,7 +571,7 @@
           "granted": "Dodijelio cmux. Nema šta da se mijenja.",
           "grantedNoCancel": "Dodijelio cmux, pa nema ničega za otkazivanje.",
           "paymentFailed": "Ažurirajte način plaćanja prije promjene plana.",
-          "foundersLifetime": "Vaša doživotna kupovina uključuje Pro.",
+          "foundersLifetime": "Founder's Edition uključuje Pro doživotno.",
           "adminOnly": "Samo administratori tima mogu promijeniti plan."
         },
         "names": {
@@ -579,17 +595,17 @@
           ],
           "pro": [
             "Cloud agenti na Cloud VMs",
-            "Cloud VM-ovi bez ograničenja broja, naplaćuju se nakon uključene potrošnje; jedan VM može koristiti do 16 GB RAM-a / 8 vCPU. Za veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU potreban je Max.",
+            "Do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a. Jedan VM može koristiti do 16 GB RAM-a / 8 vCPU. Za veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU potreban je Max.",
             "cmux aplikacija za iOS"
           ],
           "max": [
-            "Cloud VM-ovi bez ograničenja broja, naplaćuju se nakon uključene potrošnje; Max omogućava 24 GB / 12 vCPU, 32 GB / 16 vCPU i do 64 GB / 32 vCPU.",
+            "Do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a. Max omogućava 24 GB / 12 vCPU, 32 GB / 16 vCPU i do 64 GB / 32 vCPU.",
             "Veće mašine",
             "Sve iz Pro"
           ],
           "team": [
             "Sve iz Pro za svakog člana",
-            "Cloud VM-ovi bez ograničenja broja za sve u timu, naplaćuju se nakon uključene potrošnje; limit potrošnje tima je granica",
+            "Do 5 Cloud VM-ova po plaćenom mjestu, koji dijele 20 vCPU-a i 40 GB RAM-a po plaćenom mjestu u cijelom timu",
             "Jedna faktura za cijeli tim",
             "Prioritetna podrška"
           ]
@@ -612,8 +628,8 @@
         "title": "Otkazati {plan}?",
         "body": "{plan} zadržavate do {date}. Nakon toga gubite:",
         "bodyNoDate": "{plan} zadržavate do kraja ovog obračunskog perioda. Nakon toga gubite:",
-        "foundersBody": "Vaša {plan} pretplata ističe {date}. Nakon toga zadržavate Pro iz svoje doživotne kupovine.",
-        "foundersBodyNoDate": "Vaša {plan} pretplata ističe na kraju ovog obračunskog perioda. Nakon toga zadržavate Pro iz svoje doživotne kupovine.",
+        "foundersBody": "Vaša {plan} pretplata ističe {date}. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
+        "foundersBodyNoDate": "Vaša {plan} pretplata ističe na kraju ovog obračunskog perioda. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
         "reasonLabel": "Zašto otkazujete? (opcionalno)",
         "otherPlaceholder": "Recite nam više (opcionalno)",
         "confirm": "Otkaži plan",
@@ -969,7 +985,12 @@
         "deleteConfirmBody": "Ovo je nepovratno i briše sve podatke povezane s vašim računom.",
         "deleteAcknowledge": "Razumijem da će moj račun i njegovi podaci biti trajno izbrisani.",
         "deleteConfirm": "Izbriši račun",
-        "deleteError": "Račun nije moguće izbrisati. Pokušajte ponovo."
+        "deleteError": "Račun nije moguće izbrisati. Pokušajte ponovo.",
+        "deleteErrorPending": "Vaš račun se već briše. Pokušajte ponovo za trenutak.",
+        "deleteErrorRetryable": "Brisanje računa nije dovršeno. Provjerite vezu i pokušajte ponovo.",
+        "deleteAppStoreTitle": "Vaša App Store pretplata će se i dalje obnavljati",
+        "deleteAppStoreBody": "Brisanje vašeg cmux računa ne otkazuje vašu App Store pretplatu. Apple vam nastavlja naplaćivati dok je ne otkažete u App Storeu.",
+        "deleteAppStoreManage": "Upravljaj pretplatom u App Storeu"
       }
     },
     "teams": {
@@ -1247,7 +1268,10 @@
           "failed": "neuspjelo",
           "paused": "pauzirano",
           "destroyed": "izbrisano"
-        }
+        },
+        "wake": "Probudi",
+        "waking": "Buđenje…",
+        "wakeError": "Nije moguće probuditi ovu mašinu. Pokušajte ponovo."
       },
       "network": {
         "open": "Mreža",
@@ -2217,6 +2241,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Kada je uključeno, dvostruki klik na razdjelnik izjednačava veličine panela u njegovom redu ili koloni. Ostali redovi i kolone zadržavaju svoje veličine.",
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
           "windowTitleTemplate": "Opcionalni predložak za NSWindow naslov. Prazno zadržava postojeće zadano ponašanje naslova u cmux-u, uključujući rezervu na trenutni direktorij. Podržani rezervisani izrazi: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Naziv ekrana koji se koristi samo u DEBUG izdanjima pri otvaranju novih prozora. Prazna vrijednost koristi zadanu vrijednost sistema.",
@@ -2301,6 +2326,13 @@
               "enabled": "Kada je izabran udaljeni tmux radni prostor, „Novi radni prostor“ pokreće tmux sesiju na hostu tog radnog prostora."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, agent početne stranice: da li se prikazuje i koji harness, model i napor koristi.",
+          "enabled": "Prikazuje red Početna i ulazne tačke za Chief. Kada je false, skriveni su red Početna, prečica Otvori Chief, stavka menija i unosi palete komandi.",
+          "harness": "Harness agenta na kojem radi Chief: claude (Claude Code) ili codex (Codex).",
+          "model": "Model koji se prosljeđuje harnessu. Ostavite prazno za zadanu vrijednost harnessa.",
+          "effort": "Napor rezonovanja koji se prosljeđuje harnessu, npr. low, medium ili high. Ostavite prazno za zadanu vrijednost harnessa."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -2431,6 +2463,62 @@
       "searchLabel": "Pretraži prečice na tastaturi",
       "noResults": "Prečice nisu pronađene",
       "noResultsHint": "Pokušajte sa drugim pojmom za pretragu",
+      "cat": {
+        "workspaces": "Radni prostori",
+        "workspacesBlurb": "Radni prostori se nalaze u bočnoj traci. Svaki radni prostor ima vlastiti set panela i površina.",
+        "surfaces": "Površine",
+        "surfacesBlurb": "Površine su tabovi unutar panela.",
+        "splitPanes": "Podijeljeni paneli",
+        "canvas": "Platno",
+        "canvasBlurb": "Slobodni 2D raspored u kojem okna plutaju na beskonačnom platnu koje se može pomicati. Komande za poravnanje i raspoređivanje dostupne su iz komandne palete.",
+        "browser": "Preglednik",
+        "notifications": "Notifikacije",
+        "find": "Pretraga",
+        "terminal": "Terminal",
+        "window": "Prozor",
+        "diffViewer": "Preglednik diffa"
+      },
+      "sc": {
+        "ws-new": "Novi radni prostor",
+        "ws-prev": "Prethodni radni prostor",
+        "ws-next": "Sljedeći radni prostor",
+        "ws-jump-1-8": "Skok na radni prostor 1–8",
+        "ws-jump-last": "Skok na posljednji radni prostor",
+        "ws-close": "Zatvori radni prostor",
+        "ws-rename": "Preimenuj radni prostor",
+        "sf-new": "Nova površina",
+        "sf-prev-1": "Prethodna površina",
+        "sf-prev-2": "Prethodna površina",
+        "sf-jump-1-8": "Skok na površinu 1–8",
+        "sf-jump-last": "Skok na posljednju površinu",
+        "sf-close": "Zatvori površinu",
+        "sp-right": "Podijeli desno",
+        "sp-down": "Podijeli dolje",
+        "sp-focus": "Fokusiraj panel po smjeru",
+        "sp-browser-right": "Podijeli preglednik desno",
+        "sp-browser-down": "Podijeli preglednik dolje",
+        "br-open": "Otvori površinu preglednika",
+        "br-addr": "Fokusiraj adresnu traku",
+        "br-forward": "Naprijed",
+        "br-reload": "Ponovo učitaj stranicu",
+        "br-devtools": "Otvori Developer Tools",
+        "nt-panel": "Prikaži panel notifikacija",
+        "nt-latest": "Skok na najnoviju nepročitanu",
+        "nt-flash": "Pokreni bljesak",
+        "fd-find": "Pronađi",
+        "fd-next-prev": "Pronađi sljedeću / prethodnu",
+        "fd-hide": "Sakrij traku pretrage",
+        "fd-selection": "Koristi selekciju za pretragu",
+        "tm-clear": "Obriši scrollback",
+        "tm-copy": "Kopiraj (sa selekcijom)",
+        "tm-paste": "Zalijepi",
+        "tm-font": "Povećaj / smanji font",
+        "tm-reset": "Resetuj veličinu fonta",
+        "wn-new": "Novi prozor",
+        "wn-settings": "Postavke",
+        "wn-reload": "Ponovo učitaj konfiguraciju",
+        "wn-quit": "Izađi"
+      },
       "metaTitle": "Prečice na tastaturi",
       "fileEditorWordWrap": "Uključi ili isključi prelamanje redova u uređivaču datoteka (Option+Z)."
     },
@@ -2507,7 +2595,7 @@
       "socketModeDesc": "Zaobiđite način pristupa (cmuxOnly, allowAll, off). Takođe prihvata cmux-only/cmux_only i allow-all/allow_all",
       "workspaceIdDesc": "Automatski postavljeno: ID trenutnog radnog prostora",
       "surfaceIdDesc": "Automatski postavljeno: ID trenutne površine",
-      "termProgramDesc": "Postavljeno na cmux",
+      "termProgramDesc": "Postavljeno na ghostty",
       "termDesc": "Postavljeno na xterm-ghostty",
       "envCallout": "Starije CMUX_SOCKET_MODE vrijednosti full i notifications se još prihvataju radi kompatibilnosti.",
       "detectingCmux": "Detekcija cmux-a",
@@ -2887,7 +2975,7 @@
       "intro": "cmux iOS aplikacija je pratilac vašeg Mac-a. Uparite svoj iPhone ili iPad s Mac-om koji koristi cmux i povežite se sa svojim terminalima s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija.",
       "betaNote": "iOS aplikacija je u beta verziji. Distribuira se putem TestFlight-a kao cmux BETA.",
       "accessTitle": "Dobivanje pristupa",
-      "accessDesc": "Aplikacija se distribuira putem TestFlight-a. Beta pristup je uključen uz cmux Pro; pridružite se sa stranice TestFlight na svojoj kontrolnoj tabli.",
+      "accessDesc": "Aplikacija se distribuira putem TestFlight-a. Rani pristup je uključen uz <proLink>cmux Pro</proLink>, zajedno s drugim ranim funkcijama.",
       "prereqTitle": "Preduvjeti",
       "prereqIntro": "Prije nego što počnete, potrebno vam je:",
       "prereq1": "Mac koji koristi cmux i na kojem ste prijavljeni.",
@@ -2917,10 +3005,10 @@
       "enterpriseDesc": "Za samostalno hostovanu ili air-gapped implementaciju, kontaktirajte <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
-      "title": "cmux Cloud",
-      "metaTitle": "cmux Cloud",
-      "metaDescription": "Pokrećite trajne Linux mašine u oblaku iz cmux-a i neka agenti za kodiranje nastave raditi i nakon što zatvorite svoj Mac.",
-      "intro": "cmux Cloud vam daje trajne Linux mašine u oblaku koje se otvaraju kao obični cmux radni prostori. Terminali nastavljaju raditi kada zatvorite panel, izgubite mrežu ili zatvorite laptop, tako da agenti za kodiranje mogu nastaviti raditi, a vi se možete ponovo povezati sa bilo kojeg Mac računara na kojem ste prijavljeni.",
+      "title": "Brzi početak s cmux Cloud",
+      "metaTitle": "Brzi početak s cmux Cloud",
+      "metaDescription": "Počnite s cmux NEXT Cloud: prijavite se, kreirajte Linux mašinu, otvorite terminal i radnu površinu, pauzirajte ili nastavite rad, pa je izbrišite.",
+      "intro": "Pokrećite alate na Linux Cloud mašini, a Mac koristite za aplikaciju. Ovaj vodič koristi cmux NEXT komande, provjerene 2026-10-29. Starija izdanja koriste drugačiji CLI.",
       "betaNote": "cmux Cloud je u ranom pristupu i dostupan je osim ako ga vaša organizacija onemogući. Da biste ga koristili, uključite Settings › Beta Features › Cloud Machines.",
       "whatTitle": "Šta je mašina",
       "whatDesc": "Mašina je trajni računar u oblaku koji pripada vama ili vašem timu. Ona čuva svoje datoteke, instalirane alate i pokrenute terminale. Tretirajte je kao ljubimca, a ne kao stado: jednom instalirate ono što vam treba i kasnije joj se vraćate.",
@@ -2946,12 +3034,27 @@
       "cliIntroDesc": "cmux vm i cmux cloud su ista komanda. Pokrenite cmux vm bez glagola da vidite listu svojih mašina. Svaki glagol ima --help stranicu koja radi bez aplikacije, a cmux vm guide ispisuje kompletan vodič u Markdownu. Dodajte --json bilo kojem glagolu za mašinski čitljiv izlaz.",
       "baseTitle": "Vaša bazna mašina",
       "baseDesc": "Svaki račun ima jednu zakačenu baznu mašinu. cmux vm base je otvara, a prvi put je i kreira. cmux vm base reset kreira novu baznu mašinu i zadržava staru, tako da slučajno ne izgubite datoteke.",
-      "nextTitle": "Sljedeći koraci",
+      "nextTitle": "Brzi početak s cmux Cloud",
       "nextMachines": "Mašine: veličine, planovi, promjena veličine, pauza, snimci i brisanje.",
       "nextWorkspaces": "Radni prostori i agenti: trajni terminali, agenti, notifikacije i šta je instalirano.",
       "nextNetworking": "Datoteke i mreža: otpremanje datoteka, varijable okruženja, portovi, radna površina i javni URL-ovi.",
-      "nextCli": "Cloud CLI referenca: svaki cmux vm glagol.",
-      "nextTroubleshooting": "Sigurnost i rješavanje problema: kako pristup funkcioniše i kako riješiti česte greške."
+      "nextCli": "Referenca za Cloud CLI: ponuđene NEXT radnje, tajne i komande predaje informacija.",
+      "nextTroubleshooting": "Rješavanje problema s Cloudom",
+      "nextIntro": "Pokrećite alate na Linux Cloud mašini, a Mac koristite za aplikaciju. Ovaj vodič koristi cmux NEXT komande, provjerene 2026-10-29. Starija izdanja koriste drugačiji CLI.",
+      "nextSignIn": "1. Prijavite se",
+      "nextSignInBody": "Držite cmux NEXT otvoren na Macu. Pokrenite ovu komandu, dovršite prijavu u pregledniku, a zatim provjerite listu mašina.",
+      "nextCreate": "2. Kreirajte mašinu",
+      "nextCreateBody": "Mašina medium ima 4 procesora, 8 GB memorije i disk od 32 GB. Uključuje claude, codex, gh, git, node, bun i python3. Prijava u alate odvojena je od prijave u cmux.",
+      "nextPending": "Kreiranje može nakon 30 sekundi vratiti pending: true i nastaviti se u pozadini. Provjerite list-machines prije kreiranja još jedne mašine. Kopirajte vraćeni cilj ({machineTarget}) u komande ispod; većina komandi za mašine zahtijeva ga čak i kada imate samo jednu mašinu.",
+      "nextTerminal": "3. Otvorite terminal",
+      "nextTerminalBody": "Koristite --focus da prikažete terminal u prozoru. Bez toga se radni prostor otvara u pozadini. Pokrenite gh auth login, klonirajte repozitorij i pokrenite claude ili codex u ovom terminalu. Ugrađene kartice razgovora s agentima još nisu dostupne na mašinama iz slike provjerene 2026-10-29.",
+      "nextDesktop": "4. Otvorite radnu površinu",
+      "nextDesktopBody": "Ovo otvara radnu površinu mašine u noVNC kartici preglednika. Komanda završava prije nego što se stranica potpuno učita.",
+      "nextPause": "5. Pauzirajte i nastavite",
+      "nextPauseBody": "Sami pauzirajte mašinu kada završite; njen disk ostaje sačuvan. Automatsko pauziranje pri neaktivnosti još nije dostupno. Nastavite rad mašine kada vam ponovo zatreba.",
+      "nextDelete": "6. Izbrišite kada završite",
+      "nextDeleteBody": "Brisanje uklanja mašinu i sve na njoj. Prvo sačuvajte potreban rad na drugom mjestu. Komanda završava prije dovršetka brisanja; nakon toga provjerite list-machines.",
+      "nextReference": "Referenca za Cloud CLI"
     },
     "cloudMachines": {
       "title": "Cloud mašine",
@@ -2973,13 +3076,13 @@
       "planMax": "Max",
       "sizesDefault": "Nove mašine koriste 8 GB memorije kada ne izaberete veličinu. Pokrenite cmux vm ls --json da vidite veličine koje vaš plan dozvoljava.",
       "limitsTitle": "Ograničenja plana",
-      "limitsDesc": "Pro, Team i Max nemaju ograničenje broja mašina; Plus zadržava jednu mašinu. Nakon uključene potrošnje, pokrenute mašine se naplaćuju po vCPU-satu i GB-satu, a sačuvane i pauzirane mašine po GB-mjesecu diska. Limit potrošnje tima je jedina granica: kad se dostigne, novi startovi se odbijaju, a pokrenute mašine se pauziraju nakon upozorenja, bez gubitka podataka.",
+      "limitsDesc": "Vaše aktivne mašine dijele jedan zajednički skup vCPU-a i memorije. Pokrenite jednu veliku mašinu ili nekoliko malih. Pauzirane mašine ne troše zajednički skup. Disk se određuje za svaku mašinu posebno i nije dio zajedničkog skupa.",
       "limitsFree": "Besplatni računi ne mogu kreirati mašine.",
-      "limitsPaid": "Pro računi mogu imati bilo koji broj mašina, svaka do 16 GB i 8 vCPU-a.",
-      "limitsTeam": "Team je opcionalan: svi dobijaju jedan zajednički račun i jedan limit potrošnje. Broj mjesta ne mijenja koliko mašina bilo ko može imati.",
-      "limitsMax": "Max računi mogu imati bilo koji broj mašina. Jedna Max mašina može koristiti do 64 GB i 32 vCPU-a, uključujući veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU; Pro i Team staju na 16 GB i 8 vCPU-a.",
-      "limitsPoolFull": "Kad se dostigne limit potrošnje, cmux odbija novu ili nastavljenu mašinu i kaže da je tim dostigao svoj limit. Povećajte limit da ponovo pokrenete mašine; ništa se ne briše.",
-      "limitsPricing": "Trenutne cijene pogledajte na stranici s cijenama. Potrošnja iznad uključenog iznosa se mjeri i naplaćuje.",
+      "limitsPaid": "Pro i Founder's Edition računi mogu imati do 5 mašina, uključujući pauzirane koje dijele 20 vCPU-a i 40 GB memorije.",
+      "limitsTeam": "Timski računi mogu imati do 5 mašina, uključujući pauzirane po svakom plaćenom mjestu. Svako plaćeno mjesto dodaje 20 vCPU-a i 40 GB memorije u zajednički skup tima.",
+      "limitsMax": "Max računi mogu imati do 5 mašina, uključujući pauzirane koje dijele 80 vCPU-a i 160 GB memorije. Jedna Max mašina može koristiti do 64 GB i 32 vCPU-a, uključujući veličine 24 GB / 12 vCPU-a i 32 GB / 16 vCPU-a; Pro i Team se zaustavljaju na 16 GB i 8 vCPU-a.",
+      "limitsPoolFull": "Ako bi nova, nastavljena, povećana ili forkana mašina premašila zajednički skup, cmux odbija zahtjev i pokazuje koliko je skupa zauzeto. Pauzirajte ili obrišite mašinu da oslobodite resurse ili pređite na Max.",
+      "limitsPricing": "Trenutne cijene pogledajte na stranici s cijenama. Nema mjerenja potrošnje ni naplate prekoračenja.",
       "agentUpdatesTitle": "Održavaj agente za kodiranje ažurnim",
       "agentUpdatesDesc": "Kada je ova postavka uključena, mašina ažurira Claude Code, Codex, OpenCode, pi i agent-browser. Provjerava nakon kreiranja mašine i pri svakom povezivanju, najviše jednom u 24 sata. Ažuriranje radi odvojeno, pa nikad ne blokira povezivanje.",
       "agentUpdatesSource": "Svaki alat dolazi iz svog zvaničnog GitHub izdanja i provjerava se prema sha256 sažetku datoteke izdanja. npm se ne koristi. Izdanje se instalira tek kada je javno 3 dana, a ažuriranje nikad ne instalira stariju verziju. Pokrenuti agent zadržava datoteke s kojima je pokrenut, a neuspjelo ažuriranje ostavlja trenutnu verziju.",
@@ -3083,10 +3186,10 @@
       "customDomainDesc": "cmux cloud domains verify ispisuje DNS zapise koje treba dodati: TXT zapis za vlasništvo, zapise za rutiranje i delegiranje certifikata. Dodajte ih, pa ponovo pokrenite verify. Nakon verifikacije možete objavljivati na domeni ili na poddomeni jedan nivo ispod nje."
     },
     "cloudCli": {
-      "title": "Cloud CLI referenca",
-      "metaTitle": "cmux Cloud CLI referenca",
-      "metaDescription": "Referenca za svaku cmux vm i cmux cloud komandu: životni ciklus, radni prostori, datoteke, okruženje, domene i VPN.",
-      "intro": "cmux vm i cmux cloud su ista komanda. CLI komunicira s pokrenutom cmux aplikacijom, koja čuva vašu prijavu. Dodajte --json bilo kojem glagolu za mašinski čitljiv izlaz. Svaki glagol ima --help stranicu.",
+      "title": "Referenca za Cloud CLI (NEXT)",
+      "metaTitle": "Referenca za Cloud CLI (NEXT)",
+      "metaDescription": "Pregled ponuđenih cmux NEXT Cloud radnji, pohrana tajni, komande predaje informacija, izričiti ciljevi mašina i trenutna ograničenja slike.",
+      "intro": "Ovo su Cloud radnje koje nudi cmux NEXT CLI. Ponuđena komanda ipak može biti nedostupna na određenoj slici mašine. Slika provjerena 2026-10-29 još ne podržava ugrađene kartice razgovora s agentima, otvaranje kartica preglednika za razvojne servere, lokalno prosljeđivanje portova, pravljenje forkova ni automatsko pauziranje pri neaktivnosti.",
       "exitCodes": "Izlazni kodovi: 0 pri uspjehu, 1 pri grešci i 2 za nepoznatu komandu. cmux vm run vraća udaljeni izlazni kod.",
       "authTitle": "Prijava",
       "authDesc": "Prijavite se, provjerite svoj račun i izaberite tim.",
@@ -3110,7 +3213,19 @@
       "accountsDesc": "Otpremite račune agenata za svoj tim i provjerite rutiranje modela.",
       "preflightTitle": "Kontrolna lista za skripte",
       "preflightDesc": "Prije nego što skripta kreira ili koristi mašine, pokrenite ove provjere koje samo čitaju. One potvrđuju da ste prijavljeni, prikazuju vaše mašine i ograničenja plana te pokazuju koju mašinu koristi određeni direktorij.",
-      "coderouterLink": "Potpuna referenca CodeRouter komandi"
+      "coderouterLink": "Potpuna referenca CodeRouter komandi",
+      "nextTitle": "Referenca za Cloud CLI (NEXT)",
+      "nextIntro": "Ovo su Cloud radnje koje nudi cmux NEXT CLI. Ponuđena komanda ipak može biti nedostupna na određenoj slici mašine. Slika provjerena 2026-10-29 još ne podržava ugrađene kartice razgovora s agentima, otvaranje kartica preglednika za razvojne servere, lokalno prosljeđivanje portova, pravljenje forkova ni automatsko pauziranje pri neaktivnosti.",
+      "nextTargets": "Kopirajte cilj {machineTarget} iz list-machines i izričito navedite --target za komande za mašine, čak i kada imate samo jednu. Koristite --help za sintaksu komande i cmux action describe s ID-jem radnje za argumente i povratna polja.",
+      "nextCatalog": "Ponuđene radnje",
+      "nextCatalogBody": "Ova lista se generiše iz kataloga radnji NEXT i isključuje radnje dostupne samo u GUI-ju. Navodi dostupne nazive komandi, ali ne garantuje da ih svaka mašina podržava.",
+      "nextCommand": "Komanda",
+      "nextAction": "ID radnje",
+      "nextSecrets": "Tajne na ovom Macu",
+      "nextSecretsBody": "secret set čita vrijednost iz skrivenog unosa ili stdin i pohranjuje je u privjesak ključeva ovog Maca. Nikada ne stavljajte vrijednost tajne u argumente komande. set i rm prihvataju --repo OWNER/NAME; ls ispisuje pohranjene nazive i opsege. Dostava zahtijeva dovršenu konfiguraciju mašine koja navodi nazive tajni. Primjena konfiguracije i dostava tajni još nisu provjerene od početka do kraja na slici provjerenoj 2026-10-29.",
+      "nextHandoff": "Predaja informacija i premještanje razgovora",
+      "nextHandoffBody": "hand-off-machine vraća tekst o mašini; ne premješta razgovor. move i bring-back premještaju kartice razgovora između ovog Maca i Cloud mašine. Zahtijevaju kompatibilnu podršku za razgovore; nemojte ih koristiti kao zaobilazno rješenje za sliku bez kartica razgovora s agentima. Umjesto toga pokrenite agenta u udaljenom terminalu.",
+      "nextHelp": "Brzi početak i trenutna ograničenja"
     },
     "cloudTroubleshooting": {
       "title": "Cloud sigurnost i rješavanje problema",
@@ -3168,7 +3283,26 @@
       "errTransferDisabled": "Vaša organizacija je isključila prijenos datoteka",
       "fixTransferDisabled": "Upravljana politika isključuje prijenos datoteka. Obratite se administratoru.",
       "supportTitle": "Pomoć",
-      "supportDesc": "Ako kreiranje ne uspije, koristite Copy Error u notifikaciji i priložite grešku, s trace ID-jem ako postoji, kada kontaktirate podršku."
+      "supportDesc": "Ako kreiranje ne uspije, koristite Copy Error u notifikaciji i priložite grešku, s trace ID-jem ako postoji, kada kontaktirate podršku.",
+      "nextTitle": "Rješavanje problema s Cloudom (NEXT)",
+      "nextIntro": "Ove poruke su provjerene 2026-10-29. Funkcije označene kao još nedostupne nisu podržane na mašinama iz slike tog dana. Samo ažuriranje aplikacije na Macu ne ažurira softver koji je već instaliran na Cloud mašini.",
+      "nextSymptom": "Poruka ili simptom",
+      "nextFix": "Šta uraditi",
+      "nextPendingFix": "Kreiranje se nastavlja u pozadini. Provjerite list-machines prije kreiranja još jedne mašine. Lista s loaded: false još nije poznata; to ne znači da je račun prazan.",
+      "nextTargetFix": "Kopirajte target iz list-machines i navedite --target {machineTarget}, čak i ako imate samo jednu mašinu.",
+      "nextOpenFix": "open-machine je radnja dostupna samo u GUI-ju. Da otvorite i prikažete terminal iz CLI-ja, koristite new-terminal-on-machine s ciljem mašine i --focus.",
+      "nextAgentFix": "Ugrađene kartice razgovora s agentima još nisu dostupne. Otvorite terminal na mašini i tamo pokrenite claude ili codex. Promjena izbora agenta ne rješava nedostatak podrške za razgovore.",
+      "nextBrowserFix": "Otvaranje kartice preglednika za razvojni server još nije dostupno. machine-link --port vraća vezu, ali pristup toj vezi kroz preglednik nije provjeren. Sama vraćena veza ne dokazuje da je port dostupan.",
+      "nextPortFix": "Lokalno listanje i prosljeđivanje portova još nisu dostupni putem ove veze s mašinom. machine-link može vratiti vezu na port; ne kreira prosljeđivanje na localhost, a dostupnost u pregledniku nije provjerena.",
+      "nextForkFix": "Pravljenje forkova još nije dostupno na mašinama iz ove slike. Kreirajte novu mašinu i na njoj klonirajte repozitorij; nova mašina ne kopira datoteke izvorne mašine.",
+      "nextIdleFix": "Automatsko pauziranje pri neaktivnosti još nije dostupno. Sami pauzirajte mašinu kada završite i nastavite njen rad kada bude potrebno. Off je jedina prihvaćena postavka pauziranja pri neaktivnosti.",
+      "nextSecretsFix": "Navedite nazive tajni u .cmux/machine.toml, primijenite konfiguraciju pomoću apply-machine-config i sačekajte da podešavanje završi prije deliver-secrets. Pohranite vrijednosti pomoću secret set NAME koristeći njegov upit za unos ili stdin. Ovaj postupak dostave još nije provjeren od početka do kraja na ovoj slici.",
+      "nextGithubFix": "Pokrenite gh auth login u terminalu mašine i tamo podesite svoj Git identitet. setup-github zahtijeva Git identitet na Macu; tokom provjere vratio je ovu grešku bez razloga.",
+      "nextExecFix": "exec je namijenjen kratkim komandama i zaustavlja se nakon 25 sekundi. Za izgradnje, agente i dugotrajne servere koristite terminal na mašini.",
+      "nextSupport": "Prikupite dijagnostiku",
+      "nextSupportBody": "Pokrenite diagnostics i pri prijavi problema uključite poruku greške i opis onoga što ste pokušavali uraditi. Pregledajte izlaz prije javnog dijeljenja; uklonite podatke računa, adrese mašina i sve druge privatne informacije.",
+      "legacyTitle": "Ranija izdanja: sigurnost i uobičajeni problemi",
+      "legacyIntro": "Sljedeće smjernice zadržane su za ranija izdanja cmux-a. Njihovi primjeri cmux vm i cmux auth nisu NEXT komande. Za odbijanja zbog slike mašine u NEXT-u i zaobilazna rješenja koristite odjeljak iznad."
     },
     "ui": {
       "onThisPage": "Na ovoj stranici",
@@ -3366,8 +3500,7 @@
       "darkArt": "Mračna umjetnost",
       "museumIcons": "Muzejska remek-djela",
       "calm": "Smireno",
-      "dore": "Doré",
-      "eastAsian": "Istočnoazijsko slikarstvo"
+      "dore": "Doré"
     }
   },
   "testimonials": {
@@ -3412,6 +3545,102 @@
     "download": "Preuzmi NIGHTLY za Mac",
     "warning": "Nightly verzije mogu sadržavati greške ili nepotpune funkcije. Ako nešto ne radi, prijavite to na <githubLink>GitHubu</githubLink> ili u <discordLink>#nightly-bugs na Discordu</discordLink> i prebacite se na stabilnu verziju."
   },
+  "next": {
+    "title": "cmux NEXT NIGHTLY",
+    "subtitle": "Pregledne verzije sljedeće cmux aplikacije",
+    "metaTitle": "cmux NEXT — Chief i vaši agenti za kod, u jednoj Mac aplikaciji",
+    "metaDescription": "cmux NEXT je sljedeći cmux za Mac. Recite Chiefu šta želite uraditi: pokreće agente za kod u njihovim radnim prostorima i javlja vam se.",
+    "description": "cmux NEXT NIGHTLY je pregled sljedeće verzije cmux-a, koji se automatski gradi iz najnovijeg commita. Instalira se kao cmux NIGHTLY (bundle ID com.cmuxterm.app.nightly), pa zamjenjuje cmux NIGHTLY i radi uz cmux. Zahtijeva Mac s Apple čipom.",
+    "download": "Preuzmi NEXT NIGHTLY za Mac",
+    "warning": "NEXT NIGHTLY verzije mogu sadržavati greške ili nedovršene funkcije. Ako nešto ne radi, prijavite to na <githubLink>GitHub</githubLink> ili u <discordLink>#nightly-bugs na Discordu</discordLink> i vratite se na stabilnu verziju.",
+    "landing": {
+      "tagline": "Recite Chiefu šta želite uraditi. On vodi agente.",
+      "subtitle": "cmux NEXT je sljedeća verzija cmuxa: izvorna Mac aplikacija izgrađena na Ghosttyju. Chief, ugrađeni asistent, pokreće agente za kod u njihovim radnim prostorima, prati ih i javlja vam kad vas neki treba. Uz svakog agenta su terminal, pravi preglednik i diffovi.",
+      "requirements": "Apple silicon · macOS 14 ili noviji · Radi uz cmux",
+      "featuresTitle": "Mogućnosti",
+      "features": {
+        "chief": {
+          "title": "Chief",
+          "body": "Recite šta želite uraditi. Pokreće agente, velike poslove daje podagentima i javlja se."
+        },
+        "home": {
+          "title": "Home",
+          "body": "Jedna lista chatova za Chiefa i sve agente, s tačkama nepročitanog kad vas neki treba."
+        },
+        "agents": {
+          "title": "Bilo koji agent za kod",
+          "body": "Claude Code, Codex, Gemini CLI, OpenCode, Pi i drugi, kao pravi chatovi s vidljivim izmjenama i diffovima."
+        },
+        "floating": {
+          "title": "Lebdeći Chief",
+          "body": "⌘I dovodi Chiefa iznad radnog prostora u kojem ste. ⌥⇧Space ga prizove iz bilo koje aplikacije."
+        },
+        "search": {
+          "title": "Pretražite sve",
+          "body": "⌘⇧A nalazi radne prostore, kartice, chatove agenata, historiju preglednika i ranije komande."
+        },
+        "spaces": {
+          "title": "Prostori (Spaces)",
+          "body": "Odvojeni skupovi prozora za odvojeni posao. Prebacujte se sa ⌃⌥⌘← i →."
+        },
+        "browser": {
+          "title": "Pravi preglednik",
+          "body": "Chromium u kartici, s ekstenzijama, DevTools i profilima, pored vaših agenata."
+        },
+        "machines": {
+          "title": "Vaše mašine",
+          "body": "Pokrećite radne prostore preko SSH ili na cmux Cloud mašinama koje se pauziraju kad miruju (cmux Pro)."
+        },
+        "history": {
+          "title": "Ponesite svoju historiju",
+          "body": "Uvezite historiju Claude Codea i Codexa kao chatove koje možete pretraživati i nastavite gdje ste stali."
+        },
+        "terminal": {
+          "title": "Terminal Ghostty",
+          "body": "Renderuje se na GPU-u i čita vašu Ghostty konfiguraciju."
+        },
+        "sidebar": {
+          "title": "Vaša vlastita bočna traka",
+          "body": "Dodajte sekcije bočne trake kao liste ili mreže, napravljene kao male JavaScript aplikacije."
+        },
+        "phone": {
+          "title": "iPhone, u beti",
+          "body": "Odgovorite na zahtjev agenta za dozvolu s telefona."
+        }
+      },
+      "heroAlt": "cmux NEXT: Home s Chiefom lijevo, Claude Code agent s izmijenjenim fajlovima desno",
+      "demosTitle": "Pogledajte",
+      "demos": {
+        "docked": {
+          "caption": "Chief usidren pored radnog prostora.",
+          "alt": "Chief usidren desno od radnog prostora s terminalom"
+        },
+        "floating": {
+          "caption": "⌘I čini da Chief lebdi iznad onoga što radite.",
+          "alt": "Chief lebdi iznad radnog prostora s terminalom"
+        },
+        "agents": {
+          "caption": "Chat agenta pored Chiefovog chata.",
+          "alt": "Razgovor s agentom pored chata s Chiefom"
+        },
+        "palette": {
+          "caption": "⌘⇧P pokreće bilo koju radnju po imenu.",
+          "alt": "Paleta komandi otvorena iznad razgovora"
+        },
+        "history": {
+          "caption": "Ponesite historiju Claude Codea i Codexa.",
+          "alt": "Ekran uvoza s popisom Claude Codea, Codexa i drugih izvora"
+        },
+        "machines": {
+          "caption": "Odaberite mašinu na kojoj radi grupa radnih prostora.",
+          "alt": "Biranje mašine na kojoj radi grupa radnih prostora"
+        }
+      },
+      "nightlyTitle": "O NEXT NIGHTLY",
+      "nightlyBody": "Nova verzija izlazi svake noći iz najnovijeg commita, a aplikacija se sama ažurira.",
+      "iconAlt": "Ikona cmux NEXT NIGHTLY"
+    }
+  },
   "languageSwitcher": {
     "label": "Jezik"
   },
@@ -3425,6 +3654,7 @@
     "unsupportedParams": "Ovaj link uključuje nepodržane parametre cmux će odbiti: {params}",
     "conflictingParams": "Ova veza uključuje parametre koji se ne mogu koristiti zajedno: {params}",
     "invalidParams": "Ova veza uključuje nevažeće vrijednosti parametara: {params}",
+    "ignoredParams": "cmux ignoriše parametre koje ne koristi: {params}. Sesija se ipak otvara.",
     "fixParams": "Popravite URL parametre, a zatim ponovo učitajte ovu stranicu.",
     "examplePrefix": "Vidi an",
     "exampleLink": "primjer linka",
@@ -3448,6 +3678,16 @@
       "title": "Otvorite pravila u cmux",
       "intro": "Ova stranica otvara pravila u trenutnom cmux radnom prostoru.",
       "fallback": "cmux prvo prikazuje pravila i pita prije nego što ih zalijepi u trenutni radni prostor. Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmux."
+    },
+    "agent": {
+      "metaTitle": "Otvori sesiju agenta u cmuxu",
+      "metaDescription": "Otvorite cmux deeplink do sesije agenta s weba, uz opciju instalacije kada cmux nije dostupan.",
+      "title": "Otvori sesiju agenta",
+      "intro": "Ovaj link otvara sesiju agenta u cmuxu ako ovaj Mac već može pristupiti toj sesiji. Sam link ne daje nikakav pristup.",
+      "fallback": "Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmuxu. cmux otvara sesiju samo ako joj ovaj Mac već može pristupiti.",
+      "nameLabel": "Naziv: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Okruženje: {value}"
     }
   },
   "download": {
@@ -5421,7 +5661,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro je aktivan",
     "title": "Dobro došli u cmux Pro",
-    "body": "Pro uključuje Cloud VM-ove bez ograničenja broja, uz naplatu nakon uključene potrošnje, kao i pristup cmux iOS-u putem TestFlighta. Jedan VM može koristiti do 16 GB RAM-a / 8 vCPU. Za veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU potreban je Max.",
+    "body": "Pro uključuje do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a, kao i pristup cmux iOS-u putem TestFlighta. Jedan VM može koristiti do 16 GB RAM-a / 8 vCPU. Za veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU potreban je Max.",
     "done": "Idi na kontrolnu ploču",
     "steps": {
       "iosApp": {
@@ -5497,10 +5737,10 @@
     "errorInvalidCode": "Taj kod nije ispravan. Provjeri e-mail i pokušaj ponovo.",
     "errorInvalidTotp": "Taj kod za dvofaktorsku provjeru nije ispravan.",
     "errorSignUpNotAllowed": "Novi računi se trenutno ne mogu napraviti.",
+    "errorEmailUnverified": "Ovaj e-mail već ima račun, ali adresa još nije potvrđena. Prijavi se na isti način kao pri registraciji, a zatim potvrdi e-mail kako bi se mogli koristiti kodovi za prijavu.",
+    "useEmailPasswordInstead": "Prijavi se e-mailom i lozinkom",
     "errorPasskey": "Prijava pristupnim ključem nije završena. Pokušaj ponovo ili koristi drugi način.",
-    "errorGeneric": "Nešto nije u redu. Pokušaj ponovo.",
-    "errorRedirectNotAllowed": "Adresa za prijavu ove verzije nije dozvoljena na {backend}.",
-    "backendDevelopment": "razvojnom backendu"
+    "errorGeneric": "Nešto nije u redu. Pokušaj ponovo."
   },
   "MobileRelease106": {
     "title": "Novosti u verziji 1.0.6",
@@ -5537,14 +5777,12 @@
     "unavailableBody": "Naš servis za prijavu je zauzet. Sačekajte nekoliko sekundi, pa ponovo otvorite pozivnicu. Ne morate se ponovo prijaviti.",
     "retry": "Pokušaj ponovo"
   },
-  "connected": {
-    "title": "Prijavljeni ste na {app}",
-    "titleGeneric": "Prijavljeni ste",
-    "errorTitle": "Prijava na {app} nije uspjela",
-    "errorTitleGeneric": "Prijava nije završena",
-    "body": "Vratite se u cmux da nastavite.",
-    "errorBody": "Vratite se u cmux i pokušajte ponovo.",
-    "button": "Nazad u cmux",
-    "closeHint": "Možete zatvoriti ovu karticu."
+  "analyticsConsent": {
+    "label": "Analitika",
+    "message": "Smijemo li koristiti analitiku da vidimo kako se stranica koristi? Ništa se ne prikuplja i ne postavlja se analitički kolačić osim ako to dozvolite.",
+    "privacy": "Politika privatnosti",
+    "accept": "Dozvoli",
+    "decline": "Ne, hvala",
+    "settings": "Postavke analitike"
   }
 }

@@ -3,32 +3,13 @@
 //! The OSC string framing state machine is adapted from herdrdev/herdr's
 //! `src/pane/osc.rs`, Apache-2.0, commit
 //! `7b675f42af35508eab66ac42fe1598628597a893`. The cmux implementation is
-//! modified by manaflow: it retains OSC 9 progress text and desktop
-//! notifications (OSC 9, OSC 777 `notify`, kitty OSC 99, classified as
-//! Ghostty's `osc9.zig`, `rxvt_extension.zig` and `kitty_notification.zig`
-//! do), applies strict byte and character bounds, accepts C1 ST, and exposes
-//! the result as a terminal primitive. It has no agent names, manifests, or
-//! roster policy.
-
-use base64::Engine;
-use std::borrow::Cow;
-use std::time::{Duration, Instant};
+//! modified by manaflow: it retains only OSC 9 progress text and the OSC 133
+//! command marks behind the last command's exit status, applies strict byte
+//! and character bounds, accepts C1 ST, and exposes the result as a terminal
+//! primitive. It has no agent names, manifests, or roster policy.
 
 const MAX_OSC_BODY_BYTES: usize = 4096;
 pub(crate) const MAX_PROGRESS_CHARS: usize = 256;
-/// Shown text bounds for a terminal notification.
-pub(crate) const MAX_NOTIFICATION_TITLE_CHARS: usize = 256;
-pub(crate) const MAX_NOTIFICATION_BODY_CHARS: usize = 1024;
-/// Notifications waiting for the owner to take them. A reader that never
-/// drains the queue (a terminal host) keeps only the newest ones.
-pub(crate) const MAX_PENDING_NOTIFICATIONS: usize = 8;
-/// Kitty accumulates chunked title and body text per notification; Ghostty
-/// bounds each buffer at `Parser.MAX_BUF`.
-const MAX_KITTY_PENDING_BYTES: usize = 2048;
-/// Ghostty's `showDesktopNotification` limits: one per second, and the same
-/// text at most once per five seconds.
-const NOTIFICATION_MIN_SPACING: Duration = Duration::from_secs(1);
-const NOTIFICATION_REPEAT_SPACING: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum OscState {
@@ -58,131 +39,8 @@ struct OscCollector {
 }
 
 impl OscCollector {
-    // perf-hot: 0.1ns/byte terminal-output-scan (every output byte, host and daemon)
     fn observe(&mut self, bytes: &[u8], mut receive: impl FnMut(&[u8])) {
-        let mut index = 0;
-        while let Some(rest) = bytes.get(index..) {
-            // On the ground, outside a UTF-8 sequence, only an ESC, a C1
-            // control or a UTF-8 lead byte moves the state: every byte up to
-            // the next ESC or byte >= 0x80 is skipped at once.
-            if self.state == OscState::Ground && self.utf8_continuations == 0 {
-                index = index.saturating_add(find_esc_or_high(rest));
-                // A whole valid UTF-8 code point on the ground moves nothing
-                // but the UTF-8 bounds, which it leaves at the continuation
-                // range: jump it instead of stepping each byte.
-                let skip = utf8_code_point_len(bytes.get(index..).unwrap_or_default());
-                if skip > 0 {
-                    index = index.saturating_add(skip);
-                    self.utf8_min = 0x80;
-                    self.utf8_max = 0xbf;
-                    continue;
-                }
-            }
-            let Some(&byte) = bytes.get(index) else { break };
-            index = index.saturating_add(1);
-            self.observe_byte(byte, &mut receive);
-        }
-    }
-
-    /// [`OscCollector::observe`] and `titles.rewrite` in one walk of `bytes`:
-    /// the bytes with their title ops rewritten (borrowed when none was).
-    ///
-    /// While both scanners are on the ground only a [scan stop](is_scan_stop)
-    /// moves either one, so the walk jumps to the next stop. A whole CSI that
-    /// is no window op leaves both where they were, so it is jumped once for
-    /// both. The UTF-8 fields are not stepped over the jumped bytes; at a stop
-    /// and at the end they are rebuilt from at most the last three bytes
-    /// ([`OscCollector::sync_utf8`]), so UTF-8 text costs no stops.
-    // perf-hot: 0.1ns/byte terminal-output-scan (every output byte, host and daemon)
-    fn observe_rewriting_titles<'a>(
-        &mut self,
-        titles: &mut crate::terminal_title::TitleTracker,
-        bytes: &'a [u8],
-        mut receive: impl FnMut(&[u8]),
-    ) -> Cow<'a, [u8]> {
-        let mut out: Option<Vec<u8>> = None;
-        let mut copied = 0usize;
-        let mut index = 0usize;
-        // Where the UTF-8 fields last held exactly: the bytes after it up to
-        // `index` were jumped on the ground.
-        let mut exact = 0usize;
-        while let Some(rest) = bytes.get(index..) {
-            if self.state == OscState::Ground && titles.on_ground() {
-                let stop = index.saturating_add(find_scan_stop(rest));
-                if stop >= bytes.len() {
-                    index = bytes.len();
-                    break;
-                }
-                let tail = bytes.get(stop..).unwrap_or_default();
-                let skip = crate::terminal_title::csi_not_window_op_len(tail);
-                if skip > 0 {
-                    // The ESC ends any UTF-8 sequence and the CSI's bytes
-                    // are ASCII: both scanners stay on the ground, and the
-                    // UTF-8 fields read as after an ASCII byte.
-                    self.reset_utf8();
-                    index = stop.saturating_add(skip);
-                    exact = index;
-                    continue;
-                }
-                self.sync_utf8(bytes, exact, stop);
-                index = stop;
-            }
-            let Some(&byte) = bytes.get(index) else { break };
-            index = index.saturating_add(1);
-            exact = index;
-            self.observe_byte(byte, &mut receive);
-            // On its ground the title tracker moves only on an ESC.
-            if byte != 0x1b && titles.on_ground() {
-                continue;
-            }
-            let Some(title) = titles.step_byte(byte) else { continue };
-            let out = out.get_or_insert_with(|| {
-                Vec::with_capacity(bytes.len().saturating_add(title.len()).saturating_add(6))
-            });
-            out.extend_from_slice(bytes.get(copied..index).unwrap_or_default());
-            copied = index;
-            out.extend_from_slice(b"\x1b]2;");
-            out.extend_from_slice(&title);
-            out.push(0x07);
-        }
-        if exact < index {
-            self.sync_utf8(bytes, exact, index);
-        }
-        match out {
-            None => Cow::Borrowed(bytes),
-            Some(mut out) => {
-                out.extend_from_slice(bytes.get(copied..).unwrap_or_default());
-                Cow::Owned(out)
-            }
-        }
-    }
-
-    /// Brings the UTF-8 fields from `bytes[exact]` to `bytes[at]`, over bytes
-    /// the scan jumped on the ground (none a scan stop, so they move nothing
-    /// else). A byte outside the continuation range sets the fields alone,
-    /// whatever came before it, and a sequence has at most three
-    /// continuations: only the bytes from the last such byte in the three
-    /// before `at` matter. When there is none, three or more continuation
-    /// bytes ended any sequence; fewer are stepped from `exact`.
-    fn sync_utf8(&mut self, bytes: &[u8], exact: usize, at: usize) {
-        let from = at.saturating_sub(3).max(exact);
-        let window = bytes.get(from..at).unwrap_or_default();
-        let replay_from = match window.iter().rposition(|byte| !(0x80..=0xbf).contains(byte)) {
-            Some(lead) => from.saturating_add(lead),
-            None if from == exact => exact,
-            None => {
-                self.reset_utf8();
-                return;
-            }
-        };
-        for &byte in bytes.get(replay_from..at).unwrap_or_default() {
-            self.observe_byte(byte, &mut |_| {});
-        }
-    }
-
-    /// Advance over one byte of output.
-    fn observe_byte(&mut self, byte: u8, receive: &mut impl FnMut(&[u8])) {
-        {
+        for &byte in bytes {
             if self.utf8_continuations > 0 {
                 if (self.utf8_min..=self.utf8_max).contains(&byte) {
                     self.utf8_continuations -= 1;
@@ -194,7 +52,7 @@ impl OscCollector {
                     // UTF-8 continuation range.
                     self.utf8_min = 0x80;
                     self.utf8_max = 0xbf;
-                    return;
+                    continue;
                 }
                 // An invalid or truncated UTF-8 sequence cannot hide the
                 // next control byte. Process this byte again as framing.
@@ -236,14 +94,14 @@ impl OscCollector {
                 },
                 OscState::Body => match byte {
                     0x18 | 0x1a => self.cancel(),
-                    0x07 | 0x9c => self.finish(receive),
+                    0x07 | 0x9c => self.finish(&mut receive),
                     0x1b => self.state = OscState::BodyEscape,
                     _ => self.push(byte),
                 },
                 OscState::BodyEscape => match byte {
                     0x18 | 0x1a => self.cancel(),
-                    b'\\' => self.finish(receive),
-                    0x07 | 0x9c => self.finish(receive),
+                    b'\\' => self.finish(&mut receive),
+                    0x07 | 0x9c => self.finish(&mut receive),
                     0x1b => {
                         // A second ESC remains a possible ST prefix. Keep
                         // one literal ESC in the bounded body and wait.
@@ -332,316 +190,12 @@ fn utf8_sequence_bounds(byte: u8) -> (u8, u8, u8) {
     }
 }
 
-/// Length of the complete, valid UTF-8 multibyte code point at the start of
-/// `bytes` (the bounds `utf8_sequence_bounds` gives its lead byte), or 0.
-fn utf8_code_point_len(bytes: &[u8]) -> usize {
-    let Some(&lead) = bytes.first() else { return 0 };
-    let (continuations, min, max) = utf8_sequence_bounds(lead);
-    let len = usize::from(continuations).saturating_add(1);
-    let Some(tail) = bytes.get(1..len) else { return 0 };
-    let mut tail = tail.iter();
-    match tail.next() {
-        Some(second) if (min..=max).contains(second) => {}
-        _ => return 0,
-    }
-    if tail.all(|byte| (0x80..=0xbf).contains(byte)) { len } else { 0 }
+fn utf8_continuation_count(byte: u8) -> u8 {
+    utf8_sequence_bounds(byte).0
 }
 
-/// Index of the first ESC or byte >= 0x80 in `bytes`, or its length. Whole
-/// 16-byte blocks are tested with a branch-free fold the compiler vectorizes.
-fn find_esc_or_high(bytes: &[u8]) -> usize {
-    const BLOCK: usize = 16;
-    let is_stop = |byte: u8| byte == 0x1b || byte >= 0x80;
-    let mut skipped = 0usize;
-    for block in bytes.chunks_exact(BLOCK) {
-        if block.iter().fold(false, |found, &byte| found | is_stop(byte)) {
-            break;
-        }
-        skipped = skipped.saturating_add(BLOCK);
-    }
-    let rest = bytes.get(skipped..).unwrap_or_default();
-    skipped.saturating_add(rest.iter().position(|&byte| is_stop(byte)).unwrap_or(rest.len()))
-}
-
-/// A byte that moves the OSC collector or the title tracker when both are on
-/// the ground: an ESC, or a C1 control that opens a string (DCS, SOS, OSC,
-/// PM, APC). A UTF-8 continuation byte with one of those values is told
-/// apart only after the scan stops on it.
-fn is_scan_stop(byte: u8) -> bool {
-    (byte == 0x1b) | (byte == 0x90) | (byte == 0x98) | (byte.wrapping_sub(0x9d) < 3)
-}
-
-/// Index of the first [scan stop](is_scan_stop) in `bytes`, or its length.
-/// Whole 16-byte blocks are tested with a branch-free fold the compiler
-/// vectorizes.
-fn find_scan_stop(bytes: &[u8]) -> usize {
-    const BLOCK: usize = 16;
-    let mut skipped = 0usize;
-    for block in bytes.chunks_exact(BLOCK) {
-        if block.iter().fold(false, |found, &byte| found | is_scan_stop(byte)) {
-            break;
-        }
-        skipped = skipped.saturating_add(BLOCK);
-    }
-    let rest = bytes.get(skipped..).unwrap_or_default();
-    skipped.saturating_add(rest.iter().position(|&byte| is_scan_stop(byte)).unwrap_or(rest.len()))
-}
-
-/// The state of an OSC 9;4 progress report (ConEmu and Windows Terminal).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProgressState {
-    Normal,
-    Error,
-    Indeterminate,
-    Paused,
-}
-
-/// A terminal's OSC 9;4 progress while one is shown.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TerminalProgress {
-    pub(crate) state: ProgressState,
-    /// Percent, 0-100; absent for indeterminate progress.
-    pub(crate) value: Option<u8>,
-}
-
-impl TerminalProgress {
-    pub(crate) fn to_json(self) -> serde_json::Value {
-        let state = match self.state {
-            ProgressState::Normal => "normal",
-            ProgressState::Error => "error",
-            ProgressState::Indeterminate => "indeterminate",
-            ProgressState::Paused => "paused",
-        };
-        serde_json::json!({"state": state, "value": self.value})
-    }
-}
-
-/// Parse retained OSC 9 text as `4;state[;percent]`. State 0 removes the
-/// progress; any other OSC 9 text (a notification) is not progress.
-pub(crate) fn parse_progress(text: &str) -> Option<TerminalProgress> {
-    let mut parts = text.strip_prefix("4;")?.split(';');
-    let state = parts.next()?.trim();
-    let value = parts
-        .next()
-        .and_then(|value| value.trim().parse::<u16>().ok())
-        .map(|value| u8::try_from(value.min(100)).unwrap_or(100));
-    let state = match state {
-        "1" => ProgressState::Normal,
-        "2" => ProgressState::Error,
-        "3" => return Some(TerminalProgress { state: ProgressState::Indeterminate, value: None }),
-        "4" => ProgressState::Paused,
-        _ => return None,
-    };
-    Some(TerminalProgress { state, value: value.or(Some(0)) })
-}
-
-/// A desktop notification a program in the terminal asked for.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TerminalNotification {
-    /// Never empty: a notification with only body text shows it as the title,
-    /// as Ghostty's kitty parser does.
-    pub title: String,
-    pub body: String,
-    /// `Info` for OSC 9, 777 and 99 and an OSC 7501 record that finished; one
-    /// that waits on the user is a `Warning`, one that failed an `Error`.
-    pub level: crate::NotificationLevel,
-}
-
-impl TerminalNotification {
-    fn new(title: &[u8], body: &[u8]) -> Option<Self> {
-        let mut title = shown_text(title, MAX_NOTIFICATION_TITLE_CHARS);
-        let mut body = shown_text(body, MAX_NOTIFICATION_BODY_CHARS);
-        if title.is_empty() {
-            if body.is_empty() {
-                return None;
-            }
-            title = body.chars().take(MAX_NOTIFICATION_TITLE_CHARS).collect();
-            body = String::new();
-        }
-        Some(Self { title, body, level: crate::NotificationLevel::Info })
-    }
-
-    /// The notification an OSC 7501 record asks for.
-    pub(crate) fn from_program_status(alert: crate::program_status::ProgramStatusAlert) -> Self {
-        let level = match alert.state {
-            ghostty_vt::ProgramStatusState::Error => crate::NotificationLevel::Error,
-            ghostty_vt::ProgramStatusState::Done => crate::NotificationLevel::Info,
-            _ => crate::NotificationLevel::Warning,
-        };
-        Self {
-            title: alert.title.chars().take(MAX_NOTIFICATION_TITLE_CHARS).collect(),
-            body: alert.body.chars().take(MAX_NOTIFICATION_BODY_CHARS).collect(),
-            level,
-        }
-    }
-}
-
-fn shown_text(bytes: &[u8], limit: usize) -> String {
-    crate::program_status::shown_text(&String::from_utf8_lossy(bytes), limit)
-}
-
-/// Kitty OSC 99 text accumulated across `d=0` chunks.
-#[derive(Debug, Default)]
-struct KittyPending {
-    active: bool,
-    id: Option<String>,
-    title: Vec<u8>,
-    body: Vec<u8>,
-}
-
-impl KittyPending {
-    fn reset(&mut self) {
-        self.active = false;
-        self.id = None;
-        self.title.clear();
-        self.body.clear();
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum KittyPayload {
-    Title,
-    Body,
-}
-
-/// Parse one OSC 99 body (after `99;`), following Ghostty's
-/// `kitty_notification.zig`: `meta;payload`, where meta is `:`-separated
-/// `key=value` pairs (`p` payload kind, `d` done, `e` base64, `i` id).
-fn observe_kitty_notification(
-    pending: &mut KittyPending,
-    data: &[u8],
-) -> Option<TerminalNotification> {
-    let separator = data.iter().position(|byte| *byte == b';')?;
-    let (meta, payload) = (&data[..separator], &data[separator + 1..]);
-    let mut kind = Some(KittyPayload::Title);
-    let mut done = true;
-    let mut base64 = false;
-    let mut id = None;
-    for part in meta.split(|byte| *byte == b':') {
-        let Some(equals) = part.iter().position(|byte| *byte == b'=') else { continue };
-        if equals == 0 {
-            continue;
-        }
-        let value = &part[equals + 1..];
-        let flag = |default: bool| match value.first() {
-            Some(b'0') => false,
-            Some(b'1') => true,
-            _ => default,
-        };
-        match part[0] {
-            b'p' => {
-                kind = match value {
-                    b"title" => Some(KittyPayload::Title),
-                    b"body" => Some(KittyPayload::Body),
-                    _ => None,
-                }
-            }
-            b'd' => done = flag(true),
-            b'e' => base64 = flag(false),
-            b'i' => {
-                let valid = !value.is_empty()
-                    && value.iter().all(|byte| {
-                        byte.is_ascii_alphanumeric()
-                            || matches!(byte, b'-' | b'_' | b'+' | b'.' | b':')
-                    });
-                if valid {
-                    id = Some(String::from_utf8_lossy(value).into_owned());
-                }
-            }
-            _ => {}
-        }
-    }
-    // close, alive, queries and unknown kinds carry nothing to show.
-    let kind = kind?;
-    let decoded;
-    let payload = if base64 {
-        decoded = base64::engine::general_purpose::STANDARD.decode(payload).ok()?;
-        decoded.as_slice()
-    } else {
-        payload
-    };
-    if std::str::from_utf8(payload).is_err() {
-        return None;
-    }
-    match id {
-        Some(id) if pending.active && pending.id.as_deref() == Some(id.as_str()) => {}
-        Some(id) => {
-            pending.reset();
-            pending.active = true;
-            pending.id = Some(id);
-        }
-        None => {
-            pending.reset();
-            pending.active = true;
-        }
-    }
-    let buffer = match kind {
-        KittyPayload::Title => &mut pending.title,
-        KittyPayload::Body => &mut pending.body,
-    };
-    if buffer.len() + payload.len() >= MAX_KITTY_PENDING_BYTES {
-        pending.reset();
-        return None;
-    }
-    buffer.extend_from_slice(payload);
-    if !done {
-        return None;
-    }
-    let notification = TerminalNotification::new(&pending.title, &pending.body);
-    pending.reset();
-    notification
-}
-
-/// Whether an OSC 9 body (after `9;`) is an iTerm2 desktop notification.
-/// Everything Ghostty's `osc9.zig` parses as a ConEmu command is not.
-fn osc9_is_notification(data: &[u8]) -> bool {
-    let at = |index: usize| data.get(index).copied();
-    match at(0) {
-        None => true,
-        Some(b'1') => match at(1) {
-            Some(b';') => false,
-            Some(b'0') => match (data.len(), at(2), at(3)) {
-                (2, _, _) => false,
-                (length, Some(b';'), Some(b'0'..=b'3')) if length >= 4 => false,
-                _ => true,
-            },
-            Some(b'1') => at(2) != Some(b';'),
-            Some(b'2') => false,
-            _ => true,
-        },
-        Some(b'2' | b'3' | b'6' | b'7' | b'8' | b'9') => at(1) != Some(b';'),
-        Some(b'4') => !(at(1) == Some(b';') && matches!(at(2), Some(b'0'..=b'4'))),
-        Some(b'5') => false,
-        Some(_) => true,
-    }
-}
-
-/// Ghostty's desktop notification limits, per terminal. Computed on arrival:
-/// no timer runs for it.
-#[derive(Debug, Default)]
-pub(crate) struct NotificationGate {
-    last: Option<(Instant, u64)>,
-}
-
-impl NotificationGate {
-    /// Whether `notification` may be shown at `now`; records it when it may.
-    pub(crate) fn admit(&mut self, notification: &TerminalNotification, now: Instant) -> bool {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        notification.title.hash(&mut hasher);
-        notification.body.hash(&mut hasher);
-        let digest = hasher.finish();
-        if let Some((last, last_digest)) = self.last {
-            let elapsed = now.saturating_duration_since(last);
-            if elapsed < NOTIFICATION_MIN_SPACING
-                || (last_digest == digest && elapsed < NOTIFICATION_REPEAT_SPACING)
-            {
-                return false;
-            }
-        }
-        self.last = Some((now, digest));
-        true
-    }
+fn is_string_opener(byte: u8) -> bool {
+    matches!(byte, 0x90 | 0x98 | 0x9d | 0x9f | 0x9e)
 }
 
 /// Generic terminal metadata retained from the output stream.
@@ -649,18 +203,8 @@ impl NotificationGate {
 pub(crate) struct TerminalMetadata {
     osc: OscCollector,
     progress: String,
-    /// The parsed progress last handed to the public graph.
-    published_progress: Option<TerminalProgress>,
-    kitty: KittyPending,
-    notifications: Vec<TerminalNotification>,
-    gate: NotificationGate,
-    /// OSC 133 prompt marks since the last take (shell command history).
-    shell_marks: Vec<crate::shell_history::ShellMark>,
-    /// OSC 7501 records, fed by the terminal parser's callback. Shared so a
-    /// replaced mirror terminal (resize, reconnect) keeps feeding them.
-    program_status: crate::program_status::SharedProgramStatus,
-    /// The running shell command (`terminal-activity-v1`).
-    pub(crate) activity: crate::terminal_activity::ShellActivity,
+    /// The last command the shell finished (`terminal-exit-status-v1`).
+    command: crate::terminal_command::CommandTracker,
 }
 
 impl TerminalMetadata {
@@ -672,220 +216,73 @@ impl TerminalMetadata {
         // chunk contains no new ESC or C1 introducer.
         if self.osc.state == OscState::Ground
             && self.osc.utf8_continuations == 0
-            && find_esc_or_high(bytes) == bytes.len()
+            && !bytes.iter().any(|byte| {
+                *byte == 0x1b || is_string_opener(*byte) || utf8_continuation_count(*byte) != 0
+            })
         {
             return;
         }
-        let (osc, mut sink) = self.split_osc();
-        osc.observe(bytes, |body| sink.receive(body));
-    }
-
-    /// [`Self::observe_output`] and the title rewrite of
-    /// `crate::prompt_mode_reset::write_output` (`titles`, the stream's
-    /// [`ShellMarks::titles_mut`](crate::prompt_mode_reset::ShellMarks::titles_mut))
-    /// in one walk of the bytes: the host parser's per-frame scan. Returns
-    /// `bytes` with their title ops rewritten, for
-    /// `crate::prompt_mode_reset::write_rewritten_output`.
-    pub(crate) fn observe_output_rewriting_titles<'a>(
-        &mut self,
-        titles: &mut crate::terminal_title::TitleTracker,
-        bytes: &'a [u8],
-    ) -> Cow<'a, [u8]> {
-        let (osc, mut sink) = self.split_osc();
-        osc.observe_rewriting_titles(titles, bytes, |body| sink.receive(body))
-    }
-
-    fn split_osc(&mut self) -> (&mut OscCollector, OscBodySink<'_>) {
-        let sink = OscBodySink {
-            progress: &mut self.progress,
-            kitty: &mut self.kitty,
-            notifications: &mut self.notifications,
-            shell_marks: &mut self.shell_marks,
-            activity: &mut self.activity,
-        };
-        (&mut self.osc, sink)
-    }
-}
-
-/// What a finished OSC body updates in [`TerminalMetadata`].
-struct OscBodySink<'m> {
-    progress: &'m mut String,
-    kitty: &'m mut KittyPending,
-    notifications: &'m mut Vec<TerminalNotification>,
-    shell_marks: &'m mut Vec<crate::shell_history::ShellMark>,
-    activity: &'m mut crate::terminal_activity::ShellActivity,
-}
-
-impl OscBodySink<'_> {
-    fn receive(&mut self, body: &[u8]) {
-        let progress: &mut String = &mut *self.progress;
-        let kitty: &mut KittyPending = &mut *self.kitty;
-        let notifications: &mut Vec<TerminalNotification> = &mut *self.notifications;
-        let shell_marks: &mut Vec<crate::shell_history::ShellMark> = &mut *self.shell_marks;
-        let activity: &mut crate::terminal_activity::ShellActivity = &mut *self.activity;
-        let Some(separator) = body.iter().position(|byte| *byte == b';') else {
-            return;
-        };
-        let data = &body[separator + 1..];
-        let notification = match &body[..separator] {
-            b"9" => {
-                *progress = String::from_utf8_lossy(data)
-                    .chars()
-                    .filter(|character| !character.is_control())
-                    .take(MAX_PROGRESS_CHARS)
-                    .collect();
-                osc9_is_notification(data).then(|| TerminalNotification::new(b"", data)).flatten()
-            }
-            b"777" => {
-                let Some(rest) = data.strip_prefix(b"notify;") else { return };
-                let Some(title_end) = rest.iter().position(|byte| *byte == b';') else {
-                    return;
-                };
-                TerminalNotification::new(&rest[..title_end], &rest[title_end + 1..])
-            }
-            b"99" => observe_kitty_notification(kitty, data),
-            b"133" => {
-                if let Some(mark) = crate::shell_history::ShellMark::parse(data) {
-                    let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-                    if activity.observe(mark, now_ms) {
-                        progress.clear();
-                    }
-                    if shell_marks.len() == crate::shell_history::MAX_PENDING_MARKS {
-                        shell_marks.remove(0);
-                    }
-                    shell_marks.push(mark);
+        let progress = &mut self.progress;
+        let command = &mut self.command;
+        self.osc.observe(bytes, |body| {
+            let Some(separator) = body.iter().position(|byte| *byte == b';') else {
+                return;
+            };
+            let data = &body[separator + 1..];
+            match &body[..separator] {
+                b"9" => {
+                    *progress = String::from_utf8_lossy(data)
+                        .chars()
+                        .filter(|character| !character.is_control())
+                        .take(MAX_PROGRESS_CHARS)
+                        .collect();
                 }
-                None
+                b"133" => {
+                    if let Some(mark) = crate::terminal_command::ShellMark::parse(data) {
+                        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+                        command.observe(mark, now_ms);
+                    }
+                }
+                _ => {}
             }
-            _ => None,
-        };
-        if let Some(notification) = notification {
-            if notifications.len() == MAX_PENDING_NOTIFICATIONS {
-                notifications.remove(0);
-            }
-            notifications.push(notification);
-        }
-    }
-}
-
-impl TerminalMetadata {
-    /// Metadata that keeps feeding `program_status` (a reconnect replaces the
-    /// rest).
-    #[cfg_attr(not(unix), allow(dead_code))]
-    pub(crate) fn with_program_status(
-        program_status: crate::program_status::SharedProgramStatus,
-    ) -> Self {
-        Self { program_status, ..Self::default() }
+        });
     }
 
-    /// Replaces the OSC 7501 records with a terminal host's.
-    pub(crate) fn restore_program_status(
-        &self,
-        snapshot: crate::program_status::ProgramStatusSnapshot,
+    /// The last command the shell finished, from OSC 133 marks.
+    pub(crate) fn last_command(&self) -> Option<crate::terminal_command::LastCommand> {
+        self.command.last_command()
+    }
+
+    /// Take `previous`'s command state (a reconnect to the same terminal
+    /// host replaces the parser, not the shell): a running command keeps its
+    /// start, a prompt with no `D` still finishes it, and an already
+    /// published record does not publish again.
+    pub(crate) fn keep_command_state_of(&mut self, previous: &TerminalMetadata) {
+        self.command = previous.command;
+    }
+
+    /// Whether the last command changed since the last call, marking it
+    /// published (`terminal-exit-status-v1` upserts).
+    #[cfg(test)]
+    pub(crate) fn take_last_command_change(&mut self) -> bool {
+        self.command.take_change()
+    }
+
+    /// Record `published` as the last command the public graph has.
+    pub(crate) fn mark_last_command_published(
+        &mut self,
+        published: Option<crate::terminal_command::LastCommand>,
     ) {
-        self.program_status
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .restore(snapshot);
+        self.command.mark_published(published);
     }
 
-    /// The OSC 7501 records this metadata publishes.
-    pub(crate) fn program_status(&self) -> crate::program_status::SharedProgramStatus {
-        self.program_status.clone()
-    }
-
-    /// OSC 133 marks parsed since the last call, oldest first.
-    pub(crate) fn take_shell_marks(&mut self) -> Vec<crate::shell_history::ShellMark> {
-        std::mem::take(&mut self.shell_marks)
-    }
-
-    /// Desktop notifications parsed since the last call, oldest first.
-    pub(crate) fn take_notifications(&mut self) -> Vec<TerminalNotification> {
-        std::mem::take(&mut self.notifications)
-    }
-
-    /// `take_notifications` filtered by this terminal's rate limit.
-    pub(crate) fn take_admitted_notifications(
-        &mut self,
-        now: Instant,
-    ) -> Vec<TerminalNotification> {
-        if self.notifications.is_empty() {
-            return Vec::new();
-        }
-        let mut taken = self.take_notifications();
-        taken.retain(|notification| self.gate.admit(notification, now));
-        taken
-    }
-
-    /// The OSC 7501 `alerts` that pass this terminal's rate limit (the same
-    /// one as OSC 9, 777 and 99: the specification asks terminals to
-    /// rate-limit anything a record causes outside the terminal).
-    pub(crate) fn admit_program_status_alerts(
-        &mut self,
-        alerts: Vec<crate::program_status::ProgramStatusAlert>,
-        now: Instant,
-    ) -> Vec<TerminalNotification> {
-        alerts
-            .into_iter()
-            .map(TerminalNotification::from_program_status)
-            .filter(|notification| self.gate.admit(notification, now))
-            .collect()
+    /// Whether `take_last_command_change` would report a change; marks nothing.
+    pub(crate) fn has_last_command_change(&self) -> bool {
+        self.command.has_change()
     }
 
     pub(crate) fn osc_progress(&self) -> &str {
         &self.progress
-    }
-
-    /// The parsed OSC 9;4 progress, when the retained text is one.
-    pub(crate) fn progress(&self) -> Option<TerminalProgress> {
-        parse_progress(&self.progress)
-    }
-
-    /// The parsed progress when it differs from the last one taken, marking
-    /// it taken. `Some(None)` reports a removed progress.
-    pub(crate) fn take_progress_change(&mut self) -> Option<Option<TerminalProgress>> {
-        let current = self.progress();
-        (current != self.published_progress).then(|| {
-            self.published_progress = current;
-            current
-        })
-    }
-
-    /// The running shell command's state and start time, if one runs.
-    pub(crate) fn command_activity(
-        &self,
-    ) -> Option<(crate::terminal_activity::CommandActivity, u64)> {
-        self.activity.command()
-    }
-
-    /// Applies the terminal modes after an output chunk (`modes` reads
-    /// them) to the running command; reads them only while the command
-    /// still counts as non-interactive.
-    pub(crate) fn observe_modes(
-        &mut self,
-        modes: impl FnOnce() -> crate::terminal_activity::TerminalModes,
-    ) {
-        if self.activity.wants_interactive_check() {
-            self.activity.note_modes(modes());
-        }
-    }
-
-    /// Whether the command or prompt fact changed since the last call (marks
-    /// it taken): a durable edge, one terminal upsert commit.
-    pub(crate) fn take_busy_change(&mut self) -> bool {
-        self.activity.take_edge_change()
-    }
-
-    /// Whether the last output moved a whole publish interval since the last
-    /// call (marks it taken): a live fact, never a commit.
-    pub(crate) fn take_output_change(&mut self) -> bool {
-        self.activity.take_output_change()
-    }
-
-    /// Whether `take_progress_change` or `take_busy_change` would report a
-    /// change now; marks nothing.
-    pub(crate) fn has_publication_change(&self) -> bool {
-        self.progress() != self.published_progress || self.activity.has_change()
     }
 
     /// Restore a progress value carried by an authenticated terminal-host
@@ -902,5 +299,154 @@ impl TerminalMetadata {
 }
 
 #[cfg(test)]
-#[path = "terminal_metadata_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_run_osc_133_exit_code_is_the_last_commands_status_and_plain_output_has_none() {
+        let mut metadata = TerminalMetadata::default();
+        // A shell without integration: output, no marks, no status.
+        metadata.observe_output(b"$ sh -c 'exit 7'\r\n$ ");
+        assert_eq!(metadata.last_command(), None);
+
+        // Ghostty's shell integration: C at Enter, D;<status> before the next A,
+        // split across output chunks.
+        metadata.observe_output(b"\x1b]133;A\x07$ \x1b]133;B\x07sh -c 'exit 7'\r\n\x1b]133;C\x07");
+        metadata.observe_output(b"\x1b]133;D");
+        metadata.observe_output(b";7;aid=12\x07\x1b]133;A\x07$ ");
+        let last = metadata.last_command().expect("a finished command");
+        assert_eq!(last.exit_code, Some(7));
+        assert!(last.started_at_ms.is_some());
+
+        metadata.observe_output(b"\x1b]133;C\x07ok\r\n\x1b]133;D;0\x07\x1b]133;A\x07");
+        assert_eq!(metadata.last_command().unwrap().exit_code, Some(0));
+        // OSC 9 progress still parses next to the marks.
+        metadata.observe_output(b"\x1b]9;4;1;50\x07");
+        assert_eq!(metadata.osc_progress(), "4;1;50");
+    }
+
+    #[test]
+    fn read_run_osc_133_command_state_survives_a_parser_replacement() {
+        let mut previous = TerminalMetadata::default();
+        previous.observe_output(b"\x1b]133;C\x07");
+        let mut replacement = TerminalMetadata::default();
+        replacement.keep_command_state_of(&previous);
+        // The command started before the reconnect ends after it, with no D.
+        replacement.observe_output(b"\x1b]133;A\x07$ ");
+        let last = replacement.last_command().expect("the prompt finished the command");
+        assert_eq!(last.exit_code, None);
+        assert!(last.started_at_ms.is_some(), "the start survives the reconnect");
+        assert!(replacement.take_last_command_change());
+
+        let mut again = TerminalMetadata::default();
+        again.keep_command_state_of(&replacement);
+        assert_eq!(again.last_command(), Some(last));
+        assert!(!again.take_last_command_change(), "a published record does not publish again");
+    }
+
+    #[test]
+    fn captures_bel_st_and_c1_osc_progress() {
+        let mut metadata = TerminalMetadata::default();
+        metadata.observe_output(b"\x1b]9;4;3;\x07");
+        assert_eq!(metadata.osc_progress(), "4;3;");
+        metadata.observe_output(b"\x1b]9;4;1;50\x1b\\");
+        assert_eq!(metadata.osc_progress(), "4;1;50");
+        metadata.observe_output(b"\x9d9;4;2;\x9c");
+        assert_eq!(metadata.osc_progress(), "4;2;");
+    }
+
+    #[test]
+    fn preserves_chunk_boundaries_and_ignores_other_strings() {
+        let mut metadata = TerminalMetadata::default();
+        metadata.observe_output(b"\x1b]9;4");
+        metadata.observe_output(b";2;");
+        metadata.observe_output(b"\x07");
+        assert_eq!(metadata.osc_progress(), "4;2;");
+        metadata.observe_output(b"\x1b]0;title\x07\x1bP+q9;bad\x1b\\");
+        assert_eq!(metadata.osc_progress(), "4;2;");
+    }
+
+    #[test]
+    fn preserves_non_st_escape_bytes_inside_an_osc_payload() {
+        let mut metadata = TerminalMetadata::default();
+        metadata.observe_output(b"\x1b]9;before\x1bXafter\x07");
+        // The ESC is a control character and is removed from the exposed
+        // text, but the following byte and the remainder of the payload must
+        // survive the framing state transition.
+        assert_eq!(metadata.osc_progress(), "beforeXafter");
+    }
+
+    #[test]
+    fn utf8_continuation_bytes_are_not_c1_framing() {
+        let mut metadata = TerminalMetadata::default();
+        // U+00DD is encoded as C3 9D. The continuation byte is numerically
+        // equal to C1 OSC, but it is ordinary text in this stream.
+        metadata.observe_output("Ý".as_bytes());
+        let mut first = b"\x1b]9;before".to_vec();
+        first.extend_from_slice("Ýafter\x07".as_bytes());
+        metadata.observe_output(&first);
+        assert_eq!(metadata.osc_progress(), "beforeÝafter");
+
+        // U+00DC is encoded as C3 9C. It must not terminate an OSC payload.
+        let mut second = b"\x1b]9;left".to_vec();
+        second.extend_from_slice("Üright\x07".as_bytes());
+        metadata.observe_output(&second);
+        assert_eq!(metadata.osc_progress(), "leftÜright");
+    }
+
+    #[test]
+    fn invalid_utf8_does_not_swallow_a_c1_string_terminator() {
+        let mut metadata = TerminalMetadata::default();
+        // E0 must be followed by A0..BF as its first UTF-8 continuation.
+        // 9C is therefore a raw C1 ST here and must close the OSC body.
+        let mut bytes = vec![0x9d, b'9', b';'];
+        bytes.extend_from_slice(b"old");
+        bytes.extend_from_slice(&[0xe0, 0x9c]);
+        metadata.observe_output(&bytes);
+        metadata.observe_output(b"\x1b]9;new\x07");
+        assert_eq!(metadata.osc_progress(), "new");
+    }
+
+    #[test]
+    fn c1_string_openers_are_isolated_from_osc() {
+        let mut metadata = TerminalMetadata::default();
+        for opener in [0x90, 0x98, 0x9e, 0x9f] {
+            let mut bytes = vec![opener];
+            bytes.extend_from_slice(b"payload \x9d9;leaked\x9c");
+            metadata.observe_output(&bytes);
+        }
+        assert_eq!(metadata.osc_progress(), "");
+        metadata.observe_output(b"\x1b]9;valid\x07");
+        assert_eq!(metadata.osc_progress(), "valid");
+    }
+
+    #[test]
+    fn can_and_sub_cancel_all_string_states() {
+        let mut metadata = TerminalMetadata::default();
+        for cancel in [0x18, 0x1a] {
+            metadata.observe_output(&[0x1b, b']', b'9', b';', b'b', b'a', cancel]);
+            metadata.observe_output(b"\x1b]9;valid\x07");
+            assert_eq!(metadata.osc_progress(), "valid");
+
+            metadata.observe_output(&[0x90, b'\x9d', cancel]);
+            metadata.observe_output(b"\x1b]9;valid-again\x07");
+            assert_eq!(metadata.osc_progress(), "valid-again");
+        }
+    }
+
+    #[test]
+    fn discards_oversized_bodies_and_bounds_text() {
+        let mut metadata = TerminalMetadata::default();
+        let mut body = b"\x1b]9;".to_vec();
+        body.extend(std::iter::repeat_n(b'x', MAX_OSC_BODY_BYTES + 1));
+        body.push(0x07);
+        metadata.observe_output(&body);
+        assert_eq!(metadata.osc_progress(), "");
+
+        let mut bounded = b"\x1b]9;".to_vec();
+        bounded.extend(std::iter::repeat_n(b'x', MAX_PROGRESS_CHARS + 32));
+        bounded.push(0x07);
+        metadata.observe_output(&bounded);
+        assert_eq!(metadata.osc_progress().chars().count(), MAX_PROGRESS_CHARS);
+    }
+}

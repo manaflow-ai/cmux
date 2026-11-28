@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 NETWORK_EXTENSION_KEY = "com.apple.developer.networking.networkextension"
+PERSONAL_VPN_KEY = "com.apple.developer.networking.vpn.api"
 UNSUPPORTED_NETWORK_EXTENSION_VALUES = frozenset({"hotspot-provider"})
 
 
@@ -29,6 +30,19 @@ def filter_app_store_entitlements(entitlements: dict) -> tuple[dict, list[str]]:
             filtered[NETWORK_EXTENSION_KEY] = kept
         else:
             filtered.pop(NETWORK_EXTENSION_KEY, None)
+    return filtered, removed
+
+
+def remove_network_extension_entitlement(entitlements: dict) -> tuple[dict, list[str]]:
+    """Remove all Network Extension and Personal VPN permissions from a host app."""
+    filtered = dict(entitlements)
+    removed = []
+    for key in (NETWORK_EXTENSION_KEY, PERSONAL_VPN_KEY):
+        values = filtered.pop(key, None)
+        if isinstance(values, list):
+            removed.extend(f"{key}[{value}]" for value in values)
+        elif values is not None:
+            removed.append(key)
     return filtered, removed
 
 
@@ -53,6 +67,11 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="fail when an unsupported iOS main-app entitlement is present",
     )
+    parser.add_argument(
+        "--remove-network-extension",
+        action="store_true",
+        help="remove all Network Extension permissions from the host app",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -61,7 +80,10 @@ def main(argv: list[str]) -> int:
         print(f"error: could not read entitlements: {exc}", file=sys.stderr)
         return 2
 
-    filtered, removed = filter_app_store_entitlements(entitlements)
+    if args.remove_network_extension:
+        filtered, removed = remove_network_extension_entitlement(entitlements)
+    else:
+        filtered, removed = filter_app_store_entitlements(entitlements)
     if args.check:
         if removed:
             print(

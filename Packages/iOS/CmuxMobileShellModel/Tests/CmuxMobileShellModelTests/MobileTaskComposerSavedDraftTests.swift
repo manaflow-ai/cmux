@@ -102,7 +102,7 @@ struct MobileTaskComposerSavedDraftTests {
     @Test func draftAttachmentsRoundTripThroughCodable() throws {
         let attachment = MobileTaskComposerDraftAttachment(
             id: UUID(),
-            kind: "image",
+            kind: TaskComposerAttachment.Kind.image.persistedValue,
             displayName: "IMG_0001.heic",
             relativePath: "draft-id/attachment-id.heic",
             byteCount: 1_234,
@@ -124,6 +124,8 @@ struct MobileTaskComposerSavedDraftTests {
 
         #expect(decoded == draft)
         #expect(decoded.attachments == [attachment])
-        #expect(decoded.attachments[0].kind == "image")
+        #expect(TaskComposerAttachment.Kind(persistedValue: decoded.attachments[0].kind) == .image)
+        #expect(TaskComposerAttachment.Kind(persistedValue: "file") == .file)
+        #expect(TaskComposerAttachment.Kind(persistedValue: "unknown-future-kind") == .file)
     }
 }

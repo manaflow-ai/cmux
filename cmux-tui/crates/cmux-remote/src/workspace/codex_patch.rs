@@ -42,20 +42,16 @@ pub(super) fn looks_like_patch(source: &str) -> bool {
 pub(super) fn parse_patch(source: &str) -> Result<Vec<Hunk>, String> {
     let original_lines = source.trim().lines().collect::<Vec<_>>();
     let lines = patch_lines(&original_lines)?;
-    // `patch_lines` returns at least the Begin and End marker lines.
-    let [_, body @ .., _] = lines else {
-        return Err("the last line of the patch must be '*** End Patch'".into());
-    };
-    let mut remaining = body;
+    let mut remaining = &lines[1..lines.len() - 1];
     let mut line_number = 2;
 
-    if let Some((first, rest)) = remaining.split_first()
+    if let Some(first) = remaining.first()
         && let Some(environment_id) = first.trim_start().strip_prefix(ENVIRONMENT_ID_MARKER)
     {
         if environment_id.trim().is_empty() {
             return Err("apply_patch environment_id cannot be empty".into());
         }
-        remaining = rest;
+        remaining = &remaining[1..];
         line_number += 1;
     }
 
@@ -63,7 +59,7 @@ pub(super) fn parse_patch(source: &str) -> Result<Vec<Hunk>, String> {
     while !remaining.is_empty() {
         let (hunk, consumed) = parse_one_hunk(remaining, line_number)?;
         hunks.push(hunk);
-        remaining = remaining.get(consumed..).unwrap_or_default();
+        remaining = &remaining[consumed..];
         line_number += consumed;
     }
     if hunks.is_empty() {
@@ -76,13 +72,15 @@ fn patch_lines<'a>(original: &'a [&'a str]) -> Result<&'a [&'a str], String> {
     if valid_boundaries(original) {
         return Ok(original);
     }
-    if let [first, inner @ .., last] = original
+    if let [first, .., last] = original
         && matches!(*first, "<<EOF" | "<<'EOF'" | "<<\"EOF\"")
         && last.ends_with("EOF")
         && original.len() >= 4
-        && valid_boundaries(inner)
     {
-        return Ok(inner);
+        let inner = &original[1..original.len() - 1];
+        if valid_boundaries(inner) {
+            return Ok(inner);
+        }
     }
     match (original.first(), original.last()) {
         (Some(first), _) if first.trim() != BEGIN_PATCH_MARKER => {
@@ -99,14 +97,11 @@ fn valid_boundaries(lines: &[&str]) -> bool {
 }
 
 fn parse_one_hunk(lines: &[&str], line_number: usize) -> Result<(Hunk, usize), String> {
-    let Some((first, rest)) = lines.split_first() else {
-        return Err(format!("invalid hunk at line {line_number}: missing hunk header"));
-    };
-    let first = first.trim();
+    let first = lines[0].trim();
     if let Some(path) = first.strip_prefix(ADD_FILE_MARKER) {
         let mut contents = String::new();
         let mut consumed = 1;
-        for line in rest {
+        for line in &lines[1..] {
             let Some(line) = line.strip_prefix('+') else { break };
             contents.push_str(line);
             contents.push('\n');
@@ -118,31 +113,28 @@ fn parse_one_hunk(lines: &[&str], line_number: usize) -> Result<(Hunk, usize), S
         return Ok((Hunk::Delete { path: path.into() }, 1));
     }
     if let Some(path) = first.strip_prefix(UPDATE_FILE_MARKER) {
-        let mut remaining = rest;
+        let mut remaining = &lines[1..];
         let mut consumed = 1;
-        let mut move_path = None;
-        if let Some((line, rest)) = remaining.split_first()
-            && let Some(path) = line.strip_prefix(MOVE_TO_MARKER)
-        {
-            move_path = Some(path);
-            remaining = rest;
+        let move_path = remaining.first().and_then(|line| line.strip_prefix(MOVE_TO_MARKER));
+        if move_path.is_some() {
+            remaining = &remaining[1..];
             consumed += 1;
         }
 
         let mut chunks = Vec::new();
-        while let Some((line, rest)) = remaining.split_first() {
-            if line.trim().is_empty() {
-                remaining = rest;
+        while !remaining.is_empty() {
+            if remaining[0].trim().is_empty() {
+                remaining = &remaining[1..];
                 consumed += 1;
                 continue;
             }
-            if line.starts_with('*') {
+            if remaining[0].starts_with('*') {
                 break;
             }
             let (chunk, chunk_lines) =
                 parse_update_chunk(remaining, line_number + consumed, chunks.is_empty())?;
             chunks.push(chunk);
-            remaining = remaining.get(chunk_lines..).unwrap_or_default();
+            remaining = &remaining[chunk_lines..];
             consumed += chunk_lines;
         }
         if chunks.is_empty() {
@@ -163,21 +155,16 @@ fn parse_update_chunk(
     line_number: usize,
     allow_missing_context: bool,
 ) -> Result<(UpdateFileChunk, usize), String> {
-    let Some(&head) = lines.first() else {
-        return Err(format!(
-            "invalid hunk at line {}: update hunk does not contain any lines",
-            line_number + 1
-        ));
-    };
-    let (change_context, start) = if head == EMPTY_CHANGE_CONTEXT_MARKER {
+    let (change_context, start) = if lines[0] == EMPTY_CHANGE_CONTEXT_MARKER {
         (None, 1)
-    } else if let Some(context) = head.strip_prefix(CHANGE_CONTEXT_MARKER) {
+    } else if let Some(context) = lines[0].strip_prefix(CHANGE_CONTEXT_MARKER) {
         (Some(context.to_owned()), 1)
     } else if allow_missing_context {
         (None, 0)
     } else {
         return Err(format!(
-            "invalid hunk at line {line_number}: expected @@ context marker, got '{head}'"
+            "invalid hunk at line {line_number}: expected @@ context marker, got '{}'",
+            lines[0]
         ));
     };
     if start >= lines.len() {
@@ -194,7 +181,7 @@ fn parse_update_chunk(
         is_end_of_file: false,
     };
     let mut parsed = 0;
-    for line in lines.get(start..).unwrap_or_default() {
+    for line in &lines[start..] {
         if *line == EOF_MARKER {
             if parsed == 0 {
                 return Err(format!(
@@ -206,20 +193,17 @@ fn parse_update_chunk(
             parsed += 1;
             break;
         }
-        let mut chars = line.chars();
-        let marker = chars.next();
-        let text = chars.as_str();
-        match marker {
+        match line.chars().next() {
             None => {
                 chunk.old_lines.push(String::new());
                 chunk.new_lines.push(String::new());
             }
             Some(' ') => {
-                chunk.old_lines.push(text.to_owned());
-                chunk.new_lines.push(text.to_owned());
+                chunk.old_lines.push(line[1..].to_owned());
+                chunk.new_lines.push(line[1..].to_owned());
             }
-            Some('+') => chunk.new_lines.push(text.to_owned()),
-            Some('-') => chunk.old_lines.push(text.to_owned()),
+            Some('+') => chunk.new_lines.push(line[1..].to_owned()),
+            Some('-') => chunk.old_lines.push(line[1..].to_owned()),
             _ if parsed > 0 => break,
             _ => {
                 return Err(format!(
@@ -244,10 +228,7 @@ pub(super) fn apply_update(
     }
     let replacements = compute_replacements(&original_lines, path, chunks)?;
     for (start, old_len, new_lines) in replacements.iter().rev() {
-        // Each range was found inside the original lines; clamp so chunks that
-        // overlap (an end-of-file chunk can) cannot index past the edited lines.
-        let end = start.saturating_add(*old_len).min(original_lines.len());
-        original_lines.splice((*start).min(end)..end, new_lines.iter().cloned());
+        original_lines.splice(*start..*start + *old_len, new_lines.iter().cloned());
     }
     if !original_lines.last().is_some_and(String::is_empty) {
         original_lines.push(String::new());
@@ -281,15 +262,10 @@ fn compute_replacements(
         let mut pattern = chunk.old_lines.as_slice();
         let mut new_lines = chunk.new_lines.as_slice();
         let mut found = seek_sequence(original, pattern, line_index, chunk.is_end_of_file);
-        if found.is_none()
-            && let Some((last, without_last)) = pattern.split_last()
-            && last.is_empty()
-        {
-            pattern = without_last;
-            if let Some((last, without_last)) = new_lines.split_last()
-                && last.is_empty()
-            {
-                new_lines = without_last;
+        if found.is_none() && pattern.last().is_some_and(String::is_empty) {
+            pattern = &pattern[..pattern.len() - 1];
+            if new_lines.last().is_some_and(String::is_empty) {
+                new_lines = &new_lines[..new_lines.len() - 1];
             }
             found = seek_sequence(original, pattern, line_index, chunk.is_end_of_file);
         }
@@ -315,22 +291,34 @@ fn seek_sequence(lines: &[String], pattern: &[String], start: usize, eof: bool) 
     if search_start > end {
         return None;
     }
-    // Exact, then ignoring trailing whitespace, then ignoring surrounding
-    // whitespace, then with Unicode punctuation normalized; each pass scans
-    // every position before the next, looser one.
-    let passes: [fn(&str, &str) -> bool; 4] = [
-        |line, expected| line == expected,
-        |line, expected| line.trim_end() == expected.trim_end(),
-        |line, expected| line.trim() == expected.trim(),
-        |line, expected| normalize_unicode(line) == normalize_unicode(expected),
-    ];
-    let matches_at = |index: usize, same: fn(&str, &str) -> bool| {
-        lines.get(index..).is_some_and(|tail| {
-            tail.len() >= pattern.len()
-                && tail.iter().zip(pattern).all(|(line, expected)| same(line, expected))
+    for index in search_start..=end {
+        if lines[index..index + pattern.len()] == *pattern {
+            return Some(index);
+        }
+    }
+    for index in search_start..=end {
+        if pattern
+            .iter()
+            .enumerate()
+            .all(|(offset, expected)| lines[index + offset].trim_end() == expected.trim_end())
+        {
+            return Some(index);
+        }
+    }
+    for index in search_start..=end {
+        if pattern
+            .iter()
+            .enumerate()
+            .all(|(offset, expected)| lines[index + offset].trim() == expected.trim())
+        {
+            return Some(index);
+        }
+    }
+    (search_start..=end).find(|&index| {
+        pattern.iter().enumerate().all(|(offset, expected)| {
+            normalize_unicode(&lines[index + offset]) == normalize_unicode(expected)
         })
-    };
-    passes.into_iter().find_map(|same| (search_start..=end).find(|&index| matches_at(index, same)))
+    })
 }
 
 fn normalize_unicode(value: &str) -> String {
@@ -348,4 +336,42 @@ fn normalize_unicode(value: &str) -> String {
             other => other,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_environment_id_and_all_file_actions() {
+        let patch = concat!(
+            "*** Begin Patch\n",
+            "*** Environment ID: remote-1\n",
+            "*** Add File: added.txt\n",
+            "+added\n",
+            "*** Delete File: deleted.txt\n",
+            "*** Update File: old.txt\n",
+            "*** Move to: new.txt\n",
+            "@@\n",
+            "-old\n",
+            "+new\n",
+            "*** End Patch\n",
+        );
+        assert_eq!(parse_patch(patch).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn update_matches_codex_whitespace_tolerance() {
+        let hunks = parse_patch(concat!(
+            "*** Begin Patch\n",
+            "*** Update File: value.txt\n",
+            "@@\n",
+            "-  old\n",
+            "+new\n",
+            "*** End Patch\n",
+        ))
+        .unwrap();
+        let Hunk::Update { chunks, .. } = &hunks[0] else { panic!() };
+        assert_eq!(apply_update("old   \n", "value.txt", chunks).unwrap(), "new\n");
+    }
 }

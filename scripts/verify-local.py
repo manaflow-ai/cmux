@@ -30,12 +30,17 @@ CHECKS = (
     ("localization-defaults", "static_analysis", "Swift defaultValue parity", ["python3", "scripts/localization_defaults.py"]),
     ("project-tests", "tests", "Project normalizer tests", ["python3", "tests/test_normalize_pbxproj.py"]),
     ("project", "static_analysis", "Xcode project normalization and version", ["bash", "scripts/check-pbxproj.sh"]),
+    ("config-schema", "static_analysis", "Embedded cmux.json schema", ["python3", "scripts/generate-cmux-config-schema.py", "--check"]),
+    ("test-wiring-sync", "tests", "Test-wiring sync tool", ["python3", "tests/test_sync_test_wiring.py"]),
+    ("wire-app-sources", "tests", "App-source wiring tool", ["python3", "tests/test_wire_app_sources.py"]),
+    ("ui-lab", "tests", "ui-lab harness directives", ["python3", "tests/test_ui_lab.py"]),
+    ("ui-fuzzer", "tests", "UI fuzzer engine", ["python3", "tests/test_ui_fuzzer_engine.py"]),
     ("launch-policy", "static_analysis", "Generated Claude launch policy", ["python3", "scripts/generate-claude-launch-environment-policy.py", "--check"]),
     ("test-wiring", "static_analysis", "Swift test wiring and regression guard", ["bash", "tests/test_ci_pbxproj_test_wiring.sh"]),
     ("package-groups", "static_analysis", "Workspace Swift package groups", ["python3", "scripts/check-workspace-package-groups.py", "--check"]),
+    ("remote-tmux-waits-tests", "static_analysis", "Remote-tmux time-based wait lint tests", ["bash", "scripts/lint-remote-tmux-no-polling.test.sh"]),
+    ("remote-tmux-waits", "static_analysis", "Remote-tmux time-based waits", ["bash", "scripts/lint-remote-tmux-no-polling.sh"]),
     ("feature-flags", "static_analysis", "Feature flag policy", ["python3", "scripts/lint-feature-flags.py"]),
-    ("backend-migrations", "static_analysis", "cmux-next backend migrations only through a PR",
-     ["python3", "scripts/check-backend-migration-flow.py"]),
 )
 
 
@@ -53,18 +58,27 @@ CHECK_INPUTS = {
     "project": ("scripts/normalize-pbxproj.py", "scripts/check-pbxproj-group-membership.py",
                 "cmux.xcodeproj/project.pbxproj",
                 ".xcode-version"),
+    "config-schema": ("web/data/cmux.schema.json",
+                      "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation/CmuxConfigSchema.generated.swift"),
+    "test-wiring-sync": ("scripts/sync-test-wiring", "scripts/sync_test_wiring.py", "scripts/lint-pbxproj-test-wiring.sh",
+                         "scripts/normalize-pbxproj.py", "tests/fixtures/pbxproj-test-wiring/*"),
+    "wire-app-sources": ("scripts/wire-app-sources.py", "cmux.xcodeproj/project.pbxproj", "Sources/**/*.swift"),
+    "ui-lab": ("scripts/ui-lab/**", "tests/test_ui_lab.py"),
+    "ui-fuzzer": ("dogfood/fuzz/**", "scripts/fuzz", "tests/test_ui_fuzzer_engine.py"),
     "launch-policy": (
         "scripts/claude-launch-environment-policy.json",
-        "agent-chat/adapters/claude-environment-policy.generated.ts"),
-    "test-wiring": ("scripts/lint-pbxproj-test-wiring.sh",),
+        "Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/ClaudeSessionEnvironmentPolicy+Generated.swift",
+        "agent-chat/adapters/claude-environment-policy.generated.ts",
+        "Resources/bin/cmux-claude-wrapper"),
+    "test-wiring": ("scripts/lint-pbxproj-test-wiring.sh", "cmuxTests/*",
+                    "cmux.xcodeproj/project.pbxproj"),
     "package-groups": ("Packages/*", "cmux.xcworkspace/contents.xcworkspacedata"),
-    "feature-flags": ("web/*", "Packages/*", "ios/*",
+    "remote-tmux-waits-tests": ("scripts/lint-remote-tmux-no-polling.sh",),
+    "remote-tmux-waits": ("Sources/*RemoteTmux*", "Packages/*RemoteTmux*",
+                          "scripts/remote-tmux-polling-baseline.txt"),
+    "feature-flags": ("web/*", "Sources/*", "Packages/*", "ios/*", "CLI/*",
                       "scripts/retired-feature-flags.txt"),
-    "backend-migrations": ("backend/db/migrations/*",),
 }
-
-
-INTEGRATION_BRANCH = "feat-cmux-next"
 
 
 def automatic_scope(repo, environ):
@@ -72,40 +86,19 @@ def automatic_scope(repo, environ):
     if any(environ.get(key, "").lower() not in ("", "0", "false", "no")
            for key in ("CI", "GITHUB_ACTIONS")):
         return {"mode": "ci_full", "base_ref": None, "reason": "CI: full static recipe"}
-    candidates = []
     for remote in ("upstream", "origin"):
         try:
             base = subprocess.run(
                 ["git", "-C", str(repo), "symbolic-ref", "-q", f"refs/remotes/{remote}/HEAD"],
                 capture_output=True, text=True, check=True, timeout=5).stdout.strip()
-        except (OSError, subprocess.SubprocessError):
-            continue
-        candidates.append((base, f"Local default-branch reference: {base} (no fetch)"))
-    # feat-cmux-next split from main long ago, so main's merge base with one of its branches is that
-    # old split and would select every check. The candidate with the fewest commits between it and
-    # HEAD wins; ties keep list order. On a large partial clone each git call takes seconds.
-    ranked = []
-    for remote in ("upstream", "origin"):
-        base = f"refs/remotes/{remote}/{INTEGRATION_BRANCH}"
-        candidates.append((base, f"Local integration-branch reference: {base} (no fetch)"))
-    for order, (base, reason) in enumerate(candidates):
-        try:
-            ahead = int(subprocess.run(["git", "-C", str(repo), "rev-list", "--count", f"{base}..HEAD"],
-                                       capture_output=True, text=True, check=True, timeout=30).stdout)
-        except (OSError, ValueError, subprocess.SubprocessError):
-            continue
-        ranked.append((ahead, order, base, reason))
-    # rev-list counts every HEAD commit for a base with no shared history, so confirm the winner's
-    # merge base, falling back to the next candidate.
-    for _, _, base, reason in sorted(ranked):
-        try:
             subprocess.run(["git", "-C", str(repo), "merge-base", base, "HEAD"],
-                           capture_output=True, check=True, timeout=30)
+                           capture_output=True, check=True, timeout=5)
         except (OSError, subprocess.SubprocessError):
             continue
-        return {"mode": "affected", "base_ref": base, "reason": reason}
+        return {"mode": "affected", "base_ref": base,
+                "reason": f"Local default-branch reference: {base} (no fetch)"}
     return {"mode": "full_fallback", "base_ref": None,
-            "reason": "No usable local base reference: full static recipe; parse local Swift edits"}
+            "reason": "No usable local remote-default reference: full static recipe; parse local Swift edits"}
 
 
 def affected_checks(repo, base):

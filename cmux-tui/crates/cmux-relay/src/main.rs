@@ -1,18 +1,3 @@
-// The crash ratchet keeps this crate at zero production panics
-// (plans/cmux-next/crash-elimination.md section 6).
-#![cfg_attr(
-    not(test),
-    deny(
-        clippy::unwrap_used,
-        clippy::expect_used,
-        clippy::panic,
-        clippy::unreachable,
-        clippy::todo,
-        clippy::unimplemented,
-        clippy::exit
-    )
-)]
-
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
@@ -42,7 +27,7 @@ async fn main() -> anyhow::Result<()> {
             let role = match permission {
                 RelayPermission::Register => RelayRole::Daemon,
                 RelayPermission::Connect => RelayRole::Client,
-                RelayPermission::Join => return Err(anyhow!("the CLI cannot mint join tickets")),
+                RelayPermission::Join => unreachable!("CLI cannot mint join tickets"),
             };
             let claims = RelayTicketClaims {
                 version: RelayTicketClaims::VERSION,
@@ -55,8 +40,6 @@ async fn main() -> anyhow::Result<()> {
                 generation,
                 issued_at_unix: now,
                 expires_at_unix,
-                grant: None,
-                region: None,
             };
             println!("{}", authority.issue(&claims)?);
             Ok(())
@@ -66,13 +49,7 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .with_context(|| format!("failed to bind relay at {}", config.bind))?;
             let address = listener.local_addr()?;
-            if config.ticket_secret.is_none() {
-                eprintln!(
-                    "cmux-relay: OPEN MODE (--allow-open): any peer that reaches {address} can register \
-                     or connect to any slot; development only"
-                );
-            }
-            let relay = Relay::new(*config)?;
+            let relay = Relay::new(config)?;
             let cleanup = relay.spawn_cleanup();
             let (listener, router) = relay.server_parts(listener);
             eprintln!("cmux-relay listening on {address}");
@@ -93,19 +70,14 @@ async fn main() -> anyhow::Result<()> {
 async fn shutdown_signal() {
     #[cfg(unix)]
     {
-        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(mut terminate) => {
-                tokio::select! {
-                    result = tokio::signal::ctrl_c() => {
-                        let _ = result;
-                    }
-                    _ = terminate.recv() => {}
-                }
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("failed to install SIGTERM handler");
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => {
+                let _ = result;
             }
-            Err(error) => {
-                eprintln!("cmux-relay: no SIGTERM handler ({error}); stopping on Ctrl-C only");
-                let _ = tokio::signal::ctrl_c().await;
-            }
+            _ = terminate.recv() => {}
         }
     }
 

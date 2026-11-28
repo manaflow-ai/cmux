@@ -31,8 +31,6 @@ use super::ClientScope;
 use super::path::UnixWorkspaceDirectory;
 use super::path::WorkspaceRoot;
 
-/// Measured: each running process holds a child, its pipes or PTY, and an output log of up to
-/// PROCESS_EVENT_BYTES (4 MiB): 256 MiB of output at most for 64.
 const MAX_PROCESSES: usize = 64;
 const MAX_PTY_PROCESSES: usize = 16;
 // Keep one interactive RPC below one carrier frame after JSON/base64 framing.
@@ -42,8 +40,6 @@ const MAX_PROCESS_WRITE_BYTES: usize = 32 * 1024;
 const PROCESS_EVENT_CAPACITY: usize = 512;
 const PROCESS_EVENT_BYTES: usize = 4 * 1024 * 1024;
 const PROCESS_BROADCAST_CAPACITY: usize = 64;
-/// Measured: each reservation makes its process's output log (up to PROCESS_EVENT_BYTES, 4 MiB)
-/// before the spawn, and an unspawned one holds it: 1 GiB at most for 256.
 const MAX_PROCESS_RESERVATIONS: usize = 256;
 const MAX_COMPLETED_PROCESSES: usize = 64;
 const MAX_REMEMBERED_WRITE_IDS: usize = 4_096;
@@ -62,13 +58,6 @@ const TERMINATION_GRACE: std::time::Duration = std::time::Duration::from_secs(2)
 const CHILD_REAP_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 const MAX_PROCESS_REPLAY_EVENTS: u32 = 1_024;
 const MAX_PROCESS_TIMEOUT_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
-/// The retained size of the largest output event one read can publish (one
-/// `PROCESS_READ_CHUNK`, base64).
-const MAX_OUTPUT_EVENT_BYTES: usize = PROCESS_READ_CHUNK.div_ceil(3) * 4;
-/// Events a held reader may lag by before output reading waits for it. The
-/// rest of `PROCESS_EVENT_CAPACITY` leaves room for the truncation and exit
-/// events, which never wait.
-const HELD_EVENT_WINDOW: usize = PROCESS_EVENT_CAPACITY - 8;
 const MAX_OPERATION_ID_BYTES: usize = 256;
 const MAX_PROCESS_CATALOG_ARGUMENTS: usize = 32;
 const MAX_PROCESS_CATALOG_ARGUMENT_BYTES: usize = 512;
@@ -254,9 +243,380 @@ impl InputState {
     }
 }
 
-mod event_log;
-use event_log::ProcessEventLog;
-pub use event_log::{ProcessSubscription, ProcessSubscriptionError};
+#[derive(Clone)]
+struct ProcessEventLog {
+    inner: Arc<ProcessEventLogInner>,
+}
+
+struct ProcessEventLogInner {
+    next_sequence: AtomicU64,
+    history: StdMutex<EventHistory>,
+    live: broadcast::Sender<RpcEvent>,
+    retained_bytes_limit: AtomicUsize,
+}
+
+#[derive(Default)]
+struct EventHistory {
+    events: VecDeque<RpcEvent>,
+    retained_bytes: usize,
+    exit: Option<ExitOutcome>,
+    terminal: Option<ProcessTerminalModel>,
+}
+
+struct ProcessTerminalModel {
+    terminal: ghostty_vt::Terminal,
+    render: ghostty_vt::RenderState,
+    through_sequence: u64,
+}
+
+impl ProcessEventLog {
+    fn new(retained_bytes_limit: usize) -> Self {
+        let (live, _) = broadcast::channel(PROCESS_BROADCAST_CAPACITY);
+        Self {
+            inner: Arc::new(ProcessEventLogInner {
+                next_sequence: AtomicU64::new(1),
+                history: StdMutex::new(EventHistory::default()),
+                live,
+                retained_bytes_limit: AtomicUsize::new(retained_bytes_limit),
+            }),
+        }
+    }
+
+    fn publish_output(&self, process: ProcessId, stderr: bool, bytes: &[u8]) {
+        let data = ByteString::from_bytes(bytes);
+        self.publish(|sequence, history| {
+            if let Some(terminal) = history.terminal.as_mut() {
+                terminal.terminal.vt_write(bytes);
+                terminal.through_sequence = sequence;
+            }
+            let event = if stderr {
+                ProcessEvent::Stderr { process, sequence, data }
+            } else {
+                ProcessEvent::Stdout { process, sequence, data }
+            };
+            RpcEvent { sequence, event }
+        });
+    }
+
+    fn publish_exit(&self, process: ProcessId, outcome: ExitOutcome) {
+        self.publish(|sequence, _| RpcEvent {
+            sequence,
+            event: ProcessEvent::Exit { process, code: outcome.code, signal: outcome.signal },
+        });
+    }
+
+    fn publish_output_truncated(&self, process: ProcessId, reason: ProcessOutputTruncationReason) {
+        self.publish(|sequence, _| RpcEvent {
+            sequence,
+            event: ProcessEvent::OutputTruncated { process, sequence, reason },
+        });
+    }
+
+    fn set_retained_bytes_limit(&self, retained_bytes_limit: usize) {
+        self.inner.retained_bytes_limit.store(retained_bytes_limit, Ordering::Release);
+    }
+
+    fn enable_terminal(&self, cols: u16, rows: u16) -> Result<(), RpcError> {
+        let terminal = ghostty_vt::Terminal::new(
+            cols,
+            rows,
+            PROCESS_TERMINAL_SCROLLBACK_BYTES,
+            ghostty_vt::Callbacks::default(),
+        )
+        .map_err(terminal_model_error)?;
+        let render = ghostty_vt::RenderState::new().map_err(terminal_model_error)?;
+        let mut history =
+            self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if history.terminal.is_some() {
+            return Err(RpcError::new("internal", "process terminal model is already initialized"));
+        }
+        if !history.events.is_empty() {
+            return Err(RpcError::new(
+                "internal",
+                "process terminal model must be initialized before output",
+            ));
+        }
+        history.terminal = Some(ProcessTerminalModel { terminal, render, through_sequence: 0 });
+        Ok(())
+    }
+
+    fn resize_terminal(
+        &self,
+        cols: u16,
+        rows: u16,
+        resize_pty: impl FnOnce() -> Result<(), RpcError>,
+    ) -> Result<(), RpcError> {
+        let mut history =
+            self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let terminal = history
+            .terminal
+            .as_mut()
+            .ok_or_else(|| RpcError::new("not-a-pty", "process does not own a PTY"))?;
+        // The physical resize, VT model resize, output publication, and
+        // snapshots all serialize on the event-history lock. Output caused by
+        // SIGWINCH is therefore parsed at the new model size.
+        resize_pty()?;
+        terminal.terminal.resize(cols, rows, 0, 0).map_err(terminal_model_error)
+    }
+
+    fn snapshot_terminal(&self, process: ProcessId) -> Result<ProcessTerminalSnapshot, RpcError> {
+        let snapshot = {
+            let mut history =
+                self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let terminal = history
+                .terminal
+                .as_mut()
+                .ok_or_else(|| RpcError::new("not-a-pty", "process does not own a PTY"))?;
+            let cells = usize::from(terminal.terminal.cols())
+                .saturating_mul(usize::from(terminal.terminal.rows()));
+            if cells > MAX_PROCESS_TERMINAL_SNAPSHOT_CELLS {
+                return Err(terminal_snapshot_too_large());
+            }
+            let ProcessTerminalModel { terminal, render, through_sequence } = terminal;
+            render.update(terminal).map_err(terminal_model_error)?;
+            let scrollback_rows = terminal.history_rows();
+            let frame = render.build_frame().map_err(terminal_model_error)?;
+            process_terminal_snapshot(process, &frame, scrollback_rows, *through_sequence)
+        };
+        let encoded_bytes = serde_json::to_vec(&snapshot)
+            .map_err(|error| RpcError::new("terminal-snapshot-failed", error.to_string()))?
+            .len();
+        if encoded_bytes > MAX_PROCESS_TERMINAL_SNAPSHOT_BYTES {
+            return Err(terminal_snapshot_too_large());
+        }
+        Ok(snapshot)
+    }
+
+    fn catalog_state(&self) -> (ProcessState, ProcessReplayRange, Option<ProcessTerminalSize>) {
+        let history = self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let next_sequence = self.inner.next_sequence.load(Ordering::Acquire);
+        let state = history.exit.map_or(ProcessState::Running, |outcome| ProcessState::Exited {
+            code: outcome.code,
+            signal: outcome.signal,
+        });
+        let range = replay_range(&history, next_sequence, history.exit.is_some());
+        let pty_size = history.terminal.as_ref().map(|terminal| ProcessTerminalSize {
+            cols: terminal.terminal.cols(),
+            rows: terminal.terminal.rows(),
+        });
+        (state, range, pty_size)
+    }
+
+    fn publish(&self, make_event: impl FnOnce(u64, &mut EventHistory) -> RpcEvent) {
+        let mut history =
+            self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Sequence allocation, retention, and broadcast publication share one
+        // critical section with PTY model updates. Subscribers and terminal
+        // snapshots therefore observe exactly the same total output order.
+        let sequence = self.inner.next_sequence.fetch_add(1, Ordering::Relaxed);
+        let event = make_event(sequence, &mut history);
+        let retained = event_size(&event);
+        if let ProcessEvent::Exit { code, signal, .. } = &event.event {
+            history.exit = Some(ExitOutcome { code: *code, signal: *signal });
+        }
+        history.retained_bytes = history.retained_bytes.saturating_add(retained);
+        history.events.push_back(event.clone());
+        let retained_bytes_limit = self.inner.retained_bytes_limit.load(Ordering::Acquire);
+        while history.events.len() > PROCESS_EVENT_CAPACITY
+            || history.retained_bytes > retained_bytes_limit
+        {
+            let Some(evicted) = history.events.pop_front() else { break };
+            history.retained_bytes = history.retained_bytes.saturating_sub(event_size(&evicted));
+        }
+        let _ = self.inner.live.send(event);
+    }
+
+    fn subscribe(
+        &self,
+        after_sequence: u64,
+        exited: bool,
+    ) -> Result<ProcessSubscription, RpcError> {
+        let history = self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let next_sequence = self.inner.next_sequence.load(Ordering::Acquire);
+        if after_sequence >= next_sequence {
+            return Err(RpcError::new(
+                "invalid-replay-cursor",
+                format!("process has not produced sequence {after_sequence}"),
+            ));
+        }
+        let exited = exited || history.exit.is_some();
+        let range = replay_range(&history, next_sequence, exited);
+        let replay_gap =
+            range.first_available.map_or(after_sequence < range.last_produced, |first| {
+                after_sequence.saturating_add(1) < first
+            });
+        if replay_gap {
+            return Err(RpcError::new(
+                "replay-unavailable",
+                format!(
+                    "requested process replay is outside retained range {:?}..={}",
+                    range.first_available, range.last_produced
+                ),
+            )
+            .with_details(RpcErrorDetails::ProcessReplayGap {
+                requested_after: after_sequence,
+                range,
+            }));
+        }
+        let replay = history
+            .events
+            .iter()
+            .filter(|event| event.sequence > after_sequence)
+            .cloned()
+            .collect();
+        let live = self.inner.live.subscribe();
+        Ok(ProcessSubscription {
+            replay,
+            live,
+            events: self.clone(),
+            last_delivered: after_sequence,
+            terminal: exited,
+        })
+    }
+
+    fn read(
+        &self,
+        process: ProcessId,
+        after_sequence: u64,
+        limit: u32,
+        exited: bool,
+    ) -> Result<WorkspaceResponse, RpcError> {
+        if limit == 0 || limit > MAX_PROCESS_REPLAY_EVENTS {
+            return Err(RpcError::new(
+                "invalid-argument",
+                format!("process replay limit must be between 1 and {MAX_PROCESS_REPLAY_EVENTS}"),
+            ));
+        }
+        let history = self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let next_sequence = self.inner.next_sequence.load(Ordering::Acquire);
+        let range = replay_range(&history, next_sequence, exited || history.exit.is_some());
+        let replay_gap =
+            range.first_available.map_or(after_sequence < range.last_produced, |first| {
+                after_sequence.saturating_add(1) < first
+            });
+        if replay_gap {
+            return Ok(WorkspaceResponse::ProcessReplayGap {
+                process,
+                requested_after: after_sequence,
+                range,
+            });
+        }
+        if after_sequence >= next_sequence {
+            return Err(RpcError::new(
+                "invalid-replay-cursor",
+                format!("process has not produced sequence {after_sequence}"),
+            ));
+        }
+        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+        let mut events = history
+            .events
+            .iter()
+            .filter(|event| event.sequence > after_sequence)
+            .take(limit.saturating_add(1))
+            .cloned()
+            .collect::<Vec<_>>();
+        let has_more = events.len() > limit;
+        events.truncate(limit);
+        let next_cursor =
+            has_more.then(|| events.last().map_or(after_sequence, |event| event.sequence));
+        Ok(WorkspaceResponse::ProcessEvents { process, range, events, next_cursor })
+    }
+}
+
+fn replay_range(history: &EventHistory, next_sequence: u64, exited: bool) -> ProcessReplayRange {
+    ProcessReplayRange {
+        first_available: history.events.front().map(|event| event.sequence),
+        last_produced: next_sequence.saturating_sub(1),
+        exited,
+    }
+}
+
+pub struct ProcessSubscription {
+    replay: VecDeque<RpcEvent>,
+    live: broadcast::Receiver<RpcEvent>,
+    events: ProcessEventLog,
+    last_delivered: u64,
+    terminal: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProcessSubscriptionError {
+    Closed,
+    ReplayGap { skipped: u64, requested_after: u64, range: ProcessReplayRange },
+}
+
+impl std::fmt::Display for ProcessSubscriptionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Closed => write!(formatter, "process event stream closed"),
+            Self::ReplayGap { requested_after, range, .. } => write!(
+                formatter,
+                "process replay after {requested_after} is outside retained range {:?}..={}",
+                range.first_available, range.last_produced
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ProcessSubscriptionError {}
+
+impl ProcessSubscription {
+    pub async fn recv(&mut self) -> Result<RpcEvent, ProcessSubscriptionError> {
+        loop {
+            if let Some(event) = self.replay.pop_front() {
+                self.last_delivered = event.sequence;
+                self.terminal |= event.event.is_terminal();
+                return Ok(event);
+            }
+            if self.terminal {
+                return Err(ProcessSubscriptionError::Closed);
+            }
+            match self.live.recv().await {
+                Ok(event) if event.sequence <= self.last_delivered => continue,
+                Ok(event) => {
+                    self.last_delivered = event.sequence;
+                    self.terminal |= event.event.is_terminal();
+                    return Ok(event);
+                }
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    let history = self
+                        .events
+                        .inner
+                        .history
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let first = history.events.front().map(|event| event.sequence);
+                    let next_sequence = self.inner_next_sequence();
+                    let range = replay_range(&history, next_sequence, history.exit.is_some());
+                    let replay_gap = first
+                        .map_or(self.last_delivered < range.last_produced, |first| {
+                            self.last_delivered.saturating_add(1) < first
+                        });
+                    if replay_gap {
+                        return Err(ProcessSubscriptionError::ReplayGap {
+                            skipped,
+                            requested_after: self.last_delivered,
+                            range,
+                        });
+                    }
+                    self.replay = history
+                        .events
+                        .iter()
+                        .filter(|event| event.sequence > self.last_delivered)
+                        .cloned()
+                        .collect();
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    return Err(ProcessSubscriptionError::Closed);
+                }
+            }
+        }
+    }
+
+    fn inner_next_sequence(&self) -> u64 {
+        self.events.inner.next_sequence.load(Ordering::Acquire)
+    }
+}
 
 type SharedMasterPty = Arc<StdMutex<Option<Box<dyn MasterPty + Send>>>>;
 
@@ -405,6 +765,11 @@ impl ProcessStore {
 
     fn contains_key(&self, process: &ProcessId) -> bool {
         self.active.contains_key(process) || self.completed.contains_key(process)
+    }
+
+    #[cfg(test)]
+    fn is_empty(&self) -> bool {
+        self.active.is_empty() && self.completed.is_empty()
     }
 
     fn insert_active(&mut self, process: ProcessId, record: Arc<ProcessRecord>) {
@@ -603,6 +968,10 @@ pub(crate) struct ProcessManager {
     processes: Arc<RwLock<ProcessStore>>,
     reservations: Mutex<HashMap<ProcessId, ProcessReservation>>,
     pty_slots: Arc<Semaphore>,
+    #[cfg(test)]
+    pty_setup_failure: StdMutex<Option<PtySetupFailure>>,
+    #[cfg(test)]
+    pty_setup_child_pid: AtomicUsize,
 }
 
 impl Default for ProcessManager {
@@ -612,8 +981,19 @@ impl Default for ProcessManager {
             processes: Arc::new(RwLock::new(ProcessStore::default())),
             reservations: Mutex::new(HashMap::new()),
             pty_slots: Arc::new(Semaphore::new(MAX_PTY_PROCESSES)),
+            #[cfg(test)]
+            pty_setup_failure: StdMutex::new(None),
+            #[cfg(test)]
+            pty_setup_child_pid: AtomicUsize::new(0),
         }
     }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PtySetupFailure {
+    Reader,
+    Waiter,
 }
 
 impl ProcessManager {
@@ -715,6 +1095,20 @@ impl ProcessManager {
             if !metadata.is_dir() {
                 return Err(RpcError::new("invalid-cwd", "process cwd is not a directory"));
             }
+        }
+        #[cfg(test)]
+        {
+            let path = cwd
+                .strip_prefix(root.canonical_root())
+                .unwrap_or(&cwd)
+                .to_string_lossy()
+                .into_owned();
+            super::files::pause_at_mutation_test_barrier(
+                &root,
+                &path,
+                super::files::MutationTestPoint::AfterProcessCwdResolve,
+            )
+            .await;
         }
         #[cfg(unix)]
         {
@@ -929,7 +1323,6 @@ impl ProcessManager {
             for reason in drain_output_tasks(
                 output_tasks,
                 output_activity_rx,
-                events.stalled(),
                 output_drain_idle_timeout,
                 output_drain_total_timeout,
             )
@@ -1006,7 +1399,6 @@ impl ProcessManager {
             command.env(key, value);
         }
         command.env("TERM", &term);
-        command.terminal_identity();
         #[cfg(unix)]
         let mut child_events =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())
@@ -1016,8 +1408,17 @@ impl ProcessManager {
             .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
         let mut pending_child = PendingPtyChild::new(child);
         let pid = pending_child.pid;
+        #[cfg(test)]
+        self.pty_setup_child_pid
+            .store(pid.and_then(|pid| usize::try_from(pid).ok()).unwrap_or(0), Ordering::Release);
         #[cfg(unix)]
         let mut pending = PendingProcessGuard::new(pid, true);
+        #[cfg(test)]
+        if *self.pty_setup_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+            == Some(PtySetupFailure::Reader)
+        {
+            return Err(RpcError::new("pty-open-failed", "synthetic PTY reader setup failure"));
+        }
         #[cfg(not(unix))]
         let killer = Arc::new(StdMutex::new(pending_child.child_mut().clone_killer()));
         #[cfg(not(unix))]
@@ -1073,6 +1474,12 @@ impl ProcessManager {
             output_tasks.spawn(read_pty(pty_io, events.clone(), id, output_activity.clone()));
             drop(output_activity);
             let (status_tx, status_rx) = oneshot::channel();
+            #[cfg(test)]
+            if *self.pty_setup_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+                == Some(PtySetupFailure::Waiter)
+            {
+                return Err(RpcError::new("pty-open-failed", "synthetic PTY waiter setup failure"));
+            }
             let target = record.target.clone();
             tokio::spawn(async move {
                 let _pty_slot = pty_slot;
@@ -1103,7 +1510,6 @@ impl ProcessManager {
                 for reason in drain_output_tasks(
                     output_tasks,
                     output_activity_rx,
-                    events.stalled(),
                     output_drain_idle_timeout,
                     output_drain_total_timeout,
                 )
@@ -1419,9 +1825,7 @@ impl ProcessManager {
             ));
         }
         let events = ProcessEventLog::new(PROCESS_EVENT_BYTES);
-        // The stream reserved before the spawn is its owner's own output: it
-        // holds, so the child waits for this reader rather than lose output.
-        let subscription = events.subscribe_holding(after_sequence)?;
+        let subscription = events.subscribe(after_sequence, false)?;
         reservations.insert(process, ProcessReservation { owner: owner.clone(), events });
         Ok(subscription)
     }
@@ -1721,8 +2125,6 @@ async fn read_pipe(
         match reader.read(&mut buffer).await {
             Ok(0) => return Ok(()),
             Ok(read) => {
-                // Room only for output in hand (see `wait_for_room`).
-                let _room = events.wait_for_room().await;
                 events.publish_output(process, stderr, &buffer[..read]);
                 activity.send_modify(|generation| *generation = generation.wrapping_add(1));
             }
@@ -1748,8 +2150,6 @@ async fn read_pty(
         match pty.read(&mut buffer).await {
             Ok(0) => return Ok(()),
             Ok(read) => {
-                // Room only for output in hand (see `wait_for_room`).
-                let _room = events.wait_for_room().await;
                 events.publish_output(process, false, &buffer[..read]);
                 activity.send_modify(|generation| *generation = generation.wrapping_add(1));
             }
@@ -1767,17 +2167,11 @@ async fn read_pty(
 async fn drain_output_tasks(
     mut tasks: JoinSet<Result<(), ProcessOutputTruncationReason>>,
     mut activity: watch::Receiver<u64>,
-    mut stalled: watch::Receiver<usize>,
     idle_timeout: std::time::Duration,
     total_timeout: std::time::Duration,
 ) -> Vec<ProcessOutputTruncationReason> {
     let mut reasons = Vec::new();
     let mut activity_open = true;
-    let mut stalled_open = true;
-    // While a reader waits for a held subscriber, output is pending, not
-    // missing: both deadlines pause, and the total one resumes later by the
-    // time the wait took.
-    let mut stalled_since = (*stalled.borrow_and_update() > 0).then(tokio::time::Instant::now);
     let idle_deadline = tokio::time::sleep(idle_timeout);
     let total_deadline = tokio::time::sleep(total_timeout);
     tokio::pin!(idle_deadline);
@@ -1788,25 +2182,7 @@ async fn drain_output_tasks(
         }
         tokio::select! {
             biased;
-            changed = stalled.changed(), if stalled_open => {
-                match changed {
-                    Ok(()) => {
-                        let now = tokio::time::Instant::now();
-                        match (*stalled.borrow_and_update() > 0, stalled_since) {
-                            (true, None) => stalled_since = Some(now),
-                            (false, Some(since)) => {
-                                let resumed = total_deadline.deadline() + (now - since);
-                                total_deadline.as_mut().reset(resumed);
-                                idle_deadline.as_mut().reset(now + idle_timeout);
-                                stalled_since = None;
-                            }
-                            _ => {}
-                        }
-                    }
-                    Err(_) => stalled_open = false,
-                }
-            }
-            _ = &mut total_deadline, if stalled_since.is_none() => {
+            _ = &mut total_deadline => {
                 reasons.push(ProcessOutputTruncationReason::DrainTotalTimeout {
                     total_timeout_ms: duration_millis(total_timeout),
                 });
@@ -1834,7 +2210,7 @@ async fn drain_output_tasks(
                     None => return reasons,
                 }
             }
-            _ = &mut idle_deadline, if stalled_since.is_none() => {
+            _ = &mut idle_deadline => {
                 reasons.push(ProcessOutputTruncationReason::DrainIdleTimeout {
                     idle_timeout_ms: duration_millis(idle_timeout),
                 });
@@ -2244,5 +2620,1467 @@ fn event_size(event: &RpcEvent) -> usize {
 }
 
 #[cfg(test)]
-#[path = "process_tests.rs"]
-mod tests;
+mod tests {
+    use std::collections::BTreeMap;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    use tempfile::tempdir;
+    use tokio::io::ReadBuf;
+
+    use super::*;
+
+    struct FailingReader;
+
+    impl AsyncRead for FailingReader {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            _buffer: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Err(std::io::Error::other("synthetic read failure")))
+        }
+    }
+
+    #[tokio::test]
+    async fn process_completion_wait_handles_notification_before_registration() {
+        let completion = Arc::new(ProcessCompletion::new());
+        completion.mark_finished();
+
+        assert!(
+            wait_for_process_completions(&[completion], std::time::Duration::from_millis(50)).await
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn process_completion_wakes_without_advancing_a_polling_clock() {
+        let completion = Arc::new(ProcessCompletion::new());
+        let waiting = completion.clone();
+        let waiter = tokio::spawn(async move {
+            wait_for_process_completions(&[waiting], std::time::Duration::from_secs(1)).await
+        });
+        tokio::task::yield_now().await;
+        assert!(!waiter.is_finished());
+
+        completion.mark_finished();
+        tokio::task::yield_now().await;
+
+        assert!(waiter.is_finished(), "completion still depended on a polling timer");
+        assert!(waiter.await.unwrap());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn process_completion_wait_preserves_timeout() {
+        let completion = Arc::new(ProcessCompletion::new());
+        assert!(
+            !wait_for_process_completions(&[completion], std::time::Duration::from_secs(1)).await
+        );
+    }
+
+    async fn root() -> (tempfile::TempDir, Arc<WorkspaceRoot>) {
+        let directory = tempdir().unwrap();
+        let root =
+            WorkspaceRoot::open(WorkspaceId("process".into()), directory.path().to_str().unwrap())
+                .await
+                .unwrap();
+        (directory, root)
+    }
+
+    #[cfg(unix)]
+    async fn assert_process_cwd_swap_does_not_escape(io: ProcessIo) {
+        use std::os::unix::fs::symlink;
+
+        let (_directory, root) = root().await;
+        let outside = tempdir().unwrap();
+        let cwd = root.canonical_root().join("cwd");
+        tokio::fs::create_dir(&cwd).await.unwrap();
+        let barrier = super::super::files::install_mutation_test_barrier(
+            &root,
+            "cwd",
+            super::super::files::MutationTestPoint::AfterProcessCwdResolve,
+        );
+        let manager = Arc::new(ProcessManager::default());
+        let spawning = {
+            let root = Arc::clone(&root);
+            let manager = Arc::clone(&manager);
+            tokio::spawn(async move {
+                let mut options = spawn_options(
+                    vec!["/bin/sh".into(), "-c".into(), "printf escaped > cmux-cwd-marker".into()],
+                    io,
+                    ProcessLifetime::Workspace,
+                );
+                options.cwd = Some("cwd".into());
+                manager.spawn(root, options).await
+            })
+        };
+
+        barrier.wait_until_reached().await;
+        tokio::fs::rename(&cwd, root.canonical_root().join("original-cwd")).await.unwrap();
+        symlink(outside.path(), &cwd).unwrap();
+        barrier.resume();
+
+        if let Ok(WorkspaceResponse::ProcessStarted { process, .. }) = spawning.await.unwrap() {
+            manager.wait(process).await.unwrap();
+        }
+        assert!(
+            !outside.path().join("cmux-cwd-marker").exists(),
+            "process cwd escaped the workspace after its checked path was swapped"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pipe_process_cwd_is_pinned_against_parent_symlink_swaps() {
+        assert_process_cwd_swap_does_not_escape(ProcessIo::Pipes { stdin: false }).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pty_process_cwd_is_pinned_against_parent_symlink_swaps() {
+        assert_process_cwd_swap_does_not_escape(ProcessIo::Pty {
+            cols: 80,
+            rows: 24,
+            term: "xterm-256color".into(),
+            eof: PtyEofPolicy::Reject,
+        })
+        .await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn process_cwd_keeps_the_opened_root_after_its_path_is_replaced() {
+        use std::os::unix::fs::symlink;
+
+        let parent = tempdir().unwrap();
+        let registered = parent.path().join("workspace");
+        let pinned = parent.path().join("pinned-workspace");
+        tokio::fs::create_dir_all(registered.join("requested-cwd")).await.unwrap();
+        tokio::fs::create_dir_all(registered.join("other-cwd")).await.unwrap();
+        let root = WorkspaceRoot::open(
+            WorkspaceId("replaced-process-root".into()),
+            registered.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        tokio::fs::rename(&registered, &pinned).await.unwrap();
+        tokio::fs::create_dir_all(registered.join("other-cwd")).await.unwrap();
+        symlink("other-cwd", registered.join("requested-cwd")).unwrap();
+
+        let manager = ProcessManager::default();
+        let mut options = spawn_options(
+            vec!["/bin/sh".into(), "-c".into(), "printf pinned > marker".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        options.cwd = Some("requested-cwd".into());
+        let response = manager.spawn(root, options).await.unwrap();
+        let WorkspaceResponse::ProcessStarted { process, .. } = response else { panic!() };
+        manager.wait(process).await.unwrap();
+
+        assert_eq!(tokio::fs::read(pinned.join("requested-cwd/marker")).await.unwrap(), b"pinned");
+        assert!(!pinned.join("other-cwd/marker").exists());
+    }
+
+    fn spawn_options(
+        argv: Vec<String>,
+        io: ProcessIo,
+        lifetime: ProcessLifetime,
+    ) -> ProcessSpawnOptions {
+        ProcessSpawnOptions {
+            requested_process: None,
+            owner: ClientScope::local(),
+            argv,
+            cwd: None,
+            env: BTreeMap::new(),
+            io,
+            lifetime,
+            operation: None,
+            timeout_ms: None,
+            retained_output_bytes: None,
+            environment: ProcessEnvironment::Inherit,
+            output_drain_idle_timeout_ms: None,
+            output_drain_total_timeout_ms: None,
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pty_identity_uses_the_direct_child_instead_of_the_foreground_job() {
+        assert_eq!(pty_process_pid(Some(41), Some(73)), Some(41));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_target_cannot_be_reaped_between_its_live_check_and_signal() {
+        let target = Arc::new(ProcessTarget::new());
+        let signal_entered = Arc::new(std::sync::Barrier::new(2));
+        let resume_signal = Arc::new(std::sync::Barrier::new(2));
+        let signal_target = target.clone();
+        let signal_entered_thread = signal_entered.clone();
+        let resume_signal_thread = resume_signal.clone();
+        let signaler = std::thread::spawn(move || {
+            signal_target.signal_if_live(|| {
+                signal_entered_thread.wait();
+                resume_signal_thread.wait();
+            });
+        });
+        signal_entered.wait();
+
+        let (reaped_tx, reaped_rx) = std::sync::mpsc::channel();
+        let reap_target = target.clone();
+        let reaper = std::thread::spawn(move || {
+            reap_target.mark_exited();
+            reaped_tx.send(()).unwrap();
+        });
+        let reaped_before_signal =
+            reaped_rx.recv_timeout(std::time::Duration::from_millis(100)).is_ok();
+        resume_signal.wait();
+        signaler.join().unwrap();
+        reaper.join().unwrap();
+
+        assert!(
+            !reaped_before_signal,
+            "reap completed after the live check but before the signal syscall"
+        );
+        let signaled_after_reap = AtomicBool::new(false);
+        assert!(
+            target.signal_if_live(|| signaled_after_reap.store(true, Ordering::Release)).is_none(),
+            "a reaped target was still considered live"
+        );
+        assert!(!signaled_after_reap.load(Ordering::Acquire));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn duplicate_caller_process_id_is_rejected() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let process = ProcessId::from_u128(0x5a17);
+        let mut first = spawn_options(
+            vec!["/bin/sleep".into(), "30".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        first.requested_process = Some(process);
+        assert!(matches!(
+            manager.spawn(root.clone(), first).await.unwrap(),
+            WorkspaceResponse::ProcessStarted { process: started, .. } if started == process
+        ));
+
+        let mut duplicate = spawn_options(
+            vec!["/bin/sh".into(), "-c".into(), "exit 0".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        duplicate.requested_process = Some(process);
+        let error = manager.spawn(root, duplicate).await.unwrap_err();
+        assert_eq!(error.code, "duplicate-process-id");
+
+        manager.signal(process, ProcessSignal::Kill).await.unwrap();
+        manager.wait(process).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn duplicate_reservation_by_the_same_owner_is_rejected() {
+        let manager = ProcessManager::default();
+        let owner = ClientScope::local();
+        let process = ProcessId::from_u128(0x8000_0000_0000_5a17);
+        let _first = manager.subscribe_or_reserve(&owner, process, 0, true).await.unwrap();
+
+        let error = match manager.subscribe_or_reserve(&owner, process, 0, true).await {
+            Ok(_) => panic!("one handle must have only one outstanding reservation"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, "duplicate-process-id");
+        manager.release_reservation(&owner, process).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn reservation_rejects_an_active_and_then_finished_process() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let owner = ClientScope::local();
+        let process = ProcessId::from_u128(0x8000_0000_0000_5a18);
+        let mut options = spawn_options(
+            vec!["/bin/sleep".into(), "30".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        options.requested_process = Some(process);
+        manager.spawn(root, options).await.unwrap();
+
+        let active = match manager.subscribe_or_reserve(&owner, process, 0, true).await {
+            Ok(_) => panic!("an active process cannot become a reservation"),
+            Err(error) => error,
+        };
+        assert_eq!(active.code, "duplicate-process-id");
+        manager.signal(process, ProcessSignal::Kill).await.unwrap();
+        manager.wait(process).await.unwrap();
+
+        let finished = match manager.subscribe_or_reserve(&owner, process, 0, true).await {
+            Ok(_) => panic!("a retained finished process cannot become a reservation"),
+            Err(error) => error,
+        };
+        assert_eq!(finished.code, "duplicate-process-id");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn active_capacity_does_not_erase_a_finished_handle_for_reuse() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let process = ProcessId::from_u128(0x8000_0000_0000_5a19);
+        let mut finished = spawn_options(
+            vec!["/bin/sh".into(), "-c".into(), "exit 0".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        finished.requested_process = Some(process);
+        manager.spawn(root.clone(), finished).await.unwrap();
+        manager.wait(process).await.unwrap();
+
+        let active = manager
+            .spawn(
+                root.clone(),
+                spawn_options(
+                    vec!["/bin/sleep".into(), "5".into()],
+                    ProcessIo::Pipes { stdin: false },
+                    ProcessLifetime::Workspace,
+                ),
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::ProcessStarted { process: active, .. } = active else { panic!() };
+        let active_record = manager.get(active).await.unwrap();
+        let mut records = manager.processes.write().await;
+        for index in 0..(MAX_PROCESSES - 1) {
+            records
+                .active
+                .insert(ProcessId::from_u128(10_000 + index as u128), active_record.clone());
+        }
+        assert_eq!(records.active.len(), MAX_PROCESSES);
+        assert_eq!(records.completed.len(), 1);
+        drop(records);
+
+        let mut reuse = spawn_options(
+            vec!["/bin/sh".into(), "-c".into(), "exit 0".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        reuse.requested_process = Some(process);
+        let error = manager
+            .spawn(root, reuse)
+            .await
+            .expect_err("active admission must not erase a completed identity");
+        assert_eq!(error.code, "duplicate-process-id");
+        manager.signal(active, ProcessSignal::Kill).await.unwrap();
+        manager.wait(active).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn evicted_replay_history_stays_detached_from_later_generated_identity() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let process = ProcessId::from_u128(0x8000_0000_0000_5a1a);
+        let mut first = spawn_options(
+            vec!["/bin/sh".into(), "-c".into(), "exit 0".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        first.requested_process = Some(process);
+        manager.spawn(root.clone(), first).await.unwrap();
+        manager.wait(process).await.unwrap();
+        {
+            let mut records = manager.processes.write().await;
+            records.completed.remove(&process);
+            records.completed_order.retain(|completed| completed != &process);
+        }
+        let missing = match manager.subscribe(process, 0).await {
+            Ok(_) => panic!("evicted replay history remained attachable"),
+            Err(error) => error,
+        };
+        assert_eq!(missing.code, "unknown-process");
+
+        let later = manager
+            .spawn(
+                root,
+                spawn_options(
+                    vec!["/bin/sh".into(), "-c".into(), "exit 0".into()],
+                    ProcessIo::Pipes { stdin: false },
+                    ProcessLifetime::Workspace,
+                ),
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::ProcessStarted { process: later, .. } = later else { panic!() };
+        assert_ne!(later, process, "a generated UUID reused an evicted process identity");
+        manager.wait(later).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn reader_failure_is_reported_as_output_truncation() {
+        let process = ProcessId::from_u128(7);
+        let events = ProcessEventLog::new(PROCESS_EVENT_BYTES);
+        let (activity, activity_rx) = watch::channel(0_u64);
+        let mut tasks = JoinSet::new();
+        tasks.spawn(read_pipe(FailingReader, events, process, false, activity));
+
+        let reasons = drain_output_tasks(
+            tasks,
+            activity_rx,
+            std::time::Duration::from_secs(1),
+            std::time::Duration::from_secs(2),
+        )
+        .await;
+        assert!(
+            matches!(
+                reasons.as_slice(),
+                [ProcessOutputTruncationReason::ReadError {
+                    stream: ProcessOutputStream::Stdout,
+                    ..
+                }]
+            ),
+            "a failed output reader was silently treated as EOF: {reasons:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn reader_task_join_failure_is_reported_as_output_truncation() {
+        let (_activity, activity_rx) = watch::channel(0_u64);
+        let mut tasks = JoinSet::new();
+        tasks.spawn(async {
+            panic!("synthetic output reader panic");
+            #[allow(unreachable_code)]
+            Ok::<(), ProcessOutputTruncationReason>(())
+        });
+
+        let reasons = drain_output_tasks(
+            tasks,
+            activity_rx,
+            std::time::Duration::from_secs(1),
+            std::time::Duration::from_secs(2),
+        )
+        .await;
+        assert!(
+            matches!(reasons.as_slice(), [ProcessOutputTruncationReason::ReaderTaskFailed { .. }]),
+            "a failed output task was silently treated as EOF: {reasons:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn reaping_one_reader_does_not_reset_the_output_idle_deadline() {
+        let (_activity, activity_rx) = watch::channel(0_u64);
+        let mut tasks = JoinSet::new();
+        tasks.spawn(async {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            Ok::<(), ProcessOutputTruncationReason>(())
+        });
+        tasks.spawn(std::future::pending::<Result<(), ProcessOutputTruncationReason>>());
+
+        let reasons = tokio::time::timeout(
+            std::time::Duration::from_millis(300),
+            drain_output_tasks(
+                tasks,
+                activity_rx,
+                std::time::Duration::from_millis(200),
+                std::time::Duration::from_secs(2),
+            ),
+        )
+        .await
+        .expect("task completion reset the output idle deadline");
+        assert!(matches!(
+            reasons.as_slice(),
+            [ProcessOutputTruncationReason::DrainIdleTimeout { .. }]
+        ));
+    }
+
+    #[tokio::test]
+    async fn continuous_output_cannot_starve_the_absolute_drain_deadline() {
+        let (activity, activity_rx) = watch::channel(0_u64);
+        let producer = tokio::spawn(async move {
+            loop {
+                activity.send_modify(|generation| *generation = generation.wrapping_add(1));
+                // Real output readers yield while awaiting their next read.
+                // Model that scheduling contract instead of letting a
+                // synthetic CPU spin starve the instrumented Tokio runtime.
+                tokio::task::yield_now().await;
+            }
+        });
+        let mut tasks = JoinSet::new();
+        tasks.spawn(std::future::pending::<Result<(), ProcessOutputTruncationReason>>());
+
+        let result = tokio::time::timeout(
+            crate::test_observation_timeout(std::time::Duration::from_millis(500)),
+            drain_output_tasks(
+                tasks,
+                activity_rx,
+                std::time::Duration::from_secs(10),
+                std::time::Duration::from_millis(50),
+            ),
+        )
+        .await;
+        producer.abort();
+        assert!(producer.await.unwrap_err().is_cancelled());
+
+        let reasons = result.expect("continuous activity starved the absolute output deadline");
+        assert!(matches!(
+            reasons.as_slice(),
+            [ProcessOutputTruncationReason::DrainTotalTimeout { .. }]
+        ));
+    }
+
+    #[test]
+    fn terminal_snapshot_is_an_exact_replay_boundary_and_resize_updates_the_model() {
+        let process = ProcessId::from_u128(0x77);
+        let events = ProcessEventLog::new(8);
+        events.enable_terminal(8, 2).unwrap();
+        events.publish_output(process, false, b"\x1b[1mready");
+
+        let snapshot = events.snapshot_terminal(process).unwrap();
+        assert_eq!(snapshot.process, process);
+        assert_eq!(snapshot.size, ProcessTerminalSize { cols: 8, rows: 2 });
+        assert_eq!(snapshot.through_sequence, 1);
+        assert_eq!(snapshot.rows[0].runs[0].text, "ready");
+        assert_ne!(snapshot.rows[0].runs[0].attrs & 1, 0);
+
+        events.resize_terminal(12, 3, || Ok(())).unwrap();
+        let resized = events.snapshot_terminal(process).unwrap();
+        assert_eq!(resized.size, ProcessTerminalSize { cols: 12, rows: 3 });
+        assert_eq!(resized.through_sequence, 1);
+
+        for _ in 0..16 {
+            events.publish_output(process, false, b"x");
+        }
+        let gap = match events.subscribe(snapshot.through_sequence, false) {
+            Ok(_) => panic!("an evicted snapshot cursor unexpectedly remained replayable"),
+            Err(error) => error,
+        };
+        assert_eq!(gap.code, "replay-unavailable");
+
+        let retry = events.snapshot_terminal(process).unwrap();
+        assert_eq!(retry.through_sequence, 17);
+        events.subscribe(retry.through_sequence, false).unwrap();
+    }
+
+    #[test]
+    fn pipes_and_oversized_terminals_do_not_produce_snapshots() {
+        let process = ProcessId::from_u128(0x78);
+        let pipes = ProcessEventLog::new(PROCESS_EVENT_BYTES);
+        assert_eq!(pipes.snapshot_terminal(process).unwrap_err().code, "not-a-pty");
+
+        let terminal = ProcessEventLog::new(PROCESS_EVENT_BYTES);
+        terminal.enable_terminal(512, 256).unwrap();
+        assert_eq!(
+            terminal.snapshot_terminal(process).unwrap_err().code,
+            "terminal-snapshot-too-large"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn output_drain_waits_for_a_slow_inherited_pipe_tail() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let response = manager
+            .spawn(
+                root,
+                spawn_options(
+                    vec![
+                        "/bin/sh".into(),
+                        "-c".into(),
+                        "(sleep 0.35; printf tail) & exit 0".into(),
+                    ],
+                    ProcessIo::Pipes { stdin: false },
+                    ProcessLifetime::Workspace,
+                ),
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::ProcessStarted { process, .. } = response else { panic!() };
+        manager.wait(process).await.unwrap();
+
+        let mut events = manager.subscribe(process, 0).await.unwrap();
+        let mut stdout = Vec::new();
+        let mut truncated = false;
+        loop {
+            match events.recv().await.unwrap().event {
+                ProcessEvent::Stdout { data, .. } => stdout.extend(data.decode().unwrap()),
+                ProcessEvent::OutputTruncated { .. } => truncated = true,
+                ProcessEvent::Exit { .. } => break,
+                ProcessEvent::Stderr { .. } | ProcessEvent::ReplayGap { .. } => {}
+            }
+        }
+        assert_eq!(stdout, b"tail");
+        assert!(!truncated, "a sub-second final drain must retain the output tail");
+    }
+
+    #[tokio::test]
+    async fn subscriber_lag_reports_a_structured_replay_gap() {
+        let process = ProcessId::from_u128(7);
+        // Retain two encoded one-byte output events so the reported gap has a
+        // concrete first available sequence instead of an empty replay range.
+        let log = ProcessEventLog::new(8);
+        let mut subscription = log.subscribe(0, false).unwrap();
+        for _ in 0..(PROCESS_BROADCAST_CAPACITY + 1) {
+            log.publish_output(process, false, b"x");
+        }
+
+        let error = subscription.recv().await.unwrap_err();
+        let ProcessSubscriptionError::ReplayGap { requested_after, range, .. } = error else {
+            panic!("subscriber lag was not returned as a replay gap: {error:?}")
+        };
+        assert_eq!(requested_after, 0);
+        assert!(range.first_available.is_some_and(|first| first > 1));
+        assert_eq!(range.last_produced, (PROCESS_BROADCAST_CAPACITY + 1) as u64);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pipe_process_separates_output_replays_and_reports_exit() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let response = manager
+            .spawn(
+                root,
+                spawn_options(
+                    vec![
+                        "/bin/sh".into(),
+                        "-c".into(),
+                        "printf out; printf err >&2; exit 7".into(),
+                    ],
+                    ProcessIo::Pipes { stdin: false },
+                    ProcessLifetime::Workspace,
+                ),
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::ProcessStarted { process, .. } = response else { panic!() };
+        let exit = manager.wait(process).await.unwrap();
+        assert_eq!(exit, WorkspaceResponse::ProcessExit { process, code: Some(7), signal: None });
+
+        let mut events = manager.subscribe(process, 0).await.unwrap();
+        let mut saw_stdout = false;
+        let mut saw_stderr = false;
+        loop {
+            match events.recv().await.unwrap().event {
+                ProcessEvent::Stdout { .. } => saw_stdout = true,
+                ProcessEvent::Stderr { .. } => saw_stderr = true,
+                ProcessEvent::OutputTruncated { .. } | ProcessEvent::ReplayGap { .. } => {}
+                ProcessEvent::Exit { .. } => break,
+            }
+        }
+        assert!(saw_stdout);
+        assert!(saw_stderr);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn duplicate_write_id_is_applied_once() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let response = manager
+            .spawn(
+                root,
+                spawn_options(
+                    vec!["/bin/cat".into()],
+                    ProcessIo::Pipes { stdin: true },
+                    ProcessLifetime::Workspace,
+                ),
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::ProcessStarted { process, .. } = response else { panic!() };
+        let data = ByteString::from_bytes(b"once");
+        manager.write(process, 9, &data, false).await.unwrap();
+        manager.write(process, 9, &data, false).await.unwrap();
+        let conflict = manager
+            .write(process, 9, &ByteString::from_bytes(b"different"), false)
+            .await
+            .unwrap_err();
+        assert_eq!(conflict.code, "write-id-conflict");
+        manager.write(process, 10, &ByteString::from_bytes(b""), true).await.unwrap();
+        manager.wait(process).await.unwrap();
+
+        let mut events = manager.subscribe(process, 0).await.unwrap();
+        let mut stdout = Vec::new();
+        loop {
+            let event = events.recv().await.unwrap();
+            match event.event {
+                ProcessEvent::Stdout { data, .. } => stdout.extend(data.decode().unwrap()),
+                ProcessEvent::Exit { .. } => break,
+                ProcessEvent::Stderr { .. }
+                | ProcessEvent::OutputTruncated { .. }
+                | ProcessEvent::ReplayGap { .. } => {}
+            }
+        }
+        assert_eq!(stdout, b"once");
+    }
+
+    #[test]
+    fn replay_rejects_a_cursor_the_process_has_not_produced() {
+        let log = ProcessEventLog::new(PROCESS_EVENT_BYTES);
+        let error = log.subscribe(1, false).err().expect("future cursor must be rejected");
+        assert_eq!(error.code, "invalid-replay-cursor");
+        assert!(log.subscribe(0, false).is_ok());
+    }
+
+    #[tokio::test]
+    async fn finished_subscription_at_exit_cursor_closes() {
+        let log = ProcessEventLog::new(PROCESS_EVENT_BYTES);
+        log.publish_exit(ProcessId::from_u128(7), ExitOutcome { code: Some(0), signal: None });
+
+        // The caller's finished flag can lag exit publication briefly. The
+        // event log records terminal state atomically with the Exit event.
+        let mut subscription = log.subscribe(1, false).unwrap();
+        assert_eq!(subscription.recv().await, Err(ProcessSubscriptionError::Closed));
+    }
+
+    #[tokio::test]
+    async fn live_subscription_closes_after_delivering_exit() {
+        let log = ProcessEventLog::new(PROCESS_EVENT_BYTES);
+        let mut subscription = log.subscribe(0, false).unwrap();
+        log.publish_exit(ProcessId::from_u128(7), ExitOutcome { code: Some(0), signal: None });
+
+        assert!(matches!(subscription.recv().await.unwrap().event, ProcessEvent::Exit { .. }));
+        assert_eq!(subscription.recv().await, Err(ProcessSubscriptionError::Closed));
+    }
+
+    #[test]
+    fn concurrent_publishers_retain_sequence_order() {
+        let log = ProcessEventLog::new(PROCESS_EVENT_BYTES);
+        let publishers = (0..4)
+            .map(|_| {
+                let log = log.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..64 {
+                        log.publish_output(ProcessId::from_u128(7), false, b"x");
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for publisher in publishers {
+            publisher.join().unwrap();
+        }
+
+        let history = log.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(
+            history.events.iter().map(|event| event.sequence).collect::<Vec<_>>(),
+            (1..=256).collect::<Vec<_>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn live_subscription_recovers_broadcast_lag_from_retained_history() {
+        let log = ProcessEventLog::new(PROCESS_EVENT_BYTES);
+        let mut subscription = log.subscribe(0, false).unwrap();
+        for index in 0..(PROCESS_BROADCAST_CAPACITY + 40) {
+            log.publish_output(ProcessId::from_u128(7), false, format!("event-{index}").as_bytes());
+        }
+
+        for expected in 1..=(PROCESS_BROADCAST_CAPACITY + 40) as u64 {
+            let event = subscription.recv().await.unwrap();
+            assert_eq!(event.sequence, expected);
+        }
+    }
+
+    #[test]
+    fn typed_replay_pages_and_reports_retention_gaps() {
+        let process = ProcessId::from_u128(7);
+        let log = ProcessEventLog::new(PROCESS_EVENT_BYTES);
+        log.publish_output(process, false, b"one");
+        log.publish_output(process, false, b"two");
+        log.publish_output(process, false, b"three");
+
+        let first = log.read(process, 0, 2, false).unwrap();
+        let WorkspaceResponse::ProcessEvents { events, next_cursor, range, .. } = first else {
+            panic!()
+        };
+        assert_eq!(events.iter().map(|event| event.sequence).collect::<Vec<_>>(), [1, 2]);
+        assert_eq!(next_cursor, Some(2));
+        assert_eq!(range.first_available, Some(1));
+
+        let second = log.read(process, 2, 2, false).unwrap();
+        let WorkspaceResponse::ProcessEvents { events, next_cursor, .. } = second else { panic!() };
+        assert_eq!(events.iter().map(|event| event.sequence).collect::<Vec<_>>(), [3]);
+        assert_eq!(next_cursor, None);
+
+        let evicting = ProcessEventLog::new(4);
+        evicting.publish_output(process, false, b"a");
+        evicting.publish_output(process, false, b"b");
+        let gap = evicting.read(process, 0, 1, false).unwrap();
+        assert!(matches!(
+            gap,
+            WorkspaceResponse::ProcessReplayGap {
+                requested_after: 0,
+                range: ProcessReplayRange { first_available: Some(2), .. },
+                ..
+            }
+        ));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn operation_finish_terminates_all_owned_processes() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let operation = OperationId("test-operation".into());
+        let mut options = spawn_options(
+            vec!["/bin/sleep".into(), "30".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Operation,
+        );
+        options.operation = Some(operation.clone());
+        let response = manager.spawn(root.clone(), options).await.unwrap();
+        let WorkspaceResponse::ProcessStarted { process, operation: response_operation, .. } =
+            response
+        else {
+            panic!()
+        };
+        assert_eq!(response_operation, Some(operation.clone()));
+        let other_owner =
+            ClientScope::new("other-device", cmux_remote_protocol::SessionId([9; 16]));
+        let mut other_options = spawn_options(
+            vec!["/bin/sleep".into(), "30".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Operation,
+        );
+        other_options.owner = other_owner;
+        other_options.operation = Some(operation.clone());
+        let WorkspaceResponse::ProcessStarted { process: other_process, .. } =
+            manager.spawn(root, other_options).await.unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(
+            manager.finish_operation_id(&ClientScope::local(), operation.clone()).await.unwrap(),
+            WorkspaceResponse::OperationFinished { operation, processes_signaled: 1 }
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(2), manager.wait(process))
+            .await
+            .expect("operation process should terminate")
+            .unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), manager.wait(other_process))
+                .await
+                .is_err(),
+            "finishing one client operation terminated another client's process"
+        );
+        manager.signal(other_process, ProcessSignal::Kill).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn process_timeout_terminates_command() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let mut options = spawn_options(
+            vec!["/bin/sleep".into(), "30".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        options.timeout_ms = Some(20);
+        let response = manager.spawn(root, options).await.unwrap();
+        let WorkspaceResponse::ProcessStarted { process, .. } = response else { panic!() };
+        tokio::time::timeout(std::time::Duration::from_secs(2), manager.wait(process))
+            .await
+            .expect("timed process should terminate")
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn daemon_shutdown_terminates_detached_pipe_and_pty_processes() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let pipe = manager
+            .spawn(
+                root.clone(),
+                spawn_options(
+                    vec!["/bin/sleep".into(), "30".into()],
+                    ProcessIo::Pipes { stdin: false },
+                    ProcessLifetime::Detached,
+                ),
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::ProcessStarted { process: pipe, .. } = pipe else { panic!() };
+        let pty = manager
+            .spawn(
+                root,
+                spawn_options(
+                    vec!["/bin/sh".into(), "-c".into(), "sleep 30".into()],
+                    ProcessIo::Pty {
+                        cols: 80,
+                        rows: 24,
+                        term: "xterm-256color".into(),
+                        eof: PtyEofPolicy::Reject,
+                    },
+                    ProcessLifetime::Detached,
+                ),
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::ProcessStarted { process: pty, .. } = pty else { panic!() };
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), manager.shutdown())
+            .await
+            .expect("daemon shutdown should not hang");
+        manager.wait(pipe).await.unwrap();
+        manager.wait(pty).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn canceled_pipe_spawn_kills_the_unpublished_process() {
+        let (directory, root) = root().await;
+        let manager = Arc::new(ProcessManager::default());
+        let pid_file = directory.path().join("pending-pipe.pid");
+        let mut env = BTreeMap::new();
+        env.insert("PIDFILE".into(), pid_file.to_string_lossy().into_owned());
+        let processes = manager.processes.write().await;
+        let spawn_manager = manager.clone();
+        let workspace = root.id.clone();
+        let cwd = root.canonical_root().to_owned();
+        let cwd_directory = root.unix_root().pinned_directory_for_canonical_path(&cwd).unwrap();
+        let spawn = tokio::spawn(async move {
+            spawn_manager
+                .spawn_pipes(
+                    ProcessId::from_u128(9_001),
+                    ProcessEventLog::new(PROCESS_EVENT_BYTES),
+                    ClientScope::local(),
+                    workspace,
+                    vec![
+                        "/bin/sh".into(),
+                        "-c".into(),
+                        "printf '%s' \"$$\" > \"$PIDFILE\"; exec sleep 30".into(),
+                    ],
+                    cwd,
+                    cwd_directory,
+                    env,
+                    false,
+                    ProcessLifetime::Workspace,
+                    None,
+                    None,
+                    DEFAULT_PROCESS_OUTPUT_DRAIN_IDLE_TIMEOUT,
+                    DEFAULT_PROCESS_OUTPUT_DRAIN_TOTAL_TIMEOUT,
+                    ProcessEnvironment::Inherit,
+                )
+                .await
+        });
+        let pid = wait_for_test_pid(&pid_file).await;
+        assert!(!spawn.is_finished(), "spawn unexpectedly published while its map was locked");
+
+        spawn.abort();
+        let _ = spawn.await;
+        drop(processes);
+        wait_for_test_process_exit(pid).await;
+        assert!(manager.processes.read().await.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn canceled_pty_spawn_kills_the_unpublished_process() {
+        let (directory, root) = root().await;
+        let manager = Arc::new(ProcessManager::default());
+        let pid_file = directory.path().join("pending-pty.pid");
+        let mut env = BTreeMap::new();
+        env.insert("PIDFILE".into(), pid_file.to_string_lossy().into_owned());
+        let processes = manager.processes.write().await;
+        let spawn_manager = manager.clone();
+        let workspace = root.id.clone();
+        let cwd = root.canonical_root().to_owned();
+        let cwd_directory = root.unix_root().pinned_directory_for_canonical_path(&cwd).unwrap();
+        let spawn = tokio::spawn(async move {
+            spawn_manager
+                .spawn_pty(
+                    ProcessId::from_u128(9_002),
+                    ProcessEventLog::new(PROCESS_EVENT_BYTES),
+                    ClientScope::local(),
+                    workspace,
+                    vec![
+                        "/bin/sh".into(),
+                        "-c".into(),
+                        "printf '%s' \"$$\" > \"$PIDFILE\"; exec sleep 30".into(),
+                    ],
+                    cwd,
+                    cwd_directory,
+                    env,
+                    80,
+                    24,
+                    "xterm-256color".into(),
+                    PtyEofPolicy::Reject,
+                    ProcessLifetime::Workspace,
+                    None,
+                    None,
+                    DEFAULT_PROCESS_OUTPUT_DRAIN_IDLE_TIMEOUT,
+                    DEFAULT_PROCESS_OUTPUT_DRAIN_TOTAL_TIMEOUT,
+                    ProcessEnvironment::Inherit,
+                )
+                .await
+        });
+        let pid = wait_for_test_pid(&pid_file).await;
+        assert!(!spawn.is_finished(), "spawn unexpectedly published while its map was locked");
+
+        spawn.abort();
+        let _ = spawn.await;
+        drop(processes);
+        wait_for_test_process_exit(pid).await;
+        assert!(manager.processes.read().await.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pty_reader_setup_failure_kills_and_reaps_the_child_before_returning() {
+        assert_pty_setup_failure_reaps(PtySetupFailure::Reader).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pty_waiter_setup_failure_kills_and_reaps_the_child_before_returning() {
+        assert_pty_setup_failure_reaps(PtySetupFailure::Waiter).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn client_cleanup_unblocks_a_full_process_stdin_pipe() {
+        let (_directory, root) = root().await;
+        let manager = Arc::new(ProcessManager::default());
+        let response = manager
+            .spawn(
+                root,
+                spawn_options(
+                    vec!["/bin/sleep".into(), "30".into()],
+                    ProcessIo::Pipes { stdin: true },
+                    ProcessLifetime::Workspace,
+                ),
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::ProcessStarted { process, .. } = response else { panic!() };
+        let writer_manager = manager.clone();
+        let writer = tokio::spawn(async move {
+            let bytes = ByteString::from_bytes(&vec![b'x'; MAX_PROCESS_WRITE_BYTES]);
+            for write_id in 1..=64 {
+                writer_manager.write(process, write_id, &bytes, false).await?;
+            }
+            Ok::<(), RpcError>(())
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(!writer.is_finished(), "stdin never filled during the regression test");
+
+        manager.close_client(&ClientScope::local()).await;
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(5), writer)
+            .await
+            .expect("client cleanup should unblock stdin")
+            .unwrap();
+        if let Err(error) = outcome {
+            assert!(matches!(error.code.as_str(), "process-exited" | "process-write-failed"));
+        }
+        manager.wait(process).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn client_cleanup_unblocks_a_full_pty_input_queue() {
+        let (_directory, root) = root().await;
+        let manager = Arc::new(ProcessManager::default());
+        let response = manager
+            .spawn(
+                root,
+                spawn_options(
+                    vec!["/bin/sh".into(), "-c".into(), "stty raw -echo; exec sleep 30".into()],
+                    ProcessIo::Pty {
+                        cols: 80,
+                        rows: 24,
+                        term: "xterm-256color".into(),
+                        eof: PtyEofPolicy::Reject,
+                    },
+                    ProcessLifetime::Workspace,
+                ),
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::ProcessStarted { process, .. } = response else { panic!() };
+        let writer_manager = manager.clone();
+        let writer = tokio::spawn(async move {
+            let bytes = ByteString::from_bytes(&vec![b'x'; MAX_PROCESS_WRITE_BYTES]);
+            for write_id in 1..=64 {
+                writer_manager.write(process, write_id, &bytes, false).await?;
+            }
+            Ok::<(), RpcError>(())
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(!writer.is_finished(), "PTY input queue never filled during the regression test");
+
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            manager.close_client(&ClientScope::local()),
+        )
+        .await
+        .expect("client cleanup should not block while signaling the PTY");
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(5), writer)
+            .await
+            .expect("client cleanup should unblock PTY input")
+            .unwrap();
+        if let Err(error) = outcome {
+            assert!(matches!(error.code.as_str(), "process-exited" | "process-write-failed"));
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(5), manager.wait(process))
+            .await
+            .expect("client cleanup should finish reaping the PTY")
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn canceled_detached_pty_write_preserves_input_for_reattachment() {
+        let (directory, root) = root().await;
+        let manager = Arc::new(ProcessManager::default());
+        let go = directory.path().join("start-reading");
+        let ready = directory.path().join("reader-ready");
+        let mut options = spawn_options(
+            vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                "stty raw -echo; while [ ! -e \"$GO\" ]; do sleep 0.01; done; printf ready > \"$READY\"; exec cat >/dev/null".into(),
+            ],
+            ProcessIo::Pty {
+                cols: 80,
+                rows: 24,
+                term: "xterm-256color".into(),
+                eof: PtyEofPolicy::Reject,
+            },
+            ProcessLifetime::Detached,
+        );
+        options.env.insert("GO".into(), go.to_string_lossy().into_owned());
+        options.env.insert("READY".into(), ready.to_string_lossy().into_owned());
+        let response = manager.spawn(root, options).await.unwrap();
+        let WorkspaceResponse::ProcessStarted { process, .. } = response else { panic!() };
+        let writer_manager = manager.clone();
+        let writer = tokio::spawn(async move {
+            let bytes = ByteString::from_bytes(&vec![b'x'; MAX_PROCESS_WRITE_BYTES]);
+            for write_id in 1..=64 {
+                writer_manager.write(process, write_id, &bytes, false).await?;
+            }
+            Ok::<(), RpcError>(())
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(!writer.is_finished(), "PTY input queue never filled during the regression test");
+
+        writer.abort();
+        let _ = writer.await;
+        manager.close_client(&ClientScope::local()).await;
+        tokio::fs::write(&go, b"go").await.unwrap();
+        wait_for_test_file(&ready).await;
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            manager.write(process, 10_000, &ByteString::from_bytes(b"after"), false),
+        )
+        .await
+        .expect("reattached writer should not block")
+        .expect("detached PTY should remain writable after request cancellation");
+        manager.signal(process, ProcessSignal::Kill).await.unwrap();
+        manager.wait(process).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pty_process_reports_numeric_signal_exit() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+
+        for (signal, expected_signal) in
+            [(ProcessSignal::Terminate, libc::SIGTERM), (ProcessSignal::Kill, libc::SIGKILL)]
+        {
+            let response = manager
+                .spawn(
+                    root.clone(),
+                    spawn_options(
+                        vec!["/bin/sh".into(), "-c".into(), "exec /bin/sleep 30".into()],
+                        ProcessIo::Pty {
+                            cols: 80,
+                            rows: 24,
+                            term: "xterm-256color".into(),
+                            eof: PtyEofPolicy::Reject,
+                        },
+                        ProcessLifetime::Workspace,
+                    ),
+                )
+                .await
+                .unwrap();
+            let WorkspaceResponse::ProcessStarted { process, .. } = response else { panic!() };
+
+            manager.signal(process, signal).await.unwrap();
+            let exit =
+                tokio::time::timeout(std::time::Duration::from_secs(2), manager.wait(process))
+                    .await
+                    .expect("signaled PTY should exit")
+                    .unwrap();
+            assert_eq!(
+                exit,
+                WorkspaceResponse::ProcessExit {
+                    process,
+                    code: None,
+                    signal: Some(expected_signal),
+                }
+            );
+
+            let mut events = manager.subscribe(process, 0).await.unwrap();
+            loop {
+                if let ProcessEvent::Exit { code, signal, .. } = events.recv().await.unwrap().event
+                {
+                    assert_eq!(code, None);
+                    assert_eq!(signal, Some(expected_signal));
+                    break;
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_pty_spawn_returns_within_deadline() {
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let runtime =
+                tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            let result = runtime.block_on(async {
+                let (_directory, root) = root().await;
+                let manager = ProcessManager::default();
+                let response = manager
+                    .spawn(
+                        root,
+                        spawn_options(
+                            vec!["/bin/sh".into(), "-c".into(), "exit 0".into()],
+                            ProcessIo::Pty {
+                                cols: 80,
+                                rows: 24,
+                                term: "xterm-256color".into(),
+                                eof: PtyEofPolicy::Reject,
+                            },
+                            ProcessLifetime::Workspace,
+                        ),
+                    )
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let WorkspaceResponse::ProcessStarted { process, .. } = response else {
+                    return Err("PTY spawn returned an unexpected response".to_owned());
+                };
+                manager.wait(process).await.map_err(|error| error.to_string())?;
+                Ok::<(), String>(())
+            });
+            let _ = result_tx.send(result);
+        });
+
+        result_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("macOS PTY spawn blocked past its five-second deadline")
+            .expect("macOS PTY spawn failed");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn macos_pty_clean_environment_uses_explicit_path_and_variables() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let mut options = spawn_options(
+            vec![
+                "sh".into(),
+                "-c".into(),
+                "printf '%s|%s|%s|%s\\n' \"${CMUX_TEST_VALUE-unset}\" \"${TERM-unset}\" \"${SHELL-unset}\" \"${HOME-unset}\""
+                    .into(),
+            ],
+            ProcessIo::Pty {
+                cols: 80,
+                rows: 24,
+                term: "xterm-256color".into(),
+                eof: PtyEofPolicy::Reject,
+            },
+            ProcessLifetime::Workspace,
+        );
+        options.environment = ProcessEnvironment::Clean;
+        options.env.insert("PATH".into(), "/bin:/usr/bin".into());
+        options.env.insert("CMUX_TEST_VALUE".into(), "explicit".into());
+        let response = manager.spawn(root, options).await.unwrap();
+        let WorkspaceResponse::ProcessStarted { process, .. } = response else { panic!() };
+        manager.wait(process).await.unwrap();
+
+        let mut events = manager.subscribe(process, 0).await.unwrap();
+        let mut output = Vec::new();
+        loop {
+            match events.recv().await.unwrap().event {
+                ProcessEvent::Stdout { data, .. } => output.extend(data.decode().unwrap()),
+                ProcessEvent::Exit { .. } => break,
+                ProcessEvent::Stderr { .. }
+                | ProcessEvent::OutputTruncated { .. }
+                | ProcessEvent::ReplayGap { .. } => {}
+            }
+        }
+        let output = String::from_utf8_lossy(&output);
+        assert!(
+            output.contains("explicit|xterm-256color|/bin/"),
+            "explicit PTY environment was not applied: {output:?}"
+        );
+        assert!(output.contains("|unset"), "clean PTY environment inherited HOME: {output:?}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn explicit_pty_accepts_input_and_resize() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let response = manager
+            .spawn(
+                root,
+                spawn_options(
+                    vec!["/bin/sh".into()],
+                    ProcessIo::Pty {
+                        cols: 80,
+                        rows: 24,
+                        term: "xterm-256color".into(),
+                        eof: PtyEofPolicy::Reject,
+                    },
+                    ProcessLifetime::Workspace,
+                ),
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::ProcessStarted { process, .. } = response else { panic!() };
+        assert_eq!(
+            manager.resize(process, 100, 40).await.unwrap(),
+            WorkspaceResponse::ProcessResized { process, cols: 100, rows: 40 }
+        );
+        let eof = manager.write(process, 1, &ByteString::from_bytes(b""), true).await.unwrap_err();
+        assert_eq!(eof.code, "pty-eof-unsupported");
+        manager
+            .write(process, 1, &ByteString::from_bytes(b"stty size; exit\n"), false)
+            .await
+            .unwrap();
+        manager.wait(process).await.unwrap();
+        let mut events = manager.subscribe(process, 0).await.unwrap();
+        let mut output = Vec::new();
+        loop {
+            let event = events.recv().await.unwrap();
+            match event.event {
+                ProcessEvent::Stdout { data, .. } => output.extend(data.decode().unwrap()),
+                ProcessEvent::Exit { .. } => break,
+                ProcessEvent::Stderr { .. }
+                | ProcessEvent::OutputTruncated { .. }
+                | ProcessEvent::ReplayGap { .. } => {}
+            }
+        }
+        assert!(String::from_utf8_lossy(&output).contains("40 100"));
+        let record = manager.get(process).await.unwrap();
+        assert!(
+            record
+                .master
+                .as_ref()
+                .unwrap()
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_none(),
+            "completed PTY retained its master file descriptor"
+        );
+        assert_eq!(manager.resize(process, 80, 24).await.unwrap_err().code, "process-exited");
+    }
+
+    #[cfg(unix)]
+    async fn wait_for_test_pid(path: &std::path::Path) -> u32 {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if let Ok(contents) = tokio::fs::read_to_string(path).await
+                    && let Ok(pid) = contents.parse()
+                {
+                    break pid;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("spawned process should publish its pid")
+    }
+
+    #[cfg(unix)]
+    async fn wait_for_test_file(path: &std::path::Path) {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while !path.exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("spawned process should publish its readiness file");
+    }
+
+    #[cfg(unix)]
+    async fn wait_for_test_process_exit(pid: u32) {
+        let pid = i32::try_from(pid).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let alive = unsafe { libc::kill(pid, 0) } == 0;
+                if !alive && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("canceled spawn should kill and reap its child");
+    }
+
+    #[cfg(unix)]
+    async fn assert_pty_setup_failure_reaps(failure: PtySetupFailure) {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        *manager.pty_setup_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(failure);
+        let cwd = root.canonical_root().to_owned();
+        let cwd_directory = root.unix_root().pinned_directory_for_canonical_path(&cwd).unwrap();
+        let error = manager
+            .spawn_pty(
+                ProcessId::from_u128(9_003),
+                ProcessEventLog::new(PROCESS_EVENT_BYTES),
+                ClientScope::local(),
+                root.id.clone(),
+                vec!["/bin/sleep".into(), "30".into()],
+                cwd,
+                cwd_directory,
+                BTreeMap::new(),
+                80,
+                24,
+                "xterm-256color".into(),
+                PtyEofPolicy::Reject,
+                ProcessLifetime::Workspace,
+                None,
+                None,
+                DEFAULT_PROCESS_OUTPUT_DRAIN_IDLE_TIMEOUT,
+                DEFAULT_PROCESS_OUTPUT_DRAIN_TOTAL_TIMEOUT,
+                ProcessEnvironment::Inherit,
+            )
+            .await
+            .expect_err("injected PTY setup failure should be returned");
+        assert_eq!(error.code, "pty-open-failed");
+        let pid = manager.pty_setup_child_pid.load(Ordering::Acquire);
+        assert_ne!(pid, 0, "PTY setup did not capture the direct child pid");
+
+        let pid = i32::try_from(pid).unwrap();
+        let mut status = 0;
+        let waited = loop {
+            let waited = unsafe { libc::waitpid(pid, &mut status, 0) };
+            if waited == -1
+                && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+            {
+                continue;
+            }
+            break waited;
+        };
+        let error = std::io::Error::last_os_error();
+        assert_eq!(
+            (waited, error.raw_os_error()),
+            (-1, Some(libc::ECHILD)),
+            "PTY setup returned before synchronously reaping child {pid}"
+        );
+    }
+}

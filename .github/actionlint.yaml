@@ -5,10 +5,6 @@ self-hosted-runner:
     # these are the literal labels referenced as fallbacks or as manual
     # workflow_dispatch choices.
     # See docs/ci-runners.md.
-    # The one own-branch Mac label (Leo, 2026-11-21): a Mac job that needs only a
-    # plain Mac with Xcode 26.6 reads vars.CI_OVERFLOW_MAC || 'cmux-mac'; the 60
-    # shared Mac runners carry it.
-    - cmux-mac
     - blacksmith-6vcpu-macos-15
     - blacksmith-6vcpu-macos-26
     - blacksmith-6vcpu-macos-latest
@@ -16,35 +12,28 @@ self-hosted-runner:
     # macOS 26 needs route to Blacksmith cloud, not warp-macos-26-arm64-6x: our
     # self-hosted minis carry that label, and GitHub prefers a matching
     # self-hosted runner. See check_no_self_hosted_fleet_runners.
-    # Linux: Blacksmith through RUNNER_POOLS and LINUX_RUNNER today; the capability
-    # map (.github/runners.json `owned`) names cmux-linux.
+    # Linux: Blacksmith primary (LINUX_RUNNER), WarpBuild overflow fallback.
     - blacksmith-4vcpu-ubuntu-2404
     - blacksmith-4vcpu-ubuntu-2404-arm
     - blacksmith-8vcpu-ubuntu-2404
-    - blacksmith-16vcpu-ubuntu-2404
     - blacksmith-4vcpu-windows-2025
     - blacksmith-32vcpu-ubuntu-2404
-    - cmux-fleet-linux-x64
-    # Literal runner labels for the PR control and CI repair JIT pools.
-    - cmux-gcp-pr-control-jit-x64
-    # The one owned Linux label (runners.json `owned`, scripts/ci/one_linux_label.py). Most jobs reach it
-    # inside an expression, which actionlint does not check; base-only jobs name it bare (#55036 and after).
+    # The persistent Linux runner pool every same-repository Linux job names
+    # (cmuxterm-hq decisions/junctions.md, 2026-11-20).
     - cmux-linux
-    # The nightly GCP Linux pool's label, named bare by cmux-machine-channel-thin.yml's profiles job.
-    - cmux-gcp-nightly-x64
-    # One-job JIT VMs that cmuxterm-hq gha-runners makes for CI repair jobs only
-    # (runner_pool.py REPAIR_JIT_LABEL, JIT_POOLS in its README); the other
-    # cmux-gcp-*-jit-x64 labels appear only inside expressions, which
-    # actionlint does not check.
-    - cmux-gcp-repair-jit-x64
+    # The shared Mac runners (Xcode 26.6) every own-branch job that needs only
+    # a plain Mac names, behind vars.CI_OVERFLOW_MAC.
+    - cmux-mac
     - warp-ubuntu-latest-x64-4x
-    # GitHub-hosted, not self-hosted (1.7.12 knows this label; the entry stays
-    # for older local actionlint builds). actionlint 1.7.7 shipped a fixed list of
+    # GitHub-hosted, not self-hosted. actionlint 1.7.7 ships a fixed list of
     # hosted labels and macos-15-intel postdates it, so the only way to say
     # "this label is real" is here. It is: run 34656982146's
     # `compat-tests (macos-15-intel, ...)` job was served by "GitHub Actions
     # 1000200229", the same kind of runner name as the macos-14 job beside it.
     - macos-15-intel
+    # GitHub-hosted macOS 26 (actionlint 1.7.7 predates it; 1.7.12 knows it).
+    # Nightly signing, notarization and fallback builds run there.
+    - macos-26
 
 paths:
   .github/workflows/test-ios.yml:
@@ -58,19 +47,3 @@ paths:
       # The workflow is dispatch-only and driven from outside this repository,
       # so that call belongs to whoever owns those dispatchers.
       - 'string should not be empty'
-  .github/workflows/nightly.yml:
-    ignore:
-      # await-release-surface-ack and promote-nightly-next-acked are retired
-      # with `if: false` (main retired the live release-surface ack on
-      # 2026-10-18, #21544; feat-cmux-next took main's copy in #25995). They
-      # stay in main's exact shape so a sync between the branches never
-      # brings the live approval back, and tests/test_nightly_promotion_admission.py
-      # pins that shape. Deleting them is a cross-branch decision, not a lint fix.
-      - 'constant expression "false" in condition'
-  .github/workflows/backend.yml:
-    ignore:
-      # `concurrency.queue: max` keeps every pending run of a group in order instead of
-      # keeping only the newest (#33944). GitHub accepts it (backend.yml's pushes run with
-      # it), but the pinned actionlint's schema predates the key. Drop this when the
-      # pinned build knows it.
-      - 'unexpected key "queue" for "concurrency" section'

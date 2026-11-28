@@ -12,10 +12,6 @@ import java.util.Objects;
 
 public final class WorkspaceMutationResult implements WireValue {
     private final Field<Boolean> changed;
-    /** close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed. */
-    private final Field<List<String>> closedIds;
-    /** create-workspace with first_tab (workspace-first-tab-v1): the new-frontend-browser-tab reply for the workspace's first tab. */
-    private final Field<Object> firstTab;
     private final String generation;
     private final UInt64 index;
     private final String key;
@@ -26,8 +22,6 @@ public final class WorkspaceMutationResult implements WireValue {
 
     private WorkspaceMutationResult(Builder builder) {
         this.changed = builder.changed;
-        this.closedIds = builder.closedIds.map(value -> List.copyOf(value));
-        this.firstTab = builder.firstTab.map(value -> Wire.immutableJson(value));
         if (!builder.generationSet) throw new IllegalArgumentException("generation is required");
         this.generation = Wire.nonNull(builder.generation, "generation");
         if (!builder.indexSet) throw new IllegalArgumentException("index is required");
@@ -47,8 +41,6 @@ public final class WorkspaceMutationResult implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<Boolean> changed() { return changed; }
-    public Field<List<String>> closedIds() { return closedIds; }
-    public Field<Object> firstTab() { return firstTab; }
     public String generation() { return generation; }
     public UInt64 index() { return index; }
     public String key() { return key; }
@@ -63,14 +55,6 @@ public final class WorkspaceMutationResult implements WireValue {
         Object rawChanged = Wire.optional(object, "changed");
         if (!Wire.isMissing(rawChanged)) {
             builder.changed(Wire.bool(rawChanged, "WorkspaceMutationResult.changed"));
-        }
-        Object rawClosedIds = Wire.optional(object, "closed_ids");
-        if (!Wire.isMissing(rawClosedIds)) {
-            builder.closedIds(Wire.array(rawClosedIds, "WorkspaceMutationResult.closed_ids", item -> Wire.string(item, "WorkspaceMutationResult.closed_ids item")));
-        }
-        Object rawFirstTab = Wire.optional(object, "first_tab");
-        if (!Wire.isMissing(rawFirstTab)) {
-            builder.firstTab(Wire.immutableJson(ProtocolSupport.nonNull(rawFirstTab, "WorkspaceMutationResult.first_tab")));
         }
         Object rawGeneration = Wire.required(object, "generation");
         builder.generation(Wire.string(rawGeneration, "WorkspaceMutationResult.generation"));
@@ -93,8 +77,6 @@ public final class WorkspaceMutationResult implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "changed", changed);
-        Wire.put(object, "closed_ids", closedIds);
-        Wire.put(object, "first_tab", firstTab);
         Wire.put(object, "generation", generation);
         Wire.put(object, "index", index);
         Wire.put(object, "key", key);
@@ -108,19 +90,17 @@ public final class WorkspaceMutationResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof WorkspaceMutationResult that)) return false;
-        return Objects.equals(changed, that.changed) && Objects.equals(closedIds, that.closedIds) && Objects.equals(firstTab, that.firstTab) && Objects.equals(generation, that.generation) && Objects.equals(index, that.index) && Objects.equals(key, that.key) && Objects.equals(registryId, that.registryId) && Objects.equals(replayed, that.replayed) && Objects.equals(workspace, that.workspace) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(changed, that.changed) && Objects.equals(generation, that.generation) && Objects.equals(index, that.index) && Objects.equals(key, that.key) && Objects.equals(registryId, that.registryId) && Objects.equals(replayed, that.replayed) && Objects.equals(workspace, that.workspace) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(changed, closedIds, firstTab, generation, index, key, registryId, replayed, workspace, workspaceRevision); }
+    public int hashCode() { return Objects.hash(changed, generation, index, key, registryId, replayed, workspace, workspaceRevision); }
 
     @Override
     public String toString() { return "WorkspaceMutationResult" + toWire(); }
 
     public static final class Builder {
         private Field<Boolean> changed = Field.omitted();
-        private Field<List<String>> closedIds = Field.omitted();
-        private Field<Object> firstTab = Field.omitted();
         private String generation;
         private boolean generationSet;
         private UInt64 index;
@@ -138,14 +118,6 @@ public final class WorkspaceMutationResult implements WireValue {
 
         public Builder changed(Boolean value) {
             this.changed = Field.of(value);
-            return this;
-        }
-        public Builder closedIds(List<String> value) {
-            this.closedIds = Field.of(value);
-            return this;
-        }
-        public Builder firstTab(Object value) {
-            this.firstTab = Field.of(value);
             return this;
         }
         public Builder generation(String value) {

@@ -11,19 +11,11 @@ Two rules, both checked against the workflows themselves rather than a list of
 known-good sites:
 
 1. A `runs-on:` that reads a repository variable needs a literal runner label
-   to fall back to. An empty `runs-on:` cannot schedule at all. A job whose
-   `if:` requires `vars.X != ''` for every variable its runs-on reads is
-   skipped when one is unset, so it never schedules on an empty runs-on.
+   to fall back to. An empty `runs-on:` cannot schedule at all.
 2. A variable that selects how much work to do, or where a cache lives, needs
    the repository's own value written next to it as a literal. The table below
    is the one hand-maintained part, and it names three variables, not the
    dozens of sites that read them.
-3. A variable compared with the string '0' must be read through
-   `format('{0}', vars.X)` (or given a literal with `||`). An unset variable is
-   null, and Actions compares null with '0' as numbers, 0 == 0, so a bare
-   `vars.X != '0'` is false when nobody set X: the switch documented as "on
-   unless set to 0" is off. #55354's PR scoping (vars.CI_FAST_TIER_PR_SCOPE) was
-   off on every pull request this way, with no repository variable set.
 """
 
 from __future__ import annotations
@@ -35,8 +27,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
-sys.path.insert(0, str(ROOT / "tests"))
-from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
 
 # variable -> the literal the repository sets, which an unset read must use.
 # Each is cheap: the compile-only suite over the full macOS suite, and the
@@ -49,9 +39,6 @@ CHEAP_DEFAULTS = {
 
 VARS_REFERENCE = re.compile(r"vars\.([A-Z0-9_]+)")
 RUNS_ON = re.compile(r"^\s*runs-on:\s*(.+?)\s*$")
-POOL_TERMINAL_FALLBACK = re.compile(
-    r"\|\|\s*fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\s*\}\}"
-)
 
 # The repository-side switch for metered macOS capacity. Unset is the cheap
 # reading, so a fork pull request and a repository with no admin action both
@@ -79,16 +66,6 @@ PAID_CAPABLE_RUNNER_VARS = {
     "MACOS_RUNNER_26_LARGE": "blacksmith-12vcpu-macos-26",
 }
 
-# Pool reads are the declared fallback for the same free Blacksmith sizes.
-# They intentionally have no scalar label to fall back to: the pool
-# reconciler may move the live member without a workflow edit.
-PAID_CAPABLE_POOL_DEFAULTS = {
-    "MACOS_RUNNER_15": "fromJSON(vars.RUNNER_POOLS).macos_15",
-    "MACOS_RUNNER_DISPLAY": "fromJSON(vars.RUNNER_POOLS).macos_15",
-    "MACOS_RUNNER_DUAL_XCODE": "fromJSON(vars.RUNNER_POOLS).macos_15",
-    "MACOS_RUNNER_26_LARGE": "fromJSON(vars.RUNNER_POOLS).macos_26_large",
-}
-
 # The gate as it must appear immediately before the read. The lookbehind keeps
 # `inputs.CI_PAID_MACOS_OVERFLOW == '1' && ` from passing for the repository's
 # own flag.
@@ -108,6 +85,10 @@ PAID_OVERFLOW_GATE_PREFIX = re.compile(
 GATE_EXEMPT_REPORTING_READS = {
     ("ci-health-report.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "reports each runner variable's value; gating would report empty",
+    ("ci-repo-variables.yml", "CMUX_CI_RUNNER_VARIABLES"):
+        "validates each runner variable's value; gating would validate empty",
+    ("ci-repo-variables.yml", "CMUX_CI_RUNS_ON_VARIABLES"):
+        "checks each runs-on variable's value for one machine; gating would check empty",
     ("ci-cloud-overflow-probe.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "the overflow switch records each value to put back; gating would record empty",
 }
@@ -151,136 +132,19 @@ def is_comparison(text: str, end: int) -> bool:
 
 
 def default_chain_reaches_literal(text: str, end: int) -> bool:
-    """True when a chain ends in a literal, a literal label list or a declared runner pool.
-
-    A literal list (`fromJSON('["cmux-mac","xcode-27.0"]')`) is a constant non-empty runs-on, as a quoted label
-    is, and so is a list read that falls back to one inside fromJSON (`fromJSON(needs.X.outputs.fallback != '' &&
-    needs.X.outputs.fallback || '["cmux-mac","xcode-27.0"]')`, ios-internal-nightly's archive fallback).
-    """
+    """True when a chain of `|| vars.Y || 'literal'` ends in a literal."""
     rest = text[end:]
     while True:
         chained = re.match(r"\s*\|\|\s*vars\.[A-Z0-9_]+", rest)
         if chained is None:
-            return re.match(
-                r"\s*\|\|\s*(?:'[^']+'|fromJSON\('\[\s*\"[^']+\]'\)|fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+"
-                r"|fromJSON\([^()]*?\|\|\s*'\[\s*\"[^']+\]'\))",
-                rest,
-            ) is not None
+            return re.match(r"\s*\|\|\s*'[^']+'", rest) is not None
         rest = rest[chained.end():]
 
 
-JOB_KEY = re.compile(r"^  [A-Za-z0-9_-]+:\s*(?:#.*)?$")
-
-
-def job_if(lines: list[str], index: int) -> str:
-    """The job-level `if:` (with its continuation lines) of the job holding lines[index]."""
-    start = index
-    while start > 0 and not JOB_KEY.match(lines[start]):
-        start -= 1
-    end = index + 1
-    while end < len(lines) and not JOB_KEY.match(lines[end]):
-        end += 1
-    for at in range(start + 1, end):
-        if lines[at].startswith("    if:"):
-            parts = [lines[at][len("    if:"):]]
-            at += 1
-            while at < end and (not lines[at].strip() or lines[at].startswith("      ")):
-                parts.append(lines[at])
-                at += 1
-            return " ".join(part.strip() for part in parts)
-    return ""
-
-
-def top_level_conjuncts(condition: str) -> list[str]:
-    """`a && (b || c) && d` -> ['a', '(b || c)', 'd'], ignoring quoted text."""
-    condition = condition.strip()
-    if condition.startswith(">-"):
-        condition = condition[2:].strip()
-    elif condition[:1] in (">", "|"):
-        return []  # a kept trailing newline makes the whole value a non-empty string
-    if condition.startswith("${{") and condition.endswith("}}"):
-        condition = condition[3:-2]
-    if "${{" in condition or "}}" in condition:
-        return []  # text around a template: GitHub reads a string, always true
-    parts, depth, quoted, current = [], 0, False, ""
-    index = 0
-    while index < len(condition):
-        char = condition[index]
-        if char == "'":
-            quoted = not quoted
-        elif not quoted and char == "(":
-            depth += 1
-        elif not quoted and char == ")":
-            depth -= 1
-        elif not quoted and depth == 0 and condition.startswith("&&", index):
-            parts.append(current.strip())
-            current = ""
-            index += 2
-            continue
-        elif not quoted and depth == 0 and condition.startswith("||", index):
-            return []  # a top-level `||` makes no conjunct required
-        current += char
-        index += 1
-    parts.append(current.strip())
-    # `a && (b && (c || d))` requires b and (c || d) too: a conjunct that is one parenthesized
-    # conjunction contributes its own conjuncts (#48747's tip test-compile gate is written so).
-    flat = []
-    for part in parts:
-        flat.append(part)
-        if part.startswith("(") and part.endswith(")") and wrapped_whole(part):
-            inner = top_level_conjuncts(part[1:-1])
-            if len(inner) > 1:
-                flat.extend(inner)
-    return flat
-
-
-def wrapped_whole(text: str) -> bool:
-    """`(a) && (b)` starts and ends with a parenthesis but is not one parenthesized group."""
-    depth, quoted = 0, False
-    for index, char in enumerate(text):
-        if char == "'":
-            quoted = not quoted
-        elif not quoted and char == "(":
-            depth += 1
-        elif not quoted and char == ")":
-            depth -= 1
-            if depth == 0 and index != len(text) - 1:
-                return False
-    return True
-
-
-def gated_on_every_read(condition: str, reads: list[re.Match], expression: str = "") -> bool:
-    conjuncts = top_level_conjuncts(condition)
-    if all(f"vars.{read.group(1)} != ''" in conjuncts for read in reads):
-        return True
-    # `runs-on: ${{ vars.A || vars.B }}` is non-empty when either is set, so a
-    # job gated on `(vars.A != '' || vars.B != '')` never schedules on an empty
-    # runs-on either. Only a pure `||` chain of the same variables qualifies.
-    names = {read.group(1) for read in reads}
-    chain = re.fullmatch(r"\$\{\{\s*(vars\.[A-Z0-9_]+(?:\s*\|\|\s*vars\.[A-Z0-9_]+)*)\s*\}\}", expression.strip())
-    if chain is None:
-        return False
-    for conjunct in conjuncts:
-        inner = conjunct.strip()
-        if inner.startswith("(") and inner.endswith(")"):
-            inner = inner[1:-1]
-        terms = [term.strip() for term in inner.split("||")]
-        gated = set()
-        for term in terms:
-            matched = re.fullmatch(r"vars\.([A-Z0-9_]+) != ''", term)
-            if matched is None:
-                gated = set()
-                break
-            gated.add(matched.group(1))
-        if gated and gated == names:
-            return True
-    return False
-
-
-# The one routing source (scripts/ci/runner_pools.py on main): RUNNER_POOLS has no literal fallback on purpose.
+# The one routing source (scripts/ci/runner_pools.py): RUNNER_POOLS has no literal fallback on purpose.
 # Leo, 2026-10-28: "I hate pins." An unset RUNNER_POOLS makes fromJSON() fail the run at once (a red run,
 # not a job queued on a label nobody serves). A fork pull request, which gets no repository variables,
-# never reaches the read: the fork pull request branch in front of it names its own label. Same rule as main's.
+# never reaches the read: the fork pull request branch in front of it names its own label.
 FORK_PULL_REQUEST_BRANCH = re.compile(
     r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
     r" != github\.repository(?: && !contains\(fromJSON\([\w.]+\), github\.event\.pull_request\.head\.repo\.full_name\))?"
@@ -288,25 +152,11 @@ FORK_PULL_REQUEST_BRANCH = re.compile(
 )
 
 
-# The owned-mini member a Blacksmith backlog switches on (2026-11-01): unset, the chain goes on to the
-# RUNNER_POOLS read right after it, so it needs no literal of its own.
-POOL_MEMBER_BEFORE_POOL = re.compile(r"CI_LINUX_GATE_OWNED_RUNNER \|\| fromJSON\(vars\.RUNNER_POOLS\)\.")
-
-
 def pool_read_after_fork_branch(expression: str, read: re.Match) -> bool:
-    """`fromJSON(vars.RUNNER_POOLS).<pool>` with the fork pull request branch before it, or the owned-mini
-    member read directly before that pool read."""
-    if read.group(1) == "CI_LINUX_GATE_OWNED_RUNNER" and POOL_MEMBER_BEFORE_POOL.match(expression, read.start(1)):
-        return FORK_PULL_REQUEST_BRANCH.search(expression[: read.start()]) is not None
+    """`fromJSON(vars.RUNNER_POOLS).<pool>` with the fork pull request branch before it."""
     if read.group(1) != "RUNNER_POOLS" or not expression[: read.start()].endswith("fromJSON("):
         return False
     return FORK_PULL_REQUEST_BRANCH.search(expression[: read.start()]) is not None
-
-
-# `(<fork pull request> && '<label>' || fromJSON(vars.RUNNER_POOLS).<pool>)`: the label, for a fork's run.
-FORK_WRAP = re.compile(
-    r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
-    r" != github\.repository && ('[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+\)")
 
 
 # The side lane's capability array read (tests/test_ci_side_lane_capability_labels.py). With its array unset it is
@@ -315,48 +165,22 @@ SIDE_LANE_LABELS_READ = ("(vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SI
                          "vars.CI_SIDE_LANE_RUNNER)")
 
 
-def fork_view(text: str) -> str:
-    return FORK_WRAP.sub(r"\1", text.replace(SIDE_LANE_LABELS_READ, "vars.CI_SIDE_LANE_RUNNER"))
-
-
 def check_runs_on(path: Path, errors: list[str]) -> None:
-    lines = path.read_text(encoding="utf-8").splitlines()
-    for number, line in enumerate(lines, start=1):
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         matched = RUNS_ON.match(line)
         if matched is None:
             continue
-        # A fork pull request takes each fork-wrapped pool read's label (runs_on_labels.FORK_WRAPPED_POOL_READ).
-        expression = fork_view(matched.group(1))
-        line = fork_view(line)
-        # A terminal declared-pool read is the route's fallback. It replaces
-        # the old scalar literal even when intermediate selectors (overflow,
-        # retry and admission variables) sit between the first read and the
-        # final pool member.
-        if POOL_TERMINAL_FALLBACK.search(expression):
-            continue
-        # RUNNER_POOLS is the declarative route source. Its member read is a
-        # valid terminal fallback; unlike scalar vars it must not be replaced
-        # with a literal label.
-        # A compared read (`vars.X == 'on' && ...`) is a switch: its value is a boolean, never the label,
-        # so an unset one cannot empty the runs-on (billing's Blacksmith retry, the channel heal's skip).
-        reads = [read for read in VARS_REFERENCE.finditer(expression)
-                 if read.group(1) != "RUNNER_POOLS"
-                 and not re.match(r"\s*(?:==|!=)", expression[read.end():])]
+        expression = matched.group(1).replace(SIDE_LANE_LABELS_READ, "vars.CI_SIDE_LANE_RUNNER")
+        reads = list(VARS_REFERENCE.finditer(expression))
         if not reads:
-            continue
-        if all(pool_read_after_fork_branch(expression, read) for read in reads):
             continue
         if any(default_chain_reaches_literal(expression, read.end()) for read in reads):
             continue
-        if gated_on_every_read(job_if(lines, number - 1), reads, expression):
+        if all(pool_read_after_fork_branch(expression, read) for read in reads):
             continue
         # A last top-level `|| 'label'` is the fallback of the whole expression
-        # (build-nightly-app: trusted tuple || hosted 'macos-26').
+        # (build-nightly-app: trusted tuple || 'blacksmith-12vcpu-macos-26').
         if re.search(r"\|\|\s*'[^']+'\s*\}\}\s*(#.*)?$", line):
-            continue
-        # A last top-level `|| fromJSON('["label", ...]')` is a literal label set, the same fallback
-        # (ios-internal-nightly's archive: cmux-mac AND xcode-27.0 when no picker output applies).
-        if re.search(r"\|\|\s*fromJSON\('\[\s*\"[^\"']+\"(?:\s*,\s*\"[^\"']+\")*\s*\]'\)\s*\}\}\s*(#.*)?$", line):
             continue
         errors.append(
             f"{path.name}:{number}: runs-on reads "
@@ -412,8 +236,6 @@ def check_paid_overflow_gate(path: Path, errors: list[str]) -> None:
     for number, line in enumerate(lines, start=1):
         if line.lstrip().startswith("#"):
             continue
-        # The fallback a run that is not a fork's takes: each fork-wrapped pool read is its read.
-        line = unwrap_fork_pool_reads(line)
         for name, free_label in PAID_CAPABLE_RUNNER_VARS.items():
             for read in re.finditer(rf"vars\.{name}\b", line):
                 if not PAID_OVERFLOW_GATE_PREFIX.search(line[: read.start()]):
@@ -427,14 +249,12 @@ def check_paid_overflow_gate(path: Path, errors: list[str]) -> None:
                         f"vars.{name} || '{free_label}'`"
                     )
                     continue
-                fallback = re.match(r"\s*\|\|\s*(?:'([^']+)'|(fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+))",
-                                    line[read.end():])
-                expected_pool = PAID_CAPABLE_POOL_DEFAULTS[name]
-                actual = (fallback.group(1) or fallback.group(2)) if fallback else "nothing"
-                if fallback is None or actual not in (free_label, expected_pool):
+                fallback = re.match(r"\s*\|\|\s*'([^']+)'", line[read.end():])
+                if fallback is None or fallback.group(1) != free_label:
+                    actual = fallback.group(1) if fallback else "nothing"
                     errors.append(
                         f"{path.name}:{number}: gated vars.{name} falls back to "
-                        f"{actual!r}, but its free steady state is {free_label!r} or {expected_pool}"
+                        f"{actual!r}, but its free steady state is {free_label!r}"
                     )
 
 
@@ -476,98 +296,15 @@ def self_test_gate_matcher(errors: list[str]) -> None:
                 )
 
 
-def self_test_runs_on_gate(errors: list[str]) -> None:
-    """A job-level `vars.X != ''` conjunct for every read (or one disjunction over a pure `||` chain) excuses a bare runs-on."""
-    import tempfile
-
-    def job(condition: str, runs_on: str = "${{ vars.A_RUNNER }}") -> str:
-        return f"jobs:\n  one:\n    if: {condition}\n    runs-on: {runs_on}\n    steps: []\n"
-
-    probes = (
-        (job("github.repository_owner == 'manaflow-ai' && vars.A_RUNNER != ''"), 0, "a gated job"),
-        (job(">-\n      ${{ github.repository_owner == 'manaflow-ai' &&\n          vars.A_RUNNER != '' }}"), 0,
-         "a gated job with a folded if"),
-        (job("github.repository_owner == 'manaflow-ai'"), 1, "an ungated job"),
-        (job("vars.A_RUNNER != '' || github.event_name == 'push'"), 1, "a gate inside a top-level `||`"),
-        (job("(vars.A_RUNNER != '' || vars.B != '') && github.ref == 'x'"), 1, "a gate inside parentheses"),
-        (job("vars.B_RUNNER != ''"), 1, "a gate on another variable"),
-        (job("vars.A_RUNNER != ''", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 1, "one of two reads gated"),
-        (job("x == 'y' && (vars.A_RUNNER != '' || vars.B_RUNNER != '')", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 0,
-         "a `||` chain gated on either of its variables"),
-        (job("x == 'y' && (vars.A_RUNNER != '' || vars.C_RUNNER != '')", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 1,
-         "a `||` chain gated on another variable"),
-        (job("(vars.A_RUNNER != '' || vars.B_RUNNER != '')", "${{ vars.A_RUNNER && vars.B_RUNNER }}"), 1,
-         "an `&&` read gated on either variable"),
-        ("jobs:\n  one:\n    if: vars.A_RUNNER != ''\n    steps: []\n  two:\n    runs-on: ${{ vars.A_RUNNER }}\n",
-         1, "another job's gate"),
-        ("jobs:\n  one:\n    if: vars.A_RUNNER != ''\n    steps: []\n  two: # note\n    runs-on: ${{ vars.A_RUNNER }}\n",
-         1, "another job's gate above a commented job header"),
-        (job("${{ github.ref == 'x' }} && vars.A_RUNNER != ''"), 1, "text outside the template"),
-        (job(">\n      ${{ github.ref == 'x' &&\n          vars.A_RUNNER != '' }}"), 1, "a folded `>` if, which keeps its newline"),
-    )
-    with tempfile.TemporaryDirectory() as directory:
-        for body, expected, description in probes:
-            probe = Path(directory) / "probe.yml"
-            probe.write_text(body, encoding="utf-8")
-            found: list[str] = []
-            check_runs_on(probe, found)
-            if len(found) != expected:
-                errors.append(
-                    f"runs-on gate self-test: {description} produced {len(found)} error(s), expected {expected}"
-                )
-
-
 def self_test_pool_reads(errors: list[str]) -> None:
     fork = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
-            "github.repository && 'blacksmith-4vcpu-ubuntu-2404' || ")
+            "github.repository && 'ubuntu-24.04' || ")
     good = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + fork + "fromJSON(vars.RUNNER_POOLS).linux }}"
     bad = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"
     for text, expected in ((good, True), (bad, False)):
         reads = list(VARS_REFERENCE.finditer(text))
         if all(pool_read_after_fork_branch(text, read) for read in reads) != expected:
             errors.append(f"self-test: pool read {'accepted' if not expected else 'refused'} wrongly: {text}")
-
-
-# `vars.X != '0'` / `vars.X == '0'` with no format() around the read (rule 3).
-BARE_ZERO_COMPARE = re.compile(r"(?<![(,]\s)(?<![(,])vars\.([A-Z0-9_]+)\s*[!=]=\s*'0'")
-
-# Sites that read a bare `vars.X != '0'` on feat-cmux-next when rule 3 landed.
-# Each is off today while unset (rule 3); turning one on is its owner's call,
-# so they are named here rather than flipped. Drop a name once its sites read
-# `format('{0}', vars.X)`. Do not add names: fix the new site instead.
-UNSET_READS_AS_ZERO_KNOWN = {
-    "CI_FAST_TIER_CARGO_BOT_READ",
-    "CI_REACT_SHARD_RECEIPT",
-    "CI_IOS_FAST_VERDICT",
-    "CMUX_NEXT_LANGUAGE_PACKS",
-    "CMUX_NEXT_TOOL_PACKS",
-    "FIXIT_HANDOFF",
-    "IOS_BASE_BISECT",
-}
-
-
-def check_unset_zero_reads(path: Path, errors: list[str]) -> None:
-    for number, line in enumerate(path.read_text().splitlines(), 1):
-        if line.lstrip().startswith("#"):
-            continue
-        for match in BARE_ZERO_COMPARE.finditer(line):
-            if match.group(1) not in UNSET_READS_AS_ZERO_KNOWN:
-                errors.append(
-                    f"{path.relative_to(ROOT)}:{number}: vars.{match.group(1)} compared with '0' reads an "
-                    f"unset variable as '0' (null and '0' both coerce to 0); write "
-                    f"format('{{0}}', vars.{match.group(1)})"
-                )
-
-
-def self_test_unset_zero_reads(errors: list[str]) -> None:
-    for text, expected in (
-        ("vars.CI_X != '0'", True),
-        ("vars.CI_X == '0'", True),
-        ("format('{0}', vars.CI_X) != '0'", False),
-        ("(vars.CI_X || '1') != '0'", False),
-    ):
-        if bool(BARE_ZERO_COMPARE.search(text)) != expected:
-            errors.append(f"self-test: unset-as-zero read {'missed' if expected else 'flagged'}: {text}")
 
 
 def main() -> int:
@@ -577,14 +314,11 @@ def main() -> int:
         print(f"no workflows found under {WORKFLOWS}", file=sys.stderr)
         return 1
     self_test_gate_matcher(errors)
-    self_test_runs_on_gate(errors)
     self_test_pool_reads(errors)
-    self_test_unset_zero_reads(errors)
     for path in files:
         check_runs_on(path, errors)
         check_cheap_defaults(path, errors)
         check_paid_overflow_gate(path, errors)
-        check_unset_zero_reads(path, errors)
 
     if errors:
         print("Repository variables that an unset value makes expensive:", file=sys.stderr)

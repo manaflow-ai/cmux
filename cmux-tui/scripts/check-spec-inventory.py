@@ -222,23 +222,10 @@ def rust_match_arms(source: str, function: str, enum_name: str) -> dict[str, str
     return arms
 
 
-def command_handler_body(module: str, function: str) -> str:
-    """Body of a command handler that a dispatch arm delegates to
-    (`cmd_<family>::<function>(...)` in server/cmd_<family>.rs)."""
-    path = TUI / "crates/cmux-tui-core/src/server" / f"{module}.rs"
-    if not path.exists():
-        fail(f"dispatch arm calls {module}::{function} but {path.name} is missing")
-    return rust_function_body(strip_rust_comments(path.read_text()), function)
-
-
 def guarded_command_profiles(source: str) -> dict[str, str]:
     arms = rust_match_arms(source, "handle_command_with_cancellation", "Command")
     profiles: dict[str, str] = {}
     for variant, arm in arms.items():
-        # Command families live in server/cmd_*.rs; a guard inside the
-        # handler an arm calls belongs to that arm.
-        for module, function in re.findall(r"\b(cmd_[a-z0-9_]+)::([a-z0-9_]+)\(", arm):
-            arm += command_handler_body(module, function)
         if (
             "authorize_provider_workspace_command" in arm
             or "with_provider_workspace_authority" in arm
@@ -253,8 +240,7 @@ def guarded_command_profiles(source: str) -> dict[str, str]:
 
 
 def command_profiles() -> dict[str, set[str]]:
-    # The Command router lives in server/command_dispatch.rs (cx-6so.3).
-    source = (TUI / "crates/cmux-tui-core/src/server/command_dispatch.rs").read_text()
+    source = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     runtime_commands = command_names()
     sdk_commands = load_sdk_catalog().get("commands")
     if not isinstance(sdk_commands, dict):
@@ -320,9 +306,6 @@ def rust_raw_string_end(source: str, start: int) -> int | None:
     return len(source) if closing < 0 else closing + len(terminator)
 
 
-RUST_CHARACTER_LITERAL_RE = re.compile(r"'(?:\\(?:x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f_]+\}|.)|[^'\\\n])'")
-
-
 def strip_rust_comments(source: str) -> str:
     output = list(source)
     index = 0
@@ -330,10 +313,6 @@ def strip_rust_comments(source: str) -> str:
         raw_end = rust_raw_string_end(source, index)
         if raw_end is not None:
             index = raw_end
-            continue
-        character = RUST_CHARACTER_LITERAL_RE.match(source, index) if source[index] == "'" else None
-        if character:
-            index = character.end()
             continue
         if source[index] == '"':
             index += 1
@@ -374,9 +353,9 @@ def strip_rust_comments(source: str) -> str:
     return "".join(output)
 
 
-def rust_token_spans(source: str) -> list[tuple[str, int, int]]:
-    """Tokenize Rust with offsets so source exclusions preserve surrounding code."""
-    tokens: list[tuple[str, int, int]] = []
+def rust_tokens(source: str) -> list[str]:
+    """Tokenize the Rust subset needed to inspect JSON event construction."""
+    tokens: list[str] = []
     identifier_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
     index = 0
     while index < len(source):
@@ -385,7 +364,7 @@ def rust_token_spans(source: str) -> list[tuple[str, int, int]]:
             continue
         raw_end = rust_raw_string_end(source, index)
         if raw_end is not None:
-            tokens.append((source[index:raw_end], index, raw_end))
+            tokens.append(source[index:raw_end])
             index = raw_end
             continue
         if source[index] == '"':
@@ -398,13 +377,8 @@ def rust_token_spans(source: str) -> list[tuple[str, int, int]]:
                     break
                 else:
                     end += 1
-            tokens.append((source[index:end], index, end))
+            tokens.append(source[index:end])
             index = end
-            continue
-        character = RUST_CHARACTER_LITERAL_RE.match(source, index) if source[index] == "'" else None
-        if character:
-            tokens.append((character.group(0), index, character.end()))
-            index = character.end()
             continue
         # Use the regex position argument. Slicing ``source[index:]`` copies
         # the remaining source on every byte and makes tokenization quadratic
@@ -412,62 +386,13 @@ def rust_token_spans(source: str) -> list[tuple[str, int, int]]:
         identifier = identifier_re.match(source, index)
         if identifier:
             token = identifier.group(0)
-            tokens.append((token, index, index + len(token)))
+            tokens.append(token)
             index += len(token)
             continue
-        if source[index] in "{}()[],:;!.=#":
-            tokens.append((source[index], index, index + 1))
+        if source[index] in "{}()[],:;!.=":
+            tokens.append(source[index])
         index += 1
     return tokens
-
-
-def rust_tokens(source: str) -> list[str]:
-    """Tokenize the Rust subset needed to inspect JSON event construction."""
-    return [token for token, _, _ in rust_token_spans(source)]
-
-
-def strip_rust_test_modules(source: str) -> str:
-    """Blank cfg(test) modules, retaining production code on either side."""
-    spans = rust_token_spans(strip_rust_comments(source))
-    tokens = [token for token, _, _ in spans]
-    output = list(source)
-    marker = ["#", "[", "cfg", "(", "test", ")", "]"]
-    index = 0
-    while index < len(tokens):
-        if tokens[index:index + len(marker)] != marker:
-            index += 1
-            continue
-        item = index + len(marker)
-        # More attributes and visibility may occur between cfg(test) and mod.
-        while tokens[item:item + 2] == ["#", "["]:
-            end = matching_token(tokens, item + 1)
-            if end is None:
-                break
-            item = end + 1
-        if tokens[item:item + 1] == ["pub"]:
-            item += 1
-            if tokens[item:item + 1] == ["("]:
-                end = matching_token(tokens, item)
-                if end is not None:
-                    item = end + 1
-        if tokens[item:item + 1] != ["mod"] or item + 2 >= len(tokens):
-            index += len(marker)
-            continue
-        opening = item + 2
-        if tokens[opening] == ";":
-            closing = opening
-        elif tokens[opening] == "{":
-            closing = matching_token(tokens, opening)
-        else:
-            closing = None
-        if closing is None:
-            index += len(marker)
-            continue
-        for offset in range(spans[index][1], spans[closing][2]):
-            if output[offset] != "\n":
-                output[offset] = " "
-        index = closing + 1
-    return "".join(output)
 
 
 def rust_string_value(token: str) -> str | None:
@@ -633,91 +558,17 @@ def serialized_literal_event_names(source: str) -> set[str]:
     return names
 
 
-CONTROL_EVENT_MODULES = ("server/url_open.rs", "server/clipboard_read.rs", "server/activity.rs")
-
-
-# server/ modules (and their child directories) whose events are not in the
-# raw SDK catalog yet: they speak their own wire families (agent session
-# attach, loopback forwarding, scripts, terminal snapshot digests). The
-# inventory does not read them until the spec covers those events (cx-chun).
-SERVER_MODULES_OUTSIDE_RAW_SDK = frozenset(
-    {
-        "agent_session_attach",
-        "agent_session_stream",  # Existing attach events moved here; same wire family.
-        "loopback_forward",
-        "scripts",
-        "terminal_snapshot",
-    }
-)
-
-
-def server_module_sources() -> list[str]:
-    """Production source of every Rust file under src/server/ (server.rs's
-    child modules), sorted by path. server.rs moves code into these files, so
-    they are read the same way as server.rs; test files, inline test modules
-    and SERVER_MODULES_OUTSIDE_RAW_SDK are left out."""
-    root = TUI / "crates/cmux-tui-core/src/server"
-    if not root.is_dir():
-        return []
-    sources = []
-    for path in sorted(root.rglob("*.rs")):
-        parts = path.relative_to(root).parts
-        if (
-            path.name.endswith("_tests.rs")
-            or "tests" in parts[:-1]
-            or parts[0].removesuffix(".rs") in SERVER_MODULES_OUTSIDE_RAW_SDK
-        ):
-            continue
-        sources.append(strip_rust_test_modules(path.read_text()))
-    return sources
-
-
 def event_names() -> set[str]:
     server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
-    production = strip_rust_comments(strip_rust_test_modules(server))
+    production = strip_rust_comments(server.split("\n#[cfg(test)]\nmod tests", 1)[0])
     tokens = rust_tokens(production)
     constants = rust_string_constants(tokens)
     names = json_macro_event_names(tokens, constants)
     names.update(inserted_event_names(tokens, constants))
     names.update(assigned_event_names(tokens, constants))
     names.update(serialized_literal_event_names(production))
-    for module_source in server_module_sources():
-        source = strip_rust_comments(module_source)
-        module_tokens = rust_tokens(source)
-        # A moved module still names server.rs's constants (super::...).
-        module_constants = {**constants, **rust_string_constants(module_tokens)}
-        names.update(json_macro_event_names(module_tokens, module_constants))
-        names.update(inserted_event_names(module_tokens, module_constants))
-        names.update(assigned_event_names(module_tokens, module_constants))
-        names.update(serialized_literal_event_names(source))
 
-    # Frontend brokers build their targeted control events in their own
-    # server modules.
-    for module in CONTROL_EVENT_MODULES:
-        # Absent in minimal test trees; in the real tree a missing module
-        # drops its events, which the SDK drift check then reports.
-        path = TUI / "crates/cmux-tui-core/src" / module
-        if not path.exists():
-            continue
-        source = path.read_text()
-        source = strip_rust_comments(strip_rust_test_modules(source))
-        module_tokens = rust_tokens(source)
-        module_constants = rust_string_constants(module_tokens)
-        names.update(json_macro_event_names(module_tokens, module_constants))
-
-    # The local conversation owner builds its subscribe-stream events itself.
-    conversations = TUI / "crates/cmux-tui-core/src/conversation_store.rs"
-    if conversations.exists():
-        names.update(function_event_names(strip_rust_test_modules(conversations.read_text()), "wire_json"))
-    # So does the cloud conversations proxy (cloud-conversations-v1).
-    cloud = TUI / "crates/cmux-tui-cloud-conversations/src/stream.rs"
-    if cloud.exists():
-        names.update(function_event_names(strip_rust_test_modules(cloud.read_text()), "wire_json"))
-
-    # TreeDeltaKind may live in mux.rs or in any module under src/mux/.
-    mux_root = TUI / "crates/cmux-tui-core/src"
-    mux_sources = [mux_root / "mux.rs", *sorted((mux_root / "mux").rglob("*.rs"))]
-    mux = strip_rust_comments("\n".join(strip_rust_test_modules(path.read_text()) for path in mux_sources if path.exists()))
+    mux = strip_rust_comments((TUI / "crates/cmux-tui-core/src/mux.rs").read_text())
     delta_impl = mux.split("impl TreeDeltaKind", 1)
     if len(delta_impl) != 2:
         fail("cannot find TreeDeltaKind implementation")
@@ -746,9 +597,7 @@ def first_function_event_names(source: str, *names: str) -> set[str]:
 
 
 def runtime_event_stream_hints() -> dict[str, set[str]]:
-    server = strip_rust_test_modules((TUI / "crates/cmux-tui-core/src/server.rs").read_text())
-    for module_source in server_module_sources():
-        server += "\n" + module_source
+    server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     hints: dict[str, set[str]] = {}
 
     def add(names: set[str], stream: str) -> None:
@@ -757,11 +606,6 @@ def runtime_event_stream_hints() -> dict[str, set[str]]:
 
     add(function_event_names(server, "subscribed_event_json"), "subscribe")
     add(function_event_names(server, "tree_delta_json"), "subscribe-deltas")
-    # tree-selection-deltas-v1 (#32408): a delta subscriber that also says it reads them gets the
-    # workspace's whole selection and its presentation in their own serializers (tree_json.rs).
-    for serializer in ("selection_changed_json", "workspace_presentation_changed_json"):
-        if re.search(rf"\bfn\s+{serializer}(?:\s*<[^>]*>)?\s*\(", server):
-            add(function_event_names(server, serializer), "subscribe-deltas")
     if re.search(
         r"\bfn\s+complete_daemon_shutdown_after_ack(?:\s*<[^>]*>)?\s*\(",
         server,
@@ -770,10 +614,6 @@ def runtime_event_stream_hints() -> dict[str, set[str]]:
             function_event_names(server, "complete_daemon_shutdown_after_ack"),
             "control",
         )
-    # kick_client's connection-wide notice reaches the kicked client on whatever
-    # stream it holds, so it is a control-connection event like the shutdown one.
-    if re.search(r"\bfn\s+kick_client(?:\s*<[^>]*>)?\s*\(", server):
-        add(function_event_names(server, "kick_client"), "control")
     add(
         first_function_event_names(server, "render_state_message", "render_state_json"),
         "attach-render",
@@ -782,13 +622,6 @@ def runtime_event_stream_hints() -> dict[str, set[str]]:
         first_function_event_names(server, "browser_state_message", "browser_state_json"),
         "attach-browser",
     )
-    # These internal owner-watch events are targeted on the subscribing
-    # native control connection, independently of the tree subscribe stream.
-    inventory_watch = TUI / "crates/cmux-tui-core/src/server/agent_inventory_watch/state.rs"
-    if inventory_watch.is_file():
-        source = strip_rust_test_modules(inventory_watch.read_text())
-        add(function_event_names(source, "observe"), "control")
-        add(function_event_names(source, "stop"), "control")
     return hints
 
 
@@ -831,22 +664,13 @@ def event_streams() -> dict[str, set[str]]:
     return streams_by_event
 
 
-def config_source() -> str:
-    """config.rs and its child modules (config/*.rs, not tests): the Action catalog source."""
-    root = TUI / "crates/cmux-tui/src"
-    paths = [root / "config.rs", *sorted((root / "config").glob("*.rs"))]
-    return "\n".join(
-        path.read_text() for path in paths if path.name != "tests.rs" and path.is_file()
-    )
-
-
 def action_variants() -> set[str]:
-    source = strip_rust_comments(config_source())
+    source = strip_rust_comments((TUI / "crates/cmux-tui/src/config.rs").read_text())
     return rust_enum_variants(source, "Action")
 
 
 def action_metadata() -> dict[str, dict[str, object]]:
-    source = strip_rust_comments(config_source())
+    source = strip_rust_comments((TUI / "crates/cmux-tui/src/config.rs").read_text())
     body = rust_function_body(source, "metadata")
     metadata: dict[str, dict[str, object]] = {}
     for variant, key, classification, route, execution in re.findall(
@@ -926,22 +750,9 @@ def action_metadata() -> dict[str, dict[str, object]]:
     return metadata
 
 
-def app_rust_source() -> str:
-    """The TUI app module: app.rs plus its child modules under app/ (tests excluded)."""
-    root = TUI / "crates/cmux-tui/src"
-    parts = [(root / "app.rs").read_text()]
-    app_dir = root / "app"
-    if app_dir.is_dir():
-        for path in sorted(app_dir.rglob("*.rs")):
-            relative = path.relative_to(app_dir)
-            if relative.parts[0] in ("tests", "tests.rs"):
-                continue
-            parts.append(path.read_text())
-    return "\n".join(parts)
-
-
 def menu_action_variants() -> set[str]:
-    return rust_enum_variants(app_rust_source(), "MenuAction")
+    source = (TUI / "crates/cmux-tui/src/app.rs").read_text()
+    return rust_enum_variants(source, "MenuAction")
 
 
 MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
@@ -977,9 +788,9 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "presentation-only",
         "route": "tree snapshot + frontend clipboard",
     },
-    "PinWorkspace": {
-        "classification": "direct",
-        "route": "sidebar.pin or sidebar.unpin (sidebar-doc-v1)",
+    "FocusAttention": {
+        "classification": "presentation-only",
+        "route": "frontend attention list + client focus",
     },
     "DeleteManagedWorkspace": {
         "classification": "external-protocol",
@@ -1077,10 +888,6 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "composite",
         "route": "frontend prompt + client-local machine connector",
     },
-    "FocusAttention": {
-        "classification": "presentation-only",
-        "route": "frontend attention list + client focus",
-    },
 }
 
 
@@ -1101,7 +908,7 @@ def menu_keyboard_actions(source: str) -> dict[str, str]:
 
 
 def menu_action_metadata() -> dict[str, dict[str, str]]:
-    app_source = app_rust_source()
+    app_source = (TUI / "crates/cmux-tui/src/app.rs").read_text()
     variants = rust_enum_variants(strip_rust_comments(app_source), "MenuAction")
     action_metadata_by_variant = action_metadata()
     mapping = menu_keyboard_actions(app_source)
@@ -1167,7 +974,7 @@ def mux_protocol_version() -> int:
 
 def secondary_protocols() -> dict[str, object]:
     host_source = strip_rust_comments(
-        (TUI / "crates/cmux-terminal-host-protocol/src/terminal_host_protocol.rs").read_text()
+        (TUI / "crates/cmux-tui-core/src/terminal_host_protocol.rs").read_text()
     )
     host_body = rust_enum_body(host_source, "MessageKind")
     host_messages = {
@@ -1501,7 +1308,7 @@ def validate_secondary_protocols(
         fail("terminal-host v1 message inventory drift")
     terminal_host_doc = (SPEC / "terminal-host.md").read_text()
     terminal_host_source = (
-        TUI / "crates/cmux-terminal-host-protocol/src/terminal_host_protocol.rs"
+        TUI / "crates/cmux-tui-core/src/terminal_host_protocol.rs"
     ).read_text()
     source_documented_host = set(
         re.findall(

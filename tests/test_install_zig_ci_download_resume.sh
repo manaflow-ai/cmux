@@ -1,20 +1,10 @@
 #!/usr/bin/env bash
 # Behavioral guard for resumable, mirror-isolated Zig downloads.
 set -euo pipefail
-# A fleet Mac's prebaked Zig trees (install-zig-ci.sh ZIG_FLEET_TOOLS_DIR) must not answer for these fakes.
-export ZIG_FLEET_TOOLS_DIR=""
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT="$ROOT_DIR/scripts/install-zig-ci.sh"
 TMP_DIR="$(mktemp -d)"
-# The installer accepts only a Zig version the license review recorded
-# (cmux-tui/build-support/notices/toolchains/toolchains.json). Run a copy in a
-# fixture repository root that records the fixture version, so no installed
-# Zig of a real version can stand in for the download under test.
-FIXTURE_REPO="$TMP_DIR/repo"
-mkdir -p "$FIXTURE_REPO/scripts" "$FIXTURE_REPO/cmux-tui/build-support/notices/toolchains"
-cp "$ROOT_DIR/scripts/install-zig-ci.sh" "$ROOT_DIR/scripts/ghostty-zig-version.sh" "$FIXTURE_REPO/scripts/"
-printf '{"zig": [{"ci_version": "99.99.99"}]}\n' > "$FIXTURE_REPO/cmux-tui/build-support/notices/toolchains/toolchains.json"
-SCRIPT="$FIXTURE_REPO/scripts/install-zig-ci.sh"
 
 cleanup() {
   rm -rf "$TMP_DIR"
@@ -59,7 +49,7 @@ BUDGET_CURL_LOG="$TMP_DIR/budget-curl.log"
 BUDGET_CLOCK_FILE="$TMP_DIR/budget-clock"
 MINISIGN_BIN_DIR="$TMP_DIR/minisign-bin"
 
-mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib/std" "$BIN_DIR" "$MINISIGN_BIN_DIR"
+mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler" "$BIN_DIR" "$MINISIGN_BIN_DIR"
 cat > "$FIXTURE_ROOT/$ZIG_NAME/zig" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -81,8 +71,8 @@ case "\${1:-}" in
 esac
 EOF
 chmod +x "$FIXTURE_ROOT/$ZIG_NAME/zig"
-printf 'std fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/std/std.zig"
-printf 'large fixture payload\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/payload"
+printf 'build runner fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler/build_runner.zig"
+printf 'large fixture payload\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/std"
 (cd "$FIXTURE_ROOT" && tar -cf "$ARCHIVE" "$ZIG_NAME")
 
 if command -v shasum >/dev/null 2>&1; then
@@ -147,16 +137,6 @@ if [ -f "$output" ]; then
 fi
   printf '%s\t%s\tcontinue-at=%s\tresume-offset=%s\tmax-time=%s\n' "$url" "$output" "$continue_at" "$resume_offset" "$max_time" >> "${CURL_LOG:?}"
 
-  if [ "${FAKE_CURL_MODE:-}" = "all-fail" ]; then
-    exit 6
-  fi
-  if [ "${FAKE_CURL_MODE:-}" = "stall" ] && [ -n "${FAKE_CURL_CLOCK_FILE:-}" ] && [[ "$url" != *official.invalid* ]]; then
-    # A mirror that accepts the connection and then stalls uses its whole
-    # time limit before it fails.
-    now="$(cat "$FAKE_CURL_CLOCK_FILE")"
-    printf '%s\n' "$((now + max_time))" > "$FAKE_CURL_CLOCK_FILE"
-    exit 28
-  fi
   if [ -n "${FAKE_CURL_CLOCK_FILE:-}" ]; then
     elapsed=6
     if [ "$max_time" -lt "$elapsed" ]; then
@@ -213,12 +193,8 @@ run_install() {
   if [ "$include_minisign" = "1" ]; then
     path_prefix="$MINISIGN_BIN_DIR:$path_prefix"
   fi
-  # The installer publishes CMUX_ZIG and its bin dir through GITHUB_ENV and GITHUB_PATH. Keep them in
-  # this test's files: the CI job's own would hand a deleted fake zig to the next guard step (#23534).
   PATH="$path_prefix:/usr/bin:/bin" \
     RUNNER_TEMP="$runner_temp" \
-    GITHUB_ENV="$TMP_DIR/installer-github-env" \
-    GITHUB_PATH="$TMP_DIR/installer-github-path" \
     FAKE_CURL_MODE="$mode" \
     ZIG_DOWNLOAD_BUDGET_SECONDS="$budget_seconds" \
     ZIG_DOWNLOAD_RETRY_DELAY=0 \
@@ -232,7 +208,6 @@ run_install() {
     ZIG_SECONDARY_MIRROR_URL="https://secondary.invalid/$ZIG_NAME.tar.xz" \
     ZIG_TERTIARY_MIRROR_URL="https://tertiary.invalid/$ZIG_NAME.tar.xz" \
     ZIG_OFFICIAL_URL="https://official.invalid/$ZIG_NAME.tar.xz" \
-    ZIG_TARBALL_CACHE_DIR="${CACHE_DIR:-}" \
     "$SCRIPT" > "$output_file" 2>&1
 }
 
@@ -357,40 +332,5 @@ if [ ! -x "$RUNNER_TEMP/$ZIG_NAME/zig" ]; then
   echo "FAIL: mirror fallback did not install the verified Zig archive" >&2
   exit 1
 fi
-
-# FLAKE-ZIG-MIRRORS-502 (2026-10-06): one stalled mirror used the whole 480 s
-# budget, so the official URL was never tried. Each source gets a fair share
-# of what is left: three stalled mirrors cannot starve the official URL.
-STALL_RUNNER_TEMP="$TMP_DIR/stall-runner-temp"; STALL_OUTPUT="$TMP_DIR/stall-output"; STALL_LOG="$TMP_DIR/stall-curl.log"
-STALL_CLOCK="$TMP_DIR/stall-clock"; CACHE_DIR="$TMP_DIR/zig-tarball-cache"
-printf '0\n' > "$STALL_CLOCK"
-if ! run_install stall "$STALL_RUNNER_TEMP" "$STALL_OUTPUT" "$STALL_LOG" 480 "$STALL_CLOCK"; then
-  cat "$STALL_OUTPUT"; cat "$STALL_LOG" 2>/dev/null || true
-  echo "FAIL: three stalled mirrors starved the official URL" >&2
-  exit 1
-fi
-grep -q 'official.invalid' "$STALL_LOG" || { cat "$STALL_LOG"; echo "FAIL: the official URL was never tried" >&2; exit 1; }
-[ "$(cat "$STALL_CLOCK")" -le 480 ] || { echo "FAIL: the downloads ran past the budget" >&2; exit 1; }
-# The verified tarball is kept in the cache for the next job.
-cmp -s "$ARCHIVE" "$CACHE_DIR/$ZIG_NAME.tar.xz" || { echo "FAIL: the verified tarball was not cached" >&2; exit 1; }
-
-# A verified cached tarball installs without any download, even when every
-# source fails.
-CACHED_RUNNER_TEMP="$TMP_DIR/cached-runner-temp"; CACHED_OUTPUT="$TMP_DIR/cached-output"; CACHED_LOG="$TMP_DIR/cached-curl.log"
-if ! run_install all-fail "$CACHED_RUNNER_TEMP" "$CACHED_OUTPUT" "$CACHED_LOG"; then
-  cat "$CACHED_OUTPUT"; echo "FAIL: a verified cached tarball did not install" >&2; exit 1
-fi
-[ ! -s "$CACHED_LOG" ] || { cat "$CACHED_LOG"; echo "FAIL: a cached tarball was downloaded again" >&2; exit 1; }
-[ -x "$CACHED_RUNNER_TEMP/$ZIG_NAME/zig" ] || { echo "FAIL: the cached tarball was not installed" >&2; exit 1; }
-
-# A cached tarball with the wrong bytes is discarded, never installed.
-printf 'tampered\n' > "$CACHE_DIR/$ZIG_NAME.tar.xz"
-TAMPER_RUNNER_TEMP="$TMP_DIR/tamper-runner-temp"; TAMPER_OUTPUT="$TMP_DIR/tamper-output"; TAMPER_LOG="$TMP_DIR/tamper-curl.log"
-if ! run_install fallback "$TAMPER_RUNNER_TEMP" "$TAMPER_OUTPUT" "$TAMPER_LOG"; then
-  cat "$TAMPER_OUTPUT"; echo "FAIL: a tampered cache stopped the install instead of a fresh download" >&2; exit 1
-fi
-grep -q 'invalid' "$TAMPER_LOG" || { echo "FAIL: a tampered cache was used without a download" >&2; exit 1; }
-cmp -s "$ARCHIVE" "$CACHE_DIR/$ZIG_NAME.tar.xz" || { echo "FAIL: the tampered cache was not replaced by the verified tarball" >&2; exit 1; }
-unset CACHE_DIR
 
 echo "PASS: Zig downloads honor the invocation budget, resume on one mirror, and use isolated partial files for fallback mirrors"

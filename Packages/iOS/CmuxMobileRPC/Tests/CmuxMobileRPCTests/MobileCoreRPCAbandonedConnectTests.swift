@@ -9,7 +9,7 @@ import Testing
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59124)
         let runtime = TestMobileSyncRuntime(
             transportFactory: SlowConnectTimeoutTransportFactory(transport: transport),
-            rpcRequestTimeoutNanoseconds: 250_000_000
+            rpcRequestTimeoutNanoseconds: 10_000_000
         )
         let ticket = try CmxAttachTicket(
             workspaceID: "workspace-main",
@@ -53,7 +53,7 @@ import Testing
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59125)
         let runtime = TestMobileSyncRuntime(
             transportFactory: FixedTransportFactory(transport: transport),
-            rpcRequestTimeoutNanoseconds: 250_000_000
+            rpcRequestTimeoutNanoseconds: 10_000_000
         )
         let ticket = try CmxAttachTicket(
             workspaceID: "workspace-main",
@@ -101,15 +101,11 @@ import Testing
         #expect(await transport.waitUntilFirstAttemptClosed())
 
         var retryData: Data?
-        for _ in 0..<5_000 {
+        for _ in 0..<200 {
             do {
                 retryData = try await client.sendRequest(second)
                 break
             } catch MobileShellConnectionError.requestTimedOut {
-                try await Task.sleep(nanoseconds: 1_000_000)
-            } catch MobileShellConnectionError.routeCleanupBlocked {
-                // The abandoned first connect's cleanup can still be
-                // releasing its admission under suite load; retry until it has.
                 try await Task.sleep(nanoseconds: 1_000_000)
             }
         }
@@ -181,7 +177,7 @@ import Testing
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59127)
         let runtime = TestMobileSyncRuntime(
             transportFactory: FixedTransportFactory(transport: transport),
-            rpcRequestTimeoutNanoseconds: 250_000_000
+            rpcRequestTimeoutNanoseconds: 10_000_000
         )
         let ticket = try CmxAttachTicket(
             workspaceID: "workspace-main",
@@ -299,7 +295,7 @@ import Testing
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59131)
         let runtime = TestMobileSyncRuntime(
             transportFactory: FixedTransportFactory(transport: transport),
-            rpcRequestTimeoutNanoseconds: 250_000_000
+            rpcRequestTimeoutNanoseconds: 10_000_000
         )
         let ticket = try CmxAttachTicket(
             workspaceID: "workspace-main",

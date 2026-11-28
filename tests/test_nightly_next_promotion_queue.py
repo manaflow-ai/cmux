@@ -23,7 +23,6 @@ import json
 import os
 import re
 import subprocess
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,10 +30,6 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tests"))
-from test_nightly_trusted_routing import evaluate, parse_expression
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
-import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 
 # Linear feat-cmux-next history, oldest first. nightly-next starts at BASE.
@@ -95,6 +90,7 @@ const actions = {
   listJobsForWorkflowRun: async (params) => ({ data: { jobs: listJobs(params) } }),
 };
 const github = {
+  hook: { wrap: () => {} }, // Quota retry behavior is covered by admission tests.
   rest: {
     actions,
     checks: {
@@ -161,6 +157,11 @@ const runStep = async (script, env, runId, outputs) => {
     `return (async () => {\n${script}\n})();`);
   await run(github, context, core, processForScript, () => writer, require);
 };
+// G5's tree-commit marker (fetchTreeMarker's default fetch): every commit is ready.
+globalThis.fetch = async (url) => {
+  const sha = String(url).match(/tree-commits\/([0-9a-f]{40})\.json/)[1];
+  return { status: 200, json: async () => ({ commit: sha, key: 'f'.repeat(40), publishedBy: 'e'.repeat(40), markedBy: 'https://github.com/manaflow-ai/cmux/actions/runs/1' }) };
+};
 // The admission retry sleeps between lookups; run it without waiting.
 global.setTimeout = (callback) => { callback(); return 0; };
 for (const request of scenario.requests) {
@@ -200,10 +201,15 @@ def move_condition() -> str:
 
 
 def substitute(text: str, sha: str) -> str:
-    """Evaluate the actual expression, including inactive NEXT admission branches."""
-    context = {"inputs.promote_nightly_next_sha": sha, "github.repository": "manaflow-ai/cmux",
-               "github.ref": "refs/heads/main", "github.event_name": "workflow_dispatch"}
-    return gh_expressions.EXPRESSION.sub(lambda match: str(evaluate(parse_expression(match.group(1)), context)), text)
+    """Evaluate the expressions this test understands for a promotion request."""
+    text = re.sub(
+        r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*&&\s*format\('([^']*)',\s*inputs\.promote_nightly_next_sha\)\s*(?:\|\|\s*github\.event_name\s*==\s*'schedule'\s*&&\s*format\('[^']*',\s*github\.event\.schedule\)\s*)?\|\|\s*''\s*\}\}",
+        lambda match: match.group(1).replace("{0}", sha),
+        text,
+    )
+    text = re.sub(r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*\}\}", sha, text)
+    assert "${{" not in text, f"unsupported expression: {text}"
+    return text
 
 
 def concurrency_group(sha: str) -> str:

@@ -55,65 +55,6 @@ The server may return `mutation.indeterminate` after a crash around an external
 effect. SDKs retain the structured error and never repeat that key
 automatically.
 
-## Machine catalog reads
-
-Machine reads keep the original local-only response by default. Opt in per request
-to the extended catalog with `catalog: true`; the endpoint advertises this format as
-`machine-catalog-read-v1`. False or omitted options send no `catalog` field. This
-choice is never stored on the connection or handle. Older endpoints may reject an
-explicit opt-in, so callers should check the endpoint capability before using it.
-
-| SDK | List with catalog metadata | Refresh the captured owner |
-| --- | --- | --- |
-| Rust | `client.machine_snapshots_with(MachineReadOptions { catalog: true })` | `owner.refresh_with(MachineReadOptions { catalog: true })` |
-| Python, sync and async | `client.list_machines(catalog=True)` | `owner.refresh(catalog=True)` |
-| TypeScript | `client.listMachines({ catalog: true })` | `owner.refresh({ catalog: true })` |
-| Go | `client.ListMachinesWith(ctx, cmux.MachineReadOptions{Catalog: true})` | `owner.RefreshWith(ctx, cmux.MachineReadOptions{Catalog: true})` |
-| Java | `client.listMachinesWith(new Options.MachineRead(true))` | `owner.refresh(new Options.MachineRead(true))` |
-| C++ | `client.machines(cmux::MachineReadOptions{true})` | `owner.refresh(cmux::MachineReadOptions{true})` |
-| Zig | `client.listMachinesWith(.{ .catalog = true })` | `owner.refreshWith(.{ .catalog = true })` |
-
-Python async calls use `await`. Rust also offers `machines_with` for handles and
-`find_machines_by_name_with` for exact name matches; the snapshot form retains all
-list metadata in a single read. Other SDK list results carry snapshots directly or
-cache them on their handles. Existing cancellation, deadline and allocator lifetime
-rules apply to these reads.
-
-The catalog may include Cloud, SSH and persistent-server entries already admitted by
-the app. Platform and capability fields are optional; omission means unknown.
-Reading an entry never connects to its machine, starts a server, installs an agent,
-or grants session execution rights. A refresh keeps the handle's captured machine
-selector. Session operations still require their separate routing and permissions.
-
-## Raw owner identity
-
-Default raw `identify` replies preserve the original field set. The
-`machine-identity-v1` capability advertises an explicit `machine_metadata: true`
-request, which adds `machine_id`, `machine_platform`, `machine_device`, `machine_symbol`
-and `machine_capabilities`.
-The enriched reply also includes the nullable `screen_device_id` UUID of the
-authenticated cmux Remote screen worker.
-Clients that consume the `screen-device-changed` subscription event echo
-`screen-device-identity-v1` in `set-client-info` to opt into its replay and
-live updates.
-False or omission keeps the legacy response; the option is not connection state.
-Malformed non-boolean values are refused. This is a raw command option, separate
-from the resource API's `catalog` option.
-
-All seven generated raw request models expose this optional field. Existing
-no-argument identification helpers keep the legacy request. Go exposes
-`raw.Client.IdentifyWith(ctx, raw.IdentifyRequest{MachineMetadata: &enabled})`
-with `enabled := true`;
-Java also accepts an `IdentifyRequest` built with `machineMetadata(true)`;
-TypeScript accepts `rawClient.identify({ machine_metadata: true })`.
-
-The app first reads capabilities. Only a supporting endpoint receives its explicit
-owner-metadata request. On the install-key handshake this rides after the proof and
-before setup in the existing second pipeline. Endpoints without that capability,
-including older conversations-only relays, receive the original request. The
-conversations-only relay never returns owner metadata, even for an explicit flag.
-No identity read grants admission, a session route, or execution rights.
-
 ## Commands
 
 An exact command preserves every argument and does not invoke a shell:
@@ -168,9 +109,6 @@ Journal producers use `Session::journal_producers`,
 generic and do not require agent-specific core code. The longer
 `put_journal_producer_manifest` and `append_journal_event` spellings remain
 source-compatible aliases.
-`Error::error_code` returns a failure's machine-readable code: the raw
-response's `error_code` (kept with `error_details` on `Error::Command`) or the
-protocol/2 error's `code`.
 The optional `cmux-sidebar` package applies terminal-style render patches to a
 Ratatui buffer and forwards typed input without adding Ratatui to the base SDK.
 Private models live under `cmux::raw`.

@@ -1,45 +1,5 @@
-use std::path::{Path, PathBuf};
-
-/// Files a libghostty-vt source tree must carry. The snapshot header is the
-/// one the cmux `ghostty` fork lacks, so pointing the build at that tree (or
-/// at an uninitialized, empty submodule directory) fails here instead of
-/// later in bindgen or the session host.
-pub const REQUIRED_VT_SOURCE_FILES: [&str; 3] =
-    ["build.zig", "include/ghostty/vt.h", "include/ghostty/vt/snapshot.h"];
-
-/// Resolve the libghostty-vt source tree, or explain how to fix it. Never
-/// falls back to another tree.
-pub fn resolve_vt_source(dir: &Path) -> Result<PathBuf, String> {
-    let fix = "Run `git submodule update --init ghostty-next` at the cmux repo root, \
-               or set CMUX_GHOSTTY_SRC to a manaflow-ai/ghostty-next checkout.";
-    let resolved = dir.canonicalize().map_err(|error| {
-        format!("libghostty-vt source not found at {} ({error}). {fix}", dir.display())
-    })?;
-    for required in REQUIRED_VT_SOURCE_FILES {
-        if !resolved.join(required).is_file() {
-            return Err(format!(
-                "libghostty-vt source at {} is missing {required}: the ghostty-next \
-                 submodule is empty or the tree is not manaflow-ai/ghostty-next. {fix}",
-                resolved.display()
-            ));
-        }
-    }
-    Ok(resolved)
-}
-
-/// The `-Dtarget=` argument for zig, if any.
-///
-/// macOS builds always name the target with Ghostty's macOS minimum
-/// (`ghostty_macos_min`). Ghostty's build (`src/build/Config.zig`) replaces a
-/// macOS target with its generic macOS target at that minimum when the build
-/// host is macOS, so neither MACOSX_DEPLOYMENT_TARGET nor rustc's default
-/// reaches libghostty-vt's objects on a Mac. Naming the same minimum
-/// explicitly gives the same objects on every build host.
-pub fn zig_target_arg(target: &str, host: &str, ghostty_macos_min: &str) -> Option<String> {
-    if let Some(arch) = macos_arch(target) {
-        return Some(format!("-Dtarget={arch}-macos.{ghostty_macos_min}"));
-    }
-    // Preserve Zig's native target selection for other native builds. The
+pub fn zig_target_arg(target: &str, host: &str) -> Option<String> {
+    // Preserve Zig's native target selection for existing native builds. The
     // GNU Windows host is the exception: Zig otherwise defaults to MSVC and
     // requires a Windows SDK even when the Rust toolchain is MinGW-only.
     if target == host && !target.ends_with("-windows-gnu") {
@@ -48,52 +8,16 @@ pub fn zig_target_arg(target: &str, host: &str, ghostty_macos_min: &str) -> Opti
     zig_target_for_rust_target(target).map(|zig_target| format!("-Dtarget={zig_target}"))
 }
 
-/// Ghostty's macOS minimum, `MAJOR.MINOR`: the `.macos` arm of `osVersionMin`
-/// in a Ghostty `src/build/Config.zig`. `genericMacOSTarget` (the target a
-/// macOS build host uses) takes its minimum from that function.
-pub fn ghostty_macos_min(config_zig: &str) -> Option<String> {
-    let body = &config_zig[config_zig.find("pub fn osVersionMin(")?..];
-    let body = &body[..body.find("\n}").unwrap_or(body.len())];
-    let arm = &body[body.find(".macos =>")?..];
-    let arm = &arm[..arm.find("},").unwrap_or(arm.len())];
-    let field = |name: &str| -> Option<u32> {
-        let rest = &arm[arm.find(name)? + name.len()..];
-        let rest = rest.trim_start().strip_prefix('=')?.trim_start();
-        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-        digits.parse().ok()
-    };
-    Some(format!("{}.{}", field(".major")?, field(".minor")?))
-}
-
-/// The `-Dcpu=` argument for zig, if any: `CMUX_GHOSTTY_VT_ZIG_CPU` when set,
-/// else a baseline CPU for macOS. On a macOS build host Ghostty's generic
-/// macOS target drops `-Dcpu` and resolves to the same baseline CPU, so the
-/// override has no effect there for macOS targets.
-pub fn zig_cpu_arg(target: &str, cpu_override: Option<&str>) -> Option<String> {
-    match cpu_override {
-        Some(cpu) => Some(format!("-Dcpu={cpu}")),
-        None if macos_arch(target).is_some() => Some("-Dcpu=baseline".to_string()),
-        None => None,
-    }
-}
-
-fn macos_arch(target: &str) -> Option<&'static str> {
-    match target {
-        "aarch64-apple-darwin" => Some("aarch64"),
-        "x86_64-apple-darwin" => Some("x86_64"),
-        _ => None,
-    }
-}
-
 fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
     match target {
         "x86_64-pc-windows-gnu" => Some("x86_64-windows-gnu"),
         "x86_64-pc-windows-msvc" => Some("x86_64-windows-msvc"),
         "aarch64-pc-windows-msvc" => Some("aarch64-windows-msvc"),
-        // iOS device and simulator targets.
-        "aarch64-apple-ios" => Some("aarch64-ios"),
-        "aarch64-apple-ios-sim" => Some("aarch64-ios-simulator"),
-        "x86_64-apple-ios" => Some("x86_64-ios-simulator"),
+        // Cross-compiling libghostty-vt for the release distribution targets
+        // (npm/PyPI `cmux` binaries). Zig cross-compiles these cleanly and
+        // pairs with cargo-zigbuild for the Rust link step.
+        "x86_64-apple-darwin" => Some("x86_64-macos"),
+        "aarch64-apple-darwin" => Some("aarch64-macos"),
         "x86_64-unknown-linux-gnu" => Some("x86_64-linux-gnu"),
         "aarch64-unknown-linux-gnu" => Some("aarch64-linux-gnu"),
         "x86_64-unknown-linux-musl" => Some("x86_64-linux-musl"),
@@ -102,205 +26,51 @@ fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
     }
 }
 
-/// The `.version = "X.Y.Z[-pre]"` of a Ghostty `build.zig.zon`.
-pub fn zon_version(path: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
-    text.lines().find_map(|line| {
-        let rest = line.trim().strip_prefix(".version")?.trim_start().strip_prefix('=')?;
-        let version = rest.trim().trim_end_matches(',').trim().trim_matches('"');
-        let core = version.split(['-', '+']).next()?;
-        let parts: Vec<&str> = core.split('.').collect();
-        (parts.len() == 3 && parts.iter().all(|part| part.parse::<u32>().is_ok()))
-            .then(|| version.to_string())
-    })
-}
-
-/// The zig program the build runs: `ZIG` when set, else the pinned zig that
-/// `scripts/install-zig-ci.sh` publishes as `CMUX_ZIG`, else `zig` on PATH.
-/// PATH comes last because a runner may hold an older zig ahead of the pin.
-pub fn zig_program(zig: Option<String>, cmux_zig: Option<String>) -> String {
-    [zig, cmux_zig]
-        .into_iter()
-        .flatten()
-        .find(|path| !path.is_empty())
-        .unwrap_or_else(|| "zig".to_string())
-}
-
-/// `.minimum_zig_version` from a build.zig.zon (`X.Y.Z`), the Zig the tree
-/// pins (scripts/ghostty-zig-version.sh reads the same field).
-pub fn zon_minimum_zig(path: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
-    text.lines().find_map(|line| {
-        let rest =
-            line.trim().strip_prefix(".minimum_zig_version")?.trim_start().strip_prefix('=')?;
-        let version = rest.trim().trim_end_matches(',').trim().trim_matches('"');
-        let parts: Vec<&str> = version.split('.').collect();
-        (parts.len() == 3 && parts.iter().all(|part| part.parse::<u32>().is_ok()))
-            .then(|| version.to_string())
-    })
-}
-
-/// Whether zig `actual` builds a tree that needs `required`: the same major and
-/// minor and at least its patch (scripts/ghostty-zig-version.sh's rule).
-pub fn zig_compatible(actual: &str, required: &str) -> bool {
-    let parse = |v: &str| -> Option<(u32, u32, u32)> {
-        let mut parts = v.trim().split('.').map(|part| part.parse::<u32>().ok());
-        let version = (parts.next()??, parts.next()??, parts.next()??);
-        parts.next().is_none().then_some(version)
-    };
-    match (parse(actual), parse(required)) {
-        (Some(a), Some(r)) => a.0 == r.0 && a.1 == r.1 && a.2 >= r.2,
-        _ => false,
-    }
-}
-
-/// Where a host keeps zig `version` beside PATH: the fleet's Linux pool image
-/// installs every Zig it carries as `/opt/zig-<version>`.
-pub fn installed_zig_paths(version: &str) -> Vec<String> {
-    vec![format!("/opt/zig-{version}/zig")]
-}
-
-/// The zigs the build tries, in order: `explicit` (``zig_program``'s pick), PATH's
-/// first `zig`, every other `zig` on PATH, then ``installed_zig_paths`` of the pin.
-///
-/// Every PATH entry, not only the first: a host that keeps an older Zig early on PATH
-/// (cmux10s's ~/.cargo/bin/zig, 0.16) hid setup-zig's pinned one further down.
-pub fn zig_candidates(
-    explicit: String,
-    path: Option<&std::ffi::OsStr>,
-    required: Option<&str>,
-) -> Vec<String> {
-    let mut candidates = vec![explicit, "zig".to_string()];
-    let exe = if cfg!(windows) { "zig.exe" } else { "zig" };
-    for dir in path.into_iter().flat_map(std::env::split_paths) {
-        let zig = dir.join(exe);
-        if zig.is_file() {
-            candidates.push(zig.display().to_string());
-        }
-    }
-    if let Some(required) = required {
-        candidates.extend(installed_zig_paths(required));
-    }
-    candidates
-}
-
-/// The zig the build runs: the first of `candidates` (``zig_program``'s pick,
-/// then PATH, then ``installed_zig_paths``) whose `zig version` serves
-/// `required`. With no pin, or when none serves it, the first candidate, which
-/// then fails with Ghostty's own version message. The second value says why a
-/// later candidate replaced the first (a cargo warning).
-///
-/// A builder whose recipe still hands over an older zig (the Linux pool ran a
-/// baked recipe with Zig 0.16 for days after ghostty-next moved to 0.17, while
-/// its image already held /opt/zig-0.17.0) builds with the tree's pin instead.
-pub fn select_zig(
-    candidates: &[String],
-    required: Option<&str>,
-    version_of: impl Fn(&str) -> Option<String>,
-) -> (String, Option<String>) {
-    let first = candidates.first().cloned().unwrap_or_else(|| "zig".to_string());
-    let Some(required) = required else { return (first, None) };
-    let mut seen = Vec::new();
-    for candidate in candidates.iter().filter(|c| !c.is_empty()) {
-        if seen.contains(candidate) {
-            continue;
-        }
-        seen.push(candidate.clone());
-        if let Some(actual) = version_of(candidate)
-            && zig_compatible(&actual, required)
-        {
-            let why = (candidate != &first).then(|| {
-                format!(
-                    "{first} does not serve the pinned Zig {required}; building libghostty-vt with {candidate} ({actual})"
-                )
-            });
-            return (candidate.clone(), why);
-        }
-    }
-    (first, None)
-}
-
-/// The lock of our Zig package mirror, from the crate directory
-/// (scripts/ci/zig-packages.lock at the cmux repo root).
-pub const ZIG_PACKAGE_LOCK: &str = "../../../scripts/ci/zig-packages.lock";
-
-/// What Zig's HTTP client is pointed at when the mirror is the only source:
-/// it reads these proxies (std.http.Client.initDefaultProxies) and nothing
-/// listens on port 9, so any fetch Zig itself makes fails at once.
-pub const NO_ROUTE_PROXY: &str = "http://127.0.0.1:9";
-pub const PROXY_VARS: [&str; 6] =
-    ["http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"];
-/// Bypass lists Zig honors; mirror-only removes them so nothing routes around the proxy.
-pub const NO_PROXY_VARS: [&str; 2] = ["NO_PROXY", "no_proxy"];
-
-/// One package of the mirror: its Zig package hash and the copy's URL.
-#[derive(Debug, PartialEq, Eq)]
-pub struct MirroredPackage {
-    pub hash: String,
-    pub url: String,
-}
-
-/// The packages of scripts/ci/zig-packages.lock tagged `tag` (`vt`: what this
-/// crate's zig build fetches), at `<mirror><hash>.tar.gz`. Lines are
-/// `mirror PREFIX` and `HASH SHA256 TAGS UPSTREAM DEPS`; a line that starts
-/// with `#` is a comment.
-pub fn mirrored_packages(lock: &str, tag: &str) -> Vec<MirroredPackage> {
-    let lines: Vec<Vec<&str>> = lock
-        .lines()
-        .map(|line| line.split_whitespace().collect())
-        // A line that starts with # is a comment (a git+ URL's #commit is not).
-        .filter(|parts: &Vec<&str>| parts.first().is_some_and(|first| !first.starts_with('#')))
-        .collect();
-    let Some(mirror) = lines.iter().find_map(|parts| match parts.as_slice() {
-        ["mirror", prefix] => Some(*prefix),
-        _ => None,
-    }) else {
-        return Vec::new();
-    };
-    lines
-        .iter()
-        .filter_map(|parts| match parts.as_slice() {
-            [hash, _sha, tags, _upstream, _deps] if tags.split(',').any(|t| t == tag) => {
-                Some(MirroredPackage {
-                    hash: (*hash).to_string(),
-                    url: format!("{mirror}{hash}.tar.gz"),
-                })
-            }
-            _ => None,
-        })
-        .collect()
-}
-
-/// Whether Zig may fetch only from our mirror: `CMUX_ZIG_MIRROR_ONLY` (1 or 0),
-/// else on in CI (`CI=true`), off elsewhere.
-pub fn mirror_only(setting: Option<&str>, ci: Option<&str>) -> bool {
-    match setting.map(str::trim) {
-        Some("1") | Some("true") => true,
-        Some("0") | Some("false") => false,
-        _ => ci.is_some_and(|ci| ci.trim().eq_ignore_ascii_case("true")),
-    }
-}
-
-/// Zig's global cache directory from `zig env` (ZON: `.global_cache_dir = "..."`,
-/// or the JSON older Zigs print).
-pub fn zig_env_global_cache(output: &str) -> Option<PathBuf> {
-    let start = output.find("global_cache_dir")? + "global_cache_dir".len();
-    let rest = &output[start..];
-    // Past the key's own closing quote (JSON), the `=` or `:`, then the value's quote.
-    let sep = rest.find(['=', ':'])?;
-    let open = sep + rest[sep..].find('"')?;
-    let mut value = String::new();
-    let mut chars = rest[open + 1..].chars();
-    while let Some(c) = chars.next() {
-        match c {
-            '\\' => value.push(chars.next()?),
-            '"' => return (!value.is_empty()).then(|| PathBuf::from(value)),
-            _ => value.push(c),
-        }
-    }
-    None
-}
-
 #[cfg(test)]
-#[path = "build_support_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_windows_gnu_keeps_the_explicit_gnu_abi() {
+        assert_eq!(
+            zig_target_arg("x86_64-pc-windows-gnu", "x86_64-pc-windows-gnu").as_deref(),
+            Some("-Dtarget=x86_64-windows-gnu")
+        );
+    }
+
+    #[test]
+    fn native_non_windows_builds_keep_zigs_native_target() {
+        assert_eq!(zig_target_arg("aarch64-apple-darwin", "aarch64-apple-darwin"), None);
+    }
+
+    #[test]
+    fn cross_targets_keep_their_explicit_zig_abi() {
+        let cases = [
+            ("x86_64-pc-windows-gnu", "aarch64-unknown-linux-gnu", "-Dtarget=x86_64-windows-gnu"),
+            ("x86_64-pc-windows-msvc", "aarch64-unknown-linux-gnu", "-Dtarget=x86_64-windows-msvc"),
+            (
+                "aarch64-pc-windows-msvc",
+                "x86_64-unknown-linux-gnu",
+                "-Dtarget=aarch64-windows-msvc",
+            ),
+            ("x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "-Dtarget=x86_64-macos"),
+            ("aarch64-apple-darwin", "x86_64-unknown-linux-gnu", "-Dtarget=aarch64-macos"),
+            ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "-Dtarget=x86_64-linux-gnu"),
+            ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "-Dtarget=aarch64-linux-gnu"),
+            (
+                "x86_64-unknown-linux-musl",
+                "aarch64-unknown-linux-gnu",
+                "-Dtarget=x86_64-linux-musl",
+            ),
+            (
+                "aarch64-unknown-linux-musl",
+                "x86_64-unknown-linux-gnu",
+                "-Dtarget=aarch64-linux-musl",
+            ),
+        ];
+
+        for (target, host, expected) in cases {
+            assert_eq!(zig_target_arg(target, host).as_deref(), Some(expected), "{target}");
+        }
+    }
+}

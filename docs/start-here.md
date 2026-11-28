@@ -8,51 +8,6 @@ cmux is a macOS terminal that treats agents as first-class panes. The app and
 the `cmux` CLI are Swift. `cmux-tui`, the SDKs and the repository tooling are
 Rust, Python and TypeScript.
 
-## The 5-minute path
-
-The rest of this page explains each step. If you already know git and GitHub,
-this is the whole loop for cmux NEXT, which lives on the `feat-cmux-next`
-branch:
-
-```bash
-git clone --recursive https://github.com/manaflow-ai/cmux.git
-cd cmux && git switch feat-cmux-next && git switch -c my-change
-```
-
-| Step | A Linux-only change (docs, `scripts/`, `tests/`, `cmux-tui/`, `webviews/`) | A Mac change (Swift under `Packages/macOS/`, `App/`, `Native/`) |
-|---|---|---|
-| Build | Nothing for docs and Python. `cmux-tui/`: see [its README](../cmux-tui/README.md) for the Zig and submodules. `webviews/`: `bun install` there. | `./scripts/setup.sh` once, then `CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag my-change --launch` |
-| Test | `python3 tests/test_x.py`; `python3 scripts/ci/focused_tests.py --files PATH` finds the tests for a file. `cmux-tui/`: a focused `cargo test`. `webviews/`: `bun run test`. | Use the tagged app it launched. The [verification ladder](contributor-verification.md) covers package tests and compiling. |
-| Check | `python3 scripts/verify-local.py`, plus `scripts/web-lint.sh` for `webviews/` or `web/` | `python3 scripts/verify-local.py` |
-| Land | Push, open a PR against `feat-cmux-next`, fill in the template ([section 4](#4-open-the-pull-request)) and let CI run. | Same. |
-
-## Where things live
-
-The directories that matter for cmux NEXT:
-
-| Path | What's there |
-|---|---|
-| `cmux-tui/` | The Rust workspace: the terminal daemon, acpmux (the agent session host), the `cmux` CLI and most new logic. |
-| `webviews/` | The React bundle for the app's web UI: the agent chat pane, the diff and Markdown viewers, the sidebar and other pages. |
-| `Packages/macOS/` | The Mac app's Swift packages (`CmuxNext` is the app itself). `App/` and `Native/` hold the rest of its Swift. |
-| `cmux-next-ios/` | The iPhone app. `ios/` is the retired classic one. |
-| `web/` | The cmux.com Next.js site and its Cloud routes (Business Source License, see section 2). |
-| `scripts/` | Build, CI and repo tooling, mostly Python and shell. [scripts/AGENTS.md](../scripts/AGENTS.md) maps it. |
-| `tests/` | Python and shell tests for `scripts/`, workflows and repo rules. Most run on Linux. |
-| `docs/` | Design notes and how-tos, including this page and [triage](triage.md). |
-| `skills/` | Task instructions for agents, one folder per area. [skills/README.md](../skills/README.md) picks one. |
-| `plans/` | Specs and plans; `plans/cmux-next/` holds the product spec and code patterns. |
-
-Classic cmux paths are frozen: the files listed in
-[`.github/classic-frozen.txt`](../.github/classic-frozen.txt) stay as they are
-until the migration decision, so don't change them. Each area also stays in the
-language [`.github/language-boundaries.toml`](../.github/language-boundaries.toml)
-gives it.
-
-If you work with Claude, Codex or another agent, point it at
-[CLAUDE.md](../CLAUDE.md) (also `AGENTS.md`); its "Without the team's tooling"
-block says which rules there need team infrastructure and what to run instead.
-
 ## 1. Pick something small
 
 Sorted roughly by how little setup they need:

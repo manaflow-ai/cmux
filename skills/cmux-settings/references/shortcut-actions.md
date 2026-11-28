@@ -8,7 +8,6 @@ Values for `shortcuts.bindings.<action>`:
 
 - A string like `"cmd+b"` for a single shortcut.
 - A two-element array like `["ctrl+b","c"]` for a chord.
-- `{"any": ["ctrl+tab","cmd+]"]}` for several keys on one action, each item a single stroke or a chord. The first item is the one menus show; `{"any": []}` unbinds.
 - `null` or an empty string (`""`, `"none"`, `"clear"`, `"unbound"`, `"disabled"`) to unbind.
 
 ## App
@@ -34,7 +33,6 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.newTab`
 - `shortcuts.bindings.renameTab`
 - `shortcuts.bindings.reopenPreviousSession`
-- `shortcuts.bindings.tab.search`
 
 ## Workspace
 
@@ -67,6 +65,8 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.focusHistoryBack`
 - `shortcuts.bindings.focusHistoryForward`
 - `shortcuts.bindings.focusHistoryLast`
+- `shortcuts.bindings.focusHistoryLastSurface`
+- `shortcuts.bindings.focusHistoryLastWorkspace`
 - `shortcuts.bindings.focusLeft`
 - `shortcuts.bindings.focusNextPane`
 - `shortcuts.bindings.focusPaneByNumber`
@@ -127,6 +127,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.commandPalette`
 - `shortcuts.bindings.commandPaletteNext`
 - `shortcuts.bindings.commandPalettePrevious`
+- `shortcuts.bindings.openChief`
 
 ## Notifications
 
@@ -146,10 +147,8 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.showWindowHints`
 - `shortcuts.bindings.nextSidebarTab`
 - `shortcuts.bindings.nextSidebarTabInGroup`
-- `shortcuts.bindings.nextWorkspaceGroup`
 - `shortcuts.bindings.prevSidebarTab`
 - `shortcuts.bindings.prevSidebarTabInGroup`
-- `shortcuts.bindings.prevWorkspaceGroup`
 - `shortcuts.bindings.switchRightSidebarToDock`
 - `shortcuts.bindings.switchRightSidebarToFeed`
 - `shortcuts.bindings.switchRightSidebarToFiles`
@@ -164,15 +163,10 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.browserForward`
 - `shortcuts.bindings.browserHardReload`
 - `shortcuts.bindings.browserReload`
-- `shortcuts.bindings.browserStop`
-- `shortcuts.bindings.browser.copyURL`
-- `shortcuts.bindings.browser.findPrevious`
 - `shortcuts.bindings.browserZoomIn`
 - `shortcuts.bindings.browserZoomOut`
 - `shortcuts.bindings.browserZoomReset`
 - `shortcuts.bindings.focusBrowserAddressBar`
-- `shortcuts.bindings.omnibar.openInBackgroundTab`
-- `shortcuts.bindings.omnibar.openInForegroundTab`
 - `shortcuts.bindings.openBrowser`
 - `shortcuts.bindings.showBrowserJavaScriptConsole`
 - `shortcuts.bindings.splitBrowserDown`

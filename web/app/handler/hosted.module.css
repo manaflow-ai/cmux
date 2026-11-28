@@ -1,9 +1,8 @@
 /*
- * The hosted handler pages spin Radix's circular-arrow icon, a third-party
- * element no React component can replace. Redraw that one element in place as
- * cmux's one spinner (app/components/spinner.tsx: the open arc, no track, one
- * turn every 2 s) so the loading states match the sign-in screens. Nothing else
- * on those pages is touched, and nothing is overlaid.
+ * The hosted handler pages spin Radix's circular-arrow icon. Redraw that one
+ * element in place as cmux's spinner (a fine arc on a faint track) so the
+ * loading states match the sign-in screens. Nothing else on those pages is
+ * touched, and nothing is overlaid.
  */
 .hosted :global(.stack-scope:has(> svg.animate-spin)) {
   display: inline-grid;
@@ -18,10 +17,10 @@
   content: "";
   width: 16px;
   height: 16px;
-  background: var(--muted);
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M8 2.75a5.25 5.25 0 1 1-4.55 2.63' stroke='black' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M8 2.75a5.25 5.25 0 1 1-4.55 2.63' stroke='black' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
-  animation: hosted-spin 2000ms linear infinite;
+  border-radius: 9999px;
+  border: 1.5px solid color-mix(in srgb, var(--muted) 25%, transparent);
+  border-top-color: var(--muted);
+  animation: hosted-spin 0.8s linear infinite;
 }
 
 @keyframes hosted-spin {

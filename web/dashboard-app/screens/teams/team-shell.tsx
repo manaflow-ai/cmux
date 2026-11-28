@@ -88,7 +88,7 @@ function TeamHeader({ detail }: { readonly detail: TeamDetail }) {
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <h1 className="truncate text-sm font-medium">{detail.team.displayName}</h1>
-            <PlanBadge planId={detail.billing.planId} />
+            <PlanBadge planId={detail.billing.planId} enterpriseLabel={detail.billing.enterpriseLabel} />
             <RoleBadge role={detail.viewer.role} />
           </div>
           <Link to="/dashboard/teams" className="text-xs text-muted hover:text-foreground">

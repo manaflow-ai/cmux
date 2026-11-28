@@ -1,4 +1,5 @@
-// Sites (registrable domains) for the dev driver's cookie scoping. The app asks macOS's Public Suffix List
+// Sites (registrable domains) for the dev backend's native-boundary
+// emulation and dev driver. The app asks macOS's Public Suffix List
 // (BrowserReplPublicSuffixList in Packages/macOS/CmuxBrowser, CFNetwork's
 // lookup); Node has none, so this stand-in holds the suffixes the tests and
 // fixtures use and applies the same walk: the longest public suffix wins,
@@ -14,6 +15,14 @@ const SUFFIXES = new Set([
 
 const isPublicSuffix = (name) => SUFFIXES.has(name) || (/^[^.]+\.ck$/.test(name) && name !== "www.ck");
 const isIP = (host) => host.startsWith("[") || /^(\d+|0x[0-9a-f]+)$/i.test(host.split(".").pop() || "");
+
+// Whether `name` is itself a public suffix (BrowserReplPublicSuffixList.isPublicSuffix).
+export function isPublicSuffixName(name) {
+  let host = String(name || "").trim().replace(/^\.+/, "").replace(/\.+$/, "").toLowerCase();
+  if (!host || host.includes(":") || isIP(host)) return false;
+  host = domainToASCII(host) || host;
+  return isPublicSuffix(host);
+}
 
 export function siteOf(hostname) {
   let host = String(hostname || "").trim().replace(/^\.+/, "").replace(/\.+$/, "").toLowerCase();

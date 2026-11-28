@@ -7,24 +7,14 @@ import json
 import os
 import re
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 import yaml
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-import importlib.util as _git_fixture_importlib  # noqa: E402
-from os import path as _git_fixture_path  # noqa: E402
-_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
-    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
-git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tests"))
-import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github" / "workflows" / "test-ios.yml"
 
 
@@ -57,17 +47,29 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
     def test_requested_family_matrix_is_selected_on_linux(self) -> None:
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         detect = jobs["detect-ios-changes"]
-        cells = workflow_jobs.runs_on_cells(detect)
-        self.assertTrue(cells, "detect-ios-changes: runs-on reads a matrix value nothing resolves, or is missing")
-        for runs_on in cells:
-            # A Linux label by literal (#56554 dropped vars.CI_FORK_LINUX_RUNNER): the pool, or hosted for forks.
-            self.assertIn("cmux-linux", runs_on)
-            self.assertNotIn("macos", runs_on)
+        # A Linux runner: the runner variable, or the persistent Linux pool label (PR #47956).
+        self.assertTrue(
+            "LINUX_RUNNER" in detect["runs-on"] or "'cmux-linux'" in detect["runs-on"],
+            detect["runs-on"],
+        )
         selector = next(step for step in detect["steps"] if step.get("id") == "families")
         self.assertEqual(selector["env"]["DEVICE_FAMILY"], "${{ inputs.device_family }}")
         self.assertEqual(
             detect["outputs"]["device_families"], "${{ steps.families.outputs.json }}"
         )
+        self.assertEqual(jobs["ios-simulator"]["needs"], ["runner", "detect-ios-changes", "ios-simulator-build"])
+        self.assertEqual(
+            jobs["ios-simulator"]["strategy"]["matrix"]["family"],
+            "${{ fromJSON(needs.detect-ios-changes.outputs.device_families) }}",
+        )
+        # Matrix membership is the admission decision. In particular, an empty
+        # request must not select both families and then skip both test steps.
+        simulator_steps = jobs["ios-simulator"]["steps"]
+        run_tests = next(step for step in simulator_steps if step.get("name") == "Run iOS simulator tests")
+        self.assertNotIn("if", run_tests)
+        for step in simulator_steps:
+            self.assertNotIn("inputs.device_family", step.get("if", ""))
+            self.assertNotEqual(step.get("name"), "Skip unrequested family")
         for requested, expected in (
             (None, ["iphone", "ipad"]),
             ("", ["iphone", "ipad"]),
@@ -112,9 +114,9 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         )
         self.assertIn("target_sha: ${{ steps.target.outputs.sha }}", detect)
         self.assertIn("ref: ${{ github.ref }}", detect)
-        # A pull request checks out its merge commit and the base tip it
-        # was merged onto (depth 2), not every branch's history.
-        self.assertIn("fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}", detect)
+        self.assertIn("fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}", detect)
+        # Full history must stay blobless: fetching every blob of every branch
+        # overran the job's five-minute timeout and cancelled routing.
         self.assertIn("filter: blob:none", detect)
         # A blobless clone must never need the promisor remote mid-step:
         # rename scoring would lazily fetch blobs and exit 128 if that fails.
@@ -137,15 +139,14 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         resolved_ref = f"ref: {resolved_sha}"
 
         self.assertNotIn("ref: ${{ inputs.ref || github.ref", workflow)
-        for job in ("package-conventions-lint", "mobile-core-linux", "ios-simulator-build"):
+        for job in ("package-conventions-lint", "mobile-core-package", "ios-simulator-build", "ios-simulator"):
             with self.subTest(job=job):
                 self.assertIn(resolved_ref, job_block(job))
 
-        # The routing jobs check out the workflow revision itself (full-carry:
-        # the base's scripts/ci, for head_tier.py); every other checkout,
-        # including the retry after a failed seeded checkout, is pinned to the
-        # one resolved commit SHA.
-        routing = {"runner", "detect-ios-changes", "full-carry"}
+        # The routing jobs check out the workflow revision itself; every other
+        # checkout, including the retry after a failed seeded checkout, is
+        # pinned to the one resolved commit SHA.
+        routing = {"runner", "detect-ios-changes"}
         jobs = yaml.safe_load(workflow)["jobs"]
         pinned = 0
         for name, job in jobs.items():
@@ -185,12 +186,6 @@ def job_admitted(jobs, name, results, outputs, inputs, *, cancelled=False):
     success = all(results.get(ancestor) == "success" for ancestor in ancestors(name))
     expression = jobs[name].get("if", "${{ success() }}").strip()
     expression = expression.removeprefix("${{").removesuffix("}}").strip()
-    # The draft-tier term (scripts/ci/head_tier.py) is true off pull_request events.
-    # So is the land-tier term (draft or ready-to-land) that wraps it on newer heads.
-    expression = re.sub(r"\(github\.event_name != 'pull_request' \|\| .*?CI_LAND_TIER \|\| '1'\) == '0'\)\)\)", "True", expression, flags=re.S)
-    expression = re.sub(r"\(github\.event_name != 'pull_request' \|\| .*?CI_DRAFT_CHEAP_TIER \|\| '1'\) == '0'\)", "True", expression)
-    # The label-churn skip (scripts/ci/label_churn_gate.py style) is false off pull_request events, so its negation holds.
-    expression = re.sub(r"\s*&&\s*!\(github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == .*?github\.event\.label\.name\)\)\s*$", "", expression, flags=re.S)
     has_status_function = re.search(r"\b(?:success|failure|cancelled|always)\s*\(", expression)
     if not has_status_function and (cancelled or not success):
         return False
@@ -229,33 +224,31 @@ class IOSNativeLintAdmissionTests(unittest.TestCase):
         self.jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
 
     def admitted(self, job, *, lint="success", should_lint="true", should_run="true",
-                 should_build="true", detect="success", producer="success", package="", test_filter="",
+                 detect="success", producer="success", package="", test_filter="",
                  cancelled=False, event_name="workflow_dispatch", runner="success"):
         return job_admitted(
             self.jobs, job,
             {"runner": runner, "detect-ios-changes": detect, "package-conventions-lint": lint,
              "ios-simulator-build": producer},
-            {"detect-ios-changes": {"should_lint": should_lint, "should_run": should_run,
-                                    "should_build": should_build}},
+            {"detect-ios-changes": {"should_lint": should_lint, "should_run": should_run}},
             {"swift_package": package, "test_filter": test_filter, "event_name": event_name},
             cancelled=cancelled,
         )
 
     def test_native_work_waits_for_lint_and_rejects_unsuccessful_lint(self):
-        # The Linux package job holds no Mac, so it does not wait on lint; ios-tests gates on both.
-        for job in ("ios-simulator-build",):
+        for job in ("mobile-core-package", "ios-simulator-build"):
             for lint in ("pending", "in_progress", "failure", "cancelled", "skipped"):
                 with self.subTest(job=job, lint=lint):
                     self.assertFalse(self.admitted(job, lint=lint))
 
     def test_success_and_legitimately_unselected_lint_admit_native_work(self):
-        for job in ("mobile-core-linux", "ios-simulator-build"):
+        for job in ("mobile-core-package", "ios-simulator-build", "ios-simulator"):
             with self.subTest(job=job):
                 self.assertTrue(self.admitted(job))
                 self.assertTrue(self.admitted(job, lint="skipped", should_lint="false"))
 
     def test_no_native_work_for_unselected_failed_or_cancelled_detection(self):
-        for job in ("mobile-core-linux", "ios-simulator-build"):
+        for job in ("mobile-core-package", "ios-simulator-build", "ios-simulator"):
             with self.subTest(job=job):
                 self.assertFalse(self.admitted(job, should_run="false"))
                 self.assertFalse(self.admitted(job, cancelled=True))
@@ -274,112 +267,22 @@ class IOSNativeLintAdmissionTests(unittest.TestCase):
                 with self.subTest(lint=lint, package=package, test_filter=test_filter):
                     actual = tuple(self.admitted(job, lint=lint, should_lint=should_lint,
                                                  package=package, test_filter=test_filter)
-                                   for job in ("mobile-core-linux", "ios-simulator-build"))
+                                   for job in ("mobile-core-package", "ios-simulator-build"))
                     self.assertEqual(actual, expected)
-
-    def test_a_package_change_outside_the_app_skips_only_the_simulator_build(self):
-        # scripts/ci/ios_simulator_inputs.py: should_build=false omits the Xcode
-        # app build; the package lane still runs.
-        self.assertTrue(self.admitted("mobile-core-linux", should_build="false"))
-        self.assertFalse(self.admitted("ios-simulator-build", should_build="false"))
+        self.assertTrue(self.admitted("mobile-core-package", event_name="pull_request",
+                                      test_filter="ignored-on-pr"))
 
     def test_no_native_work_without_a_picked_pool(self):
         # runs-on reads the runner job's JSON; without it there is no pool.
-        for job in ("ios-simulator-build",):
+        for job in ("mobile-core-package", "ios-simulator-build", "ios-simulator"):
             for runner in ("pending", "failure", "cancelled", "skipped"):
                 with self.subTest(job=job, runner=runner):
                     self.assertFalse(self.admitted(job, runner=runner))
 
-
-def git(cwd: Path, *args: str) -> str:
-    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-           "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
-    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True, env=env).stdout.strip()
-
-
-class IOSChangeDetectionTests(unittest.TestCase):
-    """Runs the detect step's script in a depth-2 clone of a pull request's
-    merge commit, the way actions/checkout leaves it."""
-
-    def detect(self, pr_files: dict[str, str], base_files: dict[str, str] | None = None,
-               head_sha: str | None = None) -> dict[str, str]:
-        temp = Path(tempfile.mkdtemp(prefix="ios-detect."))
-        self.addCleanup(subprocess.run, ["rm", "-rf", str(temp)])
-        origin = temp / "origin"
-        origin.mkdir()
-        git(origin, "init", "-q", "-b", "main")
-        (origin / "README").write_text("root\n")
-        git(origin, "add", "-A")
-        git(origin, "commit", "-q", "-m", "root")
-        for number in range(3):  # history the shallow clone must not need
-            (origin / f"old{number}.txt").write_text("old\n")
-            git(origin, "add", "-A")
-            git(origin, "commit", "-q", "-m", f"old {number}")
-        git(origin, "checkout", "-q", "-b", "pr")
-        for path, text in pr_files.items():
-            (origin / path).parent.mkdir(parents=True, exist_ok=True)
-            (origin / path).write_text(text)
-        git(origin, "add", "-A")
-        git(origin, "commit", "-q", "-m", "pr")
-        head = git(origin, "rev-parse", "HEAD")
-        git(origin, "checkout", "-q", "main")
-        for path, text in (base_files or {"base-moved.txt": "x\n"}).items():
-            (origin / path).parent.mkdir(parents=True, exist_ok=True)
-            (origin / path).write_text(text)
-        git(origin, "add", "-A")
-        git(origin, "commit", "-q", "-m", "base moves on")
-        base = git(origin, "rev-parse", "HEAD")
-        git(origin, "merge", "-q", "--no-ff", "-m", "merge", head)
-        merge = git(origin, "rev-parse", "HEAD")
-
-        work = temp / "work"
-        work.mkdir()
-        git(work, "init", "-q")
-        git(work, "remote", "add", "origin", origin.as_uri())
-        git(work, "fetch", "-q", "--no-tags", "--depth=2", "--filter=blob:none", "origin", merge)
-        git(work, "checkout", "-q", "--detach", "FETCH_HEAD")
-        self.assertEqual(git(work, "rev-parse", "--is-shallow-repository"), "true")
-
-        step = next(step for step in yaml.safe_load(WORKFLOW.read_text())["jobs"]["detect-ios-changes"]["steps"]
-                    if step.get("id") == "detect")
-        script = (step["run"].replace("${{ github.event_name }}", "pull_request")
-                  .replace("${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}", "false")
-                  .replace("python3 scripts/ci/ios_simulator_inputs.py",
-                           f"python3 {ROOT / 'scripts/ci/ios_simulator_inputs.py'}"))
-        self.assertNotIn("${{", script)
-        output = temp / "out"
-        output.write_text("")
-        done = subprocess.run(["bash", "-c", script], cwd=work, capture_output=True, text=True,
-                              env={**os.environ, "BASE_SHA": base, "HEAD_SHA": head_sha or head, "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": str(temp),
-                                   "GIT_CONFIG_GLOBAL": os.devnull})
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        return dict(line.split("=", 1) for line in output.read_text().splitlines())
-
-    def test_an_ios_change_runs_tests_and_lint(self) -> None:
-        self.assertEqual(self.detect({"ios/App.swift": "x\n"}),
-                         {"should_run": "true", "should_build": "true", "should_lint": "true"})
-
-    def test_a_package_change_runs_only_the_lint(self) -> None:
-        self.assertEqual(self.detect({"Packages/macOS/Foo.swift": "x\n"}),
-                         {"should_run": "false", "should_build": "false", "should_lint": "true"})
-
-    def test_a_package_resource_change_runs_neither_lint_nor_tests(self) -> None:
-        # The conventions lint scans only .swift files.
-        self.assertEqual(self.detect({"Packages/macOS/Foo/Resources/a.json": "x\n"}),
-                         {"should_run": "false", "should_build": "false", "should_lint": "false"})
-
-    def test_the_pool_pick_waits_for_routing_and_skips_without_ios_files(self) -> None:
-        runner = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["runner"]
-        self.assertEqual(runner["needs"], "detect-ios-changes")
-        self.assertIn("needs.detect-ios-changes.outputs.should_run == 'true'", runner["if"])
-
-    def test_a_base_only_ios_change_is_not_the_pull_requests(self) -> None:
-        self.assertEqual(self.detect({"docs/note.md": "x\n"}, base_files={"ios/Base.swift": "x\n"}),
-                         {"should_run": "false", "should_build": "false", "should_lint": "false"})
-
-    def test_a_checkout_that_is_not_the_pull_requests_merge_runs_everything(self) -> None:
-        self.assertEqual(self.detect({"docs/note.md": "x\n"}, head_sha="0" * 40),
-                         {"should_run": "true", "should_build": "true", "should_lint": "true"})
+    def test_consumers_require_a_completed_successful_producer(self):
+        for producer in ("pending", "in_progress", "failure", "cancelled", "skipped"):
+            with self.subTest(producer=producer):
+                self.assertFalse(self.admitted("ios-simulator", producer=producer))
 
 
 if __name__ == "__main__":

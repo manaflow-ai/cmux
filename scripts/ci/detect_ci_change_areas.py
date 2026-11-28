@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import argparse
 import ast
-import importlib.util
-import json
 import os
 import re
 import subprocess
@@ -22,6 +20,7 @@ class ChangeAreas:
     macos: bool
     web: bool
     agent_session_web: bool
+    cli: bool
     swift_packages: bool
     release_build: bool
 
@@ -31,6 +30,7 @@ class ChangeAreas:
             macos=True,
             web=True,
             agent_session_web=True,
+            cli=True,
             swift_packages=True,
             release_build=True,
         )
@@ -40,6 +40,7 @@ class ChangeAreas:
             macos=self.macos or other.macos,
             web=self.web or other.web,
             agent_session_web=self.agent_session_web or other.agent_session_web,
+            cli=self.cli or other.cli,
             swift_packages=self.swift_packages or other.swift_packages,
             release_build=self.release_build or other.release_build,
         )
@@ -49,6 +50,7 @@ class ChangeAreas:
             f"macos={bool_output(self.macos)}",
             f"web={bool_output(self.web)}",
             f"agent_session_web={bool_output(self.agent_session_web)}",
+            f"cli={bool_output(self.cli)}",
             f"swift_packages={bool_output(self.swift_packages)}",
             f"release_build={bool_output(self.release_build)}",
         ]
@@ -70,7 +72,9 @@ GUARD_WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
 WEB_WORKFLOW_PATH = ".github/workflows/ci-web.yml"
 MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
 MACOS_XCODE_PROJECT_PATH = "cmux.xcodeproj/project.pbxproj"
-MACOS_PRODUCT_TARGET = "cmux-next"
+MACOS_PRODUCT_TARGET = "cmux"
+CLI_PRODUCT_TARGET = "cmux-cli"
+XCODE_SHARED_SCHEMES_PREFIX = "cmux.xcodeproj/xcshareddata/xcschemes/"
 
 _LOCAL_PATH_DEPENDENCY_RE = re.compile(
     r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"'
@@ -110,16 +114,13 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     #
     # test_execution_registry.py is deliberately NOT here: run_python_test_lane.py
     # imports it and ci-macos.yml runs that on a Mac, which is the same reason
-    # cache_restore_receipt.py stays out.
+    # cache_restore_receipt.py and xcodebuild_noninteractive.py stay out.
     "scripts/ci/actions_artifact_prune.py",
+    "scripts/ci/app_host_failure_census.py",
     "scripts/ci/build_graph_health.py",
     "scripts/ci/cleanup-stale-runs.py",
     "scripts/ci/cmux_workload_profile.py",
-    # The portable guard runner and its regression suite execute only in the
-    # Linux guard jobs. They are CI control-plane inputs, not native product
-    # inputs, so changing either must not admit macOS compile work.
-    "scripts/ci/run_ci_guards.py",
-    "tests/test_ci_run_guards.py",
+    "scripts/ci/delivery_workflows.py",
     "scripts/ci/notify-indexnow.py",
     "scripts/ci/queue_janitor.py",
     "scripts/ci/r2-canary-cloudflare.py",
@@ -130,8 +131,6 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/swift_incremental_diagnostics.py",
     "scripts/ci/triage-radar.py",
     "scripts/ci/validate_test_execution_registry.py",
-    # The registry check's pull request lanes (--pr-lanes).
-    "scripts/ci/pr_test_lanes.py",
     "scripts/ci/verify-r2-canary.py",
     # ci-web.yml's subarea router. It keeps the web area below -- editing it
     # selects every web subarea through the helper's own ALL_SUBAREA_INPUTS --
@@ -159,6 +158,7 @@ CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({
 
 CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
+    "scripts/ci/app_host_layer_transport.py",
     "scripts/ci/parallel_artifact_download.py",
     "scripts/ci/apfs_clone.py",
     "scripts/ci/canonical-build-root.sh",
@@ -175,57 +175,20 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
 # Areas only gate ci.yml and the reusable workflows it calls. A helper no job in
 # that tree can execute cannot change what a pull request's lanes do.
 _LOCAL_WORKFLOW_CALL_RE = re.compile(r"""uses:\s*["']?\./(\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml)""")
-# Text nothing executes: prose, and captured CI logs (#41545's base_red_excuse
-# fixtures quote a run that printed tests/test_cmux_next_route.py, which made
-# every helper that test names route to every area).
-_DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt", ".log")
-# Files where `#` starts a comment. Outside scripts/, actions and tests/, one
-# that names a helper only in a comment does not run it (a Cargo.toml's note on
-# the release strip routed that strip script to every lane, #42338).
-_HASH_COMMENT_SUFFIXES = (".toml", ".yml", ".yaml", ".sh", ".bash", ".zsh")
-# Data files that name helpers without running them: git attributes, the
-# warm-source table, whose entries describe a source in prose (#28568), the
-# single-host fallback declaration, whose `fallback` lines name the rescue that
-# moves a stuck job (#40880), and every other data file under .github/: tables
-# scripts read, issue templates, code owners, the run-request files whose edit
-# triggers a workflow. A file listed here is a dead end when ci_helper_areas()
-# walks back from a helper. A file under .github/ that is neither here nor a
-# workflow, action, script or documentation fails every helper it names open,
-# so test_every_github_file_is_placed_by_the_helper_walk fails on the pull
-# request that adds it: list it here if nothing executes what it names.
-_NON_RUNNING_FILES = frozenset({
-    ".gitattributes",
-    ".github/CODEOWNERS",
-    ".github/ISSUE_TEMPLATE/bug_report.yml",
-    ".github/ISSUE_TEMPLATE/config.yml",
-    ".github/ISSUE_TEMPLATE/feature_request.yml",
-    ".github/actionlint.yaml",
-    ".github/checkout-lean.json",
-    ".github/cloud-backend-paths.json",
-    ".github/cloud-harness-matrix/request",
-    ".github/cloud-machine-count-probe/request",
-    ".github/cloud-staging-test-sweep/request",
-    ".github/cloud-surge-proof/request",
-    ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-    ".github/design-surfaces.json",
-    ".github/gateway-e2e/request",
-    ".github/github-token-budget.json",
-    ".github/ios-review-gate-devices.json",
-    ".github/labels.json",
-    ".github/language-boundaries.toml",
-    ".github/nightly-known-bad.json",
-    ".github/nightly-step-coverage.json",
-    ".github/post-merge-batch.json",
-    ".github/post-merge-checks.json",
-    ".github/release-thanks.json",
-    ".github/review-fabric-policy.json",
-    ".github/runners.json",
-    ".github/rust-workspaces.toml",
-    ".github/single-host-fallbacks.json",
-    ".github/swift-warning-budget.tsv",
-    ".github/warm-sources.json",
-    ".github/workflow-job-bounds.json",
-})
+_DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt")
+# Data tables that name helpers only to describe them; nothing executes them.
+# .github/warm-sources.json lists which helper wires each warm source for
+# tests/test_ci_warm_sources.py, which runs in the Linux guards.
+_DESCRIPTIVE_TABLES = frozenset({".github/warm-sources.json"})
+
+
+def _is_data_fixture(path: str) -> bool:
+    """A JSON file under a tests/fixtures/ directory: recorded input data.
+
+    web/tests/fixtures/vercel-ignore-replay.json (cmux#50036) lists changed
+    paths, helpers among them; a fixture is read by its test, never executed.
+    """
+    return path.endswith(".json") and "/fixtures/" in f"/{path}" and "tests/" in path
 
 
 def routed_workflows(root: Path) -> Optional[frozenset[str]]:
@@ -252,45 +215,14 @@ def routed_workflows(root: Path) -> Optional[frozenset[str]]:
     return frozenset(seen)
 
 
-LEAN_CHECKOUT_TABLE = ".github/checkout-lean.json"
-
-
-@lru_cache(maxsize=None)
-def _tree_is_complete(root: str) -> bool:
-    """True when the tree at `root` holds every file the helper walk searches.
-
-    ci.yml's `changes` job checks out a narrower sparse set than the table's `sparse_checkout`
-    (.github/checkout-lean.json), which saves the blobs of the paths routing never opens
-    (78-80 s of a cold workspace, 2026-11-23). The helper walk's `git grep` sees only checked-out
-    files, so before its first search it widens the checkout to the table's patterns: the tree
-    the job had before it was narrowed, and the same answer. A checkout that is not sparse is
-    complete already. False when the table or the widening fails, which the walk reads as
-    "could not search" and answers every area.
-    """
-    def git(*args: str, **options) -> subprocess.CompletedProcess:
-        return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, **options)
-
-    try:
-        if git("config", "--bool", "core.sparseCheckout").stdout.strip() != "true":
-            return True
-        patterns = json.loads((Path(root) / LEAN_CHECKOUT_TABLE).read_text(encoding="utf-8"))["sparse_checkout"]
-        widened = git("sparse-checkout", "set", "--no-cone", "--stdin", input="\n".join(patterns) + "\n", timeout=240)
-        return widened.returncode == 0
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
-        return False
-
-
 def _files_naming(root: Path, token: str) -> Optional[list[str]]:
     """Tracked files that name `token` as a whole name, not inside a longer one.
 
     `tests/test_foo.py` names the test, not `foo`; the test is its own
     referrer and is judged by its own rule.
     """
-    if not _tree_is_complete(str(root)):
-        return None
     result = subprocess.run(
-        # -I: a binary file (an image, an archive) names no helper.
-        ["git", "-C", str(root), "grep", "-I", "-l", "-F", "-e", token],
+        ["git", "-C", str(root), "grep", "-l", "-F", "-e", token],
         capture_output=True, text=True,
     )
     if result.returncode not in (0, 1):
@@ -307,48 +239,6 @@ def _files_naming(root: Path, token: str) -> Optional[list[str]]:
     return named
 
 
-def searchable_files(root: Path, pathspec: str) -> Optional[frozenset[str]]:
-    """The tracked files under `pathspec` that _files_naming() can return: the
-    non-empty text files. None when git cannot search the tree."""
-    if not _tree_is_complete(str(root)):
-        return None
-    result = subprocess.run(
-        ["git", "-C", str(root), "grep", "-I", "-l", "-e", "", "--", pathspec],
-        capture_output=True, text=True,
-    )
-    if result.returncode not in (0, 1):
-        return None
-    return frozenset(result.stdout.splitlines())
-
-
-def referrer_role(path: str) -> Optional[str]:
-    """What ci_helper_areas() makes of a tracked file that names a helper, or
-    None when it cannot place the file and so answers every area.
-
-    "workflow": routed by its jobs, or a dead end outside ci.yml's call tree.
-    "documentation" and "data": a dead end. "action": followed through the jobs
-    that use its directory. "script": followed through whatever names it.
-    "test": placed by where the test runs.
-    """
-    if path.startswith(".github/workflows/"):
-        return "workflow"
-    if path.endswith(_DOCUMENTATION_SUFFIXES):
-        return "documentation"
-    if path in _NON_RUNNING_FILES:
-        return "data"
-    if path.startswith(".github/actions/") and path.endswith(("/action.yml", "/action.yaml")):
-        return "action"
-    if path.startswith("tests/"):
-        return "test"
-    if path.startswith("scripts/") or (
-        path.startswith(".github/") and path.endswith(_WALKABLE_SCRIPT_SUFFIXES)
-    ):
-        # A script under .github/ (an action's own script, .github/scripts/)
-        # runs wherever the files that name it run, like one under scripts/.
-        return "script"
-    return None
-
-
 def is_unowned_ci_helper(path: str) -> bool:
     return (
         path.startswith("scripts/ci/")
@@ -362,8 +252,7 @@ def is_unowned_ci_helper(path: str) -> bool:
 
 
 # Script sources ci_helper_areas() can trace through the tree by name.
-# .ps1: a Windows job's PowerShell script (#42833 added .github/scripts/cmux-rd-motion.ps1 unplaced).
-_WALKABLE_SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts", ".ps1")
+_WALKABLE_SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts")
 
 
 def is_walkable_script(path: str) -> bool:
@@ -390,7 +279,7 @@ def is_plainly_linux_runner(runs_on: str) -> bool:
     value = runs_on.strip()
     if not value or re.search(r"macos|matrix\.|needs\.|inputs\.", value, re.IGNORECASE):
         return False
-    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu|'cmux-linux'", value))
+    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))
 
 
 _JOB_SPLIT_RE = re.compile(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)")
@@ -445,19 +334,21 @@ def _changed_workflow_jobs(
 
 
 NO_AREAS = ChangeAreas(
-    macos=False, web=False, agent_session_web=False,
+    macos=False, web=False, agent_session_web=False, cli=False,
     swift_packages=False, release_build=False,
 )
 
 # What a ci.yml job that calls one of these reusable workflows selects. Its
 # `with:` inputs, `if:` and `needs:` all sit in the calling job's own block.
+# The job that calls ci-macos.yml also passes the `cli` route that runs the
+# CLI lane there (compile admission's CLI smoke checks, cli-product-tests).
 _CALLED_WORKFLOW_AREAS = {
     MACOS_WORKFLOW_PATH: ChangeAreas(
-        macos=True, web=False, agent_session_web=False,
+        macos=True, web=False, agent_session_web=False, cli=True,
         swift_packages=False, release_build=True,
     ),
     WEB_WORKFLOW_PATH: ChangeAreas(
-        macos=False, web=True, agent_session_web=True,
+        macos=False, web=True, agent_session_web=True, cli=False,
         swift_packages=False, release_build=False,
     ),
 }
@@ -526,6 +417,11 @@ def _release_jobs(jobs: dict[str, str]) -> frozenset[str]:
         if not feeders:
             return frozenset(named | consumers)
         consumers |= feeders
+
+
+# The ci-macos.yml jobs the CLI product lane runs through: its own job, and
+# the admission job that builds and publishes the product it restores.
+MACOS_CLI_LANE_JOBS = frozenset({"cli-product-tests", "macos-compile-admission"})
 
 
 _FULL_LINE_COMMENT_RE = re.compile(r"(?m)^[ \t]*#(?![!{]).*\n?")
@@ -611,7 +507,9 @@ def macos_workflow_change_areas(base: str, head: str) -> Optional[ChangeAreas]:
     Every job the workflow owns runs behind the macOS area. Only a job that
     mentions `release_build` (the Release jobs, the steps that produce their
     helper, the status gate that reports them), or whose outputs such a job
-    reads, needs the Release build as well. A changed workflow_call input reaches the jobs that read it; the rest of
+    reads, needs the Release build as well. The CLI lane runs only when
+    cli-product-tests or the admission job that builds its product changed.
+    A changed workflow_call input reaches the jobs that read it; the rest of
     the preamble reaches every job.
     """
     diff = _macos_workflow_changed_jobs(base, head)
@@ -621,11 +519,12 @@ def macos_workflow_change_areas(base: str, head: str) -> Optional[ChangeAreas]:
     release = _release_jobs(base_jobs) | _release_jobs(head_jobs)
     return ChangeAreas(
         macos=True, web=False, agent_session_web=False,
+        cli=bool(changed & MACOS_CLI_LANE_JOBS),
         swift_packages=False, release_build=bool(changed & release),
     )
 
 
-_AREA_NAMES = ("macos", "web", "agent_session_web", "swift_packages", "release_build")
+_AREA_NAMES = ("macos", "web", "agent_session_web", "cli", "swift_packages", "release_build")
 _AREA_OUTPUT_RE = re.compile(r"needs\.changes\.outputs\.([A-Za-z0-9_]+)")
 # `changes` outputs the areas do not decide: the Linux guards route by path.
 _SELF_ROUTED_OUTPUTS = frozenset({
@@ -635,7 +534,8 @@ _SELF_ROUTED_OUTPUTS = frozenset({
 # `changes` outputs derived from the macOS area (detect_linux_guard_changes.py
 # sets ghosttykit_release from it; the suite and pool outputs serve macOS).
 _MACOS_DERIVED_OUTPUTS = frozenset({
-    "ghosttykit_release", "full_suite", "compile_admitted", "source_parent1",
+    "ghosttykit_release", "full_suite", "unit_suite", "unit_selectors", "unit_strict_steps",
+    "unit_in_admission", "coverage_gap", "compile_admitted", "source_parent1",
     "macos_pr_runner", "macos_pr_xcode_app", "macos_pr_retry_runner",
 })
 
@@ -648,45 +548,6 @@ _ROUTING_TABLES = frozenset({
     "scripts/ci/detect_linux_guard_changes.py",
     "scripts/ci/workflow_guard_groups.py",
 })
-# Files that list test paths without running them: the routing tables,
-# cmux-next.yml's path router, the guard wiring test's manual-lane list, and
-# base_red_excuse.py's guard-test input table with its test's fixtures (#30467).
-_TEST_PATH_LISTS = _ROUTING_TABLES | frozenset({
-    "scripts/ci/base_red_excuse.py",
-    "scripts/ci/cmux_next_route.py",
-    "tests/test_base_red_excuse.py",
-    "tests/test_ci_workflow_guards_are_wired.py",
-})
-# The execution registry runs its entries: ci-macos.yml's
-# `run_python_test_lane.py --lane ...` step executes every test in the lanes it
-# names (macos-shell, macos-cli-no-socket and their fish variants). Only these
-# lanes run no Mac job; a new lane is run until it is added here.
-_TEST_REGISTRY_PATH = "tests/test-execution.toml"
-# The registry's area fragments, which replaced the single file (scripts/ci/test_execution_registry.py).
-_TEST_REGISTRY_FRAGMENTS = "tests/test-execution.d"
-_TEST_REGISTRY_FRAGMENT_RE = re.compile(r"tests/test-execution\.d/[^/]+\.toml")
-
-
-def is_test_registry_path(path: str) -> bool:
-    return path == _TEST_REGISTRY_PATH or _TEST_REGISTRY_FRAGMENT_RE.fullmatch(path) is not None
-
-
-def _test_registry_text(root: Path) -> str:
-    """The merged registry under `root` as one TOML text: the old single file while it is there,
-    then each fragment by name (a fragment holds only [[test]] entries). Raises OSError with neither."""
-    texts = []
-    legacy = root / _TEST_REGISTRY_PATH
-    if legacy.is_file():
-        texts.append(legacy.read_text(encoding="utf-8"))
-    fragments = root / _TEST_REGISTRY_FRAGMENTS
-    if fragments.is_dir():
-        texts += [path.read_text(encoding="utf-8")
-                  for path in sorted(fragments.glob("*.toml"), key=lambda path: path.name)]
-    if not texts:
-        raise FileNotFoundError(f"{root / _TEST_REGISTRY_FRAGMENTS}: no test registry")
-    body = "\n".join(text.rstrip("\n") + "\n" for text in texts)
-    return body if legacy.is_file() else "version = 1\n\n" + body
-_TEST_REGISTRY_INERT_LANES = frozenset({"linux-guard", "legacy", "manual"})
 _COMMENT_RE = re.compile(r"(?m)(?:^[ \t]*#(?![{!]).*$|[ \t]+#(?![{!]).*$)")
 
 
@@ -733,44 +594,6 @@ def _python_names(text: str, token: str, *, imports_only: bool = False) -> Optio
     return False
 
 
-def _python_runner_names(root: Path, runner: str, test: str) -> Optional[bool]:
-    """Whether the Python file `runner` names `test` outside comments and
-    docstrings, or None when it cannot be read or parsed (fail open)."""
-    try:
-        text = (root / runner).read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
-    return _python_names(text, test)
-
-
-def _nothing_imports_test(root: Path, test: str) -> bool:
-    """True when no tracked file but the test, its inert registry entry, the
-    test path lists and documentation names its module, outside a Python file
-    that names it only as a string (a path) rather than importing it."""
-    # Only a test the registry declares in a lane no job runs (manual, say)
-    # counts; an unregistered test nothing names still fails open.
-    if not _registry_lane_is_inert(root, test):
-        return False
-    stem = Path(test).stem
-    namers = _files_naming(root, stem)
-    if namers is None:
-        return False
-    for namer in namers:
-        if namer == test or namer in _TEST_PATH_LISTS or namer.endswith(_DOCUMENTATION_SUFFIXES):
-            continue
-        if is_test_registry_path(namer) and _registry_lane_is_inert(root, test):
-            continue
-        if namer.endswith(".py"):
-            try:
-                text = (root / namer).read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                return False
-            if _python_names(text, stem, imports_only=True) is False:
-                continue
-        return False
-    return True
-
-
 def _jobs_naming(jobs: dict[str, str], token: str) -> frozenset[str]:
     return frozenset(name for name, block in jobs.items() if _names(block, token))
 
@@ -779,8 +602,8 @@ def _routed_job_areas(workflow: str, text: str, token: str) -> Optional[ChangeAr
     """The areas that decide whether the routed jobs naming `token` run, or None
     for every area.
 
-    A ci-macos.yml job runs behind the macOS area, with Release only for its
-    own jobs, as macos_workflow_change_areas() reads an edit. A
+    A ci-macos.yml job runs behind the macOS area, with Release and the CLI lane
+    only for their own jobs, as macos_workflow_change_areas() reads an edit. A
     ci-web.yml job runs behind web. Any other plainly Linux job runs behind the
     areas its `if:` reads, which may be none: the static stage and the guards
     route themselves. The routing and status jobs, other Mac jobs, and a name
@@ -801,7 +624,8 @@ def _routed_job_areas(workflow: str, text: str, token: str) -> Optional[ChangeAr
             # That lane is chosen by package path, which a helper is not.
             return None
         return ChangeAreas(
-            macos=True, web=False, agent_session_web=False, swift_packages=False,
+            macos=True, web=False, agent_session_web=False,
+            cli=bool(naming & MACOS_CLI_LANE_JOBS), swift_packages=False,
             release_build=bool(naming & _release_jobs(jobs)),
         )
     if workflow == WEB_WORKFLOW_PATH:
@@ -894,10 +718,11 @@ def ci_helper_areas(
                 continue
             visited_files.add(referrer)
             referenced = True
-            role = referrer_role(referrer)
-            if role in ("workflow", "documentation", "data"):
+            if referrer.endswith(_DOCUMENTATION_SUFFIXES) or referrer.startswith(".github/workflows/"):
                 continue
-            if role in ("script", "action") or referrer.startswith(".github/actions/"):
+            if referrer == ".gitattributes" or referrer in _DESCRIPTIVE_TABLES or _is_data_fixture(referrer):
+                continue
+            if referrer.startswith(("scripts/", ".github/actions/")):
                 try:
                     text = (root / referrer).read_text(encoding="utf-8", errors="replace")
                 except OSError:
@@ -908,79 +733,16 @@ def ci_helper_areas(
                 )
                 if named is False or (named is None and not _names(text, token)):
                     continue
-            elif not referrer.startswith("tests/") and referrer.endswith(_HASH_COMMENT_SUFFIXES):
-                try:
-                    text = (root / referrer).read_text(encoding="utf-8", errors="replace")
-                except OSError:
-                    return every_area(f"could not read {referrer}")
-                if not _names(text, token):
-                    continue
-            if role == "action":
+            if referrer.startswith(".github/actions/") and referrer.endswith(("/action.yml", "/action.yaml")):
                 # An action runs in whatever job uses it; its directory is
                 # the token those jobs name.
                 tokens.append(str(Path(referrer).parent))
                 continue
-            if role == "test":
+            if referrer.startswith("tests/"):
                 if is_guard_only_test(referrer, test_references):
                     continue
-                if is_unrouted_test(referrer, test_references):
-                    runners = _files_naming(root, referrer)
-                    if runners is None:
-                        return every_area(f"could not search for {referrer}")
-                    # The test itself, documentation and a Python test that
-                    # names it only in a comment or docstring do not run it
-                    # (docs/ci/cmux-next-tiers.md and a route test naming its
-                    # own path as a routing input made these fail open).
-                    runners = [
-                        runner for runner in runners
-                        if runner != referrer
-                        and runner not in _TEST_PATH_LISTS
-                        and not runner.endswith(_DOCUMENTATION_SUFFIXES)
-                        and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
-                        # So does a script under scripts/ (scripts/cmux-next/tests/
-                        # test_build_names.py names tests/test_script_module_loads.py
-                        # in a comment; #44759 made that fail open for every helper
-                        # that test reaches).
-                        and not (runner.startswith(("tests/", "scripts/")) and runner.endswith(".py")
-                                 and _python_runner_names(root, runner, referrer) is False)
-                        # A test that runs this test is judged by the rule for a
-                        # test that names the helper: a Linux guard test, or a
-                        # manual-lane test nothing runs or imports, reaches no
-                        # Mac job (tests/test_script_module_loads.py, #41175,
-                        # runs tests/test_cmux_next_route.py by hand).
-                        and not (runner.startswith("tests/") and (
-                            is_guard_only_test(runner, test_references)
-                            or (is_unrouted_test(runner, test_references)
-                                and _nothing_imports_test(root, runner))))
-                    ]
-                    if not runners and _nothing_imports_test(root, referrer):
-                        # Nothing runs it or imports it: a manual-lane test
-                        # people run by hand, which no pull request job reaches.
-                        continue
-                    if runners and all(
-                        (runner.startswith(".github/workflows/") and runner not in routed)
-                        or runner.startswith("scripts/")
-                        for runner in runners
-                    ):
-                        # Only workflows outside ci.yml's call tree run this test
-                        # (feat-cmux-next's cmux-next.yml and nightly.yml run a
-                        # checks-job test and the nightly strip test): a dead end,
-                        # like those workflows themselves. A script that runs it
-                        # (a nightly step moved out of nightly.yml) is walked in
-                        # turn, so a routed job that runs the script still counts;
-                        # a script nothing names fails open.
-                        for runner in runners:
-                            if not runner.startswith("scripts/") or runner in visited_files:
-                                continue
-                            namers = _files_naming(root, Path(runner).stem)
-                            if namers is None:
-                                return every_area(f"could not search for {Path(runner).stem}")
-                            if not [namer for namer in namers if namer != runner]:
-                                return every_area(f"{runner} runs {referrer} and nothing names it")
-                            tokens.append(Path(runner).stem)
-                        continue
                 return every_area(f"{referrer} names {token} and runs outside the Linux guards")
-            if role == "script":
+            if referrer.startswith("scripts/"):
                 tokens.append(Path(referrer).stem)
                 continue
             return every_area(f"{referrer} names {token}")
@@ -1067,38 +829,6 @@ def _load_macos_job_test_references(root: Path) -> Optional[tuple[frozenset[str]
     return frozenset(macos), frozenset(everywhere)
 
 
-def _registry_lane_is_inert(root: Path, test: str) -> bool:
-    """Whether the execution registry lists `test` only in lanes no Mac job runs.
-
-    Read inline with tomllib, because the trusted base router that a PR's
-    scripts/ci edit selects runs from a copy of only this file and a few
-    workflows (ci.yml's trusted-ci-router step), so it cannot import
-    test_execution_registry.py. An unreadable or invalid registry, a test with
-    no entry, an entry without a lane, or any non-inert lane among duplicate
-    entries counts as run (fails open).
-    """
-    try:
-        entries = _test_registry_entries(_test_registry_text(root))
-    except (OSError, UnicodeDecodeError, ImportError, ValueError, TypeError, KeyError) as error:
-        print(f"Could not read {_TEST_REGISTRY_PATH}: {error}", file=sys.stderr)
-        return False
-    lanes = [entry.get("lane") for entry in entries if entry.get("path") == test]
-    return bool(lanes) and all(lane in _TEST_REGISTRY_INERT_LANES for lane in lanes)
-
-
-def is_unrouted_test(path: str, references: Optional[tuple[frozenset[str], frozenset[str]]]) -> bool:
-    """A tests/ file no job of ci.yml's workflows names, and no macOS job reaches by a glob prefix.
-
-    ci_helper_areas() treats such a test as a dead end when only workflows outside
-    ci.yml's call tree run it; anything else still answers every area. Unreadable
-    references keep the old answer.
-    """
-    if references is None or not path.startswith("tests/"):
-        return False
-    macos, everywhere = references
-    return path not in everywhere and not any(path.startswith(reference) for reference in macos)
-
-
 def is_guard_only_test(path: str, references: Optional[tuple[frozenset[str], frozenset[str]]]) -> bool:
     # A tests/ file is macOS-neutral only when a CI workflow names it and every
     # job that names it runs on Linux. An unnamed file may be imported by a test a
@@ -1117,20 +847,90 @@ SHARED_WEB_WORKFLOW_EXACT = frozenset({
     "scripts/generate-diff-sidecar-types.sh",
     "scripts/install-rust-ci.sh",
     "scripts/run-diff-sidecar-cargo.sh",
-})
-
-RELAY_PARAMS_RULE = frozenset({
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
-    "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+    "Sources/Panels/CmuxDiffViewerURLSchemeHandler.swift",
+    "Sources/Panels/DiffSidecarBridge.swift",
 })
 
 SHARED_WEB_WORKFLOW_PREFIXES = (
     "Native/DiffSidecar/",
-    # The diff sidecar links this crate by path.
-    "cmux-tui/crates/cmux-git/",
+    "Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/DiffViewer/",
 )
 
+
+# Everything the CLI lane (compile admission's CLI product and its early CLI
+# smoke checks, then cli-product-tests) runs besides the cmux-cli target's own
+# compile inputs, which cli_target_inputs() reads from the Xcode project.
+CLI_LANE_EXACT_INPUTS = frozenset({
+    # Checked-out submodules: bonsplit is a local package of the project the
+    # lane resolves, and ghostty supplies the GhosttyKit.xcframework binary
+    # target that CmuxTerminalCore (in the cmux-cli closure) re-vends.
+    "vendor/bonsplit",
+    "ghostty",
+    "scripts/download-prebuilt-ghosttykit.sh",
+    "scripts/ghosttykit-checksums.txt",
+    "scripts/validate-xcframework-archive.py",
+    "scripts/select-ci-xcode.sh",
+    # select-ci-xcode.sh reads the pool pins and the .xcode-version floor.
+    "scripts/ci/xcode-pins.txt",
+    ".xcode-version",
+    "scripts/install-rust-ci.sh",
+    # install-rust-ci.sh installs the toolchain this file names.
+    "Native/DiffSidecar/rust-toolchain.toml",
+    # .github/actions/cache-restore runs these two.
+    "scripts/ci/r2-cache.sh",
+    "scripts/ci/cache_restore_receipt.py",
+    "scripts/ci/sanitize-xcode-source-packages-cache.py",
+    # The regression scripts admission's CLI smoke step runs, and what they
+    # import or read.
+    "tests/test_cli_broken_pipe_writes.py",
+    "tests/test_cli_socket_operation_deadline.py",
+    "tests/test_cli_config_doctor.py",
+    "tests/test_cli_glaeda_execution.py",
+    "tests/fixtures/glaeda-external-request.json",
+    "tests/fixtures/glaeda-external-result.json",
+    "scripts/generate-cmux-config-schema.py",
+    "web/data/cmux.schema.json",
+    "skills/cmux-settings/scripts/cmux-settings",
+    # ci-macos.yml's cli-product-tests restores the compiled product and runs
+    # the host-free bundle through these. Without them here, a change to one
+    # would compile admission without ever running the lane that reads it.
+    "scripts/ci/node_product_cache.py",
+    "scripts/ci/peer_product_source.py",
+    "scripts/ci/restore-r2-artifact.py",
+    "scripts/ci/parallel_artifact_download.py",
+    "scripts/ci/restore-app-host-test-product.sh",
+    "scripts/ci/run-and-capture.sh",
+    "scripts/ci/run-in-console-session.sh",
+    "scripts/ci/app-host-isolation.sh",
+    "scripts/ci/require_selected_test_execution.sh",
+    # The Python product lane consumes these alongside the host-free bundle.
+    "scripts/ci/run_python_test_lane.py",
+    "scripts/ci/test_execution_registry.py",
+    "tests/test_claude_hook_spool.py",
+    "tests/claude_teams_test_utils.py",
+    # What restore-app-host-test-product.sh itself runs.
+    "scripts/ci/app_host_test_products.py",
+    "scripts/ci/canonical-build-root.sh",
+    # What canonical-build-root.sh clones the tree with.
+    "scripts/ci/apfs_clone.py",
+    "scripts/ci/relocate_package_framework_rpaths.py",
+    # Seeds the checkout of compile admission and cli-product-tests.
+    "scripts/ci/git-seed.sh",
+    # Initializes the ghostty submodule for cli-product-tests' shell regressions.
+    "scripts/ci/init-submodule.sh",
+})
+
+CLI_LANE_INPUT_PREFIXES = (
+    "CLI/",
+    "cmuxCLITests/",
+    "cmuxCLITestSupport/",
+    # The lane builds the cmux-cli target of this project and keys its package
+    # cache on the project's Package.resolved.
+    "cmux.xcodeproj/",
+    ".github/actions/cache-restore/",
+    # cli-product-tests' canonical fallback download of the compiled product.
+    ".github/actions/download-test-product/",
+)
 
 # ---------------------------------------------------------------------------
 # swift-package-tests lane
@@ -1233,42 +1033,60 @@ def swift_package_test_selection(paths: Iterable[str]) -> tuple[str, ...]:
         return ()
 
 
-# The web bundles' inputs outside webviews/ (the settings schema, the What's New
-# highlights, the model catalog, the string catalogs gen-strings.mjs reads, the
-# font the gallery frame imports...) run the web checks too, derived by
-# web-bundle-key.py from what webviews sources import (`--routed`), not listed
-# here by hand: #31238 changed only schemas/settings/settings-schema.json, Swift
-# and a catalog, skipped every web check, and turned the webview suite red on
-# base. The key script sits beside this one (ci.yml copies it into the trusted
-# router's root) and reads the pull request's tree as data.
-WEB_BUNDLE_KEY = Path(__file__).resolve().parents[1] / "cmux-next" / "web-bundle-key.py"
+# The lane runs `python3 scripts/ci/<helper>.py`, which puts scripts/ci first
+# on sys.path. A new scripts/ci module named like a stdlib module would shadow
+# that import in the lane's helpers.
+_STDLIB_MODULE_NAMES: Optional[frozenset[str]] = (
+    frozenset(sys.stdlib_module_names) if hasattr(sys, "stdlib_module_names") else None
+)
 
 
-@lru_cache(maxsize=None)
-def web_bundle_input_matcher(root: str):
-    """A predicate for paths web-bundle-key.py routes the web checks on, for the
-    tree at `root`. Without the derivation (no key script, no git tree) the
-    key's declared inputs; without the script, None."""
-    try:
-        spec = importlib.util.spec_from_file_location("cmux_web_bundle_key", WEB_BUNDLE_KEY)
-        if spec is None or spec.loader is None:
-            return None
-        key = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(key)
-    except (OSError, SyntaxError, ImportError) as error:
-        print(f"web bundle inputs unavailable ({error}); web routes on its own list only.", file=sys.stderr)
-        return None
-    try:
-        return key.pathspec_matcher(key.routed_inputs(root))
-    except (Exception, SystemExit) as error:  # noqa: BLE001  (fall back, never fail the router)
-        print(f"web bundle inputs not derived ({error}); using the key's declared inputs.", file=sys.stderr)
-        return key.pathspec_matcher(key.INPUTS)
+def shadows_cli_lane_import(path: str) -> bool:
+    if not path.startswith("scripts/ci/"):
+        return False
+    name = path[len("scripts/ci/") :].split("/", 1)[0]
+    if "/" not in path[len("scripts/ci/") :]:
+        if not name.endswith(".py"):
+            return False
+        name = name[: -len(".py")]
+    if _STDLIB_MODULE_NAMES is None:
+        return True
+    return name in _STDLIB_MODULE_NAMES
 
 
-def is_web_bundle_input(path: str) -> bool:
-    root = os.environ.get(HEAD_TEST_REFERENCE_ROOT_ENV) or "."
-    matcher = web_bundle_input_matcher(str(Path(root).resolve()))
-    return matcher is not None and matcher(path)
+@dataclass(frozen=True)
+class CliTargetInputs:
+    """Compile inputs of the cmux-cli Xcode target outside CLI/."""
+
+    package_directories: frozenset[str]
+    source_file_names: frozenset[str]
+
+
+def is_cli_change(
+    path: str,
+    cli_inputs: Optional[CliTargetInputs] = None,
+    macos_ios_packages: Optional[frozenset[str]] = None,
+) -> bool:
+    if path.startswith(XCODE_SHARED_SCHEMES_PREFIX):
+        # The lane builds one scheme; the app and test schemes are not inputs.
+        return path.rsplit("/", 1)[-1].startswith(CLI_PRODUCT_TARGET)
+    if path in CLI_LANE_EXACT_INPUTS or path.startswith(CLI_LANE_INPUT_PREFIXES):
+        return True
+    if shadows_cli_lane_import(path):
+        return True
+    if cli_inputs is None:
+        # The target graph could not be read: anything that could reach an
+        # Xcode build keeps the lane, except CI implementation files the lane
+        # never runs.
+        if path.startswith("scripts/ci/") or is_other_workflow_config(path):
+            return False
+        return is_macos_change(path, macos_ios_packages)
+    for directory in cli_inputs.package_directories:
+        if path == directory or path.startswith(f"{directory}/"):
+            # A package's test sources never reach the cmux-cli binary; the
+            # swift-package-tests lane runs them (swift_package_test_selection).
+            return not path.startswith(f"{directory}/Tests/")
+    return path.rsplit("/", 1)[-1] in cli_inputs.source_file_names
 
 
 def is_web_change(path: str) -> bool:
@@ -1281,6 +1099,8 @@ def is_web_change(path: str) -> bool:
         (
             "web/",
             "webviews/",
+            "Resources/agent-session-react/",
+            "Resources/agent-session-solid/",
             "Resources/markdown-viewer/",
             "config/",
             "workers/",
@@ -1288,18 +1108,6 @@ def is_web_change(path: str) -> bool:
     ):
         return True
     if path == "CHANGELOG.md":
-        return True
-    # web/tests/next-docs.test.ts compares the generated docs references with
-    # these (web_subareas.UNIT_TESTS_EXACT); #38631 changed the catalog alone,
-    # skipped Web tests and turned them red on base.
-    if path in ("plans/cmux-next/action-surfaces.json", "schemas/settings/settings-schema.json"):
-        return True
-    # webviews/test/agent-pane-relay-params-contract.test.ts checks every key the page sends
-    # against the relay's params rule and its Rust mirror (web_subareas.REACT_EXACT): a PR that
-    # changes only the rule runs it too (cmux#46563 refused every handshake).
-    if path in RELAY_PARAMS_RULE:
-        return True
-    if is_web_bundle_input(path):
         return True
     return path in {
         "package.json",
@@ -1313,34 +1121,9 @@ def is_web_change(path: str) -> bool:
         "scripts/ci/web_validation.py",
         "scripts/ci/web_subareas.py",
         "tests/test_web_validation.py",
+        "scripts/build-agent-session-web.sh",
         "scripts/build-webviews-app.sh",
-        # react-apps-check runs the webviews tests through it.
-        "scripts/ci/run-webviews-tests.sh",
-        # and splits and orders its files by recorded duration through this.
-        "scripts/ci/webviews_test_shards.py",
-        # and compares its reds with the base's through these.
-        "scripts/ci/webviews-tests-new-reds.sh",
-        "scripts/ci/webviews_test_results.py",
-        "scripts/ci/guards_new_reds.py",
-        # It also runs the test of the PR scoping of ui-rules and gallery coverage.
-        "scripts/tests/test_pr_scoped_webviews_checks.py",
-        "scripts/check-webviews-bun-version.sh",
-        "scripts/webviews_bun_version.py",
         "scripts/check-webviews-react-compiler.mjs",
-        # The generated agent pane page, its build and regenerate scripts, and
-        # the merge driver that keeps it mergeable: react-apps-check verifies
-        # the page and runs the driver's test.
-        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
-        "scripts/cmux-next/build-agent-pane-web.sh",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/index.html",
-        "scripts/cmux-next/build-agent-activity-web.sh",
-        "scripts/cmux-next/regenerate-web-bundles.sh",
-        "scripts/cmux-next/build-web-bundles.sh",
-        "scripts/cmux-next/web-bundle-key.py",
-        ".gitattributes",
-        "scripts/install-git-hooks.sh",
-        "tests/test_install_git_hooks.py",
     }
 
 
@@ -1348,6 +1131,8 @@ def is_agent_session_web_change(path: str) -> bool:
     if path.startswith(
         (
             "webviews/src/agent-session/",
+            "Resources/agent-session-react/",
+            "Resources/agent-session-solid/",
         )
     ):
         return True
@@ -1356,6 +1141,8 @@ def is_agent_session_web_change(path: str) -> bool:
         "bun.lock",
         "webviews/package.json",
         "webviews/bun.lock",
+        "scripts/build-agent-session-web.sh",
+        "Resources/markdown-viewer/marked.min.js",
     }
 
 
@@ -1637,6 +1424,251 @@ def local_package_closure(root: Path, target_name: str) -> frozenset[str]:
     return frozenset(visited)
 
 
+_PBX_FLAT_OBJECT_RE = re.compile(
+    # An Xcode object identifier: at least eight characters and, unlike the
+    # lowerCamelCase field names of a nested dictionary, never lowercase first.
+    r"(?<![A-Za-z0-9])([A-Z0-9][A-Za-z0-9]{7,})(?:\s+/\*[^*]*\*/)?\s*=\s*\{([^{}]*)\};"
+)
+
+
+def _pbx_flat_objects(project: str) -> dict[str, str]:
+    """Index every brace-free pbx object by identifier.
+
+    Build phases, build files and file references hold no nested dictionary, so
+    one pass indexes them all. The Sources build phase section has no End
+    marker in this project and some lines hold two build files, so this does
+    not go through _pbx_section. A repeated identifier is unreadable input.
+    """
+    objects: dict[str, str] = {}
+    for identifier, body in _PBX_FLAT_OBJECT_RE.findall(project):
+        if identifier in objects:
+            raise ValueError(f"duplicate pbx object {identifier}")
+        objects[identifier] = body
+    if not objects:
+        raise ValueError("project file contained no readable objects")
+    return objects
+
+
+def _flat_object(objects: dict[str, str], identifier: str) -> str:
+    body = objects.get(identifier)
+    if body is None:
+        raise ValueError(f"missing pbx object {identifier}")
+    return body
+
+
+def cli_target_inputs(root: Path) -> CliTargetInputs:
+    """Read the cmux-cli target's compiled file names and package closure.
+
+    Files outside CLI/ that the target compiles (shared Sources/ helpers) are
+    matched by file name; Swift requires those to be unique within the module.
+    """
+    project = (root / MACOS_XCODE_PROJECT_PATH).read_text(encoding="utf-8")
+    native_targets, target = _native_target(project, CLI_PRODUCT_TARGET)
+    if _pbx_list_ids(native_targets[target], "dependencies"):
+        raise ValueError(f"{CLI_PRODUCT_TARGET} gained target dependencies")
+    objects = _pbx_flat_objects(project)
+    names: set[str] = set()
+    for phase_id in _pbx_list_ids(native_targets[target], "buildPhases", required=True):
+        phase = _flat_object(objects, phase_id)
+        kind = _pbx_field(phase, "isa")
+        if kind == "PBXFrameworksBuildPhase":
+            # Frameworks come from packageProductDependencies, read below.
+            continue
+        if kind != "PBXSourcesBuildPhase":
+            raise ValueError(f"{CLI_PRODUCT_TARGET} has an unrouted {kind}")
+        for build_file in _pbx_list_ids(phase, "files"):
+            reference = _pbx_reference_id(
+                _pbx_field(_flat_object(objects, build_file), "fileRef")
+            )
+            file_path = _pbx_field(_flat_object(objects, reference), "path")
+            names.add(file_path.rsplit("/", 1)[-1])
+    if not names:
+        raise ValueError(f"{CLI_PRODUCT_TARGET} compiles no sources")
+    return CliTargetInputs(
+        package_directories=local_package_closure(root, CLI_PRODUCT_TARGET),
+        source_file_names=frozenset(names),
+    )
+
+
+# Native targets that nothing the CLI route runs builds. Every other target,
+# including one added later, counts as a CLI input, so an unknown target keeps
+# the lane rather than skipping it.
+CLI_ROUTE_UNBUILT_TARGETS = frozenset({
+    MACOS_PRODUCT_TARGET,
+    "cmuxTests",
+    "cmuxUITests",
+    "CmuxDockTilePlugin",
+    "cmuxTunnelExtension",
+})
+_PBX_TARGET_ISAS = frozenset({"PBXNativeTarget", "PBXAggregateTarget", "PBXLegacyTarget"})
+_PBX_TOKEN_RE = re.compile(
+    r'\s+|//[^\n]*|/\*.*?\*/|"(?:[^"\\]|\\.)*"|[{}();=,]|[^\s{}();=,"]+', re.S
+)
+
+
+def _parse_pbx(text: str) -> dict:
+    """Parse an old-style (OpenStep) property list, as project.pbxproj is.
+
+    Strings keep their quotes; this only has to compare two revisions.
+    """
+    tokens = [
+        token
+        for token in _PBX_TOKEN_RE.findall(text)
+        if token.strip() and not token.startswith(("//", "/*"))
+    ]
+    position = 0
+
+    def take() -> str:
+        nonlocal position
+        if position >= len(tokens):
+            raise ValueError("truncated project file")
+        position += 1
+        return tokens[position - 1]
+
+    def value() -> object:
+        token = take()
+        if token == "{":
+            result: dict[str, object] = {}
+            while tokens[position:position + 1] != ["}"]:
+                key = take()
+                if take() != "=":
+                    raise ValueError(f"expected '=' after {key}")
+                result[key] = value()
+                if take() != ";":
+                    raise ValueError(f"expected ';' after {key}")
+            take()
+            return result
+        if token == "(":
+            items: list[object] = []
+            while tokens[position:position + 1] != [")"]:
+                items.append(value())
+                if tokens[position:position + 1] == [","]:
+                    take()
+            take()
+            return tuple(items)
+        if token in "{}();=,":
+            raise ValueError(f"unexpected {token!r}")
+        return token
+
+    root = value()
+    if position != len(tokens) or not isinstance(root, dict):
+        raise ValueError("trailing content after the project dictionary")
+    return root
+
+
+def cli_xcode_project_view(text: str) -> dict[str, object]:
+    """Every project object the CLI route's targets build from.
+
+    That is the project object itself (its build settings and package
+    references) and everything reachable from each target the route may build,
+    plus the groups that locate their files. Group member lists are dropped,
+    since adding an app or test file edits them; each object records its
+    parent groups instead, so moving a CLI file still counts.
+    """
+    root = _parse_pbx(text)
+    objects = root.get("objects")
+    project_id = root.get("rootObject")
+    if not isinstance(objects, dict) or project_id not in objects:
+        raise ValueError("project file has no root object")
+    targets = {
+        identifier: body.get("name", "").strip('"')
+        for identifier, body in objects.items()
+        if isinstance(body, dict) and body.get("isa") in _PBX_TARGET_ISAS
+    }
+    if list(targets.values()).count(CLI_PRODUCT_TARGET) != 1:
+        raise ValueError(f"expected one {CLI_PRODUCT_TARGET} target")
+    seeds = [
+        identifier
+        for identifier, name in targets.items()
+        if name not in CLI_ROUTE_UNBUILT_TARGETS
+    ]
+
+    project = dict(objects[project_id])
+    # The target list and the whole group tree hang off the project object.
+    project.pop("targets", None)
+    project.pop("mainGroup", None)
+    attributes = project.get("attributes")
+    if isinstance(attributes, dict) and isinstance(attributes.get("TargetAttributes"), dict):
+        project["attributes"] = {
+            **attributes,
+            "TargetAttributes": {
+                key: value
+                for key, value in attributes["TargetAttributes"].items()
+                if key in seeds
+            },
+        }
+
+    parents: dict[str, list[str]] = {}
+    for identifier, body in objects.items():
+        if isinstance(body, dict) and body.get("isa") == "PBXGroup":
+            for child in body.get("children", ()):
+                parents.setdefault(child, []).append(identifier)
+
+    def references(value: object) -> Iterable[str]:
+        if isinstance(value, dict):
+            for item in value.values():
+                yield from references(item)
+        elif isinstance(value, tuple):
+            for item in value:
+                yield from references(item)
+        elif isinstance(value, str) and value in objects:
+            yield value
+
+    view: dict[str, object] = {}
+    pending = [project_id, *seeds]
+    while pending:
+        identifier = pending.pop()
+        if identifier in view:
+            continue
+        body = project if identifier == project_id else objects[identifier]
+        if not isinstance(body, dict):
+            raise ValueError(f"unreadable project object {identifier}")
+        if body.get("isa") == "PBXGroup":
+            body = {key: value for key, value in body.items() if key != "children"}
+        owners = sorted(parents.get(identifier, ()))
+        view[identifier] = (body, tuple(owners))
+        pending.extend(references(body))
+        pending.extend(owners)
+    return view
+
+
+def cli_xcode_project_change_is_neutral(base: str, head: str) -> bool:
+    """True when a project.pbxproj edit cannot change what the CLI route builds."""
+    try:
+        return cli_xcode_project_view(base) == cli_xcode_project_view(head)
+    except (ValueError, IndexError, KeyError, TypeError, AttributeError):
+        return False
+
+
+def cli_xcode_project_unchanged(base_path: Optional[Path]) -> bool:
+    if base_path is None:
+        return False
+    root = Path(os.environ.get("CMUX_CI_HEAD_TEST_REFERENCE_ROOT") or Path.cwd())
+    try:
+        neutral = cli_xcode_project_change_is_neutral(
+            base_path.read_text(encoding="utf-8"),
+            (root / MACOS_XCODE_PROJECT_PATH).read_text(encoding="utf-8"),
+        )
+    except OSError:
+        return False
+    print(f"{MACOS_XCODE_PROJECT_PATH} changed; the CLI route's targets are unchanged: {bool_output(neutral)}")
+    return neutral
+
+
+@lru_cache(maxsize=1)
+def load_cli_target_inputs() -> Optional[CliTargetInputs]:
+    root = Path(__file__).resolve().parents[2]
+    try:
+        return cli_target_inputs(root)
+    except Exception as error:
+        print(
+            "Could not derive the cmux-cli target inputs; routing every "
+            f"macOS-relevant change to the CLI lane: {error}",
+            file=sys.stderr,
+        )
+        return None
+
+
 @lru_cache(maxsize=1)
 def load_macos_ios_package_closure() -> Optional[frozenset[str]]:
     root = Path(__file__).resolve().parents[2]
@@ -1656,7 +1688,9 @@ def load_macos_ios_package_closure() -> Optional[frozenset[str]]:
 # this an exact list: test_linux_guard_only_scripts_reach_no_other_runner
 # fails if anything else starts naming one.
 LINUX_GUARD_ONLY_SCRIPTS = frozenset({
+    "scripts/check-cli-contract-verbs.py",
     "scripts/check-package-resolved-policy.py",
+    "scripts/check-sidebar-lazy-layout.py",
     "scripts/lint-stored-dispatch-work-items.py",
 })
 
@@ -1672,6 +1706,8 @@ def is_macos_neutral(
     if path in {
         ".coderabbit.yaml",
         ".greptile/rules.md",
+        ".greptile/files.json",
+        ".cursor/BUGBOT.md",
         ".github/review-bot-rules/user-facing-errors.md",
     }:
         return True
@@ -1683,6 +1719,10 @@ def is_macos_neutral(
         "vercel.json",
     }:
         return True
+    # CLI/ is a standalone Xcode tool target with a dedicated required lane.
+    # App/shared source remains routed through app-host macOS CI.
+    if path.startswith("CLI/"):
+        return True
     # Package tests run in the dedicated Swift-package lane and are never
     # inputs to the macOS app target. Keep them macOS-neutral even when the
     # package itself is shared with the desktop product; the package-test lane
@@ -1692,7 +1732,7 @@ def is_macos_neutral(
     if re.match(r"Packages/iOS/[^/]+/Tests/", path):
         return True
     # Agent instructions at any depth, and skill documentation. The app bundles
-    # skills/cmux-computer-use as a folder resource, and skill scripts and manifests are
+    # skills/cmux-cua as a folder resource, and skill scripts and manifests are
     # executable inputs, so only Markdown outside that folder is neutral.
     if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
         return True
@@ -1703,6 +1743,7 @@ def is_macos_neutral(
     # macOS-relevant.
     if path in {
         "STYLE.md",
+        "REVIEW.md",
         "CONTRIBUTING.md",
         ".github/pull_request_template.md",
     }:
@@ -1730,12 +1771,7 @@ def is_macos_neutral(
             "plans/",
             "ios/",
             "web/",
-            # Webview sources feed generated resources consumed by the native app.
-            # Keep web CI routing and add one compile admission for webview-only
-            # pull requests, so a resource integration break is caught without
-            # escalating to the full macOS suite.
-            # Lint and format settings for cmux-tui web only.
-            "config/vite-plus/",
+            "webviews/",
             "cmux-tui/",
             "cmux-browser/",
             "daemon/remote/",
@@ -1744,7 +1780,7 @@ def is_macos_neutral(
         return True
     if path == "README.md" or (path.startswith("README.") and path.endswith(".md")):
         return True
-    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-computer-use/")
+    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-cua/")
 
 
 def is_macos_change(
@@ -1753,7 +1789,11 @@ def is_macos_change(
 ) -> bool:
     if path.startswith("webviews/src/agent-session/"):
         return True
+    if path == "docs/cli-contract.md":
+        return True
     if path in {"package.json", "bun.lock", "biome.json"}:
+        return True
+    if path.startswith(("Resources/agent-session-react/", "Resources/agent-session-solid/")):
         return True
     return not is_macos_neutral(path, macos_ios_packages)
 
@@ -1762,9 +1802,9 @@ _PACKAGE_TESTS_RE = re.compile(r"Packages/[^/]+/[^/]+/Tests/")
 
 
 def is_test_only_source(path: str) -> bool:
-    # The Release app builds only the cmux-next target, so test sources cannot
-    # reach it. A new test file also edits project.pbxproj, which is not matched here.
-    return bool(_PACKAGE_TESTS_RE.match(path))
+    # The Release app builds only the cmux target, so test sources cannot reach
+    # it. A new test file also edits project.pbxproj, which is not matched here.
+    return path.startswith(("cmuxTests/", "cmuxCLITests/", "cmuxCLITestSupport/", "cmuxUITests/")) or bool(_PACKAGE_TESTS_RE.match(path))
 
 
 RELEASE_BUILD_NEUTRAL_INPUTS = frozenset({
@@ -1773,9 +1813,20 @@ RELEASE_BUILD_NEUTRAL_INPUTS = frozenset({
     # compiled binaries' slices. Their focused regression suites and app-host
     # tests are the useful signal, so avoid paying for a universal app build.
     # Text scripts only: test_resources_bin_release_neutral_inputs_are_text_scripts
-    # fails if one of these becomes a binary.
+    # fails if one of these becomes a binary. cmux-claude-wrapper is absent
+    # because its own standalone lane already owns it.
+    "Resources/bin/cmux-amp-wrapper",
+    "Resources/bin/cmux-codex-wrapper",
+    "Resources/bin/cmux-hermes-agent-wrapper",
+    "Resources/bin/cmux-hermes-python-wrapper",
+    "Resources/bin/cmux-hermes-sitecustomize.py",
+    "Resources/bin/cmux-sudo",
+    "Resources/bin/grok",
+    "Resources/bin/muse",
+    "Resources/bin/open",
     "Resources/bin/start-cmux-profiling",
     "Resources/bin/submit-cmux-profile",
+    "tests/test_open_wrapper.py",
 })
 
 
@@ -1783,64 +1834,47 @@ def is_release_build_neutral(path: str) -> bool:
     return is_test_only_source(path) or path in RELEASE_BUILD_NEUTRAL_INPUTS
 
 
-def _test_registry_entries(text: str) -> list[dict]:
-    """The test registry's `[[test]]` entries (_test_registry_text), read with tomllib.
-
-    Raises ValueError (tomllib.TOMLDecodeError is one) for an unknown schema,
-    no entries or a non-table entry, and ImportError without tomllib.
-    """
-    import tomllib
-
-    registry = tomllib.loads(text)
-    if set(registry) != {"version", "test"} or registry["version"] != 1:
-        raise ValueError("unknown registry schema")
-    entries = registry["test"]
-    if not isinstance(entries, list) or not entries:
-        raise ValueError("missing test entries")
-    if not all(isinstance(entry, dict) for entry in entries):
-        raise ValueError("unknown test entry")
-    return entries
-
-
 def test_registry_change_is_linux_only(base: str, head: str) -> bool:
     """Ignore only Linux registrations; native execution entries must match."""
     try:
+        import tomllib
+
         def native_entries(text: str) -> list[dict]:
-            """The entries a native lane runs, and the linux-guard entries with runtime requirements
-            (which need more than a Linux guard, so they count as native too)."""
-            entries = _test_registry_entries(text)
+            registry = tomllib.loads(text)
+            if set(registry) != {"version", "test"} or registry["version"] != 1:
+                raise ValueError("unknown registry schema")
+            entries = registry["test"]
+            if not isinstance(entries, list) or not entries:
+                raise ValueError("missing test entries")
             seen = set()
             native = []
             for entry in entries:
-                # `serial` runs an entry alone in its lane: on a native entry it is compared with the
-                # rest of the entry; on a linux-guard entry it changes only the Linux run.
-                if not isinstance(entry, dict) or set(entry) - {"path", "lane", "requirements", "reason", "serial"}:
+                if not isinstance(entry, dict) or set(entry) - {"path", "lane", "requirements", "reason"}:
                     raise ValueError("unknown test entry")
                 path, lane = entry.get("path"), entry.get("lane")
                 if not isinstance(path, str) or not isinstance(lane, str) or path in seen:
                     raise ValueError("missing or duplicate test identity")
                 seen.add(path)
-                if lane != "linux-guard" or entry.get("requirements"):
+                if lane != "linux-guard":
                     native.append(entry)
+                elif entry.get("requirements"):
+                    raise ValueError("guard entry with runtime requirements")
             return native
 
-        # By path, not position: the split re-ordered the entries (by area, then path).
-        def by_path(entries: list[dict]) -> list[dict]:
-            return sorted(entries, key=lambda entry: entry["path"])
-
-        return by_path(native_entries(base)) == by_path(native_entries(head))
+        return native_entries(base) == native_entries(head)
     except (ImportError, ValueError, TypeError, KeyError):
         return False
 
 
 def test_registry_linux_only(base_path: Optional[Path]) -> bool:
-    """`base_path` is the base's registry: one file, or a directory holding the base's tests/ registry files."""
     if base_path is None:
         return False
     root = Path(os.environ.get("CMUX_CI_HEAD_TEST_REFERENCE_ROOT") or Path.cwd())
     try:
-        base = _test_registry_text(base_path) if base_path.is_dir() else base_path.read_text(encoding="utf-8")
-        return test_registry_change_is_linux_only(base, _test_registry_text(root))
+        return test_registry_change_is_linux_only(
+            base_path.read_text(encoding="utf-8"),
+            (root / "tests/test-execution.toml").read_text(encoding="utf-8"),
+        )
     except OSError:
         return False
 
@@ -1849,14 +1883,11 @@ def classify_files(paths: Iterable[str], *,
                    ci_workflow_areas: Optional[ChangeAreas] = None,
                    macos_workflow_areas: Optional[ChangeAreas] = None,
                    test_registry_linux_only: bool = False,
-                   fallbacks: Optional[list[tuple[str, str]]] = None) -> ChangeAreas:
-    """`fallbacks`, when given, collects (rule, path) for every path a
-    fail-open rule broadened because the planner could not narrow it."""
-    if fallbacks is None:
-        fallbacks = []
+                   cli_xcode_project_neutral: bool = False) -> ChangeAreas:
     macos = False
     web = False
     agent_session_web = False
+    cli = False
     release_build = False
     # Collected across the diff: the lane is selected from the whole change,
     # not path by path, because the selector resolves package dependencies.
@@ -1866,25 +1897,36 @@ def classify_files(paths: Iterable[str], *,
     # tree to search for referrers is the pull request's, read as data.
     helper_root = Path(os.environ.get(HEAD_TEST_REFERENCE_ROOT_ENV) or ".")
     macos_ios_packages = load_macos_ios_package_closure()
+    cli_inputs = load_cli_target_inputs()
 
     for raw_path in paths:
         path = normalize_path(raw_path)
         if not path:
             continue
-        if is_test_registry_path(path):
+        if path in {"Resources/bin/cmux-claude-wrapper", "tests/test_claude_wrapper_hooks.py"}:
+            # The independent macos-claude-wrapper lane executes the wrapper
+            # with fake clients and a Unix socket; it does not need app bytes.
+            continue
+        if path == "tests/test-execution.toml":
             # The guard workflow references this registry too, but native
             # Python lanes consume it indirectly through their lane runner.
             # A Linux reference alone cannot prove native execution unchanged.
             if not test_registry_linux_only:
-                fallbacks.append(("test_registry_not_linux_only", path))
                 macos = True
                 release_build = True
             continue
+        # A project edit compared against its base as wiring only other
+        # targets cannot change what the CLI route builds.
+        if is_cli_change(path, cli_inputs, macos_ios_packages) and not (
+            path == MACOS_XCODE_PROJECT_PATH and cli_xcode_project_neutral
+        ):
+            cli = True
         if path == CI_WORKFLOW_PATH and ci_workflow_areas is not None:
             # Compared job by job against the base; None runs every area.
             macos = macos or ci_workflow_areas.macos
             web = web or ci_workflow_areas.web
             agent_session_web = agent_session_web or ci_workflow_areas.agent_session_web
+            cli = cli or ci_workflow_areas.cli
             release_build = release_build or ci_workflow_areas.release_build
             continue
         # Before every `continue` below: a package source or test selects the
@@ -1903,14 +1945,19 @@ def classify_files(paths: Iterable[str], *,
                 macos = macos or helper_areas.macos
                 web = web or helper_areas.web
                 agent_session_web = agent_session_web or helper_areas.agent_session_web
+                cli = cli or helper_areas.cli
                 release_build = release_build or helper_areas.release_build
                 continue
         if forces_all_areas(path):
-            fallbacks.append(("ci_yml_jobs_unreadable" if path == CI_WORKFLOW_PATH else "unowned_ci_helper", path))
             macos = True
             web = True
             agent_session_web = True
             release_build = True
+            # ci.yml calls the CLI lane. An unowned scripts/ci helper cannot
+            # reach it: is_cli_change() above already routed the helpers the
+            # lane runs and any module that could shadow their imports.
+            if path == CI_WORKFLOW_PATH:
+                cli = True
             continue
         if path in CI_MACOS_ADMISSION_CONTROL_INPUTS:
             # These helpers decide whether compile admission is required.
@@ -1930,10 +1977,10 @@ def classify_files(paths: Iterable[str], *,
             # only when a Release job or a job feeding it changed; without
             # the comparison, every job body including the Release check.
             macos = True
-            if macos_workflow_areas is None:
-                fallbacks.append(("ci_macos_yml_jobs_unreadable", path))
             if macos_workflow_areas is None or macos_workflow_areas.release_build:
                 release_build = True
+            if macos_workflow_areas is None or macos_workflow_areas.cli:
+                cli = True
             continue
         if path == WEB_WORKFLOW_PATH:
             # A reusable web workflow edit must exercise every job body it owns.
@@ -1962,10 +2009,9 @@ def classify_files(paths: Iterable[str], *,
                 macos = macos or script_areas.macos
                 web = web or script_areas.web
                 agent_session_web = agent_session_web or script_areas.agent_session_web
+                cli = cli or script_areas.cli
                 release_build = release_build or script_areas.release_build
                 continue
-            if is_walkable_script(path):
-                fallbacks.append(("unplaced_script", path))
             macos = True
             if not is_release_build_neutral(path):
                 release_build = True
@@ -1974,6 +2020,7 @@ def classify_files(paths: Iterable[str], *,
         macos=macos,
         web=web,
         agent_session_web=agent_session_web,
+        cli=cli,
         swift_packages=bool(swift_package_test_selection(swift_package_candidates)),
         release_build=release_build,
     )
@@ -2007,36 +2054,6 @@ def load_macos_workflow_areas(base_path: Optional[Path]) -> Optional[ChangeAreas
     release = "unknown" if selected is None else bool_output(selected.release_build)
     print(f"ci-macos.yml changed; a Release job or its input differs: {release}")
     return selected
-
-
-def plan_line(reason: str, fallbacks: list[tuple[str, str]]) -> str:
-    """One line naming the plan this run took, for a weekly roll-up of how
-    often PR CI falls back to a broad plan and which rule forced it
-    (docs/reading/2026-11-26-cloudflare-dns-targeted-zone-builds.md in
-    cmuxterm-hq). `full` is the post-merge run, broad by design; `fail_open`
-    is a PR run a fail-open rule broadened; `targeted` is a PR run the
-    planner placed path by path."""
-    if reason == "post_merge_event":
-        plan = "full"
-    elif reason or fallbacks:
-        plan = "fail_open"
-    else:
-        plan = "targeted"
-    rules: dict[str, int] = {}
-    for rule, _ in fallbacks:
-        rules[rule] = rules.get(rule, 0) + 1
-    if not reason:
-        reason = ",".join(f"{rule}:{count}" for rule, count in sorted(rules.items())) or "none"
-    first = f" first={fallbacks[0][1]}" if fallbacks else ""
-    return f"ci-plan v1 class={plan} fallback={reason}{first}"
-
-
-def emit_plan(line: str) -> None:
-    print(line)
-    if os.environ.get("GITHUB_ACTIONS") == "true":
-        # An annotation, so the roll-up reads it from the check run
-        # without downloading the job log.
-        print(f"::notice title=ci-plan::{line}")
 
 
 def run_git(args: list[str]) -> str:
@@ -2080,8 +2097,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--test-registry-base",
         type=Path,
-        help="Base test registry (a file, or a directory with the base's tests/ registry files); "
-             "Linux-only entry changes do not select native CI.",
+        help="Base test registry; Linux-only entry changes do not select native CI.",
+    )
+    parser.add_argument(
+        "--xcode-project-base",
+        type=Path,
+        help="Base project.pbxproj; edits outside the CLI route's targets do not select it.",
     )
     parser.add_argument(
         "--files-from",
@@ -2099,12 +2120,9 @@ def main(argv: list[str]) -> int:
         print(f"Non-PR event '{args.event_name or 'unknown'}'; running all CI areas.")
         write_outputs(areas, args.github_output)
         print("Resolved areas: " + " ".join(areas.as_output_lines()))
-        emit_plan(plan_line("post_merge_event", []))
         return 0
 
     files: list[str] = []
-    fallbacks: list[tuple[str, str]] = []
-    reason = ""
     try:
         if args.files_from:
             files = args.files_from.read_text(encoding="utf-8").splitlines()
@@ -2118,15 +2136,13 @@ def main(argv: list[str]) -> int:
                 ci_workflow_areas=load_ci_workflow_areas(args.ci_workflow_base),
                 macos_workflow_areas=load_macos_workflow_areas(args.macos_workflow_base),
                 test_registry_linux_only=test_registry_linux_only(args.test_registry_base),
-                fallbacks=fallbacks,
+                cli_xcode_project_neutral=cli_xcode_project_unchanged(args.xcode_project_base),
             )
         else:
             areas = ChangeAreas.all()
-            reason = "empty_diff"
             print("PR diff is empty; running all CI areas.")
     except Exception as error:
         areas = ChangeAreas.all()
-        reason = "classify_error"
         print(f"Could not classify diff, running all CI areas: {error}", file=sys.stderr)
 
     if files:
@@ -2138,7 +2154,6 @@ def main(argv: list[str]) -> int:
 
     write_outputs(areas, args.github_output)
     print("Resolved areas: " + " ".join(areas.as_output_lines()))
-    emit_plan(plan_line(reason, fallbacks))
     return 0
 
 

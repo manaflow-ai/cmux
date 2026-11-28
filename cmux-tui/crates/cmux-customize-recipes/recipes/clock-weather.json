@@ -1,6 +1,0 @@
-{
-  "cmuxProfile": 1,
-  "name": "clock-weather",
-  "description": "The time and the weather where you are, at the bottom of the sidebar.",
-  "settings": {}
-}

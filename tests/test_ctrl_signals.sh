@@ -17,7 +17,7 @@ echo "Starting sleep... (press Ctrl+C now)"
 trap 'echo "SIGINT received! Ctrl+C is working correctly."; exit 0' INT
 
 # Start a long sleep - user should interrupt this with Ctrl+C
-sleep 30  # sleep-ok: the window the person has to press Ctrl+C in
+sleep 30
 
 # If we get here, Ctrl+C didn't work
 echo "ERROR: Sleep completed without interruption. Ctrl+C may not be working!"

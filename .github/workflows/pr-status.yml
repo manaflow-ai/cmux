@@ -31,7 +31,7 @@ env:
 
 jobs:
   line:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: write token; one comment edit, so the smallest trusted runner
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: write token; one comment edit, so the smallest trusted runner
     timeout-minutes: 5
     permissions:
       contents: read
@@ -41,9 +41,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          sparse-checkout: |
-            scripts/ci/pr_status.py
-            .gitmodules
+          sparse-checkout: scripts/ci/pr_status.py
           sparse-checkout-cone-mode: false
 
       - name: Write the line

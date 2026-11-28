@@ -7,32 +7,32 @@
     },
     {
       "path": "_schema.py",
-      "sha256": "5134e9359109aa935973c6b4c9d39e5ec6ca46fe814040410aa646233af90915",
-      "size": 532368
+      "sha256": "2078464a0d34bf1c5e5233ebb3adc7f18e7f90e8a92de281df37f2fe5fa891db",
+      "size": 186634
     },
     {
       "path": "client.py",
-      "sha256": "4a0b8d234e78c6223898b1e14fb40f7a7b482e03129acffbcf66d7148cfc01bb",
-      "size": 132615
+      "sha256": "0819d463d1b8995812260f55b4cf9d848efcb96d0aa27418a90a0578e1446527",
+      "size": 44630
     },
     {
       "path": "codec.py",
-      "sha256": "9efd29a31386d5131ffeb1a31813769fc0b41f3b3cee82f8aa6140d208efffa7",
-      "size": 63425
+      "sha256": "05332468283af5f82c197dcf2d7bfef959b01915e2ddf78038dc441822b20682",
+      "size": 31686
     },
     {
       "path": "metadata.py",
-      "sha256": "97fc4c05f6ea2e6b61d522fa7b32d03de602d7fd37a3e9e69eb94e1b3a89827e",
-      "size": 147973
+      "sha256": "8c74aef0b83100f01a5cec40c1b5d51e43dfcb952889b903bd672a53c3f12c9d",
+      "size": 52278
     },
     {
       "path": "models.py",
-      "sha256": "41c453746c9edcad21df7951a58a6c93f4399104fc93a73d89b4b7bb7cdc2cfc",
-      "size": 262630
+      "sha256": "0fedb2aef858f82ea1e31e2194358bf1070852d33d8ddd7a34bbfc96ff17f857",
+      "size": 101233
     }
   ],
   "format": 1,
-  "ir_sha256": "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c",
+  "ir_sha256": "93af6692f7f686eafe3bfcb03c01e8570f8cf4dfa8a84ad93824ed07160b504d",
   "language": "python",
   "mux_protocol": 12,
   "schema_version": 2

@@ -1,4 +1,5 @@
 import { useTranslations } from "next-intl";
+import { PRO_CHECKOUT_URL } from "@/app/lib/billing";
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { RevealImage } from "@/app/[locale]/components/reveal-image";
@@ -96,14 +97,14 @@ export default function IosLanding() {
           data-dev="ios-cta"
           style={{ marginTop: 21, marginBottom: 16 }}
         >
-          <Link
-            href="/dashboard/testflight"
+          <a
+            href={PRO_CHECKOUT_URL}
             className={`${ctaButtonBase} ${ctaButtonDefaultSize}`}
             style={ctaButtonStyle}
           >
             <AppleMark size={19} />
             {t("ctaBeta")}
-          </Link>
+          </a>
           <GitHubButton />
         </div>
 
@@ -201,14 +202,14 @@ export default function IosLanding() {
           className="flex flex-wrap items-center justify-center gap-3 mt-12"
           data-dev="ios-cta-bottom"
         >
-          <Link
-            href="/dashboard/testflight"
+          <a
+            href={PRO_CHECKOUT_URL}
             className={`${ctaButtonBase} ${ctaButtonDefaultSize}`}
             style={ctaButtonStyle}
           >
             <AppleMark size={19} />
             {t("ctaBeta")}
-          </Link>
+          </a>
           <GitHubButton location="ios-bottom" />
         </div>
 

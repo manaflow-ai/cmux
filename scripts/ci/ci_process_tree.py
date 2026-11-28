@@ -55,22 +55,6 @@ def process_tree(root: int) -> list[tuple[int, str]]:
     return tree
 
 
-def wait_group_gone(pgid: int, seconds: Optional[float] = None) -> None:
-    """Return once no process is left in group PGID, or after SECONDS. SIGKILL is delivered asynchronously: a
-    member that was sent it may still be running for a moment, and a caller that returns then (and its retry, or
-    the test that checks) would see it alive (cmux#41767 review F1)."""
-    # KILL_REAP_SECONDS is read now, not at definition, so a caller (or a test) that lowers it is obeyed.
-    deadline = time.monotonic() + (KILL_REAP_SECONDS if seconds is None else seconds)
-    while True:
-        try:
-            os.killpg(pgid, 0)
-        except (ProcessLookupError, PermissionError):
-            return
-        if time.monotonic() >= deadline:
-            return
-        time.sleep(0.02)
-
-
 def signal_pid(pid: int, signum: int) -> None:
     try:
         os.kill(pid, signum)
@@ -91,12 +75,9 @@ def terminate(
     strays = [pid for pid, _ in (tree if tree is not None else process_tree(process.pid))]
     if process.pid not in strays:
         strays.append(process.pid)
-    # macOS refuses killpg with EPERM once the reaped leader's group holds only
-    # exiting members (cmux-lawrence-2, 2026-10-09): the group is as good as
-    # gone, and the strays below are still signalled one by one.
     try:
         os.killpg(process.pid, first_signal)
-    except (ProcessLookupError, PermissionError):
+    except ProcessLookupError:
         pass
     for pid in strays:
         signal_pid(pid, first_signal)
@@ -106,7 +87,7 @@ def terminate(
         pass
     try:
         os.killpg(process.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
+    except ProcessLookupError:
         pass
     for pid in strays:
         signal_pid(pid, signal.SIGKILL)
@@ -116,8 +97,6 @@ def terminate(
         process.wait(timeout=KILL_REAP_SECONDS)
     except subprocess.TimeoutExpired:
         pass
-    # The group's other members got SIGKILL whether or not the leader had exited; return once they are gone.
-    wait_group_gone(process.pid)
 
 
 def terminate_pid(
@@ -173,46 +152,3 @@ def terminate_pid(
             if finished:
                 break
             time.sleep(min(0.05, max(0, deadline - time.monotonic())))
-    wait_group_gone(pid)
-
-
-def run_bounded(
-    command: list[str],
-    *,
-    timeout: float,
-    capture_output: bool = False,
-    input: Optional[str | bytes] = None,
-    check: bool = False,
-    **popen: object,
-) -> subprocess.CompletedProcess:
-    """subprocess.run's shape and answers, but a timeout stops the command's whole tree.
-
-    subprocess.run kills only the process it started: a `git submodule update` that timed out left its `git clone`
-    and transport running, and the retry over the same checkout failed at once (cmux#41752 review F1). Here the
-    command runs in its own session, and on a timeout terminate() stops its process group and every descendant
-    and reaps the command before TimeoutExpired is raised (with the output read so far)."""
-    if capture_output:
-        popen.setdefault("stdout", subprocess.PIPE)
-        popen.setdefault("stderr", subprocess.PIPE)
-    if input is not None:
-        popen["stdin"] = subprocess.PIPE
-    process = subprocess.Popen(command, start_new_session=True, **popen)
-    try:
-        out, err = process.communicate(input=input, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        terminate(process)
-        try:
-            out, err = process.communicate(timeout=TERM_GRACE_SECONDS)
-        except (subprocess.TimeoutExpired, ValueError):
-            out, err = None, None
-            for stream in (process.stdout, process.stderr):
-                if stream is not None:
-                    stream.close()
-        raise subprocess.TimeoutExpired(command, timeout, output=out, stderr=err) from None
-    except BaseException:
-        terminate(process)
-        raise
-    done = subprocess.CompletedProcess(command, process.returncode, out, err)
-    if check:
-        done.check_returncode()
-    return done

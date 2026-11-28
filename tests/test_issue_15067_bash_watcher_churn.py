@@ -110,7 +110,7 @@ class BashWatcherChurnTests(unittest.TestCase):
 
             # Observation window, not synchronization: measure recurring work
             # while Python waits, so the driver adds no shell sleep launches.
-            time.sleep(2.2)  # sleep-ok: the observation window the recurring work is counted over
+            time.sleep(2.2)
             for shell, _ in shells:
                 error = stop_shell(shell)
                 self.assertEqual(shell.returncode, 0)

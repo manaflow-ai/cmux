@@ -14,6 +14,7 @@
 </p>
 
 <p align="center">
+  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
   <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
@@ -383,7 +384,7 @@ tmux 是一個在任意終端機內執行的終端機多工器。cmux 是一個�
 
 ### 我如何支援 cmux？
 
-cmux 免費且開放原始碼，並將一直如此。
+cmux 免費且開放原始碼，並將一直如此。如果您想支持開發並提前體驗接下來的功能，包括 cmux AI、iOS 應用程式和 Cloud VMs，請查看 [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)。
 
 ### 我有功能請求或發現了 bug？
 
@@ -403,7 +404,7 @@ cmux 免費且開放原始碼，並將一直如此。
 
 參與方式：
 
-- 在 X 上追蹤我們：[@lawrencecchen](https://x.com/lawrencecchen)、[@austinywang](https://x.com/austinywang)
+- 在 X 上追蹤我們：[@manaflowai](https://x.com/manaflowai)、[@lawrencecchen](https://x.com/lawrencecchen)、[@austinywang](https://x.com/austinywang)
 - 加入 [Discord](https://discord.gg/xsgFEVrWCZ) 討論
 - 建立和參與 [GitHub Issues](https://github.com/manaflow-ai/cmux/issues) 和[討論](https://github.com/manaflow-ai/cmux/discussions)
 - 告訴我們您在用 cmux 建構什麼
@@ -413,6 +414,7 @@ cmux 免費且開放原始碼，並將一直如此。
 - [Discord](https://discord.gg/xsgFEVrWCZ)
 - [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
+- [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
@@ -421,6 +423,12 @@ cmux 免費且開放原始碼，並將一直如此。
   <strong>WeChat：</strong>掃描 QR 碼加入社群。<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="用於加入 cmux 社群的 WeChat QR 碼" width="240" />
 </p>
+
+## cmux Pro
+
+cmux 免費、開放原始碼，並將一直如此。如果您想支持開發並提前體驗即將推出的功能：
+
+**[取得 cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## 授權
 

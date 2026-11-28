@@ -59,19 +59,7 @@ if [[ "${CMUX_ALLOW_REPLACING_RUNNING_CMUX:-}" == "1" ]]; then
   OPEN_ENV_ARGS=(--env CMUX_ALLOW_REPLACING_RUNNING_CMUX=1)
 fi
 
-# The Release configuration bundles the pinned cmux-tui by default and fails
-# when that pin is not downloaded; it never falls back to an older client. A
-# local Release build runs this checkout's own cmux-tui instead (tree mode, as
-# reload.sh --release does), fetched before the build (public URL, sha256-checked).
-export CMUX_NEXT_TUI_MODE="${CMUX_NEXT_TUI_MODE:-tree}"
-if [[ -z "${CMUX_NEXT_TUI_BIN:-}" && "$CMUX_NEXT_TUI_MODE" != deferred ]]; then
-  "$(dirname "${BASH_SOURCE[0]}")/cmux-next/pin-cmux-tui.sh" fetch
-fi
-# cmux-next's web bundles are build output (cx-vn5); the app's verify phase needs them.
-if [[ -x scripts/cmux-next/build-web-bundles.sh ]]; then
-  scripts/cmux-next/build-web-bundles.sh
-fi
-xcodebuild -skipPackagePluginValidation -project cmux.xcodeproj -scheme cmux -configuration Release -destination 'platform=macOS' build
+xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -destination 'platform=macOS' build
 APP_PATH="$OWN_APP_PATH"
 if [[ ! -d "${APP_PATH}" ]]; then
   echo "cmux.app not found at ${APP_PATH}" >&2
@@ -83,15 +71,7 @@ echo "  ${APP_PATH}"
 refuse_if_stable_running "$APP_PATH"
 
 pkill -f "${APP_PATH}/Contents/MacOS/cmux" || true
-# Until the old instance has exited, so `open` starts a new one instead of activating it.
-for _ in $(seq 1 100); do
-  pgrep -f "${APP_PATH}/Contents/MacOS/cmux" >/dev/null || break
-  sleep 0.1
-done
-if pgrep -f "${APP_PATH}/Contents/MacOS/cmux" >/dev/null; then
-  echo "the old ${APP_PATH} did not exit within 10s of the signal" >&2
-  exit 1
-fi
+sleep 0.2
 
 # Dev shells (including CI/Codex) often force-disable paging by exporting these.
 # Don't leak that into cmux, otherwise `git diff` won't page even with PAGER=less.

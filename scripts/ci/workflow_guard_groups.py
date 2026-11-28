@@ -26,7 +26,7 @@ GUARD_WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/ci-gua
 GUARD_JOB = "workflow-guard-tests"
 # A path a step runs directly, such as `python3 tests/x.py` or `./scripts/y.sh`.
 DIRECT_PATH = re.compile(r"(?:\./)?((?:tests(?:_v2)?|scripts|ios/tests)/[A-Za-z0-9_./-]+)")
-GROUP_CONDITION = re.compile(r"\$\{\{\s*(?:!cancelled\(\)\s*&&\s*)?matrix\.group\s*==\s*'([^']+)'\s*(?:&&\s*steps\.fast-guard\.outputs\.skip\s*!=\s*'true'\s*)?\}\}")
+GROUP_CONDITION = re.compile(r"\$\{\{\s*matrix\.group\s*==\s*'([^']+)'\s*(?:&&\s*steps\.fast-guard\.outputs\.skip\s*!=\s*'true'\s*)?\}\}")
 # A guard job gates itself on the route that selects it, so the workflow also
 # names which route owns which job.
 ROUTE_CONDITION = re.compile(r"\$\{\{ inputs\.([A-Za-z0-9_]+) == 'true' \}\}")
@@ -38,6 +38,7 @@ GROUPS = (
     "ci",
     "app-host-execution",
     "app-host-watchdog",
+    "app-host-process",
     "app-host-cache",
     "release-ios",
     "release-notary",
@@ -51,27 +52,20 @@ GROUPS = (
 # imports, a working-directory, a submodule). Paths a step runs directly are
 # derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
-    # The What's New and release-notes tests in release-notary import or run these.
-    "scripts/whats-new/digest.py": frozenset(("release-notary",)),
-    "scripts/whats-new/validate.py": frozenset(("release-notary",)),
-    "scripts/whats-new/community.py": frozenset(("release-notary",)),
-    "scripts/cmux-next/release-notes.py": frozenset(("release-notary",)),
+    "scripts/ci/app_host_cache_measure.py": frozenset(("app-host-cache",)),
+    "scripts/ci/signing-runner-claim.sh": frozenset(("ci",)),
+    ".github/workflows/ci-main-full-suite.yml": frozenset(("ci",)),
+    # tests/test_ci_gate_absent_signal.py imports the gate verdict.
+    "scripts/ci/gate_verdict.py": frozenset(("ci",)),
+
     # test_ci_runner_capability_resolver.py reads the capability map, the
     # resolver it imports, the reusable workflow that publishes the map, and
     # the one workflow wired to consume it.
     ".github/runners.json": frozenset(("ci",)),
-    # check-single-host-fallbacks.py (advisory in CI) reads every workflow's runs-on against this declaration.
-    ".github/single-host-fallbacks.json": frozenset(("ci",)),
     ".github/workflows/resolve-runners.yml": frozenset(("ci",)),
     ".github/workflows/ios-app-store.yml": frozenset(("ci",)),
-    "cmux-next-ios/scripts/asc_ensure_signing.py": frozenset(("ci",)),
     "scripts/ci/resolve_runners.py": frozenset(("ci",)),
-    # test_runner_routing_table.py imports the routing check and reads every
-    # workflow's runs-on against .github/runners.json.
-    "scripts/ci/runner_routing_table.py": frozenset(("ci",)),
 
-    # test_ci_upload_artifact_retention.py reads its allowlist.
-    "tests/upload_artifact_retention_allowlist.json": frozenset(("ci",)),
     ".github/workflows/ci-health-report.yml": frozenset(("ci",)),
     ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
     ".github/workflows/required-checks-drift.yml": frozenset(("ci",)),
@@ -80,20 +74,20 @@ PATH_OWNERS = {
     ".github/workflows/ci-macos.yml": frozenset(GROUPS),
     ".github/workflows/ci-web.yml": frozenset(GROUPS),
     ".github/workflows/web-complexity.yml": frozenset(("ci",)),
+    ".github/workflows/web-complexity-trusted.yml": frozenset(("ci",)),
+    ".github/workflows/cmux-next-pr-merge-tree.yml": frozenset(("ci",)),
     "scripts/ci/publish_pr_merge_tree.py": frozenset(("ci",)),
+    ".github/workflows/iroh-v2-production-drift.yml": frozenset(("ci",)),
+    "tests/test_iroh_drift_issue.py": frozenset(("ci",)),
     ".github/workflows/feature-flag-review-drift.yml": frozenset(("ci",)),
     "tests/test_feature_flag_review_drift_issue.py": frozenset(("ci",)),
     ".github/review-fabric-policy.json": frozenset(("preflight",)),
     ".github/review-fabric.md": frozenset(("preflight",)),
     ".github/scripts/review_fabric.py": frozenset(("preflight",)),
-    ".github/workflows/ios-testflight.yml": frozenset(("preflight", "ci", "release-ios")),
+    "agent-chat/test/claude-environment.test.ts": frozenset(("preflight-agent-chat",)),
     "ghostty": frozenset(("release-tooling",)),
     "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),
-    # test_ios_app_review_gate.py loads the gate by path and reads the history.
-    "cmux-next-ios/scripts/app_review_gate.py": frozenset(("release-ios",)),
-    "cmux-next-ios/AppStoreReview/rejection-history.json": frozenset(("release-ios",)),
-    "cmux-next-ios/AppStoreReview/known-blockers.json": frozenset(("release-ios",)),
     # validate_test_execution_registry.py reads the recipe for the tests it runs.
     "scripts/verify-local.py": frozenset(("preflight", "ci")),
     # test_lint_feature_flags_scope.py reads its parser and registry discovery.
@@ -106,28 +100,27 @@ PATH_OWNERS = {
     "scripts/ci/build_graph_health.py": frozenset(("preflight",)),
     "scripts/ci/compile-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/find_admitted_build.py": frozenset(("preflight",)),
-    # test_pr_capture_check.py runs the check, which imports the path map.
-    "scripts/ci/pr_capture_check.py": frozenset(("ci",)),
-    "scripts/cmux-next/media/path_map.py": frozenset(("ci",)),
-    # tests/test_ci_pr_media_privacy.py (ci) imports the check, and every
-    # upload in tests/test_pr_media.py (preflight) runs it.
-    "scripts/ci/pr_media_privacy.py": frozenset(("ci", "preflight")),
-    # tests/test_ci_pr_media_privacy.py (ci) runs the publishing action's
-    # preflight and Linux OCR tool, reads the action, and OCRs the fixtures.
-    "scripts/ci/pr_media_gate.py": frozenset(("ci",)),
-    "scripts/ci/pr_media_ocr_tesseract.py": frozenset(("ci",)),
-    ".github/actions/pr-media-publish/action.yml": frozenset(("ci",)),
-    ".github/actions/pr-media-publish/canary.png": frozenset(("ci",)),
-    "tests/fixtures/pr_media_gate/clean.png": frozenset(("ci",)),
-    "tests/fixtures/pr_media_gate/seeded-private-term.png": frozenset(("ci",)),
+    "scripts/ci/main_full_suite.py": frozenset(("ci",)),
     # test_ci_package_bisect.py loads it by path.
     "scripts/ci/package_bisect.py": frozenset(("ci",)),
+    # test_ci_merge_receipt.py and test_ci_main_regression_attribution.py load
+    # these by path; the receipt test also reads its workflow and fixtures.
+    "scripts/ci/main_regression_attribution.py": frozenset(("ci",)),
+    # ...and the attribution imports these: the restart marker, the paths
+    # outside the app, and the suites a changed string reaches.
+    "scripts/ci/app_host_result_accounting.py": frozenset(("ci",)),
+    "scripts/ci/app_host_test_rerun.py": frozenset(("ci",)),
+    "scripts/ci/reverse_test_impact.py": frozenset(("ci",)),
+    "scripts/ci/merge_receipt.py": frozenset(("ci",)),
+    ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
+    "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
+    "tests/fixtures/merge_receipt/pr14461.json": frozenset(("ci",)),
     # The local merge-main resolver runs these trusted generators. The
     # resolver also backs the project-file merge driver below.
     "scripts/ci/merge_main_resolver.py": frozenset(("preflight", "ci")),
     "scripts/merge-xcstrings.py": frozenset(("ci",)),
-    "scripts/merge-cargo-lock.py": frozenset(("ci",)),  # test_merge_cargo_lock.py
     "scripts/normalize-pbxproj.py": frozenset(("ci",)),
+    "scripts/generate-cmux-config-schema.py": frozenset(("ci",)),
     # test_merge_pbxproj.py runs the merge driver, which runs the normalizer
     # above and borrows union_pbxproj from the local resolver.
     "scripts/merge-pbxproj.py": frozenset(("preflight",)),
@@ -138,7 +131,6 @@ PATH_OWNERS = {
     "scripts/ci/merge_main.py": frozenset(("ci",)),
     "scripts/ci/last_green_base.py": frozenset(("ci",)),
     "scripts/ci/run_ci_guards.py": frozenset(("ci",)),
-    "scripts/ci/guard_step_inputs.py": frozenset(("ci",)),  # run_ci_guards.py --affected's selection
     "scripts/ci/guards-local.sh": frozenset(("ci",)),
 
     "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
@@ -150,9 +142,21 @@ PATH_OWNERS = {
     "scripts/ci/nightly_sign_admit.py": frozenset(("ci", "release-notary")),
     "scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh": frozenset(("release-notary",)),
     "scripts/ci/nightly-sparkle-key.sh": frozenset(("release-notary",)),
+    # tests/test_download_run_artifact.py imports it; nightly.yml runs it.
+    "scripts/ci/download-run-artifact.py": frozenset(("release-notary",)),
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
     "scripts/ci/ci_health_report.py": frozenset(("ci",)),
     "scripts/ci/queue_janitor.py": frozenset(("ci",)),
+    # The delivery workflow list: test_nightly_delivery_concurrency.py (release-notary) and
+    # queue_janitor.py (ci) both import it.
+    "scripts/ci/delivery_workflows.py": frozenset(("ci", "release-notary")),
+    # The shared-group check test_nightly_delivery_concurrency.py (release-notary) and
+    # cron_concurrency.py (test_ci_cron_concurrency.py, ci) import.
+    "scripts/ci/delivery_concurrency.py": frozenset(("ci", "release-notary")),
+    # The cron/delivery concurrency rule test_ci_cron_concurrency.py (ci) imports; the backlog replay
+    # reads it too.
+    "scripts/ci/cron_concurrency.py": frozenset(("ci",)),
+    "scripts/ci/backlog_drain_replay.py": frozenset(("ci",)),
     # test_ci_starved_labels.py (ci) loads it by path; queue_janitor.py imports it.
     "scripts/ci/starved_labels.py": frozenset(("ci",)),
     "scripts/ci/required_status_checks.py": frozenset(("ci",)),
@@ -166,29 +170,48 @@ PATH_OWNERS = {
     # test_ci_xcodebuild_noninteractive_helper.py loads it by path.
     "scripts/ci/xcodebuild_noninteractive.py": frozenset(("app-host-watchdog",)),
     # lint-ios-conventions-diff.sh runs lint-ios-package-conventions.sh, which
-    # runs the namespace linter, which imports the source mask, against the
-    # shrink-only lists. The step is in preflight: test-ios.yml and cmux-next.yml
-    # run the same lint for feat-cmux-next, so it is not a release-ios guard.
-    "scripts/lint-ios-package-conventions.sh": frozenset(("preflight",)),
-    "scripts/lint-ios-package-conventions-baseline.txt": frozenset(("preflight",)),
-    "scripts/lint-namespace-types-baseline.txt": frozenset(("preflight",)),
-    "scripts/lint-namespace-types-ratchet.txt": frozenset(("preflight",)),
-    "scripts/lint_swift_namespaces.py": frozenset(("preflight",)),
-    "scripts/swift_source_mask.py": frozenset(("preflight",)),
+    # runs the namespace linter, which imports the source mask.
+    "scripts/lint_swift_namespaces.py": frozenset(("release-ios",)),
+    "scripts/swift_source_mask.py": frozenset(("release-ios",)),
     # test_ci_reusable_workflow_permissions.py loads it; cmux.ci.guard runs that.
     "scripts/ci/check_reusable_workflow_permissions.py": frozenset(("ci",)),
-    "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution", "ci")),
-    "scripts/ci/package-test-lane/swift_suite_outcomes.py": frozenset(("ci",)),
+    "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution",)),
     "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
     # run-swift-testing-suites.sh runs it.
     "scripts/ci/swift_package_submodules.py": frozenset(("app-host-execution",)),
-    # run-swift-testing-suites.sh runs it before the build.
-    "scripts/ci/swift_suite_names_precheck.py": frozenset(("app-host-execution",)),
     # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
     "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
+    # tests/test_ci_owned_pool_sources.py imports the detector, which reads the
+    # pool picker's and the runner label policy's constants.
+    "scripts/ci/owned_pool_sources.py": frozenset(("ci",)),
+    # tests/test_ci_ui_tests_dispatch.py imports the script and reads the
+    # workflow; owned_pool_rescue.py and classify_failures.py import it too.
+    "scripts/ci/ui_tests_dispatch.py": frozenset(("app-host-execution", "ci")),
+    ".github/workflows/ci-ui-tests.yml": frozenset(("app-host-execution", "ci")),
+    # tests/test_ci_pr_media.py imports the script and reads the workflow;
+    # tests/test_ci_pr_media_privacy.py (ci) reads the workflow too.
+    "scripts/ci/pr_media.py": frozenset(("app-host-execution",)),
+    ".github/workflows/pr-media.yml": frozenset(("app-host-execution", "ci")),
+    # tests/test_pr_media.py (preflight) and tests/test_ci_pr_media_privacy.py
+    # (ci) both load the uploader and its publishing-gate check.
+    "scripts/pr-media.py": frozenset(("ci", "preflight")),
+    # tests/test_ci_pr_media_privacy.py imports the gate and reads its workflow;
+    # scripts/pr-media.py (tests/test_pr_media.py) runs it before every upload.
+    "scripts/ci/pr_media_privacy.py": frozenset(("ci", "preflight")),
+    # tests/test_ci_pr_media_privacy.py (ci) runs the publishing action's
+    # preflight and tesseract tool, and reads the action and its fixtures.
+    "scripts/ci/pr_media_gate.py": frozenset(("ci",)),
+    "scripts/ci/pr_media_ocr_tesseract.py": frozenset(("ci",)),
     # tests/test_ci_pr_media_lint.py (ci) loads the warn-only lint by path.
     "scripts/ci/pr_media_lint.py": frozenset(("ci",)),
+    ".github/actions/pr-media-publish/action.yml": frozenset(("ci",)),
+    ".github/actions/pr-media-publish/canary.png": frozenset(("ci",)),
+    "tests/fixtures/pr_media_gate/clean.png": frozenset(("ci",)),
+    "tests/fixtures/pr_media_gate/seeded-private-term.png": frozenset(("ci",)),
+    # tests/test_ci_pr_media_privacy.py runs its upload() through the gate.
+    "dogfood/fuzz/cmuxfuzz/triage.py": frozenset(("ci",)),
+    ".github/workflows/pr-media-privacy.yml": frozenset(("ci",)),
     # detect_ci_change_areas.py imports this to decide the swift-package-tests
     # route, so the ci group's router tests observe an edit to it even though
     # no guard step names it in a `run:`.
@@ -205,8 +228,6 @@ PATH_OWNERS = {
     "skills/cmux-cloud-vm/references/guest.md": frozenset(("preflight",)),
     "tests/test-execution.toml": frozenset(("preflight",)),
 }
-
-REGISTRY_FRAGMENT = re.compile(r"tests/test-execution\.d/[^/]+\.toml")
 
 # Changes here can alter which required work runs. They always exercise every
 # group, including when the candidate implementation would route more narrowly.
@@ -234,9 +255,11 @@ def _python_syntax_scan(path: str) -> bool:
 def _determinism_scan(path: str) -> bool:
     if not path.endswith(DETERMINISM_SUFFIXES):
         return False
-    if path.startswith(("tests/", "tests_v2/", "web/tests/", "webviews/test/")):
+    if path.startswith(("cmuxTests/", "cmuxCLITests/", "cmuxCLITestSupport/",
+                        "cmuxUITests/", "ios/cmuxUITests/",
+                        "tests/", "tests_v2/", "web/tests/", "webviews/test/")):
         return True
-    return path.startswith(("Packages/", "cmux-next-ios/")) and "/Tests/" in path
+    return path.startswith("Packages/") and "/Tests/" in path
 
 
 class GuardWorkflowError(ValueError):
@@ -427,73 +450,6 @@ def _workflow_path_owners() -> dict[str, frozenset[str]] | None:
         return None
 
 
-TEST_MODULE = re.compile(r"tests/([A-Za-z_][A-Za-z0-9_]*)\.py")
-
-
-@lru_cache(maxsize=4)
-def _test_importers(root: Path) -> dict[str, frozenset[str]]:
-    """Build the reverse import graph for the test modules under ``root`` once.
-
-    Route classification asks about several shared helpers in one invocation. Scanning every test
-    file for each helper made a single route decision take seconds on the full checkout. The graph
-    keeps the same line-oriented import matching while making the filesystem walk one-time per root.
-    """
-    importers: dict[str, set[str]] = {}
-    for candidate in sorted((root / "tests").glob("*.py")):
-        relative = f"tests/{candidate.name}"
-        try:
-            text = candidate.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
-            continue
-        for line in text.splitlines():
-            stripped = line.lstrip()
-            if stripped.startswith("from "):
-                match = re.match(r"from\s+([A-Za-z_][A-Za-z0-9_]*)\s+import\b", stripped)
-                if match:
-                    importers.setdefault(match.group(1), set()).add(relative)
-                continue
-            if not stripped.startswith("import "):
-                continue
-            # The old line-oriented matcher accepted trailing comments, including the
-            # ``# noqa`` comments used by most tests. Keep that behavior while indexing
-            # comma-separated imports in one pass.
-            for item in stripped[7:].split("#", 1)[0].split(","):
-                module = item.strip().split(" as ", 1)[0].split(".", 1)[0]
-                if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", module):
-                    importers.setdefault(module, set()).add(relative)
-    return {module: frozenset(paths) for module, paths in importers.items()}
-
-
-def _importers(stem: str, root: Path) -> set[str]:
-    """tests/*.py files that import the sibling module `stem`, directly or through another
-    sibling module (tests/test_x.py imports job_lists_routing, which imports workflow_jobs)."""
-    found: set[str] = set()
-    pending = [stem]
-    graph = _test_importers(root)
-    while pending:
-        module = pending.pop()
-        for relative in graph.get(module, ()):
-            if relative in found:
-                continue
-            found.add(relative)
-            pending.append(Path(relative).stem)
-    return found
-
-
-def import_owners(path: str, derived: dict[str, frozenset[str]], root: Path | None = None) -> set[str]:
-    """Groups whose guard steps run a test that imports this tests/ module. A shared helper such
-    as tests/workflow_jobs.py is never run by a step itself, so without this an edit to it would
-    run none of the suites that read it."""
-    match = TEST_MODULE.fullmatch(path)
-    if match is None:
-        return set()
-    root = root or GUARD_WORKFLOW.parents[2]
-    owners: set[str] = set()
-    for importer in _importers(match.group(1), root):
-        owners.update(derived.get(importer, ()))
-    return owners
-
-
 def groups_for_path(path: str) -> tuple[str, ...] | None:
     """Return current observers for path, or None when ownership is unknown."""
     if path in ROUTING_POLICY_PATHS:
@@ -504,11 +460,7 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
         return GROUPS
 
     owners = set(PATH_OWNERS.get(path, ()))
-    if REGISTRY_FRAGMENT.fullmatch(path):
-        # A test registry area fragment is read like tests/test-execution.toml was.
-        owners.update(PATH_OWNERS["tests/test-execution.toml"])
     owners.update(derived.get(path, ()))
-    owners.update(import_owners(path, derived))
     if _python_syntax_scan(path):
         # Syntax compilation is a cheap, deterministic check. Keep it out of
         # the serial preflight bucket, whose other steps install and exercise
@@ -516,14 +468,6 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
         owners.add("quality-determinism")
     if _determinism_scan(path):
         owners.add("quality-determinism")
-
-    if path == ".github/workflows/ios-testflight.yml":
-        owners.update(("preflight", "ci"))
-    # The ci group's routing-table check (tests/test_runner_routing_table.py)
-    # reads every workflow's runs-on, so it observes every workflow edit. An
-    # unowned workflow already runs every group (None below).
-    if owners and path.startswith(".github/workflows/") and path.endswith((".yml", ".yaml")):
-        owners.add("ci")
 
     if not owners:
         return None

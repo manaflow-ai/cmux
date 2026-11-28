@@ -72,6 +72,10 @@ class NoBundledWebpkiRootsTests(unittest.TestCase):
         self.assertIsNotNone(iroh)
         self.assertIn('"platform-verifier"', iroh.group(0))
 
+    def test_iroh_binds_system_ca_config(self) -> None:
+        source = (TUI / "crates/cmux-remote/src/provider/iroh.rs").read_text(encoding="utf-8")
+        self.assertIn("CaTlsConfig::system()", source)
+
     def test_manifests_do_not_enable_bundled_roots(self) -> None:
         offenders: list[str] = []
         for manifest in _manifests():

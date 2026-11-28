@@ -17,13 +17,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-import importlib.util as _git_fixture_importlib  # noqa: E402
-from os import path as _git_fixture_path  # noqa: E402
-_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
-    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
-git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
@@ -57,7 +50,7 @@ FILES = {
     "Packages/macOS/Other/Package.swift": "let package = Package(dependencies: [])\n",
     "Packages/macOS/Other/Sources/Other/Other.swift": "public struct Other {}\n",
     "scripts/ci/package-test-lane.sh": "lane\n",
-    "Resources/App.txt": "app\n",
+    "Sources/App.swift": "app\n",
     "docs/notes.md": "notes\n",
     "Native/Thing/lib.rs": "fn main() {}\n",
 }
@@ -108,7 +101,7 @@ class PackageKeyTests(unittest.TestCase):
         self.assertEqual(self.changed_after("Packages/macOS/Top/Sources/Top/Top.swift"), {"Top"})
 
     def test_an_unrelated_path_moves_nothing(self) -> None:
-        self.assertEqual(self.changed_after("Resources/App.txt"), set())
+        self.assertEqual(self.changed_after("Sources/App.swift"), set())
         self.assertEqual(self.changed_after("docs/notes.md"), set())
 
     def test_a_job_input_or_an_unknown_path_moves_every_package(self) -> None:
@@ -202,19 +195,6 @@ class WiringTests(unittest.TestCase):
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", reuse_env)
         self.assertIn("inputs.full_suite != 'true'", reuse_env)
         self.assertIn("(vars.CI_PACKAGE_RESULT_REUSE || '1') != '0'", reuse_env)
-
-    def test_the_fleet_dispatch_preflights_worker_access(self) -> None:
-        fleet = self.job.index("- name: Run Swift package tests on the build fleet")
-        dispatch = self.job.index('"$client" run', fleet)
-        preflight = self.job.index('"$client" workers', fleet)
-        self.assertLess(preflight, dispatch)
-        guard = self.job[preflight:dispatch]
-        self.assertIn('>"$preflight_log" 2>&1', guard)
-        self.assertIn('grep -Fq "compute.instances.get"', guard)
-        self.assertIn("No CI job was dispatched", guard)
-        self.assertIn("cmux-ci will report the dispatch result", guard)
-        self.assertNotIn("raw.githubusercontent.com", guard)
-        self.assertNotIn("fleet-instance-preflight.sh", guard)
 
     def test_the_new_scripts_are_job_inputs(self) -> None:
         select = load("select_package_tests")

@@ -1,7 +1,7 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import { getTranslations } from "next-intl/server";
-import { localeDirection, routing, type Locale } from "../i18n/routing";
+import { routing, type Locale } from "../i18n/routing";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -27,13 +27,17 @@ function localeFromHeader(value: string | null): Locale {
     : routing.defaultLocale;
 }
 
+function directionForLocale(locale: Locale): "ltr" | "rtl" {
+  return locale === "ar" ? "rtl" : "ltr";
+}
+
 export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const locale = localeFromHeader((await headers()).get(nextIntlLocaleHeader));
-  const dir = localeDirection(locale);
+  const dir = directionForLocale(locale);
   const blogTranslations = await getTranslations({ locale, namespace: "blog" });
   const feedUrl =
     locale === routing.defaultLocale

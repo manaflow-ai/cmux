@@ -1,5 +1,4 @@
 import Foundation
-@testable import CmuxUpdaterTestSupport
 @testable import CmuxUpdater
 
 @MainActor
@@ -7,23 +6,16 @@ struct Harness {
     let updater: FakeUpdater
     let clock: TestDeadlineClock
     let controller: UpdateController
-    let defaults: UserDefaults
-    let suiteName: String
     var model: UpdateStateModel { controller.model }
 
-    init(automaticDownloads: Bool = false) {
+    init() {
         let suiteName = "cmux.updater.pipeline-tests.\(UUID().uuidString)"
-        let defaults = UserDefaults(testSuiteName: suiteName)!
+        let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
-        // The pipeline tests exercise an explicit host choice. Seed the shared preference so
-        // each fixture owns its download policy instead of relying on registered defaults.
-        defaults.set(automaticDownloads, forKey: UpdateSettings.automaticallyUpdateKey)
         let updater = FakeUpdater()
         let clock = TestDeadlineClock()
         self.updater = updater
         self.clock = clock
-        self.defaults = defaults
-        self.suiteName = suiteName
         self.controller = UpdateController(
             log: NoopUpdateLog(),
             clock: clock,

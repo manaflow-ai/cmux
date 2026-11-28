@@ -9,8 +9,6 @@ const NATIVE_SCHEMES = new Set([
   "cmux-rc",
   // nightly-next's cmux NEXT, installed beside cmux NIGHTLY.
   "cmux-next",
-  // cmux NEXT Stable (scripts/ci/stable-next-identity.sh), installed beside cmux NEXT.
-  "cmux-next-stable",
 ]);
 
 export function nativeCallbackHrefForScheme(scheme: string): string {
@@ -34,15 +32,46 @@ export function trustedNativeCallbackScheme(
   return /^cmux-dev-[a-z0-9-]+$/.test(scheme) ? scheme : null;
 }
 
-export function isAllowedNativeReturnTo(
-  href: string,
-  request: NextRequest,
-): boolean {
+/**
+ * A DEV build's callback scheme: `cmux-dev`, or `cmux-dev-<tag>` with the tag
+ * as CloudConfiguration.sanitizedSchemeTag writes it (lowercase letters and
+ * digits joined by single hyphens, any length: build tooling does not cap tags).
+ */
+const DEV_BUILD_SCHEME = /^cmux-dev(?:-[a-z0-9]+)*$/;
+
+/**
+ * A side instance's callback scheme: `cmux-side-<name>-<hash>`, as
+ * scripts/cmux-next/side-instance.sh writes it for a copy of an installed app
+ * (`cmux app try`, try-pr.sh): NAME is a lowercase letter or digit then up to 39
+ * letters, digits or dashes, and the hash is 6 hex digits of the copy's root.
+ * A copy of cmux NIGHTLY signs in on production with it, as its own session.
+ */
+const SIDE_INSTANCE_SCHEME = /^cmux-side-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{6}$/;
+
+/**
+ * Whether a sign-in may hand its session back to `scheme`: a shipped
+ * channel, any cmux DEV build, or a side-instance copy. A DEV build pointed at production
+ * (`CMUX_AUTH_ENVIRONMENT=production`) or a copy signs in through the same hosted page
+ * as the shipped app, and the app that started the sign-in checks the
+ * callback's `cmux_auth_state` against its own attempt, so no per-build
+ * allowlist on the server is needed. Every other scheme is refused.
+ */
+export function isNativeSignInScheme(scheme: string): boolean {
+  if (NATIVE_SCHEMES.has(scheme)) return true;
+  return DEV_BUILD_SCHEME.test(scheme) || SIDE_INSTANCE_SCHEME.test(scheme);
+}
+
+/**
+ * Whether after-sign-in may hand the fresh session to `href`: exactly
+ * `<scheme>://auth-callback` for a scheme `isNativeSignInScheme` accepts, on
+ * any host. Billing keeps its own stricter check (`isAllowedNativeScheme`).
+ */
+export function isAllowedNativeReturnTo(href: string): boolean {
   try {
     const url = new URL(href);
     if (url.hostname !== NATIVE_CALLBACK_HOST) return false;
     if (url.pathname !== "" && url.pathname !== "/") return false;
-    return isAllowedNativeScheme(url.protocol.replace(":", ""), request);
+    return isNativeSignInScheme(url.protocol.replace(":", ""));
   } catch {
     return false;
   }
@@ -52,16 +81,9 @@ export function isAllowedNativeScheme(
   scheme: string,
   request: NextRequest,
 ): boolean {
-  // Signed NEXT DEV authenticates against staging, so never hand production
-  // Stack tokens to that app when a callback is forged on cmux.com.
-  if (scheme === "cmux-next-dev") return isStagingRequest(request);
   if (NATIVE_SCHEMES.has(scheme)) return true;
-  const tagged = /^cmux-dev-[a-z0-9-]+$/.test(scheme);
-  // Debug and tagged fleet builds sign in on staging by default (CloudConfiguration.resolve),
-  // with staging's development Stack project, as signed NEXT DEV does above.
-  if ((scheme === "cmux-dev" || tagged) && isStagingRequest(request)) return true;
   if (scheme === "cmux-dev") return isLocalRequest(request);
-  if (!tagged) return false;
+  if (!/^cmux-dev-[a-z0-9-]+$/.test(scheme)) return false;
   return isLocalRequest(request) && localAllowedNativeSchemes().has(scheme);
 }
 
@@ -69,12 +91,6 @@ export function isLocalRequest(request: NextRequest): boolean {
   const hostHeader = request.headers.get("host");
   const host = (hostHeader?.split(":")[0] ?? request.nextUrl.hostname).toLowerCase();
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
-}
-
-function isStagingRequest(request: NextRequest): boolean {
-  const hostHeader = request.headers.get("host");
-  const host = (hostHeader?.split(":")[0] ?? request.nextUrl.hostname).toLowerCase();
-  return host === "cmux-staging.vercel.app";
 }
 
 function localAllowedNativeSchemes(): Set<string> {

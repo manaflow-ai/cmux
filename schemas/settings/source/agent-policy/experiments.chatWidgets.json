@@ -1,4 +1,0 @@
-{
-  "agent": "userOnly",
-  "why": "Extension chat widgets draw installed extensions' cards in agent chat; only the person turns them on."
-}

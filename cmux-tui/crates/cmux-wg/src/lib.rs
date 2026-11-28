@@ -16,78 +16,21 @@
 //! - `smoltcp` holds the IP interface and its TCP sockets and speaks in IP
 //!   packets.
 //!
-//! The driver moves bytes between the underlay (one UDP socket, or several
-//! paths to the same peer), the tunnel, and a virtual
+//! The driver moves bytes between the UDP socket, the tunnel, and a virtual
 //! device that smoltcp polls. Each TCP connection is bridged to a
 //! [`WgStream`], which implements Tokio's `AsyncRead` and `AsyncWrite` so the
 //! rest of the client cannot tell it apart from a kernel socket.
 //!
 //! Crypto-key routing is enforced on receive: a decrypted packet whose source
 //! address lies outside the peer's `AllowedIPs` is dropped.
-//!
-//! [`WgNet`] is one client reaching one network through one peer. [`WgMesh`]
-//! is the same engine for a `cmux link` agent: one key, one UDP socket, and
-//! a session with each of several paired peers, routed by their allowed IPs.
 
 mod config;
-mod delay_window;
 mod device;
-mod error;
-mod handshake_retry;
-mod mesh;
-mod mesh_driver;
-mod mesh_paths;
-mod mesh_peers;
-mod mesh_route;
-mod multipath;
 mod net;
-mod pacing;
-mod probe_schedule;
-mod probing;
-mod send_gate;
-#[cfg(test)]
-mod send_gate_tests;
-mod single_path;
-mod stall_trace;
-mod stream;
-#[cfg(test)]
-mod tcp_model_tests;
-mod tcp_stack;
 /// Two-peer loopback harness. Test support for this crate and its dependents;
 /// it links no code into a binary that does not call it.
 pub mod testing;
-mod timers;
-mod udp;
-mod ultra;
-mod ultra_auto;
-mod ultra_hello;
-mod ultra_period;
-mod ultra_rs;
-mod underlay;
-mod underlay_batch;
-mod watchdog;
-mod wire;
 
-pub use cmux_transport::{Medium, PathId, PathKind, PathState, SelectorConfig};
-pub use config::{
-    ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, OVERHEAD_V4, OVERHEAD_V6,
-    SMALLEST_CLOUD_PATH_MTU, WgConfig, inner_mtu_for_path,
-};
+pub use config::{ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, WgConfig};
 pub use ip_network::IpNetwork;
-pub use mesh::{WgMesh, WgMeshConfig, WgMeshListener, WgPeer};
-pub use mesh_paths::{MeshPathView, PeerCandidate};
-pub use mesh_route::PeerRoute;
-pub use multipath::{Multipath, MultipathControl, PathEvent, PathStats, silence_window};
-pub use net::{Datagram, DatagramDrops, WgDatagramSocket, WgError, WgListener, WgNet};
-pub use pacing::Priority;
-pub use probe_schedule::{PathWatch, ProbeConfig, WatchStep};
-pub use single_path::MIN_SEND_BUFFER;
-pub use stream::WgStream;
-pub use tcp_stack::{STREAM_WINDOW_ENV, SYN_DATA_ENV};
-pub use timers::TimerSchedule;
-pub use ultra::{UltraMode, UltraStats, is_parity as is_ultra_parity};
-pub use ultra_auto::UltraChoice;
-pub use underlay::{
-    DatagramSocket, DueProbes, Origin, RECEIVE_BUFFER, ReceiveBatch, Received, SendBatch,
-    SocketPath, UdpUnderlay, Underlay,
-};
+pub use net::{WgError, WgListener, WgNet, WgStream};

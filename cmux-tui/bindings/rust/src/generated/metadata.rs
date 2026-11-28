@@ -1,12 +1,12 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.rs.
+// cmux-tui mux protocol 12, IR 93af6692f7f686eafe3bfcb03c01e8570f8cf4dfa8a84ad93824ed07160b504d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{CommandMetadata, EventMetadata, ProfileMetadata, StreamMetadata};
 
 pub const SDK_SCHEMA_VERSION: u32 = 2;
 pub const MUX_PROTOCOL_VERSION: u32 = 12;
-pub const SDK_IR_SHA256: &str = "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c";
+pub const SDK_IR_SHA256: &str = "93af6692f7f686eafe3bfcb03c01e8570f8cf4dfa8a84ad93824ed07160b504d";
 
 #[rustfmt::skip]
 pub const CONTROL_PROFILE: ProfileMetadata = ProfileMetadata {
@@ -48,25 +48,7 @@ pub const PROVIDER_AUTHORITY_PROFILE: ProfileMetadata = ProfileMetadata {
 pub const ACK_TAB_NOTIFICATIONS_METADATA: CommandMetadata = CommandMetadata {
     name: "ack-tab-notifications",
     since: 12,
-    capability: Some("notification-ack-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const ADD_SCREENS_TO_SCREEN_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "add-screens-to-screen-group",
-    since: 12,
-    capability: Some("screen-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const ADD_TABS_TO_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "add-tabs-to-tab-group",
-    since: 12,
-    capability: Some("tab-groups-v1"),
+    capability: None,
     authority: "control",
     stream: None,
 };
@@ -87,15 +69,6 @@ pub const ATTACH_SURFACE_METADATA: CommandMetadata = CommandMetadata {
     capability: None,
     authority: "frontend",
     stream: Some(StreamMetadata { kind: "attach", terminal_event: Some("detached") }),
-};
-
-#[rustfmt::skip]
-pub const BIND_CONVERSATION_TAB_SESSION_METADATA: CommandMetadata = CommandMetadata {
-    name: "bind-conversation-tab-session",
-    since: 12,
-    capability: Some("agent-session-tabs-v1"),
-    authority: "control",
-    stream: None,
 };
 
 #[rustfmt::skip]
@@ -131,15 +104,6 @@ pub const BROWSER_FRAME_PRESENTED_METADATA: CommandMetadata = CommandMetadata {
     since: 10,
     capability: Some("browser-pointer-frame-guard-v1"),
     authority: "frontend",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const BROWSER_HOST_PROVIDER_METADATA: CommandMetadata = CommandMetadata {
-    name: "browser-host-provider",
-    since: 12,
-    capability: Some("browser-host-provider-v1"),
-    authority: "local-admin",
     stream: None,
 };
 
@@ -225,33 +189,6 @@ pub const BROWSER_WHEEL_GUARDED_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const CANCEL_CREATING_INPUT_METADATA: CommandMetadata = CommandMetadata {
-    name: "cancel-creating-input",
-    since: 12,
-    capability: Some("creating-input-cancel-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CHIEF_INSPECT_METADATA: CommandMetadata = CommandMetadata {
-    name: "chief-inspect",
-    since: 12,
-    capability: Some("chief-inspect-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CHIEF_WORK_METADATA: CommandMetadata = CommandMetadata {
-    name: "chief-work",
-    since: 12,
-    capability: Some("chief-work-v1"),
-    authority: "frontend",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const CLEAR_HISTORY_METADATA: CommandMetadata = CommandMetadata {
     name: "clear-history",
     since: 9,
@@ -306,37 +243,10 @@ pub const CLOSE_SCREEN_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const CLOSE_SCREEN_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "close-screen-group",
-    since: 12,
-    capability: Some("screen-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const CLOSE_SURFACE_METADATA: CommandMetadata = CommandMetadata {
     name: "close-surface",
     since: 5,
     capability: None,
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOSE_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "close-tab-group",
-    since: 12,
-    capability: Some("tab-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOSE_TABS_METADATA: CommandMetadata = CommandMetadata {
-    name: "close-tabs",
-    since: 12,
-    capability: Some("batch-close-v1"),
     authority: "control",
     stream: None,
 };
@@ -360,528 +270,6 @@ pub const CLOSE_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const CLOUD_ATTACHMENT_LINK_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-attachment-link",
-    since: 12,
-    capability: Some("cloud-attachments-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_ATTACHMENT_READ_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-attachment-read",
-    since: 12,
-    capability: Some("cloud-attachments-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_ATTACHMENT_UPLOAD_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-attachment-upload",
-    since: 12,
-    capability: Some("cloud-attachments-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_HISTORY_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-conversation-history",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_LIVE_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-conversation-live",
-    since: 12,
-    capability: Some("cloud-chief-live-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_OP_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-conversation-op",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_PRESENCE_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-conversation-presence",
-    since: 12,
-    capability: Some("cloud-conversation-presence-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_RUN_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-conversation-run",
-    since: 12,
-    capability: Some("cloud-conversation-runs-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_RUNS_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-conversation-runs",
-    since: 12,
-    capability: Some("cloud-conversation-runs-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_SNAPSHOT_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-conversation-snapshot",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_SUBSCRIBE_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-conversation-subscribe",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_THREAD_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-conversation-thread",
-    since: 12,
-    capability: Some("conversation-thread-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_TYPING_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-conversation-typing",
-    since: 12,
-    capability: Some("cloud-conversation-typing-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_UNSUBSCRIBE_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-conversation-unsubscribe",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_ENVIRONMENT_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-environment",
-    since: 12,
-    capability: Some("cloud-environments-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_HOST_REPLICA_CLEAR_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-host-replica-clear",
-    since: 12,
-    capability: Some("cloud-host-replica-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_HOST_REPLICA_SET_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-host-replica-set",
-    since: 12,
-    capability: Some("cloud-host-replica-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_HOST_REPLICA_STATUS_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-host-replica-status",
-    since: 12,
-    capability: Some("cloud-host-replica-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_INBOX_LIST_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-inbox-list",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_INBOX_OP_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-inbox-op",
-    since: 12,
-    capability: Some("conversation-inbox-state-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_INBOX_SUBSCRIBE_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-inbox-subscribe",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_INBOX_UNSUBSCRIBE_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-inbox-unsubscribe",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_MUX_ACK_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-mux-ack",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_MUX_SUBSCRIBE_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-mux-subscribe",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_MUX_UNSUBSCRIBE_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-mux-unsubscribe",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_PARTICIPANT_AVATAR_GET_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-participant-avatar-get",
-    since: 12,
-    capability: Some("participant-avatars-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_REQUESTS_LIST_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-requests-list",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_SELFHOST_INFO_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-selfhost-info",
-    since: 12,
-    capability: Some("cloud-selfhost-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_SESSION_CLEAR_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-session-clear",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_SESSION_SET_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-session-set",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CLOUD_SESSION_STATUS_METADATA: CommandMetadata = CommandMetadata {
-    name: "cloud-session-status",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const COMPUTER_USE_APPROVALS_METADATA: CommandMetadata = CommandMetadata {
-    name: "computer-use-approvals",
-    since: 12,
-    capability: Some("computer-use-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const COMPUTER_USE_CONFIG_METADATA: CommandMetadata = CommandMetadata {
-    name: "computer-use-config",
-    since: 12,
-    capability: Some("computer-use-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const COMPUTER_USE_ENDPOINT_METADATA: CommandMetadata = CommandMetadata {
-    name: "computer-use-endpoint",
-    since: 12,
-    capability: Some("computer-use-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_AGENT_TOKEN_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-agent-token",
-    since: 12,
-    capability: Some("local-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_ATTACHMENT_LINK_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-attachment-link",
-    since: 12,
-    capability: Some("ws-attachments-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_ATTACHMENT_READ_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-attachment-read",
-    since: 12,
-    capability: Some("local-attachments-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_ATTACHMENT_UPLOAD_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-attachment-upload",
-    since: 12,
-    capability: Some("local-attachments-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_BIND_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-bind",
-    since: 12,
-    capability: Some("local-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_CREATE_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-create",
-    since: 12,
-    capability: Some("local-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_DRAFT_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-draft",
-    since: 12,
-    capability: Some("conversation-draft-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_HISTORY_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-history",
-    since: 12,
-    capability: Some("local-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_IMPORT_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-import",
-    since: 12,
-    capability: Some("local-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_INBOX_OP_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-inbox-op",
-    since: 12,
-    capability: Some("conversation-inbox-state-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_LINK_RESOLVE_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-link-resolve",
-    since: 12,
-    capability: Some("conversation-tree-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_LIST_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-list",
-    since: 12,
-    capability: Some("local-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_LIVE_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-live",
-    since: 12,
-    capability: Some("chief-live-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_LIVE_PUBLISH_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-live-publish",
-    since: 12,
-    capability: Some("chief-live-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_OP_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-op",
-    since: 12,
-    capability: Some("local-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_RUN_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-run",
-    since: 12,
-    capability: Some("conversation-runs-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_RUN_APPEND_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-run-append",
-    since: 12,
-    capability: Some("conversation-runs-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_RUNS_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-runs",
-    since: 12,
-    capability: Some("conversation-runs-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_SCHEDULED_LIST_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-scheduled-list",
-    since: 12,
-    capability: Some("conversation-scheduled-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_SCHEDULED_OP_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-scheduled-op",
-    since: 12,
-    capability: Some("conversation-scheduled-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_SEARCH_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-search",
-    since: 12,
-    capability: Some("conversation-search-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_SNAPSHOT_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-snapshot",
-    since: 12,
-    capability: Some("local-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_THREAD_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-thread",
-    since: 12,
-    capability: Some("conversation-thread-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_TYPING_METADATA: CommandMetadata = CommandMetadata {
-    name: "conversation-typing",
-    since: 12,
-    capability: Some("local-conversations-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const COPY_METADATA: CommandMetadata = CommandMetadata {
     name: "copy",
     since: 6,
@@ -891,64 +279,10 @@ pub const COPY_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const CREATE_BOOKMARK_METADATA: CommandMetadata = CommandMetadata {
-    name: "create-bookmark",
-    since: 12,
-    capability: Some("bookmarks-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CREATE_BROWSER_PROFILE_METADATA: CommandMetadata = CommandMetadata {
-    name: "create-browser-profile",
-    since: 12,
-    capability: Some("browser-profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CREATE_PERSONAL_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "create-personal-group",
-    since: 12,
-    capability: Some("profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CREATE_PROFILE_METADATA: CommandMetadata = CommandMetadata {
-    name: "create-profile",
-    since: 12,
-    capability: Some("profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CREATE_SCREEN_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "create-screen-group",
-    since: 12,
-    capability: Some("screen-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const CREATE_SURFACE_WITH_RECEIPT_METADATA: CommandMetadata = CommandMetadata {
     name: "create-surface-with-receipt",
     since: 10,
     capability: Some("creation-receipts-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const CREATE_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "create-tab-group",
-    since: 12,
-    capability: Some("tab-groups-v1"),
     authority: "control",
     stream: None,
 };
@@ -972,87 +306,6 @@ pub const CREATE_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const CREATE_WORKSPACE_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "create-workspace-group",
-    since: 12,
-    capability: Some("workspace-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const DELETE_BOOKMARK_METADATA: CommandMetadata = CommandMetadata {
-    name: "delete-bookmark",
-    since: 12,
-    capability: Some("bookmarks-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const DELETE_BROWSER_PROFILE_METADATA: CommandMetadata = CommandMetadata {
-    name: "delete-browser-profile",
-    since: 12,
-    capability: Some("browser-profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const DELETE_PERSONAL_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "delete-personal-group",
-    since: 12,
-    capability: Some("profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const DELETE_PROFILE_METADATA: CommandMetadata = CommandMetadata {
-    name: "delete-profile",
-    since: 12,
-    capability: Some("profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const DELETE_SAVED_SCREEN_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "delete-saved-screen-group",
-    since: 12,
-    capability: Some("screen-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const DELETE_SAVED_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "delete-saved-tab-group",
-    since: 12,
-    capability: Some("saved-tab-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const DELETE_TERMINAL_COMMANDS_METADATA: CommandMetadata = CommandMetadata {
-    name: "delete-terminal-commands",
-    since: 12,
-    capability: Some("terminal-command-history-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const DELETE_WORKSPACE_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "delete-workspace-group",
-    since: 12,
-    capability: Some("workspace-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const DETACH_ATTACHED_VIEW_METADATA: CommandMetadata = CommandMetadata {
     name: "detach-attached-view",
     since: 10,
@@ -1071,82 +324,10 @@ pub const DETACH_CLIENT_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const DEVICE_SETUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "device-setup",
-    since: 12,
-    capability: Some("device-setup-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const EXPORT_LAYOUT_METADATA: CommandMetadata = CommandMetadata {
     name: "export-layout",
     since: 6,
     capability: None,
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const FEED_LOCAL_HANDOFF_ABORT_METADATA: CommandMetadata = CommandMetadata {
-    name: "feed-local-handoff-abort",
-    since: 12,
-    capability: Some("feed-local-owner-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const FEED_LOCAL_HANDOFF_BEGIN_METADATA: CommandMetadata = CommandMetadata {
-    name: "feed-local-handoff-begin",
-    since: 12,
-    capability: Some("feed-local-owner-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const FEED_LOCAL_HANDOFF_DONE_METADATA: CommandMetadata = CommandMetadata {
-    name: "feed-local-handoff-done",
-    since: 12,
-    capability: Some("feed-local-owner-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const FEED_LOCAL_LIST_METADATA: CommandMetadata = CommandMetadata {
-    name: "feed-local-list",
-    since: 12,
-    capability: Some("feed-local-owner-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const FEED_LOCAL_READ_METADATA: CommandMetadata = CommandMetadata {
-    name: "feed-local-read",
-    since: 12,
-    capability: Some("feed-local-owner-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const FLOAT_PANE_METADATA: CommandMetadata = CommandMetadata {
-    name: "float-pane",
-    since: 12,
-    capability: Some("floating-panes-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const FLUSH_LAUNCH_SNAPSHOT_METADATA: CommandMetadata = CommandMetadata {
-    name: "flush-launch-snapshot",
-    since: 12,
-    capability: Some("launch-snapshot-flush-v1"),
     authority: "control",
     stream: None,
 };
@@ -1170,24 +351,6 @@ pub const FOCUS_PANE_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const FORGET_SESSION_METADATA: CommandMetadata = CommandMetadata {
-    name: "forget-session",
-    since: 12,
-    capability: Some("profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const GET_BLOB_METADATA: CommandMetadata = CommandMetadata {
-    name: "get-blob",
-    since: 12,
-    capability: Some("icon-assets-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const GET_BROWSER_PROVIDER_METADATA: CommandMetadata = CommandMetadata {
     name: "get-browser-provider",
     since: 10,
@@ -1206,28 +369,10 @@ pub const GET_CELL_PIXELS_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const GET_FRONTEND_BROWSER_HISTORY_METADATA: CommandMetadata = CommandMetadata {
-    name: "get-frontend-browser-history",
-    since: 12,
-    capability: Some("frontend-browser-history-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const GET_FRONTEND_PROJECTION_METADATA: CommandMetadata = CommandMetadata {
     name: "get-frontend-projection",
     since: 7,
     capability: None,
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const GET_HOST_SIZE_POLICY_METADATA: CommandMetadata = CommandMetadata {
-    name: "get-host-size-policy",
-    since: 12,
-    capability: Some("host-size-policy-v1"),
     authority: "control",
     stream: None,
 };
@@ -1238,24 +383,6 @@ pub const GET_SIZE_STATE_METADATA: CommandMetadata = CommandMetadata {
     since: 12,
     capability: Some("shared-sizing-v1"),
     authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const HISTORY_SEARCH_METADATA: CommandMetadata = CommandMetadata {
-    name: "history-search",
-    since: 12,
-    capability: Some("history-search-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const HOME_INBOX_METADATA: CommandMetadata = CommandMetadata {
-    name: "home-inbox",
-    since: 12,
-    capability: Some("home-inbox-v1"),
-    authority: "local-admin",
     stream: None,
 };
 
@@ -1273,24 +400,6 @@ pub const IDS_METADATA: CommandMetadata = CommandMetadata {
     name: "ids",
     since: 6,
     capability: None,
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const IMPORT_BOOKMARKS_METADATA: CommandMetadata = CommandMetadata {
-    name: "import-bookmarks",
-    since: 12,
-    capability: Some("bookmarks-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const IMPORT_SESSION_ORGANIZATION_METADATA: CommandMetadata = CommandMetadata {
-    name: "import-session-organization",
-    since: 12,
-    capability: Some("profiles-v1"),
     authority: "control",
     stream: None,
 };
@@ -1314,15 +423,6 @@ pub const LIST_AGENTS_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const LIST_BOOKMARKS_METADATA: CommandMetadata = CommandMetadata {
-    name: "list-bookmarks",
-    since: 12,
-    capability: Some("bookmarks-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const LIST_CLIENTS_METADATA: CommandMetadata = CommandMetadata {
     name: "list-clients",
     since: 6,
@@ -1332,73 +432,10 @@ pub const LIST_CLIENTS_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const LIST_NOTIFICATIONS_METADATA: CommandMetadata = CommandMetadata {
-    name: "list-notifications",
-    since: 12,
-    capability: Some("notification-ack-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const LIST_PERSONAL_METADATA: CommandMetadata = CommandMetadata {
-    name: "list-personal",
-    since: 12,
-    capability: Some("profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const LIST_SAVED_SCREEN_GROUPS_METADATA: CommandMetadata = CommandMetadata {
-    name: "list-saved-screen-groups",
-    since: 12,
-    capability: Some("screen-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const LIST_SAVED_TAB_GROUPS_METADATA: CommandMetadata = CommandMetadata {
-    name: "list-saved-tab-groups",
-    since: 12,
-    capability: Some("saved-tab-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const LIST_TAB_GROUPS_METADATA: CommandMetadata = CommandMetadata {
-    name: "list-tab-groups",
-    since: 12,
-    capability: Some("tab-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const LIST_TERMINAL_COMMANDS_METADATA: CommandMetadata = CommandMetadata {
-    name: "list-terminal-commands",
-    since: 12,
-    capability: Some("terminal-command-history-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const LIST_TERMINALS_METADATA: CommandMetadata = CommandMetadata {
     name: "list-terminals",
     since: 9,
     capability: None,
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const LIST_WORKSPACE_GROUPS_METADATA: CommandMetadata = CommandMetadata {
-    name: "list-workspace-groups",
-    since: 12,
-    capability: Some("workspace-groups-v1"),
     authority: "control",
     stream: None,
 };
@@ -1458,136 +495,10 @@ pub const MINT_TERMINAL_RENDERER_BY_TERMINAL_METADATA: CommandMetadata = Command
 };
 
 #[rustfmt::skip]
-pub const MOVE_BOOKMARK_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-bookmark",
-    since: 12,
-    capability: Some("bookmarks-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const MOVE_BROWSER_PROFILE_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-browser-profile",
-    since: 12,
-    capability: Some("browser-profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const MOVE_COLUMN_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-column",
-    since: 12,
-    capability: Some("column-move-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const MOVE_PERSONAL_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-personal-group",
-    since: 12,
-    capability: Some("profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const MOVE_PROFILE_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-profile",
-    since: 12,
-    capability: Some("profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const MOVE_SCREEN_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-screen",
-    since: 12,
-    capability: Some("screen-metadata-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const MOVE_SCREEN_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-screen-group",
-    since: 12,
-    capability: Some("screen-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const MOVE_TAB_METADATA: CommandMetadata = CommandMetadata {
     name: "move-tab",
     since: 5,
     capability: None,
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const MOVE_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-tab-group",
-    since: 12,
-    capability: Some("tab-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const MOVE_TAB_GROUP_TO_COLUMN_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-tab-group-to-column",
-    since: 12,
-    capability: Some("tab-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const MOVE_TAB_GROUP_TO_NEW_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-tab-group-to-new-workspace",
-    since: 12,
-    capability: Some("tab-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const MOVE_TAB_GROUP_TO_SPLIT_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-tab-group-to-split",
-    since: 12,
-    capability: Some("tab-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const MOVE_TAB_TO_COLUMN_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-tab-to-column",
-    since: 12,
-    capability: Some("tab-drag-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const MOVE_TAB_TO_NEW_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-tab-to-new-workspace",
-    since: 12,
-    capability: Some("tab-drag-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const MOVE_TAB_TO_SPLIT_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-tab-to-split",
-    since: 12,
-    capability: Some("tab-drag-v1"),
     authority: "control",
     stream: None,
 };
@@ -1620,46 +531,10 @@ pub const MOVE_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const MOVE_WORKSPACE_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-workspace-group",
-    since: 12,
-    capability: Some("workspace-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const MOVE_WORKSPACE_TO_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "move-workspace-to-group",
-    since: 12,
-    capability: Some("workspace-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const NEW_BROWSER_TAB_METADATA: CommandMetadata = CommandMetadata {
     name: "new-browser-tab",
     since: 5,
     capability: None,
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const NEW_CONVERSATION_TAB_METADATA: CommandMetadata = CommandMetadata {
-    name: "new-conversation-tab",
-    since: 12,
-    capability: Some("conversation-tabs-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const NEW_FRONTEND_BROWSER_TAB_METADATA: CommandMetadata = CommandMetadata {
-    name: "new-frontend-browser-tab",
-    since: 12,
-    capability: Some("frontend-browser-tabs-v1"),
     authority: "control",
     stream: None,
 };
@@ -1678,24 +553,6 @@ pub const NEW_PANE_RIGHT_METADATA: CommandMetadata = CommandMetadata {
     name: "new-pane-right",
     since: 9,
     capability: Some("viewport-splits-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const NEW_REMOTE_TERMINAL_TAB_METADATA: CommandMetadata = CommandMetadata {
-    name: "new-remote-terminal-tab",
-    since: 12,
-    capability: Some("remote-terminal-tabs-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const NEW_ROW_METADATA: CommandMetadata = CommandMetadata {
-    name: "new-row",
-    since: 12,
-    capability: Some("rows-v1"),
     authority: "control",
     stream: None,
 };
@@ -1746,24 +603,6 @@ pub const NOTIFY_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const OFFER_LINK_TO_PHONE_METADATA: CommandMetadata = CommandMetadata {
-    name: "offer-link-to-phone",
-    since: 12,
-    capability: None,
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const PAGE_CREDENTIAL_METADATA: CommandMetadata = CommandMetadata {
-    name: "page-credential",
-    since: 12,
-    capability: Some("page-credential-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const PAIRING_RESPONSE_METADATA: CommandMetadata = CommandMetadata {
     name: "pairing-response",
     since: 7,
@@ -1782,28 +621,10 @@ pub const PANE_NEIGHBOR_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const PARK_TABS_METADATA: CommandMetadata = CommandMetadata {
-    name: "park-tabs",
-    since: 12,
-    capability: Some("tab-park-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const PASTE_IMAGE_METADATA: CommandMetadata = CommandMetadata {
     name: "paste-image",
     since: 12,
     capability: Some("terminal-image-paste-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const PIN_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
-    name: "pin-workspace",
-    since: 12,
-    capability: Some("profiles-v1"),
     authority: "control",
     stream: None,
 };
@@ -1818,15 +639,6 @@ pub const PING_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const PROCESS_CENSUS_METADATA: CommandMetadata = CommandMetadata {
-    name: "process-census",
-    since: 12,
-    capability: Some("process-census-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const PROCESS_INFO_METADATA: CommandMetadata = CommandMetadata {
     name: "process-info",
     since: 6,
@@ -1836,37 +648,10 @@ pub const PROCESS_INFO_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const PUT_BLOB_METADATA: CommandMetadata = CommandMetadata {
-    name: "put-blob",
-    since: 12,
-    capability: Some("icon-assets-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const PUT_FRONTEND_PROJECTION_METADATA: CommandMetadata = CommandMetadata {
     name: "put-frontend-projection",
     since: 7,
     capability: None,
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const PUT_SESSION_METADATA: CommandMetadata = CommandMetadata {
-    name: "put-session",
-    since: 12,
-    capability: Some("profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const QUICK_TERMINAL_METADATA: CommandMetadata = CommandMetadata {
-    name: "quick-terminal",
-    since: 12,
-    capability: Some("quick-terminal-v1"),
     authority: "control",
     stream: None,
 };
@@ -1926,82 +711,10 @@ pub const RELEASE_SURFACE_SIZE_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const RELEASE_WORKSPACE_NAMES_METADATA: CommandMetadata = CommandMetadata {
-    name: "release-workspace-names",
-    since: 12,
-    capability: None,
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const RELOAD_CONFIG_METADATA: CommandMetadata = CommandMetadata {
     name: "reload-config",
     since: 6,
     capability: None,
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const REMOTE_HOST_APP_METADATA: CommandMetadata = CommandMetadata {
-    name: "remote-host-app",
-    since: 12,
-    capability: Some("remote-host-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const REMOTE_HOST_CALL_METADATA: CommandMetadata = CommandMetadata {
-    name: "remote-host-call",
-    since: 12,
-    capability: Some("remote-host-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const REMOTE_HOST_CONFIG_METADATA: CommandMetadata = CommandMetadata {
-    name: "remote-host-config",
-    since: 12,
-    capability: Some("remote-host-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const REMOTE_HOST_STATUS_METADATA: CommandMetadata = CommandMetadata {
-    name: "remote-host-status",
-    since: 12,
-    capability: Some("remote-host-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const REMOTE_TERMINAL_SNAPSHOT_METADATA: CommandMetadata = CommandMetadata {
-    name: "remote-terminal-snapshot",
-    since: 12,
-    capability: Some("remote-terminal-tabs-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const REMOVE_SCREENS_FROM_SCREEN_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "remove-screens-from-screen-group",
-    since: 12,
-    capability: Some("screen-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const REMOVE_TABS_FROM_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "remove-tabs-from-tab-group",
-    since: 12,
-    capability: Some("tab-groups-v1"),
     authority: "control",
     stream: None,
 };
@@ -2052,24 +765,6 @@ pub const RENAME_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const REOPEN_SAVED_SCREEN_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "reopen-saved-screen-group",
-    since: 12,
-    capability: Some("screen-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const REOPEN_SAVED_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "reopen-saved-tab-group",
-    since: 12,
-    capability: Some("saved-tab-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const REPORT_AGENT_METADATA: CommandMetadata = CommandMetadata {
     name: "report-agent",
     since: 6,
@@ -2115,37 +810,10 @@ pub const RESOLVE_TERMINAL_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const RESTART_TAB_METADATA: CommandMetadata = CommandMetadata {
-    name: "restart-tab",
-    since: 12,
-    capability: Some("tab-restart-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const RUN_METADATA: CommandMetadata = CommandMetadata {
     name: "run",
     since: 6,
     capability: None,
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SAVE_SCREEN_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "save-screen-group",
-    since: 12,
-    capability: Some("screen-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SAVE_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "save-tab-group",
-    since: 12,
-    capability: Some("saved-tab-groups-v1"),
     authority: "control",
     stream: None,
 };
@@ -2214,15 +882,6 @@ pub const SERVER_STATS_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const SET_ATTACH_VISIBILITY_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-attach-visibility",
-    since: 12,
-    capability: Some("attach-visibility-v1"),
-    authority: "frontend",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const SET_CELL_PIXELS_METADATA: CommandMetadata = CommandMetadata {
     name: "set-cell-pixels",
     since: 6,
@@ -2250,15 +909,6 @@ pub const SET_CLIENT_SIZING_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const SET_COLUMN_DOCK_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-column-dock",
-    since: 12,
-    capability: Some("dock-columns-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const SET_DEFAULT_COLORS_METADATA: CommandMetadata = CommandMetadata {
     name: "set-default-colors",
     since: 5,
@@ -2268,109 +918,10 @@ pub const SET_DEFAULT_COLORS_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const SET_DIVIDER_VISIBLE_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-divider-visible",
-    since: 12,
-    capability: Some("split-divider-visibility-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SET_FRONTEND_BROWSER_HISTORY_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-frontend-browser-history",
-    since: 12,
-    capability: Some("frontend-browser-history-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SET_HOST_SIZE_POLICY_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-host-size-policy",
-    since: 12,
-    capability: Some("host-size-policy-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SET_LAYOUT_SIZES_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-layout-sizes",
-    since: 12,
-    capability: Some("layout-sizes-batch-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SET_PERSONAL_TERMINAL_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-personal-terminal",
-    since: 12,
-    capability: Some("personal-terminals-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SET_PERSONAL_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-personal-workspace",
-    since: 12,
-    capability: Some("profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SET_PROFILE_FOLLOWS_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-profile-follows",
-    since: 12,
-    capability: Some("profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const SET_RATIO_METADATA: CommandMetadata = CommandMetadata {
     name: "set-ratio",
     since: 5,
     capability: None,
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SET_ROW_HEIGHTS_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-row-heights",
-    since: 12,
-    capability: Some("rows-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SET_SCREEN_METADATA_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-screen-metadata",
-    since: 12,
-    capability: Some("screen-metadata-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SET_SCREEN_PINNED_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-screen-pinned",
-    since: 12,
-    capability: Some("screen-metadata-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SET_SESSION_ICON_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-session-icon",
-    since: 12,
-    capability: Some("session-icon-v1"),
     authority: "control",
     stream: None,
 };
@@ -2403,46 +954,10 @@ pub const SET_SPLIT_RATIO_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const SET_TAB_PINNED_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-tab-pinned",
-    since: 12,
-    capability: Some("tab-metadata-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SET_TERMINAL_COMMAND_HISTORY_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-terminal-command-history",
-    since: 12,
-    capability: Some("terminal-command-history-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const SET_TERMINAL_IDLE_POLICY_METADATA: CommandMetadata = CommandMetadata {
     name: "set-terminal-idle-policy",
     since: 12,
     capability: Some("terminal-idle-close-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SET_TERMINAL_KEEP_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-terminal-keep",
-    since: 12,
-    capability: Some("terminal-reap-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SET_TERMINAL_TAIL_PIN_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-terminal-tail-pin",
-    since: 12,
-    capability: Some("terminal-tail-pin-v1"),
     authority: "control",
     stream: None,
 };
@@ -2466,42 +981,6 @@ pub const SET_WINDOW_TITLE_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const SET_WORKSPACE_METADATA_METADATA: CommandMetadata = CommandMetadata {
-    name: "set-workspace-metadata",
-    since: 12,
-    capability: Some("workspace-metadata-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SHELL_READ_METADATA: CommandMetadata = CommandMetadata {
-    name: "shell-read",
-    since: 12,
-    capability: Some("shell-runs-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SHELL_RUN_METADATA: CommandMetadata = CommandMetadata {
-    name: "shell-run",
-    since: 12,
-    capability: Some("shell-runs-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SHELL_STOP_METADATA: CommandMetadata = CommandMetadata {
-    name: "shell-stop",
-    since: 12,
-    capability: Some("shell-runs-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const SHUTDOWN_DAEMON_METADATA: CommandMetadata = CommandMetadata {
     name: "shutdown-daemon",
     since: 9,
@@ -2515,15 +994,6 @@ pub const SIDEBAR_PLUGIN_METADATA: CommandMetadata = CommandMetadata {
     name: "sidebar-plugin",
     since: 6,
     capability: None,
-    authority: "frontend",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const SNAPSHOT_REQUEST_METADATA: CommandMetadata = CommandMetadata {
-    name: "snapshot-request",
-    since: 12,
-    capability: Some("terminal-snapshot-v1"),
     authority: "frontend",
     stream: None,
 };
@@ -2547,46 +1017,10 @@ pub const SUBSCRIBE_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const SUBSCRIBE_ACTIVITY_METADATA: CommandMetadata = CommandMetadata {
-    name: "subscribe-activity",
-    since: 12,
-    capability: Some("vm-activity-v1"),
-    authority: "local-admin",
-    stream: Some(StreamMetadata { kind: "subscribe", terminal_event: None }),
-};
-
-#[rustfmt::skip]
 pub const SWAP_PANE_METADATA: CommandMetadata = CommandMetadata {
     name: "swap-pane",
     since: 6,
     capability: None,
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const TERMINAL_CLIPBOARD_REPLY_METADATA: CommandMetadata = CommandMetadata {
-    name: "terminal-clipboard-reply",
-    since: 12,
-    capability: Some("terminal-clipboard-read-v1"),
-    authority: "frontend",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const TERMINAL_CLIPBOARD_SUBSCRIBE_METADATA: CommandMetadata = CommandMetadata {
-    name: "terminal-clipboard-subscribe",
-    since: 12,
-    capability: Some("terminal-clipboard-read-v1"),
-    authority: "frontend",
-    stream: Some(StreamMetadata { kind: "subscribe", terminal_event: None }),
-};
-
-#[rustfmt::skip]
-pub const TERMINAL_COMMAND_CONTEXT_METADATA: CommandMetadata = CommandMetadata {
-    name: "terminal-command-context",
-    since: 12,
-    capability: Some("terminal-command-context-v1"),
     authority: "control",
     stream: None,
 };
@@ -2601,100 +1035,10 @@ pub const TERMINAL_EVENTS_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const TERMINAL_FIND_METADATA: CommandMetadata = CommandMetadata {
-    name: "terminal-find",
-    since: 7,
-    capability: None,
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const TERMINAL_HISTORY_METADATA: CommandMetadata = CommandMetadata {
-    name: "terminal-history",
-    since: 12,
-    capability: Some("terminal-snapshot-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const TERMINAL_LAST_COMMAND_METADATA: CommandMetadata = CommandMetadata {
-    name: "terminal-last-command",
-    since: 12,
-    capability: Some("terminal-last-command-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const TERMINAL_PORTS_METADATA: CommandMetadata = CommandMetadata {
-    name: "terminal-ports",
-    since: 12,
-    capability: Some("terminal-ports-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const TERMINAL_READ_RANGE_METADATA: CommandMetadata = CommandMetadata {
-    name: "terminal-read-range",
-    since: 12,
-    capability: Some("terminal-snapshot-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const TERMINAL_RESOURCES_METADATA: CommandMetadata = CommandMetadata {
-    name: "terminal-resources",
-    since: 12,
-    capability: Some("terminal-resources-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const TERMINAL_RESUME_COMMAND_METADATA: CommandMetadata = CommandMetadata {
-    name: "terminal-resume-command",
-    since: 12,
-    capability: Some("resume-command"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const UNDO_LAYOUT_METADATA: CommandMetadata = CommandMetadata {
     name: "undo-layout",
     since: 9,
     capability: Some("layout-undo-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const UNGROUP_SCREEN_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "ungroup-screen-group",
-    since: 12,
-    capability: Some("screen-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const UNGROUP_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "ungroup-tab-group",
-    since: 12,
-    capability: Some("tab-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const UNPIN_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
-    name: "unpin-workspace",
-    since: 12,
-    capability: Some("profiles-v1"),
     authority: "control",
     stream: None,
 };
@@ -2705,105 +1049,6 @@ pub const UNREGISTER_BROWSER_PROVIDER_METADATA: CommandMetadata = CommandMetadat
     since: 10,
     capability: Some("browser-provider-v1"),
     authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const UNSAVE_SCREEN_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "unsave-screen-group",
-    since: 12,
-    capability: Some("screen-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const UNSAVE_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "unsave-tab-group",
-    since: 12,
-    capability: Some("saved-tab-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const UPDATE_BOOKMARK_METADATA: CommandMetadata = CommandMetadata {
-    name: "update-bookmark",
-    since: 12,
-    capability: Some("bookmarks-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const UPDATE_BROWSER_PROFILE_METADATA: CommandMetadata = CommandMetadata {
-    name: "update-browser-profile",
-    since: 12,
-    capability: Some("browser-profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const UPDATE_FRONTEND_BROWSER_TAB_METADATA: CommandMetadata = CommandMetadata {
-    name: "update-frontend-browser-tab",
-    since: 12,
-    capability: Some("frontend-browser-tabs-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const UPDATE_PERSONAL_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "update-personal-group",
-    since: 12,
-    capability: Some("profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const UPDATE_PROFILE_METADATA: CommandMetadata = CommandMetadata {
-    name: "update-profile",
-    since: 12,
-    capability: Some("profiles-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const UPDATE_REMOTE_TERMINAL_TAB_METADATA: CommandMetadata = CommandMetadata {
-    name: "update-remote-terminal-tab",
-    since: 12,
-    capability: Some("remote-terminal-tabs-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const UPDATE_SCREEN_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "update-screen-group",
-    since: 12,
-    capability: Some("screen-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const UPDATE_TAB_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "update-tab-group",
-    since: 12,
-    capability: Some("tab-groups-v1"),
-    authority: "control",
-    stream: None,
-};
-
-#[rustfmt::skip]
-pub const UPDATE_WORKSPACE_GROUP_METADATA: CommandMetadata = CommandMetadata {
-    name: "update-workspace-group",
-    since: 12,
-    capability: Some("workspace-groups-v1"),
-    authority: "control",
     stream: None,
 };
 
@@ -2862,15 +1107,6 @@ pub const WAIT_FOR_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const WS_LISTEN_METADATA: CommandMetadata = CommandMetadata {
-    name: "ws-listen",
-    since: 12,
-    capability: Some("ws-listen-v1"),
-    authority: "local-admin",
-    stream: None,
-};
-
-#[rustfmt::skip]
 pub const ZOOM_PANE_METADATA: CommandMetadata = CommandMetadata {
     name: "zoom-pane",
     since: 6,
@@ -2880,83 +1116,11 @@ pub const ZOOM_PANE_METADATA: CommandMetadata = CommandMetadata {
 };
 
 #[rustfmt::skip]
-pub const ACTIVITY_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "activity-changed",
-    since: 12,
-    capability: Some("vm-activity-v1"),
-    streams: &["control"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
 pub const AGENT_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
     name: "agent-changed",
     since: 11,
     capability: None,
     streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const AGENT_CLI_FRAME_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "agent-cli-frame",
-    since: 12,
-    capability: Some("agent-cli-hybrid-v1"),
-    streams: &["attach-byte"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const AGENT_CLI_LEAN_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "agent-cli-lean",
-    since: 12,
-    capability: Some("agent-cli-hybrid-v2"),
-    streams: &["attach-byte"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const AGENT_INVENTORY_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "agent-inventory-changed",
-    since: 12,
-    capability: Some("agent-inventory-watch-v1"),
-    streams: &["control"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const AGENT_INVENTORY_WATCH_ENDED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "agent-inventory-watch-ended",
-    since: 12,
-    capability: Some("agent-inventory-watch-v1"),
-    streams: &["control"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const AGENT_PRESENCE_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "agent-presence-changed",
-    since: 12,
-    capability: Some("agent-presence-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const AGENT_SESSION_SHARE_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "agent-session-share-changed",
-    since: 12,
-    capability: Some("agent-session-share-events-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const APPS_CLOUD_MACHINE_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "apps-cloud-machine",
-    since: 12,
-    capability: Some("apps-v1"),
-    streams: &["control"],
     emission: "emitted",
 };
 
@@ -2970,29 +1134,11 @@ pub const BELL_EVENT_METADATA: EventMetadata = EventMetadata {
 };
 
 #[rustfmt::skip]
-pub const BOOKMARKS_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "bookmarks-changed",
-    since: 12,
-    capability: Some("bookmarks-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
 pub const BROWSER_STATE_EVENT_METADATA: EventMetadata = EventMetadata {
     name: "browser-state",
     since: 6,
     capability: None,
     streams: &["attach-browser"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CHIEF_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "chief-changed",
-    since: 12,
-    capability: Some("chief-events-v1"),
-    streams: &["subscribe"],
     emission: "emitted",
 };
 
@@ -3024,138 +1170,12 @@ pub const CLIENT_DETACHED_EVENT_METADATA: EventMetadata = EventMetadata {
 };
 
 #[rustfmt::skip]
-pub const CLIENT_DISCONNECTED_BY_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "client-disconnected-by",
-    since: 12,
-    capability: None,
-    streams: &["control"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
 pub const CLIENT_LIST_INVALIDATED_EVENT_METADATA: EventMetadata = EventMetadata {
     name: "client-list-invalidated",
     since: 9,
     capability: None,
     streams: &["subscribe"],
     emission: "serialized-never-emitted",
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "cloud-conversation-changed",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_LIVE_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "cloud-conversation-live",
-    since: 12,
-    capability: Some("cloud-chief-live-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_PRESENCE_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "cloud-conversation-presence",
-    since: 12,
-    capability: Some("cloud-conversation-presence-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "cloud-conversation-resynced",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_RUN_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "cloud-conversation-run-changed",
-    since: 12,
-    capability: Some("cloud-conversation-runs-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CLOUD_CONVERSATION_TYPING_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "cloud-conversation-typing",
-    since: 12,
-    capability: Some("cloud-conversation-typing-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CLOUD_HOST_REPLICA_NEEDED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "cloud-host-replica-needed",
-    since: 12,
-    capability: Some("cloud-host-replica-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CLOUD_INBOX_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "cloud-inbox-changed",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CLOUD_INBOX_RESET_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "cloud-inbox-reset",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CLOUD_MUX_RESYNCED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "cloud-mux-resynced",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CLOUD_MUX_WAKE_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "cloud-mux-wake",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CLOUD_SESSION_NEEDED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "cloud-session-needed",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CLOUD_SUBSCRIPTION_STATE_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "cloud-subscription-state",
-    since: 12,
-    capability: Some("cloud-conversations-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
 };
 
 #[rustfmt::skip]
@@ -3172,69 +1192,6 @@ pub const CONFIG_RELOAD_REQUESTED_EVENT_METADATA: EventMetadata = EventMetadata 
     name: "config-reload-requested",
     since: 6,
     capability: None,
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "conversation-changed",
-    since: 12,
-    capability: Some("local-conversations-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_DRAFT_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "conversation-draft",
-    since: 12,
-    capability: Some("conversation-draft-events-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_INBOX_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "conversation-inbox-changed",
-    since: 12,
-    capability: Some("conversation-inbox-state-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_LIVE_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "conversation-live",
-    since: 12,
-    capability: Some("chief-live-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_RUN_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "conversation-run-changed",
-    since: 12,
-    capability: Some("conversation-runs-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_SCHEDULED_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "conversation-scheduled-changed",
-    since: 12,
-    capability: Some("conversation-scheduled-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const CONVERSATION_TYPING_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "conversation-typing",
-    since: 12,
-    capability: Some("local-conversations-v1"),
     streams: &["subscribe"],
     emission: "emitted",
 };
@@ -3258,37 +1215,10 @@ pub const DETACHED_EVENT_METADATA: EventMetadata = EventMetadata {
 };
 
 #[rustfmt::skip]
-pub const DEVICE_SETUP_STEP_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "device-setup-step",
-    since: 12,
-    capability: None,
-    streams: &["control"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
 pub const EMPTY_EVENT_METADATA: EventMetadata = EventMetadata {
     name: "empty",
     since: 5,
     capability: None,
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const FEED_REPORTS_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "feed-reports-changed",
-    since: 12,
-    capability: Some("feed-client-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const FEED_VIEW_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "feed-view-changed",
-    since: 12,
-    capability: Some("feed-client-v1"),
     streams: &["subscribe"],
     emission: "emitted",
 };
@@ -3316,24 +1246,6 @@ pub const GRAPHICS_STATUS_EVENT_METADATA: EventMetadata = EventMetadata {
     name: "graphics-status",
     since: 10,
     capability: None,
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const HISTORY_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "history-changed",
-    since: 12,
-    capability: Some("history-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const KEYBINDINGS_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "keybindings-changed",
-    since: 12,
-    capability: Some("keybindings-v1"),
     streams: &["subscribe"],
     emission: "emitted",
 };
@@ -3420,42 +1332,6 @@ pub const PANE_CLOSED_EVENT_METADATA: EventMetadata = EventMetadata {
 };
 
 #[rustfmt::skip]
-pub const PARTICIPANT_AVATAR_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "participant-avatar-changed",
-    since: 12,
-    capability: Some("participant-avatars-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const PERSONAL_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "personal-changed",
-    since: 12,
-    capability: Some("profiles-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const PHONE_OPEN_LINK_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "phone-open-link",
-    since: 12,
-    capability: None,
-    streams: &["control"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const PROGRAM_STATUS_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "program-status-changed",
-    since: 12,
-    capability: None,
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
 pub const RENDER_DELTA_EVENT_METADATA: EventMetadata = EventMetadata {
     name: "render-delta",
     since: 7,
@@ -3492,29 +1368,11 @@ pub const SCREEN_ADDED_EVENT_METADATA: EventMetadata = EventMetadata {
 };
 
 #[rustfmt::skip]
-pub const SCREEN_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "screen-changed",
-    since: 12,
-    capability: Some("screen-metadata-v1"),
-    streams: &["subscribe-deltas"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
 pub const SCREEN_CLOSED_EVENT_METADATA: EventMetadata = EventMetadata {
     name: "screen-closed",
     since: 7,
     capability: None,
     streams: &["subscribe-deltas"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const SCREEN_DEVICE_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "screen-device-changed",
-    since: 12,
-    capability: Some("screen-device-identity-v1"),
-    streams: &["subscribe"],
     emission: "emitted",
 };
 
@@ -3537,38 +1395,11 @@ pub const SCROLL_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
 };
 
 #[rustfmt::skip]
-pub const SELECTION_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "selection-changed",
-    since: 12,
-    capability: Some("tree-selection-deltas-v1"),
-    streams: &["subscribe-deltas"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const SETTINGS_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "settings-changed",
-    since: 12,
-    capability: Some("settings-v1"),
-    streams: &["subscribe"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
 pub const SIZE_STATE_EVENT_METADATA: EventMetadata = EventMetadata {
     name: "size-state",
     since: 12,
     capability: Some("shared-sizing-v1"),
     streams: &["subscribe", "attach-byte", "attach-render"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const STASH_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "stash-changed",
-    since: 12,
-    capability: Some("stash-v1"),
-    streams: &["subscribe"],
     emission: "emitted",
 };
 
@@ -3627,15 +1458,6 @@ pub const TAB_ADDED_EVENT_METADATA: EventMetadata = EventMetadata {
 };
 
 #[rustfmt::skip]
-pub const TAB_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "tab-changed",
-    since: 12,
-    capability: Some("tab-metadata-v1"),
-    streams: &["subscribe-deltas"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
 pub const TAB_CLOSED_EVENT_METADATA: EventMetadata = EventMetadata {
     name: "tab-closed",
     since: 7,
@@ -3650,42 +1472,6 @@ pub const TAB_RENAMED_EVENT_METADATA: EventMetadata = EventMetadata {
     since: 7,
     capability: None,
     streams: &["subscribe-deltas"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const TERMINAL_CLIPBOARD_READ_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "terminal-clipboard-read",
-    since: 12,
-    capability: Some("terminal-clipboard-read-v1"),
-    streams: &["control"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const TERMINAL_CLIPBOARD_READ_CANCELLED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "terminal-clipboard-read-cancelled",
-    since: 12,
-    capability: Some("terminal-clipboard-read-v1"),
-    streams: &["control"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const TERMINAL_INPUT_UNCLAIMED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "terminal-input-unclaimed",
-    since: 12,
-    capability: Some("terminal-input-while-creating-v1"),
-    streams: &["control"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
-pub const TERMINAL_REAPED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "terminal-reaped",
-    since: 12,
-    capability: Some("terminal-reap-v1"),
-    streams: &["subscribe"],
     emission: "emitted",
 };
 
@@ -3753,15 +1539,6 @@ pub const WORKSPACE_ADDED_EVENT_METADATA: EventMetadata = EventMetadata {
 };
 
 #[rustfmt::skip]
-pub const WORKSPACE_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "workspace-changed",
-    since: 12,
-    capability: Some("workspace-metadata-v1"),
-    streams: &["subscribe-deltas"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
 pub const WORKSPACE_CLOSED_EVENT_METADATA: EventMetadata = EventMetadata {
     name: "workspace-closed",
     since: 7,
@@ -3780,15 +1557,6 @@ pub const WORKSPACE_MOVED_EVENT_METADATA: EventMetadata = EventMetadata {
 };
 
 #[rustfmt::skip]
-pub const WORKSPACE_PRESENTATION_CHANGED_EVENT_METADATA: EventMetadata = EventMetadata {
-    name: "workspace-presentation-changed",
-    since: 12,
-    capability: Some("tree-selection-deltas-v1"),
-    streams: &["subscribe-deltas"],
-    emission: "emitted",
-};
-
-#[rustfmt::skip]
 pub const WORKSPACE_RENAMED_EVENT_METADATA: EventMetadata = EventMetadata {
     name: "workspace-renamed",
     since: 7,
@@ -3800,6 +1568,6 @@ pub const WORKSPACE_RENAMED_EVENT_METADATA: EventMetadata = EventMetadata {
 #[rustfmt::skip]
 pub static PROFILES: &[ProfileMetadata] = &[CONTROL_PROFILE, FRONTEND_PROFILE, LOCAL_ADMIN_PROFILE, PROVIDER_AUTHORITY_PROFILE];
 #[rustfmt::skip]
-pub static COMMANDS: &[CommandMetadata] = &[ACK_TAB_NOTIFICATIONS_METADATA, ADD_SCREENS_TO_SCREEN_GROUP_METADATA, ADD_TABS_TO_TAB_GROUP_METADATA, APPLY_LAYOUT_METADATA, ATTACH_SURFACE_METADATA, BIND_CONVERSATION_TAB_SESSION_METADATA, BROWSER_ACTIVATE_METADATA, BROWSER_BACK_METADATA, BROWSER_FORWARD_METADATA, BROWSER_FRAME_PRESENTED_METADATA, BROWSER_HOST_PROVIDER_METADATA, BROWSER_INSERT_TEXT_METADATA, BROWSER_KEY_METADATA, BROWSER_KEY_PRESS_METADATA, BROWSER_MOUSE_METADATA, BROWSER_MOUSE_GUARDED_METADATA, BROWSER_NAVIGATE_METADATA, BROWSER_RELOAD_METADATA, BROWSER_WHEEL_METADATA, BROWSER_WHEEL_GUARDED_METADATA, CANCEL_CREATING_INPUT_METADATA, CHIEF_INSPECT_METADATA, CHIEF_WORK_METADATA, CLEAR_HISTORY_METADATA, CLEAR_WINDOW_TITLE_METADATA, CLIENT_FOCUS_METADATA, CLOSE_PANE_METADATA, CLOSE_PROVIDER_MANAGED_WORKSPACE_METADATA, CLOSE_SCREEN_METADATA, CLOSE_SCREEN_GROUP_METADATA, CLOSE_SURFACE_METADATA, CLOSE_TAB_GROUP_METADATA, CLOSE_TABS_METADATA, CLOSE_TERMINAL_METADATA, CLOSE_WORKSPACE_METADATA, CLOUD_ATTACHMENT_LINK_METADATA, CLOUD_ATTACHMENT_READ_METADATA, CLOUD_ATTACHMENT_UPLOAD_METADATA, CLOUD_CONVERSATION_HISTORY_METADATA, CLOUD_CONVERSATION_LIVE_METADATA, CLOUD_CONVERSATION_OP_METADATA, CLOUD_CONVERSATION_PRESENCE_METADATA, CLOUD_CONVERSATION_RUN_METADATA, CLOUD_CONVERSATION_RUNS_METADATA, CLOUD_CONVERSATION_SNAPSHOT_METADATA, CLOUD_CONVERSATION_SUBSCRIBE_METADATA, CLOUD_CONVERSATION_THREAD_METADATA, CLOUD_CONVERSATION_TYPING_METADATA, CLOUD_CONVERSATION_UNSUBSCRIBE_METADATA, CLOUD_ENVIRONMENT_METADATA, CLOUD_HOST_REPLICA_CLEAR_METADATA, CLOUD_HOST_REPLICA_SET_METADATA, CLOUD_HOST_REPLICA_STATUS_METADATA, CLOUD_INBOX_LIST_METADATA, CLOUD_INBOX_OP_METADATA, CLOUD_INBOX_SUBSCRIBE_METADATA, CLOUD_INBOX_UNSUBSCRIBE_METADATA, CLOUD_MUX_ACK_METADATA, CLOUD_MUX_SUBSCRIBE_METADATA, CLOUD_MUX_UNSUBSCRIBE_METADATA, CLOUD_PARTICIPANT_AVATAR_GET_METADATA, CLOUD_REQUESTS_LIST_METADATA, CLOUD_SELFHOST_INFO_METADATA, CLOUD_SESSION_CLEAR_METADATA, CLOUD_SESSION_SET_METADATA, CLOUD_SESSION_STATUS_METADATA, COMPUTER_USE_APPROVALS_METADATA, COMPUTER_USE_CONFIG_METADATA, COMPUTER_USE_ENDPOINT_METADATA, CONVERSATION_AGENT_TOKEN_METADATA, CONVERSATION_ATTACHMENT_LINK_METADATA, CONVERSATION_ATTACHMENT_READ_METADATA, CONVERSATION_ATTACHMENT_UPLOAD_METADATA, CONVERSATION_BIND_METADATA, CONVERSATION_CREATE_METADATA, CONVERSATION_DRAFT_METADATA, CONVERSATION_HISTORY_METADATA, CONVERSATION_IMPORT_METADATA, CONVERSATION_INBOX_OP_METADATA, CONVERSATION_LINK_RESOLVE_METADATA, CONVERSATION_LIST_METADATA, CONVERSATION_LIVE_METADATA, CONVERSATION_LIVE_PUBLISH_METADATA, CONVERSATION_OP_METADATA, CONVERSATION_RUN_METADATA, CONVERSATION_RUN_APPEND_METADATA, CONVERSATION_RUNS_METADATA, CONVERSATION_SCHEDULED_LIST_METADATA, CONVERSATION_SCHEDULED_OP_METADATA, CONVERSATION_SEARCH_METADATA, CONVERSATION_SNAPSHOT_METADATA, CONVERSATION_THREAD_METADATA, CONVERSATION_TYPING_METADATA, COPY_METADATA, CREATE_BOOKMARK_METADATA, CREATE_BROWSER_PROFILE_METADATA, CREATE_PERSONAL_GROUP_METADATA, CREATE_PROFILE_METADATA, CREATE_SCREEN_GROUP_METADATA, CREATE_SURFACE_WITH_RECEIPT_METADATA, CREATE_TAB_GROUP_METADATA, CREATE_TERMINAL_METADATA, CREATE_WORKSPACE_METADATA, CREATE_WORKSPACE_GROUP_METADATA, DELETE_BOOKMARK_METADATA, DELETE_BROWSER_PROFILE_METADATA, DELETE_PERSONAL_GROUP_METADATA, DELETE_PROFILE_METADATA, DELETE_SAVED_SCREEN_GROUP_METADATA, DELETE_SAVED_TAB_GROUP_METADATA, DELETE_TERMINAL_COMMANDS_METADATA, DELETE_WORKSPACE_GROUP_METADATA, DETACH_ATTACHED_VIEW_METADATA, DETACH_CLIENT_METADATA, DEVICE_SETUP_METADATA, EXPORT_LAYOUT_METADATA, FEED_LOCAL_HANDOFF_ABORT_METADATA, FEED_LOCAL_HANDOFF_BEGIN_METADATA, FEED_LOCAL_HANDOFF_DONE_METADATA, FEED_LOCAL_LIST_METADATA, FEED_LOCAL_READ_METADATA, FLOAT_PANE_METADATA, FLUSH_LAUNCH_SNAPSHOT_METADATA, FOCUS_DIRECTION_METADATA, FOCUS_PANE_METADATA, FORGET_SESSION_METADATA, GET_BLOB_METADATA, GET_BROWSER_PROVIDER_METADATA, GET_CELL_PIXELS_METADATA, GET_FRONTEND_BROWSER_HISTORY_METADATA, GET_FRONTEND_PROJECTION_METADATA, GET_HOST_SIZE_POLICY_METADATA, GET_SIZE_STATE_METADATA, HISTORY_SEARCH_METADATA, HOME_INBOX_METADATA, IDENTIFY_METADATA, IDS_METADATA, IMPORT_BOOKMARKS_METADATA, IMPORT_SESSION_ORGANIZATION_METADATA, JOURNAL_FRONTEND_EVENT_METADATA, LIST_AGENTS_METADATA, LIST_BOOKMARKS_METADATA, LIST_CLIENTS_METADATA, LIST_NOTIFICATIONS_METADATA, LIST_PERSONAL_METADATA, LIST_SAVED_SCREEN_GROUPS_METADATA, LIST_SAVED_TAB_GROUPS_METADATA, LIST_TAB_GROUPS_METADATA, LIST_TERMINAL_COMMANDS_METADATA, LIST_TERMINALS_METADATA, LIST_WORKSPACE_GROUPS_METADATA, LIST_WORKSPACES_METADATA, MACHINE_LISTENING_TCP_METADATA, MACHINE_USAGE_METADATA, MARK_WORKSPACES_PROVIDER_MANAGED_METADATA, MINT_TERMINAL_RENDERER_METADATA, MINT_TERMINAL_RENDERER_BY_TERMINAL_METADATA, MOVE_BOOKMARK_METADATA, MOVE_BROWSER_PROFILE_METADATA, MOVE_COLUMN_METADATA, MOVE_PERSONAL_GROUP_METADATA, MOVE_PROFILE_METADATA, MOVE_SCREEN_METADATA, MOVE_SCREEN_GROUP_METADATA, MOVE_TAB_METADATA, MOVE_TAB_GROUP_METADATA, MOVE_TAB_GROUP_TO_COLUMN_METADATA, MOVE_TAB_GROUP_TO_NEW_WORKSPACE_METADATA, MOVE_TAB_GROUP_TO_SPLIT_METADATA, MOVE_TAB_TO_COLUMN_METADATA, MOVE_TAB_TO_NEW_WORKSPACE_METADATA, MOVE_TAB_TO_SPLIT_METADATA, MOVE_TAB_TO_WORKSPACE_METADATA, MOVE_TERMINAL_METADATA, MOVE_WORKSPACE_METADATA, MOVE_WORKSPACE_GROUP_METADATA, MOVE_WORKSPACE_TO_GROUP_METADATA, NEW_BROWSER_TAB_METADATA, NEW_CONVERSATION_TAB_METADATA, NEW_FRONTEND_BROWSER_TAB_METADATA, NEW_PANE_METADATA, NEW_PANE_RIGHT_METADATA, NEW_REMOTE_TERMINAL_TAB_METADATA, NEW_ROW_METADATA, NEW_SCREEN_METADATA, NEW_TAB_METADATA, NEW_WORKSPACE_METADATA, NOTE_SIZE_ACTIVITY_METADATA, NOTIFY_METADATA, OFFER_LINK_TO_PHONE_METADATA, PAGE_CREDENTIAL_METADATA, PAIRING_RESPONSE_METADATA, PANE_NEIGHBOR_METADATA, PARK_TABS_METADATA, PASTE_IMAGE_METADATA, PIN_WORKSPACE_METADATA, PING_METADATA, PROCESS_CENSUS_METADATA, PROCESS_INFO_METADATA, PUT_BLOB_METADATA, PUT_FRONTEND_PROJECTION_METADATA, PUT_SESSION_METADATA, QUICK_TERMINAL_METADATA, READ_SCREEN_METADATA, READ_SCROLLBACK_METADATA, REATTACH_VIEW_METADATA, REGISTER_BROWSER_PROVIDER_METADATA, RELEASE_ATTACHED_VIEW_SIZE_METADATA, RELEASE_SURFACE_SIZE_METADATA, RELEASE_WORKSPACE_NAMES_METADATA, RELOAD_CONFIG_METADATA, REMOTE_HOST_APP_METADATA, REMOTE_HOST_CALL_METADATA, REMOTE_HOST_CONFIG_METADATA, REMOTE_HOST_STATUS_METADATA, REMOTE_TERMINAL_SNAPSHOT_METADATA, REMOVE_SCREENS_FROM_SCREEN_GROUP_METADATA, REMOVE_TABS_FROM_TAB_GROUP_METADATA, RENAME_PANE_METADATA, RENAME_PROVIDER_MANAGED_WORKSPACE_METADATA, RENAME_SCREEN_METADATA, RENAME_SURFACE_METADATA, RENAME_WORKSPACE_METADATA, REOPEN_SAVED_SCREEN_GROUP_METADATA, REOPEN_SAVED_TAB_GROUP_METADATA, REPORT_AGENT_METADATA, REPORT_FOCUS_METADATA, RESIZE_ATTACHED_VIEW_METADATA, RESIZE_SURFACE_METADATA, RESOLVE_TERMINAL_METADATA, RESTART_TAB_METADATA, RUN_METADATA, SAVE_SCREEN_GROUP_METADATA, SAVE_TAB_GROUP_METADATA, SCROLL_SURFACE_METADATA, SELECT_SCREEN_METADATA, SELECT_TAB_METADATA, SELECT_WORKSPACE_METADATA, SEND_METADATA, SEND_KEY_METADATA, SERVER_STATS_METADATA, SET_ATTACH_VISIBILITY_METADATA, SET_CELL_PIXELS_METADATA, SET_CLIENT_INFO_METADATA, SET_CLIENT_SIZING_METADATA, SET_COLUMN_DOCK_METADATA, SET_DEFAULT_COLORS_METADATA, SET_DIVIDER_VISIBLE_METADATA, SET_FRONTEND_BROWSER_HISTORY_METADATA, SET_HOST_SIZE_POLICY_METADATA, SET_LAYOUT_SIZES_METADATA, SET_PERSONAL_TERMINAL_METADATA, SET_PERSONAL_WORKSPACE_METADATA, SET_PROFILE_FOLLOWS_METADATA, SET_RATIO_METADATA, SET_ROW_HEIGHTS_METADATA, SET_SCREEN_METADATA_METADATA, SET_SCREEN_PINNED_METADATA, SET_SESSION_ICON_METADATA, SET_SIZE_COUNTS_METADATA, SET_SIZE_POLICY_METADATA, SET_SPLIT_RATIO_METADATA, SET_TAB_PINNED_METADATA, SET_TERMINAL_COMMAND_HISTORY_METADATA, SET_TERMINAL_IDLE_POLICY_METADATA, SET_TERMINAL_KEEP_METADATA, SET_TERMINAL_TAIL_PIN_METADATA, SET_VIEWPORT_PANE_WIDTH_METADATA, SET_WINDOW_TITLE_METADATA, SET_WORKSPACE_METADATA_METADATA, SHELL_READ_METADATA, SHELL_RUN_METADATA, SHELL_STOP_METADATA, SHUTDOWN_DAEMON_METADATA, SIDEBAR_PLUGIN_METADATA, SNAPSHOT_REQUEST_METADATA, SPLIT_METADATA, SUBSCRIBE_METADATA, SUBSCRIBE_ACTIVITY_METADATA, SWAP_PANE_METADATA, TERMINAL_CLIPBOARD_REPLY_METADATA, TERMINAL_CLIPBOARD_SUBSCRIBE_METADATA, TERMINAL_COMMAND_CONTEXT_METADATA, TERMINAL_EVENTS_METADATA, TERMINAL_FIND_METADATA, TERMINAL_HISTORY_METADATA, TERMINAL_LAST_COMMAND_METADATA, TERMINAL_PORTS_METADATA, TERMINAL_READ_RANGE_METADATA, TERMINAL_RESOURCES_METADATA, TERMINAL_RESUME_COMMAND_METADATA, UNDO_LAYOUT_METADATA, UNGROUP_SCREEN_GROUP_METADATA, UNGROUP_TAB_GROUP_METADATA, UNPIN_WORKSPACE_METADATA, UNREGISTER_BROWSER_PROVIDER_METADATA, UNSAVE_SCREEN_GROUP_METADATA, UNSAVE_TAB_GROUP_METADATA, UPDATE_BOOKMARK_METADATA, UPDATE_BROWSER_PROFILE_METADATA, UPDATE_FRONTEND_BROWSER_TAB_METADATA, UPDATE_PERSONAL_GROUP_METADATA, UPDATE_PROFILE_METADATA, UPDATE_REMOTE_TERMINAL_TAB_METADATA, UPDATE_SCREEN_GROUP_METADATA, UPDATE_TAB_GROUP_METADATA, UPDATE_WORKSPACE_GROUP_METADATA, URL_OPEN_METADATA, URL_OPEN_CLAIM_METADATA, URL_OPEN_RESULT_METADATA, URL_OPEN_SUBSCRIBE_METADATA, VT_STATE_METADATA, WAIT_FOR_METADATA, WS_LISTEN_METADATA, ZOOM_PANE_METADATA];
+pub static COMMANDS: &[CommandMetadata] = &[ACK_TAB_NOTIFICATIONS_METADATA, APPLY_LAYOUT_METADATA, ATTACH_SURFACE_METADATA, BROWSER_ACTIVATE_METADATA, BROWSER_BACK_METADATA, BROWSER_FORWARD_METADATA, BROWSER_FRAME_PRESENTED_METADATA, BROWSER_INSERT_TEXT_METADATA, BROWSER_KEY_METADATA, BROWSER_KEY_PRESS_METADATA, BROWSER_MOUSE_METADATA, BROWSER_MOUSE_GUARDED_METADATA, BROWSER_NAVIGATE_METADATA, BROWSER_RELOAD_METADATA, BROWSER_WHEEL_METADATA, BROWSER_WHEEL_GUARDED_METADATA, CLEAR_HISTORY_METADATA, CLEAR_WINDOW_TITLE_METADATA, CLIENT_FOCUS_METADATA, CLOSE_PANE_METADATA, CLOSE_PROVIDER_MANAGED_WORKSPACE_METADATA, CLOSE_SCREEN_METADATA, CLOSE_SURFACE_METADATA, CLOSE_TERMINAL_METADATA, CLOSE_WORKSPACE_METADATA, COPY_METADATA, CREATE_SURFACE_WITH_RECEIPT_METADATA, CREATE_TERMINAL_METADATA, CREATE_WORKSPACE_METADATA, DETACH_ATTACHED_VIEW_METADATA, DETACH_CLIENT_METADATA, EXPORT_LAYOUT_METADATA, FOCUS_DIRECTION_METADATA, FOCUS_PANE_METADATA, GET_BROWSER_PROVIDER_METADATA, GET_CELL_PIXELS_METADATA, GET_FRONTEND_PROJECTION_METADATA, GET_SIZE_STATE_METADATA, IDENTIFY_METADATA, IDS_METADATA, JOURNAL_FRONTEND_EVENT_METADATA, LIST_AGENTS_METADATA, LIST_CLIENTS_METADATA, LIST_TERMINALS_METADATA, LIST_WORKSPACES_METADATA, MACHINE_LISTENING_TCP_METADATA, MACHINE_USAGE_METADATA, MARK_WORKSPACES_PROVIDER_MANAGED_METADATA, MINT_TERMINAL_RENDERER_METADATA, MINT_TERMINAL_RENDERER_BY_TERMINAL_METADATA, MOVE_TAB_METADATA, MOVE_TAB_TO_WORKSPACE_METADATA, MOVE_TERMINAL_METADATA, MOVE_WORKSPACE_METADATA, NEW_BROWSER_TAB_METADATA, NEW_PANE_METADATA, NEW_PANE_RIGHT_METADATA, NEW_SCREEN_METADATA, NEW_TAB_METADATA, NEW_WORKSPACE_METADATA, NOTE_SIZE_ACTIVITY_METADATA, NOTIFY_METADATA, PAIRING_RESPONSE_METADATA, PANE_NEIGHBOR_METADATA, PASTE_IMAGE_METADATA, PING_METADATA, PROCESS_INFO_METADATA, PUT_FRONTEND_PROJECTION_METADATA, READ_SCREEN_METADATA, READ_SCROLLBACK_METADATA, REATTACH_VIEW_METADATA, REGISTER_BROWSER_PROVIDER_METADATA, RELEASE_ATTACHED_VIEW_SIZE_METADATA, RELEASE_SURFACE_SIZE_METADATA, RELOAD_CONFIG_METADATA, RENAME_PANE_METADATA, RENAME_PROVIDER_MANAGED_WORKSPACE_METADATA, RENAME_SCREEN_METADATA, RENAME_SURFACE_METADATA, RENAME_WORKSPACE_METADATA, REPORT_AGENT_METADATA, REPORT_FOCUS_METADATA, RESIZE_ATTACHED_VIEW_METADATA, RESIZE_SURFACE_METADATA, RESOLVE_TERMINAL_METADATA, RUN_METADATA, SCROLL_SURFACE_METADATA, SELECT_SCREEN_METADATA, SELECT_TAB_METADATA, SELECT_WORKSPACE_METADATA, SEND_METADATA, SEND_KEY_METADATA, SERVER_STATS_METADATA, SET_CELL_PIXELS_METADATA, SET_CLIENT_INFO_METADATA, SET_CLIENT_SIZING_METADATA, SET_DEFAULT_COLORS_METADATA, SET_RATIO_METADATA, SET_SIZE_COUNTS_METADATA, SET_SIZE_POLICY_METADATA, SET_SPLIT_RATIO_METADATA, SET_TERMINAL_IDLE_POLICY_METADATA, SET_VIEWPORT_PANE_WIDTH_METADATA, SET_WINDOW_TITLE_METADATA, SHUTDOWN_DAEMON_METADATA, SIDEBAR_PLUGIN_METADATA, SPLIT_METADATA, SUBSCRIBE_METADATA, SWAP_PANE_METADATA, TERMINAL_EVENTS_METADATA, UNDO_LAYOUT_METADATA, UNREGISTER_BROWSER_PROVIDER_METADATA, URL_OPEN_METADATA, URL_OPEN_CLAIM_METADATA, URL_OPEN_RESULT_METADATA, URL_OPEN_SUBSCRIBE_METADATA, VT_STATE_METADATA, WAIT_FOR_METADATA, ZOOM_PANE_METADATA];
 #[rustfmt::skip]
-pub static EVENTS: &[EventMetadata] = &[ACTIVITY_CHANGED_EVENT_METADATA, AGENT_CHANGED_EVENT_METADATA, AGENT_CLI_FRAME_EVENT_METADATA, AGENT_CLI_LEAN_EVENT_METADATA, AGENT_INVENTORY_CHANGED_EVENT_METADATA, AGENT_INVENTORY_WATCH_ENDED_EVENT_METADATA, AGENT_PRESENCE_CHANGED_EVENT_METADATA, AGENT_SESSION_SHARE_CHANGED_EVENT_METADATA, APPS_CLOUD_MACHINE_EVENT_METADATA, BELL_EVENT_METADATA, BOOKMARKS_CHANGED_EVENT_METADATA, BROWSER_STATE_EVENT_METADATA, CHIEF_CHANGED_EVENT_METADATA, CLIENT_ATTACHED_EVENT_METADATA, CLIENT_CHANGED_EVENT_METADATA, CLIENT_DETACHED_EVENT_METADATA, CLIENT_DISCONNECTED_BY_EVENT_METADATA, CLIENT_LIST_INVALIDATED_EVENT_METADATA, CLOUD_CONVERSATION_CHANGED_EVENT_METADATA, CLOUD_CONVERSATION_LIVE_EVENT_METADATA, CLOUD_CONVERSATION_PRESENCE_EVENT_METADATA, CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA, CLOUD_CONVERSATION_RUN_CHANGED_EVENT_METADATA, CLOUD_CONVERSATION_TYPING_EVENT_METADATA, CLOUD_HOST_REPLICA_NEEDED_EVENT_METADATA, CLOUD_INBOX_CHANGED_EVENT_METADATA, CLOUD_INBOX_RESET_EVENT_METADATA, CLOUD_MUX_RESYNCED_EVENT_METADATA, CLOUD_MUX_WAKE_EVENT_METADATA, CLOUD_SESSION_NEEDED_EVENT_METADATA, CLOUD_SUBSCRIPTION_STATE_EVENT_METADATA, COLORS_CHANGED_EVENT_METADATA, CONFIG_RELOAD_REQUESTED_EVENT_METADATA, CONVERSATION_CHANGED_EVENT_METADATA, CONVERSATION_DRAFT_EVENT_METADATA, CONVERSATION_INBOX_CHANGED_EVENT_METADATA, CONVERSATION_LIVE_EVENT_METADATA, CONVERSATION_RUN_CHANGED_EVENT_METADATA, CONVERSATION_SCHEDULED_CHANGED_EVENT_METADATA, CONVERSATION_TYPING_EVENT_METADATA, DAEMON_SHUTDOWN_EVENT_METADATA, DETACHED_EVENT_METADATA, DEVICE_SETUP_STEP_EVENT_METADATA, EMPTY_EVENT_METADATA, FEED_REPORTS_CHANGED_EVENT_METADATA, FEED_VIEW_CHANGED_EVENT_METADATA, FRAME_EVENT_METADATA, FRONTEND_PROJECTION_CHANGED_EVENT_METADATA, GRAPHICS_STATUS_EVENT_METADATA, HISTORY_CHANGED_EVENT_METADATA, KEYBINDINGS_CHANGED_EVENT_METADATA, LAYOUT_CHANGED_EVENT_METADATA, MACHINE_USAGE_CHANGED_EVENT_METADATA, NOTIFICATION_EVENT_METADATA, OUTPUT_EVENT_METADATA, OVERFLOW_EVENT_METADATA, PAIRING_REQUESTED_EVENT_METADATA, PAIRING_RESOLVED_EVENT_METADATA, PANE_ADDED_EVENT_METADATA, PANE_CLOSED_EVENT_METADATA, PARTICIPANT_AVATAR_CHANGED_EVENT_METADATA, PERSONAL_CHANGED_EVENT_METADATA, PHONE_OPEN_LINK_EVENT_METADATA, PROGRAM_STATUS_CHANGED_EVENT_METADATA, RENDER_DELTA_EVENT_METADATA, RENDER_STATE_EVENT_METADATA, RESIZED_EVENT_METADATA, SCREEN_ADDED_EVENT_METADATA, SCREEN_CHANGED_EVENT_METADATA, SCREEN_CLOSED_EVENT_METADATA, SCREEN_DEVICE_CHANGED_EVENT_METADATA, SCREEN_RENAMED_EVENT_METADATA, SCROLL_CHANGED_EVENT_METADATA, SELECTION_CHANGED_EVENT_METADATA, SETTINGS_CHANGED_EVENT_METADATA, SIZE_STATE_EVENT_METADATA, STASH_CHANGED_EVENT_METADATA, STATUS_EVENT_METADATA, SURFACE_EXITED_EVENT_METADATA, SURFACE_OUTPUT_EVENT_METADATA, SURFACE_RESIZE_FAILED_EVENT_METADATA, SURFACE_RESIZED_EVENT_METADATA, TAB_ADDED_EVENT_METADATA, TAB_CHANGED_EVENT_METADATA, TAB_CLOSED_EVENT_METADATA, TAB_RENAMED_EVENT_METADATA, TERMINAL_CLIPBOARD_READ_EVENT_METADATA, TERMINAL_CLIPBOARD_READ_CANCELLED_EVENT_METADATA, TERMINAL_INPUT_UNCLAIMED_EVENT_METADATA, TERMINAL_REAPED_EVENT_METADATA, TERMINAL_REGISTRY_CHANGED_EVENT_METADATA, TITLE_CHANGED_EVENT_METADATA, TREE_CHANGED_EVENT_METADATA, URL_OPEN_EVENT_METADATA, VT_STATE_EVENT_METADATA, WINDOW_TITLE_REQUESTED_EVENT_METADATA, WORKSPACE_ADDED_EVENT_METADATA, WORKSPACE_CHANGED_EVENT_METADATA, WORKSPACE_CLOSED_EVENT_METADATA, WORKSPACE_MOVED_EVENT_METADATA, WORKSPACE_PRESENTATION_CHANGED_EVENT_METADATA, WORKSPACE_RENAMED_EVENT_METADATA];
+pub static EVENTS: &[EventMetadata] = &[AGENT_CHANGED_EVENT_METADATA, BELL_EVENT_METADATA, BROWSER_STATE_EVENT_METADATA, CLIENT_ATTACHED_EVENT_METADATA, CLIENT_CHANGED_EVENT_METADATA, CLIENT_DETACHED_EVENT_METADATA, CLIENT_LIST_INVALIDATED_EVENT_METADATA, COLORS_CHANGED_EVENT_METADATA, CONFIG_RELOAD_REQUESTED_EVENT_METADATA, DAEMON_SHUTDOWN_EVENT_METADATA, DETACHED_EVENT_METADATA, EMPTY_EVENT_METADATA, FRAME_EVENT_METADATA, FRONTEND_PROJECTION_CHANGED_EVENT_METADATA, GRAPHICS_STATUS_EVENT_METADATA, LAYOUT_CHANGED_EVENT_METADATA, MACHINE_USAGE_CHANGED_EVENT_METADATA, NOTIFICATION_EVENT_METADATA, OUTPUT_EVENT_METADATA, OVERFLOW_EVENT_METADATA, PAIRING_REQUESTED_EVENT_METADATA, PAIRING_RESOLVED_EVENT_METADATA, PANE_ADDED_EVENT_METADATA, PANE_CLOSED_EVENT_METADATA, RENDER_DELTA_EVENT_METADATA, RENDER_STATE_EVENT_METADATA, RESIZED_EVENT_METADATA, SCREEN_ADDED_EVENT_METADATA, SCREEN_CLOSED_EVENT_METADATA, SCREEN_RENAMED_EVENT_METADATA, SCROLL_CHANGED_EVENT_METADATA, SIZE_STATE_EVENT_METADATA, STATUS_EVENT_METADATA, SURFACE_EXITED_EVENT_METADATA, SURFACE_OUTPUT_EVENT_METADATA, SURFACE_RESIZE_FAILED_EVENT_METADATA, SURFACE_RESIZED_EVENT_METADATA, TAB_ADDED_EVENT_METADATA, TAB_CLOSED_EVENT_METADATA, TAB_RENAMED_EVENT_METADATA, TERMINAL_REGISTRY_CHANGED_EVENT_METADATA, TITLE_CHANGED_EVENT_METADATA, TREE_CHANGED_EVENT_METADATA, URL_OPEN_EVENT_METADATA, VT_STATE_EVENT_METADATA, WINDOW_TITLE_REQUESTED_EVENT_METADATA, WORKSPACE_ADDED_EVENT_METADATA, WORKSPACE_CLOSED_EVENT_METADATA, WORKSPACE_MOVED_EVENT_METADATA, WORKSPACE_RENAMED_EVENT_METADATA];

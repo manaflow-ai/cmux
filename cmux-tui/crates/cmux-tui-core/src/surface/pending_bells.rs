@@ -3,19 +3,17 @@
 use super::*;
 use std::sync::atomic::AtomicUsize;
 
-/// The least time between two bell notifications of one terminal: a program that rings in a loop
-/// marks its tab once, not once per BEL.
-const BELL_NOTIFICATION_COOLDOWN: Duration = Duration::from_secs(10);
-
-/// BEL count recorded by a parser callback. `on_bell` runs inside `vt_write`
-/// under the terminal lock, and `Mux::emit_terminal_bell` takes `Mux::state`,
-/// which is ordered before that lock (see [`PtyTerminalRuntime`]). So the
-/// callback only counts, and the reader publishes after it unlocks.
+/// BEL count recorded by a parser callback.
+///
+/// `on_bell` runs inside `vt_write` under the terminal lock, and
+/// `Mux::emit_terminal_bell` takes `Mux::state`. A resize holds the geometry
+/// lock while it takes the terminal lock, and a tree delta reads geometry
+/// under `Mux::state`, so a bell published from the callback can close a
+/// three-thread deadlock. The callback only counts; the reader publishes after
+/// it unlocks.
 #[derive(Clone, Default)]
 pub(super) struct PendingBells {
     rung: Arc<AtomicUsize>,
-    /// When this terminal's last bell posted its attention notification (cx-on7iu).
-    notified_at: Arc<Mutex<Option<Instant>>>,
 }
 
 impl PendingBells {
@@ -27,40 +25,17 @@ impl PendingBells {
         })
     }
 
-    /// Emit one `Bell` event for the bells counted since the last publish (one
-    /// read), and mark the terminal's tab for attention like a notification (at
-    /// most once per cooldown). A read full of BEL bytes is one event: each
-    /// event takes `Mux::state` and a slot in every subscriber's mailbox. Call
-    /// without the terminal or geometry lock held.
+    /// Emit one `Bell` event per counted bell. Call without the terminal or
+    /// geometry lock held.
     pub(super) fn publish(&self, mux: &Weak<Mux>, surface: SurfaceId) {
         let rung = self.rung.swap(0, Ordering::AcqRel);
         if rung == 0 {
             return;
         }
         if let Some(mux) = mux.upgrade() {
-            mux.emit_terminal_bell(surface);
-            // The mark is a durable notification: the terminal publisher
-            // commits it, not the reader (#35413).
-            if self.notification_due(Instant::now()) {
-                mux.queue_bell_notification(surface);
+            for _ in 0..rung {
+                mux.emit_terminal_bell(surface);
             }
         }
     }
-
-    /// Whether a bell at `now` posts a notification, recording it when it does.
-    fn notification_due(&self, now: Instant) -> bool {
-        let mut notified_at =
-            self.notified_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if notified_at
-            .is_some_and(|at| now.saturating_duration_since(at) < BELL_NOTIFICATION_COOLDOWN)
-        {
-            return false;
-        }
-        *notified_at = Some(now);
-        true
-    }
 }
-
-#[cfg(test)]
-#[path = "pending_bells_tests.rs"]
-mod tests;

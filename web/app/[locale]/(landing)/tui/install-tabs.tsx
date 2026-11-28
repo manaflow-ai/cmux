@@ -1,28 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import { INSTALL_STATIC_PINNED_URL, pinnedInstallCommand } from "@/app/lib/install-static-pin";
 
 type Platform = "unix" | "windows";
 
-// The Unix line runs only the script whose sha256 it carries, never curl | sh of a moving URL
-// (app/lib/install-static-pin.ts).
 const commands: Record<Platform, string> = {
-  unix: pinnedInstallCommand(),
+  unix: "curl -fsSL https://cmux.com/tui/install.sh | sh",
   windows:
     'powershell -c "irm https://cmux.com/tui/install.ps1 | iex"',
 };
 
 function HighlightedCommand({ platform }: { platform: Platform }) {
   if (platform === "unix") {
-    const [before, after] = commands.unix.split(INSTALL_STATIC_PINNED_URL);
     return (
       <>
-        <span>{before}</span>
+        <span className="text-[#6F42C1] dark:text-[#B392F0]">curl</span>
+        <span className="text-[#005CC5] dark:text-[#79B8FF]"> -fsSL</span>
         <span className="text-[#032F62] dark:text-[#9ECBFF]">
-          {INSTALL_STATIC_PINNED_URL}
+          {" https://cmux.com/tui/install.sh"}
         </span>
-        <span>{after}</span>
+        <span className="text-[#D73A49] dark:text-[#F97583]"> |</span>
+        <span className="text-[#6F42C1] dark:text-[#B392F0]"> sh</span>
       </>
     );
   }
@@ -61,7 +59,7 @@ export function TuiInstallTabs({
     { id: "windows", label: windowsLabel },
   ];
   const scriptHref =
-    platform === "unix" ? INSTALL_STATIC_PINNED_URL : "/tui/install.ps1";
+    platform === "unix" ? "/tui/install.sh" : "/tui/install.ps1";
 
   return (
     <div className="not-prose mt-4">

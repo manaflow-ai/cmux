@@ -39,6 +39,7 @@ General app preferences from Settings > App.
 | `app.paneResizeStepPixels` | integer | `20` | Pixels moved per keypress when using pane-resize shortcuts. |
 | `app.focusHistoryIncludesPanesAndTabs` | boolean | `false` | When true, Back and Forward include focus changes between panes and tabs. When false, they navigate between workspaces only. |
 | `app.equalizeSplitsOnCreate` | boolean | `false` | When true, creating a split resizes the panes in that split's row or column to equal sizes. When false, a new split halves the pane it was created from. |
+| `app.equalizeSplitsOnDividerDoubleClick` | boolean | `true` | When true, double-clicking a split divider makes the panes in its row or column equal in size. Other rows and columns keep their sizes. |
 | `app.globalFontMagnification` | integer | `100` | Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded. |
 | `app.confirmQuit` | `"always"` or `"dirty-only"` or `"never"` | `"always"` | Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback. |
 | `app.warnBeforeClosingTabXButton` | boolean | `false` | Show a confirmation before closing a tab with the tab close button. |
@@ -90,7 +91,6 @@ Terminal presentation settings from Settings > Terminal.
 | `terminal.textBoxSubmitActions` | array<object> | `[]` | Configurable TextBox submit actions shown on the submit button, Shift-Tab cycle, and right-click menu. |
 | `terminal.resumeCommands` | array<object> | `[]` | Signed command-prefix approvals for restoring non-agent terminal surfaces. cmux writes this list when you approve a surface resume command. |
 | `terminal.uploadCommands` | array<object> | `[]` | Host-scoped rules that replace the built-in scp for terminal file drops and pastes over SSH. When the ssh destination matches a rule, cmux runs that rule's command once per file instead of scp, and inserts the command's stdout at the cursor (verbatim, with control characters stripped); if the command prints nothing, cmux inserts the shell-escaped remote path it chose instead. Per-file outputs are space-joined. First matching enabled rule wins; no match runs the built-in scp unchanged. A non-zero exit, timeout, or cancel inserts nothing. |
-| `terminal.linkOpener` | object | — | cmux-next. `default` (string, `"cmux"`): Where a URL goes when a program in a cmux terminal opens a browser (aws login, gh auth login, gcloud, npm login, Python webbrowser, `open <url>`): `cmux` (a cmux browser tab by the link rules), `system`, `chrome`, `safari`, `arc`, `firefox`, `edge`, `brave`, `app:<name, bundle id or path>`, a profile after `@` (`chrome@Profile 1`), or `command:<shell command>` (gets `CMUX_LINK_URL`, `CMUX_LINK_CALLERS` and the URL on stdin; opens it itself or prints a target). A `BROWSER` you set wins. See docs/cmux-next/terminal-link-opener.md. `rules` (array<string>, `[]`): Ordered `<match> -> <target>` rules checked before the default; first match wins. `caller:<glob>[,<glob>]` matches the program that opened the URL or a parent process; text, `*`/`?` or `re:` match the URL. Example: `caller:aws -> chrome@Work`. |
 
 ## notifications
 
@@ -117,7 +117,6 @@ Notification behavior from Settings > Notifications.
 | `notifications.agentPermissionPrompt` | boolean | `true` | Notify when an agent (e.g. Claude Code) is blocked waiting for your permission to run a tool. On by default, since this is the alert you must act on to unblock the agent. |
 | `notifications.agentTurnComplete` | `"whenIdle"` or `"always"` or `"never"` | `"whenIdle"` | When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it. |
 | `notifications.agentIdleReminder` | boolean | `true` | Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert. |
-| `notifications.agentIdleTimers` | object | `{}` | One-shot cache-TTL reminders keyed by agent family. Each entry is an array of `{afterSeconds, id}` objects; timers start in ACP `idle` and cancel on work, input, background work, or session end. |
 | `notifications.soundOverrides` | object | `{}` | Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound. |
 
 ## sidebar
@@ -195,7 +194,8 @@ Socket control and automation settings from Settings > Automation.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `automation.socketControlMode` | `"off"` or `"cmuxOnly"` or `"automation"` or `"notifications"` | `"automation"` | Socket control mode. The automation default admits processes running as the same OS user; choose cmuxOnly to restrict calls to processes started inside this cmux. Legacy aliases are accepted and normalized. |
+| `automation.socketControlMode` | `"off"` or `"cmuxOnly"` or `"automation"` or `"password"` or `"allowAll"` or `"openAccess"` or `"fullOpenAccess"` or `"notifications"` or `"full"` | `"cmuxOnly"` | Socket control mode. Legacy aliases are accepted and normalized. |
+| `automation.socketPassword` | string or null | `""` | Password for password-mode socket access. Use null or an empty string to clear it. |
 | `automation.claudeCodeIntegration` | boolean | `true` | Enable cmux integration hooks for Claude Code. |
 | `automation.codexIntegration` | boolean | `true` | Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe. |
 | `automation.canonicalAgentScratch` | boolean | `false` | Use a cmux-owned scratch directory for native agent panels, organized per session. |
@@ -221,6 +221,18 @@ Agent-to-agent messages sent with `cmux agent message`. Per-agent and per-worksp
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `agentMessages.enabled` | boolean | `true` | Allow agents to message each other through cmux. When false, `cmux agent message` fails, nothing is stored, and messages already queued are marked failed instead of being delivered. |
+
+## chief
+
+Chief, the Home agent: whether it is shown and which harness, model, and effort it uses.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `chief.enabled` | boolean | `true` | Show the Home row and Chief entry points. When false, the Home row, the Open Chief shortcut, menu item, and command palette entries are hidden. |
+| `chief.harness` | `"claude"` or `"codex"` | `"claude"` | Agent harness Chief runs on: `claude` (Claude Code) or `codex` (Codex). |
+| `chief.model` | string | `""` | Model passed to the harness. Leave empty to use the harness default. |
+| `chief.effort` | string | `""` | Reasoning effort passed to the harness, such as `low`, `medium`, or `high`. Leave empty to use the harness default. |
+| `chief.dangerouslySkipPermissions` | boolean | `false` | Allow Chief's selected agent to bypass permission prompts and sandbox guardrails. Off by default. |
 
 ## browser
 
@@ -295,6 +307,6 @@ Keyboard shortcut settings from Settings > Keyboard Shortcuts.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `shortcuts.bindings` | object | `{}` | Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, a two-item array for a chord, `{"any": [...]}` for several keys on one action, null, an empty string, none, clear, unbound, or disabled to unbind. |
+| `shortcuts.bindings` | object | `{}` | Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, an array for a chord, null, an empty string, none, clear, unbound, or disabled to unbind. |
 | `shortcuts.showModifierHoldHints` | boolean | `true` | Show shortcut-hint chips while holding Cmd or Control. |
 | `shortcuts.when` | object | `{}` | Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, \|\|, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { "selectWorkspaceByNumber": "!sidebarFocus" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { "selectSurfaceByNumber": "sidebarMode == 'find' && paneCount > 1" } scopes a binding to the Find sidebar when the workspace has multiple panes. |

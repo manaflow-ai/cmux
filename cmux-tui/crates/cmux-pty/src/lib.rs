@@ -4,22 +4,7 @@
 //! descriptor-pinned working directories. Non-Unix platforms use
 //! portable-pty's native backend.
 
-// The crash ratchet keeps this crate at zero production panics
-// (plans/cmux-next/crash-elimination.md section 6).
-#![cfg_attr(
-    not(test),
-    deny(
-        clippy::unwrap_used,
-        clippy::expect_used,
-        clippy::panic,
-        clippy::unreachable,
-        clippy::todo,
-        clippy::unimplemented,
-        clippy::exit
-    )
-)]
-
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt;
 #[cfg(unix)]
 use std::fs::File;
@@ -32,21 +17,8 @@ use std::sync::Arc;
 
 pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
-#[cfg(any(windows, test))]
-mod console_ctrl_c;
-#[cfg(all(test, unix))]
-mod env_tests;
-#[cfg(target_vendor = "apple")]
-mod input_queue;
 #[cfg(unix)]
 mod macos;
-#[cfg(unix)]
-mod open_files;
-#[cfg(unix)]
-pub use open_files::{
-    OPEN_FILE_LIMIT_CEILING, OpenFileLimit, original_open_file_limit, raise_open_file_limit,
-    restore_open_file_limit, restore_open_file_limit_in_child,
-};
 
 /// Stable classification for failures at the PTY allocation boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,7 +62,7 @@ impl fmt::Display for PtyOpenError {
         match self.kind {
             PtyOpenErrorKind::CapacityExhausted => write!(
                 f,
-                "PTY capacity exhausted; close unused terminals or tmux sessions: {}",
+                "PTY capacity exhausted; close unused terminals or tmux sessions and retry: {}",
                 self.source
             ),
             PtyOpenErrorKind::Other => write!(f, "failed to open PTY: {}", self.source),
@@ -117,34 +89,6 @@ fn is_capacity_exhaustion(error: &io::Error) -> bool {
     matches!(error.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::OutOfMemory)
 }
 
-/// The terminal identity every cmux terminal child gets, whatever the daemon
-/// inherited or a caller passed: `echo $TERM_PROGRAM` says `cmux`, and
-/// `TERM_PROGRAM_VERSION` is cmux's version (the workspace version every
-/// bundled CLI carries). Every path that starts a terminal child sets these
-/// after the command's own values ([`PtyCommand::env`] or the spelled-out
-/// environment map), so they win over a daemon that started with Ghostty's
-/// identity (a Cloud daemon) and over an older app's launch env.
-///
-/// `TERM` stays `xterm-256color` (or the opted-in `xterm-ghostty`), and
-/// `COLORTERM=truecolor` and `GHOSTTY_RESOURCES_DIR` stay as they were, so
-/// programs that query the terminal (XTVERSION still answers `ghostty`, the
-/// kitty keyboard protocol, synchronized output) or read those keep working.
-/// Claude Code and Codex key Ghostty features on `TERM_PROGRAM=ghostty`, and a
-/// Ghostty version turns off their copy-on-select fallback (cmux#22585), so
-/// their wrappers start them with `TERM_PROGRAM=ghostty` and no version
-/// (`cmux-tui` `agent_terminal_identity`).
-pub const TERMINAL_IDENTITY: [(&str, &str); 2] =
-    [("TERM_PROGRAM", "cmux"), ("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"))];
-
-impl PtyCommand {
-    /// Sets [`TERMINAL_IDENTITY`] on this command, over any earlier value.
-    pub fn terminal_identity(&mut self) {
-        for (key, value) in TERMINAL_IDENTITY {
-            self.env(key, value);
-        }
-    }
-}
-
 /// The subset of process configuration needed by both cmux PTY runtimes.
 #[derive(Debug, Clone)]
 pub struct PtyCommand {
@@ -154,9 +98,6 @@ pub struct PtyCommand {
     #[cfg(unix)]
     cwd_descriptor: Option<Arc<File>>,
     environment: BTreeMap<String, String>,
-    /// Keys the child must not have, applied after `environment`, so an
-    /// inherited value is dropped as well as a set one.
-    removed_environment: BTreeSet<String>,
     clean_environment: bool,
 }
 
@@ -169,7 +110,6 @@ impl PtyCommand {
             #[cfg(unix)]
             cwd_descriptor: None,
             environment: BTreeMap::new(),
-            removed_environment: BTreeSet::new(),
             clean_environment: false,
         }
     }
@@ -197,18 +137,7 @@ impl PtyCommand {
     }
 
     pub fn env(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        let key = key.into();
-        self.removed_environment.remove(&key);
-        self.environment.insert(key, value.into());
-    }
-
-    /// The child must not see `key`, whether this command set it or the
-    /// parent would pass it down. Wins over an earlier [`Self::env`] of the
-    /// same key; a later `env` wins over this.
-    pub fn env_remove(&mut self, key: impl Into<String>) {
-        let key = key.into();
-        self.environment.remove(&key);
-        self.removed_environment.insert(key);
+        self.environment.insert(key.into(), value.into());
     }
 
     pub fn env_clear(&mut self) {
@@ -270,20 +199,9 @@ pub struct SpawnedPty {
     pub child: Box<dyn Child + Send + Sync>,
 }
 
-#[cfg(windows)]
-pub mod windows_jobs;
-
 pub fn open(size: PtySize) -> anyhow::Result<PtyPair> {
     let (master, slave) = platform::open(size)?;
     Ok(PtyPair { master, slave })
-}
-
-/// Wrap an inherited PTY master, for example one received from a process
-/// that held it, as a master of a session this process did not spawn. Its
-/// writer never sends end-of-file to that session when dropped.
-#[cfg(unix)]
-pub fn adopt_master(master: OwnedFd) -> anyhow::Result<Box<dyn MasterPty + Send>> {
-    macos::adopt_master(master)
 }
 
 #[cfg(unix)]
@@ -319,17 +237,7 @@ mod platform {
         for (key, value) in command.environment {
             builder.env(key, value);
         }
-        for key in command.removed_environment {
-            builder.env_remove(key);
-        }
-        // The child inherits the spawning process's ignore-Ctrl+C attribute,
-        // which a CREATE_NEW_PROCESS_GROUP start sets; clear it so Ctrl+C in
-        // the terminal reaches the child (console_ctrl_c.rs).
-        super::console_ctrl_c::set_for_the_next_child().map_err(|error| {
-            anyhow::anyhow!("failed to let the terminal's child process Ctrl+C: {error}")
-        })?;
-        let child = slave.0.spawn_command(builder)?;
-        Ok(Box::new(super::windows_jobs::JobChild::new(child)))
+        slave.0.spawn_command(builder)
     }
 }
 
@@ -342,108 +250,6 @@ mod tests {
 
     use super::*;
 
-    /// A PTY child starts with default dispositions and an empty signal
-    /// mask even when its parent ignores or blocks signals (a terminal host
-    /// ignores HUP, INT and QUIT for itself). Ignored dispositions and the
-    /// mask survive `exec`, so without the reset a shell would not die on a
-    /// hangup or Ctrl-C. The probe runs in a re-executed copy of this test
-    /// binary, so the parent-side SIG_IGN never touches other tests.
-    ///
-    /// The PTY child is a third copy of this binary that reads its own
-    /// dispositions (`sigaction`) and mask (`pthread_sigmask`) and prints
-    /// them as two hex bit sets. `ps -o ignored=,blocked=` cannot do this on
-    /// macOS: its ps has no `ignored` keyword and prints its keyword list.
-    #[test]
-    fn a_pty_child_gets_default_signals_and_an_empty_mask_from_an_ignoring_parent()
-    -> Result<(), Box<dyn std::error::Error>> {
-        const PROBE: &str = "CMUX_PTY_SIGNAL_PROBE";
-        const REPORT: &str = "CMUX_PTY_SIGNAL_REPORT";
-        const NAME: &str =
-            "tests::a_pty_child_gets_default_signals_and_an_empty_mask_from_an_ignoring_parent";
-        let bit = |signal: libc::c_int| 1u64 << (signal - 1);
-        if std::env::var_os(REPORT).is_some() {
-            let (mut ignored, mut blocked) = (0u64, 0u64);
-            // SAFETY: query-only sigaction and pthread_sigmask calls on
-            // this process; null new-action and new-set pointers change
-            // nothing.
-            unsafe {
-                let mut mask = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
-                libc::sigemptyset(mask.as_mut_ptr());
-                assert_eq!(
-                    libc::pthread_sigmask(libc::SIG_BLOCK, std::ptr::null(), mask.as_mut_ptr()),
-                    0
-                );
-                // SIGKILL and SIGSTOP cannot be ignored, and macOS refuses
-                // even a query of them with EINVAL.
-                for signal in (1..32).filter(|&s| s != libc::SIGKILL && s != libc::SIGSTOP) {
-                    let mut action = std::mem::MaybeUninit::<libc::sigaction>::zeroed();
-                    assert_eq!(libc::sigaction(signal, std::ptr::null(), action.as_mut_ptr()), 0);
-                    if action.assume_init().sa_sigaction == libc::SIG_IGN {
-                        ignored |= bit(signal);
-                    }
-                    if libc::sigismember(mask.as_ptr(), signal) == 1 {
-                        blocked |= bit(signal);
-                    }
-                }
-            }
-            println!("probe: {ignored:x} {blocked:x}");
-            return Ok(());
-        }
-        if std::env::var_os(PROBE).is_some() {
-            // SAFETY: SIG_IGN and sigprocmask on this probe process only.
-            unsafe {
-                for signal in [libc::SIGHUP, libc::SIGINT, libc::SIGQUIT, libc::SIGTERM] {
-                    libc::signal(signal, libc::SIG_IGN);
-                }
-                let mut set = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
-                libc::sigemptyset(set.as_mut_ptr());
-                libc::sigaddset(set.as_mut_ptr(), libc::SIGHUP);
-                libc::pthread_sigmask(libc::SIG_BLOCK, set.as_ptr(), std::ptr::null_mut());
-            }
-            let pair = open(PtySize { rows: 24, cols: 120, pixel_width: 0, pixel_height: 0 })?;
-            let mut command = PtyCommand::new(std::env::current_exe()?.to_string_lossy());
-            command.args(["--exact", NAME, "--nocapture", "--test-threads=1"]);
-            command.env(REPORT, "1");
-            let mut spawned = pair.spawn(command)?;
-            let mut reader = spawned.master.try_clone_reader()?;
-            let mut output = Vec::new();
-            let mut buffer = [0u8; 4096];
-            while let Ok(count) = io::Read::read(&mut reader, &mut buffer) {
-                if count == 0 {
-                    break;
-                }
-                output.extend_from_slice(&buffer[..count]);
-                if output.windows(6).any(|w| w == b"probe:") && output.ends_with(b"\n") {
-                    break;
-                }
-            }
-            let _ = spawned.child.wait();
-            println!("{}", String::from_utf8_lossy(&output).trim());
-            return Ok(());
-        }
-        let output = std::process::Command::new(std::env::current_exe()?)
-            .args(["--exact", NAME, "--nocapture", "--test-threads=1"])
-            .env(PROBE, "1")
-            .output()?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let line = stdout
-            .lines()
-            .find_map(|line| line.split("probe:").nth(1))
-            .ok_or_else(|| format!("probe printed no masks: {stdout}{stderr}"))?;
-        let masks = line
-            .split_whitespace()
-            .map(|hex| u64::from_str_radix(hex.trim_start_matches("0x"), 16))
-            .collect::<Result<Vec<_>, _>>()?;
-        assert_eq!(masks.len(), 2, "{line}");
-        let (ignored, blocked) = (masks[0], masks[1]);
-        let reset = [libc::SIGHUP, libc::SIGINT, libc::SIGQUIT, libc::SIGTERM];
-        let reset = reset.into_iter().fold(0, |mask, signal| mask | bit(signal));
-        assert_eq!(ignored & reset, 0, "child ignores {line}");
-        assert_eq!(blocked, 0, "child blocks signals: {line}");
-        Ok(())
-    }
-
     #[test]
     fn pty_capacity_errors_preserve_an_actionable_classification() {
         for errno in [libc::ENXIO, libc::ENOSPC, libc::EMFILE, libc::ENFILE, libc::EAGAIN] {
@@ -453,40 +259,6 @@ mod tests {
             assert!(error.to_string().contains("PTY capacity exhausted"));
             assert!(error.source().is_some());
         }
-    }
-
-    /// Restoring a session opens many PTYs at the same moment (170 kept agent
-    /// terminals after an app update). macOS refuses a PTY master open for a
-    /// moment under such a burst (`posix_openpt` fails with -6, a
-    /// kernel-internal code; 44 of 64 opens on macOS 26.5.2, 24 of 60 on
-    /// 27.0.1), far below `kern.tty.ptmx_max`. Every open must succeed.
-    #[test]
-    fn ptys_opened_at_the_same_moment_all_open() {
-        const OPENS: usize = 64;
-        let start = std::sync::Barrier::new(OPENS);
-        let size = PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 };
-        let failures = std::thread::scope(|scope| {
-            let workers = (0..OPENS)
-                .map(|_| {
-                    scope.spawn(|| {
-                        start.wait();
-                        open(size).map_err(|error| format!("{error:#}"))
-                    })
-                })
-                .collect::<Vec<_>>();
-            // Every pair stays open until the last open ended.
-            let opened = workers
-                .into_iter()
-                .map(|worker| worker.join().expect("an open panicked"))
-                .collect::<Vec<_>>();
-            opened.iter().filter_map(|pair| pair.as_ref().err().cloned()).collect::<Vec<_>>()
-        });
-        assert!(
-            failures.is_empty(),
-            "{} of {OPENS} PTYs opened at the same moment did not open: {}",
-            failures.len(),
-            failures[0]
-        );
     }
 
     #[test]
@@ -631,109 +403,5 @@ mod tests {
             "seccomp filter installation failed: {}",
             io::Error::last_os_error()
         );
-    }
-}
-
-#[cfg(all(test, windows))]
-mod windows_tests {
-    use std::io::{Read, Write};
-    use std::sync::mpsc::{self, RecvTimeoutError};
-    use std::time::{Duration, Instant};
-
-    use super::*;
-
-    const NAME: &str = "windows_tests::a_pty_child_processes_ctrl_c_from_a_spawner_that_ignores_it";
-    const PROBE: &str = "CMUX_PTY_CTRL_C_PROBE";
-    const SLEEPER: &str = "CMUX_PTY_CTRL_C_SLEEPER";
-    /// The exit code of a process the default Ctrl+C handler ended.
-    const STATUS_CONTROL_C_EXIT: u32 = 0xC000_013A;
-
-    /// A 0x03 written to the terminal ends its child even when the spawning
-    /// process ignores Ctrl+C. The probe runs in a re-executed copy of this
-    /// test binary started the way the terminal owner starts
-    /// (`DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`, local_owner.rs), which
-    /// sets its ignore-Ctrl+C attribute. Its PTY child is a third copy that
-    /// prints a line and sleeps with the default Ctrl+C handler; before the
-    /// fix it inherited the attribute and slept on.
-    #[test]
-    fn a_pty_child_processes_ctrl_c_from_a_spawner_that_ignores_it()
-    -> Result<(), Box<dyn std::error::Error>> {
-        if std::env::var_os(SLEEPER).is_some() {
-            println!("sleeper-ready");
-            std::thread::sleep(Duration::from_secs(60));
-            return Ok(());
-        }
-        if std::env::var_os(PROBE).is_some() {
-            println!("probe: {}", interrupt_a_pty_child()?);
-            return Ok(());
-        }
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        let output = cmux_process::Command::new(std::env::current_exe()?)
-            .args(["--exact", NAME, "--nocapture", "--test-threads=1"])
-            .env(PROBE, "1")
-            .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
-            .output()?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let line = stdout
-            .lines()
-            .find_map(|line| line.split("probe: ").nth(1))
-            .ok_or_else(|| format!("the probe reported nothing: {stdout}{stderr}"))?;
-        assert_eq!(line.trim(), format!("exited {STATUS_CONTROL_C_EXIT:#x}"), "{stdout}{stderr}");
-        Ok(())
-    }
-
-    /// Spawn the sleeper on a PTY, write 0x03 once it is ready, and say how
-    /// it ended.
-    fn interrupt_a_pty_child() -> Result<String, Box<dyn std::error::Error>> {
-        let pair = open(PtySize { rows: 24, cols: 120, pixel_width: 0, pixel_height: 0 })?;
-        let mut command = PtyCommand::new(std::env::current_exe()?.to_string_lossy());
-        command.args(["--exact", NAME, "--nocapture", "--test-threads=1"]);
-        command.env(SLEEPER, "1");
-        let mut spawned = pair.spawn(command)?;
-        let mut reader = spawned.master.try_clone_reader()?;
-        let mut writer = spawned.master.take_writer()?;
-        let (sender, chunks) = mpsc::channel();
-        std::thread::Builder::new().name("ctrl-c-reader".into()).spawn(move || {
-            let mut buffer = [0u8; 4096];
-            while let Ok(count) = reader.read(&mut buffer) {
-                if count == 0 || sender.send(buffer[..count].to_vec()).is_err() {
-                    break;
-                }
-            }
-        })?;
-        let deadline = Instant::now() + Duration::from_secs(30);
-        let mut output = Vec::new();
-        let (mut answered, mut interrupted) = (false, false);
-        while Instant::now() < deadline {
-            if let Some(status) = spawned.child.try_wait()? {
-                return Ok(format!("exited {:#x}", status.exit_code()));
-            }
-            match chunks.recv_timeout(Duration::from_millis(100)) {
-                Ok(chunk) => output.extend_from_slice(&chunk),
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => {
-                    let status = spawned.child.wait()?;
-                    return Ok(format!("output closed, then exited {:#x}", status.exit_code()));
-                }
-            }
-            let text = String::from_utf8_lossy(&output);
-            // portable-pty's PSEUDOCONSOLE_INHERIT_CURSOR asks the terminal
-            // for the cursor position first; answer as a terminal would.
-            if !answered && text.contains("\x1b[6n") {
-                writer.write_all(b"\x1b[1;1R")?;
-                writer.flush()?;
-                answered = true;
-            }
-            if !interrupted && text.contains("sleeper-ready") {
-                writer.write_all(b"\x03")?;
-                writer.flush()?;
-                interrupted = true;
-            }
-        }
-        spawned.child.kill()?;
-        let text = String::from_utf8_lossy(&output).escape_debug().to_string();
-        Ok(format!("still running after 30 s (0x03 written: {interrupted}): {text}"))
     }
 }

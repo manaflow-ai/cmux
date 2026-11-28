@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from cmux import cmux, cmuxError, wait_until
+from cmux import cmux, cmuxError
 
 
 def _call(fn, *args):
@@ -29,7 +29,7 @@ def _call(fn, *args):
         except cmuxError as error:
             if "rate_limited" not in str(error):
                 raise
-            time.sleep(0.3)  # keep: back-off the socket's rate limit asks for
+            time.sleep(0.3)
     return fn(*args)
 
 
@@ -44,25 +44,22 @@ def _hints(c: cmux) -> dict:
     return _call(c._call, "debug.window_hints", {}) or {}
 
 
-def _active(c: cmux):
-    return _hints(c).get("active")
-
-
 def main() -> int:
     c = cmux()
     c.connect()
     if not c.ping():
         raise cmuxError("socket ping failed")
     c.activate_app()
+    time.sleep(0.3)
 
     for _ in range(2):
-        wsid = c.new_workspace()
-        wait_until(lambda: wsid in [w for _i, w, _t, _s in _call(c.list_workspaces)], 3.0, 0.2)
+        c.new_workspace()
+        time.sleep(0.3)
     order = [wsid for _i, wsid, _t, _s in c.list_workspaces()]
     first, target = order[-2:]
     c.rename_workspace("hintzebra", target)
     c.select_workspace(first)
-    wait_until(lambda: _selected(c) == first, 3.0, 0.2)
+    time.sleep(1.0)
 
     results = []
 
@@ -77,7 +74,7 @@ def main() -> int:
     check("no labels before cmd+j", before.get("active") is False, str(before))
 
     c.simulate_shortcut("cmd+j")
-    wait_until(lambda: _active(c), 3.0, 0.2)
+    time.sleep(0.5)
     shown = {}
     try:
         shown = _hints(c)
@@ -93,17 +90,18 @@ def main() -> int:
     if row:
         for letter in row["label"]:
             c.simulate_shortcut(letter)
-        wait_until(lambda: _selected(c) == target, 3.0, 0.2)
+            time.sleep(0.2)
+        time.sleep(0.5)
         check("typing the label clicks the row", _selected(c) == target, f"got={_selected(c)} want={target}")
-        check("the labels hide after a pick", wait_until(lambda: _active(c) is False, 3.0, 0.2))
+        check("the labels hide after a pick", _hints(c).get("active") is False)
     else:
         check("typing the label clicks the row", False)
         check("the labels hide after a pick", False)
 
     c.simulate_shortcut("cmd+j")
-    wait_until(lambda: _active(c), 3.0, 0.2)
+    time.sleep(0.5)
     c.simulate_shortcut("escape")
-    wait_until(lambda: _active(c) is False, 3.0, 0.2)
+    time.sleep(0.3)
     try:
         after = _hints(c)
     except cmuxError as error:

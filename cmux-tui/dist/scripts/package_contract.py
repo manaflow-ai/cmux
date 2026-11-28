@@ -63,62 +63,14 @@ NPM_SSH_MANIFEST_BINARIES = {
     "cmux-tui-aarch64-apple-darwin": "cmux-tui-darwin-arm64",
     "cmux-tui-x86_64-apple-darwin": "cmux-tui-darwin-x64",
 }
-# Every package ships the GPL text; npm packs LICENSE without a "files" entry.
-NPM_LICENSE_FILE = "LICENSE"
-# Every platform package and wheel ships the third-party notices of its
-# binaries (package_notices.py generate: <kind>-<rust target>.md); "files"
-# must list it, because npm packs only LICENSE on its own.
-NOTICE_FILE = "THIRD_PARTY_LICENSES.md"
-NPM_RUST_TARGETS = {
-    "darwin-arm64": "aarch64-apple-darwin",
-    "darwin-x64": "x86_64-apple-darwin",
-    "linux-x64": "x86_64-unknown-linux-musl",
-    "linux-arm64": "aarch64-unknown-linux-musl",
-    "win32-x64": "x86_64-pc-windows-gnu",
-}
-PYPI_RUST_TARGETS = {
-    "macosx_11_0_arm64": "aarch64-apple-darwin",
-    "macosx_10_12_x86_64": "x86_64-apple-darwin",
-    "manylinux_2_17_x86_64.manylinux2014_x86_64": "x86_64-unknown-linux-musl",
-    "musllinux_1_2_x86_64": "x86_64-unknown-linux-musl",
-    "manylinux_2_17_aarch64.manylinux2014_aarch64": "aarch64-unknown-linux-musl",
-    "musllinux_1_2_aarch64": "aarch64-unknown-linux-musl",
-}
-# The agent screen-detection plugin of the macOS and Linux packages, under the
-# exact name the daemon runs beside its own executable.
-SCREEN_DETECTION_BINARY = "cmux-agent-screen-detection"
-# The slim terminal host, under the exact name the daemon looks for beside its
-# own executable (cmux-tui-platform host_exe/linux.rs SIBLING_NAME; on Windows
-# cmux-tui-host.exe). The Linux packages and the Windows package ship it; a
-# Linux daemon without it runs every terminal host from its own large binary.
-TERMINAL_HOST_BINARY = "cmux-tui-host"
-
-
-def npm_companion_binaries(os_name: str) -> tuple[str, ...]:
-    """The binaries a cmux-tui platform package ships beside cmux-tui and cmux-tui-hook.
-
-    Windows: the per-terminal host (cx-1vlzr). macOS: the agent screen-detection
-    plugin. Linux: the plugin and the slim terminal host (CMUX-571).
-    """
-
-    if os_name == "win32":
-        return (TERMINAL_HOST_BINARY,)
-    if os_name == "linux":
-        return (SCREEN_DETECTION_BINARY, TERMINAL_HOST_BINARY)
-    return (SCREEN_DETECTION_BINARY,)
-
-
 NPM_PLATFORM_FILES = frozenset(
-    {
-        "package.json", NPM_LICENSE_FILE, "bin/cmux-tui", "bin/cmux-tui-hook",
-        f"bin/{SCREEN_DETECTION_BINARY}", NPM_SSH_MANIFEST, NOTICE_FILE,
-    }
+    {"package.json", "bin/cmux-tui", "bin/cmux-tui-hook", NPM_SSH_MANIFEST}
 )
-NPM_LAUNCHER_FILES = frozenset({"package.json", NPM_LICENSE_FILE, "bin/cmux.js"})
+NPM_LAUNCHER_FILES = frozenset({"package.json", "bin/cmux.js"})
 NPM_RELAY_PLATFORM_FILES = frozenset(
-    {"package.json", NPM_LICENSE_FILE, "bin/chatmux-relay", "bin/cmux-tui", NOTICE_FILE}
+    {"package.json", "bin/chatmux-relay", "bin/cmux-tui"}
 )
-NPM_RELAY_LAUNCHER_FILES = frozenset({"package.json", NPM_LICENSE_FILE, "bin/cmux-relay.js"})
+NPM_RELAY_LAUNCHER_FILES = frozenset({"package.json", "bin/cmux-relay.js"})
 
 
 def npm_targets(include_windows: bool) -> tuple[NpmTarget, ...]:
@@ -137,14 +89,7 @@ def npm_executable_files(include_windows: bool = False) -> tuple[str, ...]:
         for target in targets
     )
     return (
-        tuple(
-            path
-            for target in targets
-            for path in _target_binary_paths(
-                target,
-                ("cmux-tui", "cmux-tui-hook") + npm_companion_binaries(target.os),
-            )
-        )
+        tuple(path for target in targets for path in _target_binary_paths(target, ("cmux-tui", "cmux-tui-hook")))
         + tuple(
             path
             for target in relay_targets
@@ -170,25 +115,12 @@ PYPI_WHEEL_FILES = frozenset(
         "cmux_tui/_main.py",
         "cmux_tui/bin/cmux-tui",
         "cmux_tui/bin/cmux-tui-hook",
-        "cmux_tui/bin/" + SCREEN_DETECTION_BINARY,
         "{dist_info}/WHEEL",
         "{dist_info}/METADATA",
-        "{dist_info}/licenses/LICENSE",
-        "{dist_info}/licenses/" + NOTICE_FILE,
         "{dist_info}/entry_points.txt",
         "{dist_info}/RECORD",
     }
 )
-# Linux wheels also ship the slim terminal host beside cmux-tui (CMUX-571).
-PYPI_LINUX_WHEEL_FILES = PYPI_WHEEL_FILES | {"cmux_tui/bin/" + TERMINAL_HOST_BINARY}
-
-
-def pypi_wheel_files(tag: str) -> frozenset[str]:
-    """The files of the wheel with platform tag `tag`, with {dist_info} unexpanded."""
-
-    if PYPI_RUST_TARGETS[tag].endswith("-unknown-linux-musl"):
-        return PYPI_LINUX_WHEEL_FILES
-    return PYPI_WHEEL_FILES
 
 
 def _error(message: str) -> PackageContractError:
@@ -358,36 +290,11 @@ def _validate_package_files(
         _require_executable(package_dir / "bin" / f"{name}{extension}", f"{label} {name}")
 
 
-def _notice_problem(data: bytes, notices_dir: Path | None, kind: str, rust_target: str, label: str) -> str | None:
-    """None when the shipped notice is the generated one (or no generated set is given)."""
-    if not data.strip():
-        return f"{label}: {NOTICE_FILE} is empty"
-    if notices_dir is None:
-        return None
-    generated = notices_dir / f"{kind}-{rust_target}.md"
-    if not generated.is_file():
-        return f"{label}: no generated notice {generated.name} in {notices_dir} (package_notices.py generate)"
-    if generated.read_bytes() != data:
-        return f"{label}: {NOTICE_FILE} differs from the generated {generated.name}"
-    return None
-
-
-def _validate_npm_notice(package_dir: Path, target: NpmTarget, kind: str, notices_dir: Path | None) -> None:
-    path = package_dir / NOTICE_FILE
-    if not path.is_file():
-        raise _error(f"{target.name}: missing {NOTICE_FILE}")
-    rust_target = NPM_RUST_TARGETS[f"{target.os}-{target.cpu}"]
-    problem = _notice_problem(path.read_bytes(), notices_dir, kind, rust_target, target.name)
-    if problem:
-        raise _error(problem)
-
-
 def validate_npm_tree(
     packages_dir: Path,
     version: str | None = None,
     *,
     include_windows: bool = False,
-    notices_dir: Path | None = None,
 ) -> str:
     """Validate the generated npm package directory tree.
 
@@ -486,39 +393,24 @@ def validate_npm_tree(
     _require_relay_autostart_guard(relay_launcher_dir / "bin/cmux-relay.js")
 
     for target in targets:
-        _validate_npm_notice(packages_dir / target.name, target, "cmux-tui", notices_dir)
-        # The Windows package also ships cmux-tui-host.exe, the small
-        # per-terminal host the daemon spawns instead of re-exec'ing the large
-        # cmux-tui.exe (cx-1vlzr). macOS and Linux packages ship the agent
-        # screen-detection plugin, which the daemon runs from beside its own
-        # executable; Linux packages also ship bin/cmux-tui-host, the slim
-        # terminal host a Linux daemon runs every terminal host from
-        # (host_exe/linux.rs, CMUX-571).
-        host_binaries = npm_companion_binaries(target.os)
-        extension = ".exe" if target.os == "win32" else ""
-        host_files = {f"bin/{name}{extension}" for name in host_binaries}
         _validate_package_files(
             packages_dir / target.name,
             target,
-            binary_names=("cmux-tui", "cmux-tui-hook", *host_binaries),
+            binary_names=("cmux-tui", "cmux-tui-hook"),
             expected_files=frozenset(
                 {
                     "package.json",
-                    NPM_LICENSE_FILE,
                     f"bin/cmux-tui{'.exe' if target.os == 'win32' else ''}",
                     f"bin/cmux-tui-hook{'.exe' if target.os == 'win32' else ''}",
                     NPM_SSH_MANIFEST,
-                    NOTICE_FILE,
                 }
-                | host_files
             ),
             label=target.name,
             version=package_version,
-            data_files=(NPM_SSH_MANIFEST, NOTICE_FILE),
+            data_files=(NPM_SSH_MANIFEST,),
         )
     _validate_ssh_manifests(packages_dir, targets)
     for target in relay_targets:
-        _validate_npm_notice(packages_dir / target.name, target, "relay", notices_dir)
         _validate_package_files(
             packages_dir / target.name,
             target,
@@ -526,23 +418,20 @@ def validate_npm_tree(
             expected_files=frozenset(
                 {
                     "package.json",
-                    NPM_LICENSE_FILE,
                     f"bin/chatmux-relay{'.exe' if target.os == 'win32' else ''}",
                     f"bin/cmux-tui{'.exe' if target.os == 'win32' else ''}",
-                    NOTICE_FILE,
                 }
             ),
             label=target.name,
             version=package_version,
-            data_files=(NOTICE_FILE,),
         )
 
     return package_version
 
 
-def _wheel_expected_files(version: str, tag: str) -> set[str]:
+def _wheel_expected_files(version: str) -> set[str]:
     dist_info = f"cmux-{version}.dist-info"
-    return {path.format(dist_info=dist_info) for path in pypi_wheel_files(tag)}
+    return {path.format(dist_info=dist_info) for path in PYPI_WHEEL_FILES}
 
 
 def _record_digest(data: bytes) -> str:
@@ -562,7 +451,7 @@ def _wheel_mode(info: zipfile.ZipInfo) -> int:
     return (info.external_attr >> 16) & 0o777
 
 
-def validate_wheel(path: Path, version: str, notices_dir: Path | None = None) -> None:
+def validate_wheel(path: Path, version: str) -> None:
     expected_prefix = f"cmux-{version}-py3-none-"
     if not path.name.startswith(expected_prefix) or not path.name.endswith(".whl"):
         raise _error(f"unexpected wheel filename: {path.name}")
@@ -570,7 +459,7 @@ def validate_wheel(path: Path, version: str, notices_dir: Path | None = None) ->
     if tag not in PYPI_WHEEL_TAGS:
         raise _error(f"unsupported wheel platform tag: {path.name}")
     dist_info = f"cmux-{version}.dist-info"
-    expected_files = _wheel_expected_files(version, tag)
+    expected_files = _wheel_expected_files(version)
 
     try:
         wheel = zipfile.ZipFile(path)
@@ -596,22 +485,10 @@ def validate_wheel(path: Path, version: str, notices_dir: Path | None = None) ->
             raise _error(f"{path.name}: METADATA Name is not cmux")
         if _metadata_value(metadata, "Version") != version:
             raise _error(f"{path.name}: METADATA Version does not match filename")
-        if _metadata_value(metadata, "License-Expression") != "GPL-3.0-or-later":
-            raise _error(f"{path.name}: METADATA License-Expression is not GPL-3.0-or-later")
-        license_files = [line[len(b"License-File:"):].strip().decode() for line in metadata.splitlines() if line.startswith(b"License-File:")]
-        if license_files != ["LICENSE", NOTICE_FILE]:
-            raise _error(f"{path.name}: METADATA License-File must name LICENSE and {NOTICE_FILE}, not {license_files}")
-        problem = _notice_problem(
-            wheel.read(f"{dist_info}/licenses/{NOTICE_FILE}"), notices_dir, "cmux-tui", PYPI_RUST_TARGETS[tag], path.name
-        )
-        if problem:
-            raise _error(problem)
 
         executable_names = {
             "cmux_tui/bin/cmux-tui",
             "cmux_tui/bin/cmux-tui-hook",
-            "cmux_tui/bin/" + SCREEN_DETECTION_BINARY,
-            "cmux_tui/bin/" + TERMINAL_HOST_BINARY,
         }
         for name in names:
             mode = _wheel_mode(wheel.getinfo(name))
@@ -646,7 +523,7 @@ def validate_wheel(path: Path, version: str, notices_dir: Path | None = None) ->
             raise _error(f"{path.name}: RECORD does not cover every wheel file")
 
 
-def validate_pypi_wheels(wheels_dir: Path, version: str, notices_dir: Path | None = None) -> tuple[str, ...]:
+def validate_pypi_wheels(wheels_dir: Path, version: str) -> tuple[str, ...]:
     """Validate the exact six wheels emitted for one cmux TUI version."""
 
     wheels_dir = wheels_dir.resolve()
@@ -659,5 +536,5 @@ def validate_pypi_wheels(wheels_dir: Path, version: str, notices_dir: Path | Non
     if actual != expected:
         raise _error(f"PyPI wheel set mismatch: expected {expected}, found {actual}")
     for name in actual:
-        validate_wheel(wheels_dir / name, version, notices_dir)
+        validate_wheel(wheels_dir / name, version)
     return actual

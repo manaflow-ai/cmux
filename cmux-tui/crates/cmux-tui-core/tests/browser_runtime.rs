@@ -1,14 +1,13 @@
-#![cfg(unix)]
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::os::unix::net::UnixStream;
-use std::sync::{Mutex, mpsc};
+use std::sync::Mutex;
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
-mod support;
+
 use cmux_tui_core::{BrowserStatus, Mux, SurfaceKind, SurfaceOptions, server};
 use serde_json::{Value, json};
-use support::DaemonMuxOps;
 use tungstenite::{Message, accept};
 
 static TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -310,6 +309,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     let (frame_tx, frame_rx) = mpsc::channel();
     let (attach_resize_started_tx, attach_resize_started_rx) = mpsc::channel();
     let (attach_resize_release_tx, attach_resize_release_rx) = mpsc::channel();
+
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let mut ws = accept(stream).unwrap();
@@ -628,7 +628,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
     let created = rpc(
         &socket_path,
-        json!({"id": 1, "cmd": "new-browser-tab", "url": "https://example.test", "cols": 10, "rows": 5}),
+        json!({"id": 1, "cmd": "new-browser-tab", "url": "example.test", "cols": 10, "rows": 5}),
     );
     assert_eq!(created["ok"], true);
     let surface = created["data"]["surface"].as_u64().unwrap();
@@ -754,7 +754,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
 
     let navigate = rpc(
         &socket_path,
-        json!({"id": 101, "cmd": "browser-navigate", "surface": surface, "url": "https://live.test"}),
+        json!({"id": 101, "cmd": "browser-navigate", "surface": surface, "url": "live.test"}),
     );
     assert_eq!(navigate["ok"], true, "browser-navigate failed: {navigate}");
     let live_state = loop {
@@ -1000,7 +1000,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
 
     let navigate = rpc(
         &socket_path,
-        json!({"id": 9, "cmd": "browser-navigate", "surface": surface, "url": "https://bad.test"}),
+        json!({"id": 9, "cmd": "browser-navigate", "surface": surface, "url": "bad.test"}),
     );
     assert_eq!(navigate["ok"], true, "browser-navigate should ack accepted work: {navigate}");
     let navigate_request = recv_method(&seen_rx, "Page.navigate");
@@ -1083,7 +1083,7 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
     let created = rpc(
         &socket_path,
-        json!({"id": 1, "cmd": "new-browser-tab", "url": "https://example.test", "cols": 10, "rows": 5}),
+        json!({"id": 1, "cmd": "new-browser-tab", "url": "example.test", "cols": 10, "rows": 5}),
     );
     assert_eq!(created["ok"], true);
     let surface = created["data"]["surface"].as_u64().unwrap();
@@ -1101,7 +1101,8 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
 
     let mut stream = UnixStream::connect(&socket_path).unwrap();
     stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
-    let navigate = json!({"id": 2, "cmd": "browser-navigate", "surface": surface, "url": "https://wedged.test"});
+    let navigate =
+        json!({"id": 2, "cmd": "browser-navigate", "surface": surface, "url": "wedged.test"});
     stream.write_all(navigate.to_string().as_bytes()).unwrap();
     stream.write_all(b"\n").unwrap();
 
@@ -1110,7 +1111,8 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
     assert_eq!(navigate_request["params"]["url"], "https://wedged.test");
 
     let started = Instant::now();
-    let second_navigate = json!({"id": 3, "cmd": "browser-navigate", "surface": surface, "url": "https://still-wedged.test"});
+    let second_navigate =
+        json!({"id": 3, "cmd": "browser-navigate", "surface": surface, "url": "still-wedged.test"});
     stream.write_all(second_navigate.to_string().as_bytes()).unwrap();
     stream.write_all(b"\n").unwrap();
     let resize =
@@ -1267,7 +1269,7 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
     let created = rpc(
         &socket_path,
-        json!({"id": 1, "cmd": "new-browser-tab", "url": "https://example.test", "cols": 10, "rows": 5}),
+        json!({"id": 1, "cmd": "new-browser-tab", "url": "example.test", "cols": 10, "rows": 5}),
     );
     assert_eq!(created["ok"], true);
     let surface = created["data"]["surface"].as_u64().unwrap();
@@ -1286,7 +1288,7 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
     // Block the worker inside Page.navigate.
     let navigate = rpc(
         &socket_path,
-        json!({"id": 2, "cmd": "browser-navigate", "surface": surface, "url": "https://wedged.test"}),
+        json!({"id": 2, "cmd": "browser-navigate", "surface": surface, "url": "wedged.test"}),
     );
     assert_eq!(navigate["ok"], true);
     let navigate_request = recv_method(&seen_rx, "Page.navigate");
@@ -1386,7 +1388,7 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
     let created = rpc(
         &socket_path,
-        json!({"id": 1, "cmd": "new-browser-tab", "url": "https://example.test", "cols": 10, "rows": 5}),
+        json!({"id": 1, "cmd": "new-browser-tab", "url": "example.test", "cols": 10, "rows": 5}),
     );
     assert_eq!(created["ok"], true);
     let surface = created["data"]["surface"].as_u64().unwrap();
@@ -1405,7 +1407,7 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
     // Wedge the worker inside Page.navigate so the queue can never drain.
     let navigate = rpc(
         &socket_path,
-        json!({"id": 2, "cmd": "browser-navigate", "surface": surface, "url": "https://wedged.test"}),
+        json!({"id": 2, "cmd": "browser-navigate", "surface": surface, "url": "wedged.test"}),
     );
     assert_eq!(navigate["ok"], true);
     let navigate_request = recv_method(&seen_rx, "Page.navigate");
@@ -1508,7 +1510,7 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
     mux.set_cell_pixel_size(100, 100);
     let surface = mux
-        .new_browser_tab("https://example.test".to_string(), None, Some((100, 100)))
+        .new_browser_tab("example.test".to_string(), None, Some((100, 100)))
         .expect("browser tab");
     let _provider = browser_provider(
         &socket_path,
@@ -1627,9 +1629,8 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
         ))
         .join("session.sock");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
-    let surface = mux
-        .new_browser_tab("https://example.test".to_string(), None, Some((10, 5)))
-        .expect("browser tab");
+    let surface =
+        mux.new_browser_tab("example.test".to_string(), None, Some((10, 5))).expect("browser tab");
     let _provider = browser_provider(
         &socket_path,
         format!("ws://{addr}/devtools/browser/fake"),
@@ -1703,9 +1704,8 @@ fn provider_disconnect_reconnects_without_closing_canonical_browser_topology() {
         ))
         .join("session.sock");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
-    let surface = mux
-        .new_browser_tab("https://example.test".to_string(), None, Some((10, 5)))
-        .expect("browser tab");
+    let surface =
+        mux.new_browser_tab("example.test".to_string(), None, Some((10, 5))).expect("browser tab");
     let tab_id = surface_tab_id(&mux, surface.id);
     let mut provider = browser_provider(
         &socket_path,
@@ -1849,9 +1849,8 @@ fn provider_target_revision_reattaches_on_the_same_browser_connection() {
         ))
         .join("session.sock");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
-    let surface = mux
-        .new_browser_tab("https://example.test".to_string(), None, Some((10, 5)))
-        .expect("browser tab");
+    let surface =
+        mux.new_browser_tab("example.test".to_string(), None, Some((10, 5))).expect("browser tab");
     let tab_id = surface_tab_id(&mux, surface.id);
     let endpoint = format!("ws://{addr}/devtools/browser/shared");
     let mut provider = browser_provider(&socket_path, endpoint.clone(), &tab_id, "target-first");
@@ -1912,7 +1911,7 @@ fn browser_tab_creation_is_async_and_surfaces_bootstrap_failure() {
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
     let started = Instant::now();
     let surface = mux
-        .new_browser_tab("https://example.test".to_string(), None, Some((10, 5)))
+        .new_browser_tab("example.test".to_string(), None, Some((10, 5)))
         .expect("tab insertion should not wait for CDP bootstrap");
     assert!(
         started.elapsed() < test_duration(Duration::from_millis(500)),

@@ -2,10 +2,11 @@
 """Pick the macOS pool a pull request CI run lands on.
 
 ci.yml's `changes` job calls this once per run, and every pull-request macOS
-job in the run reads the answer: compile admission, cli-product-tests after
-it, the remote daemon, package and Release build lanes. A run
-on a Blacksmith pool is never split across pools, because the compiled product
-only loads under the Xcode that linked it (#14163). A run on an owned pool may be, per job (see "Per-job placement"
+job in the run reads the answer: compile admission, the app-host consumers
+that follow it, tests-build-and-lag, cli-product-tests, the Claude wrapper
+and remote daemon lanes. A run on a Blacksmith pool is never split across
+pools, because the app-host product only loads under the Xcode that linked it
+(#14163). A run on an owned pool may be, per job (see "Per-job placement"
 below).
 
 The run goes where it expects to wait least (pick()):
@@ -34,9 +35,9 @@ it, the earlier in the order on a tie.
 The wait counts what holds a label now: jobs queued and running, and each
 run since the snapshot at what it holds (young_charge(): admission and its
 side lanes while it is younger than a job length, its whole peak after, when
-the jobs after admission exist). So a run's jobs that do not exist yet hold no
-idle mini: a later run takes it, those jobs join the label's queue when they
-exist, and GitHub hands out runners in queue order. On 2026-09-25, 31 of 36 owned std
+its shards exist). So a run's shards that do not exist yet hold no idle mini:
+a later run takes it, the shards join the label's queue when they exist, and
+GitHub hands out runners in queue order. On 2026-09-25, 31 of 36 owned std
 runners sat idle while 21 jobs queued on Blacksmith for 5 to 12 minutes,
 because every in-flight run's future jobs held machines at its peak ("-5 of
 15 root runners free"). The bound keeps those future jobs from growing the
@@ -93,7 +94,7 @@ either: when it cannot be downloaded or is stale, the owned pools are
 decided from the runners alone and Blacksmith's queues count as unknown
 (empty): a run that no owned pool takes keeps every job's default, as
 before. Read live, the queue bound counts the peaks of the runs of the last
-DEFAULT_JOB_MINUTES that took the pool (their later jobs are on the way).
+DEFAULT_JOB_MINUTES that took the pool (their shards are on the way).
 A job on an owned pool may therefore wait up to about CI_PR_POOL_QUEUE_ROUNDS
 job lengths, and ci-owned-pool-rescue.yml gives a CI run's jobs that much
 (QUEUE_ROUND_SECONDS per round) on top of its budget before it moves the
@@ -107,18 +108,19 @@ from attempt 3 on (LAST_OWNED_ATTEMPT). The owned order is `std` (48 GB minis),
 then `light` (16 GB), then the Blacksmith pools: one order for every job type.
 
 Per-job placement (`vars.CI_PR_POOL_OWNED_SPLIT == '1'`): without it, a run
-takes an owned pool only when its whole peak fits, so a full suite on a few
-idle minis with the rest busy went to Blacksmith entirely and queued there. With it,
+takes an owned pool only when its whole peak fits, so a full suite on 9
+idle minis with 2 busy went to Blacksmith entirely and queued there. With it,
 when no owned pool fits the whole run, the run takes the owned pool with the
 most room (at least one job), and `owned_jobs` names the jobs that fit,
 in priority order (priority()): compile admission first (the heavy compile,
-and a mini keeps its warm DerivedData), then the light jobs
-(cli-product-tests, the Release build, the remote daemon lane, and
+and a mini keeps its warm DerivedData), then the GUI jobs (app-host shards by
+index, tests-build-and-lag), which queue longest on Blacksmith, then the light
+jobs (cli-product-tests, the remote daemon and Claude wrapper lanes, and
 swift-package-tests when it builds no Release helper; see run_plan()).
 Each job counts one machine; the jobs after admission reuse its machine.
 Every other job of attempt 1 takes
-`retry_runner`, the Blacksmith pool on the lane's Xcode.
-cli-product-tests then runs compile admission's product on another pool, which
+`retry_runner`, the Blacksmith pool on the lane's Xcode. The shards and
+cli-product-tests then run compile admission's product on another pool, which
 is sound only because both run the same Xcode: the owned label names the
 lane's pin, and on 2026-09-24 the minis and Blacksmith's 6vcpu and 12vcpu
 macOS 26 images all reported Xcode 26.6 build 17F113. The product only ever
@@ -128,8 +130,8 @@ than the consumer's, so a drift fails closed instead of crashing in dlopen.
 With the split off, a run takes an owned pool only when all its
 owned-eligible jobs fit.
 
-Root jobs: compile admission and cli-product-tests (and any job glaeda does
-not know) each hold one of a
+Root jobs: compile admission, the app-host shards, tests-build-and-lag and
+cli-product-tests (and any job glaeda does not know) each hold one of a
 mini's canonical roots. A class has `canonicalRoots` of them per mini (two on
 a std mini, root-1 and root-2), and a compile takes any free root. The first
 `canonicalRoots` runners of each mini are its root runners and carry
@@ -146,7 +148,7 @@ room for, by the same expected wait; a
 pool without one keeps the pool label for every job. A root job also holds
 one of the pool's machines, so it counts against both.
 
-Side lanes (the remote daemon and package lanes, light jobs
+Side lanes (the Claude wrapper, remote daemon and package lanes, light jobs
 that never touch a canonical root) take the pool's side label,
 `glaeda-side-<class>-xcode-<version>` (side_label()), the other runners of
 each mini, whenever the pool has a root count and more machines than root
@@ -220,11 +222,17 @@ With no such mini it takes an idle warm runner, then the root label. Picking
 there instead of here keeps other runs' late placement from taking the pinned
 runner between the pick and the queue.
 
-GUI token: on a pool with a root count whose gui label
-(`glaeda-gui-<class>-xcode-<version>`, one runner per mini) has a count in
-CI_OWNED_POOL_SLOTS, the placed gui-token jobs (gui_token_job(): cli-product)
-take the `gui_runner` output instead of the root label (gui_runner()), so each
-mini gets at most the one such job its gui token allows. A run's owned peak
+GUI jobs (app-host shards, tests-build-and-lag) take an owned pool unless
+`vars.CI_PR_POOL_OWNED_GUI == '0'`: the minis' runners are LaunchAgents in
+the logged-in user's Aqua session, and each mini runs one job at a time. With
+it 0 they take `retry_runner`. A compile admission on an owned pool runs the
+changed suites itself when it can take its mini's gui token (take-gui in
+ci-macos.yml) and otherwise leaves them to shard 8, so the plan always counts
+that shard. On a pool with a root
+count whose gui label (`glaeda-gui-<class>-xcode-<version>`, one runner per mini) has a count in
+CI_OWNED_POOL_SLOTS, the placed gui-token jobs (gui_token_job(): the GUI jobs and cli-product) take
+the `gui_runner` output instead of the root label (gui_runner()), so each mini gets at most the one
+such job its gui token allows. A run's owned peak
 (`jobs`, and the marker's) counts only the jobs that may take the pool.
 
 The queue comes from the queue janitor, which lists every in-flight run's
@@ -262,8 +270,8 @@ The `persistent` output tells ci.yml to publish the marker the rescue
 watcher looks for.
 
 Main's full suite: ci-main-full-suite.yml dispatches ci.yml on main about
-32 times a day, each a full suite (compile admission, cli-product-tests and
-the side lanes). That is main's own code, so it may
+32 times a day, each a full suite (compile admission, 7 app-host shards,
+tests-build-and-lag, cli-product-tests). That is main's own code, so it may
 take an owned pool like a same-repository pull request, and ci-macos.yml
 already routes a `workflow_dispatch` on `refs/heads/main` through the same
 inputs. It is placed like a pull request, split and queue rounds
@@ -275,7 +283,8 @@ request. A smaller pool (light) still splits, since the excess would wait
 past the owned-pool rescue's budget. With no owned pool it keeps its own route
 (MACOS_RUNNER_PR), since only an owned pool is a candidate for it. With no Blacksmith pool to compare against, its jobs may
 wait up to the queue rounds and the bound (owned_room()). Its side lanes (the
-remote daemon and the universal Release build) are in its plan like a pull request's, and read the
+Claude wrapper, the remote daemon and the
+universal Release build) are in its plan like a pull request's, and read the
 pick through the same inputs. Main's CI concurrency group holds one run at a time, so main holds at most
 one run's machines. ci-owned-pool-rescue.yml watches it like a pull request.
 
@@ -289,8 +298,6 @@ job's own expression resolves exactly as before.
 from __future__ import annotations
 
 import argparse
-import base64
-import gzip
 import dataclasses
 import datetime as dt
 import hashlib
@@ -300,17 +307,10 @@ import math
 import os
 import re
 import sys
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
-import zlib
-from pathlib import Path
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import github_spend  # noqa: E402 - per-token request counts, reported when the step exits
-import deadline_http  # noqa: E402 - every GitHub call ends by its bound, nothing sent past it
 from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import Any
 
@@ -326,10 +326,7 @@ POOLS = {
 }
 DEFAULT_ORDER = (LARGE_RUNNER, DEFAULT_RUNNER, MACOS_15_RUNNER)
 # Owned classes in preference order, ahead of Blacksmith in the default order
-# once CI_PR_POOL_OWNED is 1. The order is also widest first: a job sized for a
-# class runs on every class before it (std's 48 GB minis run what light's 16 GB
-# minis run, never the reverse), which side_lane_placement.compatible_labels()
-# reads to spill a starved pool onto an idle wider one. Their label embeds the lane's Xcode version, and
+# once CI_PR_POOL_OWNED is 1. Their label embeds the lane's Xcode version, and
 # their POOLS pin is "" (the lane's own), which is the Xcode that label names.
 RUN_CLASSES = ("std", "light")
 # `glaeda-root-...` are each mini's root runners, the `canonicalRoots` runners
@@ -340,14 +337,16 @@ RUN_CLASSES = ("std", "light")
 XCODE_VERSION = r"[0-9]+(?:\.[0-9]+)*"
 # Optional namespaces keep explicitly configured fleets (such as AWS) out of
 # the ordinary mini family while retaining the role labels' semantics.
-# `glaeda-session-...` (glaeda#1530) is carried by each mini's console gui runner and by its extra
-# session runners: jobs that need a logged-in session but not the console gui token (session_label()).
-OWNED_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:root-|side-|gui-|session-|fast-)?(?:xl|std|light)-xcode-{XCODE_VERSION}")
+OWNED_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:root-|side-|gui-)?(?:xl|std|light)-xcode-{XCODE_VERSION}")
 ROOT_PREFIX = "glaeda-root-"
 SIDE_PREFIX = "glaeda-side-"
 GUI_PREFIX = "glaeda-gui-"
-SESSION_PREFIX = "glaeda-session-"
-ROLE_NAMES = ("root", "side", "gui", "session")
+ROLE_NAMES = ("root", "side", "gui")
+# feat-cmux-next's lane labels, which main's picker never hands out (so persistent() leaves them out): the session
+# and fast roles (glaeda#1530), the freshness slot's dev role (glaeda#1628) and the nightly slot (glaeda#1684). The
+# rescue watches jobs on them (owned_pool_rescue.job_pool()) and the janitor's snapshot counts them
+# (queue_janitor.pool_load_snapshot()), so a placement or the rescue can tell a lane label that runs nothing.
+LANE_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:session-|fast-|dev-|nightly-)(?:xl|std|light)-xcode-{XCODE_VERSION}")
 # Capability labels glaeda puts on some runners of an owned pool, requested
 # beside the pool label, never alone. `glaeda-ios-sim`: a mini with an iOS
 # simulator role and an iOS 26.x runtime (ios_runner_pool.py). They are not
@@ -359,14 +358,36 @@ CAPABILITY_LABELS = ("glaeda-ios-sim",)
 # names it) without the pool label or `glaeda-ios-sim`. glaeda keeps it online
 # while that mini's one simulator token is free, even when the mini's capacity
 # units are full and every `glaeda-ios-sim` runner has stopped listening, so an
-# online idle one is a free simulator. A job on it holds that simulator, as a
-# simulator job on `glaeda-ios-sim` does (SIM_FIRST_CAPABILITY), and may wait
-# on the mini for CPU units. Requested alone, not beside a pool label:
-# ios_runner_pool.py puts simulator jobs on it, the rescue watches a job queued
-# there like one on an owned pool (owned_pool_rescue.job_pool()), and the
-# janitor counts it toward `glaeda-ios-sim` (queue_janitor.capabilities()).
-SIM_FIRST_LABEL = re.compile(rf"glaeda-sim-xcode-{XCODE_VERSION}")
+# online idle one is a free simulator. It takes only simulator and
+# simulator-step jobs. A job on it holds that simulator, as a simulator job on
+# `glaeda-ios-sim` does (SIM_FIRST_CAPABILITY), and may wait on the mini for
+# CPU units. Requested alone, not beside a pool label: ios_runner_pool.py puts
+# simulator jobs on it, the rescue watches a job queued there like one on an
+# owned pool (owned_pool_rescue.job_pool()), and the janitor counts it toward
+# `glaeda-ios-sim` (queue_janitor.capabilities()).
+SIM_FIRST_LABEL = re.compile(r"glaeda-sim-xcode-[0-9]+(?:\.[0-9]+)*")
 SIM_FIRST_CAPABILITY = "glaeda-ios-sim"
+# The owned Mac fleet's Linux VMs (arm64 Ubuntu 24.04): each runner is a just-in-time runner on a fresh clone of
+# the VM image, takes one job and is then discarded, so a job there leaves nothing for the next one, as on a
+# Blacksmith label. Named one by one, never by pattern: a label here may lead a RUNNER_POOLS pool
+# (runner_pools.owned_ephemeral()), and the janitor's snapshot counts its queue and starts
+# (queue_janitor.pool_load_snapshot(), label_started()) so a full fleet moves its pool to Blacksmith.
+OWNED_EPHEMERAL_LINUX = ("glaeda-linux-arm64",)
+# The owned GCP Linux pool's own label: same-repository x64 work the GCP fleet takes (a reconciler boots a VM per
+# queued job, and the persistent pool's runners carry it too). Blacksmith's runners never take it, so a job naming it
+# runs on our machines only. It may lead an x64 RUNNER_POOLS pool whose jobs need no fresh machine
+# (runner_pools.owned_lead(), spec_problems()); the janitor counts its queue and starts like the label above, so a
+# saturated pool moves to Blacksmith. Leo, 2026-11-21: "i just am like fundamentally opposed to paying for ci when i
+# exist".
+OWNED_GCP_LINUX = ("cmux-fleet-linux-x64",)
+# The Freestyle Linux rung's own label: same-repository x64 work on Freestyle VMs (hq's freestyle-runners.yml makes
+# an 8 vCPU VM per queued job; it never serves a fork's run). It follows the owned GCP label in (or may lead) an x64
+# RUNNER_POOLS pool whose jobs need no fresh machine and fit 8 vCPU (runner_pools.owned_freestyle(), spec_problems()):
+# a full GCP pool overflows to Freestyle, then Blacksmith; the janitor counts its queue and starts like the labels above.
+# Leo, 2026-11-19: "We still keep Blacksmith sometimes, but stop fucking relying on it. [...] We could use Freestyle."
+OWNED_FREESTYLE_LINUX = ("cmux-freestyle-linux-x64",)
+# Every owned Linux label a RUNNER_POOLS pool may lead with, and the janitor counts per label.
+OWNED_POOL_LEAD_LINUX = OWNED_EPHEMERAL_LINUX + OWNED_GCP_LINUX + OWNED_FREESTYLE_LINUX
 # A warm key (owned_warm_state.py): a main commit's first 12 hex digits, or
 # `pr-<number>` for a kept build of that pull request.
 WARM_KEY = re.compile(r"[0-9a-f]{12}|pr-[1-9][0-9]{0,8}")
@@ -380,9 +401,10 @@ XCODE_APP = re.compile(r"/Xcode_([0-9]+(?:\.[0-9]+)*)\.app/?")
 PR_XCODE_VARIABLE = "CMUX_CI_XCODE_APP_PR"
 OWNED_VARIABLE = "CI_PR_POOL_OWNED"
 SPLIT_VARIABLE = "CI_PR_POOL_OWNED_SPLIT"
+GUI_VARIABLE = "CI_PR_POOL_OWNED_GUI"
 SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
 LIGHT_CLASS = "light"
-# The rescue bot (RESCUE_ACTORS) re-runs a run only after a host fault on a mini: the rescue after a refusal or a
+# github-actions[bot] re-runs a run only after a host fault on a mini: the rescue after a refusal or a
 # stuck queue (owned_pool_rescue.py), the failure attribution when every failed job is a machine failure
 # (classify_failures.py). Its attempt 2 still goes to the owned pool first, like attempt 1: a runner that
 # lost communication is offline, and a busy mini's gui runner stops listening, so the label hands the job
@@ -391,28 +413,26 @@ LIGHT_CLASS = "light"
 # them to retry_runner (Blacksmith), which ends the loop. Anyone else's re-run follows a code or test
 # failure and goes back to the owned pool on any attempt.
 RESCUE_ACTOR = "github-actions[bot]"
-# Its re-runs come from either identity: GITHUB_TOKEN's, or the cmux-bot App's token the rescue now re-runs
-# with. A cmux-bot re-run counted as a person's went back to the owned label on every attempt and looped.
-RESCUE_ACTORS = frozenset({RESCUE_ACTOR, "cmux-bot[bot]"})
 # The last attempt of the bot's re-runs that may take an owned pool (owned_pool_rescue.LAST_OWNED_ATTEMPT).
 LAST_OWNED_ATTEMPT = 2
 
 
 def host_fault_retry(run_attempt: int, triggering_actor: str | None) -> bool:
-    """The bot's re-run past LAST_OWNED_ATTEMPT (see RESCUE_ACTORS): it goes to Blacksmith."""
-    return run_attempt > LAST_OWNED_ATTEMPT and (triggering_actor or "").strip() in RESCUE_ACTORS
+    """The bot's re-run past LAST_OWNED_ATTEMPT (see RESCUE_ACTOR): it goes to Blacksmith."""
+    return run_attempt > LAST_OWNED_ATTEMPT and (triggering_actor or "").strip() == RESCUE_ACTOR
 MAIN_RESERVE_VARIABLE = "CI_OWNED_MAIN_RESERVE"
 # Machines and root runners main's full suite leaves free for pull requests.
-# 0: main takes the minis like a pull request. A reserve lets it in only
-# whole, when the fleet has that many machines free beyond its peak.
+# 0: main takes the minis like a pull request. Its run holds 9 root runners
+# at peak, so a reserve only lets it in whole when the fleet is nearly idle.
 DEFAULT_MAIN_RESERVE = 0
 # The ref of main's full-suite dispatch (ci-main-full-suite.yml).
 MAIN_REF = "refs/heads/main"
 MAIN_BRANCH = "main"
 # A pull request run holds several macOS machines at once, each job on its
-# own. Beside compile admission run the remote daemon and package lanes;
-# once admission passes, a full suite adds cli-product-tests (the shell
-# regressions) on admission's machine. A run takes an owned pool when
+# own. Beside compile admission run the Claude wrapper, remote daemon and
+# package lanes; once admission passes, a full suite adds APP_HOST_SHARDS
+# shards, tests-build-and-lag and cli-product-tests, a changed-suites run one
+# shard, and a CLI change cli-product-tests. A run takes an owned pool when
 # its own peak (run_jobs) fits there by the expected wait and the queue bound
 # (owned_room()); a run whose peak is unknown needs MAX_RUN_JOBS. A run
 # created since the snapshot is looked up first (pull_request_routes_since):
@@ -420,22 +440,23 @@ MAIN_BRANCH = "main"
 # job without one means it took none. Its peak counts toward the queue bound,
 # and toward the wait only once it is older than a job (young_charge()).
 # Only a run still picking is replayed and charged REPLAYED_RUN_JOBS, the
-# peak of a compile-only run with the remote daemon lane.
-# swift-package-tests (SWIFT_PACKAGE_JOB) is a second side lane on a run that
+# peak of a compile-only run with the Claude wrapper and remote daemon lanes.
+# swift-package-tests (SWIFT_PACKAGE_JOB) is a third side lane on a run that
 # builds no Release helper (package_lane_owned()): a package change, or a full
-# suite with release_build false, which then peaks at both side lanes
-# beside admission and cli-product-tests. MAX_RUN_JOBS counts both;
+# suite with release_build false, which then peaks at all three side lanes
+# beside admission and its twelve follow-on jobs. MAX_RUN_JOBS counts all three;
 # the replay charge leaves out the package lane, which a compile-only run
 # carries only on a package change. release-build (RELEASE_BUILD_JOB) is the
 # package lane's alternative: it runs only on a full suite with release_build,
 # exactly when swift-package-tests builds the SDK 15 helper on Blacksmith, so a
-# run still has at most two side lanes.
-SIDE_LANES = 2
-# The side lanes, plus admission and cli-product-tests, which reuses its machine.
-MAX_RUN_JOBS = SIDE_LANES + 1
-# The jobs such a run places, one more than its machines: cli-product-tests counts on its own.
-MAX_PLACED_JOBS = MAX_RUN_JOBS + 1
-REPLAYED_RUN_JOBS = 2
+# run still has at most three side lanes.
+APP_HOST_SHARDS = 7
+# ci-macos.yml cli-regressions: the shell and CLI no-socket regressions in this
+# many shards beside cli-product-tests, for a CLI change or a full suite.
+CLI_REGRESSION_SHARDS = 3
+SIDE_LANES = 3
+MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2 + CLI_REGRESSION_SHARDS
+REPLAYED_RUN_JOBS = 3
 # Owned pools once had a stricter snapshot age (20 minutes) than the rest,
 # but GitHub delays scheduled runs: the janitor's */10 cron fired 55 minutes
 # apart (23:59Z to 00:54Z, 2026-09-25) and every run skipped 40 idle minis.
@@ -490,20 +511,6 @@ SNAPSHOT_BRANCH = "main"
 CI_WORKFLOW = "ci.yml"
 MAX_SNAPSHOT_MINUTES = 45
 PAGE_SIZE = 100
-# A live runner listing (GitHub.runner_pages, read only while the CI_RUNNER_STATE census is stale) pages until the
-# listing's total_count, up to this many pages. GitHub lists registrations oldest first, and the old stop at 5 pages
-# (500) read none of the online runners of the ~3,700 cmux-fleet-linux registrations (cmux#62792, run 46049698131):
-# every reader then saw "no online fleet runner" and took Blacksmith. 50 pages is 5,000 registrations, the
-# simple_pool_picker org fallback's bound; the request cost is total_count / 100 and stays inside the caller's
-# deadline and _keep_reserve. The repository variable/env CI_RUNNER_LIST_MAX_PAGES=5 restores the old stop.
-RUNNER_LIST_MAX_PAGES = 50
-RUNNER_LIST_PAGES_VARIABLE = "CI_RUNNER_LIST_MAX_PAGES"
-
-
-def runner_list_max_pages(env: Mapping[str, str] | None = None) -> int:
-    """The page bound of a live runner listing: CI_RUNNER_LIST_MAX_PAGES when a positive whole number, else 50."""
-    raw = str((os.environ if env is None else env).get(RUNNER_LIST_PAGES_VARIABLE) or "").strip()
-    return int(raw) if raw.isdigit() and int(raw) > 0 else RUNNER_LIST_MAX_PAGES
 # The marker ci.yml's changes job uploads when it puts a run on an owned pool.
 # Its name is ...-<jobs>p<placed>-<pool> (queue_janitor.py reads <placed>); the
 # E2E and iOS markers, and older ones, omit p<placed>.
@@ -517,81 +524,8 @@ MARKER_STEP = "Mark a run on a persistent macOS pool"
 # many are replayed as unknown.
 ROUTE_LOOKUPS = 8
 API = "https://api.github.com"
-# A refused read is logged with its detail. It is retried once after its Retry-After only when
-# the caller opts in with retry_cap > 0, the most it can wait: callers here run under step
-# timeouts and budgets (`timeout 120`, a 2-minute placement step, the picker's rounds) that an
-# unbounded wait would break, so the default (0) logs and raises after one attempt, as before.
-
-# What a refused GitHub read said: its status, the rate-limit headers and the start of its
-# body ("secondary rate limit", "Resource not accessible by integration", ...). urllib's own
-# message is only "HTTP Error 403: Forbidden", which cannot tell those apart.
-REFUSAL_HEADERS = ("Retry-After", "X-RateLimit-Remaining", "X-RateLimit-Resource")
-
-
-def refusal(error: "urllib.error.HTTPError") -> str:
-    headers = error.headers or {}
-    shown = " ".join(f"{name}={headers.get(name)}" for name in REFUSAL_HEADERS if headers.get(name) is not None)
-    try:
-        body = " ".join(error.read(2000).decode("utf-8", "replace").split())[:300]
-    except Exception:  # noqa: BLE001 - the detail is best effort
-        body = ""
-    return f"HTTP {error.code}" + (f" {shown}" if shown else "") + (f" body: {body}" if body else "")
-
-
-def retry_wait(error: "urllib.error.HTTPError", cap: float) -> float | None:
-    """Seconds to wait before the one retry: a 403 or 429 that carries Retry-After, capped."""
-    if error.code not in (403, 429):
-        return None
-    try:
-        after = float((error.headers or {}).get("Retry-After") or "")
-    except ValueError:
-        return None
-    return max(0.0, min(after, cap))
-
-
-# Requests a live runner read leaves in its token's hour. The routing App (manaflow-glaeda-route) is also the
-# runner census publisher's token (cmuxterm-hq runner-state-publish.yml, at most about 15 reads a refresh, one
-# refresh every 4 minutes). While the census (CI_RUNNER_STATE) is stale every placement reads runners live; on
-# 2026-11-20/21 those reads spent the App's hour within minutes of each reset, so the publisher could never refresh
-# and the census stayed stale for 20 h. Stopping here keeps the publisher's share, and its next refresh ends the
-# live reads (tests/test_ci_route_quota_reserve.py).
-ROUTE_QUOTA_RESERVE = 1000
-
-
-class RateLimited(RuntimeError):
-    """A runner read was refused because the token's GitHub quota is spent.
-
-    It stays a RuntimeError so callers that already fall back on a failed
-    census keep doing so; a caller that polls can tell that waiting a few
-    seconds and asking again will only be refused again.
-    """
-
-
-def rate_limited(error: BaseException | None) -> bool:
-    """True when this error, or one it was raised from, is GitHub's quota refusal.
-
-    That is a 429, or a 403 whose X-RateLimit-Remaining is 0 or that carries
-    Retry-After (a secondary limit). A 403 without those headers is a missing
-    permission, which this does not claim.
-    """
-    seen = 0
-    while error is not None and seen < 8:
-        if isinstance(error, RateLimited):
-            return True
-        if isinstance(error, urllib.error.HTTPError):
-            headers = error.headers or {}
-            if error.code == 429 or (error.code == 403 and (
-                    str(headers.get("X-RateLimit-Remaining") or "").strip() == "0"
-                    or headers.get("Retry-After") is not None)):
-                return True
-        error = error.__cause__ or error.__context__
-        seen += 1
-    return False
 # The org runner group holding the glaeda minis (glaeda#1222 moved them there).
 RUNNER_GROUP = "glaeda-minis"
-# The approved GCP Linux pool is an organization runner group as well. Keep
-# this allowlist explicit: visible groups are not trusted implicitly.
-APPROVED_RUNNER_GROUPS = (RUNNER_GROUP, "cmux-fleet-linux")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -604,10 +538,9 @@ class Settings:
     queue_rounds: int = 0
 
 
-# The dedicated nightly-next builder's label (plans/cmux-next/nightly-builder-DESIGN.md): one mini
-# whose job-started hook admits only nightly-next's app build and signed-app verify. It is one
-# machine, so the picker offers it only while it is online and free (nightly_build_runner.py), and
-# ci-owned-pool-rescue.yml moves a job queued on it past its budget, as on an owned pool.
+# The dedicated nightly-next builder's label (feat-cmux-next's nightly_build_runner.py offers it
+# first): one mini whose job-started hook admits only nightly-next's app build. The rescue moves a
+# build queued on it past its budget, as on an owned pool, so no build waits on that one machine.
 NIGHTLY_DEDICATED_LABEL = "glaeda-trusted-next-nightly"
 
 
@@ -668,22 +601,6 @@ def gui_label(label: str) -> str:
     if not persistent(label) or _role_name(label):
         return ""
     return _role_label(label, "gui")
-
-
-def session_label(label: str) -> str:
-    """The session runners' label for an owned pool label, or "" for any other label.
-
-    glaeda#1530: a mini's console gui runner carries it beside the gui label,
-    and with `guiRunners` 2 the mini runs a session runner carrying only it,
-    whose gate does not hold for the gui token or the canonical roots. A job
-    that needs a logged-in session but not the console gui token takes it, so
-    it runs beside a console GUI job. Callers take it only while a runner
-    carries it (side_lane_placement.session_route_label(), the tour's slots
-    count), else the gui label.
-    """
-    if not persistent(label) or _role_name(label):
-        return ""
-    return _role_label(label, "session")
 
 
 def _role_label(label: str, role: str) -> str:
@@ -764,7 +681,7 @@ def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owne
     if not plan.side or not label or owned_slots.get(light, 0) <= owned_slots.get(root_label(light), 0):
         return "", ()
     # release-build stays with the picked pool: ci-macos.yml gives it only side_runner.
-    lanes = idle_placement(runners, label, tuple(key for key in plan.side if key != RELEASE_BUILD_JOB))
+    lanes = tuple(key for key in plan.side if key != RELEASE_BUILD_JOB)[:max(0, live_owned_free(runners, [label])[label])]
     return (label, lanes) if lanes else ("", ())
 
 
@@ -773,7 +690,7 @@ def pool_label(label: str) -> str:
     if not persistent(label):
         return label
     parts = label.split("-")
-    for role in ROLE_NAMES:
+    for role in ("root", "side", "gui"):
         if role in parts[1:3]:
             parts.remove(role)
             return "-".join(parts)
@@ -813,6 +730,10 @@ class Choice:
     # For a persistent runner only: its machines free for this run (capped at
     # the run's peak), which place() fills in priority order.
     owned_budget: int = 0
+    # For a Blacksmith pick on the lane's Xcode only: the pool the app-host
+    # shards take, when another pool on that Xcode has more room for them
+    # (spread_shards). "" keeps them on compile admission's pool.
+    shard_runner: str = ""
     # For a persistent runner with a root count only: its root label, which
     # the placed root jobs take, and its root runners free for this run.
     root_runner: str = ""
@@ -827,7 +748,7 @@ class Routed:
     their peak, read from each run's marker. `owned_now` is what they hold
     now (young_charge()): a run younger than a job length has only
     admission and its side lanes, at most REPLAYED_RUN_JOBS, and an older
-    one the jobs after admission too, so its whole peak. `ephemeral` counts runs whose
+    one its shards too, so its whole peak. `ephemeral` counts runs whose
     pick already finished without a marker, so they hold no owned machine.
     `unknown` counts runs whose pick this one cannot see yet; they are
     replayed and charged REPLAYED_RUN_JOBS on an owned pool they could take.
@@ -858,6 +779,8 @@ def flag(value: str | None) -> bool:
 
 # The job keys `owned_jobs` lists; each workflow job tests for its own key.
 ADMISSION_JOB = "admission"
+# The changed-suites worker is matrix shard 8 (ci-macos.yml app-host-unit-tests).
+CHANGED_SUITES_SHARD = 8
 
 
 @dataclasses.dataclass(frozen=True)
@@ -872,32 +795,56 @@ class RunJobs:
         return len(self.side) + (max(1, len(self.after)) if self.admission else 0)
 
 
+def shard_job(index: int) -> str:
+    return f"shard-{index}"
+
+
+CLI_REGRESSION_JOBS = tuple(f"cli-regressions-{index}" for index in range(1, CLI_REGRESSION_SHARDS + 1))
+# What a CLI change or a full suite runs after admission: cli-product-tests and the regression shards.
+CLI_JOBS = ("cli-product", *CLI_REGRESSION_JOBS)
+
+
 # A full suite with every side lane: what a run whose routing is unknown is charged.
-FULL_RUN = RunJobs(True, ("cli-product",), ("remote-daemon", "swift-package"))
+FULL_RUN = RunJobs(True, (*(shard_job(index) for index in range(1, APP_HOST_SHARDS + 1)), "lag", *CLI_JOBS),
+                   ("claude-wrapper", "remote-daemon", "swift-package"))
 
 
-def run_plan(*, macos: str | None, full_suite: str | None,
-             remote_daemon: str | None, swift_packages: str | None = None,
-             release_build: str | None = None) -> RunJobs:
+def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | None,
+             unit_in_admission: str | None, claude_wrapper: str | None, cli: str | None,
+             remote_daemon: str | None, unit_selectors: str | None = None,
+             swift_packages: str | None = None, release_build: str | None = None) -> RunJobs:
     """This run's macOS jobs, from the changes job's routing.
 
     Counted high on purpose: compile admission is assumed to run (the reuse
-    checks come later). ci-macos.yml runs admission for a macOS change,
-    and cli-product-tests (the shell regressions) after it for a full suite. swift-package-tests is a
+    checks come later), and a changed-suites canary that may yet be dropped
+    counts its shard. ci-macos.yml runs admission for a macOS or a CLI change,
+    and cli-product-tests after it for a CLI change or a full suite. A unit
+    suite with no selectors (the unit-ci label) runs all seven shards; with
+    selectors, the one changed-suites worker. `unit_selectors` None (a caller
+    that does not know) counts one shard, as before. swift-package-tests is a
     side lane only when package_lane_owned() says it may take the pool;
     `swift_packages` None (a caller that does not pass it) leaves it out.
     release-build is a side lane on a full suite with `release_build` true;
     None leaves it out.
     """
     full = flag(macos) and flag(full_suite)
-    side = tuple(key for key, on in (("remote-daemon", flag(remote_daemon)),
+    side = tuple(key for key, on in (("claude-wrapper", flag(claude_wrapper) or full),
+                                     ("remote-daemon", flag(remote_daemon)),
                                      (SWIFT_PACKAGE_JOB, package_lane_owned(
                                          full=full, full_suite=full_suite, swift_packages=swift_packages,
                                          release_build=release_build)),
                                      (RELEASE_BUILD_JOB, full and flag(release_build))) if on)
-    if not flag(macos):
+    if not (flag(macos) or flag(cli)):
         return RunJobs(False, (), side)
-    return RunJobs(True, ("cli-product",) if full else (), side)
+    unit = flag(macos) and flag(unit_suite) and not flag(unit_in_admission)
+    if full or (unit and unit_selectors is not None and not unit_selectors.strip()):
+        shards = tuple(shard_job(index) for index in range(1, APP_HOST_SHARDS + 1))
+    elif unit:
+        shards = (shard_job(CHANGED_SUITES_SHARD),)
+    else:
+        shards = ()
+    after = shards + (("lag",) if full else ()) + (CLI_JOBS if flag(cli) or full else ())
+    return RunJobs(True, after, side)
 
 
 # swift-package-tests (ci-macos.yml): `swift test` per selected package into
@@ -932,39 +879,48 @@ def run_jobs(**routing: str | None) -> int:
     return run_plan(**routing).peak
 
 
-# Owned placement priority: the heavy compile, then light jobs.
+# Owned placement priority: the heavy compile, then GUI jobs (the longest
+# Blacksmith queues), then light jobs. GUI jobs need the mini's console
+# session; CI_PR_POOL_OWNED_GUI=0 keeps them off.
 # release-build is not light (a 15-minute universal compile), but it follows
 # cli-product: it is the side lane that saves the most Blacksmith time.
-LIGHT_JOBS = ("cli-product", RELEASE_BUILD_JOB, "remote-daemon", SWIFT_PACKAGE_JOB)
+LIGHT_JOBS = (*CLI_JOBS, RELEASE_BUILD_JOB, "remote-daemon", "claude-wrapper", SWIFT_PACKAGE_JOB)
 # glaeda's canonical-root jobs: admission and every job after it (RunJobs.after:
-# cli-product-tests). The side lanes are not.
-ROOT_JOBS = "admission, cli-product"
+# the shards, tests-build-and-lag, cli-product-tests). The side lanes are not.
+ROOT_JOBS = "admission, shards, lag, cli-product, cli-regressions"
 # The side lanes (RunJobs.side): light, no canonical root; they take side_runner() on a pool with a root count.
-SIDE_LANE_JOBS = ("remote-daemon", SWIFT_PACKAGE_JOB, RELEASE_BUILD_JOB)
+SIDE_LANE_JOBS = ("claude-wrapper", "remote-daemon", SWIFT_PACKAGE_JOB, RELEASE_BUILD_JOB)
+
+
+def gui_job(key: str) -> bool:
+    return key == "lag" or key.startswith("shard-")
 
 
 def gui_token_job(key: str) -> bool:
     """A job that holds the mini's one gui token, so it takes the gui label (gui_runner()) where there is one.
 
-    cli-product-tests needs no console session. It ran the Swift CLI's XCTest
-    bundle through the runner user's one testmanagerd, which glaeda serializes
-    with the gui token (glaeda#1281, class `product`); it now runs only shell
-    regressions, but glaeda still classes it `product`, so it keeps the label. On the root label it met a mini whose gui
-    token another job held, waited 240 s and was refused (cmux runs
-    36314100892 and 36316398822, 2026-09-27).
+    The GUI jobs (gui_job()) and cli-product-tests, which needs no console
+    session but runs XCTest through the runner user's one testmanagerd, which
+    glaeda serializes with the same token (glaeda#1281, class `product`). On
+    the root label it met a mini whose gui token a shard held, waited 240 s
+    and was refused (cmux runs 36314100892 and 36316398822, 2026-09-27).
     """
-    return key == "cli-product"
+    return gui_job(key) or key == "cli-product"
 
 
 def priority(key: str) -> tuple[int, int]:
     if key == ADMISSION_JOB:
         return 0, 0
-    return 1, LIGHT_JOBS.index(key)
+    if key.startswith("shard-"):
+        return 1, int(key.removeprefix("shard-"))
+    if key == "lag":
+        return 2, 0
+    return 3, LIGHT_JOBS.index(key)
 
 
-def owned_peak(plan: RunJobs) -> int:
+def owned_peak(plan: RunJobs, gui: bool = True) -> int:
     """The machines a run holds on an owned pool when every job that may take one does."""
-    return place(plan, plan.peak)[1]
+    return place(plan, plan.peak, gui)[1]
 
 
 def root_held(plan: RunJobs, keys: Sequence[str], gui_runners: bool = False) -> int:
@@ -976,9 +932,9 @@ def root_held(plan: RunJobs, keys: Sequence[str], gui_runners: bool = False) -> 
     return max(1, after) if ADMISSION_JOB in keys else after
 
 
-def root_peak(plan: RunJobs, gui_runners: bool = False) -> int:
+def root_peak(plan: RunJobs, gui: bool = True, gui_runners: bool = False) -> int:
     """The root runners a run holds on an owned pool when every job that may take one does."""
-    return root_held(plan, place(plan, plan.peak)[0], gui_runners)
+    return root_held(plan, place(plan, plan.peak, gui)[0], gui_runners)
 
 
 def root_demand(root_jobs: int | Mapping[str, int], label: str) -> int:
@@ -988,7 +944,7 @@ def root_demand(root_jobs: int | Mapping[str, int], label: str) -> int:
     return max(0, int(root_jobs))
 
 
-def place(plan: RunJobs, budget: int,
+def place(plan: RunJobs, budget: int, gui: bool = True,
           root_budget: int | None = None, gui_runners: bool = False) -> tuple[tuple[str, ...], int]:
     """The jobs that take the owned pool with `budget` machines free, and the machines they hold at peak.
 
@@ -996,7 +952,8 @@ def place(plan: RunJobs, budget: int,
     `budget`: the side lanes (beside admission) plus the larger of admission
     and the jobs after it, which reuse its machine. A job that does not fit is
     skipped, and a later one that does is still taken. Admission comes first,
-    so a run whose admission is not placed places nothing after it. With `root_budget` (a pool
+    so a run whose admission is not placed places nothing after it. Without
+    `gui`, GUI jobs (gui_job()) are never placed. With `root_budget` (a pool
     with a root count), the root runners held (root_held()) stay within it too.
     """
     chosen: list[str] = []
@@ -1007,7 +964,7 @@ def place(plan: RunJobs, budget: int,
         return side + (max(1, after) if ADMISSION_JOB in keys else after)
 
     keys = ((ADMISSION_JOB,) if plan.admission else ()) + plan.after + plan.side
-    for key in sorted(keys, key=priority):
+    for key in sorted((key for key in keys if gui or not gui_job(key)), key=priority):
         if key in plan.after and ADMISSION_JOB not in chosen:
             continue
         if held([*chosen, key]) <= max(0, budget) and (
@@ -1151,8 +1108,6 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
     #   {"root-std": 10}               a class's root runners, one per mini
     #   {"glaeda-root-std-xcode-26.6": 10}  (root_label()), beside its pool
     #   {"gui-std": 10}                a class's gui runners, one per mini (gui_runner())
-    #   {"session-std": 20}            the runners carrying a class's session label (session_label()),
-    #                                  up to guiRunners per mini, so not bounded by its machines
     #   {"glaeda-ios-sim": 2}          a capability label (capability_slots()), no pool
     text = (raw or "").strip()
     if not text:
@@ -1192,7 +1147,7 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
                                 "names no Xcode version to pair it with")
         else:
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} is not an owned pool label "
-                            "(glaeda-[root-|gui-|session-]<class>-xcode-<version>) or class (std, light, xl, root-std, gui-std, ...)")
+                            "(glaeda-[root-|gui-]<class>-xcode-<version>) or class (std, light, xl, root-std, gui-std, ...)")
     # A full label is more specific than its class, so it wins.
     counted = {**by_class, **counted}
     for label, count in list(counted.items()):
@@ -1311,11 +1266,11 @@ def owned_room(label: str, counts: Mapping[str, int], added_jobs: int, taken_pea
       snapshot (young_charge()) and `added_jobs` for those replayed. Past
       the free machines, a job at queue place q waits about q / machines
       rounds, so limit x machines / job_minutes() places are allowed. A run's
-      jobs after admission that do not exist yet hold no machine, so a later
-      run may take the idle ones and those jobs queue behind it.
+      shards that do not exist yet hold no machine, so a later run may take
+      the idle ones and the shards queue behind it.
     - bound: machines x (1 + rounds) less everything the runs holding it will
       need at their peak (the janitor's `committed`, or `future` read live,
-      and `taken_peak` since the snapshot). So the queue those jobs join
+      and `taken_peak` since the snapshot). So the queue those shards join
       never grows past `queue_rounds` rounds, however many runs arrive.
     """
     capacity = counts.get("capacity", 0)
@@ -1329,8 +1284,52 @@ def owned_room(label: str, counts: Mapping[str, int], added_jobs: int, taken_pea
     return min(wait, bound)
 
 
+def snapshot_truncated(snapshot: Mapping[str, Any]) -> str:
+    """Why `snapshot`'s queue counts are partial, or "": the janitor marks a sweep that could not list every
+    in-flight run `truncated` (queue_janitor.listing_state()). Its pools then miss demand, so a reader takes
+    the queue as unknown, never as nothing queued. Any value but false counts as truncated; a snapshot
+    without the key (written before it existed) does not."""
+    if "truncated" not in snapshot or snapshot.get("truncated") is False:
+        return ""
+    bound = "at least " if snapshot.get("total_at_least") else ""
+    return (f"pool snapshot is truncated (it lists {snapshot.get('listed', '?')} of {bound}{snapshot.get('total', '?')} "
+            "in-flight runs), so its queues are unknown")
+
+
+def starved_pools(snapshot: Any, now: dt.datetime) -> dict[str, int]:
+    """Owned pool -> its oldest wait in minutes, for each owned pool one of whose labels (the pool's own, or its
+    root, side or gui label) the janitor's snapshot lists as starved: a job queued past
+    starved_labels.STARVED_AFTER and none running or started on that label since (the snapshot's `starved`,
+    queue_janitor.py). A snapshot older than MAX_SNAPSHOT_MINUTES, or one without that list, says nothing.
+
+    The picker reads this only when the runners API could not be read: without it an offline mini still
+    counts toward its pool's slots, so a run went on picking a label no runner carried. On 2026-11-25 the
+    routing token got HTTP 403 listing runners and run 45563113767's compile admission waited 66 min on
+    glaeda-root-std-xcode-26.6 with every carrier offline, while the janitor's snapshot already listed the
+    label starved (cmux#55844, cmux#55962)."""
+    out: dict[str, int] = {}
+    if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("starved"), list):
+        return out
+    age = snapshot_age_minutes(snapshot, now)
+    if age is None or age < -5 or age > MAX_SNAPSHOT_MINUTES:
+        return out
+    for entry in snapshot["starved"]:
+        if not isinstance(entry, Mapping):
+            continue
+        try:
+            waited = int(entry.get("oldest_queued_minutes") or 0)
+        except (TypeError, ValueError):
+            waited = 0
+        # A job asking for several labels is keyed by them joined with "+" (starved_labels.fleet_key()).
+        for label in str(entry.get("label") or "").split("+"):
+            if persistent(label):
+                owner = pool_label(label)
+                out[owner] = max(out.get(owner, 0), waited)
+    return out
+
+
 def snapshot_problem(snapshot: Any, now: dt.datetime) -> str:
-    """Why decide() would not read `snapshot` (missing, undated, stale or without pools), or ""."""
+    """Why decide() would not read `snapshot` (missing, undated, stale, truncated or without pools), or ""."""
     if not isinstance(snapshot, Mapping) or not snapshot.get("generated_at"):
         return "no readable pool snapshot"
     if not isinstance(snapshot.get("pools"), Mapping):
@@ -1338,7 +1337,7 @@ def snapshot_problem(snapshot: Any, now: dt.datetime) -> str:
     age = snapshot_age_minutes(snapshot, now)
     if age is None or age < -5 or age > MAX_SNAPSHOT_MINUTES:
         return f"pool snapshot is stale or undated (age {age if age is None else round(age)} min)"
-    return ""
+    return snapshot_truncated(snapshot)
 
 
 def iso(moment: dt.datetime) -> str:
@@ -1355,19 +1354,6 @@ def live_owned_free(runners: Sequence[Mapping[str, Any]], labels: Sequence[str])
             if carries_office_pool_label(runner, label):
                 free[label] += 1
     return free
-
-
-def idle_placement(runners: Sequence[Mapping[str, Any]], label: str, jobs: Sequence[str]) -> tuple[str, ...]:
-    """The first of `jobs` that `label`'s runners idle now take, one job per idle runner: no job queues.
-
-    The no-queue rule for jobs placed on an owned label as they start: the light
-    side lanes here (light_side_lanes()), and the macOS jobs of a side-lane
-    workflow, which has no picker (side_lane_placement.py). The rest keep their
-    fallback.
-    """
-    if not label:
-        return ()
-    return tuple(jobs)[:max(0, live_owned_free(runners, [label])[label])]
 
 
 def warm_key(commit: str | None) -> str:
@@ -1659,7 +1645,8 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
     root_taken = taken if root_taken is None else root_taken
     root_taken_now = taken_now if root_taken_now is None else root_taken_now
     blacksmith = [label for label in usable if not persistent(label)]
-    # Which Blacksmith pool: by its wait for this run's admission.
+    # Which Blacksmith pool: by its wait for this run's admission, since the
+    # shards may take another pool on the lane's Xcode (spread_shards()).
     waits = {label: expected_wait(label, load[label], added.get(label, 0) + 1) for label in blacksmith}
     best = min(blacksmith, key=lambda label: (waits[label], blacksmith.index(label))) if blacksmith else ""
     # Owned or Blacksmith: the wait of this run's last job on each side, so an
@@ -1756,6 +1743,7 @@ def decide(
     owned_slots: Mapping[str, int] | None = None,
     jobs: int = MAX_RUN_JOBS,
     split: bool = False,
+    shards: int = 0,
     root_jobs: int | Mapping[str, int] = 0,
     owned_now: Mapping[str, int] | None = None,
     root_since: Mapping[str, int] | None = None,
@@ -1792,6 +1780,8 @@ def decide(
     age = snapshot_age_minutes(snapshot, now)
     if age is None or age < -5 or age > MAX_SNAPSHOT_MINUTES:
         return Choice("", "", f"pool snapshot is stale or undated (age {age if age is None else round(age)} min)")
+    if snapshot_truncated(snapshot):
+        return Choice("", "", snapshot_truncated(snapshot))
     try:
         load = {label: pool(snapshot, label, owned_slots) for label in limits.order}
         roots = {label: pool(snapshot, root_label(label), owned_slots) for label in limits.order
@@ -1918,13 +1908,43 @@ def decide(
         # own Xcode, which is also the Xcode the owned label names.
         lane = [pool_label for pool_label in usable if not persistent(pool_label) and not POOLS.get(pool_label)]
         retry = pick(load, added, lane, limits.max_queued, queue_rounds=queue_rounds).label if lane else DEFAULT_RUNNER
+    shard = spread_shards(load, added, usable, label, shards)
+    if shard:
+        note += f"; its {shards} app-host shards take {shard}, which has more room for them"
     if not persistent(label):
-        return Choice(label, xcode(label) or "", why + note, retry, 0)
+        return Choice(label, xcode(label) or "", why + note, retry, 0, shard)
     budget = max(0, min(chosen.room, jobs))
     if chosen.root_room is not None:
-        return Choice(label, xcode(label) or "", why + note, retry, budget,
+        return Choice(label, xcode(label) or "", why + note, retry, budget, shard_runner=shard,
                       root_runner=root_label(label), root_budget=max(0, chosen.root_room))
-    return Choice(label, xcode(label) or "", why + note, retry, budget)
+    return Choice(label, xcode(label) or "", why + note, retry, budget, shard)
+
+
+def spread_shards(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable: Sequence[str],
+                  label: str, shards: int) -> str:
+    """The pool a full suite's app-host shards take, or "" for admission's own.
+
+    Admission and the shards need the same Xcode, not the same pool: every
+    Blacksmith pool on the lane's Xcode reproduces the canonical build root, so
+    the product runs on any of them. A run that compiles on the 5-machine
+    12vcpu pool left its 7 shards waiting for it, the last one starting a
+    median 23 minutes (p90 42) after the compile (2026-09-25). They take the
+    pool on that Xcode whose queue is shortest in rounds once they all arrive
+    there, admission's own on a tie.
+    """
+    if shards < 2 or persistent(label) or POOLS.get(label):
+        return ""
+    lane = [pool_label for pool_label in usable if not persistent(pool_label) and not POOLS.get(pool_label)]
+    if label not in lane or len(lane) < 2:
+        return ""
+    after = {**added, label: added.get(label, 0) + 1}  # this run's admission
+
+    def wait(pool_label: str) -> tuple[float, int]:
+        return (expected_wait(pool_label, load[pool_label], after.get(pool_label, 0) + shards),
+                0 if pool_label == label else 1 + lane.index(pool_label))
+
+    best = min(lane, key=wait)
+    return "" if best == label else best
 
 
 def choose(
@@ -1949,6 +1969,7 @@ def choose(
     run_attempt: int = 1,
     live_owned: Mapping[str, int] | None = None,
     live_online: Mapping[str, int] | None = None,
+    shards: int = 0,
     queue_rounds: str | None = None,
     ref: str = "",
 ) -> tuple[Choice, Mapping[str, Any] | None]:
@@ -2058,7 +2079,7 @@ def choose(
         # The idle runners replace the slot counts and the snapshot's owned
         # counts. Runs of the last DEFAULT_JOB_MINUTES that took an owned pool
         # count their peaks toward the queue bound (owned_room()): their
-        # later jobs are on the way, and nothing else here sees them coming. Only
+        # shards are on the way, and nothing else here sees them coming. Only
         # those of the last LIVE_WINDOW_MINUTES hold machines toward the wait;
         # older ones' jobs show on the runners. The rest of the snapshot
         # window counts on Blacksmith.
@@ -2090,6 +2111,13 @@ def choose(
         older = {label: max(0, count - recent.runs().get(label, 0)) for label, count in before.runs().items()}
         snapshot, owned_capacity = live_pools(snapshot, live_owned or {}, owned_capacity, older, live_online,
                                               snapshot_age_minutes(snapshot, now))
+    # Without the runners read, an owned pool the janitor saw starved (a label of it took no job for
+    # STARVED_AFTER while one waited: its carriers are offline or held off) gets no slots, so decide() skips it
+    # and the run takes the next pool in the order, as it would with the runners read and none online.
+    starved = {} if live else {label: waited for label, waited in starved_pools(snapshot, now).items()
+                               if any(pool_label(slot) == label for slot in owned_capacity)}
+    if starved:
+        owned_capacity = {label: count for label, count in owned_capacity.items() if pool_label(label) not in starved}
     # On a pool with gui runners each newer run holds one root runner (its
     # admission), not its whole peak: charging the peak left 0 of 15 root
     # runners for a run while 3 newer runs held 3 (cmux run 36371179217,
@@ -2108,7 +2136,7 @@ def choose(
     choice = decide(snapshot, limits, now=now, xcode_pins={} if fork else xcode_pins,
                     routed_since=routed.unknown, owned_since=routed.owned, ephemeral_since=routed.ephemeral,
                     auto_xcode=fork, owned_slots=owned_capacity, jobs=jobs,
-                    split=(split or "").strip() == "1",
+                    split=(split or "").strip() == "1", shards=shards,
                     root_jobs=root_jobs, owned_now=routed.owned_now,
                     root_since=root_since, root_now=root_now,
                     # Main only ever takes an owned pool; the replay still
@@ -2143,6 +2171,10 @@ def choose(
         choice = Choice("", "", f"{live_only}; no owned pool has room ({choice.reason})")
     if live and persistent(choice.runner):
         choice = dataclasses.replace(choice, reason=f"{choice.reason}; owned machines read live from the runners API")
+    if starved and choice.runner:
+        dark = ", ".join(f"{label} (oldest job waiting {waited} min)" for label, waited in sorted(starved.items()))
+        choice = dataclasses.replace(choice, reason=f"{choice.reason}; skipped starved owned pool(s) {dark}: the "
+                                                    "runners could not be read and the janitor saw no job start there")
     if live_only and choice.runner:
         choice = dataclasses.replace(choice, reason=f"{choice.reason}; no janitor snapshot ({live_only}), so "
                                                     "Blacksmith's queues are unknown")
@@ -2227,266 +2259,20 @@ def newest_snapshot_artifact(artifacts: Sequence[Any], *, now: dt.datetime,
     return newest
 
 
-# The kept snapshot's directory under RUNNER_TEMP (the workflows carry it between jobs with actions/cache), and
-# the marker beside it that says this job read the API, so the workflow saves a new cache entry only then.
-KEPT_SNAPSHOT_DIR = "cmux-pool-snapshot"
-SNAPSHOT_FETCHED_MARKER = "cmux-pool-snapshot.fetched"
-# A shared copy is reused for less than this long after it was read from the API: the janitor publishes every few
-# minutes, so by then the artifact list may hold a newer one. The snapshot itself may be older (the artifact read
-# accepts up to MAX_SNAPSHOT_MINUTES), and snapshot_problem() still applies to the copy.
-KEPT_SNAPSHOT_MAX_MINUTES = 5
-
-
-def kept_snapshot_path(branch: str) -> Path | None:
-    """Where this job keeps the snapshot it read (RUNNER_TEMP/KEPT_SNAPSHOT_DIR), or None outside Actions.
-
-    While the runner census is stale, every placement step reads the janitor's artifact (a list and a download,
-    two calls from the job's GITHUB_TOKEN, the REST hour the promote gates share). A later step of the same job,
-    or a later job that restored the directory from the Actions cache (no REST call), reuses it for less than
-    KEPT_SNAPSHOT_MAX_MINUTES after it was read (tests/test_ci_pool_snapshot_job_cache.py). The file holds
-    {"fetched_at": ..., "snapshot": ...}."""
-    temp = os.environ.get("RUNNER_TEMP", "").strip()
-    if not temp:
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
         return None
-    return Path(temp) / KEPT_SNAPSHOT_DIR / f"{re.sub(r'[^A-Za-z0-9._-]', '_', branch)}.json"
-
-
-@dataclasses.dataclass
-class RetryBudget:
-    """Retries left to the clients that share it: one for a whole step, not one per client or read."""
-    left: int = 1
-
-
-# Repository variables arrive through trusted workflow context, without a token or
-# a request per picker. The publisher lives in HQ's fleet observation tools.
-RUNNER_STATE_SCHEMA = "runner-state/v1"
-RUNNER_STATE_MAX_AGE_SECONDS = 5 * 60
-RUNNER_STATE_CLOCK_SKEW_SECONDS = 5
-RUNNER_STATE_MAX_BYTES = 2 * 1024 * 1024
-
-# The optional queue snapshot is copied into the runner census by the trusted
-# publisher.  Keep this envelope deliberately narrow: the picker needs the
-# janitor's aggregate counts, but never needs artifact URLs, tokens, or
-# workflow payloads from the source API.
-QUEUE_SNAPSHOT_ARTIFACT_KEYS = frozenset({"id", "name", "expired", "created_at", "workflow_run"})
-QUEUE_SNAPSHOT_RUN_KEYS = frozenset({"id", "head_branch", "repository_id", "head_repository_id"})
-QUEUE_SNAPSHOT_MAX_FUTURE_SECONDS = 5
-
-
-# An approved group too large for rows (cmux-fleet-linux: about 3,676 registrations on 2026-11-21, over the
-# 2,000-row cap and the 48 KiB variable) is published as `runner_group_tallies`: for each exact (os, labels) set,
-# how many runners are idle, busy and offline. Placement reads only those fields of such a runner. The required
-# mini group stays rows, since placement uses each mini's runner names (tests/test_ci_runner_census_tallies.py).
-RUNNER_TALLY_KEYS = frozenset({"os", "labels", "idle", "busy", "offline"})
-RUNNER_TALLY_MAX_SETS = 200
-RUNNER_TALLY_MAX_LABELS = 64
-RUNNER_TALLY_MAX_RUNNERS = 20_000
-
-
-def runner_tallies_problem(tallies: Any) -> str:
-    """Why a document's runner_group_tallies is unusable, or "" (an absent value is usable: no tallies)."""
-    if tallies is None:
-        return ""
-    if not isinstance(tallies, dict):
-        return "tallies are not an object"
-    for group, sets in tallies.items():
-        if group not in APPROVED_RUNNER_GROUPS or group == RUNNER_GROUP:
-            return f"no tallies for group {group!r}"
-        if not isinstance(sets, list) or len(sets) > RUNNER_TALLY_MAX_SETS:
-            return f"{group}: tallies are not a bounded list"
-        seen: set[tuple[str, frozenset[str]]] = set()
-        total = 0
-        for entry in sets:
-            if not isinstance(entry, dict) or set(entry) != RUNNER_TALLY_KEYS:
-                return f"{group}: a tally has other fields"
-            labels = entry["labels"]
-            if (not isinstance(entry["os"], str) or not entry["os"] or not isinstance(labels, list)
-                    or not labels or len(labels) > RUNNER_TALLY_MAX_LABELS
-                    or not all(isinstance(label, str) and label for label in labels)
-                    or len(set(labels)) != len(labels)):
-                return f"{group}: a tally's os or labels are malformed"
-            identity = (entry["os"], frozenset(labels))
-            if identity in seen:
-                return f"{group}: a label set is tallied twice"
-            seen.add(identity)
-            counts = [entry[key] for key in ("idle", "busy", "offline")]
-            if any(type(count) is not int or count < 0 for count in counts):
-                return f"{group}: a tally count is not a whole number"
-            total += sum(counts)
-        if total > RUNNER_TALLY_MAX_RUNNERS:
-            return f"{group}: more than {RUNNER_TALLY_MAX_RUNNERS} runners tallied"
-    return ""
-
-
-def census_runners(document: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    """Every runner of a validated census as registration rows: the listed ones, then each tallied group's.
-
-    A group with tallies is read from its tallies only; rows it also carries are for older readers. A tallied
-    runner has a name unique in the document and never a mini's (runner_member() is ""), and id 0 (no
-    registration to name)."""
-    tallies = document.get("runner_group_tallies") or {}
-    rows: list[Mapping[str, Any]] = [*document["repository_runners"]]
-    for group, runners in document["runner_groups"].items():
-        if group not in tallies:
-            rows.extend(runners)
-    for group, sets in tallies.items():
-        for index, entry in enumerate(sets):
-            labels = [{"name": label} for label in entry["labels"]]
-            states = (("online", False, entry["idle"]), ("online", True, entry["busy"]),
-                      ("offline", False, entry["offline"]))
-            serial = 0
-            for status, busy, count in states:
-                for _ in range(count):
-                    serial += 1
-                    rows.append({"id": 0, "name": f"{group}-tally-{index}-{serial}", "os": entry["os"],
-                                 "status": status, "busy": busy, "labels": labels})
-    return rows
-
-
-def runner_state(repository: str, *, raw: str | None = None,
-                 now: dt.datetime | None = None,
-                 max_age_seconds: float = RUNNER_STATE_MAX_AGE_SECONDS) -> Mapping[str, Any] | None:
-    """A complete, fresh registration census, or None to retain the live API path.
-
-    The variable contains gzip/base64 JSON. Never accept desired manifest labels,
-    arbitrary scopes, partial pages or a timestamp refreshed after a source error.
-    A workflow's input is not a document source: callers use repository context.
-    """
-    return _runner_state_document(repository, raw=raw, now=now, max_age_seconds=max_age_seconds)
-
-
-def _runner_state_document(repository: str, *, max_age_seconds: float,
-                           raw: str | None = None,
-                           now: dt.datetime | None = None) -> Mapping[str, Any] | None:
-    """Validate the shared envelope; each consumer retains its own source expiry."""
-    raw = os.environ.get("CI_RUNNER_STATE", "") if raw is None else raw
-    if not raw or len(raw) > 48 * 1024 or repository != "manaflow-ai/cmux":
-        return None
-    try:
-        compressed = base64.b64decode(raw, validate=True)
-        with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as source:
-            body = source.read(RUNNER_STATE_MAX_BYTES + 1)
-        if len(body) > RUNNER_STATE_MAX_BYTES:
-            return None
-        doc = json.loads(body)
-        if (not isinstance(doc, dict) or doc.get("schema") != RUNNER_STATE_SCHEMA
-                or doc.get("repository") != repository or doc.get("complete") is not True):
-            return None
-        generated = parse_time(str(doc.get("generated_at") or ""))
-        clock = now or dt.datetime.now(dt.timezone.utc)
-        if (generated is None or generated.tzinfo is None
-                or not -RUNNER_STATE_CLOCK_SKEW_SECONDS <= (clock - generated).total_seconds() <= max_age_seconds):
-            return None
-        groups = doc.get("runner_groups")
-        if (not isinstance(groups, dict) or RUNNER_GROUP not in groups
-                or any(name not in APPROVED_RUNNER_GROUPS for name in groups)):
-            return None
-        lists = [doc.get("repository_runners"), *groups.values()]
-        ids: set[int] = set()
-        for runners in lists:
-            if not isinstance(runners, list) or len(runners) > 2000:
-                return None
-            for runner in runners:
-                if (not isinstance(runner, dict) or type(runner.get("id")) is not int
-                        or runner["id"] <= 0 or not isinstance(runner.get("name"), str)
-                        or not runner["name"] or runner.get("status") not in ("online", "offline")
-                        or not isinstance(runner.get("os"), str) or not runner["os"]
-                        or type(runner.get("busy")) is not bool
-                        or not isinstance(runner.get("labels"), list)
-                        or not all(isinstance(label, dict) and isinstance(label.get("name"), str)
-                                   and label["name"] for label in runner["labels"])):
-                    return None
-                if runner["id"] in ids:
-                    return None
-                ids.add(runner["id"])
-        counts = doc.get("scale_sets", {})
-        if (not isinstance(counts, dict) or any(not isinstance(label, str)
-                or type(count) is not int or count < 0 for label, count in counts.items())):
-            return None
-        if runner_tallies_problem(doc.get("runner_group_tallies")):
-            return None
-        return doc
-    except (ValueError, TypeError, OSError, EOFError, OverflowError, zlib.error):
-        return None
-
-
-def document_queue_snapshot(document: Mapping[str, Any], *, now: dt.datetime,
-                            branch: str) -> Mapping[str, Any] | None:
-    """Return a trusted, fresh janitor snapshot embedded in ``document``.
-
-    The queue snapshot is optional.  A bad optional value must leave the
-    runner roster usable and cause the caller to use its existing live/API
-    snapshot path instead.  Metadata is copied from the artifact API by the
-    publisher and is checked again here so a repository variable cannot make a
-    fork or an old artifact authoritative.
-    """
-    envelope = document.get("queue_snapshot")
-    if not isinstance(envelope, Mapping) or set(envelope) != {"artifact", "snapshot"}:
-        return None
-    artifact = envelope.get("artifact")
-    snapshot = envelope.get("snapshot")
-    if (not isinstance(artifact, Mapping)
-            or set(artifact) != QUEUE_SNAPSHOT_ARTIFACT_KEYS
-            or not isinstance(snapshot, Mapping)):
-        return None
-    artifact_id = artifact.get("id")
-    if (type(artifact_id) is not int or artifact_id <= 0
-            or artifact.get("name") != ARTIFACT_NAME
-            or type(artifact.get("expired")) is not bool
-            or artifact.get("expired")):
-        return None
-    run = artifact.get("workflow_run")
-    if (not isinstance(run, Mapping) or set(run) != QUEUE_SNAPSHOT_RUN_KEYS
-            or any(type(run.get(key)) is not int or run[key] <= 0
-                   for key in ("id", "repository_id", "head_repository_id"))
-            or not trusted_snapshot_artifact(artifact, branch)):
-        return None
-    created = parse_time(str(artifact.get("created_at") or ""))
-    generated = parse_time(str(snapshot.get("generated_at") or ""))
-    if (created is None or generated is None
-            or created.tzinfo is None or generated.tzinfo is None):
-        return None
-    created_age = (now - created).total_seconds()
-    if (created_age < -QUEUE_SNAPSHOT_MAX_FUTURE_SECONDS
-            or created_age > MAX_SNAPSHOT_MINUTES * 60
-            or (now - generated).total_seconds() < -QUEUE_SNAPSHOT_MAX_FUTURE_SECONDS
-            or (generated - created).total_seconds() > QUEUE_SNAPSHOT_MAX_FUTURE_SECONDS):
-        return None
-    if snapshot_problem(snapshot, now):
-        return None
-    return snapshot
 
 
 class GitHub:
-    def __init__(self, token: str, repo: str, *, retry_cap: float = 0.0,
-                 retries: RetryBudget | None = None,
-                 deadline: float | None = None) -> None:
-        # One retry per budget, not per read: whatever the reads, retrying adds at most one
-        # wait (retry_cap) and one request (its 15 s timeout) to what the reads take today.
-        # Clients that share a budget (one per token in a step) share that one retry.
-        self.retry_cap = retry_cap
-        self.retries = retries if retries is not None else RetryBudget(1 if retry_cap > 0 else 0)
-        # An optional monotonic deadline lets a caller bound a multi-request
-        # census as a whole. Existing callers leave this unset and retain the
-        # per-request timeouts below.
-        self.deadline = deadline
+    def __init__(self, token: str, repo: str) -> None:
         self.repo = repo
-        # X-RateLimit-Remaining of the last answer, when GitHub sent it (runners() keeps ROUTE_QUOTA_RESERVE).
-        self.remaining: int | None = None
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "cmux-ci-pr-runner-pool",
         }
-
-    def _timeout(self, default: float) -> float:
-        if self.deadline is None:
-            return default
-        remaining = self.deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError("GitHub request deadline exceeded")
-        return min(default, remaining)
 
     def get(self, path: str) -> Any:
         """GET a path under this repository."""
@@ -2495,109 +2281,34 @@ class GitHub:
     def get_api(self, path: str) -> Any:
         """GET any API path (an org endpoint, for one)."""
         request = urllib.request.Request(f"{API}{path}", headers=self.headers)
-        for attempt in (1, 2):
-            try:
-                # The whole call ends within its bound (the time left, at most 15 s), a peer that drips
-                # one byte at a time included (deadline_http).
-                status, body, headers = deadline_http.request(request, self._timeout(15), raise_errors=True)
-                github_spend.record(self.headers["Authorization"], headers, status)
-                self._note_remaining(headers)
-                return json.loads(body)
-            except urllib.error.HTTPError as error:
-                github_spend.record(self.headers["Authorization"], error.headers, error.code)
-                self._note_remaining(error.headers)
-                wait = (retry_wait(error, self.retry_cap)
-                        if attempt == 1 and self.retry_cap > 0 and self.retries.left > 0 else None)
-                if wait is not None:
-                    self.retries.left -= 1
-                    if self.deadline is not None:
-                        remaining = self.deadline - time.monotonic()
-                        if remaining <= wait:
-                            raise TimeoutError("GitHub request deadline exceeded") from error
-                print(f"GitHub refused GET {path.split('?')[0]}: {refusal(error)}"
-                      + (f"; retrying once in {wait:.0f} s" if wait is not None else ""), file=sys.stderr)
-                if wait is None:
-                    raise
-                time.sleep(wait)
-        raise AssertionError("unreachable")
-
-    def _note_remaining(self, headers: Any) -> None:
-        try:
-            value = (headers or {}).get("X-RateLimit-Remaining")
-            self.remaining = int(value) if value is not None else self.remaining
-        except (TypeError, ValueError, AttributeError):
-            pass
-
-    def _keep_reserve(self) -> None:
-        """Stop a live runner read once its token has fewer than ROUTE_QUOTA_RESERVE requests left this hour."""
-        if self.remaining is not None and self.remaining < ROUTE_QUOTA_RESERVE:
-            raise RateLimited(f"live runner read stopped with {self.remaining} requests left in the token's hour: "
-                              f"the last {ROUTE_QUOTA_RESERVE} are kept for the runner census publisher "
-                              "(CI_RUNNER_STATE), whose next refresh ends these live reads")
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return json.loads(response.read())
 
     def snapshot(self, *, now: dt.datetime, branch: str = SNAPSHOT_BRANCH) -> Mapping[str, Any] | None:
-        """The newest trusted janitor snapshot, preferring the census document."""
-        document = runner_state(self.repo, now=now)
-        if document is None:
-            # Queued jobs may outlive the roster's five-minute capacity reading.
-            # Its queue evidence keeps its own existing expiry and timestamps;
-            # the older runner statuses are never handed to a capacity reader.
-            document = _runner_state_document(self.repo, now=now,
-                                              max_age_seconds=MAX_SNAPSHOT_MINUTES * 60)
-        if document is not None:
-            embedded = document_queue_snapshot(document, now=now, branch=branch)
-            if embedded is not None:
-                print("Pool snapshot: trusted repository document (no artifact API requests)", file=sys.stderr)
-                return embedded
-        kept = kept_snapshot_path(branch)
-        if kept is not None:
-            try:
-                kept_copy = json.loads(kept.read_text())
-            except (OSError, ValueError):
-                kept_copy = None
-            held = kept_copy.get("snapshot") if isinstance(kept_copy, Mapping) else None
-            fetched = parse_time(str(kept_copy.get("fetched_at") or "")) if isinstance(kept_copy, Mapping) else None
-            fetch_age = (now - fetched).total_seconds() / 60 if fetched is not None and fetched.tzinfo else None
-            if (isinstance(held, Mapping) and not snapshot_problem(held, now)
-                    and fetch_age is not None and 0 <= fetch_age < KEPT_SNAPSHOT_MAX_MINUTES):
-                print("Pool snapshot: shared copy from this job or an earlier one (no artifact API requests)",
-                      file=sys.stderr)
-                return held
+        """The newest trusted, unexpired janitor snapshot, in two API requests."""
         artifacts = self.get(f"/actions/artifacts?name={ARTIFACT_NAME}&per_page={PAGE_SIZE}").get("artifacts") or []
         newest = newest_snapshot_artifact(artifacts, now=now, branch=branch)
         if newest is None:
             return None
         archive = zipfile.ZipFile(io.BytesIO(self.download(newest)))
-        loaded = json.loads(archive.read(SNAPSHOT_FILE))
-        if kept is not None and isinstance(loaded, Mapping):
-            try:
-                kept.parent.mkdir(parents=True, exist_ok=True)
-                partial = kept.with_name(f".{kept.name}.{os.getpid()}")
-                stamp = now.astimezone(dt.timezone.utc)
-                partial.write_text(json.dumps({"fetched_at": stamp.isoformat().replace("+00:00", "Z"),
-                                               "snapshot": loaded}))
-                os.replace(partial, kept)
-                # The workflow saves the directory to the Actions cache only after an API read, keyed by this
-                # read's time (a cache key may hold no `:`), never by the run.
-                (kept.parent.parent / SNAPSHOT_FETCHED_MARKER).write_text(stamp.strftime("%Y%m%dT%H%M%SZ"))
-            except OSError:
-                pass  # only a saving: the next step reads the API again
-        return loaded
+        return json.loads(archive.read(SNAPSHOT_FILE))
 
     def download(self, artifact: Mapping[str, Any]) -> bytes:
         """One artifact's zip archive (one API request)."""
         # The download answers with a redirect to signed blob storage, which must
         # not receive the token, so follow it by hand.
+        opener = urllib.request.build_opener(_NoRedirect)
         download = urllib.request.Request(str(artifact["archive_download_url"]), headers=self.headers)
-        status, _, headers = deadline_http.request(download, self._timeout(15), follow_redirects=False)
-        github_spend.record(self.headers["Authorization"], headers, status)
-        if 200 <= status < 300:
+        try:
+            opener.open(download, timeout=15)
             raise RuntimeError("artifact download did not redirect")
-        location = headers.get("Location") if status in (301, 302, 303, 307, 308) else None
-        if not location:
-            raise RuntimeError(f"artifact download failed ({status})")
+        except urllib.error.HTTPError as error:
+            location = error.headers.get("Location") if error.code in (301, 302, 303, 307, 308) else None
+            if not location:
+                raise RuntimeError(f"artifact download failed ({error.code})") from error
         blob = urllib.request.Request(location, headers={"User-Agent": self.headers["User-Agent"]})
-        return deadline_http.request(blob, self._timeout(30), raise_errors=True)[1]
+        with urllib.request.urlopen(blob, timeout=30) as response:
+            return response.read()
 
     def runs_since(self, workflow: str, since: str, **filters: str) -> list[Mapping[str, Any]]:
         """One page of `workflow`'s runs created at or after `since` (one request)."""
@@ -2677,88 +2388,40 @@ class GitHub:
                 return "ephemeral"
         return None
 
-    def runners(self, *, use_state: bool = True, include_repository: bool = True) -> list[Mapping[str, Any]]:
-        """The repository runners plus explicitly approved organization groups.
+    def runners(self) -> list[Mapping[str, Any]]:
+        """The self-hosted runners this repository can use: its own and the org's RUNNER_GROUP.
 
-        Capacity rechecks after a wait use use_state=False: the workflow's
-        document retains the same observation throughout that run.
-
-        Organization-only fallback tokens use include_repository=False: they
-        cannot list repository registrations, but can still read the approved
-        organization groups visible to this repository. A trusted shared census
-        remains usable with either token.
-
-        The glaeda minis and GCP Linux pool are organization runners, which
-        the repository endpoint does not list. Listing those groups needs the
+        The glaeda minis are org runners in RUNNER_GROUP (glaeda#1222), which
+        the repository endpoint does not list. Listing that group needs the
         App's organization permission "Self-hosted runners: read" (ci.yml
-        mints the token with it). The existing glaeda group remains required;
-        the GCP group is optional for installations where that pool is not
-        visible. An advertised approved group that cannot be read raises so
-        callers fall back to a snapshot instead of treating an incomplete
-        listing as idle.
+        mints the token with it). Raises when the group cannot be read, so
+        each caller falls back to the snapshot instead of counting every
+        mini as busy.
         """
-        document = runner_state(self.repo) if use_state else None
-        if document is not None:
-            print("Runner state: trusted repository document (no runner API requests)", file=sys.stderr)
-            return census_runners(document)
-        found = ({runner.get("id"): runner for runner in self._runner_pages(f"/repos/{self.repo}/actions/runners")}
-                 if include_repository else {})
-        self._keep_reserve()
+        found = {runner.get("id"): runner for runner in self._runner_pages(f"/repos/{self.repo}/actions/runners")}
         owner, _, name = self.repo.partition("/")
         try:
             groups = self.get_api(f"/orgs/{owner}/actions/runner-groups?per_page={PAGE_SIZE}"
                                   f"&visible_to_repository={urllib.parse.quote(name)}").get("runner_groups") or []
-            self._keep_reserve()
-            by_name = {
-                group.get("name"): group
-                for group in groups
-                if isinstance(group, Mapping) and isinstance(group.get("name"), str)
-            }
-            group = by_name.get(RUNNER_GROUP)
-            if not isinstance(group, Mapping) or not isinstance(group.get("id"), int):
+            group = next((group for group in groups
+                          if isinstance(group, Mapping) and group.get("name") == RUNNER_GROUP
+                          and isinstance(group.get("id"), int)), None)
+            if group is None:
                 raise RuntimeError(f"no runner group {RUNNER_GROUP} is visible to {self.repo}")
-            org: list[Mapping[str, Any]] = []
-            for group_name in APPROVED_RUNNER_GROUPS:
-                group = by_name.get(group_name)
-                if group_name != RUNNER_GROUP and group is None:
-                    # Older installations may not expose the GCP pool yet;
-                    # it can still be selected only when explicitly listed.
-                    continue
-                if not isinstance(group, Mapping) or not isinstance(group.get("id"), int):
-                    raise RuntimeError(f"no runner group {group_name} is visible to {self.repo}")
-                org.extend(self._runner_pages(f"/orgs/{owner}/actions/runner-groups/{group.get('id')}/runners"))
+            org = self._runner_pages(f"/orgs/{owner}/actions/runner-groups/{group.get('id')}/runners")
         except urllib.error.HTTPError as error:
-            if rate_limited(error):
-                raise RateLimited(f"approved org runner groups unread: the routing token's GitHub quota is "
-                                  f"spent (HTTP {error.code}, X-RateLimit-Reset="
-                                  f"{(error.headers or {}).get('X-RateLimit-Reset')})") from error
-            raise RuntimeError(f"approved org runner group unreadable (HTTP {error.code}); the routing "
+            raise RuntimeError(f"org runner group {RUNNER_GROUP} unreadable (HTTP {error.code}); the routing "
                                "App needs the organization permission Self-hosted runners: read") from error
         found.update((runner.get("id"), runner) for runner in org)
         return list(found.values())
 
     def _runner_pages(self, path: str) -> list[Mapping[str, Any]]:
-        """Every registration of a runner listing: pages until its total_count (see RUNNER_LIST_MAX_PAGES).
-
-        A listing longer than the bound is read to the bound and named in a warning, never silently cut."""
         found: list[Mapping[str, Any]] = []
-        limit = runner_list_max_pages()
-        total: int | None = None
-        for page in range(1, limit + 1):
-            if page > 1:
-                self._keep_reserve()
-            listing = self.get_api(f"{path}?per_page={PAGE_SIZE}&page={page}") or {}
-            batch = listing.get("runners") or []
+        for page in range(1, 6):
+            batch = self.get_api(f"{path}?per_page={PAGE_SIZE}&page={page}").get("runners") or []
             found.extend(runner for runner in batch if isinstance(runner, Mapping))
-            if type(listing.get("total_count")) is int:
-                total = listing["total_count"]
-            if len(batch) < PAGE_SIZE or (total is not None and len(found) >= total):
+            if len(batch) < PAGE_SIZE:
                 break
-        else:
-            if total is None or len(found) < total:
-                print(f"::warning title=live runner listing::{path.split('?')[0]}: read {len(found)} of "
-                      f"{total if total is not None else 'more'} registrations ({limit} pages, "
-                      f"{RUNNER_LIST_PAGES_VARIABLE}); the newest are unread", file=sys.stderr)
         return found
 
     def pull_request_runs_since(self, since: str, *, exclude_run_id: int | None) -> int:
@@ -2767,7 +2430,7 @@ class GitHub:
         A finished run (cancelled, superseded, or one with no macOS work)
         holds no pool, so it is not replayed. Each replayed run weighs one
         job, its compile admission: pull request runs are compile-only by
-        default, so a full-suite run's later jobs are under-counted.
+        default, so a full-suite run's shards are under-counted.
         """
         runs = self.runs_since(CI_WORKFLOW, since, event="pull_request")
         return count_in_flight(runs, exclude_run_id=exclude_run_id)
@@ -2843,12 +2506,17 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # The changes job's routing, when the step runs after it; without it every
     # run is charged the most machines any run can hold.
     plan = FULL_RUN if "RUN_MACOS" not in env else run_plan(
-        macos=env.get("RUN_MACOS"), full_suite=env.get("RUN_FULL_SUITE"),
-        remote_daemon=env.get("RUN_REMOTE_DAEMON"),
+        macos=env.get("RUN_MACOS"), full_suite=env.get("RUN_FULL_SUITE"), unit_suite=env.get("RUN_UNIT_SUITE"),
+        # An owned admission that cannot take its mini's gui token leaves the
+        # changed suites to shard 8 (ci-macos.yml), so the plan counts it.
+        unit_in_admission="false", claude_wrapper=env.get("RUN_CLAUDE_WRAPPER"),
+        cli=env.get("RUN_CLI"), remote_daemon=env.get("RUN_REMOTE_DAEMON"),
+        unit_selectors=env.get("RUN_UNIT_SELECTORS"),
         swift_packages=env.get("RUN_SWIFT_PACKAGES"), release_build=env.get("RUN_RELEASE_BUILD"))
     # What an owned pool must have free for the whole run: its owned-eligible
     # jobs at their peak.
-    jobs = owned_peak(plan)
+    gui = (env.get("POOL_OWNED_GUI") or "").strip() != "0"
+    jobs = owned_peak(plan, gui)
     # The org App's token (ci.yml mints it for same-repository pull requests
     # only) reads which owned runners are idle now. Without it, or on any
     # error, the slot counts and the snapshot decide as before.
@@ -2875,7 +2543,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # root demand of a headless AWS candidate; place() independently checks
     # the selected pool's own GUI label after the pick.
     root_jobs_by_pool = {
-        label: root_peak(plan, routing.get(gui_label(label), 0) > 0)
+        label: root_peak(plan, gui, routing.get(gui_label(label), 0) > 0)
         for label in owned_pools(env.get(PR_XCODE_VARIABLE), env.get("POOL_ORDER"))
     }
     # As many side lanes as the light minis' side runners idle now (light_side_lanes()) take them: the pool
@@ -2886,7 +2554,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                                                   env.get("POOL_ORDER"))
     if side_lanes:
         plan = dataclasses.replace(plan, side=tuple(key for key in plan.side if key not in side_lanes))
-        jobs = owned_peak(plan)
+        jobs = owned_peak(plan, gui)
         light = pool_label(light_side)
         if live_owned is not None and light in live_owned:
             # The side runners just claimed carry the light pool label too: no longer free for this pick.
@@ -2914,6 +2582,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         run_attempt=int(attempt) if attempt.isdigit() else 1,
         live_owned=live_owned,
         live_online=online,
+        shards=sum(1 for key in plan.after if key.startswith("shard-")),
         queue_rounds=env.get("POOL_QUEUE_ROUNDS") or "",
     )
     pr_xcode_app = env.get(PR_XCODE_VARIABLE)
@@ -2934,7 +2603,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if owned_class(choice.runner) == LIGHT_CLASS:
         # The light pool's own pick places no universal Release compile; it keeps MACOS_RUNNER_26.
         plan = dataclasses.replace(plan, side=tuple(key for key in plan.side if key != RELEASE_BUILD_JOB))
-    owned_jobs, held = (place(plan, choice.owned_budget, choice.root_budget if choice.root_runner else None,
+    owned_jobs, held = (place(plan, choice.owned_budget, gui, choice.root_budget if choice.root_runner else None,
                               bool(gui_label_out))
                         if persistent(choice.runner) else ((), plan.peak))
     # Admission on a root runner whose kept build is of this run's merge base
@@ -3008,6 +2677,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # The owned jobs placed, which may exceed the machines
                          # held: the jobs after admission reuse its machine.
                          f"placed={len(owned_jobs)}\n"
+                         f"shard_runner={choice.shard_runner}\n"
                          # What the root jobs in owned_jobs take instead of
                          # the pool label, on attempt 1.
                          f"root_runner={choice.root_runner}\n"
@@ -3019,7 +2689,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # like owned_jobs, or "".
                          f"light_side_runner={light_side}\n"
                          f"light_side_jobs={' ' + ' '.join(side_lanes) + ' ' if side_lanes else ''}\n"
-                         # What the gui-token jobs (cli-product-tests)
+                         # What the GUI jobs (app-host shards, tests-build-and-lag)
                          # take instead of the root label: one runner per mini
                          # carries it (gui_runner()), or "".
                          f"gui_runner={gui_label_out}\n"

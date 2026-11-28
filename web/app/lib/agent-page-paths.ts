@@ -12,6 +12,7 @@ import {
   fallbackContentLocales,
   jobsContentLocales,
   featureWorkflowContentLocales,
+  mainThreadDocsLocales,
   managedPoliciesDocsLocales,
   cloudSecurityDocsLocales,
   remoteTmuxDocsLocales,
@@ -240,6 +241,11 @@ export const agentReadablePages = [
     locales: managedPoliciesDocsLocales,
   },
   {
+    path: "/docs/main-thread",
+    title: "How cmux Stays Responsive",
+    locales: mainThreadDocsLocales,
+  },
+  {
     path: "/docs/cloud-security",
     title: "Cloud Security",
     locales: cloudSecurityDocsLocales,
@@ -276,6 +282,7 @@ export const agentReadablePages = [
   { path: "/community", title: "Community" },
   { path: "/wall-of-love", title: "Wall of Love" },
   { path: "/nightly", title: "Nightly" },
+  { path: "/next", title: "cmux NEXT NIGHTLY" },
   { path: "/assets", title: "Brand Assets" },
   { path: "/art", title: "Art" },
   { path: "/guides", title: "Guides" },
@@ -445,7 +452,6 @@ export function buildLlmsText(
     "",
     "## Agent-readable pages",
     "",
-    `- [Every cmux NEXT docs page in full, as one Markdown file](${link("/llms-full.txt")})`,
     ...agentReadablePages.flatMap(({ path, title }) => [
       `- [${title}](${link(variantPathForPage(path, "md"))})`,
       `  - Text: ${link(variantPathForPage(path, "txt"))}`,

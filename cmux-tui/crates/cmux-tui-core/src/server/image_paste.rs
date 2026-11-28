@@ -7,7 +7,6 @@ pub(super) struct ImagePasteRequest {
     pub upload_id: String,
     pub op: String,
     pub mime: Option<String>,
-    pub filename: Option<String>,
     pub size: Option<usize>,
     pub offset: Option<usize>,
     pub data: Option<String>,
@@ -17,13 +16,6 @@ impl ImagePasteRequest {
     #[cfg(unix)]
     pub(super) fn handle(self, mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {
         let Self { surface: surface_id, terminal_id, lease, upload_id, .. } = self;
-        // Bytes queued for this terminal while it was being created go before the pasted path.
-        // Waited for here, before the sizing lock: a live terminal never gets a new queue.
-        if self.op == "commit"
-            && let Some(surface) = mux.surface(surface_id)
-        {
-            mux.wait_for_creating_input_flush(&surface);
-        }
         // This is the same authenticated mux client and lease used by the native
         // terminal attachment. Fence detach/replacement through the shared lifecycle.
         let _lifecycle = mux.lock_client_sizing_lifecycle();
@@ -56,24 +48,19 @@ impl ImagePasteRequest {
             workspace: resolved.terminal.workspace_key,
             lease,
         };
-        match (self.op.as_str(), self.mime, self.filename, self.size, self.offset, self.data) {
-            ("begin", Some(mime), None, Some(size), None, None) => {
+        match (self.op.as_str(), self.mime, self.size, self.offset, self.data) {
+            ("begin", Some(mime), Some(size), None, None) => {
                 mux.image_pastes.begin(owner, &upload_id, &mime, size)?;
             }
-            ("begin", None, Some(filename), Some(size), None, None) => {
-                mux.image_pastes.begin_file(owner, &upload_id, &filename, size)?;
-            }
-            ("chunk", None, None, None, Some(offset), Some(data)) => {
+            ("chunk", None, None, Some(offset), Some(data)) => {
                 mux.image_pastes.append(&owner, &upload_id, offset, &data)?;
             }
-            ("commit", None, None, None, None, None) => {
+            ("commit", None, None, None, None) => {
                 mux.image_pastes.commit(&owner, &upload_id, |path| {
                     surface.write_paste_bounded(path.as_bytes())
                 })?;
             }
-            ("cancel", None, None, None, None, None) => {
-                mux.image_pastes.cancel(&owner, &upload_id)?;
-            }
+            ("cancel", None, None, None, None) => mux.image_pastes.cancel(&owner, &upload_id)?,
             _ => anyhow::bail!("image-invalid-request"),
         }
         Ok(json!({ "accepted": true }))
@@ -81,9 +68,8 @@ impl ImagePasteRequest {
 
     #[cfg(not(unix))]
     pub(super) fn handle(self, _mux: &Arc<Mux>, _client: u64) -> anyhow::Result<Value> {
-        let Self { surface, terminal_id, lease, upload_id, op, mime, filename, size, offset, data } =
-            self;
-        let _ = (surface, terminal_id, lease, upload_id, op, mime, filename, size, offset, data);
+        let Self { surface, terminal_id, lease, upload_id, op, mime, size, offset, data } = self;
+        let _ = (surface, terminal_id, lease, upload_id, op, mime, size, offset, data);
         anyhow::bail!("image-unsupported")
     }
 }

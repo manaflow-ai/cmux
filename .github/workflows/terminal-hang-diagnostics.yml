@@ -2,15 +2,20 @@ name: Terminal hang diagnostics
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
-    # Exactly what the jobs below compile, test or read.
+    # Exactly what the jobs below compile, test or read. Hang-prone app sources
+    # (Ghostty views, window portals, Workspace) are not built here; the
+    # app-host macOS suite in ci.yml covers them.
     paths:
-      # phase-attribution
+      # phase-attribution and portal-reconciliation (local dependency)
       - Packages/Shared/CMUXMobileCore/**
       # phase-attribution
       - Packages/Shared/CmuxSentryTelemetry/**
       - cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
-      # phase-attribution
+      # portal-reconciliation
+      - Sources/TerminalPortalReconciliation*.swift
+      - cmuxTests/TerminalPortalReconciliationReentrancyTests.swift
+      - tests/run_terminal_portal_reconciliation_tests.sh
+      # both macOS jobs
       - scripts/select-ci-xcode.sh
       - scripts/ci/xcode-pins.txt
       - .xcode-version
@@ -24,7 +29,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: terminal-hang-diagnostics-${{ github.event.pull_request.number || github.run_id }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: terminal-hang-diagnostics-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -32,11 +37,20 @@ env:
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
+  portal-reconciliation:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Verify portal reconciliation delivery
+        run: bash tests/run_terminal_portal_reconciliation_tests.sh
+
   release-gate:
-    # A pull request runs this check as the ci/steps.toml step `terminal-hang-release-gate` (the
-    # pr-pipeline linux job); here it runs on dispatch.
-    if: ${{ (github.event_name != 'pull_request') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -45,8 +59,7 @@ jobs:
       - run: python3 tests/test_terminal_hang_release_gate.py
 
   phase-attribution:
-    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -57,7 +70,7 @@ jobs:
       - name: Verify phase ingress and serialization
         run: swift test --package-path Packages/Shared/CMUXMobileCore --filter TerminalWorkIntervalTests
       - name: Verify attribution and privacy with the package SDK pin
-        run: swift test --package-path Packages/Shared/CmuxSentryTelemetry --force-resolved-versions --filter 'TerminalWorkSentryContextTests|SentryEventScrubberTests|SeededSecretTests|TransportSentryReporterTests'
+        run: swift test --package-path Packages/Shared/CmuxSentryTelemetry --force-resolved-versions --filter 'TerminalWorkSentryContextTests|SentryEventScrubberTests|TransportSentryReporterTests'
       - name: Resolve the shipping SDK pin
         run: |
           python3 - <<'PY'
@@ -70,4 +83,4 @@ jobs:
           path.write_text(json.dumps(package, indent=2) + "\n")
           PY
       - name: Verify attribution and privacy with the shipping SDK pin
-        run: swift test --package-path Packages/Shared/CmuxSentryTelemetry --force-resolved-versions --filter 'TerminalWorkSentryContextTests|SentryEventScrubberTests|SeededSecretTests|TransportSentryReporterTests'
+        run: swift test --package-path Packages/Shared/CmuxSentryTelemetry --force-resolved-versions --filter 'TerminalWorkSentryContextTests|SentryEventScrubberTests|TransportSentryReporterTests'

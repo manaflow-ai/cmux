@@ -17,32 +17,11 @@ use sha2::{Digest, Sha256};
 use super::*;
 
 use crate::resource::{
-    AgentPublicId, BrowserPublicId, FrontendProjectionPublicId, NotificationPublicId, WireDecimal,
+    AgentPublicId, FrontendProjectionPublicId, NotificationPublicId, WireDecimal,
 };
 use crate::{CursorShape, DefaultColors, Rgb};
-use cmux_json::JsonSet as _;
 
 const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
-
-#[cfg(test)]
-thread_local! {
-    static AGENT_PROJECTION_ROWS_READ: Cell<usize> = const { Cell::new(0) };
-    static AGENT_HOOK_FENCE_ROWS_READ: Cell<usize> = const { Cell::new(0) };
-}
-
-/// How many agent projection rows this thread has read from the registry (test hook): a test
-/// counts the rows a reader pays for, with no clock (AGENT RECORDS, 2026-11-10).
-#[cfg(test)]
-pub(crate) fn agent_projection_rows_read_on_this_thread() -> usize {
-    AGENT_PROJECTION_ROWS_READ.with(Cell::get)
-}
-
-/// How many hook fence rows (`resource_agent_hook_state`) this thread has read from the registry
-/// (test hook): each daemon start reads all of them into memory.
-#[cfg(test)]
-pub(crate) fn agent_hook_fence_rows_read_on_this_thread() -> usize {
-    AGENT_HOOK_FENCE_ROWS_READ.with(Cell::get)
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryNotificationProjection {
@@ -56,15 +35,6 @@ pub struct RegistryNotificationProjection {
     pub unread: bool,
     /// Client ids that acknowledged this notification, sorted and unique.
     pub read_by: Vec<String>,
-    /// `extra.source`, or derived from the idempotency key for receipts
-    /// written before sources existed.
-    pub source: crate::NotificationSource,
-    /// `extra.browser_id`: the content of the non-terminal tab it was
-    /// posted on (an agent chat).
-    pub browser_id: Option<BrowserPublicId>,
-    /// `extra.workspace_id`: the workspace of a terminal-less notification
-    /// (`cmux notify --workspace ws_…`).
-    pub workspace_id: Option<WorkspacePublicId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,7 +55,7 @@ pub struct RegistryAgentProjection {
 pub(crate) fn agent_projection_extra(agent: Option<&str>, agent_session_id: Option<&str>) -> Value {
     let mut extra = json!({"agent": agent});
     if let Some(agent_session_id) = agent_session_id {
-        extra.set("agent_session_id", json!(agent_session_id));
+        extra["agent_session_id"] = json!(agent_session_id);
     }
     extra
 }
@@ -96,7 +66,9 @@ pub(crate) struct RegistryAgentHookState {
     pub agent_session_id: String,
     pub applied_sequence: u64,
     pub ended: bool,
-    pub ended_at_ms: Option<u64>,
+    /// The latest hook stamp of the session; empty for rows stored before
+    /// the column existed.
+    pub order: crate::agent_hooks::HookOrderStamp,
 }
 
 impl RegistryAgentProjection {
@@ -141,7 +113,8 @@ struct StoredNotification {
     created_at_ms: WireDecimal,
     unread: bool,
     /// Read marks at commit time are always empty; the durable truth is the
-    /// `resource_notification_reads` table, so this field is decoded and ignored.
+    /// `resource_notification_reads` table, so this field is decoded and
+    /// ignored.
     #[serde(default)]
     read_by: Vec<String>,
     #[serde(default)]
@@ -245,20 +218,10 @@ enum StoredCursorStyle {
     Underline,
 }
 
-/// Reads the durable public projections on one connection: the registry's own (under its lock) or the read-only
-/// one in a read transaction (`resource_api`'s committed snapshot rows), so one code path serves both.
-pub(crate) struct ProjectionReader<'a> {
-    pub(crate) db: &'a Connection,
-    pub(crate) session_id: &'a SessionPublicId,
-}
-
-impl ProjectionReader<'_> {
+impl WorkspaceRegistry {
     /// Reconstruct public auxiliary state while the registry is the sole
-    /// writer. Missing or tombstoned terminals remove notification links. An
-    /// agent record is the current projection of a live terminal: the tombstone
-    /// of the terminal deletes it and its hook fence in the same transaction,
-    /// and the open deletes the ones older builds left, so no row read here
-    /// belongs to a closed terminal.
+    /// writer. Missing or tombstoned terminals remove notification links, while
+    /// agent reports remain durable historical projections keyed by terminal.
     pub fn public_projections(&self) -> anyhow::Result<RegistryPublicProjections> {
         let live_terminals = self.live_terminal_public_ids()?;
         let notifications = self.durable_notifications(&live_terminals)?;
@@ -275,8 +238,9 @@ impl ProjectionReader<'_> {
         })
     }
 
-    /// Current agent projections, optionally filtered by terminal and state, decoded from
-    /// their stored results (adapter and hook session id included).
+    /// Current agent projections, optionally filtered by terminal and state,
+    /// decoded from their stored results (adapter and hook session id
+    /// included).
     pub(crate) fn public_agent_projections(
         &self,
         terminal: Option<&TerminalPublicId>,
@@ -301,8 +265,7 @@ impl ProjectionReader<'_> {
     }
 
     pub(crate) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
-        let db = self.db;
-        let mut statement = db.prepare(
+        let mut statement = self.connection.prepare(
             "SELECT public_id
              FROM resource_terminals
              WHERE deleted_revision IS NULL
@@ -314,12 +277,11 @@ impl ProjectionReader<'_> {
             .collect()
     }
 
-    pub(super) fn durable_notifications(
+    fn durable_notifications(
         &self,
         live_terminals: &HashSet<TerminalPublicId>,
     ) -> anyhow::Result<Vec<RegistryNotificationProjection>> {
-        let db = self.db;
-        let mut statement = db.prepare(
+        let mut statement = self.connection.prepare(
             "SELECT outcome_json, idempotency_key
              FROM resource_effect_receipts
              WHERE operation = 'notification.create'
@@ -331,28 +293,34 @@ impl ProjectionReader<'_> {
              ORDER BY committed_revision DESC, idempotency_key DESC
              LIMIT ?1",
         )?;
-        let ids = StoredIds::load(db)?;
         let rows = statement
             .query_map([i64::try_from(NOTIFICATION_LEDGER_CAPACITY)?], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?
-            .map(|row| row.map(|(outcome_json, key)| (ids.text(outcome_json), key)))
             .collect::<Result<Vec<_>, _>>()?;
         let mut reads = self.durable_notification_reads()?;
-        // Marks for notifications outside the retained window are dead
-        // weight; the open drops them from the table
-        // (`prune_stale_notification_reads_at_open`). A read never writes
-        // (it runs under the registry lock), so here they are only skipped.
-        let retained_ids = rows
-            .iter()
-            .filter_map(|(outcome_json, _)| {
-                serde_json::from_str::<Value>(outcome_json)
-                    .ok()
-                    .and_then(|value| value["value"]["id"].as_str().map(str::to_string))
-            })
-            .collect::<HashSet<String>>();
-        reads.retain(|id, _| retained_ids.contains(id));
-        let acked = presentation_store::acked_notification_ids_in(db)?;
+        {
+            // Marks for notifications outside the retained window are dead
+            // weight after a restart (the in-memory prune queue did not
+            // survive). Drop them here so the table stays bounded.
+            let retained_ids = rows
+                .iter()
+                .filter_map(|(outcome_json, _)| {
+                    serde_json::from_str::<Value>(outcome_json)
+                        .ok()
+                        .and_then(|value| value["value"]["id"].as_str().map(str::to_string))
+                })
+                .collect::<HashSet<String>>();
+            let stale =
+                reads.keys().filter(|id| !retained_ids.contains(*id)).cloned().collect::<Vec<_>>();
+            for id in &stale {
+                self.connection.execute(
+                    "DELETE FROM resource_notification_reads WHERE notification_id = ?1",
+                    [id.as_str()],
+                )?;
+                reads.remove(id);
+            }
+        }
         let mut notifications = Vec::with_capacity(rows.len());
         for (outcome_json, idempotency_key) in rows {
             let outcome: ResourceEffectOutcome = serde_json::from_str(&outcome_json)
@@ -372,36 +340,15 @@ impl ProjectionReader<'_> {
                 )
             })?;
             anyhow::ensure!(
-                stored.session_id == *self.session_id,
+                stored.session_id == self.session_id,
                 "notification {} belongs to session {}, expected {}",
                 stored.id,
                 stored.session_id,
                 self.session_id
             );
-            let source = stored
-                .extra
-                .as_ref()
-                .and_then(|extra| extra.get("source"))
-                .and_then(Value::as_str)
-                .and_then(crate::NotificationSource::parse)
-                .unwrap_or_else(|| crate::NotificationSource::from_legacy_key(&idempotency_key));
-            let browser_id = stored
-                .extra
-                .as_ref()
-                .and_then(|extra| extra.get("browser_id"))
-                .and_then(Value::as_str)
-                .and_then(|id| BrowserPublicId::parse(id).ok());
-            let workspace_id = stored
-                .extra
-                .as_ref()
-                .and_then(|extra| extra.get("workspace_id"))
-                .and_then(Value::as_str)
-                .and_then(|id| WorkspacePublicId::parse(id.to_owned()).ok());
+            let _ = stored.extra;
             let _ = stored.read_by;
             let read_by = reads.remove(stored.id.as_str()).unwrap_or_default();
-            // A closed terminal's notification has no ring to restore.
-            let live = stored.terminal_id.as_ref().is_none_or(|id| live_terminals.contains(id));
-            let unread = stored.unread && live && !acked.contains(stored.id.as_str());
             notifications.push(RegistryNotificationProjection {
                 id: stored.id,
                 title: stored.title,
@@ -412,11 +359,8 @@ impl ProjectionReader<'_> {
                     .terminal_id
                     .filter(|terminal_id| live_terminals.contains(terminal_id)),
                 created_at_ms: stored.created_at_ms.get(),
-                unread,
+                unread: stored.unread,
                 read_by,
-                source,
-                browser_id,
-                workspace_id,
             });
         }
         notifications.reverse();
@@ -436,8 +380,7 @@ impl ProjectionReader<'_> {
     /// unique. Rows for notifications the ledger evicted are pruned at the
     /// next acknowledgement, so this stays bounded.
     fn durable_notification_reads(&self) -> anyhow::Result<HashMap<String, Vec<String>>> {
-        let db = self.db;
-        let mut statement = db.prepare(
+        let mut statement = self.connection.prepare(
             "SELECT notification_id, client_id
              FROM resource_notification_reads
              ORDER BY notification_id ASC, client_id ASC",
@@ -457,8 +400,7 @@ impl ProjectionReader<'_> {
         terminal: Option<&TerminalPublicId>,
         state: Option<&str>,
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
-        let db = self.db;
-        let mut statement = db.prepare(
+        let mut statement = self.connection.prepare(
             "WITH selected AS MATERIALIZED (
                SELECT projection.terminal_id,
                       projection.result_json,
@@ -476,8 +418,6 @@ impl ProjectionReader<'_> {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
-        #[cfg(test)]
-        AGENT_PROJECTION_ROWS_READ.with(|read| read.set(read.get() + rows.len()));
         let mut agents = Vec::with_capacity(rows.len());
         for (projected_terminal_id, result_json, committed_revision) in rows {
             let stored: StoredAgent = serde_json::from_str(&result_json).with_context(|| {
@@ -493,7 +433,7 @@ impl ProjectionReader<'_> {
                 stored.terminal_id
             );
             anyhow::ensure!(
-                stored.session_id == *self.session_id,
+                stored.session_id == self.session_id,
                 "agent {} belongs to session {}, expected {}",
                 stored.id,
                 stored.session_id,
@@ -533,38 +473,34 @@ impl ProjectionReader<'_> {
     }
 
     fn durable_agent_hook_states(&self) -> anyhow::Result<Vec<RegistryAgentHookState>> {
-        let db = self.db;
-        let mut statement = db.prepare(
-            "SELECT terminal_id, agent_session_id, applied_sequence, ended, ended_at_ms
+        let mut statement = self.connection.prepare(
+            "SELECT terminal_id, agent_session_id, applied_sequence, ended, hook_order
              FROM resource_agent_hook_state
              ORDER BY terminal_id ASC",
         )?;
-        let rows = statement
+        statement
             .query_map([], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, i64>(2)?,
                     row.get::<_, bool>(3)?,
-                    row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, Option<String>>(4)?,
                 ))
             })?
-            .collect::<Result<Vec<_>, _>>()?;
-        #[cfg(test)]
-        AGENT_HOOK_FENCE_ROWS_READ.with(|read| read.set(read.get() + rows.len()));
-        rows.into_iter()
             .map(|row| {
-                let (terminal_id, agent_session_id, applied_sequence, ended, ended_at_ms) = row;
+                let (terminal_id, agent_session_id, applied_sequence, ended, hook_order) = row?;
+                // An unreadable stamp only loses the order until the next event.
+                let order = hook_order
+                    .and_then(|text| serde_json::from_str(&text).ok())
+                    .unwrap_or_default();
                 Ok(RegistryAgentHookState {
                     terminal_id: TerminalPublicId::parse(terminal_id)?,
                     agent_session_id,
                     applied_sequence: u64::try_from(applied_sequence)
                         .context("agent hook sequence is negative")?,
                     ended,
-                    ended_at_ms: ended_at_ms
-                        .map(u64::try_from)
-                        .transpose()
-                        .context("agent hook end time is negative")?,
+                    order,
                 })
             })
             .collect()
@@ -572,7 +508,7 @@ impl ProjectionReader<'_> {
 
     fn durable_terminal_defaults(&self) -> anyhow::Result<Option<DefaultColors>> {
         let stored = self
-            .db
+            .connection
             .query_row(
                 "SELECT result_json, idempotency_key
                  FROM resource_mutations
@@ -621,49 +557,8 @@ impl ProjectionReader<'_> {
             .transpose()
     }
 
-    /// Every native frontend's projections (the resource API's own rows
-    /// excluded), for the launch snapshot (`launch-snapshot-v1`).
-    pub(crate) fn native_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
-        let db = self.db;
-        let mut statement = db.prepare(
-            "SELECT frontend, scope, subject_key, schema_version,
-                    projection_revision, payload
-             FROM frontend_projections
-             WHERE frontend <> 'resource-api'
-             ORDER BY frontend ASC, scope ASC, subject_key ASC",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, String>(5)?,
-                ))
-            })?
-            .map(|row| {
-                let (frontend, scope, subject_key, schema_version, projection_revision, payload) =
-                    row?;
-                Ok(FrontendProjection {
-                    frontend,
-                    scope,
-                    subject_key,
-                    schema_version: u32::try_from(schema_version)
-                        .context("projection schema version is invalid")?,
-                    projection_revision: u64::try_from(projection_revision)
-                        .context("projection revision is negative")?,
-                    projection: serde_json::from_str(&payload)
-                        .context("frontend projection contains invalid JSON")?,
-                })
-            })
-            .collect()
-    }
-
     pub fn public_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
-        let db = self.db;
-        let mut statement = db.prepare(
+        let mut statement = self.connection.prepare(
             "SELECT frontend, scope, subject_key, schema_version,
                     projection_revision, payload
              FROM frontend_projections
@@ -703,8 +598,8 @@ impl ProjectionReader<'_> {
                     "frontend projection {subject_key} has invalid revision {projection_revision}"
                 );
                 anyhow::ensure!(
-                    payload.len() <= MAX_RESOURCE_API_PROJECTION_BYTES,
-                    "frontend projection {subject_key} exceeds {MAX_RESOURCE_API_PROJECTION_BYTES} bytes"
+                    payload.len() <= MAX_PROJECTION_BYTES,
+                    "frontend projection {subject_key} exceeds {MAX_PROJECTION_BYTES} bytes"
                 );
                 let projection = serde_json::from_str(&payload).with_context(|| {
                     format!("frontend projection {subject_key} contains invalid JSON")
@@ -722,63 +617,10 @@ impl ProjectionReader<'_> {
             })
             .collect()
     }
-}
-
-impl WorkspaceRegistry {
-    pub fn public_projections(&self) -> anyhow::Result<RegistryPublicProjections> {
-        let db = self.connection.get();
-        ProjectionReader { db: &db, session_id: &self.session_id }.public_projections()
-    }
-
-    pub(crate) fn public_agent_projections(
-        &self,
-        terminal: Option<&TerminalPublicId>,
-        state: Option<&str>,
-    ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
-        let db = self.connection.get();
-        ProjectionReader { db: &db, session_id: &self.session_id }
-            .public_agent_projections(terminal, state)
-    }
-
-    pub(crate) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
-        let db = self.connection.get();
-        ProjectionReader { db: &db, session_id: &self.session_id }.live_terminal_public_ids()
-    }
-
-    pub(super) fn durable_notifications(
-        &self,
-        live_terminals: &HashSet<TerminalPublicId>,
-    ) -> anyhow::Result<Vec<RegistryNotificationProjection>> {
-        let db = self.connection.get();
-        ProjectionReader { db: &db, session_id: &self.session_id }
-            .durable_notifications(live_terminals)
-    }
-
-    /// Read marks stored for one notification, for tests that verify pruning.
-    #[cfg(test)]
-    pub(crate) fn durable_notification_read_clients(
-        &self,
-        notification_id: &str,
-    ) -> anyhow::Result<Vec<String>> {
-        let db = self.connection.get();
-        ProjectionReader { db: &db, session_id: &self.session_id }
-            .durable_notification_read_clients(notification_id)
-    }
-
-    pub(crate) fn native_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
-        let db = self.connection.get();
-        ProjectionReader { db: &db, session_id: &self.session_id }.native_frontend_projections()
-    }
-
-    pub fn public_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
-        let db = self.connection.get();
-        ProjectionReader { db: &db, session_id: &self.session_id }.public_frontend_projections()
-    }
 
     #[cfg(test)]
     pub(crate) fn insert_corrupt_terminal_defaults_for_test(&self) {
         self.connection
-            .get()
             .execute(
                 "INSERT INTO resource_mutations(
                    idempotency_key, origin, operation, fingerprint, result_json,
@@ -793,53 +635,9 @@ impl WorkspaceRegistry {
             .unwrap();
     }
 
-    /// Rewrites `terminal_id`'s stored agent projection, as a write that
-    /// went missing or a clock that stepped would leave it. A failed read,
-    /// parse or write is the caller's (a test's) to unwrap.
-    #[cfg(test)]
-    pub(crate) fn edit_agent_projection_for_test(
-        &self,
-        terminal_id: &TerminalPublicId,
-        edit: impl FnOnce(&mut Value),
-    ) -> rusqlite::Result<()> {
-        let db = self.connection.get();
-        let stored: String = db.query_row(
-            "SELECT result_json FROM resource_agent_projections WHERE terminal_id = ?1",
-            [terminal_id.as_str()],
-            |row| row.get(0),
-        )?;
-        let mut value: Value = serde_json::from_str(&stored).map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                0,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
-        edit(&mut value);
-        db.execute(
-            "UPDATE resource_agent_projections SET result_json = ?2 WHERE terminal_id = ?1",
-            params![terminal_id.as_str(), value.to_string()],
-        )?;
-        Ok(())
-    }
-
-    /// Deletes `terminal_id`'s stored agent projection, as a stop between a
-    /// journal commit and its projection leaves it.
-    #[cfg(test)]
-    pub(crate) fn delete_agent_projection_for_test(
-        &self,
-        terminal_id: &TerminalPublicId,
-    ) -> rusqlite::Result<usize> {
-        self.connection.get().execute(
-            "DELETE FROM resource_agent_projections WHERE terminal_id = ?1",
-            [terminal_id.as_str()],
-        )
-    }
-
     #[cfg(test)]
     pub(crate) fn corrupt_agent_projection_for_test(&self, terminal_id: &TerminalPublicId) {
         self.connection
-            .get()
             .execute(
                 "UPDATE resource_agent_projections
                  SET result_json = json_set(result_json, '$.state', 'corrupt')
@@ -897,33 +695,412 @@ fn parse_rgb(value: &str) -> anyhow::Result<Rgb> {
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+    use serde_json::json;
 
-/// Drop the read marks of notifications outside the retained window (the
-/// newest [`NOTIFICATION_LEDGER_CAPACITY`] committed, uncleared ones, as
-/// `durable_notifications` reads them). At runtime the in-memory prune
-/// queue drops them; it does not survive a restart, so the open drops what
-/// it left. Before, every snapshot read deleted them under the registry lock.
-pub(crate) fn prune_stale_notification_reads_at_open(
-    transaction: &Transaction<'_>,
-) -> anyhow::Result<()> {
-    transaction.execute(
-        "DELETE FROM resource_notification_reads
-         WHERE notification_id NOT IN (
-           SELECT id FROM (
-             SELECT json_extract(outcome_json, '$.value.id') AS id
-             FROM resource_effect_receipts
-             WHERE operation = 'notification.create'
-               AND state = 'committed'
-               AND json_extract(outcome_json, '$.kind') = 'success'
-               AND json_extract(outcome_json, '$.value.id') NOT IN (
-                 SELECT notification_id FROM resource_notification_clears
-               )
-             ORDER BY committed_revision DESC, idempotency_key DESC
-             LIMIT ?1
-           ) WHERE id IS NOT NULL
-         )",
-        [i64::try_from(NOTIFICATION_LEDGER_CAPACITY)?],
-    )?;
-    Ok(())
+    fn terminal_id(value: u128) -> TerminalPublicId {
+        TerminalPublicId::parse(format!("term_{value:032x}")).unwrap()
+    }
+
+    fn notification_id(value: u128) -> NotificationPublicId {
+        NotificationPublicId::parse(format!("notification_{value:032x}")).unwrap()
+    }
+
+    fn projection_id(value: u128) -> FrontendProjectionPublicId {
+        FrontendProjectionPublicId::parse(format!("projection_{value:032x}")).unwrap()
+    }
+
+    fn seed_live_terminal(
+        registry: &mut WorkspaceRegistry,
+    ) -> (TerminalPublicId, PanePublicId, TabPublicId) {
+        const HOST_ID: &str = "00000000000040008000000000000001";
+        let workspace = RegistryWorkspace {
+            id: 1,
+            public_id: WorkspacePublicId::parse("ws_00000000000000000000000000000001").unwrap(),
+            key: "workspace-one".into(),
+            name: "One".into(),
+            group_key: "public-projections".into(),
+        };
+        let screen = ScreenPublicId::parse("screen_00000000000000000000000000000001").unwrap();
+        let pane = PanePublicId::parse("pane_00000000000000000000000000000001").unwrap();
+        let tab = TabPublicId::parse("tab_00000000000000000000000000000001").unwrap();
+        let terminal = terminal_id(1);
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::new("seed-terminal", "test").unwrap(),
+                "workspace.create",
+                &json!({"fixture":"live-terminal"}),
+                None,
+                Some(0),
+                &ResourcePatch {
+                    changes: vec![
+                        ResourceChange::UpsertWorkspace {
+                            workspace: workspace.clone(),
+                            position: 0,
+                            active_screen: Some(screen.clone()),
+                        },
+                        ResourceChange::UpsertScreen(RegistryScreen {
+                            public_id: screen.clone(),
+                            workspace_id: workspace.public_id.clone(),
+                            position: 0,
+                            name: None,
+                            layout: RegistryLayoutNode::Leaf { pane: pane.clone() },
+                            active_pane: pane.clone(),
+                            zoomed_pane: None,
+                            auto_layout: None,
+                            viewport: RegistryViewport::default(),
+                        }),
+                        ResourceChange::UpsertPane(RegistryPane {
+                            public_id: pane.clone(),
+                            screen_id: screen.clone(),
+                            name: None,
+                            active_tab: Some(tab.clone()),
+                            creation_ordinal: 1,
+                        }),
+                        ResourceChange::UpsertTerminal {
+                            public_id: terminal.clone(),
+                            terminal: RegistryTerminal {
+                                terminal_id: HOST_ID.into(),
+                                workspace_key: workspace.key.clone(),
+                                incarnation: None,
+                                lifecycle: TerminalLifecycle::Launching,
+                                launch_spec: json!({}),
+                                exit: None,
+                                on_exit: TerminalOnExit::Close,
+                            },
+                        },
+                        ResourceChange::UpsertTab(RegistryTab {
+                            name_source: Default::default(),
+                            name_revision: 0,
+                            public_id: tab.clone(),
+                            pane_id: pane.clone(),
+                            position: 0,
+                            content_id: ContentPublicId::Terminal(terminal.clone()),
+                            name: None,
+                            browser_url: None,
+                            terminal_id: Some(HOST_ID.into()),
+                        }),
+                        ResourceChange::SetWorkspaceOrder {
+                            workspace_ids: vec![workspace.public_id.clone()],
+                        },
+                        ResourceChange::SetScreenOrder {
+                            workspace_id: workspace.public_id.clone(),
+                            screen_ids: vec![screen],
+                        },
+                        ResourceChange::SetTabOrder {
+                            pane_id: pane.clone(),
+                            tab_ids: vec![tab.clone()],
+                        },
+                        ResourceChange::SetActiveWorkspace {
+                            workspace_id: Some(workspace.public_id),
+                        },
+                    ],
+                },
+                &json!({"created":true}),
+                &json!([]),
+            )
+            .unwrap();
+        (terminal, pane, tab)
+    }
+
+    fn insert_mutation(
+        registry: &WorkspaceRegistry,
+        key: &str,
+        operation: &str,
+        result: &Value,
+        revision: i64,
+    ) {
+        registry
+            .connection
+            .execute(
+                "INSERT INTO resource_mutations(
+                   idempotency_key, origin, operation, fingerprint, result_json,
+                   committed_revision
+                 ) VALUES(?1, 'test', ?2, '{}', ?3, ?4)",
+                params![key, operation, canonical_json(result).unwrap(), revision],
+            )
+            .unwrap();
+        if operation == "agent.report" {
+            let terminal_id = result["terminal_id"].as_str().unwrap();
+            registry
+                .connection
+                .execute(
+                    "INSERT INTO resource_agent_projections(
+                       terminal_id, result_json, committed_revision
+                     )
+                     SELECT ?1, ?2, ?3
+                     WHERE EXISTS (
+                       SELECT 1 FROM resource_terminals
+                       WHERE public_id = ?1 AND deleted_revision IS NULL
+                     )
+                     ON CONFLICT(terminal_id) DO UPDATE SET
+                       result_json = excluded.result_json,
+                       committed_revision = excluded.committed_revision",
+                    params![terminal_id, canonical_json(result).unwrap(), revision,],
+                )
+                .unwrap();
+        }
+    }
+
+    fn insert_notification(registry: &WorkspaceRegistry, key: &str, result: &Value, revision: i64) {
+        let outcome = ResourceEffectOutcome::Success(result.clone());
+        registry
+            .connection
+            .execute(
+                "INSERT INTO resource_effect_receipts(
+                   idempotency_key, operation, fingerprint, intent_json, state,
+                   outcome_json, committed_revision
+                 ) VALUES(?1, 'notification.create', '{}', '{}', 'committed', ?2, ?3)",
+                params![
+                    key,
+                    canonical_json(&serde_json::to_value(outcome).unwrap()).unwrap(),
+                    revision
+                ],
+            )
+            .unwrap();
+    }
+
+    fn defaults(foreground: &str) -> Value {
+        json!({
+            "foreground":foreground,
+            "background":null,
+            "cursor":null,
+            "selection_background":null,
+            "selection_foreground":null,
+            "cursor_style":"bar",
+            "cursor_blink":true,
+            "palette":{"0":"#010203","255":"#fdfefe"},
+        })
+    }
+
+    #[test]
+    fn reconstructs_bounded_notifications_latest_agents_defaults_and_projections() {
+        let mut registry = WorkspaceRegistry::in_memory("public-projections").unwrap();
+        let session = registry.session_id().clone();
+        for revision in 1..=260 {
+            insert_notification(
+                &registry,
+                &format!("notification-{revision}"),
+                &json!({
+                    "id":notification_id(revision),
+                    "session_id":session,
+                    "title":format!("title-{revision}"),
+                    "body":"",
+                    "level":"info",
+                    "created_at_ms":revision.to_string(),
+                    "unread":false,
+                }),
+                revision as i64,
+            );
+        }
+        let terminal = terminal_id(1);
+        let agent = agent_id(&terminal).unwrap();
+        insert_mutation(
+            &registry,
+            "agent-old",
+            "agent.report",
+            &json!({
+                "id":agent,
+                "session_id":session,
+                "terminal_id":terminal,
+                "state":"working",
+                "source":"hook",
+                "updated_at_ms":"1",
+                "source_session":null,
+            }),
+            261,
+        );
+        insert_mutation(
+            &registry,
+            "agent-new",
+            "agent.report",
+            &json!({
+                "id":agent,
+                "session_id":session,
+                "terminal_id":terminal,
+                "state":"done",
+                "source":"hook",
+                "updated_at_ms":"2",
+                "source_session":"agent-session",
+            }),
+            262,
+        );
+        insert_mutation(
+            &registry,
+            "defaults-old",
+            "session.terminal_defaults.update",
+            &defaults("#111111"),
+            263,
+        );
+        insert_mutation(
+            &registry,
+            "defaults-new",
+            "session.terminal_defaults.update",
+            &defaults("#abcdef"),
+            264,
+        );
+        let projection = projection_id(1);
+        registry
+            .put_frontend_projection(
+                &WorkspaceMutation::new("projection-one", "test").unwrap(),
+                "resource-api",
+                "session",
+                projection.as_str(),
+                RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION,
+                None,
+                &json!({
+                    "frontend_id":"cmux-test",
+                    "window_id":"window-test",
+                    "generation":"launch-test",
+                    "projection":{"columns":[1,2]},
+                }),
+            )
+            .unwrap();
+
+        // This fixture has no terminal row, so notification links are cleared
+        // and the historical agent mutations never form a valid projection.
+        let restored = registry.public_projections().unwrap();
+        assert_eq!(restored.notifications.len(), 256);
+        assert_eq!(restored.notifications.first().unwrap().title, "title-5");
+        assert_eq!(restored.notifications.last().unwrap().title, "title-260");
+        assert!(restored.notifications.iter().all(|item| item.terminal_id.is_none()));
+        assert!(restored.agents.is_empty());
+        let defaults = restored.terminal_defaults.unwrap();
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xab, g: 0xcd, b: 0xef }));
+        assert_eq!(defaults.cursor_style, Some(CursorShape::Bar));
+        assert_eq!(defaults.palette[0], Some(Rgb { r: 1, g: 2, b: 3 }));
+        assert_eq!(defaults.palette[255], Some(Rgb { r: 0xfd, g: 0xfe, b: 0xfe }));
+        assert_eq!(restored.frontend_projections.len(), 1);
+        assert_eq!(restored.frontend_projections[0].subject_key, projection.as_str());
+        assert_eq!(
+            restored.frontend_projections[0].projection["projection"],
+            json!({"columns":[1,2]})
+        );
+    }
+
+    #[test]
+    fn malformed_authoritative_rows_fail_closed() {
+        let registry = WorkspaceRegistry::in_memory("malformed-public-projections").unwrap();
+        insert_mutation(
+            &registry,
+            "bad-defaults",
+            "session.terminal_defaults.update",
+            &json!({
+                "foreground":"red",
+                "background":null,
+                "cursor":null,
+                "selection_background":null,
+                "selection_foreground":null,
+                "cursor_style":null,
+                "cursor_blink":null,
+                "palette":{},
+            }),
+            1,
+        );
+        let error = registry.public_projections().unwrap_err().to_string();
+        assert!(error.contains("terminal color \"red\" must use #rrggbb"), "{error}");
+    }
+
+    #[test]
+    fn malformed_notification_outcome_fails_closed() {
+        let registry = WorkspaceRegistry::in_memory("malformed-notification").unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO resource_effect_receipts(
+                   idempotency_key, operation, fingerprint, intent_json, state,
+                   outcome_json, committed_revision
+                 ) VALUES('bad-notification', 'notification.create', '{}', '{}',
+                          'committed', '{\"kind\":\"success\",\"value\":{\"id\":7}}', 1)",
+                [],
+            )
+            .unwrap();
+        let error = registry.public_projections().unwrap_err().to_string();
+        assert!(error.contains("invalid committed notification result"), "{error}");
+    }
+
+    #[test]
+    fn agent_projections_survive_terminal_tombstones() {
+        let mut registry = WorkspaceRegistry::in_memory("terminal-relationships").unwrap();
+        let session = registry.session_id().clone();
+        let (terminal, pane, tab) = seed_live_terminal(&mut registry);
+        let agent = agent_id(&terminal).unwrap();
+        insert_mutation(
+            &registry,
+            "agent-live",
+            "agent.report",
+            &json!({
+                "id":agent,
+                "session_id":session,
+                "terminal_id":terminal,
+                "state":"working",
+                "source":"hook",
+                "updated_at_ms":"10",
+                "source_session":null,
+            }),
+            2,
+        );
+        insert_notification(
+            &registry,
+            "notification-live",
+            &json!({
+                "id":notification_id(1),
+                "session_id":session,
+                "title":"terminal",
+                "body":"",
+                "level":"warning",
+                "terminal_id":terminal,
+                "created_at_ms":"11",
+                "unread":true,
+            }),
+            3,
+        );
+
+        let live = registry.public_projections().unwrap();
+        assert_eq!(live.agents.len(), 1);
+        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 1);
+        assert_eq!(live.agents[0].terminal_id, terminal);
+        assert_eq!(live.notifications[0].terminal_id, Some(terminal.clone()));
+        assert!(live.notifications[0].unread);
+
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::new("tombstone-terminal", "test").unwrap(),
+                "terminal.close",
+                &json!({"terminal_id":terminal}),
+                None,
+                Some(1),
+                &ResourcePatch {
+                    changes: vec![
+                        ResourceChange::UpsertPane(RegistryPane {
+                            public_id: pane.clone(),
+                            screen_id: ScreenPublicId::parse(
+                                "screen_00000000000000000000000000000001",
+                            )
+                            .unwrap(),
+                            name: None,
+                            active_tab: None,
+                            creation_ordinal: 1,
+                        }),
+                        ResourceChange::TombstoneTab { tab_id: tab, close_content: true },
+                        ResourceChange::TombstoneTerminal {
+                            public_id: terminal.clone(),
+                            expected_incarnation: None,
+                        },
+                        ResourceChange::SetTabOrder { pane_id: pane, tab_ids: Vec::new() },
+                    ],
+                },
+                &json!({}),
+                &json!([]),
+            )
+            .unwrap();
+
+        let tombstoned = registry.public_projections().unwrap();
+        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 1);
+        assert_eq!(tombstoned.agents.len(), 1);
+        assert_eq!(tombstoned.agents[0].terminal_id, terminal);
+        assert_eq!(tombstoned.notifications.len(), 1);
+        assert_eq!(tombstoned.notifications[0].terminal_id, None);
+    }
 }

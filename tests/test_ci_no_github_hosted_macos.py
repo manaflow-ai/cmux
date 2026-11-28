@@ -35,13 +35,6 @@ RUNNERS = ROOT / ".github/runners.json"
 HOSTED_MACOS = re.compile(r"(?<![A-Za-z0-9_.-])macos-(?:latest|[0-9]+)(?:-(?:intel|large|xlarge|arm64))?(?![A-Za-z0-9_.-])")
 # The fork branch: only a repository owner other than manaflow-ai reaches it.
 FORK_BRANCH = re.compile(r"github\.repository_owner != 'manaflow-ai' && ('[A-Za-z0-9._-]+'|matrix\.hosted_runner)")
-# The operator's hosted signing switch on nightly.yml's six signing and publishing jobs (Leo, 2026-11-10:
-# "It's fine to sign on GitHub hosted tonight", while the only owned signer had no power). The variable is
-# compared with macos-26, never used as the label; unset, the jobs keep the trusted signer.
-HOSTED_SIGNING_SWITCH = re.compile(r"vars\.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26'")
-# A cmux-ci worker label (`cmux-ci run ... --label macos-27`) names the macOS version an owned fleet worker
-# runs; it is an argument to the fleet client, never a runs-on, so no GitHub-hosted image can serve it.
-CMUX_CI_LABEL = re.compile(r"--label[ =]['\"]?macos-[0-9A-Za-z.-]+")
 # Script test fixtures and unit tests describe hosted jobs they must recognise; they route nothing.
 SCRIPT_SKIP_PARTS = {"tests", "fixtures", "__pycache__", "node_modules"}
 SCRIPT_SUFFIXES = {".py", ".sh", ".rb", ".js", ".mjs", ".ts", ".json", ".yml", ".yaml"}
@@ -49,6 +42,15 @@ SCRIPT_SUFFIXES = {".py", ".sh", ".rb", ".js", ".mjs", ".ts", ".json", ".yml", "
 # "<path relative to the repository root>:<exact line>" -> why it may name a GitHub-hosted Mac.
 # No job is exempt: every job has an owned or Blacksmith route, x86_64 included (Rosetta).
 EXEMPT: dict[str, str] = {
+    ".github/workflows/test-e2e.yml:" + "      CMUX_CI_XCODE_APP: ${{ (contains(needs.runner.outputs.label, 'macos-26') || startsWith(needs.runner.outputs.label, 'glaeda-')) && vars.CMUX_CI_XCODE_APP_PR || '' }}": (
+        "reads the picked label (a Blacksmith macos-26 pool) to choose Xcode; it selects no runner"
+    ),
+    "scripts/ci/dispatch-focused-test.py:" + '        return runner.startswith("blacksmith-") and "macos-26" in runner': (
+        "a substring test on a Blacksmith label; it returns a bool, not a label"
+    ),
+    "scripts/ci/dispatch-focused-test.py:" + '            if not runner or pool.pr_runner_pool.persistent(runner) or "macos-26" not in runner:': (
+        "a substring test on the picked label; it selects no runner"
+    ),
     "scripts/ci/resolve_runners.py:" + '            \'Expected an object of capability -> label, e.g. {"macos_26": "macos-15"}.\'': (
         "an example in the resolver's error message for a malformed fleet override; it selects no runner"
     ),
@@ -74,7 +76,7 @@ def workflow_hits(root: Path) -> list[str]:
                 content = strip_comment(line)
                 if not content:
                     continue
-                if HOSTED_MACOS.search(CMUX_CI_LABEL.sub("", HOSTED_SIGNING_SWITCH.sub("", FORK_BRANCH.sub("", content)))):
+                if HOSTED_MACOS.search(FORK_BRANCH.sub("", content)):
                     hits.append(f"{path.relative_to(root)}:{number}:{line}")
     return hits
 
@@ -90,8 +92,7 @@ def script_hits(root: Path) -> list[str]:
             if not path.is_file() or path.suffix not in SCRIPT_SUFFIXES:
                 continue
             relative = path.relative_to(root)
-            # A unit test (test_*.py, or *_test.py beside its script) names labels as fixtures; it routes nothing.
-            if SCRIPT_SKIP_PARTS & set(relative.parts) or path.name.startswith("test_") or path.stem.endswith("_test"):
+            if SCRIPT_SKIP_PARTS & set(relative.parts) or path.name.startswith("test_"):
                 continue
             try:
                 text = path.read_text(encoding="utf-8")
@@ -135,12 +136,6 @@ class NoGitHubHostedMacos(unittest.TestCase):
                      "    # runs on hosted macos-26 only in a fork", "      matrix.hosted_runner"):
             with self.subTest(line=line):
                 self.assertFalse(HOSTED_MACOS.search(FORK_BRANCH.sub("", strip_comment(line))))
-        # A cmux-ci worker label routes to the owned fleet; a runs-on beside it on the same line still counts.
-        for line in ('              --label macos-27 --label ram48 --key "$KEY" \\',
-                     '              --label measure --label=macos-26 --label cmux'):
-            with self.subTest(line=line):
-                self.assertFalse(HOSTED_MACOS.search(CMUX_CI_LABEL.sub("", FORK_BRANCH.sub("", strip_comment(line)))))
-        self.assertTrue(HOSTED_MACOS.search(CMUX_CI_LABEL.sub("", "    runs-on: macos-26 # --label macos-27")))
         # A matrix row is read like any other line: `runs-on: ${{ matrix.hosted_runner }}` would reach it.
         self.assertTrue(HOSTED_MACOS.search(FORK_BRANCH.sub("", strip_comment("          hosted_runner: macos-15"))))
 
@@ -158,6 +153,33 @@ class NoGitHubHostedMacos(unittest.TestCase):
 
     def test_the_manaflow_fleet_maps_no_capability_to_a_hosted_mac(self):
         self.assertEqual(fleet_hits(ROOT), [])
+
+    def test_the_train_runner_variable_cannot_hold_a_hosted_mac(self):
+        # A repository variable routes around the literal check above. The train
+        # compile's runs-on no longer reads vars.NIGHTLY_NEXT_TRAIN_RUNNER: the
+        # variable only reaches pick-train-runner's OWNED_LABELS, and the picker
+        # (nightly_build_runner.owned_label) offers only an owned glaeda-* label,
+        # so a hosted macos-* value is never picked.
+        text = (WORKFLOWS / "nightly-next-train.yml").read_text(encoding="utf-8")
+        reads = [line for line in text.splitlines() if "vars.NIGHTLY_NEXT_TRAIN_RUNNER" in strip_comment(line)]
+        self.assertTrue(reads)
+        for line in reads:
+            with self.subTest(line=line):
+                self.assertRegex(line, r"^\s+OWNED_LABELS: ")
+
+    def test_no_runner_variable_may_hold_a_hosted_mac(self):
+        # vars.MACOS_RUNNER_15 and friends reach runs-on in many workflows; the
+        # repository-variable check and health report refuse a hosted value.
+        sys.path.insert(0, str(SCRIPTS / "ci"))
+        import runner_label_policy as policy
+
+        for label in ("macos-15", "macos-26", "macos-latest", "macos-15-intel", "macos-15-xlarge", "MACOS-15"):
+            with self.subTest(label=label):
+                self.assertIsNotNone(policy.forbidden_reason(label))
+                self.assertTrue(policy.drifted_runner_variables({"MACOS_RUNNER_15": label}))
+        for label in ("blacksmith-6vcpu-macos-15", "blacksmith-12vcpu-macos-26", ""):
+            with self.subTest(label=label):
+                self.assertIsNone(policy.forbidden_reason(label))
 
     def test_every_exemption_is_live_and_has_a_reason(self):
         lines = set()

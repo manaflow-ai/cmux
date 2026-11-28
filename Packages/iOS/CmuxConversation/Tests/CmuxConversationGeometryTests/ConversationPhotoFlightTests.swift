@@ -1,8 +1,4 @@
-#if canImport(CoreGraphics)
 import CoreGraphics
-#else
-import Foundation
-#endif
 import Testing
 @testable import CmuxConversationGeometry
 
@@ -67,7 +63,6 @@ import Testing
         #expect(ConversationPhotoViewerLayout.closeFrame(.quickLook26, width: 402, safeTop: 62) == CGRect(x: 342, y: 62, width: 44, height: 44))
     }
 
-    #if canImport(CoreGraphics)  // CGPath: Apple only
     @Test func outlineIsSquareFullScreenAndTheBubbleAtFullRadius() {
         let rect = CGRect(x: 0, y: 0, width: 260, height: 200)
         // Full screen: a plain rectangle, so no corner ever shows rounded there.
@@ -83,9 +78,7 @@ import Testing
         #expect(!bubble.contains(CGPoint(x: 1, y: 1)))
         #expect(bubble.contains(CGPoint(x: 130, y: 100)))
     }
-    #endif
 
-    #if canImport(CoreGraphics)  // CGPath: Apple only
     @Test func cornersGrowContinuously() {
         let rect = CGRect(x: 0, y: 0, width: 300, height: 220)
         var previousCut: CGFloat = 0
@@ -100,7 +93,6 @@ import Testing
         }
         #expect(previousCut > 4)
     }
-    #endif
 }
 
 /// Letting go of a dragged photo, Messages' Quick Look flies it back from

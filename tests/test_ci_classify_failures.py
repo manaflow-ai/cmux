@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import classify_failures as cf  # noqa: E402
 
+WORKFLOW = ROOT / ".github/workflows/ci-failure-attribution.yml"
 ESC = "\x1b"
 
 RESTORE_FAILED = textwrap.dedent(f"""\
@@ -82,7 +83,7 @@ COMPILE_FAILED = (
     "2026-09-27T10:40:00.0000000Z /tmp/cmux-ci/src/cmuxTests/SidebarWidthPolicyTests.swift:672:57: error: "
     "ambiguous use of 'init'\n"
 )
-STATIC_CHECK_FAILED = "2026-09-27T10:40:00.0000000Z FAILED launch-policy (0.03s)\n"
+STATIC_CHECK_FAILED = "2026-09-27T10:40:00.0000000Z FAILED config-schema (0.03s)\n"
 ADMISSION_DECLINED = (
     "2026-09-27T10:40:00.0000000Z macOS admission gate declined: a fast Linux job failed. The product compiled "
     "and was uploaded; re-run failed jobs to collect macOS results anyway.\n"
@@ -322,9 +323,9 @@ class SignatureTests(unittest.TestCase):
 
 class RunTests(unittest.TestCase):
     JOBS = [
-        job(1, "macos / CLI product tests"),
+        job(1, "macos / app-host unit tests (2/7)"),
         job(2, "macos / swift-package-tests"),
-        job(3, "macos / remote-daemon-macos-tests"),
+        job(3, "macos / app-host unit tests (1/7)"),
         job(4, "macos / macOS compile admission"),
         job(5, "macos / release-build", conclusion="cancelled"),
         job(6, "macos / macOS status"),
@@ -376,15 +377,12 @@ class RerunDecisionTests(unittest.TestCase):
             self.assertIn("`job 1`", line)
 
     def test_an_automatic_re_run_on_blacksmith_is_not_re_run_again(self) -> None:
-        # The bot's attempt 3 went to Blacksmith; nothing a comment says can restart it. The rescue
-        # re-runs as GITHUB_TOKEN's actor or as the cmux-bot App, and either one ends the chain.
-        for actor in (cf.BOT, "cmux-bot[bot]"):
-            with self.subTest(actor=actor):
-                rerun, line = cf.rerun_decision(self.report([cf.MACHINE], attempt=3),
-                                                {"run_attempt": 3, "status": "completed",
-                                                 "triggering_actor": {"login": actor}})
-                self.assertFalse(rerun)
-                self.assertIn("attempt 3", line)
+        # The bot's attempt 3 went to Blacksmith; nothing a comment says can restart it.
+        rerun, line = cf.rerun_decision(self.report([cf.MACHINE], attempt=3),
+                                        {"run_attempt": 3, "status": "completed",
+                                         "triggering_actor": {"login": cf.BOT}})
+        self.assertFalse(rerun)
+        self.assertIn("attempt 3", line)
 
     def test_an_automatic_attempt_2_a_mini_failed_goes_to_blacksmith_once(self) -> None:
         # The bot's attempt 2 goes back to the minis; an online but broken one (a full
@@ -403,55 +401,6 @@ class RerunDecisionTests(unittest.TestCase):
                                      {"run_attempt": 2, "status": "completed",
                                       "triggering_actor": {"login": "teamleaderleo"}})
         self.assertTrue(rerun)
-
-    # cmux#33162's run 41698414997 attempt 1 (2026-11-03): react-apps-base-check (3), job 126154996598, lost its
-    # runner, and its gate react-apps-check failed for it. As a job of its own the gate read unknown and nothing was
-    # re-run; as a gate the lost runner is the run's one failure.
-    LOST = "The self-hosted runner lost communication with the server. Verify the machine is running and has a " \
-           "healthy network connection."
-
-    def lost_report(self, attempt: int = 1, real: str = "") -> dict:
-        report = self.report([], attempt=attempt)
-        jobs = [job(126154996598, "web / react-apps-base-check (3)"), job(2, "web / react-apps-check")]
-        texts = {126154996598: ("", [self.LOST]), 2: ("##[error]Process completed with exit code 1.\n", [])}
-        if real:
-            jobs.append(job(3, "web / react-apps-check (1)"))
-            texts[3] = (real, [])
-        report["jobs"] = cf.classify_jobs(jobs, texts)
-        return report
-
-    def test_a_lost_runner_is_rerun_once(self) -> None:
-        report = self.lost_report()
-        self.assertEqual([(j["name"], j["signature"]) for j in report["jobs"]],
-                         [("web / react-apps-base-check (3)", "runner-lost")])
-        rerun, line = cf.rerun_decision(report, self.LATEST)
-        self.assertTrue(rerun, line)
-        self.assertIn("attempt 2", line)
-        # Already re-run (by this bot or a person): not asked twice for the same attempt.
-        rerun, line = cf.rerun_decision(report, {"run_attempt": 2, "status": "in_progress"})
-        self.assertFalse(rerun)
-        self.assertIn("re-run already", line)
-
-    def test_a_second_lost_runner_is_reported_not_looped(self) -> None:
-        rerun, line = cf.rerun_decision(self.lost_report(attempt=2),
-                                        {"run_attempt": 2, "status": "completed",
-                                         "triggering_actor": {"login": cf.BOT}})
-        self.assertFalse(rerun)
-        self.assertIn("lost its runner again on the automatic re-run (attempt 2); reported", line)
-        # A person's re-run that loses its runner gets its one automatic re-run.
-        rerun, _ = cf.rerun_decision(self.lost_report(attempt=2),
-                                     {"run_attempt": 2, "status": "completed",
-                                      "triggering_actor": {"login": "teamleaderleo"}})
-        self.assertTrue(rerun)
-
-    def test_a_real_test_failure_beside_a_lost_runner_is_still_a_red(self) -> None:
-        report = self.lost_report(real="##[group]Run bun test\n##[endgroup]\n(fail) a > b [1.00ms]\n"
-                                        "##[error]Process completed with exit code 1.\n")
-        verdicts = {j["name"]: j["verdict"] for j in report["jobs"]}
-        self.assertEqual(verdicts["web / react-apps-check (1)"], cf.CODE)
-        rerun, line = cf.rerun_decision(report, self.LATEST)
-        self.assertFalse(rerun)
-        self.assertIn("`web / react-apps-check (1)` is not a machine failure", line)
 
     def test_a_cancelled_run_is_reported_not_rerun(self) -> None:
         # owned_pool_rescue cancels a stuck run before its own full re-run.
@@ -476,8 +425,11 @@ class FakeGitHub:
                  latest: dict | None = None, merged: bool = False, files: list[str] | None = None,
                  main_issue: dict | None = None, main_comments: list[dict] | None = None,
                  files_error: bool = False, closed: list[dict] | None = None,
-                 main_runs: list[dict] | None = None, main_runs_error: bool = False, seen: dict | None = None):
+                 main_runs: list[dict] | None = None, main_runs_error: bool = False, seen: dict | None = None,
+                 check_runs: list[dict] | None = None, statuses: list[dict] | None = None):
         self.head, self.state, self.merged = head, state, merged
+        # The head's check runs and commit statuses: green (none) unless a test says otherwise.
+        self.check_runs, self.statuses = check_runs or [], statuses or []
         self._comments = comments or []
         self.latest = latest or {"run_attempt": 1, "status": "completed"}
         self.files = files or []
@@ -516,6 +468,10 @@ class FakeGitHub:
             return {"workflow_runs": self.main_runs}
         if path == f"repos/{self.repo}/issues/{cf.SEEN_ISSUE}":
             return self.seen
+        if f"/commits/{self.head}/check-runs?" in path:
+            return {"check_runs": self.check_runs if path.endswith("page=1") else []}
+        if f"/commits/{self.head}/status?" in path:
+            return {"statuses": self.statuses}
         raise AssertionError(f"unexpected read {path}")
 
     def comments(self, number: int) -> list[dict]:
@@ -571,8 +527,11 @@ class ActTests(unittest.TestCase):
         gh = FakeGitHub()
         result = self.act(gh, self.report([cf.MACHINE]))
         self.assertTrue(result["rerun"])
-        # The author has nothing to do, so no new comment notifies them.
-        self.assertEqual(gh.calls, [("POST", "repos/manaflow-ai/cmux/actions/runs/42/rerun-failed-jobs")])
+        # The bot's re-run may emit no workflow_run event, so it starts the
+        # UI test dispatch for attempt 2 itself (ci-ui-tests.yml). The author has nothing
+        # to do, so no new comment notifies them.
+        self.assertEqual(gh.calls, [("POST", "repos/manaflow-ai/cmux/actions/runs/42/rerun-failed-jobs"),
+                                    ("POST", "repos/manaflow-ai/cmux/actions/workflows/ci-ui-tests.yml/dispatches")])
         # An earlier report on the PR is still brought up to date.
         gh = FakeGitHub(comments=[bot_comment(cf.MARKER + "\nred")])
         self.act(gh, self.report([cf.MACHINE]))
@@ -602,6 +561,36 @@ class ActTests(unittest.TestCase):
         gh = FakeGitHub(comments=[bot_comment(cf.MARKER + "\nred")])
         self.act(gh, green)
         self.assertEqual(gh.calls, [("PATCH", "repos/manaflow-ai/cmux/issues/comments/99")])
+
+    def test_green_ci_with_another_red_check_on_the_head_is_not_passes(self) -> None:
+        # #50275: a green ci.yml run on 800f012d13 was reported "CI passes" while the head's
+        # cmux-next/compile was red six times. Every check run and status on the head counts.
+        red = [{"name": "Attribute", "status": "in_progress", "conclusion": None},
+               {"name": "build", "status": "completed", "conclusion": "success"}]
+        gh = FakeGitHub(comments=[bot_comment(cf.MARKER + "\nred")], check_runs=red,
+                        statuses=[{"context": "cmux-next/compile", "state": "failure"},
+                                  {"context": "cmux-next/compile", "state": "success"}])
+        self.act(gh, self.report([], conclusion="success"))
+        body = gh._comments[0]["body"]
+        self.assertNotIn("CI passes", body)
+        self.assertIn("**Other checks red:**", body)
+        self.assertIn("`cmux-next/compile`", body)
+        self.assertIn("state=failed", body)
+
+    def test_green_ci_with_another_check_running_is_not_verified(self) -> None:
+        gh = FakeGitHub(comments=[bot_comment(cf.MARKER + "\nred")],
+                        check_runs=[{"name": "cmux-next / compile", "status": "in_progress", "conclusion": None}])
+        self.act(gh, self.report([], conclusion="success"))
+        body = gh._comments[0]["body"]
+        self.assertNotIn("CI passes", body)
+        self.assertIn("still running", body)
+
+    def test_green_ci_with_every_check_green_passes(self) -> None:
+        gh = FakeGitHub(comments=[bot_comment(cf.MARKER + "\nred")],
+                        check_runs=[{"name": "build", "status": "completed", "conclusion": "skipped"}],
+                        statuses=[{"context": "cmux-next/compile", "state": "success"}])
+        self.act(gh, self.report([], conclusion="success"))
+        self.assertIn("CI passes on", gh._comments[0]["body"])
 
     def test_a_superseded_cancelled_run_says_nothing(self) -> None:
         gh = FakeGitHub()
@@ -696,12 +685,11 @@ def red_report(log: str, name: str = "macos / app-host unit tests (changed suite
 
 
 def main_issue(failures: list[dict], number: int = 17300) -> tuple[dict, list[dict]]:
-    """main's main_full_suite.py open issue, its latest comment carrying the red run's failures.
+    """main_full_suite.py's open issue, its latest comment carrying the red run's failures."""
+    import main_full_suite
 
-    main_full_suite.py lives on main only; its comment carries this data marker.
-    """
     run = {"id": 9, "head_sha": "c" * 40, "html_url": "https://run/9"}
-    body = "Full-suite CI on `main` failed\n\n" + cf.main_failures_marker(run, failures)
+    body = main_full_suite.failure_body(run, [], "", failures)
     return ({"number": number, "html_url": f"https://github.com/manaflow-ai/cmux/issues/{number}", "comments": 1,
              "body": "Full-suite CI on `main` failed at older", "user": {"login": cf.BOT}},
             [{"body": body, "user": {"login": cf.BOT}}])
@@ -1175,6 +1163,33 @@ class KnownElsewhereTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+
+    def test_follows_ci(self) -> None:
+        on = self.workflow.get("on", self.workflow.get(True))
+        self.assertEqual(on["workflow_run"]["workflows"], ["CI"])
+        # One run per completion: `requested` doubled the runs and spent the
+        # GITHUB_TOKEN budget (2026-10-26). An older head's comment goes pending
+        # when the newer head's run completes.
+        self.assertEqual(on["workflow_run"]["types"], ["completed"])
+        (only,) = self.workflow["jobs"].values()
+        self.assertNotIn("requested", only["if"])
+        self.assertIn("vars.CI_QUOTA_HOLD != '1'", only["if"])
+        self.assertNotIn("requested", self.workflow["concurrency"]["group"])
+
+    def test_runs_mains_script_and_never_checks_out_the_pull_request(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("head_sha", text.split("steps:", 1)[1])
+        self.assertNotIn("ref:", text)
+        (only,) = self.workflow["jobs"].values()
+        self.assertEqual(only["permissions"]["actions"], "write")
+        self.assertFalse(self.workflow["concurrency"]["cancel-in-progress"])
+        self.assertNotIn("contents", {k for k, v in only["permissions"].items() if v == "write"})
+        # Without it the label search returns no issue (main read as green) and the seen-record cannot be kept.
+        self.assertEqual(only["permissions"]["issues"], "write")
+
     def test_every_gate_job_exists_under_the_name_the_jobs_api_reports(self) -> None:
         # The jobs API names a job by its display name, prefixed by the calling
         # job's for a reusable workflow ("macos / macOS status").
@@ -1281,87 +1296,6 @@ class WebTestTests(unittest.TestCase):
         self.assertEqual(set(recorded[DEADLINE_KEY]), {"21651", "7"})
         self.assertEqual(set(recorded["test:vm-workflows.test.ts:VM workflows > pause records a wake"]), {"7"})
 
-
-
-# The webview verdict's step at #28611's head (job 124990008677, run 41352140447), trimmed: the base
-# replay's bun output (both composer tests fail on the base too, so the verdict warns), then
-# guards_new_reds.py's verdict, whose `##[error]` lines are the change's own reds.
-BASE_CHECK_JOB = "web / react-apps-base-check (4)"
-COMPOSER_TEST = "a terminal-only spelling waits for its pending image and sends as an attachment prompt"
-SLASH_TEST = "Codex slash commands are available before the first message and selecting one keeps its arguments"
-ART_TEST = ("the New Tab field on a wallpaper theme in {} > a suggestion row is a menu row: "
-            "the same height, corners and inset")
-BASE_CHECK_LOG = (
-    "2026-11-01T21:51:05.8037000Z ##[group]Run files=\"$RUNNER_TEMP/base-files\"\n"
-    f"2026-11-01T21:51:05.8038000Z {ESC}[36;1mfiles=\"$RUNNER_TEMP/base-files\"{ESC}[0m\n"
-    f"2026-11-01T21:51:05.8043364Z {ESC}[36;1mpython3 \"$runner/guards_new_reds.py\" --label \"Webview test\" "
-    f"--flaky \"$flaky\" \"$HEAD_RESULTS\" \"$BASE_RESULTS\"{ESC}[0m\n"
-    "2026-11-01T21:51:05.8064234Z ##[endgroup]\n"
-    "2026-11-01T21:51:05.8640633Z running 3 webviews test files, 1 at a time\n"
-    "2026-11-01T21:51:09.3187096Z FAIL test/composer-return-sends.test.tsx (raw log retained for the final bounded summary)\n"
-    "2026-11-01T21:51:12.2694364Z ##[group]FAIL test/composer-return-sends.test.tsx\n"
-    "2026-11-01T21:51:12.2766124Z bun test v1.4.4 (38afee6c8)\n"
-    "2026-11-01T21:51:12.2766425Z ##[group]test/composer-return-sends.test.tsx:\n"
-    "2026-11-01T21:51:12.2772728Z error: expect(received).toBeNull()\n"
-    f"2026-11-01T21:51:12.3553771Z (fail) {COMPOSER_TEST} [2454.90ms]\n"
-    "2026-11-01T21:51:12.3558686Z ##[endgroup]\n"
-    "2026-11-01T21:51:12.3560163Z ##[group]FAIL test/new-tab-composer-layout.test.tsx\n"
-    "2026-11-01T21:51:12.3560569Z ##[group]test/new-tab-composer-layout.test.tsx:\n"
-    "2026-11-01T21:51:12.3585647Z ##[error]\n"
-    "      at singleRect (/home/runner/_work/cmux/cmux/webviews/node_modules/prosemirror-view/dist/index.js:524:24)\n"
-    f"2026-11-01T21:51:12.3591037Z (fail) {SLASH_TEST} [204.16ms]\n"
-    "2026-11-01T21:51:12.3593065Z ##[endgroup]\n"
-    "2026-11-01T21:51:12.3593802Z ##[endgroup]\n"
-    "2026-11-01T21:51:13.1966449Z ### webviews tests: 3 files, 2 failed or timed out (0 retried alone, 0 passed alone)\n"
-    f"2026-11-01T21:51:13.2701073Z ##[warning]test/composer-return-sends.test.tsx > {COMPOSER_TEST}\n"
-    f"2026-11-01T21:51:13.2702222Z ##[warning]test/new-tab-composer-layout.test.tsx > {SLASH_TEST}\n"
-    f"2026-11-01T21:51:13.2703294Z ##[error]test/new-tab-field-on-art.test.ts > {ART_TEST.format('chromium')}\n"
-    f"2026-11-01T21:51:13.2704344Z ##[error]test/new-tab-field-on-art.test.ts > {ART_TEST.format('webkit')}\n"
-    "2026-11-01T21:51:13.2704961Z 2 webview test steps red on this change, 2 red on the base too, 0 flaky on the base, 0 fixed\n"
-    "2026-11-01T21:51:13.2724542Z ##[error]Process completed with exit code 1.\n"
-)
-
-
-class WebviewVerdictTests(unittest.TestCase):
-    """A react-apps-base-check job's failures are the verdict's own reds, never the base replay's `(fail)` lines."""
-
-    def test_the_verdict_names_the_change_s_reds_and_not_the_base_s(self) -> None:
-        (result,) = red_report(BASE_CHECK_LOG, BASE_CHECK_JOB)["jobs"]
-        self.assertEqual((result["verdict"], result["signature"]), (cf.CODE, "webview-verdict-new-red"))
-        self.assertEqual([(f["file"], f["test"]) for f in result["failures"]], [
-            ("webviews/test/new-tab-field-on-art.test.ts", ART_TEST.format("chromium")),
-            ("webviews/test/new-tab-field-on-art.test.ts", ART_TEST.format("webkit")),
-        ])
-        tests = [f["test"] for f in result["failures"]]
-        self.assertNotIn(COMPOSER_TEST, tests)
-        self.assertNotIn(SLASH_TEST, tests)
-        self.assertNotIn("(fail)", result["evidence"])
-        self.assertIn("new-tab-field-on-art.test.ts", result["evidence"])
-
-    def test_a_red_the_change_s_test_file_holds_is_yours(self) -> None:
-        body = OwnershipTests().comment(red_report(BASE_CHECK_LOG, BASE_CHECK_JOB),
-                                        ["webviews/test/new-tab-field-on-art.test.ts"])
-        self.assertTrue(OwnershipTests.verdict(body).startswith("**Yours to fix:** `new-tab-field-on-art.test.ts`"),
-                        OwnershipTests.verdict(body))
-        self.assertNotIn(COMPOSER_TEST, body)
-
-    def test_a_file_red_without_tests_is_named_by_its_file(self) -> None:
-        log = "2026-11-01T21:51:13.2703294Z ##[error]test/glass-never-opaque.test.ts\n" \
-              "2026-11-01T21:51:13.2724542Z ##[error]Process completed with exit code 1.\n"
-        self.assertEqual([(f["file"], f["test"]) for f in cf.base_check_reds(log)],
-                         [("webviews/test/glass-never-opaque.test.ts", "")])
-
-    def test_a_base_check_with_no_verdict_reds_lists_no_base_replay_tests(self) -> None:
-        log = BASE_CHECK_LOG.replace("##[error]test/new-tab-field-on-art", "##[warning]test/new-tab-field-on-art")
-        (result,) = red_report(log, BASE_CHECK_JOB)["jobs"]
-        self.assertEqual([f for f in result["failures"] if f["kind"] == "test"], [])
-
-    def test_other_web_jobs_still_read_bun_s_fail_lines(self) -> None:
-        self.assertTrue(cf.is_base_check(BASE_CHECK_JOB))
-        self.assertFalse(cf.is_base_check("web / react-apps-check (4)"))
-        self.assertFalse(cf.is_base_check(WEB_SHARD))
-        (result,) = red_report(WEB_SHARD_LOG, WEB_SHARD)["jobs"]
-        self.assertEqual(result["signature"], "bun-test-failure")
 
 if __name__ == "__main__":
     unittest.main()

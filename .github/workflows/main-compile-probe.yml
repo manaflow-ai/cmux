@@ -24,7 +24,7 @@ on:
       runner:
         description: The runs-on label (an owned root label, or a Blacksmith macOS pool as overflow).
         required: true
-        default: mac-std
+        default: glaeda-root-std-xcode-26.6
         type: string
 
 permissions:

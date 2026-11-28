@@ -1,10 +1,11 @@
 //! Attach streams in the reaper: an attached terminal is not counted toward
-//! the grace cap, and the reap close re-checks attach streams under its locks.
+//! the grace cap, and the reap close re-checks attach streams under its locks
+//! (port of feat #39574).
 
 use super::*;
 
 /// The closed terminals past [`MAX_TERMINALS_IN_REAP_GRACE`], longest closed first: each holds a
-/// PTY for its grace, and a burst of closes must not hold the machine's PTYs (STATUS 7998). An
+/// PTY for its grace, and a burst of closes must not hold the machine's PTYs (feat STATUS 7998). An
 /// attached terminal is neither counted nor picked: the reaper cannot end it, so counting it ended
 /// a detached terminal inside its grace, and picking it tried it again on every pass.
 pub(super) fn over_grace_cap(
@@ -44,33 +45,6 @@ impl Mux {
                     let identity = self.resource_terminal_host_identity(runtime)?;
                     reapable
                         .contains_key(&identity.terminal_id)
-                        .then_some((identity.terminal_id, runtime.id))
-                })
-                .collect()
-        };
-        views
-            .into_iter()
-            .filter(|(_, view)| self.terminal_view_attached(*view))
-            .map(|(terminal_id, _)| terminal_id)
-            .collect()
-    }
-
-    /// Those of `terminals` (host ids) a client holds an attach stream on.
-    pub(super) fn attached_among<'a>(
-        &self,
-        terminals: impl Iterator<Item = &'a String>,
-    ) -> HashSet<String> {
-        let wanted: HashSet<&String> = terminals.collect();
-        // The client registry is read after the state lock is released.
-        let views: Vec<(String, SurfaceId)> = {
-            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            state
-                .terminal_catalog
-                .values()
-                .filter_map(|runtime| {
-                    let identity = self.resource_terminal_host_identity(runtime)?;
-                    wanted
-                        .contains(&identity.terminal_id)
                         .then_some((identity.terminal_id, runtime.id))
                 })
                 .collect()

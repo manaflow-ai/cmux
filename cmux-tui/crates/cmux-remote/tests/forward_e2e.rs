@@ -360,16 +360,8 @@ async fn forwarding_crosses_rpc_tunnel_tcp_and_reconnects() {
                 .await
                 .unwrap();
                 let address = forward.local_addr();
-                let preview_url = Url::parse(&forward.webview_url("https").unwrap()).unwrap();
-                assert_eq!(preview_url.scheme(), "https");
-                assert_eq!(preview_url.host_str(), Some("127.0.0.1"));
-                assert_eq!(preview_url.port(), Some(address.port()));
-                let preview_address: SocketAddr =
-                    format!("{}:{}", preview_url.host_str().unwrap(), preview_url.port().unwrap())
-                        .parse()
-                        .unwrap();
 
-                verify_http(preview_address).await;
+                verify_http(address).await;
                 verify_bulk(address).await;
                 verify_half_close(address).await;
                 verify_reconnect(address, &client, &provider, &endpoint, session).await;

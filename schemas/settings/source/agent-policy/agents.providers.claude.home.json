@@ -1,4 +1,0 @@
-{
-  "agent": "userOnly",
-  "why": "Which program the person's Claude Code and Codex run, with which home, arguments and environment: an agent must never choose the binary or env its own or another agent's launch runs."
-}

@@ -21,23 +21,18 @@ let package = Package(
         .library(name: "MessagesLabSidebar", targets: ["MessagesLabSidebar"]),
     ],
     dependencies: [
-        .package(path: "../CmuxEgress"),
         .package(path: "../CmuxHomeCore"),
-        .package(path: "../CmuxHomeRender"),
+        // cmux-classic: approvals answer through `HomeOp.answerQuestion` (Cmux/ChiefRows.swift).
         .package(path: "../CmuxAgentQuestion"),
-        .package(path: "../CmuxAgentBrands"),
-        .package(path: "../CmuxSpinner"),
+        .package(path: "../CmuxHomeRender"),
     ],
     targets: [
         .target(
             name: "MessagesLabHome",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
-                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
-                .product(name: "CmuxEgress", package: "CmuxEgress"),
+            dependencies: [
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
-                .product(name: "CmuxSpinner", package: "CmuxSpinner"),
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             ],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
@@ -62,22 +57,16 @@ let package = Package(
         ),
         .testTarget(
             name: "MessagesLabHomeTests",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+            dependencies: [
                 "MessagesLabHome",
-                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             ],
-            // MessagesLab's shared/conversation.json (vendor.tsv), read by path.
-            exclude: ["Fixtures"],
-            swiftSettings: [
-                .swiftLanguageMode(.v5),
-                .define("APPKIT_NATIVE"),
-            ]
-        ),
-        .testTarget(
-            name: "MessagesLabSidebarTests",
-            dependencies: ["MessagesLabSidebar"],
+            // The motion golden is read from its source path by the harness;
+            // exclude the fixture directory from SwiftPM's source scan so it
+            // does not become an unhandled-file warning.
+            exclude: ["Golden"],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
                 .define("APPKIT_NATIVE"),

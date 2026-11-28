@@ -1,4 +1,3 @@
-#if canImport(SwiftUI)
 public import SwiftUI
 
 /// Shared circular glass icon button for mobile composer controls.
@@ -61,4 +60,3 @@ public struct MobileComposerIconButton: View {
         .accessibilityLabel(accessibilityLabel)
     }
 }
-#endif

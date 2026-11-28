@@ -1,4 +1,0 @@
-# The gates whose tests write the design doc's row 5d (`v2.pr05d.*`). A line is GROUP FILTER; see run-v2-gates.sh.
-core pr05d_origin_state_ops
-core pr05d_removed_origin_batch
-core pr05d_submit_time

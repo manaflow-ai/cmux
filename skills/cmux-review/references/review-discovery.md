@@ -20,10 +20,10 @@ and untracked content) and policy coordinates before discovery or any repair.
    - changed files;
    - diff stat;
    - full diff.
-4. If cmux is available, mark the workspace as in review while the run is active:
+4. If cmux is available, set the current workspace to review while the run is active:
 
 ```bash
-cmux workspace set-status --target ws_… --status review
+cmux workspace status set review
 ```
 
 Keep the review read-only through discovery and challenge.
@@ -120,8 +120,7 @@ A vague concern is a hypothesis, not a finding.
 
 ### Preserve epistemic provenance
 
-Use the repository-evidence vocabulary (the receipt's `kind` field takes the same
-words in lowercase):
+Use the repository-evidence vocabulary:
 
 - `PROVEN` — exact machine fact or guarantee established by direct evidence;
 - `DERIVED` — deterministic conclusion from explicit facts;

@@ -1,4 +1,3 @@
-use cmux_tui_core::Actor;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream};
 use std::path::PathBuf;
@@ -212,7 +211,7 @@ fn websocket_auth_accepts_exact_preamble_and_rejects_missing_or_wrong_tokens() {
 }
 
 #[test]
-fn websocket_pairing_is_approved_by_the_tui_and_credential_reconnects() {
+fn websocket_pairing_is_approved_over_trusted_unix_and_credential_reconnects() {
     let mux = Mux::new("ws-pairing", SurfaceOptions::default());
     let socket_path = unique_socket("ws-pairing");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
@@ -235,15 +234,12 @@ fn websocket_pairing_is_approved_by_the_tui_and_credential_reconnects() {
     assert_eq!(tui_challenge["request"], browser_challenge["pairing"]["id"]);
 
     let request = tui_challenge["request"].as_u64().unwrap();
-    // A plain Unix connection (an agent, a script) may not approve; the
-    // in-process TUI (or the verified app) does.
     writeln!(
         unix_writer,
         r#"{{"id":2,"cmd":"pairing-response","request":{request},"approve":true}}"#
     )
     .unwrap();
-    assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 2)["ok"], false);
-    assert!(mux.respond_pairing(request, true));
+    assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 2)["ok"], true);
     let paired = read_until(&mut websocket, |value| value.get("paired").is_some());
     let credential = paired["paired"]["credential"].as_str().unwrap().to_string();
     send_json(&mut websocket, json!({"id": 3, "cmd": "identify"}));
@@ -262,15 +258,7 @@ fn websocket_pairing_is_approved_by_the_tui_and_credential_reconnects() {
 fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
     let mux = Mux::new("ws-streams", SurfaceOptions::default());
     let surface = mux
-        .run_command_surface_as(
-            &Actor::Daemon,
-            vec!["/bin/cat".to_string()],
-            None,
-            true,
-            None,
-            None,
-            Some((80, 24)),
-        )
+        .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
         .unwrap()
         .surface;
     let server = server::serve_websocket(
@@ -330,15 +318,7 @@ fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
 fn websocket_render_attach_carries_large_rgba_state_and_stays_connected() {
     let mux = Mux::new("ws-large-render", SurfaceOptions::default());
     let surface = mux
-        .run_command_surface_as(
-            &Actor::Daemon,
-            vec!["/bin/cat".to_string()],
-            None,
-            true,
-            None,
-            None,
-            Some((80, 24)),
-        )
+        .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
         .unwrap()
         .surface;
     mux.surface(surface)
@@ -441,15 +421,7 @@ fn websocket_subscriber_receives_cross_connection_event_without_poll_delay() {
 fn clients_list_identify_resize_and_detach_across_transports() {
     let mux = Mux::new("client-presence", SurfaceOptions::default());
     let surface = mux
-        .run_command_surface_as(
-            &Actor::Daemon,
-            vec!["/bin/cat".to_string()],
-            None,
-            true,
-            None,
-            None,
-            Some((80, 24)),
-        )
+        .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
         .unwrap()
         .surface;
     let socket_path = unique_socket("client-presence");
@@ -640,121 +612,5 @@ fn websocket_non_loopback_bind_requires_and_accepts_explicit_insecure_opt_in() {
     assert_eq!(identify["ok"], true);
     assert_eq!(identify["data"]["protocol"], server::PROTOCOL_VERSION);
 
-    mux.shutdown();
-}
-
-/// Short dead-peer policy for the keepalive tests: a Ping after 300 ms of
-/// silence, a close after 1.5 s (five unanswered intervals, so a loaded CI
-/// runner does not close the healthy client).
-fn short_keepalive() -> cmux_tui_core::net_keepalive::WebSocketKeepalive {
-    cmux_tui_core::net_keepalive::WebSocketKeepalive {
-        ping_interval: Duration::from_millis(300),
-        dead_peer_timeout: Duration::from_millis(1_500),
-    }
-}
-
-fn serve_with_short_keepalive(mux: &std::sync::Arc<Mux>) -> server::WebSocketServer {
-    server::serve_websocket_with_keepalive(
-        mux.clone(),
-        "127.0.0.1:0".parse().unwrap(),
-        Some(TEST_TOKEN.to_string()),
-        false,
-        &server::WebSocketAccess::default(),
-        None,
-        short_keepalive(),
-    )
-    .unwrap()
-}
-
-/// Opcodes of the unmasked server frames in `bytes`.
-fn server_frame_opcodes(bytes: &[u8]) -> Vec<u8> {
-    let mut opcodes = Vec::new();
-    let mut at = 0;
-    while at + 2 <= bytes.len() {
-        let opcode = bytes[at] & 0x0f;
-        let (length, header) = match bytes[at + 1] & 0x7f {
-            126 => (u16::from_be_bytes([bytes[at + 2], bytes[at + 3]]) as usize, 4),
-            127 => {
-                let mut length = [0_u8; 8];
-                length.copy_from_slice(&bytes[at + 2..at + 10]);
-                (u64::from_be_bytes(length) as usize, 10)
-            }
-            length => (length as usize, 2),
-        };
-        opcodes.push(opcode);
-        at += header + length;
-    }
-    opcodes
-}
-
-#[test]
-fn websocket_keepalive_closes_a_peer_that_stops_answering() {
-    let mux = Mux::new("ws-keepalive-dead-peer", SurfaceOptions::default());
-    let server = serve_with_short_keepalive(&mux);
-    let mut websocket = authenticated_connect(server.local_addr());
-    let started = Instant::now();
-
-    // From here the client reads raw bytes and never answers a Ping: the
-    // daemon sees a connection that went silent (a vanished peer).
-    let stream = websocket.get_mut();
-    stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-    let mut received = Vec::new();
-    let mut buffer = [0_u8; 4096];
-    loop {
-        match std::io::Read::read(stream, &mut buffer) {
-            Ok(0) => break,
-            Ok(read) => received.extend_from_slice(&buffer[..read]),
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => break,
-            Err(error) => panic!("daemon kept a silent peer open: {error}"),
-        }
-    }
-    let elapsed = started.elapsed();
-
-    let opcodes = server_frame_opcodes(&received);
-    let pings = opcodes.iter().filter(|opcode| **opcode == 0x9).count();
-    assert!(pings >= 2, "daemon closed without pinging first: frames {opcodes:?}");
-    assert!(
-        // `started` is a little after the daemon's last inbound byte.
-        elapsed >= short_keepalive().dead_peer_timeout - short_keepalive().ping_interval,
-        "daemon closed after {elapsed:?}, before the dead-peer timeout"
-    );
-    assert!(elapsed < Duration::from_secs(8), "daemon took {elapsed:?} to close a silent peer");
-    mux.shutdown();
-}
-
-#[test]
-fn websocket_keepalive_keeps_a_peer_that_answers_pings() {
-    let mux = Mux::new("ws-keepalive-live-peer", SurfaceOptions::default());
-    let server = serve_with_short_keepalive(&mux);
-    let mut websocket = authenticated_connect(server.local_addr());
-    websocket.get_mut().set_read_timeout(Some(Duration::from_millis(50))).unwrap();
-
-    // The client sends nothing but the Pongs tungstenite writes for each
-    // Ping, for twice the dead-peer timeout.
-    let started = Instant::now();
-    let mut pings = 0;
-    while started.elapsed() < short_keepalive().dead_peer_timeout * 2 {
-        match websocket.read() {
-            Ok(Message::Ping(_)) => {
-                pings += 1;
-                websocket.flush().unwrap();
-            }
-            Ok(message) => panic!("unexpected frame while idle: {message:?}"),
-            Err(tungstenite::Error::Io(error))
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock
-                        | std::io::ErrorKind::TimedOut
-                        | std::io::ErrorKind::Interrupted
-                ) => {}
-            Err(error) => panic!("daemon closed a peer that answers pings: {error}"),
-        }
-    }
-    assert!(pings >= 3, "daemon sent {pings} pings across several intervals");
-
-    websocket.get_mut().set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-    send_json(&mut websocket, json!({"id": 1, "cmd": "ping"}));
-    assert_eq!(read_until(&mut websocket, |value| value["id"] == 1)["ok"], true);
     mux.shutdown();
 }

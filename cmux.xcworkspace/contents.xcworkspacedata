@@ -11,10 +11,7 @@
       location = "container:Packages/Shared"
       name = "Packages (Shared)">
       <FileRef
-         location = "group:CmuxAgentBrands">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxAgentCursor">
+         location = "group:CmuxAgentChat">
       </FileRef>
       <FileRef
          location = "group:CmuxAgentQuestion">
@@ -23,31 +20,13 @@
          location = "group:CmuxAPIClient">
       </FileRef>
       <FileRef
-         location = "group:CmuxAppAttest">
-      </FileRef>
-      <FileRef
          location = "group:CMUXAuthCore">
       </FileRef>
       <FileRef
          location = "group:CmuxAuthRuntime">
       </FileRef>
       <FileRef
-         location = "group:CmuxChiefList">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxChiefVoiceCore">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxConnectivityTelemetry">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxDeviceHub">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxEgress">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxFeedPushCore">
+         location = "group:CmuxClientConfig">
       </FileRef>
       <FileRef
          location = "group:CmuxGhosttyKit">
@@ -59,7 +38,13 @@
          location = "group:CmuxHomeRender">
       </FileRef>
       <FileRef
-         location = "group:CmuxInstallAuthCore">
+         location = "group:CmuxIrohTransport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxIrxTransport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxLinuxCompat">
       </FileRef>
       <FileRef
          location = "group:CmuxMessagesLab">
@@ -68,53 +53,74 @@
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef
-         location = "group:CmuxPagePushBound">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxScreenKit">
-      </FileRef>
-      <FileRef
          location = "group:CmuxSentryTelemetry">
       </FileRef>
       <FileRef
-         location = "group:CmuxSpinner">
+         location = "group:CmuxSimulatorStreamKit">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSyncStore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSyntaxHighlighting">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalClient">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalPrediction">
       </FileRef>
       <FileRef
          location = "group:CmuxTerminalSizing">
       </FileRef>
       <FileRef
-         location = "group:CmuxTerminalStream">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxTextConfirmCore">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxTheme">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxVisibleRows">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxVNC">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxVNCWebRTC">
-      </FileRef>
-      <FileRef
-         location = "group:GlassHost">
+         location = "group:CmuxWorkspacePresence">
       </FileRef>
    </Group>
    <Group
       location = "container:Packages/iOS"
       name = "Packages (iOS)">
       <FileRef
-         location = "container:ios/CmuxiOS">
+         location = "container:ios/cmuxPackage">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAgentChatUI">
       </FileRef>
       <FileRef
          location = "group:CmuxConversation">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileAnalytics">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileBilling">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileBrowser">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileBrowserStream">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileCamera">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileChanges">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileCloud">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileCloudBridge">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileCloudUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileCrashReporting">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileDiagnostics">
       </FileRef>
       <FileRef
          location = "group:CmuxMobilePairedMac">
@@ -123,7 +129,16 @@
          location = "group:CmuxMobileRPC">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileShell">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileShellModel">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileShellUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileSimulatorStream">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileSSH">
@@ -132,26 +147,228 @@
          location = "group:CmuxMobileSupport">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileTerminal">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileTerminalKit">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileToast">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileTransport">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileTunnel">
       </FileRef>
       <FileRef
-         location = "group:CmuxTabsKit">
+         location = "group:CmuxMobileWorkspace">
       </FileRef>
    </Group>
    <Group
       location = "container:Packages/macOS"
       name = "Packages (macOS)">
       <FileRef
-         location = "group:CmuxNext">
+         location = "group:CmuxAgentDeliveryCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAgentJournal">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXAgentLaunch">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAgentSessionStore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAppKitSupportUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxBrowser">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCanvas">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCanvasUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxChief">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloud">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloudBannerCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloudImagePaste">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloudMachines">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloudResizeCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloudTui">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloudTunnelCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCommandPalette">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxComputerUse">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxControlSocket">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCore">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXDebugLog">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxDiffComments">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxExtensionKit">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxFeedback">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxFilePreviewCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxFoundation">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxGit">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxHerdrResume">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxHive">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxLiveEval">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMemoryPressure">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileHost">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxNotifications">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxPanes">
       </FileRef>
       <FileRef
          location = "group:CmuxPhonePush">
       </FileRef>
       <FileRef
-         location = "group:CmuxRemote">
+         location = "group:CmuxProductAnalytics">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXProjectModel">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxRemoteDaemon">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxRemoteSession">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxRemoteWorkspace">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSettings">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSettingsUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSidebar">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSidebarGit">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSidebarInterpreterService">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSidebarProviderKit">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSimulator">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSSHClipboardTrust">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSudoBroker">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSudoBrokerUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSurfaceCatalogModel">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSwiftRender">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSwiftRenderUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminal">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalImport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalSharing">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTestSupport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTextActions">
       </FileRef>
       <FileRef
          location = "group:CmuxUpdater">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxUpdaterUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxWindowing">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxWorkspaces">
+      </FileRef>
+   </Group>
+   <Group
+      location = "container:Examples"
+      name = "Examples">
+      <FileRef
+         location = "group:TabsVisibleSidebar/TabsVisibleSidebar.xcodeproj">
+      </FileRef>
+      <FileRef
+         location = "group:SampleSidebarExtensionApp/SampleSidebarExtensionApp.xcodeproj">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxExtensionSidebarExamples">
       </FileRef>
    </Group>
 </Workspace>

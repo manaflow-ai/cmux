@@ -1,467 +1,63 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/SwipeReply.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/SwipeReply.swift
-@@ -10,50 +10,71 @@
- /// Input: the phased scroll stream (`scrollWheel` events with `phase`, then
- /// `momentumPhase`), which is what the real app reacts to (probe on
- /// cmux-lawrence-2: a posted phased horizontal scroll opens Messages' reply
--/// transcript). A local event monitor claims a gesture whose first motion is
--/// horizontal and starts over a message; every other gesture reaches the
--/// scroll view untouched, so AppKit's responsive scrolling stays. The
--/// gesture's momentum events are swallowed too.
-+/// transcript). A local event monitor holds a gesture that starts over a
-+/// message until its first few points of motion show the direction: a swipe to
-+/// the right, near horizontal, is claimed (none of its events, momentum
-+/// included, reach the scroll view); anything else is handed to the window in
-+/// order, so the scroll view scrolls it as if nothing had looked. A gesture
-+/// that starts anywhere else is never held.
- ///
--/// Motion constants are placeholders until the 120 Hz reference
--/// (references/real-messages/interactions/swipe-*) is fitted.
-+/// cmux: motion fitted to the lossless 120 Hz references
-+/// (references/real-messages/interactions/swipe-*): 15 pt of slop, then 1:1,
-+/// then a rubber band to about 55 pt; the arrow waits under the bubble's start
-+/// and shows as the bubble slides off it.
- final class SwipeReply {
-+    /// cmux: constants (`let`): nothing tunes them at run time.
-     enum Tuning {
-         /// Finger travel (pt) at which the reply arms.
--        static var threshold: CGFloat = 60
--        /// Past the threshold the row follows with this resistance.
--        static var resistance: CGFloat = 0.35
--        /// The row never moves further than this (pt).
--        static var maxOffset: CGFloat = 110
--        /// The arrow's centre sits this far left of the bubble at rest (pt).
--        static var arrowInset: CGFloat = 22
--        static var arrowSize: CGFloat = 22
-+        static let threshold: CGFloat = 60
-         /// Finger travel before the row moves (measured 15 pt), then the row follows 1:1.
--        static var slop: CGFloat = 15
--        static var follow: CGFloat = 1
-+        static let slop: CGFloat = 15
-+        static let follow: CGFloat = 1
-+        /// cmux: past the threshold the row rubber-bands toward `stretch` more points; `stretchRate`
-+        /// is its slope there (swipe-full: 51 pt of offset at 115 pt of travel, 55 pt at 160).
-+        static let stretch: CGFloat = 14
-+        static let stretchRate: CGFloat = 0.25
-+        /// The row never moves further than this (pt).
-+        static let maxOffset: CGFloat = 110
-+        /// cmux: the arrow's centre sits this far right of the bubble's resting left edge, under the
-+        /// bubble until it slides away (swipe-full: still over the start while the bubble moves).
-+        static let arrowInset: CGFloat = 13
-+        static let arrowSize: CGFloat = 28
-         /// Return to rest (measured: 25 pt back to 0 in 0.23 s, remaining fraction
-         /// (1 - t/T)^1.6, within 1 px of every 120 Hz reference frame).
--        static var returnDuration: CFTimeInterval = 0.23
--        static var returnPower: Double = 1.6
-+        static let returnDuration: CFTimeInterval = 0.23
-+        static let returnPower: Double = 1.6
-+        /// cmux: motion (pt) that decides a held gesture: claimed as a swipe or handed to the scroll view.
-+        static let decideDistance: CGFloat = 3
-+        /// cmux: a swipe moves right at least this many times as far as it moves up or down
-+        /// (within about 27 degrees of horizontal); a scroll that drifts sideways stays a scroll.
-+        static let axisRatio: CGFloat = 2
-+        /// cmux: a flick: released while moving at least `flickSpeed` (pt/s over the last
-+        /// `flickWindow` s) after at least `flickTravel` of travel also opens the reply.
-+        static let flickSpeed: CGFloat = 600
-+        static let flickTravel: CGFloat = 35
-+        static let flickWindow: TimeInterval = 0.05
-     }
- 
-     private weak var c: ChatController?
-     private var monitor: Any?
--    /// Gesture state.
--    private var pending: NSEvent?
-+    /// cmux: the gesture's events held while its direction is unknown (may-begin, began, the first
-+    /// changes), in order, with their summed motion; `deciding` while any are held.
-+    private var held: [NSEvent] = []
-+    private var heldDX: CGFloat = 0
-+    private var heldDY: CGFloat = 0
-+    private var deciding = false
-     private var claimed = false
-     private var swallowMomentum = false
-     private var travel: CGFloat = 0
-     private var armed = false
-+    /// cmux: the claimed gesture's recent motion (event time, dx), for the release speed.
-+    private var recent: [(t: TimeInterval, dx: CGFloat)] = []
-     private var hit: MessagesWindowView.Hit?
-     private weak var cell: RowCell?
-     private let arrow = CALayer()
-     private var testPoint: CGPoint?
--    private var mayBegin: NSEvent?
--    private func releaseMayBegin(_ at: CGPoint?) {
--        if let m = mayBegin, at == nil { c?.window.sendEvent(m) }
--        mayBegin = nil
--    }
-+    /// cmux: Reduce Motion: the row still follows the fingers, but goes back without an animation.
-+    var reduceMotion: () -> Bool = { MessagesLabHomeView.reducesMotion }
-     var rowOffset: CGFloat { cell.map { $0.layer.sublayerTransform.m41 } ?? 0 }
- 
-     init(controller: ChatController) {
-@@ -66,117 +87,168 @@
-     func uninstall() { if let m = monitor { NSEvent.removeMonitor(m); monitor = nil } }
- 
-     func install() {
--        Self.log?.write(Data("installed\n".utf8))
-         monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
-             // Not `self?.handle(e) ?? e`: that turns a consumed event (nil) back into e.
-             guard let self else { return e }
--            let out = self.handle(e)
--            if let log = Self.log { log.write(Data("\(String(format: "%.4f", e.timestamp)) phase \(e.phase.rawValue) mom \(e.momentumPhase.rawValue) dx \(e.scrollingDeltaX) dy \(e.scrollingDeltaY) win \(e.window != nil) claimed \(self.claimed) consumed \(out == nil)\n".utf8)) }
--            return out
-+            return self.monitored(e)
+@@ -76,11 +76,12 @@
          }
-     }
--    /// `--swipe-log PATH`: one line per scroll event the monitor sees (diagnosis).
--    static let log: FileHandle? = {
--        let a = ProcessInfo.processInfo.arguments
--        guard let i = a.firstIndex(of: "--swipe-log"), let path = a.dropFirst(i + 1).first else { return nil }
--        FileManager.default.createFile(atPath: path, contents: nil)
--        return FileHandle(forWritingAtPath: path)
--    }()
- 
-+    /// cmux: the monitor's answer for one event (nil: taken, the scroll view never sees it);
-+    /// `HomeSwipeReplyTests` feeds phased streams through it.
-+    func monitored(_ e: NSEvent, at: CGPoint? = nil) -> NSEvent? { handle(e, at: at) }
-+
-     /// Returns nil when the event is consumed.
--    /// `at`: a host point for the check (`--swipe-check`), whose events have no window.
-+    /// `at`: a host point for the check (`--swipe-check`, tests), whose events have no window.
-     @discardableResult
-     func handle(_ e: NSEvent, at: CGPoint? = nil) -> NSEvent? {
-         testPoint = at
-         guard let c, at != nil || e.window === c.window else { return e }
--        if swallowMomentum, !e.momentumPhase.isEmpty {
-+        // cmux: momentum belongs to the gesture before it: swallowed after a claimed swipe only.
-+        if !e.momentumPhase.isEmpty {
-+            guard swallowMomentum else { return e }
-             if e.momentumPhase.contains(.ended) || e.momentumPhase.contains(.cancelled) { swallowMomentum = false }
-             return nil
-         }
--        // Fingers down (may-begin): hold it until the first motion shows the direction.
--        // Passing it on would let the scroll view start responsive scrolling, which
--        // reads the rest of the gesture on its own thread (this monitor would never
--        // see it).
--        if e.phase.contains(.mayBegin) { mayBegin = e; return nil }
--        if e.phase.contains(.began) {
--            claimed = false
--            pending = nil
--            let (dx, dy) = (e.scrollingDeltaX, e.scrollingDeltaY)
--            if dx == 0 && dy == 0 { pending = e; return nil }   // decide on the first motion
--            if begin(e) { mayBegin = nil; return nil }
--            releaseMayBegin(at)
--            return e
-+        // cmux: fingers down (may-begin), or a began with no may-begin before it, starts a gesture.
-+        // It is held only when it starts on a message of this pane. Held, the scroll view does not
-+        // start responsive scrolling, which would read the rest of the gesture on its own thread
-+        // (this monitor would never see it).
-+        if e.phase.contains(.mayBegin) || (e.phase.contains(.began) && !deciding) {
-+            reset()
-+            guard startsOnMessage(at: point(of: e)) else { return e }
-+            deciding = true
-         }
--        if mayBegin != nil, pending == nil, !claimed, e.phase.contains(.ended) || e.phase.contains(.cancelled) {
--            releaseMayBegin(at)
-+        if deciding {
-+            if e.phase.contains(.ended) || e.phase.contains(.cancelled) {
-+                // Lifted (or a may-begin cancelled) before a direction: the scroll view gets it all.
-+                deciding = false
-+                handBack()
-+                return e
-+            }
-+            held.append(e)
-+            heldDX += e.scrollingDeltaX
-+            heldDY += e.scrollingDeltaY
-+            guard hypot(heldDX, heldDY) >= Tuning.decideDistance else { return nil }
-+            deciding = false
-+            if claim() { held = []; return nil }
-+            // Not a swipe: the held start goes to the window first (not through NSApp, so this
-+            // monitor does not see it again), then this event as usual.
-+            held.removeLast()
-+            handBack()
+         if let held = pending {
+             pending = nil
+-            if e.phase.contains(.ended) || e.phase.contains(.cancelled) { if at == nil { c.window.sendEvent(held) }; return e }
++            // cmux: optional window (pane host).
++            if e.phase.contains(.ended) || e.phase.contains(.cancelled) { if at == nil { c.window?.sendEvent(held) }; return e }
+             if begin(e, start: held) { return nil }
+             // A vertical gesture: deliver its held start to the window first (not
+             // through NSApp, so this monitor does not see it again).
+-            if at == nil { c.window.sendEvent(held) }
++            if at == nil { c.window?.sendEvent(held) }  // cmux: optional window
              return e
          }
--        if let held = pending {
--            pending = nil
--            if e.phase.contains(.ended) || e.phase.contains(.cancelled) { releaseMayBegin(at); if at == nil { c.window.sendEvent(held) }; return e }
--            if begin(e, start: held) { mayBegin = nil; return nil }
--            // A vertical gesture: deliver its held start to the window first (not
--            // through NSApp, so this monitor does not see it again).
--            releaseMayBegin(at)
--            if at == nil { c.window.sendEvent(held) }
--            return e
--        }
          guard claimed else { return e }
--        if e.phase.contains(.changed) { move(by: e.scrollingDeltaX); return nil }
--        if e.phase.contains(.ended) || e.phase.contains(.cancelled) { end(cancelled: e.phase.contains(.cancelled)); return nil }
-+        if e.phase.contains(.changed) { move(by: e.scrollingDeltaX, at: e.timestamp); return nil }
-+        if e.phase.contains(.ended) || e.phase.contains(.cancelled) {
-+            end(cancelled: e.phase.contains(.cancelled), at: e.timestamp)
-+            return nil
-+        }
-         return nil
-     }
- 
--    /// Claims the gesture when its first motion is horizontal and starts over a message.
--    private func begin(_ e: NSEvent, start: NSEvent? = nil) -> Bool {
--        guard let c, let demo = c.demo, !demo.threadOpen, c.picker == nil else { return false }
--        let (dx, dy) = (e.scrollingDeltaX, e.scrollingDeltaY)
--        guard abs(dx) > abs(dy) else { return false }
--        let p = testPoint ?? c.host.convert((start ?? e).locationInWindow, from: nil)
-+    /// cmux: a host point for an event.
-+    private func point(of e: NSEvent) -> CGPoint? {
-+        testPoint ?? c?.host.convert(e.locationInWindow, from: nil)
-+    }
-+
-+    /// cmux: a new gesture starts over: a swipe still claimed (its release never came) ends
-+    /// cancelled, held events go back, the last swipe's momentum is no longer awaited, and the
-+    /// direction is decided on this gesture's motion alone (a claim keeps the sums it decided on).
-+    private func reset() {
-+        if claimed { end(cancelled: true, at: nil) }
-+        if deciding { handBack() }
-+        held = []
-+        heldDX = 0
-+        heldDY = 0
-+        deciding = false
-+        swallowMomentum = false
-+    }
-+
-+    /// cmux: sends the held events to the window, in order (none in a check, whose events have no window).
-+    private func handBack() {
-+        let events = held
-+        held = []
-+        heldDX = 0
-+        heldDY = 0
-+        guard testPoint == nil, let window = c?.window else { return }
-+        events.forEach { window.sendEvent($0) }
-+    }
-+
-+    /// cmux: a gesture may become a swipe: it starts on a message row of this (visible) pane.
-+    private func startsOnMessage(at p: CGPoint?) -> Bool {
-+        guard let c, let p, let demo = c.demo, !demo.threadOpen, c.picker == nil,
-+              !c.host.isHiddenOrHasHiddenAncestor, c.host.bounds.contains(p) else { return false }
-         // Over a wide code block or table the gesture scrolls the block (MarkdownInput), not a reply.
--        guard !demo.markdownScrollable(at: p) else { return false }
--        guard let h = demo.hit(p),
--              let cell = demo.collection.visibleCells.compactMap({ $0 as? RowCell }).first(where: { $0.spec?.key == h.key }) else { return false }
--        claimed = true
-+        guard !demo.markdownScrollable(at: p), let h = demo.hit(p), visibleCell(h.key) != nil else { return false }
-         hit = h
--        self.cell = cell
--        travel = 0
-+        return true
-+    }
-+
-+    private func visibleCell(_ key: String) -> RowCell? {
-+        c?.demo?.collection.visibleCells.compactMap { $0 as? RowCell }.first { $0.spec?.key == key }
-+    }
-+
-+    /// Claims the held gesture when it moves right, near horizontal, from a message.
-+    private func claim() -> Bool {
-+        guard let c, let h = hit, heldDX > 0, heldDX >= Tuning.axisRatio * abs(heldDY),
-+              let cell = visibleCell(h.key) else { hit = nil; return false }
-+        claimed = true
-+        self.cell = cell
+@@ -104,8 +105,9 @@
          armed = false
-+        recent = held.map { (t: $0.timestamp, dx: $0.scrollingDeltaX) }
-+        // A swipe that starts while the row is still going back picks it up where it shows.
-+        travel = Self.travel(forOffset: cell.layer.presentation()?.sublayerTransform.m41 ?? 0)
          cell.layer.removeAnimation(forKey: "swipe.back")
          arrow.removeAllAnimations()
 -        arrow.contents = Self.arrowImage(scale: c.window.backingScaleFactor)
 -        arrow.contentsScale = c.window.backingScaleFactor
--        cell.layer.addSublayer(arrow)
--        move(by: dx)
 +        // cmux: a pane's controller has an optional window.
 +        arrow.contents = Self.arrowImage(scale: c.window?.backingScaleFactor ?? DisplayScale.current)
 +        arrow.contentsScale = c.window?.backingScaleFactor ?? DisplayScale.current
-+        // Under the row's content: the bubble covers the arrow until it slides off it.
-+        cell.layer.insertSublayer(arrow, at: 0)
-+        apply(dx: heldDX)
+         cell.layer.addSublayer(arrow)
+         move(by: dx)
          return true
-     }
- 
--    /// Row offset for a finger travel. Real Messages (swipe-partial reference, 40 pt of
--    /// travel in 0.3 s): the row stays still for the first 15 pt of travel, then follows
--    /// 1:1 (25 pt peak; within 2 px of every 120 Hz frame of the fit). Past the threshold
--    /// it is resisted and capped (placeholder until a full-swipe trajectory fit).
-+    /// Row offset for a finger travel. Real Messages (swipe-partial and swipe-full references):
-+    /// the row stays still for the first 15 pt of travel, then follows 1:1 up to the threshold,
-+    /// then rubber-bands toward `stretch` more points; capped at `maxOffset`.
-     static func offset(_ travel: CGFloat) -> CGFloat {
--        let t = max(0, travel - Tuning.slop) * Tuning.follow, th = max(0, Tuning.threshold - Tuning.slop)
--        let o = t <= th ? t : th + (t - th) * Tuning.resistance
--        return min(o, Tuning.maxOffset)
-+        let t = max(0, travel - Tuning.slop) * Tuning.follow, th = max(0, Tuning.threshold - Tuning.slop) * Tuning.follow
-+        guard t > th else { return min(t, Tuning.maxOffset) }
-+        let x = t - th, s = Tuning.stretch
-+        let band = s > 0 ? s * (1 - 1 / (x * Tuning.stretchRate / s + 1)) : 0
-+        return min(th + band, Tuning.maxOffset)
-     }
- 
--    private func move(by dx: CGFloat) {
--        guard let cell, let spec = cell.spec else { return }
-+    /// cmux: the travel that shows `offset` (inverse of ``offset(_:)`` up to the threshold; past it, the threshold).
-+    static func travel(forOffset o: CGFloat) -> CGFloat {
-+        guard o > 0, Tuning.follow > 0 else { return 0 }
-+        return min(Tuning.slop + o / Tuning.follow, Tuning.threshold)
-+    }
-+
-+    private func move(by dx: CGFloat, at t: TimeInterval) {
-+        recent.append((t: t, dx: dx))
-+        if recent.count > 32 { recent.removeFirst(recent.count - 32) }
-+        apply(dx: dx)
-+    }
-+
-+    private func apply(dx: CGFloat) {
-         travel += dx
-+        guard let cell = currentCell(), let spec = cell.spec else { return }
-         let o = Self.offset(travel)
-         let body = RowDraw.bodyRect(spec)
--        let progress = min(1, o / Tuning.threshold)
-+        let progress = min(1, o / Self.offset(Tuning.threshold))
-         CATransaction.begin()
-         CATransaction.setDisableActions(true)
-         cell.layer.sublayerTransform = CATransform3DMakeTranslation(o, 0, 0)
--        // The arrow is a sublayer, so it moves with the row; it is placed so that
--        // it stays left of the bubble and slides in with the swipe.
-+        // The arrow is a sublayer, so the row's translation moves it too; placed at `-o` it stays
-+        // over the bubble's resting start and fades in as the bubble uncovers it.
-         let s = Tuning.arrowSize
-         arrow.bounds = CGRect(x: 0, y: 0, width: s, height: s)
--        arrow.position = CGPoint(x: body.minX - Tuning.arrowInset - o + o * 0.5, y: body.midY)
--        arrow.opacity = Float(progress)
--        let scale = 0.5 + 0.5 * progress
-+        arrow.position = CGPoint(x: body.minX + Tuning.arrowInset - o, y: body.midY)
-+        arrow.opacity = Float(progress * progress)
-+        let scale = 0.8 + 0.2 * progress
-         arrow.transform = CATransform3DMakeScale(scale, scale, 1)
-         CATransaction.commit()
-         let nowArmed = travel >= Tuning.threshold
-@@ -184,13 +256,31 @@
-         armed = nowArmed
-     }
- 
--    private func end(cancelled: Bool) {
--        claimed = false
--        swallowMomentum = true
--        guard let cell else { return }
--        let from = cell.layer.sublayerTransform
--        cell.layer.sublayerTransform = CATransform3DIdentity
--        let x0 = from.m41
-+    /// cmux: the swiped message's cell. A transcript update during the swipe (a streaming reply)
-+    /// can hand the cell to another row: the offset and the arrow follow the message.
-+    private func currentCell() -> RowCell? {
-+        guard let key = hit?.key else { return nil }
-+        if let cell, cell.spec?.key == key { return cell }
-+        let old = cell
-+        let now = visibleCell(key)
-+        CATransaction.begin()
-+        CATransaction.setDisableActions(true)
-+        old?.layer.sublayerTransform = CATransform3DIdentity
-+        if let now { now.layer.insertSublayer(arrow, at: 0) } else { arrow.removeFromSuperlayer() }
-+        CATransaction.commit()
-+        cell = now
-+        return now
-+    }
-+
-+    /// cmux: speed (pt/s) over the last `flickWindow` before `t`.
-+    private func releaseSpeed(at t: TimeInterval) -> CGFloat {
-+        let from = t - Tuning.flickWindow
-+        let dx = recent.filter { $0.t >= from && $0.t <= t }.reduce(0) { $0 + $1.dx }
-+        return dx / CGFloat(Tuning.flickWindow)
-+    }
-+
-+    /// cmux: the row's way back to rest from `x0`, as Messages (fitted keyframes, no overshoot).
-+    static func returnAnimation(from x0: CGFloat) -> CAKeyframeAnimation {
-         let back = CAKeyframeAnimation(keyPath: "sublayerTransform")
-         let n = 24
-         back.values = (0...n).map { i -> NSValue in
-@@ -199,23 +289,44 @@
-         }
-         back.duration = Tuning.returnDuration
-         back.calculationMode = .linear
--        cell.layer.add(back, forKey: "swipe.back")
--        // The arrow fades out, then leaves the cell (unless a new swipe took it).
--        CATransaction.begin()
--        CATransaction.setCompletionBlock { [weak self, arrow] in if self?.claimed == false { arrow.removeFromSuperlayer() } }
--        let fade = CABasicAnimation(keyPath: "opacity")
--        fade.fromValue = arrow.opacity
--        fade.toValue = 0
--        fade.duration = 0.15
--        arrow.opacity = 0
--        arrow.add(fade, forKey: "fade")
--        CATransaction.commit()
--        if armed && !cancelled, let ref = hit?.row.ref, let c {
-+        return back
-+    }
-+
-+    private func end(cancelled: Bool, at t: TimeInterval?) {
-+        claimed = false
-+        swallowMomentum = true
-+        let flick = t.map { travel >= Tuning.flickTravel && releaseSpeed(at: $0) >= Tuning.flickSpeed } ?? false
-+        let opens = !cancelled && (armed || flick)
-+        if let cell {
-+            let x0 = cell.layer.sublayerTransform.m41
-+            let reduce = reduceMotion()
-+            CATransaction.begin()
-+            CATransaction.setDisableActions(true)
-+            cell.layer.sublayerTransform = CATransform3DIdentity
-+            CATransaction.commit()
-+            if !reduce, x0 != 0 { cell.layer.add(Self.returnAnimation(from: x0), forKey: "swipe.back") }
-+            // The arrow fades out with the row's return, then leaves the cell (unless a new swipe took it).
-+            CATransaction.begin()
-+            CATransaction.setDisableActions(true)
-+            CATransaction.setCompletionBlock { [weak self, arrow] in if self?.claimed == false { arrow.removeFromSuperlayer() } }
-+            if !reduce {
-+                let fade = CABasicAnimation(keyPath: "opacity")
-+                fade.fromValue = arrow.opacity
-+                fade.toValue = 0
-+                fade.duration = 0.15
-+                arrow.add(fade, forKey: "fade")
-+            }
-+            arrow.opacity = 0
-+            CATransaction.commit()
-+        }
-+        if opens, let ref = hit?.row.ref, let c {
-+            if flick && !armed { NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now) }
-             c.dispatch(.reply(ref))
-             c.focusCompose()
-         }
-         armed = false
-         hit = nil
-+        recent = []
-     }
- 
-     private static var arrowCache: [CGFloat: CGImage] = [:]
-@@ -224,9 +335,9 @@
+@@ -179,9 +181,9 @@
          let cfg = NSImage.SymbolConfiguration(pointSize: Tuning.arrowSize * 0.7, weight: .semibold)
              .applying(.init(paletteColors: [NSColor(white: 0.6, alpha: 1)]))
          guard let sym = NSImage(systemSymbolName: "arrowshape.turn.up.left.fill", accessibilityDescription: nil)?.withSymbolConfiguration(cfg) else { return nil }
--        let px = CrashGuard.int(Tuning.arrowSize * scale, in: 1...4_096) // no trap on NaN
+-        let px = Int(Tuning.arrowSize * scale)
 +        let px = CrashGuard.int(Tuning.arrowSize * scale, in: 1...4_096) // cmux: no trap on NaN
          guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
--                                  space: LabColorSpace.sRGB, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+-                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
 +                                  space: LabColorSpace.sRGB, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil } // cmux: no force unwrap
          NSGraphicsContext.saveGraphicsState()
          NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
          let sz = sym.size, r = CGFloat(px)
-@@ -247,43 +358,48 @@
+@@ -201,42 +203,47 @@
+ enum SwipeCheck {
      static func fromArguments() -> String? {
          let a = ProcessInfo.processInfo.arguments
-         guard let i = a.firstIndex(of: "--swipe-check") else { return nil }
--        return a.dropFirst(i + 1).first // no index math
+-        guard let i = a.firstIndex(of: "--swipe-check"), i + 1 < a.count else { return nil }
+-        return a[i + 1]
++        guard let i = a.firstIndex(of: "--swipe-check") else { return nil }
 +        return a.dropFirst(i + 1).first // cmux: no index math
      }
 -    static func event(dx: CGFloat, dy: CGFloat, phase: Int64) -> NSEvent {
--        let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: Int32(clamping: CrashGuard.int(dy)), wheel2: Int32(clamping: CrashGuard.int(dx)), wheel3: 0)!
+-        let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: Int32(dy), wheel2: Int32(dx), wheel3: 0)!
 +    // cmux: optional, no force unwraps (crash program); `run` records a FAIL for a nil event.
 +    static func event(dx: CGFloat, dy: CGFloat, phase: Int64) -> NSEvent? {
 +        guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: Int32(clamping: CrashGuard.int(dy)), wheel2: Int32(clamping: CrashGuard.int(dx)), wheel3: 0) /* cmux: no trap on NaN or a huge delta */ else { return nil }
          cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
          cg.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: dy)
          cg.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: dx)
--        cg.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(truncatingIfNeeded: CrashGuard.int(dy)))
--        cg.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(truncatingIfNeeded: CrashGuard.int(dx)))
+-        cg.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(dy))
+-        cg.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(dx))
 +        cg.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(truncatingIfNeeded: CrashGuard.int(dy))) /* cmux: Int is 64-bit */
 +        cg.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(truncatingIfNeeded: CrashGuard.int(dx))) /* cmux */
          cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
@@ -480,16 +76,14 @@
 +        }
          func stream(_ dx: CGFloat, _ dy: CGFloat, steps: Int) -> [CGFloat] {
              var offsets: [CGFloat] = []
--            c.swipe.handle(event(dx: 0, dy: 0, phase: 128), at: p)   // may-begin, as a trackpad sends
 -            c.swipe.handle(event(dx: dx / CGFloat(steps), dy: dy / CGFloat(steps), phase: 1), at: p)
 -            for _ in 1..<steps { c.swipe.handle(event(dx: dx / CGFloat(steps), dy: dy / CGFloat(steps), phase: 2), at: p); offsets.append(c.swipe.rowOffset) }
-+            handle(event(dx: 0, dy: 0, phase: 128))   // may-begin, as a trackpad sends
 +            handle(event(dx: dx / CGFloat(steps), dy: dy / CGFloat(steps), phase: 1))
 +            for _ in 1..<steps { handle(event(dx: dx / CGFloat(steps), dy: dy / CGFloat(steps), phase: 2)); offsets.append(c.swipe.rowOffset) }
              return offsets
          }
          let short = stream(40, 0, steps: 8)
-         check("short swipe: 15 pt slop, then 1:1 (25 pt after 40 pt)", abs((short.last ?? 0) - 25) < 0.5, "offset after 40 pt travel = \(short.last ?? -1)")
+         check("short swipe follows 1:1", abs((short.last ?? 0) - 40) < 0.5, "offset after 40 pt travel = \(short.last ?? -1)")
 -        c.swipe.handle(event(dx: 0, dy: 0, phase: 4), at: p)
 -        check("short swipe opens nothing", c.store.state.ui.openThread == nil, "openThread = \(String(describing: c.store.state.ui.openThread))")
 +        handle(event(dx: 0, dy: 0, phase: 4))
@@ -502,10 +96,8 @@
 +        handle(event(dx: 0, dy: 0, phase: 4))
 +        check("full swipe opens the reply", c.store?.state.ui.openThread != nil, "openThread = \(String(describing: c.store?.state.ui.openThread))")
          c.dispatch(.closeThread)
--        c.swipe.handle(event(dx: 0, dy: 0, phase: 128), at: p)
 -        let consumedVertical = c.swipe.handle(event(dx: 0, dy: -20, phase: 1), at: p) == nil
 -        c.swipe.handle(event(dx: 0, dy: 0, phase: 4), at: p)
-+        handle(event(dx: 0, dy: 0, phase: 128))
 +        let consumedVertical = handle(event(dx: 0, dy: -20, phase: 1)) == nil
 +        handle(event(dx: 0, dy: 0, phase: 4))
          check("vertical stream not claimed", !consumedVertical, "consumed = \(consumedVertical)")

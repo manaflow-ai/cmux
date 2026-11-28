@@ -56,8 +56,7 @@ BOT = "github-actions[bot]"
 # The attribution workflows post with the cmux-bot App's token once vars.CMUX_BOT_APP_ID is set
 # (#20858); its comments are this comment too.
 BOTS = (BOT, "cmux-bot[bot]")
-SECTIONS = ("bead", "review", "gallery", "preview", "attribution", "ran", "checks", "guards", "swift-logic", "tour",
-            "receipt")
+SECTIONS = ("bead", "review", "preview", "attribution", "checks", "guards", "tour", "receipt")
 TITLE = "**cmux status** <sub>(one comment, edited in place; each line is updated by the job that owns it)</sub>"
 SECTION = re.compile(r"<!-- cmux-pr-status:(?P<key>[a-z-]+) -->\n(?P<text>.*?)\n<!-- /cmux-pr-status:(?P=key) -->",
                      re.S)
@@ -88,28 +87,12 @@ def render(sections: Mapping[str, str]) -> str:
         parts.append(f"<!-- cmux-pr-status:{key} -->\n{inert(sections[key])}\n<!-- /cmux-pr-status:{key} -->")
     body = "\n\n".join(parts) + "\n"
     if len(body) > LIMIT:
-        # Publication history is retained after migration; trim another section
-        # first when one exists. If it is the only section, the normal cap still
-        # applies because no comment can exceed GitHub's limit.
-        cut_marker = "(cut to fit GitHub's comment limit"
-        candidates = [key for key in known + extra if key != "published"]
-        # A prior cut section remains eligible, so successive status updates
-        # keep trimming the large section instead of cutting each newly added
-        # field. A marker-only section is removed before published becomes the
-        # terminating option; publication callers still detect omitted lines
-        # and retain their fallback.
-        candidates = candidates or known + extra
-        longest = max(candidates, key=lambda k: len(sections[k]))
+        # Trim the longest section (the tour's step table, in practice), never the others.
+        longest = max(known + extra, key=lambda k: len(sections[k]))
         cut = dict(sections)
         over = len(body) - LIMIT + 200
-        value = sections[longest]
-        if cut_marker in value and not value.split(cut_marker, 1)[0].strip():
-            # The marker itself is expendable. Removing it gives a later
-            # status field room without sacrificing publication history.
-            cut.pop(longest)
-        else:
-            cut[longest] = value[: max(0, len(value) - over)].rstrip() + \
-                "\n\n(cut to fit GitHub's comment limit; the run that wrote this has the rest)"
+        cut[longest] = sections[longest][: max(0, len(sections[longest]) - over)].rstrip() + \
+            "\n\n(cut to fit GitHub's comment limit; the run that wrote this has the rest)"
         return render(cut)
     return body
 

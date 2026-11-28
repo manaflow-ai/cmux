@@ -82,14 +82,13 @@ enum Action {
     def test_secondary_protocols_include_bare_final_and_tuple_variants(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
-            host = tui / "crates/cmux-terminal-host-protocol/src/terminal_host_protocol.rs"
+            host = tui / "crates/cmux-tui-core/src/terminal_host_protocol.rs"
             provider = tui / "crates/cmux-tui-machine-protocol/src/lib.rs"
             agent = tui / "crates/cmux-tui-machine-agent-protocol/src/lib.rs"
             management = tui / "crates/cmux-tui-core/src/provider_management.rs"
             host.parent.mkdir(parents=True)
             provider.parent.mkdir(parents=True)
             agent.parent.mkdir(parents=True)
-            management.parent.mkdir(parents=True)
             host.write_text(
                 """\
 enum MessageKind {
@@ -167,12 +166,7 @@ enum Command {
     Ping,
     ShutdownDaemon { pid: u32 },
 }
-"""
-            )
-            # The router lives in server/command_dispatch.rs.
-            (server.parent / "server").mkdir()
-            (server.parent / "server/command_dispatch.rs").write_text(
-                """\
+
 fn handle_command_with_cancellation(cmd: Command) {
     match cmd {
         Command::Ping => {}
@@ -218,12 +212,7 @@ fn handle_command_with_cancellation(cmd: Command) {
 enum Command {
     ShutdownDaemon { pid: u32 },
 }
-"""
-            )
-            # The router lives in server/command_dispatch.rs.
-            (server.parent / "server").mkdir()
-            (server.parent / "server/command_dispatch.rs").write_text(
-                """\
+
 fn handle_command_with_cancellation(cmd: Command) {
     match cmd {
         Command::ShutdownDaemon { .. } => {
@@ -724,57 +713,6 @@ class InventoryContractTests(unittest.TestCase):
             CHECKER.validate_events(inventory)
         self.assertIn("event stream", errors.getvalue())
 
-    def test_the_client_wide_kick_notice_is_a_declared_control_event(self) -> None:
-        # dd19a6ecf137 sends {"event":"client-disconnected-by"} from server/disconnect.rs on the
-        # kicked client's control connection, even before any attach. The catalog did not declare
-        # it, so this checker failed on every later tree and safe-push refused every cmux-tui push.
-        self.assertIn("client-disconnected-by", CHECKER.event_names())
-        schema = json.loads((CHECKER.SPEC / "sdk-schema.json").read_text())
-        event = schema["events"].get("client-disconnected-by")
-        self.assertIsNotNone(event, "client-disconnected-by is missing from sdk-schema.json")
-        self.assertEqual(event["streams"], ["control"])
-        fields = event["payload"]["fields"]
-        self.assertEqual(set(fields), {"event", "by"})
-        self.assertEqual(fields["by"]["presence"], "optional")
-        self.assertEqual(fields["by"]["type"], {"kind": "ref", "name": "SizeDetachActor"})
-        inventory = {event["name"]: event["streams"] for event in self.inventory()["events"]}
-        self.assertEqual(inventory.get("client-disconnected-by"), ["control"])
-        CHECKER.validate_events(self.inventory())
-
-    def test_event_discovery_excludes_test_modules_without_losing_production(self) -> None:
-        for module in ("server.rs", "server/message_writer.rs", "server/url_open.rs"):
-            for attribute in ("#[cfg(test)]\nmod tests", "  # [ cfg ( test ) ]\n#[allow(dead_code)]\npub(crate) mod overflow_tests"):
-                with self.subTest(module=module, attribute=attribute), tempfile.TemporaryDirectory() as directory:
-                    tui = Path(directory)
-                    source = tui / "crates/cmux-tui-core/src"
-                    source.mkdir(parents=True)
-                    (source / "server.rs").write_text("")
-                    (source / "mux.rs").write_text('impl TreeDeltaKind {\n}\n')
-                    target = source / module
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text(
-                        'fn before() { json!({"event": "before-event"}); }\n'
-                        + attribute + r'''
-{
-    fn fixture() {
-        let _ = r###" } #[cfg(test)] mod fake { "###;
-        let _ = '}';
-        let _ = '"';
-        let _ = '\'';
-        let _ = '\\';
-        /* } /* nested comment */ } */
-        json!({"event": "fixture-only", "nested": {"value": "}"}});
-    }
-}
-#[cfg(not(test))]
-mod production {
-    fn after() { json!({"event": "after-event"}); }
-}
-'''
-                    )
-                    with patch.object(CHECKER, "TUI", tui):
-                        self.assertEqual(CHECKER.event_names(), {"before-event", "after-event"})
-
     def test_event_discovery_scans_early_production_serializers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
@@ -812,48 +750,6 @@ impl TreeDeltaKind {
                         CHECKER.event_names()
                     )
                 )
-
-    def test_event_discovery_reads_the_conversation_owner_events(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            tui = Path(directory)
-            source = tui / "crates/cmux-tui-core/src"
-            source.mkdir(parents=True)
-            (source / "server.rs").write_text(
-                """\
-fn tree_delta_json() {
-    let _ = json!({"event": "tree-changed"});
-}
-"""
-            )
-            (source / "mux.rs").write_text(
-                """\
-impl TreeDeltaKind {
-    fn wire_name(&self) -> &str {
-        match self {
-            Self::WorkspaceAdded => "workspace-added",
-        }
-    }
-}
-"""
-            )
-            (source / "conversation_store.rs").write_text(
-                """\
-// json!({"event": "comment-only"})
-impl ConversationEvent {
-    pub(crate) fn wire_json(&self) -> Value {
-        match self {
-            Self::Changed { .. } => json!({"event": "conversation-changed", "rev": 1}),
-            Self::Typing { .. } => json!({"event": "conversation-typing", "on": true}),
-        }
-    }
-}
-"""
-            )
-
-            with patch.object(CHECKER, "TUI", tui):
-                names = CHECKER.event_names()
-            self.assertTrue({"conversation-changed", "conversation-typing"}.issubset(names))
-            self.assertNotIn("comment-only", names)
 
     def test_event_discovery_ignores_event_shaped_comments(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

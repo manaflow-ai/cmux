@@ -19,39 +19,54 @@ pub(crate) fn background_ssh_arguments(
     extra_args: &[String],
     destination: &str,
 ) -> Vec<String> {
-    ssh_arguments(port, extra_args, destination, forwarding_overrides(extra_args))
+    let overrides = forwarding_overrides(extra_args);
+    ssh_arguments(port, overrides, !overrides.is_empty(), extra_args, destination)
 }
 
-/// Arguments for cmux's private control master (`ssh_control`). Nothing
-/// but cmux's own runs attach to it, so agent and X11 forwarding (and port
-/// forwarding, unless the caller asked for a forward) stay off even when
-/// the person's ssh_config or `-A`/`-X`/`-Y` turn them on: the remote host
-/// never gets the local agent through a connection that lives all session.
-pub(crate) fn private_master_ssh_arguments(
+/// Arguments for the `remote-link` carrier, up to and including the
+/// destination.
+///
+/// The remote-link run that starts the remote daemon passes its
+/// `SSH_AUTH_SOCK` and `DISPLAY` to the shells, and any carrier may be that
+/// run, so agent and X11 forwarding stay as configured even when the carrier
+/// can't become the shared master (the app passes `ControlPath=none` in place
+/// of a ControlPath from ssh_config when an agent socket is set). Port
+/// forwards from ssh_config are still cleared then: each terminal, browser
+/// proxy and forward carrier is its own ssh process, and without a master
+/// they would all try to bind the same ports. A caller's own forwards and
+/// `ClearAllForwardings` value are left alone.
+pub(crate) fn carrier_ssh_arguments(
     port: Option<u16>,
     extra_args: &[String],
     destination: &str,
 ) -> Vec<String> {
-    let overrides = if CallerOptions::parse(extra_args).forwards_ports {
-        AGENT_AND_X11_OFF
+    let options = CallerOptions::parse(extra_args);
+    let overrides: &[&str] = if options.can_become_master
+        || options.forwards_ports
+        || options.sets_clear_all_forwardings
+    {
+        &[]
     } else {
-        ALL_FORWARDING_OFF
+        &["-o", "ClearAllForwardings=yes"]
     };
-    ssh_arguments(port, extra_args, destination, overrides)
+    ssh_arguments(port, overrides, false, extra_args, destination)
 }
 
+/// `drops_forwarding_flags` removes `-A`, `-X` and `-Y`, which would turn
+/// forwarding back on after the overrides.
 fn ssh_arguments(
     port: Option<u16>,
+    overrides: &[&str],
+    drops_forwarding_flags: bool,
     extra_args: &[String],
     destination: &str,
-    overrides: &[&str],
 ) -> Vec<String> {
     let mut arguments = vec!["-T".to_owned()];
     if let Some(port) = port {
         arguments.extend(["-p".to_owned(), port.to_string()]);
     }
     arguments.extend(overrides.iter().map(|argument| (*argument).to_owned()));
-    let (extra, has_separator) = normalized_caller_arguments(extra_args, !overrides.is_empty());
+    let (extra, has_separator) = normalized_caller_arguments(extra_args, drops_forwarding_flags);
     arguments.extend(extra);
     if !has_separator {
         arguments.push("--".to_owned());
@@ -119,20 +134,11 @@ fn forwarding_overrides(extra_args: &[String]) -> &'static [&'static str] {
     }
 }
 
-/// Whether the caller's options set up connection sharing themselves
-/// (`-M`, `-S`, `ControlMaster` or `ControlPath`) or change what an `ssh`
-/// run is (`-f` and `ForkAfterAuthentication` fork it away, `-O`, `-G` and
-/// `-V` make no connection). cmux's own shared connection then stays out of
-/// the way and each run behaves as before.
-pub(crate) fn caller_manages_connection_sharing(extra_args: &[String]) -> bool {
-    CallerOptions::parse(extra_args).manages_sharing
-}
-
 /// What the caller's options say about connection sharing and forwarding.
 struct CallerOptions {
     can_become_master: bool,
     forwards_ports: bool,
-    manages_sharing: bool,
+    sets_clear_all_forwardings: bool,
 }
 
 impl CallerOptions {
@@ -143,9 +149,8 @@ impl CallerOptions {
         let mut master_flag = false;
         let mut control_master = None;
         let mut control_path_disabled = false;
-        let mut control_path_set = false;
         let mut forwards_ports = false;
-        let mut changes_the_run = false;
+        let mut sets_clear_all_forwardings = false;
         let mut arguments = extra_args.iter();
         while let Some(argument) = arguments.next() {
             if argument == "--" {
@@ -155,7 +160,6 @@ impl CallerOptions {
             for (index, flag) in flags.char_indices() {
                 if !u8::try_from(flag).is_ok_and(|flag| FLAGS_WITH_VALUE.contains(&flag)) {
                     master_flag |= flag == 'M';
-                    changes_the_run |= matches!(flag, 'f' | 'G' | 'V');
                     continue;
                 }
                 let attached = &flags[index + flag.len_utf8()..];
@@ -166,9 +170,7 @@ impl CallerOptions {
                 };
                 match flag {
                     'L' | 'R' | 'D' => forwards_ports = true,
-                    'O' => changes_the_run = true,
                     'S' => {
-                        control_path_set = true;
                         control_path_disabled |=
                             value.is_some_and(|value| value.eq_ignore_ascii_case("none"));
                     }
@@ -177,10 +179,9 @@ impl CallerOptions {
                             if keyword.eq_ignore_ascii_case("ControlMaster") {
                                 control_master.get_or_insert(value);
                             } else if keyword.eq_ignore_ascii_case("ControlPath") {
-                                control_path_set = true;
                                 control_path_disabled |= value.eq_ignore_ascii_case("none");
-                            } else if keyword.eq_ignore_ascii_case("ForkAfterAuthentication") {
-                                changes_the_run = true;
+                            } else if keyword.eq_ignore_ascii_case("ClearAllForwardings") {
+                                sets_clear_all_forwardings = true;
                             } else if ["LocalForward", "RemoteForward", "DynamicForward"]
                                 .iter()
                                 .any(|forward| keyword.eq_ignore_ascii_case(forward))
@@ -200,10 +201,7 @@ impl CallerOptions {
         Self {
             can_become_master: master_flag || (!pinned_off && !control_path_disabled),
             forwards_ports,
-            manages_sharing: master_flag
-                || control_master.is_some()
-                || control_path_set
-                || changes_the_run,
+            sets_clear_all_forwardings,
         }
     }
 }
@@ -218,4 +216,150 @@ fn option_keyword_and_value(option: &str) -> Option<(&str, &str)> {
     let rest = rest.trim_start();
     let value = rest.strip_prefix('=').unwrap_or(rest).split_ascii_whitespace().next()?;
     Some((keyword, value.trim_matches('"')))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const AGENT_AND_X11_OFF: &[&str] = &["-o", "ForwardAgent=no", "-o", "ForwardX11=no"];
+    const ALL_OFF: &[&str] =
+        &["-o", "ForwardAgent=no", "-o", "ForwardX11=no", "-o", "ClearAllForwardings=yes"];
+
+    fn arguments(extra: &[&str]) -> Vec<String> {
+        let extra = extra.iter().map(|argument| (*argument).to_owned()).collect::<Vec<_>>();
+        background_ssh_arguments(Some(2222), &extra, "alice@example.com")
+    }
+
+    fn expected(overrides: &[&str], extra: &[&str]) -> Vec<String> {
+        ["-T", "-p", "2222"]
+            .iter()
+            .chain(overrides)
+            .chain(extra)
+            .chain(&["--", "alice@example.com"])
+            .map(|argument| (*argument).to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn hardened_ssh_argv_ends_options_before_the_destination() {
+        assert_eq!(arguments(&[]), expected(&[], &[]));
+    }
+
+    #[test]
+    fn carrier_ssh_argv_preserves_explicit_forwarding_policy() {
+        for extra in [
+            &["-o", "ControlPath=none", "-o", "ClearAllForwardings=no"][..],
+            &["-oControlMaster=no", "-oclearallforwardings no"],
+            &["-Snone", "-o", "ClearAllForwardings=yes"],
+            &["-o", "ControlMaster=no", "-R18080:localhost:80"],
+            &["-o", "ControlMaster=no", "-D", "1080"],
+            &["-o", "ControlMaster=no", "-o", "LocalForward 18080 localhost:80"],
+        ] {
+            let caller = extra.iter().map(|argument| (*argument).to_owned()).collect::<Vec<_>>();
+            assert_eq!(
+                carrier_ssh_arguments(Some(2222), &caller, "alice@example.com"),
+                expected(&[], extra),
+                "{extra:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn carrier_ssh_argv_keeps_grouped_agent_and_x11_flags() {
+        let extra = ["-o", "ControlMaster=no", "-qAXY", "-l", "-A", "--"];
+        let caller = extra.iter().map(|argument| (*argument).to_owned()).collect::<Vec<_>>();
+        let expected = ["-T", "-p", "2222", "-o", "ClearAllForwardings=yes"]
+            .iter()
+            .chain(&extra)
+            .chain(&["alice@example.com"])
+            .map(|argument| (*argument).to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(carrier_ssh_arguments(Some(2222), &caller, "alice@example.com"), expected);
+    }
+
+    #[test]
+    fn hardened_ssh_argv_forwarding_follows_control_master() {
+        // A run that can become the shared master keeps forwarding as
+        // configured, including when `-M` overrides `ControlMaster=no` and
+        // when an earlier `ControlMaster` value wins.
+        for extra in [
+            &["-o", "ControlMaster=auto", "-o", "ControlPath=/tmp/cmux-ssh-%C"][..],
+            &["-o", "ControlMaster=no", "-M"],
+            &["-TMo", "ControlMaster=no"],
+            &["-o", "ControlMaster=auto", "-o", "ControlMaster=no"],
+        ] {
+            assert_eq!(arguments(extra), expected(&[], extra), "{extra:?}");
+        }
+        // A run pinned to `ControlMaster=no` turns all forwarding off. `-l`
+        // consumes the next argument, so that `-M` is a login name.
+        for extra in [
+            &["-o", "ControlMaster=no"][..],
+            &["-oControlMaster no"],
+            &["-o", "controlmaster = False"],
+            &["-l", "-M", "-o", "ControlMaster=no"],
+            &["-o", "ControlMaster=auto", "-o", "ControlPath=none"],
+            &["-S", "none", "-o", "ControlMaster=auto"],
+        ] {
+            assert_eq!(arguments(extra), expected(ALL_OFF, extra), "{extra:?}");
+        }
+        // One that sets up its own port forward keeps that forward.
+        for extra in [
+            &["-o", "ControlMaster=no", "-L", "8080:localhost:80"][..],
+            &["-o", "ControlMaster=no", "-R8080:localhost:80"],
+            &["-o", "ControlMaster=no", "-D", "1080"],
+            &["-o", "ControlMaster=no", "-o", "LocalForward 8080 localhost:80"],
+        ] {
+            assert_eq!(arguments(extra), expected(AGENT_AND_X11_OFF, extra), "{extra:?}");
+        }
+    }
+
+    #[test]
+    fn hardened_ssh_argv_forwarding_off_drops_forwarding_flags() {
+        // `-A`, `-X` and `-Y` turn forwarding on whatever an earlier `-o`
+        // said, so a run with forwarding off drops them, including from a
+        // group of flags.
+        let cases: &[(&[&str], &[&str])] = &[
+            (&["-o", "ControlMaster=no", "-A"], &["-o", "ControlMaster=no"]),
+            (&["-o", "ControlMaster=no", "-X", "-Y"], &["-o", "ControlMaster=no"]),
+            (&["-qAY", "-o", "ControlMaster=no"], &["-q", "-o", "ControlMaster=no"]),
+            (&["-Ao", "ControlMaster=no"], &["-o", "ControlMaster=no"]),
+            (&["-o", "ControlMaster=no", "-Ai", "key"], &["-o", "ControlMaster=no", "-i", "key"]),
+        ];
+        for (extra, kept) in cases {
+            assert_eq!(arguments(extra), expected(ALL_OFF, kept), "{extra:?}");
+        }
+        // A flag's value stays: `-A` after `-l` is a login name and `A`
+        // after `-i` is a file.
+        let extra = ["-l", "-A", "-iA", "-o", "ControlMaster=no"];
+        assert_eq!(arguments(&extra), expected(ALL_OFF, &extra));
+        let extra = ["-o", "ControlMaster=no", "-L", "8080:localhost:80", "-XA"];
+        assert_eq!(arguments(&extra), expected(AGENT_AND_X11_OFF, &extra[..4]));
+        // A run that can become the shared master keeps them.
+        for extra in [&["-A", "-X"][..], &["-o", "ControlMaster=no", "-MY"]] {
+            assert_eq!(arguments(extra), expected(&[], extra), "{extra:?}");
+        }
+    }
+
+    #[test]
+    fn hardened_ssh_argv_keeps_one_option_separator() {
+        // A caller whose options already end with `--` gets no second one,
+        // which OpenSSH would read as the destination.
+        let cases: &[(&[&str], &[&str])] = &[
+            (&[], &["-o", "ControlMaster=auto", "--"]),
+            (ALL_OFF, &["-o", "ControlMaster=no", "--"]),
+        ];
+        for (overrides, extra) in cases {
+            let one_separator = ["-T", "-p", "2222"]
+                .iter()
+                .chain(*overrides)
+                .chain(*extra)
+                .chain(&["alice@example.com"])
+                .map(|argument| (*argument).to_owned())
+                .collect::<Vec<_>>();
+            assert_eq!(arguments(extra), one_separator, "{extra:?}");
+        }
+        // `-l` reads that `--` as a login name, so options still need ending.
+        assert_eq!(arguments(&["-l", "--"]), expected(&[], &["-l", "--"]));
+    }
 }

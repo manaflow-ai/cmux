@@ -5,24 +5,8 @@
 //! Cloudflare Durable Object relay share these types without sharing runtime
 //! dependencies.
 
-// The crash ratchet keeps this crate at zero production panics
-// (plans/cmux-next/crash-elimination.md section 6).
-#![cfg_attr(
-    not(test),
-    deny(
-        clippy::unwrap_used,
-        clippy::expect_used,
-        clippy::panic,
-        clippy::unreachable,
-        clippy::todo,
-        clippy::unimplemented,
-        clippy::exit
-    )
-)]
-
 mod frame;
 mod relay;
-pub mod reliable;
 mod rpc;
 
 pub use frame::{
@@ -37,16 +21,15 @@ pub use rpc::{
     ByteString, ComputerUseAction, ComputerUseCapability, ComputerUseFeature,
     ComputerUseInvocation, ComputerUseInvocationId, ComputerUseOutput, ComputerUseResult,
     DiffFormat, DirectoryEntry, FileKind, FilePrecondition, FileStat, GitChange, GitStatus,
-    KeyAction, MUX_CONTROL_LINE_CODECS, MUX_INPUT_V1_FEATURE, MUX_LINE_CODEC_ZLIB,
-    MUX_LINE_ZLIB_MIN_BYTES, MUX_LINE_ZLIB_V1_FEATURE, OperationId, PageCursor, PatchFileAction,
-    PatchFileResult, PointerAction, ProcessDescriptor, ProcessEnvironment, ProcessEvent, ProcessId,
-    ProcessIo, ProcessIoKind, ProcessLifetime, ProcessOutputStream, ProcessOutputTruncationReason,
+    KeyAction, MUX_INPUT_V1_FEATURE, OperationId, PageCursor, PatchFileAction, PatchFileResult,
+    PointerAction, ProcessDescriptor, ProcessEnvironment, ProcessEvent, ProcessId, ProcessIo,
+    ProcessIoKind, ProcessLifetime, ProcessOutputStream, ProcessOutputTruncationReason,
     ProcessReplayRange, ProcessSignal, ProcessState, ProcessTerminalColor, ProcessTerminalCursor,
     ProcessTerminalCursorStyle, ProcessTerminalRow, ProcessTerminalSize, ProcessTerminalSnapshot,
     ProcessTerminalStyledRun, ProcessTerminalUnderline, PtyEofPolicy, RemoteCapability, RequestId,
     RouteId, RoutePolicy, RpcError, RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse,
-    SealedSecret, SearchMatch, Service, ServiceControl, StructuredDiffHunkV1,
-    StructuredDiffLineKind, StructuredDiffLineV1, StructuredDiffV1, StructuredFileDiffV1,
+    SearchMatch, Service, ServiceControl, StructuredDiffHunkV1, StructuredDiffLineKind,
+    StructuredDiffLineV1, StructuredDiffV1, StructuredFileDiffV1,
     TERMINAL_BYTES_VIEWER_SIZE_PRIORITY, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
     WorkspaceId, WorkspaceRequest, WorkspaceResponse,
 };

@@ -1,15 +1,15 @@
 # Video Recording
 
-Removed. The new CLI has no browser recording, trace or screencast. For a still
-image use `cmux browser "$TAB" screenshot --out page.png` ([commands.md](commands.md)). Related: [commands.md](commands.md), [../SKILL.md](../SKILL.md).
+`cmux browser` exposes no built-in video recording command: automation runs on WKWebView, and the agent-browser recording pipeline is Chrome/CDP-specific. Related: [commands.md](commands.md), [../SKILL.md](../SKILL.md).
 
-To keep evidence of a run, save snapshots and page state around each action:
+Capture evidence for flaky-automation debugging, CI logs, and release-to-release flow diffs with step screenshots and a snapshot timeline instead:
 
 ```bash
-cmux browser "$TAB" snapshot --interactive > snap-1.txt
-cmux browser "$TAB" click e3
-cmux --json browser "$TAB" state > state-2.json
-cmux browser "$TAB" snapshot --interactive > snap-2.txt
+cmux browser --surface "$SURFACE" screenshot > /tmp/step1.b64
+cmux browser --surface "$SURFACE" snapshot --interactive > /tmp/snap-1.txt
+cmux --json browser --surface "$SURFACE" click e3 --snapshot-after > /tmp/action-1.json
+cmux browser --surface "$SURFACE" screenshot > /tmp/step2.b64
+cmux browser --surface "$SURFACE" snapshot --interactive > /tmp/snap-2.txt
 ```
 
-Use an external screen recorder for full-motion capture.
+Capture before and after each mutating action, add `--snapshot-after` on state-changing clicks/fills/types, and group artifacts by timestamp or run id. Use an external screen recorder when full-motion capture is genuinely required.

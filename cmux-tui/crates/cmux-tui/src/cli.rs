@@ -4,399 +4,27 @@
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
 //! accidentally fall back to the private command protocol.
 
-#[cfg(unix)]
-mod account_limit;
-#[cfg(unix)]
-mod action_hint;
-#[cfg(unix)]
-mod agent_config;
-mod agent_input_hint;
-mod agent_message;
-#[cfg(unix)]
-mod agent_move;
-#[cfg(unix)]
-mod agent_move_cloud;
-#[cfg(unix)]
+mod agent_list;
 mod agent_names;
-#[cfg(unix)]
 mod agent_start;
-#[cfg(unix)]
-mod agent_view;
-#[cfg(unix)]
 mod agent_vocabulary;
-#[cfg(unix)]
-mod agents;
-#[cfg(unix)]
-mod agents_doctor;
-#[cfg(unix)]
-mod api_tokens;
-#[cfg(unix)]
-mod app;
-pub(crate) mod app_action_help;
-#[cfg(unix)]
-mod app_browser_route;
-#[cfg(unix)]
-mod app_commands;
-#[cfg(unix)]
-mod app_focus;
-#[cfg(unix)]
-mod apps_list;
-#[cfg(unix)]
-mod apps_place;
-#[cfg(unix)]
-mod apps_run;
-#[cfg(unix)]
 mod attention;
-#[cfg(unix)]
-mod auth_handoff;
-#[cfg(unix)]
-mod auth_token;
-#[cfg(unix)]
-mod automation;
-#[cfg(unix)]
-mod automation_cloud;
-mod beside;
-#[cfg(unix)]
-mod billing;
-#[cfg(unix)]
-mod caller_browser;
-mod caller_scope;
-mod capability_cache;
-#[cfg(unix)]
-mod device_login;
-#[cfg(unix)]
-mod share_requests;
-// `cmux settings change-background [VALUE]`: a YouTube address, file or id as the picker sets it.
-#[cfg(unix)]
-mod change_background;
-#[cfg(unix)]
-mod chat_cd;
-#[cfg(unix)]
-mod chat_move;
-#[cfg(unix)]
-mod chat_send;
-#[cfg(unix)]
-mod chat_start;
-#[cfg(unix)]
-mod chief;
-mod chief_target;
-#[cfg(unix)]
-mod cloud_agent;
-#[cfg(unix)]
-mod cloud_api;
-#[cfg(unix)]
-mod cloud_apps_relay;
-#[cfg(unix)]
-mod cloud_auth_handoff_relay;
-#[cfg(unix)]
-mod cloud_automation_relay;
-#[cfg(unix)]
-mod cloud_client_session;
-#[cfg(unix)]
-mod cloud_connect;
-#[cfg(unix)]
-mod cloud_environment;
-#[cfg(unix)]
-mod cloud_hands;
-mod cloud_help;
-#[cfg(unix)]
-mod cloud_journey;
-#[cfg(unix)]
-mod cloud_machine_auth;
-#[cfg(unix)]
-mod cloud_machine_io;
-#[cfg(unix)]
-mod cloud_machines;
-#[cfg(unix)]
-mod cloud_pause_all;
-#[cfg(unix)]
-mod cloud_preflight;
-#[cfg(unix)]
-mod cloud_provider;
-#[cfg(unix)]
-mod cloud_repo;
-#[cfg(unix)]
-mod cloud_retention;
-#[cfg(unix)]
-mod cloud_route;
-#[cfg(unix)]
-mod cloud_run_account;
-#[cfg(unix)]
-mod cloud_secret;
-#[cfg(unix)]
-mod cloud_start_chat;
-#[cfg(unix)]
-mod cloud_team_keys;
-#[cfg(unix)]
-mod cloud_workspaces;
-mod code_mode;
-#[cfg(unix)]
-mod codex_app_server;
 mod command;
-mod completion;
-#[cfg(unix)]
-mod env_command;
-mod intent;
-#[cfg(unix)]
-mod key_broker;
-#[cfg(unix)]
-mod mac_screen_view;
-#[cfg(unix)]
-mod notification_banners;
-#[cfg(unix)]
-mod vault;
-pub(crate) use completion::refuse_in_help_reader;
-#[cfg(unix)]
-mod autocloud;
-#[cfg(unix)]
-mod community;
-#[cfg(unix)]
-mod customize;
-#[cfg(unix)]
-mod debug_perf;
-#[cfg(unix)]
-mod dev;
-mod docs;
-mod event_match;
-#[cfg(unix)]
-mod ext;
-mod extra_help;
-mod federation;
-mod fix_command;
-#[cfg(unix)]
-mod frontend_browser;
-mod hook_emit_deadline;
-#[cfg(unix)]
-mod host_mount;
-mod hosts;
-mod hosts_check;
-mod hosts_edit;
-#[cfg(unix)]
-mod hub;
-#[cfg(unix)]
-mod inference_gateway;
-#[cfg(unix)]
-mod inference_gateway_admin;
-#[cfg(unix)]
-mod inference_gateway_mac;
-#[cfg(unix)]
-mod inference_setup;
-mod internal;
-mod keys_help;
-#[cfg(unix)]
-mod last_chat;
-mod launch_credential;
 mod lifecycle;
-#[cfg(unix)]
-mod live_code;
-#[cfg(unix)]
-mod mcp_loopback;
-#[cfg(unix)]
-mod mcp_servers;
-#[cfg(unix)]
-mod ps_gc;
-#[cfg(unix)]
-mod repo_archive;
-#[cfg(unix)]
-mod repo_hold;
-#[cfg(unix)]
-mod repo_mcp_lazy;
-#[cfg(unix)]
-mod repo_remote;
-#[cfg(unix)]
-pub(crate) mod runnable_link;
-#[cfg(unix)]
-mod safe_mode;
-// Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
-#[cfg(unix)]
-mod repro;
-#[cfg(unix)]
-mod sandbox_run;
-// `cmux search QUERY`: sessions, workspaces, scrollback and browser history (cli/search.rs).
-#[cfg(unix)]
-mod search;
-#[cfg(unix)]
-mod start_stages;
-#[cfg(unix)]
-mod vm;
-#[cfg(unix)]
-mod vm_bootstrap;
-#[cfg(unix)]
-mod vm_cleanup;
-#[cfg(unix)]
-mod vm_exec_input;
-#[cfg(unix)]
-mod vm_gcp;
-#[cfg(unix)]
-mod vm_ready;
-#[cfg(unix)]
-mod vm_short;
-#[cfg(unix)]
-mod vm_tailnet;
-mod vm_words;
-#[cfg(unix)]
-mod vnc;
-#[cfg(unix)]
-pub(crate) use app::spawn_daemon_updates;
-#[cfg(unix)]
-pub(crate) use auth_token::{app_token, app_token_in};
-
-/// The app's Cloud machines (`cloud.machines` rows), best effort: `None` with no app or a failed
-/// read (`cmux spill`'s Cloud place).
-#[cfg(unix)]
-pub(crate) fn app_cloud_machines() -> Option<Vec<serde_json::Value>> {
-    cloud_workspaces::read(&GlobalArgs::default())
-}
-
-/// The Cloud machine `selector` names among `machines` (its id, `machine:` target or exact
-/// title); `Err` when a title is ambiguous (`cmux spill --to cloud:NAME`).
-#[cfg(unix)]
-pub(crate) fn find_cloud_machine<'a>(
-    machines: &'a [serde_json::Value],
-    selector: &str,
-) -> Result<Option<&'a serde_json::Value>, String> {
-    cloud_workspaces::find(machines, selector).map_err(|error| {
-        error.get("message").and_then(serde_json::Value::as_str).unwrap_or("ambiguous").to_owned()
-    })
-}
-
-/// A short-lived access token from the signed-in cmux app this CLI belongs to (`auth.token`), for
-/// a command run in a terminal with no `CMUX_CLOUD_ACCESS_TOKEN` (`cmux device add HOST --yes`).
-#[cfg(unix)]
-pub(crate) fn app_access_token() -> Result<String, String> {
-    chat_start::joined::app_token(&GlobalArgs::default())
-}
-
-/// `cmux acp WORDS` (this binary's acpmux, with no cmux credential in its environment) with
-/// `stdin`, for at most `limit`: its JSON answer, or the failure (`cmux device add` joins the
-/// Mac that ran it with `acp host enroll-self`).
-#[cfg(unix)]
-pub(crate) fn acp_json(
-    words: &[&str],
-    stdin: Option<&str>,
-    limit: std::time::Duration,
-) -> Result<serde_json::Value, serde_json::Value> {
-    chat_start::joined::acp_json(words, stdin, limit)
-}
-#[cfg(unix)]
-pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
-#[cfg(unix)]
-pub(crate) use cloud_client_session::secure_origin as secure_cloud_origin;
-#[cfg(unix)]
-pub(crate) use host_mount::early_unix_scope;
-#[cfg(unix)]
-pub(crate) use remote_host::confirm_allow_agents;
-
-/// `cmux host enable|disable|status|serve|allow|deny|list|dial` (remote
-/// hosting, every platform), on the `cmux` surface only, like the other
-/// `host` verbs.
-pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
-    Surface::current() == Surface::Cmux && crate::remote_host::handles(raw_args)
-}
-#[cfg(unix)]
-mod machine_doctor;
-#[cfg(unix)]
-mod machine_join;
-#[cfg(unix)]
-mod machine_link;
-#[cfg(unix)]
-mod machine_list_reads;
-#[cfg(unix)]
-mod machine_request;
-#[cfg(unix)]
-mod mobile_pair_requests;
-#[cfg(unix)]
-pub(crate) use machine_join::{
-    Auth as PlatformAuth, CallError as PlatformCallError, Platform,
-    device_credential as joined_machine_credential, platform_origin,
-    read_credential as read_platform_credential, refusal_reason as platform_refusal_reason,
-    rows_for_devices as joined_machine_rows,
-};
-mod machine_server;
-mod server_remote;
-#[cfg(test)]
-use machine_server::ServerRoute;
-pub(crate) use machine_server::is_lifecycle_scope;
-#[cfg(unix)]
-mod computer_use;
-#[cfg(unix)]
-mod mcp;
-#[cfg(unix)]
-mod migrate;
-mod older_daemon;
-// `cmux pack`: theme packs (a whole look as one folder), swap, undo, redo, live edit.
-#[cfg(unix)]
-mod pack;
-mod pane_context;
-#[cfg(unix)]
 mod pane_identify;
+mod pane_move;
 mod raw;
-#[cfg(unix)]
-mod remote_host;
-#[cfg(unix)]
-mod remote_host_agent;
-#[cfg(unix)]
-mod remote_host_grants;
-mod resolve;
-mod root_help;
-mod scope_help;
-mod screen_help;
-#[cfg(unix)]
-mod script;
-#[cfg(unix)]
-mod setup;
-#[cfg(unix)]
-mod share_cli;
 mod shorthand;
-#[cfg(unix)]
-mod sign_clones;
-#[cfg(unix)]
-mod skew;
-#[cfg(unix)]
-mod stale_app;
-#[cfg(unix)]
-pub(crate) use stale_app::InstalledApp;
 mod skill;
-#[cfg(unix)]
-mod status;
-mod stream_output;
-mod surface;
-mod tab_capabilities;
-// `cmux theme` (16-color schemes); dispatched with the other Unix scopes in `run`.
-#[cfg(unix)]
-mod terminal_lifecycle;
-#[cfg(unix)]
-mod terminal_talk;
-#[cfg(unix)]
-mod theme_file;
-#[cfg(unix)]
-mod theme_scheme;
-// `cmux tmux attach`: one tmux pane in this terminal through control mode (experiment).
-#[cfg(unix)]
-mod tmux_attach;
-// `cmux wallpaper`: the window picture and how it switches by itself.
-mod topology_help;
-#[cfg(unix)]
-mod usage_insights;
-#[cfg(unix)]
-mod video;
-#[cfg(unix)]
-mod wallpaper;
 mod wire;
-#[cfg(unix)]
-mod workflow;
-#[cfg(unix)]
-mod worktree_workspace;
-use surface::MACHINE_CATALOG_HELP;
-pub(super) use surface::{BIN, Surface};
 
 use std::borrow::Cow;
+use std::ffi::OsStr;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use command::{CommandPlan, ParsedCommand};
-use screen_help::SCREEN_HELP;
-use topology_help::{PANE_HELP, TAB_HELP, TERMINAL_HELP, WORKSPACE_HELP};
 
 const PUBLIC_SCOPES: &[&str] = &[
     "machine",
@@ -410,49 +38,30 @@ const PUBLIC_SCOPES: &[&str] = &[
     "terminal",
     "browser",
     "notification",
-    "attention",
     "agent",
-    "room",
-    "space",
-    "closed",
-    "git",
-    "project",
-    "conversation",
+    "attention",
     "sidebar",
     "pairing",
     "projection",
     "provider",
-    "settings",
-    "config",
     "raw",
-    "workflow",
 ];
-
-/// Scopes only the `cmux-tui` name accepts. Cloud VM guest scripts
-/// (`raw command`, `session current snapshot`), the app's daemon launcher and
-/// SSH remotes run the binary as `cmux-tui`, so these keep working there.
-const CMUX_TUI_ONLY_SCOPES: &[&str] =
-    &["sidebar", "pairing", "projection", "provider", "raw", "conversation"];
 
 const REMOTE_COMMANDS: &[&str] = &[
     "remote",
     "connect",
     "ssh",
     "forward",
-    "dial-tcp",
     "browser-proxy",
     "rpc",
-    "remote-exec",
-    "remote-cp",
-    "spill",
     "enroll",
     "known-daemons",
     "remote-probe",
     "remote-link",
     "remote-sidecar",
     "remote-stop",
-    "remote-update-need",
-    "remote-device-key",
+    "remote-doctor",
+    "remote-trust",
     "install-self",
     "wg",
 ];
@@ -465,16 +74,13 @@ pub(super) fn remote_action_command(action: &str) -> Option<&'static str> {
         "connect" => Some("connect"),
         "ssh" => Some("ssh"),
         "forward" => Some("forward"),
-        "dial-tcp" => Some("dial-tcp"),
         "browser-proxy" => Some("browser-proxy"),
         "rpc" => Some("rpc"),
-        "exec" => Some("remote-exec"),
-        "cp" => Some("remote-cp"),
         "enroll" => Some("enroll"),
         "known-daemons" => Some("known-daemons"),
         "stop" => Some("remote-stop"),
-        "update-need" => Some("remote-update-need"),
-        "device-key" => Some("remote-device-key"),
+        "doctor" => Some("remote-doctor"),
+        "trust" => Some("remote-trust"),
         _ => None,
     }
 }
@@ -488,7 +94,7 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
     while index < args.len() {
         match args[index].as_str() {
             "--" => return false,
-            "--socket" | "--session" | "--machine" | "--app-socket" => {
+            "--socket" | "--session" | "--machine" => {
                 if args.get(index + 1).is_none_or(|value| value.starts_with("--")) {
                     return false;
                 }
@@ -498,8 +104,7 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
             value
                 if value.starts_with("--socket=")
                     || value.starts_with("--session=")
-                    || value.starts_with("--machine=")
-                    || value.starts_with("--app-socket=") =>
+                    || value.starts_with("--machine=") =>
             {
                 if value.split_once('=').is_some_and(|(_, value)| value.is_empty()) {
                     return false;
@@ -507,58 +112,10 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
                 index += 1;
             }
             value if value.starts_with('-') => return false,
-            "remote" => return remote_family_word(args.get(index + 1..).unwrap_or_default()),
             value => return REMOTE_COMMANDS.contains(&value),
         }
     }
     false
-}
-
-/// Whether the words after `remote` keep argv in the remote command family:
-/// none, a flag, `help`, one of its actions, or any word asked for `--help`
-/// (the remote family's help lists its actions). Any other word is an app
-/// action's CLI name (`remote new-group`, `remote reconnect`), which the app
-/// action fallback runs; a word no app action has is refused as an unknown
-/// remote action there (see ``unknown_remote_action``).
-fn remote_family_word(rest: &[String]) -> bool {
-    rest.first().is_none_or(|word| {
-        word.starts_with('-')
-            || word == "help"
-            || remote_action_command(word).is_some()
-            || rest
-                .iter()
-                .take_while(|arg| *arg != "--")
-                .any(|arg| matches!(arg.as_str(), "-h" | "--help"))
-    })
-}
-
-/// The remote family's refusal of `remote <word>` when `<word>` is neither a
-/// remote action nor an app action's CLI name, in place of the mux grammar's
-/// unknown-scope error for `remote`.
-#[cfg(unix)]
-fn unknown_remote_action(args: &[String]) -> Option<i32> {
-    let (global, command_args) = parse_action_globals(args).ok()?;
-    if command_args.first().map(String::as_str) != Some("remote") {
-        return None;
-    }
-    let action = command_args.get(1).filter(|word| !word.starts_with('-'))?;
-    let message = crate::localization::catalog().remote_client.unknown_action("remote", action);
-    let message = match global.output {
-        OutputMode::Quiet | OutputMode::Human => format!("cmux: {message}"),
-        OutputMode::Json | OutputMode::JsonLines => message,
-    };
-    Some(wire::print_local_error(
-        &serde_json::json!({
-            "code":"usage.invalid",
-            "message":message,
-            "details":{},
-            "retryable":false,
-        }),
-        global.output,
-        // A word the command does not have is a usage error: exit 2, like
-        // every scope (docs/cli-conventions.md in cmuxterm-hq).
-        2,
-    ))
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -575,13 +132,6 @@ pub(super) struct GlobalArgs {
     pub socket: Option<PathBuf>,
     pub session: Option<String>,
     pub machine: Option<String>,
-    /// The cmux app's control socket, for the scopes the app owns.
-    pub app_socket: Option<PathBuf>,
-    /// `--idempotency-key`: the key a failed mutation printed, reused so a
-    /// retry cannot apply the change twice.
-    pub idempotency_key: Option<String>,
-    /// `--all-sessions`: a list runs on every local session (cli/federation.rs).
-    pub all_sessions: bool,
     pub output: OutputMode,
 }
 
@@ -616,536 +166,81 @@ pub(super) fn canonical_scope(value: &str) -> &str {
     shorthand::scope(value)
 }
 
-/// Whether the removed `route` resource scope is the command after global
-/// options have been stripped. This keeps the early refusal ahead of the
-/// generic app-action fallback even for invocations such as
-/// `cmux --json route list`.
-pub(crate) fn removed_route_requested(args: &[String]) -> bool {
-    // This mode consumes an arbitrary argv payload through `--` and never
-    // enters the CLI dispatcher, so a literal `route` belongs to the provider
-    // command rather than the removed cmux resource scope.
-    if let Some(provider_index) = args.iter().position(|arg| arg == "--machine-provider-command")
-        && args
-            .iter()
-            .position(|arg| arg == "route")
-            .is_none_or(|route_index| provider_index < route_index)
-    {
-        return false;
+/// The name this binary was invoked as. Help, errors, and the version show
+/// it, so a command copied from them runs here: `cmux` through the npm
+/// launcher, `cmux-tui` where the binary is installed under that name.
+pub(crate) fn program_name() -> String {
+    static NAME: OnceLock<String> = OnceLock::new();
+    NAME.get_or_init(|| program_name_from(std::env::args_os().next().as_deref())).clone()
+}
+
+fn program_name_from(argv0: Option<&OsStr>) -> String {
+    argv0
+        .and_then(|argv0| Path::new(argv0).file_name())
+        .map(|name| name.to_string_lossy())
+        .map(|name| strip_exe_suffix(&name).to_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "cmux".to_owned())
+}
+
+/// Windows file names are case-insensitive, so `CMUX-TUI.EXE` names `CMUX-TUI`.
+fn strip_exe_suffix(name: &str) -> &str {
+    name.len()
+        .checked_sub(4)
+        .filter(|&cut| name.is_char_boundary(cut) && name[cut..].eq_ignore_ascii_case(".exe"))
+        .map_or(name, |cut| &name[..cut])
+}
+
+/// Help text spells commands `cmux ...`. Rewrite each command, at the start
+/// of a line (after indentation or a `usage:` label) or in backticks, to the
+/// invoked program name. Prose that mentions cmux is left alone.
+pub(crate) fn with_program_name<'a>(text: &'a str, program: &str) -> Cow<'a, str> {
+    if program == "cmux" {
+        return Cow::Borrowed(text);
     }
-    scan_globals(args, MachineFlag::Global)
-        .map(|(_, command)| {
-            let mut words = command.iter().take_while(|word| *word != "--").peekable();
-            let mut command_words = Vec::new();
-            while let Some(word) = words.next() {
-                if startup_value_option(word) {
-                    let _ = words.next();
-                } else if !word.starts_with('-') {
-                    command_words.push(word.as_str());
-                }
+    let mut out = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        let body = line.trim_start();
+        out.push_str(&line[..line.len() - body.len()]);
+        let label = ["USAGE: ", "usage: "]
+            .into_iter()
+            .find(|label| body.starts_with(label))
+            .unwrap_or_default();
+        out.push_str(label);
+        let body = &body[label.len()..];
+        // A command continues with an argument (`tab`, `<scope>`, `[OPTIONS]`,
+        // `--help`) or ends; prose continues with a capitalized word.
+        let command = |rest: &str| {
+            rest.is_empty()
+                || rest.starts_with('\n')
+                || rest
+                    .strip_prefix(' ')
+                    .and_then(|rest| rest.chars().next())
+                    .is_some_and(|next| !next.is_uppercase())
+        };
+        let body = match body.strip_prefix("cmux") {
+            Some(rest) if command(rest) => {
+                out.push_str(program);
+                rest
             }
-            matches!(
-                command_words.as_slice(),
-                ["route", ..] | ["help", "route", ..] | ["acp", "route", ..]
-            )
-        })
-        .unwrap_or(false)
-}
-
-/// Startup options that take a value: the one list in main.rs
-/// (`STARTUP_VALUE_OPTIONS`), so a new option is skipped here too, plus the
-/// provider command, whose payload this scanner must not read as words.
-fn startup_value_option(value: &str) -> bool {
-    value == "--machine-provider-command" || crate::STARTUP_VALUE_OPTIONS.contains(&value)
-}
-
-/// Rewrites a pre-D1 `cmux server <lifecycle verb>` to `cmux daemon <verb>`
-/// (with the deprecation hint), so `main` routes `server start` to the
-/// headless startup like `daemon start`. No-op elsewhere.
-pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
-    if let Some(rewritten) = machine_server::deprecated_lifecycle(args, Surface::current()) {
-        *args = rewritten;
+            _ => body,
+        };
+        out.push_str(&body.replace("`cmux ", &format!("`{program} ")));
     }
+    Cow::Owned(out)
 }
 
-/// Scopes that print their own help (`cmux agents --help`) but route before
-/// the parser whose `help <scope>` knows only its own scopes, so `cmux help
-/// agents` answered "unknown resource scope".
-pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
-    "agents",
-    "chats",
-    "board",
-    "care",
-    "harness",
-    "remote",
-    "script",
-    "host",
-    "github",
-    "avatar",
-    "chief",
-    "setup",
-    "device",
-    "workflow",
-    "remote-host",
-    "computer-use",
-    "chat",
-    "vm",
-    "env",
-    "customize",
-    "agent-config",
-    "move",
-    "teleport",
-    "evacuate",
-    "video",
-    "usage",
-];
-
-/// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
-/// --help`; `cmux device help`, the one spelling `device` answers) for a
-/// scope in [`OWN_HELP_SCOPES`] the parser's help does not take. Global
-/// options change no help text and are dropped wherever they stood, so the
-/// scope is the first word every early dispatch reads (`raw_args.first()`
-/// for `chats` and `harness`). No-op elsewhere.
-pub(crate) fn rewrite_help_word(args: &mut Vec<String>) {
-    rewrite_help_word_on(args, Surface::current());
-}
-
-fn rewrite_help_word_on(args: &mut Vec<String>, surface: Surface) {
-    let Ok((_, command_args)) = parse_globals(args) else {
-        return;
-    };
-    let [help, scope] = command_args.as_slice() else {
-        return;
-    };
-    if help != "help" || !OWN_HELP_SCOPES.contains(&scope.as_str()) || surface.accepts(scope) {
-        return;
-    }
-    let own_help = if scope == "device" { "help" } else { "--help" };
-    *args = vec![scope.clone(), own_help.to_string()];
-}
-
-/// A scope's usage error when the scope prints its usage block as the
-/// refusal: the `--json` envelope (the usage in `details.usage`) under
-/// `--json`; else the usage, then one last line with what was wrong and the
-/// help to run, so `| tail -1` names the fix. Exit 2.
-pub(super) fn scope_usage_failure(output: OutputMode, scope: &str, what: &str, usage: &str) -> i32 {
-    let message = format!("{what}; run `cmux {scope} --help` for its usage");
-    match output {
-        OutputMode::Json | OutputMode::JsonLines => wire::print_local_error(
-            &serde_json::json!({
-                "code": "usage.invalid",
-                "message": message,
-                "details": {"usage": usage.trim_end()},
-                "retryable": false,
-            }),
-            output,
-            2,
-        ),
-        OutputMode::Human | OutputMode::Quiet => {
-            eprintln!("{}\n\n{BIN}: {message}", usage.trim_end());
-            2
-        }
-    }
-}
-
-/// What a scope's refusal says about the words it was given: the first
-/// word it does not take, or that it needs one.
-pub(super) fn unknown_words(scope: &str, words: &[String]) -> String {
-    match words.iter().find(|word| !word.is_empty()) {
-        Some(word) if word.starts_with('-') => format!("{scope} does not take {word:?}"),
-        Some(word) => format!("unknown {scope} command {word:?}"),
-        None => format!("{scope} needs a command"),
-    }
-}
-
-/// A usage error of a command `main` refuses before the cmux global options
-/// are parsed: the `--json` envelope when `--json` or `--jsonl` is among the
-/// words before `--`, else `cmux: <message>`; exit 2.
-pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
-    let json = args
-        .iter()
-        .take_while(|word| *word != "--")
-        .any(|word| matches!(word.as_str(), "--json" | "--jsonl"));
-    let (output, message) = if json {
-        (OutputMode::Json, message.to_owned())
-    } else {
-        (OutputMode::Human, format!("{BIN}: {message}"))
-    };
-    wire::print_local_error(
-        &serde_json::json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false}),
-        output,
-        2,
-    )
-}
-
-/// Scopes `main` routes by their first word, before the cmux global options
-/// are read, whose own parser takes `--json` right after the scope word:
-/// acpmux's (`--json` is a global clap option there).
-/// `agent` is not one of them: its verbs acpmux runs (agent_engine_requested, agent_acp_scope_args) take
-/// `--json` after the scope, and its app verbs (`agent list`, `agent open`) read the cmux global one where it is.
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "board", "care", "send", "inbox"];
-
-/// Session-engine verbs that also answer as a plain top-level `cmux` word: `cmux send` is
-/// `cmux agent send` and `cmux inbox` is the engine's team inbox, one command grammar under
-/// both names (Leo, 2026-11-25: "start renaming more things out of acpmu and into just plain
-/// cmux"). A word here must not be a cmux scope or app verb; `cli_tests` checks it.
-pub(crate) const TOP_LEVEL_ENGINE_VERBS: &[&str] = &["send", "inbox"];
-
-/// `cmux --json <scope> …` for a scope `main` routes by its first word: the
-/// leading `--json` moves to just after the scope word (to the end for `host`
-/// and `harness run`), where that scope's own parser reads it, so `cmux --json
-/// chats list` is `cmux chats --json list` (docs/cli-conventions.md in
-/// cmuxterm-hq: `--json` goes anywhere).
-/// `link` prints JSON only: a leading `--json` or `--jsonl` there becomes
-/// one `--json` after the word, which only shapes a refusal. Any other leading option stays where it is, and the parser's
-/// refusal names the right form. `device` keeps its own handling
-/// (devices::device_args).
-pub(crate) fn hoist_leading_json(args: &mut Vec<String>) {
-    let lead = args.iter().take_while(|word| matches!(word.as_str(), "--json" | "--jsonl")).count();
-    let (Some(scope), Some(rest)) = (args.get(lead).cloned(), args.get(lead..)) else {
-        return;
-    };
-    if lead == 0 {
-        return;
-    }
-    let only_json = args.iter().take(lead).all(|w| w == "--json");
-    if scope == "link" {
-        // `link` prints JSON only and ignores `--json`, which still asks for
-        // the error object on a refusal.
-        args.drain(..lead);
-        args.insert(1, "--json".to_owned());
-    } else if only_json && (scope == "host" || harness_tab_run(rest)) {
-        // `host`'s verbs read `--json` after their own words (`host status --json`), and
-        // `harness run NAME --tab` is acp.rs's wrapper, which matches the words right after the
-        // scope: it goes last, before any `--`, where a person types it.
-        args.drain(..lead);
-        let end = args.iter().position(|w| w == "--").unwrap_or(args.len());
-        args.insert(end, "--json".to_owned());
-    } else if only_json
-        && (JSON_AFTER_SCOPE.contains(&scope.as_str()) || agent_runs_in_acpmux(rest))
-    {
-        // acpmux's global `--json`, right after the scope word: never after a verb whose
-        // trailing words are another program's (`acp gh pr list`).
-        args.drain(..lead);
-        args.insert(1, "--json".to_owned());
-    }
-}
-
-/// `harness run NAME --tab …`, which acp.rs's wrapper opens as a tab (it matches `harness run`
-/// as the first two words and `--tab` before any `--`).
-fn harness_tab_run(words: &[String]) -> bool {
-    matches!(words, [harness, run, ..] if harness == "harness" && run == "run")
-        && words.iter().take_while(|w| *w != "--").any(|w| w == "--tab")
-}
-
-/// Whether `args` (`agent VERB …`) runs in acpmux, through the engine grammar or as one of its aliases
-/// (`agent ls`), rather than as one of the app's own `agent` verbs. The engine check comes first: it
-/// reads clap's static subcommand table, while the alias check builds acpmux's whole parser, whose
-/// unoptimized frames pass a 2 MiB test thread's stack.
-fn agent_runs_in_acpmux(args: &[String]) -> bool {
-    #[cfg(unix)]
-    let alias = || agent_acp_scope_args(args).is_some();
-    #[cfg(not(unix))]
-    let alias = || false;
-    agent_engine_requested(args) || alias()
-}
-
-/// Existing terminal agent commands and app actions keep their own dispatch.
-/// Other session commands, including aliases, come from the engine's grammar.
-pub(crate) fn agent_engine_requested(args: &[String]) -> bool {
-    let [scope, rest @ ..] = args else { return false };
-    if scope != "agent" {
-        return false;
-    }
-    let Some(verb) =
-        rest.iter().find(|word| !matches!(word.as_str(), "--json" | "--suppress-reads"))
-    else {
-        return false;
-    };
-    !matches!(
-        verb.as_str(),
-        "list"
-            | "message"
-            | "inbox"
-            | "start"
-            | "resume"
-            | "report"
-            | "hook"
-            | "plugin"
-            | "open"
-            | "open-tab"
-            | "help"
-    ) && acpmux::cli::entry::is_command(verb)
-}
-
-/// The acpmux argv of `cmux agent …` and `cmux acp …` (the words after the scope) and of its
-/// `harness`/`chats` aliases (the whole command line, alias first).
-#[cfg_attr(not(unix), allow(dead_code))]
-pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
-    let skip =
-        usize::from(raw_args.first().is_some_and(|head| matches!(head.as_str(), "acp" | "agent")));
-    raw_args.iter().skip(skip).map(std::ffi::OsString::from).collect()
-}
-
-/// `cmux share screens|start|stop|move …` (and `share list --screens`) as acpmux's
-/// `share-host` words; None for the other `share` commands, which are the app's chat links.
-#[cfg(unix)]
-pub(crate) fn share_screen_args(raw_args: &[String]) -> Option<Vec<std::ffi::OsString>> {
-    share_cli::screen_verb(raw_args).map(|words| words.into_iter().map(Into::into).collect())
-}
-
-/// The acpmux-owned aliases under `cmux agent`. Existing app actions keep their
-/// current parser and semantics, while these verbs share the acpmux implementation
-/// without duplicating its command logic in the app CLI.
-#[cfg(unix)]
-pub(crate) fn agent_acp_scope_args(raw_args: &[String]) -> Option<Vec<std::ffi::OsString>> {
-    let [head, rest @ ..] = raw_args else { return None };
-    if head != "agent" {
-        return None;
-    }
-    let globals = rest
-        .iter()
-        .take_while(|word| matches!(word.as_str(), "--json" | "--suppress-reads"))
-        .count();
-    let verb = rest.get(globals)?;
-    if matches!(
-        verb.as_str(),
-        "list"
-            | "start"
-            | "resume"
-            | "open"
-            | "open-tab"
-            | "message"
-            | "inbox"
-            | "hook"
-            | "plugin"
-            | "view"
-            | "report"
-    ) || !acpmux::cli::command::owns_word(verb)
-    {
-        return None;
-    }
-    Some(raw_args.iter().skip(1).map(std::ffi::OsString::from).collect())
-}
-
-/// The agent-caller refusal of a plan that writes a Chief by the raw or
-/// typed protocol path (`cmux raw operation chief.profile.update`, a
-/// `cmux raw command` frame naming one): the same refusal as
-/// `cmux chief new|edit|delete` (chief/registry.rs).
-#[cfg(unix)]
-fn chief_write_refusal(plan: &CommandPlan) -> Option<serde_json::Value> {
-    let operation = match plan {
-        CommandPlan::Protocol(request) => request.operation.name().ok()?,
-        CommandPlan::RawCommand(command) => {
-            command.request.get("operation").and_then(serde_json::Value::as_str)?.to_owned()
-        }
-        _ => return None,
-    };
-    chief::registry::agent_operation_refusal(&operation)
-}
-
-#[cfg(not(unix))]
-fn chief_write_refusal(_plan: &CommandPlan) -> Option<serde_json::Value> {
-    None
-}
-
-fn agent_card_if_requested(args: &[String]) -> Option<i32> {
-    let (global, command) = parse_globals(args).ok()?;
-    let json_flag = command.iter().any(|w| w == "--json");
-    let words: Vec<&str> = command.iter().map(String::as_str).filter(|w| *w != "--json").collect();
-    let what = match words.as_slice() {
-        ["capabilities"] => "capabilities",
-        ["machine", "info"] => "machine",
-        _ => return None,
-    };
-    let json = json_flag || matches!(global.output, OutputMode::Json | OutputMode::JsonLines);
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
-    println!("{}", acpmux::agent_card::cli(what, json, &cwd));
-    Some(0)
+fn write_stdout(text: &str) {
+    let text = with_program_name(text, &program_name());
+    let mut stdout = io::stdout().lock();
+    let _ = stdout.write_all(text.as_bytes());
+    let _ = stdout.flush();
 }
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
-    if let Ok((_, command)) = parse_globals(args) {
-        vm_words::activate_for(&command);
-        match command::hook_emit_budget(&command) {
-            Ok(Some(deadline)) => {
-                let (args, usage) = (args.to_vec(), startup_usage.to_owned());
-                return hook_emit_deadline::within(deadline, move || run_unbounded(&args, &usage));
-            }
-            Err(error) => return early_usage_error(args, &error.0),
-            Ok(None) => {}
-        }
-    }
-    run_unbounded(args, startup_usage)
-}
-
-fn run_unbounded(args: &[String], startup_usage: &str) -> i32 {
-    let surface = Surface::current();
-    // `cmux completion zsh|bash|fish` and the scripts' `cmux __complete -- WORDS`.
-    if let Some(code) = completion::run_if_requested(args) {
-        return code;
-    }
-    // `cmux capabilities` and `cmux machine info`: what cmux lets an agent do in a chat here and
-    // this machine's numbers, the card a new chat gets in its system context (acpmux agent_card.rs).
-    if let Some(code) = agent_card_if_requested(args) {
-        return code;
-    }
-    #[cfg(unix)]
-    if let Some(code) = dev::run_if_requested(args, surface) {
-        return code;
-    }
-    let lifecycle_args;
-    let args = match machine_server::run_if_requested(args, surface) {
-        Some(machine_server::Mount::Exit(code)) => return code,
-        Some(machine_server::Mount::Lifecycle(rewritten)) => {
-            lifecycle_args = rewritten;
-            lifecycle_args.as_slice()
-        }
-        None => args,
-    };
-    // `vm rm NAME --confirm --wait --with-snapshots`, `vm snapshots [--orphaned]` and
-    // `vm snapshot rm ID --confirm`: cleanup in one command (vm_cleanup.rs).
-    #[cfg(unix)]
-    if let Some(code) = vm_cleanup::run_if_requested(args) {
-        return code;
-    }
-    // `vm pause dev`: the short Cloud VM verbs, through the app when it is here.
-    #[cfg(unix)]
-    if let Some(code) = vm_short::run_if_requested(args) {
-        return code;
-    }
-    // `device revoke|rotate|doctor|vault` and `device SELECTOR show --catalog|session|doctor` are
-    // `machine …` (`machine` is `device`'s old name); a VM verb under `device` is `cmux vm`'s.
-    // A plain `device SELECTOR show` ran in devices/mod.rs (the device list, then this route).
-    #[cfg(unix)]
-    let device_alias_args;
-    #[cfg(unix)]
-    let args = match vm::device_alias(args) {
-        Some(vm::DeviceRoute::Machine(rewritten)) => {
-            device_alias_args = rewritten;
-            device_alias_args.as_slice()
-        }
-        Some(vm::DeviceRoute::Vm(verb)) => {
-            let output = parse_globals(args).map(|(global, _)| global.output).unwrap_or_default();
-            let message = format!("cmux: {}", vm::device_vm_refusal(&verb));
-            return app::failure("usage.invalid", &message, output, 2);
-        }
-        None => args,
-    };
-    // `apps install-link URL`: cmux.com's "Open in cmux" link (`cmux://apps/install?repo=…&commit=…`),
-    // which the Mac app hands here, is `apps install REF`: a theme or snippet through the community
-    // install, an extension through the App Store's consent card.
-    #[cfg(unix)]
-    let link_args;
-    #[cfg(unix)]
-    let args = match community::install_link(args) {
-        Some(Ok(rewritten)) => {
-            link_args = rewritten;
-            link_args.as_slice()
-        }
-        Some(Err(why)) => {
-            let output = parse_globals(args).map(|(global, _)| global.output).unwrap_or_default();
-            return app::failure("community.link", &format!("cmux: {why}"), output, 2);
-        }
-        None => args,
-    };
-    // `vm add|revoke|rotate|doctor` is `machine …` (`vm` was `machine`'s old name).
-    #[cfg(unix)]
-    let alias_args;
-    #[cfg(unix)]
-    let args = match vm::machine_alias(args) {
-        Some(rewritten) => {
-            alias_args = rewritten;
-            alias_args.as_slice()
-        }
-        None => args,
-    };
-    // `login` with no cmux app to answer (or `--device`): sign in by link, print a CMUX_TOKEN.
-    #[cfg(unix)]
-    if let Some(code) = device_login::run_if_requested(args) {
-        return code;
-    }
-    // `login` and `logout` are `vm sign-in` and `vm sign-out`, which the Cloud alias below runs.
-    #[cfg(unix)]
-    let account_args;
-    #[cfg(unix)]
-    let args = match auth_token::account_alias(args) {
-        Some(rewritten) => {
-            // `cmux login --help`: name the spelling asked for before `vm sign-in`'s help.
-            if let Some(note) = auth_token::account_alias_help_note(args) {
-                print!("{note}");
-                let _ = io::stdout().flush();
-            }
-            account_args = rewritten;
-            account_args.as_slice()
-        }
-        None => args,
-    };
-    // `vm VERB` is `cloud VERB` for every Cloud verb (`cmux cloud` is now `cmux vm`).
-    #[cfg(unix)]
-    let cloud_args;
-    #[cfg(unix)]
-    let args = match vm::cloud_alias(args) {
-        Some(rewritten) => {
-            cloud_args = rewritten;
-            cloud_args.as_slice()
-        }
-        None => {
-            vm::cloud_rename_note(args);
-            match vm::cloud_yes(args) {
-                Some(rewritten) => {
-                    cloud_args = rewritten;
-                    cloud_args.as_slice()
-                }
-                None => args,
-            }
-        }
-    };
-    // `machine list --cloud-token-file F`: the flags are for its joined rows, not the daemon.
-    #[cfg(unix)]
-    let list_args;
-    #[cfg(unix)]
-    let args = match machine_join::take_list_auth(args) {
-        Some(rest) => {
-            list_args = rest;
-            list_args.as_slice()
-        }
-        None => args,
-    };
-    // `chat send SESSION` and `chat --resume SESSION`: the next prompt to a running agent chat,
-    // wherever it runs (chat_send.rs); `chat send --to` stays the message below.
-    #[cfg(unix)]
-    if let Some(code) = chat_send::run_if_requested(args) {
-        return code;
-    }
-    // `chat cd SESSION DIR|--repo R`: a Cloud chat goes on in another folder (chat_cd.rs).
-    #[cfg(unix)]
-    if let Some(code) = chat_cd::run_if_requested(args) {
-        return code;
-    }
-    // `chat move SESSION --on local|cloud|auto`: Local, Cloud or AutoCloud (chat_move.rs).
-    #[cfg(unix)]
-    if let Some(code) = chat_move::run_if_requested(args) {
-        return code;
-    }
-    // `chat send` from a coding agent is the agent's message, not the owner's
-    // (chief/chat_scope.rs): a Chief's chat is sent here, any other chat runs
-    // the app action with its text labelled.
-    #[cfg(unix)]
-    let chat_args;
-    #[cfg(unix)]
-    let args = match chief::chat_scope::run_if_requested(args) {
-        Some(chief::chat_scope::Chat::Exit(code)) => return code,
-        Some(chief::chat_scope::Chat::Rewritten(rewritten)) => {
-            chat_args = rewritten;
-            chat_args.as_slice()
-        }
-        None => args,
-    };
-    // `terminal alpha send …`: an agent name or a unique tab name becomes
+    // `terminal alpha write …`: an agent name or a unique tab name becomes
     // its id before any command reads the words (agent_names.rs).
-    #[cfg(unix)]
     let named_args;
-    #[cfg(unix)]
     let args = match agent_names::rewrite_args(args) {
         Ok(Some(rewritten)) => {
             named_args = rewritten;
@@ -1154,181 +249,38 @@ fn run_unbounded(args: &[String], startup_usage: &str) -> i32 {
         Ok(None) => args,
         Err(code) => return code,
     };
-    #[cfg(unix)]
-    if let Some(code) = cloud_start_chat::direct::run_if_requested(args)
-        .or_else(|| agent_move::run_if_requested(args))
-        .or_else(|| agent_start::run_if_requested(args))
-        .or_else(|| agent_config::run_if_requested(args))
-        .or_else(|| chat_start::run_if_requested(args))
-        .or_else(|| mcp::run_if_requested(args))
-        .or_else(|| workflow::run_if_requested(args))
-        .or_else(|| agents::run_if_requested(args))
-        .or_else(|| chief::run_if_requested(args))
-        .or_else(|| chief::run_avatar_if_requested(args))
-        .or_else(|| hosts::run_if_requested(args))
-        .or_else(|| inference_gateway::run_if_requested(args))
-        .or_else(|| inference_setup::run_if_requested(args))
-        .or_else(|| inference_gateway_admin::run_route_if_requested(args))
-        .or_else(|| cloud_preflight::run_if_requested(args))
-        .or_else(|| hub::run_if_requested(args))
-        .or_else(|| autocloud::run_if_requested(args))
-        .or_else(|| mcp_servers::run_if_requested(args))
-        .or_else(|| automation::run_if_requested(args))
-        .or_else(|| billing::run_if_requested(args))
-        .or_else(|| api_tokens::run_if_requested(args))
-        .or_else(|| auth_token::run_if_requested(args))
-        .or_else(|| auth_token::whoami_if_requested(args))
-        .or_else(|| live_code::run_if_requested(args))
-        .or_else(|| sandbox_run::run_if_requested(args))
-        .or_else(|| cloud_journey::run_if_requested(args))
-        .or_else(|| repro::run_if_requested(args))
-        .or_else(|| search::run_if_requested(args))
-        .or_else(|| migrate::run_if_requested(args))
-        .or_else(|| vm::run_if_requested(args))
-        .or_else(|| vnc::run_if_requested(args))
-        .or_else(|| cloud_environment::run_if_requested(args))
-        .or_else(|| cloud_secret::run_if_requested(args))
-        .or_else(|| vault::run_if_requested(args))
-        .or_else(|| env_command::run_if_requested(args))
-        .or_else(|| cloud_connect::run_if_requested(args))
-        .or_else(|| cloud_team_keys::run_if_requested(args))
-        .or_else(|| cloud_provider::run_if_requested(args))
-        .or_else(|| key_broker::run_if_requested(args))
-        .or_else(|| cloud_start_chat::run_if_requested(args))
-        .or_else(|| chat_start::hybrid_start::run_if_requested(args))
-        .or_else(|| cloud_agent::run_if_requested(args))
-        .or_else(|| cloud_run_account::run_if_requested(args))
-        .or_else(|| cloud_retention::run_if_requested(args))
-        .or_else(|| cloud_pause_all::run_if_requested(args))
-        .or_else(|| cloud_repo::run_if_requested(args))
-        .or_else(|| cloud_client_session::run_if_requested(args))
-        .or_else(|| cloud_machine_auth::run_if_requested(args))
-        .or_else(|| cloud_machine_io::run_if_requested(args))
-        .or_else(|| cloud_api::run_if_requested(args))
-        .or_else(|| cloud_hands::run_if_requested(args))
-        .or_else(|| cloud_apps_relay::run_if_requested(args))
-        .or_else(|| cloud_automation_relay::run_if_requested(args))
-        .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
-        .or_else(|| machine_request::run_if_requested(args))
-        .or_else(|| machine_link::run_if_requested(args))
-        .or_else(|| mobile_pair_requests::run_if_requested(args))
-        .or_else(|| machine_join::run_if_requested(args))
-        .or_else(|| machine_doctor::run_if_requested(args))
-        .or_else(|| safe_mode::run_if_requested(args))
-        .or_else(|| sign_clones::run_if_requested(args))
-        .or_else(|| ps_gc::run_if_requested(args))
-        .or_else(|| apps_list::run_if_requested(args))
-        .or_else(|| apps_place::run_if_requested(args))
-        .or_else(|| apps_run::run_if_requested(args))
-        .or_else(|| ext::run_if_requested(args))
-        .or_else(|| ext::run_reload_config_if_requested(args))
-        .or_else(|| community::run_if_requested(args))
-        .or_else(|| theme_scheme::run_if_requested(args))
-        .or_else(|| pack::run_if_requested(args))
-        .or_else(|| video::run_if_requested(args))
-        .or_else(|| usage_insights::run_if_requested(args))
-        .or_else(|| wallpaper::run_if_requested(args))
-        .or_else(|| change_background::run_if_requested(args))
-        .or_else(|| customize::run_if_requested(args))
-        .or_else(|| debug_perf::run_if_requested(args))
-        .or_else(|| script::run_if_requested(args))
-        .or_else(|| setup::run_if_requested(args))
-        .or_else(|| remote_host::run_if_requested(args))
-        .or_else(|| computer_use::run_if_requested(args))
-        .or_else(|| attention::run_if_requested(args))
-        .or_else(|| share_requests::run_if_requested(args))
-        .or_else(|| tmux_attach::run_if_requested(args))
-        .or_else(|| notification_banners::run_if_requested(args))
-        .or_else(|| status::run_args(args))
-    {
-        return code;
-    }
-    // `cmux identify` in a cmux-tui pane answers for the pane's own session.
-    #[cfg(unix)]
-    if let Some(code) = pane_identify::run_if_requested(args) {
-        return code;
-    }
-    if let Some(code) = skill::run_if_requested(args) {
-        return code;
-    }
-    #[cfg(unix)]
-    if let Some(code) = run_app_scope(args) {
-        return code;
-    }
-    let parsed = parse(args, surface);
-    if let Ok(ParsedCommand::Command { global, plan }) = &parsed
-        && let Some(refusal) = chief_write_refusal(plan)
-    {
-        return wire::print_operation_error(&refusal, global.output);
-    }
-    match parsed {
+    match parse(args) {
         Ok(ParsedCommand::Help(scope)) => {
             if scope.as_deref() == Some("start") {
-                let mut stdout = io::stdout().lock();
-                let _ = stdout.write_all(startup_usage.as_bytes());
-                let _ = stdout.flush();
+                write_stdout(startup_usage);
             } else {
-                print_scope_help(scope.as_deref(), surface);
+                print_scope_help(scope.as_deref());
             }
             0
         }
-        Ok(ParsedCommand::Docs(plan)) => docs::run(plan),
-        Ok(ParsedCommand::CodeMode(plan)) => code_mode::run(plan),
         Ok(ParsedCommand::Command { global, plan }) => match plan {
             CommandPlan::Server(server) => lifecycle::run(global, server),
             CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
-            CommandPlan::Protocol(request) if global.all_sessions => {
-                federation::run_all_sessions(&global, *request)
-            }
-            CommandPlan::Protocol(request) => wire::run(global, *request),
+            CommandPlan::Protocol(request) => wire::run(global, request),
             CommandPlan::SessionResetState(plan) => command::run_session_reset_state(global, plan),
             CommandPlan::Plugin(plugin) => command::run_plugin(global, plugin),
             CommandPlan::ProviderAuthority(authority) => {
                 command::run_provider_authority(global, authority)
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
-            CommandPlan::AgentMessage(plan) => agent_message::run_message(global, *plan),
-            CommandPlan::AgentInbox(plan) => agent_message::run_inbox(global, plan),
+            CommandPlan::Attention(plan) => attention::run(global, plan),
+            CommandPlan::AgentList(plan) => agent_list::run(global, *plan),
+            CommandPlan::PaneMove(request) => pane_move::run(global, *request),
+            CommandPlan::Identify => pane_identify::run(&global),
+            CommandPlan::SkillShow => skill::run(&global),
+            CommandPlan::Agent(command) => agent_start::run(&global, &command),
         },
         Err(failure) => {
-            // Words the mux grammar does not know may name an installed
-            // app's command (`cmux notes capture …`) or an app action
-            // (`cmux workspace move-to-window …`, app_commands.rs). Only a
-            // command or action that is there replaces the usage error.
-            #[cfg(unix)]
-            if let Some(code) = app_commands::unknown_words(args) {
-                return code;
-            }
-            #[cfg(unix)]
-            if let Some(code) = unknown_remote_action(args) {
-                return code;
-            }
-            // A command this build does not know may be one the daemon's
-            // build knows: run that daemon's CLI (cli/skew.rs).
-            #[cfg(unix)]
-            let skew = parse_globals(args)
-                .ok()
-                .and_then(|(global, _)| skew::reexec_at_dead_end(&global).err().flatten());
-            #[cfg(not(unix))]
-            let skew: Option<String> = None;
-            // A mistyped or synonym scope or verb (`cmux sessions ls`) runs the one word it
-            // meant, said on stderr; once, so a still-refused command ends here (cli/intent.rs).
-            static INTENT_TRIED: std::sync::atomic::AtomicBool =
-                std::sync::atomic::AtomicBool::new(false);
-            if skew.is_none()
-                && !INTENT_TRIED.swap(true, std::sync::atomic::Ordering::Relaxed)
-                && let Some(fixed) = intent::retry(args, startup_usage)
-            {
-                return run(&fixed, startup_usage);
-            }
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
-                format!("cmux: {}", failure.error)
+                let program = program_name();
+                format!("{program}: {}", with_program_name(&failure.error.0, &program))
             } else {
                 failure.error.to_string()
-            };
-            let message = match skew {
-                Some(skew) => format!("{message}\n{skew}"),
-                None => message,
             };
             wire::print_local_error(
                 &serde_json::json!({
@@ -1344,112 +296,20 @@ fn run_unbounded(args: &[String], startup_usage: &str) -> i32 {
     }
 }
 
-/// The scopes the cmux app owns (`app`, `action`, `settings`, `window`,
-/// `events`). `None` when `args` names a mux scope.
-#[cfg(unix)]
-fn run_app_scope(args: &[String]) -> Option<i32> {
-    let (global, command_args) = parse_globals(args).ok()?;
-    if has_help_option(&command_args) || command_args.first().is_some_and(|word| word == "help") {
-        return extra_help::print(&command_args);
-    }
-    // Settings CRUD belongs to the daemon's v2 owner. Keep the app parser for
-    // local-only helpers (`list --keys`, `schema`, `validate`) until those have daemon
-    // equivalents on this surface.
-    if daemon_settings_scope(&command_args) {
-        return None;
-    }
-    match app::parse(&command_args) {
-        Ok(Some(_)) if global.all_sessions => Some(app::failure(
-            "usage.invalid",
-            "cmux: --all-sessions applies only to the session list commands",
-            global.output,
-            2,
-        )),
-        Ok(Some(command)) => Some(app::run(&global, command)),
-        Ok(None) => None,
-        Err(error) => Some(wire::print_local_error(
-            &serde_json::json!({
-                "code":"usage.invalid",
-                "message":format!("cmux: {error}"),
-                "details":{},
-                "retryable":false,
-            }),
-            global.output,
-            2,
-        )),
-    }
-}
-
-#[cfg(unix)]
-fn daemon_settings_scope(command_args: &[String]) -> bool {
-    // Help belongs to the app's documented settings scope even when it is
-    // attached to a daemon-owned CRUD verb.
-    if has_help_option(command_args) || command_args.first().is_some_and(|word| word == "help") {
-        return false;
-    }
-    if !matches!(command_args.first().map(String::as_str), Some("settings" | "config")) {
-        return false;
-    }
-    match command_args.get(1).map(String::as_str) {
-        // `get` without a path is the legacy app snapshot; keep it until the
-        // daemon gains an equivalent empty-target read.
-        Some("get") if command_args.len() == 2 => false,
-        // Person-only settings still need the app's native confirmation
-        // sheet. The daemon CLI deliberately has no fake approval path. Only
-        // options before `--` are flags; after it, every argument is literal.
-        Some("set" | "reset" | "unset")
-            // `--yes` is `--confirm` (the CLI's one confirm word; cli/app.rs).
-            if command_args
-                .iter()
-                .take_while(|arg| *arg != "--")
-                .any(|arg| matches!(arg.as_str(), "--confirm" | "--yes")) =>
-        {
-            false
-        }
-        Some(
-            "get" | "explain" | "set" | "reset" | "unset" | "edit" | "history" | "undo" | "restore",
-        ) => true,
-        _ => false,
-    }
-}
-
-fn parse(args: &[String], surface: Surface) -> Result<ParsedCommand, ParseFailure> {
+fn parse(args: &[String]) -> Result<ParsedCommand, ParseFailure> {
     let (global, command_args) =
         parse_globals(args).map_err(|(error, output)| ParseFailure { error, output })?;
     let output = global.output;
-    parse_command(global, command_args, surface).map_err(|error| ParseFailure { error, output })
+    parse_command(global, command_args).map_err(|error| ParseFailure { error, output })
 }
 
 fn parse_command(
-    mut global: GlobalArgs,
+    global: GlobalArgs,
     command_args: Vec<String>,
-    surface: Surface,
 ) -> Result<ParsedCommand, UsageError> {
-    if let Some(decided) = machine_server::cmux_words(&command_args, surface) {
-        return decided;
-    }
-    let mut command_args = shorthand::normalize(&command_args, surface)?;
-    federation::apply_qualifiers(&mut global, &mut command_args)?;
+    let command_args = shorthand::normalize(&command_args)?;
     if command_args.is_empty() {
         return Err(UsageError::new("missing resource scope; use --help to list scopes"));
-    }
-    // `help <scope>` and `<scope> --help` name the scope too, so the check
-    // covers every spelling (shorthands are already lowered).
-    let named_scope = match command_args[0].as_str() {
-        "help" => command_args.get(1).map(|scope| shorthand::scope(scope)),
-        scope => Some(scope),
-    };
-    if let Some(scope) = named_scope
-        && surface == Surface::Cmux
-        && CMUX_TUI_ONLY_SCOPES.contains(&scope)
-    {
-        // Its app verbs (`cmux sidebar add-section`) are cmux's: help lists only those.
-        let help = command_args.first().is_some_and(|word| word == "help")
-            || has_help_option(&command_args);
-        if help && app_action_help::has_section(scope) {
-            return Ok(ParsedCommand::Help(Some(format!("{scope} app-actions"))));
-        }
-        return Err(not_in_cmux(scope));
     }
     // Public resource parsing owns option values and forwarded payloads. The
     // pre-scan is only for startup grammar that reached this parser through a
@@ -1462,67 +322,29 @@ fn parse_command(
             crate::localization::catalog().remote_client.inline_relay_ticket_rejected,
         ));
     }
-    if let Some(error) = extra_help::own_options_scope(&command_args[0]) {
-        return Err(error);
+    if command_args[0] == "daemon" {
+        return Err(UsageError::new(crate::localization::catalog().local_server.daemon_removed));
     }
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
             Some(scope)
-                if matches!(scope.as_str(), "start" | "shorthands" | "docs" | "run" | "keys") =>
+                if matches!(scope.as_str(), "start" | "shorthands")
+                    || LOCAL_COMMANDS.contains(&scope.as_str()) =>
             {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
-            Some(scope) if surface.accepts(shorthand::scope(scope)) => {
-                Ok(ParsedCommand::Help(Some(shorthand::scope(scope).to_string())))
+            Some(scope) if PUBLIC_SCOPES.contains(&shorthand::scope(scope)) => {
+                Ok(ParsedCommand::Help(help_topic(&command_args[1..])))
             }
-            Some(scope) if app_action_help::has_section(scope) => {
-                Ok(ParsedCommand::Help(Some(scope.clone())))
-            }
-            Some(scope) => Err(unknown_scope(scope, surface)),
+            Some(scope) => Err(unknown_scope(scope)),
         };
     }
-    if let Some(command) = docs::command(&command_args, global.clone())? {
-        return Ok(command);
-    }
-    if let Some(command) = code_mode::command(&command_args, global.clone())? {
-        return Ok(command);
+    if let Some(parsed) = parse_local_command(&global, &command_args)? {
+        return Ok(parsed);
     }
     if has_help_option(&command_args) {
-        let words = command_args
-            .iter()
-            .take_while(|value| value.as_str() != "--")
-            .filter(|value| !value.starts_with('-'))
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        let topic = match words.as_slice() {
-            ["server", action, ..]
-                if matches!(
-                    *action,
-                    "start" | "ensure" | "status" | "stats" | "stop" | "restart" | "reload-config"
-                ) =>
-            {
-                Some(format!("server {action}"))
-            }
-            [scope @ ("workspace" | "screen" | "pane" | "tab"), .., "rename"] => {
-                Some(format!("{scope} rename"))
-            }
-            ["machine", "ls" | "list"] => Some("machine ls".to_owned()),
-            // `cmux machine reconnect --help`: an app verb the grammar does not run gets its own
-            // help, not the scope's (the Cloud and remote command matrix).
-            [scope, verb]
-                if app_action_help::has_section(scope)
-                    && app_action_help::verb_help(scope, verb).is_some()
-                    && !grammar_runs(&command_args, surface) =>
-            {
-                Some(format!("{scope} {verb}{APP_ACTION_TOPIC}"))
-            }
-            [scope, ..] if surface.accepts(scope) || app_action_help::has_section(scope) => {
-                Some((*scope).to_string())
-            }
-            _ => None,
-        };
-        return Ok(ParsedCommand::Help(topic));
+        return Ok(ParsedCommand::Help(help_topic(&command_args)));
     }
     if command_args.first().map(String::as_str) == Some("server")
         && command_args.get(1).map(String::as_str) == Some("start")
@@ -1532,48 +354,79 @@ fn parse_command(
             crate::localization::catalog().local_server.start_rejects_output_mode,
         ));
     }
-    let mut plan = command::parse(&command_args, surface)?;
-    apply_idempotency_key(&mut plan, global.idempotency_key.as_deref())?;
-    if global.all_sessions {
-        match &plan {
-            CommandPlan::Protocol(request) => federation::validate_all_sessions(&global, request)?,
-            _ => return Err(UsageError::new("--all-sessions applies only to list commands")),
-        }
-    }
+    let plan = command::parse(&command_args)?;
     Ok(ParsedCommand::Command { global, plan })
 }
 
-fn unknown_scope(scope: &str, surface: Surface) -> UsageError {
-    // A scope the root help lists whose own dispatcher did not take these
-    // words (`cmux identify zzz`, `cmux device zzz`): the scope is real, the
-    // words are not; name its help (docs/cli-conventions.md in cmuxterm-hq).
-    if surface == Surface::Cmux
-        && listed_scope(crate::localization::catalog().local_server.cmux_root_help, scope)
+/// Commands this CLI answers itself, beside the resource scopes.
+const LOCAL_COMMANDS: &[&str] = &["identify", "skill"];
+
+/// `identify` and `skill [show]`, with `--help` as their own help topic;
+/// `None` for every other command.
+fn parse_local_command(
+    global: &GlobalArgs,
+    command_args: &[String],
+) -> Result<Option<ParsedCommand>, UsageError> {
+    let Some((first, rest)) = command_args.split_first() else { return Ok(None) };
+    let help = || rest.iter().any(|word| matches!(word.as_str(), "-h" | "--help"));
+    // `agent start|resume`, `terminal <t> resume` and `terminal <t> wait`
+    // read their own options (and `-- ARGS`); `--help` shows the catalog's.
+    if !has_help_option(command_args)
+        && let Some(command) = agent_start::parse(command_args)
     {
-        return UsageError::new(format!(
-            "unknown or incomplete {scope} command; run `cmux {scope} --help` for its commands"
-        ));
+        let command = command?;
+        return Ok(Some(ParsedCommand::Command {
+            global: global.clone(),
+            plan: CommandPlan::Agent(Box::new(command)),
+        }));
     }
-    let suggestion = internal::classic_verbs::resource_command(scope)
-        .or_else(|| suggestion(scope, surface.scopes()));
-    UsageError::new(crate::localization::catalog().local_server.unknown_scope(scope, suggestion))
+    let plan = match first.as_str() {
+        "identify" if help() => return Ok(Some(ParsedCommand::Help(Some("identify".into())))),
+        "identify" if rest.is_empty() => CommandPlan::Identify,
+        "identify" => {
+            let message = crate::localization::catalog().pane_cli.identify_arguments;
+            return Err(UsageError::new(message.replace("{words}", &rest.join(" "))));
+        }
+        "skill" if help() => return Ok(Some(ParsedCommand::Help(Some("skill".into())))),
+        "skill" if rest.is_empty() || rest == ["show"] => CommandPlan::SkillShow,
+        "skill" => {
+            let message = crate::localization::catalog().pane_cli.skill_arguments;
+            return Err(UsageError::new(message.replace("{words}", &rest.join(" "))));
+        }
+        _ => return Ok(None),
+    };
+    Ok(Some(ParsedCommand::Command { global: global.clone(), plan }))
 }
 
-/// Whether `help` (a root help text) lists `scope` as a scope row: two
-/// spaces, the scope, then at least two spaces before its description.
-pub(super) fn listed_scope(help: &str, scope: &str) -> bool {
-    help.lines().any(|line| {
-        line.strip_prefix("  ")
-            .and_then(|rest| rest.strip_prefix(scope))
-            .is_some_and(|tail| tail.starts_with("  "))
-    })
+/// Help topic prefix for one action, followed by its catalog path.
+const ACTION_TOPIC: &str = "action:";
+
+/// The most specific help for a command path: a server action's own help,
+/// then the action's flags, then its scope.
+fn help_topic(args: &[String]) -> Option<String> {
+    let words = command::help_words(args);
+    match words.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        ["server", action, ..]
+            if matches!(
+                *action,
+                "start" | "ensure" | "status" | "stats" | "stop" | "reload-config"
+            ) =>
+        {
+            return Some(format!("server {action}"));
+        }
+        _ => {}
+    }
+    if let Some(path) = command::action_help_topic(&words) {
+        return Some(format!("{ACTION_TOPIC}{path}"));
+    }
+    words.first().filter(|scope| PUBLIC_SCOPES.contains(&scope.as_str())).cloned()
 }
 
-/// A `cmux-tui` scope named through `cmux`, which refuses it by name
-/// instead of calling it unknown.
-fn not_in_cmux(scope: &str) -> UsageError {
+fn unknown_scope(scope: &str) -> UsageError {
     UsageError::new(
-        crate::localization::catalog().local_server.scope_not_in_cmux.replace("{scope}", scope),
+        crate::localization::catalog()
+            .local_server
+            .unknown_scope(scope, suggestion(scope, PUBLIC_SCOPES)),
     )
 }
 
@@ -1581,7 +434,7 @@ pub(super) fn suggestion<'a>(value: &str, candidates: &'a [&str]) -> Option<&'a 
     candidates
         .iter()
         .copied()
-        .map(|candidate| (scope_help::edit_distance(value, candidate), candidate))
+        .map(|candidate| (edit_distance(value, candidate), candidate))
         .min_by_key(|(distance, _)| *distance)
         .filter(|(distance, candidate)| {
             *distance <= 2 || (*distance == 3 && candidate.len().max(value.len()) >= 8)
@@ -1589,39 +442,24 @@ pub(super) fn suggestion<'a>(value: &str, candidates: &'a [&str]) -> Option<&'a 
         .map(|(_, candidate)| candidate)
 }
 
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right = right.chars().collect::<Vec<_>>();
+    let mut previous = (0..=right.len()).collect::<Vec<_>>();
+    for (row, left) in left.chars().enumerate() {
+        let mut current = vec![row + 1];
+        for (column, right) in right.iter().enumerate() {
+            current.push(
+                (current[column] + 1)
+                    .min(previous[column + 1] + 1)
+                    .min(previous[column] + usize::from(left != *right)),
+            );
+        }
+        previous = current;
+    }
+    previous[right.len()]
+}
+
 fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
-    scan_globals(args, MachineFlag::Global)
-}
-
-/// Who owns a `--machine` that follows the command's first word.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum MachineFlag {
-    /// The global option anywhere before `--` (the mux grammar's routing:
-    /// `cmux workspace list --machine m` lists on machine `m`).
-    Global,
-    /// The command's own argument once a command word came: an app action
-    /// run by its CLI name (`cmux workspace new-on-machine --machine m`)
-    /// gets it as its `machine` argument. Before the first command word it
-    /// is still the global option.
-    #[cfg_attr(not(unix), allow(dead_code))]
-    Command,
-}
-
-/// [`parse_globals`] for an app action run by its CLI name: a `--machine`
-/// after the action's words is the action's own argument
-/// (`workspace.newOnMachine`'s `machine`), which the global option
-/// swallowed, so the app answered "requires --machine".
-#[cfg(unix)]
-fn parse_action_globals(
-    args: &[String],
-) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
-    scan_globals(args, MachineFlag::Command)
-}
-
-fn scan_globals(
-    args: &[String],
-    machine_flag: MachineFlag,
-) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
     let mut global = GlobalArgs::default();
     let mut command = Vec::new();
     let mut index = 0;
@@ -1639,58 +477,12 @@ fn scan_globals(
             index += 1;
             continue;
         }
-        // Cloud repo and chat verbs name a chat, not a daemon, with --session.
-        if command
-            .get(..2)
-            .is_some_and(|words| words == ["cloud", "repo"] || words == ["cloud", "chat"])
-            && (value == "--session" || value.starts_with("--session="))
-        {
-            command.push(value.clone());
-            if value == "--session"
-                && let Some(next) = args.get(index + 1)
-            {
-                command.push(next.clone());
-                index += 1;
-            }
-            index += 1;
-            continue;
-        }
-        // After `action run <id>`, `--session` and `--machine` are the
-        // action's arguments (`agent.openSessionWorkspace --session`): they
-        // name a daemon, which an app action never reaches.
-        if command.len() >= 3
-            && command[..2] == ["action", "run"]
-            && ["--session", "--machine"].iter().any(|flag| {
-                value == flag || value.strip_prefix(flag).is_some_and(|rest| rest.starts_with('='))
-            })
-        {
-            command.push(value.clone());
-            index += 1;
-            continue;
-        }
-        if machine_flag == MachineFlag::Command
-            && !command.is_empty()
-            && (value == "--machine" || value.starts_with("--machine="))
-        {
-            command.push(value.clone());
-            if value == "--machine"
-                && let Some(next) = args.get(index + 1)
-            {
-                command.push(next.clone());
-                index += 1;
-            }
-            index += 1;
-            continue;
-        }
         // Match clap's standard long-option form, where an option value can
         // follow an equals sign (for example, `--socket=/tmp/cmux.sock`).
         // This keeps one-token invocations convenient without changing the
         // existing separated-value grammar.
         if let Some((flag, inline_value)) = value.split_once('=')
-            && matches!(
-                flag,
-                "--socket" | "--session" | "--machine" | "--app-socket" | "--idempotency-key"
-            )
+            && matches!(flag, "--socket" | "--session" | "--machine")
         {
             if inline_value.is_empty() {
                 return Err((UsageError::new(format!("{flag} needs a value")), global.output));
@@ -1699,12 +491,6 @@ fn scan_globals(
                 "--socket" => global.socket = Some(PathBuf::from(inline_value)),
                 "--session" => global.session = Some(inline_value.to_owned()),
                 "--machine" => global.machine = Some(inline_value.to_owned()),
-                "--app-socket" => global.app_socket = Some(PathBuf::from(inline_value)),
-                "--idempotency-key" => {
-                    global.idempotency_key = Some(
-                        idempotency_key(inline_value).map_err(|error| (error, global.output))?,
-                    );
-                }
                 _ => unreachable!(),
             }
             index += 1;
@@ -1727,23 +513,6 @@ fn scan_globals(
                     Some(global_value(args, index, value).map_err(|error| (error, global.output))?);
                 index += 2;
             }
-            "--app-socket" => {
-                global.app_socket = Some(PathBuf::from(
-                    global_value(args, index, value).map_err(|error| (error, global.output))?,
-                ));
-                index += 2;
-            }
-            "--idempotency-key" => {
-                let key =
-                    global_value(args, index, value).map_err(|error| (error, global.output))?;
-                global.idempotency_key =
-                    Some(idempotency_key(&key).map_err(|error| (error, global.output))?);
-                index += 2;
-            }
-            "--all-sessions" => {
-                global.all_sessions = true;
-                index += 1;
-            }
             "--json" | "--jsonl" | "--quiet" => {
                 let output = match value.as_str() {
                     "--json" => OutputMode::Json,
@@ -1758,7 +527,6 @@ fn scan_globals(
             _ => {
                 command.push(value.clone());
                 if option_takes_value(value)
-                    && !own_switch(&command, value)
                     && let Some(next) = args.get(index + 1)
                 {
                     command.push(next.clone());
@@ -1771,37 +539,13 @@ fn scan_globals(
     Ok((global, command))
 }
 
-/// `machine add|revoke|rotate|vault`'s value-less switches (`machine_join::own_switch`) and
-/// the chat commands' (`chat_start::own_switch`); none on Windows, where those verbs do not exist.
-fn own_switch(command: &[String], flag: &str) -> bool {
-    #[cfg(unix)]
-    {
-        machine_join::own_switch(command, flag) || chat_start::own_switch(command, flag)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (command, flag);
-        false
-    }
-}
-
 /// Option arity is shared with resource tokenization. Values such as --help or
 /// --json are payloads when owned by a preceding option, never global switches.
 fn option_takes_value(value: &str) -> bool {
     shorthand::short_value_option(value)
         || (value.starts_with("--")
             && !value.contains('=')
-            && !matches!(
-                value,
-                "--help"
-                    | "--json"
-                    | "--jsonl"
-                    | "--quiet"
-                    | "--literal"
-                    | "--print"
-                    | "--all-sessions"
-            )
-            && !command::is_boolean_flag(value.trim_start_matches("--")))
+            && command::flag_takes_value(value.trim_start_matches("--")))
 }
 
 fn has_help_option(args: &[String]) -> bool {
@@ -1817,31 +561,6 @@ fn has_help_option(args: &[String]) -> bool {
         index += if option_takes_value(value) { 2 } else { 1 };
     }
     false
-}
-
-fn idempotency_key(value: &str) -> Result<String, UsageError> {
-    cmux_tui_core::resource::validate_idempotency_key(value)
-        .map_err(|error| UsageError::new(error.message))?;
-    Ok(value.to_owned())
-}
-
-/// Moves a global `--idempotency-key` onto the one daemon mutation the
-/// command sends. Anything else has no key to reuse.
-fn apply_idempotency_key(plan: &mut CommandPlan, key: Option<&str>) -> Result<(), UsageError> {
-    let Some(key) = key else { return Ok(()) };
-    match plan {
-        CommandPlan::Protocol(request)
-            if request.operation.class() == cmux_tui_core::resource::OperationClass::Mutation =>
-        {
-            request.idempotency_key = Some(key.to_owned());
-            Ok(())
-        }
-        CommandPlan::AgentMessage(message) => {
-            message.idempotency_key = Some(key.to_owned());
-            Ok(())
-        }
-        _ => Err(UsageError::new("--idempotency-key is accepted only for mutations")),
-    }
 }
 
 fn global_value(args: &[String], index: usize, flag: &str) -> Result<String, UsageError> {
@@ -1863,51 +582,11 @@ fn set_output_mode(
     Ok(())
 }
 
-/// The help topic suffix of one app verb (`machine reconnect app-action`).
-const APP_ACTION_TOPIC: &str = " app-action";
-
-/// Whether the grammar itself runs `args` once its help options are gone: then its help is the
-/// grammar's, not an app verb's of the same name.
-fn grammar_runs(args: &[String], surface: Surface) -> bool {
-    let words = args
-        .iter()
-        .filter(|word| !matches!(word.as_str(), "-h" | "--help"))
-        .cloned()
-        .collect::<Vec<_>>();
-    matches!(parse(&words, surface), Ok(command) if !matches!(command, ParsedCommand::Help(_)))
-}
-
-fn print_scope_help(scope: Option<&str>, surface: Surface) {
-    let catalog = crate::localization::catalog();
-    let text = match (scope, surface) {
-        (Some(topic), _) if topic.ends_with(APP_ACTION_TOPIC) => {
-            let topic = topic.trim_end_matches(APP_ACTION_TOPIC);
-            let (scope, verb) = topic.split_once(' ').unwrap_or((topic, ""));
-            Cow::Owned(app_action_help::verb_help(scope, verb).unwrap_or_default())
-        }
-        (Some("machine"), Surface::Cmux) => {
-            let text = format!("{MACHINE_CATALOG_HELP}\n{}", surface::VM_POINTER);
-            Cow::Owned(app_action_help::append("machine", &text).unwrap_or(text))
-        }
-        (Some(topic), _) if topic.ends_with(" app-actions") => {
-            let scope = topic.trim_end_matches(" app-actions");
-            let usage = app_action_help::scope_only_usage(scope).unwrap_or_default();
-            Cow::Owned(app_action_help::append(scope, &usage).unwrap_or(usage))
-        }
-        (Some(scope), _) => scope_help(scope),
-        // The root help lists `vm` itself, with `cloud` as its old name, in each language.
-        // Without the app (or in a cmux-tui pane the app does not own), the
-        // app's scopes move under one heading that says they need it.
-        (None, Surface::Cmux) => root_help::render(
-            catalog.local_server.cmux_root_help,
-            root_help::app_place(None),
-            &catalog.pane_cli,
-        ),
-        (None, Surface::CmuxTui) => Cow::Owned(root_help(&catalog.local_server)),
-    };
-    let mut stdout = io::stdout().lock();
-    let _ = stdout.write_all(text.as_bytes());
-    let _ = stdout.flush();
+fn print_scope_help(scope: Option<&str>) {
+    let text = scope
+        .map(scope_help)
+        .unwrap_or_else(|| Cow::Owned(root_help(crate::localization::catalog())));
+    write_stdout(&text);
 }
 
 fn scope_help(scope: &str) -> Cow<'static, str> {
@@ -1918,37 +597,21 @@ fn scope_help_for(
     scope: &str,
     catalog: &'static crate::localization::Catalog,
 ) -> Cow<'static, str> {
-    scope_help_with_keys(scope, catalog, || crate::config::load().keys)
-}
-
-/// [`scope_help_for`] with the key bindings `help keys` lists read from
-/// `keys` (the person's config in the CLI; fixed bindings in a test).
-fn scope_help_with_keys(
-    scope: &str,
-    catalog: &'static crate::localization::Catalog,
-    keys: impl FnOnce() -> crate::config::Keys,
-) -> Cow<'static, str> {
-    let text = code_mode::scope_help(scope).unwrap_or_else(|| match scope {
+    if let Some(path) = scope.strip_prefix(ACTION_TOPIC)
+        && let Some(help) = command::action_help(path, "cmux")
+    {
+        return Cow::Owned(help);
+    }
+    let help = match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
-        "keys" => Cow::Owned(keys_help::help(&keys(), catalog)),
-        machine_server::HELP_TOPIC => Cow::Owned(machine_server::help()),
-        "docs" => Cow::Borrowed(docs::help()),
-        "completion" => Cow::Borrowed(completion::HELP),
         "server" => Cow::Borrowed(catalog.local_server.help),
-        "server start" => Cow::Owned(format!(
-            "{}\n{}\n{}",
-            catalog.local_server.start_help,
-            catalog.local_server.start_remote_options_heading,
-            crate::remote_start_options_help()
-        )),
+        "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
         "server status" => Cow::Borrowed(catalog.local_server.status_help),
         "server stats" => Cow::Borrowed(catalog.local_server.stats_help),
         "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
-        "server restart" => Cow::Borrowed(catalog.local_server.restart_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
-        "machine" => Cow::Owned(format!("{MACHINE_HELP}\n{}", surface::VM_POINTER)),
-        "machine ls" => Cow::Borrowed(surface::MACHINE_LS_HELP),
+        "machine" => Cow::Borrowed(MACHINE_HELP),
         "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),
         "client" => Cow::Borrowed(CLIENT_HELP),
         "workspace" => Cow::Borrowed(WORKSPACE_HELP),
@@ -1956,41 +619,23 @@ fn scope_help_with_keys(
         "pane" => Cow::Borrowed(PANE_HELP),
         "tab" => Cow::Borrowed(TAB_HELP),
         "terminal" => Cow::Borrowed(TERMINAL_HELP),
-        "workspace rename" | "screen rename" | "pane rename" | "tab rename" => {
-            Cow::Owned(topology_help::rename_help(scope))
-        }
-        "browser" => Cow::Borrowed(scope_help::BROWSER_HELP),
-        "notification" => Cow::Borrowed(scope_help::NOTIFICATION_HELP),
-        "attention" => Cow::Borrowed(scope_help::ATTENTION_HELP),
+        "browser" => Cow::Borrowed(BROWSER_HELP),
+        "notification" => Cow::Borrowed(NOTIFICATION_HELP),
         "agent" => Cow::Borrowed(AGENT_HELP),
-        "agent open" => Cow::Borrowed(crate::localization::catalog().app_control.agent_open_usage),
-        "agent open-tab" => {
-            Cow::Borrowed(crate::localization::catalog().app_control.agent_open_tab_usage)
-        }
-        "cloud" => Cow::Owned(cloud_help::overview(catalog.is_japanese())),
-        "room" => Cow::Borrowed(scope_help::ROOM_HELP),
-        "space" => Cow::Borrowed(scope_help::SPACE_HELP),
-        "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
-        "git" => Cow::Borrowed(scope_help::GIT_HELP),
-        "project" => Cow::Borrowed(scope_help::PROJECT_HELP),
-        "conversation" => Cow::Borrowed(scope_help::CONVERSATION_HELP),
+        "attention" => Cow::Borrowed(ATTENTION_HELP),
         "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
-        #[cfg(unix)]
-        "share" => Cow::Borrowed(share_requests::HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
-        #[cfg(unix)]
-        "workflow" => Cow::Borrowed(workflow::HELP),
-        _ => Cow::Owned(
-            app_action_help::scope_only_usage(scope)
-                .unwrap_or_else(|| root_help(&catalog.local_server)),
-        ),
-    });
-    // Every scope lists the catalog's app verbs for it (cli/app_action_help.rs).
-    let text = app_action_help::append(scope, &text).map_or(text, Cow::Owned);
-    docs::append_scope_help(scope, text)
+        "identify" => Cow::Borrowed(catalog.pane_cli.identify_help),
+        "skill" => Cow::Borrowed(catalog.pane_cli.skill_help),
+        _ => return Cow::Owned(root_help(catalog)),
+    };
+    if scope == "server" || !PUBLIC_SCOPES.contains(&scope) {
+        return help;
+    }
+    Cow::Owned(format!("{help}\nAdd --help to an action to list its options.\n"))
 }
 
 const ROOT_HELP_PROCESS_PREFIX: &str = "\
@@ -2001,15 +646,12 @@ USAGE
   cmux attach [START OPTIONS]
   cmux relay [ROUTING OPTIONS]
   cmux wg hub --config <wg-quick file> --socket <unix socket>
-  cmux wg dial --hub <unix socket> <host> <port>
 ";
 
-const ROOT_HELP_PROCESS_SUFFIX: &str = "\
-  cmux machine-agent [OPTIONS]
+const ROOT_HELP_PROCESS_SUFFIX: &str = "  cmux machine-agent [OPTIONS]
 ";
 
-const ROOT_HELP_GLOBALS: &str = "\
-  cmux [GLOBAL OPTIONS] <scope> <action>
+const ROOT_HELP_GLOBALS: &str = "  cmux [GLOBAL OPTIONS] <scope> <action>
 
 GLOBAL OPTIONS
   --socket <path>    Connect to an exact local session socket
@@ -2031,8 +673,7 @@ PROCESS HELP
 RESOURCE SCOPES
 ";
 
-const ROOT_HELP_SCOPES_SUFFIX: &str = "\
-  machine       Inspect the local machine and session route
+const ROOT_HELP_SCOPES_SUFFIX: &str = "  machine       Inspect the local machine and session route
   session       Inspect and control a session
   client        Inspect connected clients
   workspace     Create and organize workspaces
@@ -2042,41 +683,32 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   terminal      Read, write, and attach to terminals
   browser       Navigate and attach to browsers
   notification  List and create notifications
-  attention     Mark tabs where the person must act; find the next one
-  agent         Manage agent sessions and terminal agents
-  send          Send a message to an agent session (`cmux agent send`)
-  inbox         Read and acknowledge messages other agents sent you
-  move          Move agent sessions to another machine (also teleport, evacuate)
-  room          Organize workspaces into rooms
-  space         List and organize spaces
-  closed        List and reopen closed tabs, screens, workspaces
-  git           Read a repository's status and changes; capture checkpoints
-  project       A project's own actions from .cmux/actions.json: `cmux project actions`
-  status        Show loading indicators for scripts and agents
-  setup         Set up cmux from an agent: list tasks, trust, machines, harnesses (JSON)
+  agent         Start, resume, list and report agents
+  attention     Find the tabs that need you
   sidebar       Manage sidebar views and local plugins
   pairing       Resolve pairing requests
   projection    Read and update frontend projections
   provider      Install private provider authority
   raw           Send an explicit low-level operation
 
-Run `cmux <scope> --help` for scope-specific paths.
+Run `cmux <scope> --help` for scope-specific paths, and add --help to an
+action for its options.
 ";
 
-fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
+fn root_help(catalog: &crate::localization::Catalog) -> String {
+    let messages = &catalog.local_server;
     format!(
-        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{}\n{ROOT_HELP_SCOPES_SUFFIX}\n{}",
+        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}{}",
         messages.root_remote_usage,
         messages.root_server_usage,
         messages.root_server_scope,
-        messages.root_acp_scope,
-        crate::localization::catalog().app_control.root_scopes,
+        catalog.pane_cli.root_agent_commands,
     )
 }
 
 const MACHINE_HELP: &str = "\
 USAGE
-  cmux machine ls
+  cmux machine list
   cmux machine <selector> show
   cmux machine <selector> session list
   cmux machine <selector> session <selector> open
@@ -2088,8 +720,7 @@ USAGE
   cmux session <selector> open|show|snapshot|ping|shutdown
 ";
 
-const SESSION_HELP_SUFFIX: &str = "\
-  cmux session <selector> creation <correlation-key> resolve
+const SESSION_HELP_SUFFIX: &str = "  cmux session <selector> creation <correlation-key> resolve
   cmux session <selector> events [--generation <value> --revision <decimal>]
   cmux session <selector> journal subscribe [--from tail|beginning] [FILTERS]
     [--cursor-session <session-id> --sequence <decimal>]
@@ -2133,69 +764,157 @@ USAGE
   cmux client <selector> cell pixels set --width-px <n> --height-px <n>
 ";
 
+const WORKSPACE_HELP: &str = "\
+USAGE
+  cmux workspace list
+  cmux workspace create [--name <value>] [--empty] [--correlation-key <value>] [--expected-revision <revision>]
+  cmux workspace <selector> show|rename|move|focus|close
+  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
+  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] shell <script>
+  cmux workspace <selector> layout apply [OPTIONS]
+  cmux workspace <selector> screen ...
+  Nested panes support split --right or --down.
+";
+
+const SCREEN_HELP: &str = "\
+USAGE
+  cmux screen list
+  cmux screen create [--workspace <selector>] [--name <value>] [--focus]
+    [--correlation-key <value>]
+  cmux screen <selector> show|rename|focus|close
+  cmux screen <selector> layout export
+  cmux screen <selector> layout undo [--confirm-close]
+    [--confirmation-token <value>]
+  cmux screen <selector> pane ...
+
+create adds the screen to the current workspace (or --workspace) and keeps
+the focus where it is unless --focus is given.
+";
+
+const PANE_HELP: &str = "\
+USAGE
+  cmux pane list
+  cmux pane create [--correlation-key <value>]
+  cmux pane <selector> show|rename|focus|close
+  cmux pane <selector> split [--right|--down] [--ratio <value>]
+    [--viewport-width <fraction>] [--correlation-key <value>]
+  cmux pane <selector> focus direction <left|right|up|down>
+  cmux pane <selector> neighbor <left|right|up|down>
+  cmux pane <selector> swap --other-workspace <selector>
+    --other-screen <selector> --other-pane <selector>
+  cmux pane <selector> zoom [--enabled <bool>]
+  cmux pane <selector> split ratio set --split <id> --ratio <value>
+  cmux pane <selector> viewport width set --columns <value>
+  cmux pane <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
+  cmux pane <selector> move --to-pane <selector> [--split right|down|left|up] [--focus]
+  cmux pane <selector> move --to-tab <selector> [--focus]
+  cmux pane <selector> move --to-workspace <selector> [--name <value>] [--focus]
+  cmux pane <selector> move --new-screen|--new-tab [--name <value>] [--focus]
+  cmux pane <selector> tab ...
+
+move moves the whole pane, all its tabs in order (tmux join-pane and
+break-pane): --to-pane puts them at the end of that pane, or with --split
+into a new pane split off it; --to-tab puts them after that tab in its pane;
+--to-workspace into a new screen in that workspace; --new-screen (--new-tab is
+the same) into a new screen in the pane's own workspace. The emptied pane
+closes. The focus stays where it is unless --focus is given (when the moved
+pane had the focus, the focus goes with it). --json prints pane, moved_tabs,
+destination {workspace, screen, pane, index}, created and focused_pane. A
+failed step is not resumed: details.made names what already moved.
+";
+
+const TAB_HELP: &str = "\
+USAGE
+  cmux tab list
+  cmux tab <selector> show|rename|move|focus|close
+  cmux tab create terminal [--correlation-key <value>] [OPTIONS]
+  cmux tab create browser --url <value> [--correlation-key <value>] [OPTIONS]
+  cmux tab <selector> terminal|browser ...
+";
+
+const TERMINAL_HELP: &str = "\
+USAGE
+  cmux terminal list
+  cmux terminal <selector> show
+  cmux terminal <selector> write [--text <value>|--bytes-base64 <base64>]
+  cmux terminal <selector> keys <key...>
+  cmux terminal <selector> mouse <kind> [OPTIONS]
+  cmux terminal <selector> focus <in|out>
+  cmux terminal <selector> screen read [--details]
+  cmux terminal <selector> screen wait --pattern <regex> [--timeout-ms <n>]
+  cmux terminal <selector> state read
+  cmux terminal <selector> history read|clear
+  cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
+  cmux terminal <selector> copy|process show [OPTIONS]
+  cmux terminal <selector> process wait [--timeout-ms <n>]
+  cmux terminal <selector> wait --until ready [--timeout <duration>]
+  cmux terminal <selector> resume [OPTIONS] [-- ARGS...]
+  cmux terminal <selector> viewport scroll --delta-rows <n>
+  cmux terminal <selector> move|project|attach|close [OPTIONS]
+
+screen wait prints its result either way and exits 1 when the timeout
+passes without a match. --pattern is a regular expression matched line by
+line: ^ and $ match at the start and end of each line, as in grep, so
+--pattern '^BENCH_OK$' matches a line that is only BENCH_OK. Start the
+pattern with (?-m) to match the whole text instead.
+
+screen read prints the screen's text; --details (or --json) prints the
+whole record. wait --until ready waits until the terminal's agent can take
+a message: exit 0 ready, 4 blocked on a startup dialog, 1 exited, 124
+timeout. resume starts an agent that exited again with its harness session
+(as cmux agent resume does).
+";
+
+const BROWSER_HELP: &str = "\
+USAGE
+  cmux browser list
+  cmux browser <selector> show|navigate|back|forward|reload|activate
+  cmux browser <selector> key|text [OPTIONS]
+  cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
+  cmux browser <selector> attach|close [OPTIONS]
+";
+
+const NOTIFICATION_HELP: &str = "\
+USAGE
+  cmux notification list
+  cmux notification create --title <value> --body <value> [OPTIONS]
+";
+
 const AGENT_HELP: &str = "\
 USAGE
-  cmux agent ls [PATTERN...] [--machine HOST] [--all] [--json]
-  cmux agent new NAME [OPTIONS] [-- PROMPT...]
-  cmux agent send SESSION [OPTIONS] [--] TEXT...   (also: cmux send)
-  cmux agent wait SESSION [--timeout DURATION]
-  cmux agent last SESSION
-  cmux inbox [list|read|ack ...]               (the team inbox)
-  cmux agent history SESSION [-n N]
-  cmux agent search QUERY... [--role user|assistant|tool] [--since DURATION] [-n N]
-  cmux agent resolve QUERY
-  cmux agent register NAME [--code CODE]
-  cmux agent bg start 'COMMAND' [--cwd DIR] [--description TEXT] [--session SESSION] [--no-notify]
-  cmux agent bg list [--session SESSION] [--all]
-  cmux agent notices [SESSION] [-n N]
-  cmux agent start NAME [--cmd <launcher>] [--harness H] [--pane <selector>]
-                  [--split right|down|left|up] [--cwd DIR] [--no-focus]
-                  [--timeout 90s] [--no-wait] [-- ARGS...]
-  cmux agent resume NAME [the same options]
-  cmux agent move|teleport|evacuate [SESSION...] --to MACHINE|auto|here [OPTIONS]
-                  (the same as cmux move; cmux move --help)
-  cmux agent ls [--json]
-  cmux agent send SESSION [TEXT...]
-  cmux agent history SESSION
-  cmux agent search QUERY...
-  cmux agent resolve SESSION
-  cmux agent register NAME
-  cmux agent bg start|list [ARGS...]
-  cmux agent notices [ARGS...]
-  cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]
-  cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]
-  cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
-  cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
-  cmux agent message release <message-id> --recipient <agent> --approve|--decline
-  cmux agent message unsend <message-id> [--recipient <agent>]
-  cmux agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
-  cmux agent list [--needs-me] [--state working|blocked|done|idle|unknown|ended]
-                  [--terminal <selector>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
+  cmux agent start <name> [OPTIONS] [-- ARGS...]
+  cmux agent resume <name> [OPTIONS] [-- ARGS...]
+  cmux agent list [--state working|blocked|done|idle|unknown|ended]
+                  [--terminal <id>]
                   (done: idle with an unread notification; ended: the session
-                  ended, which --state done selected before; rows carry name
-                  and status, and state is a deprecated alias of status; an
-                  ended agent of a closed terminal is listed only with
-                  --state ended)
-  cmux agent <agent> focus
-  cmux agent report --terminal <selector> --state working|blocked|idle|ended|unknown --source <value>
+                  ended, which --state done selected before)
+  cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
-  cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>] [--deadline-ms <n>]
+  cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
   cmux agent plugin list
   cmux agent plugin install <git-url> [--name <value>] [--force]
   cmux agent plugin use|update|remove <name-or-id>
   cmux agent plugin use --builtin
 
-agent start runs the launcher (--cmd, else $CMUX_AGENT_COMMAND, else claude;
-sr2 claude and codex work) in a new tab named NAME, split right of your pane
-unless --pane or --split say otherwise, and waits until the agent can take a
-message. It prints the ids and state: ready (exit 0), blocked with the dialog
-and a reason, such as Claude's folder-trust question (exit 4; cmux never
-answers it), timeout (exit 124) or exited (exit 1). NAME is a lowercase
-letter, then up to 31 lowercase letters, digits, - or _, unique among running
-tabs; it works wherever a terminal, tab or pane selector goes
-(cmux terminal NAME send --text ... --wait idle).
-agent resume NAME starts an agent that exited again with its recorded harness
-session (claude --resume <id>, codex resume <id>) in the same pane.
+agent start runs a coding agent (--cmd, else $CMUX_AGENT_COMMAND, else
+claude) in a new tab named <name> and waits until it can take a message:
+exit 0 ready, 4 blocked on a startup dialog (cmux never answers it), 1
+exited, 124 timeout. The name then selects that terminal, tab or pane.
+agent resume starts the exited agent <name> again with its harness session.
+";
+
+const ATTENTION_HELP: &str = "\
+USAGE
+  cmux attention next [--after <tab_id>] [--focus]
+  cmux attention list
+
+next answers the tab the person should go to next, as JSON {target,
+queue_length, focused}: tabs whose agent waits on them (blocked) first, then
+unread error and warning notifications, then other unread ones, each oldest
+first. target is the entry after the focused tab (or after --after), wrapping
+to the first, or null. It moves focus only with --focus. list answers the
+whole queue as {queue}. The TUI key `Ctrl-b a` (next-attention) visits the
+same order; `Ctrl-b A` lists it.
 ";
 
 const SIDEBAR_HELP: &str = "\
@@ -2207,16 +926,12 @@ USAGE
   cmux sidebar plugin use <name-or-id>
   cmux sidebar plugin use --builtin
   cmux sidebar plugin update|remove <name-or-id>
-  cmux sidebar section-scroll <section> fixed|flow
-  cmux sidebar section-max-rows <section> <1-50>|none
 ";
 
 const PAIRING_HELP: &str = "\
 USAGE
   cmux pairing request list
   cmux pairing request <selector> respond <accept|reject>
-
-  accept works only from the cmux app or the TUI that runs the daemon.
 ";
 
 const PROJECTION_HELP: &str = "\
@@ -2242,7 +957,409 @@ escape for the legacy control protocol and provides no compatibility promise.
 ";
 
 #[cfg(test)]
-mod tests;
-// `app` is unix only.
-#[cfg(all(test, unix))]
-mod catalog_request_tests;
+mod tests {
+    use super::*;
+
+    fn strings(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn global_modes_are_mutually_exclusive() {
+        let error =
+            parse_globals(&strings(&["--json", "--quiet", "workspace", "list"])).unwrap_err();
+        assert!(error.0.0.contains("another output mode"));
+        assert_eq!(error.1, OutputMode::Json);
+    }
+
+    #[test]
+    fn separator_stops_global_flag_extraction() {
+        let (global, command) = parse_globals(&strings(&[
+            "--json",
+            "workspace",
+            "current",
+            "run",
+            "--",
+            "tool",
+            "--session",
+            "literal",
+        ]))
+        .unwrap();
+        assert_eq!(global.output, OutputMode::Json);
+        assert_eq!(
+            command,
+            strings(&["workspace", "current", "run", "--", "tool", "--session", "literal",])
+        );
+    }
+
+    #[test]
+    fn global_value_options_accept_inline_equals_values() {
+        let (global, command) = parse_globals(&strings(&[
+            "--socket=/tmp/review.sock",
+            "--session=review-session",
+            "--machine=builder",
+            "workspace",
+            "list",
+        ]))
+        .unwrap();
+        assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
+        assert_eq!(global.session.as_deref(), Some("review-session"));
+        assert_eq!(global.machine.as_deref(), Some("builder"));
+        assert_eq!(command, strings(&["workspace", "list"]));
+    }
+
+    #[test]
+    fn global_value_options_reject_empty_inline_values() {
+        let error = parse_globals(&strings(&["--socket=", "workspace", "list"])).unwrap_err();
+        assert!(error.0.0.contains("--socket needs a value"));
+    }
+
+    #[test]
+    fn global_value_options_reject_following_option() {
+        let error =
+            parse_globals(&strings(&["--session", "--json", "workspace", "list"])).unwrap_err();
+        assert!(error.0.0.contains("--session needs a value"));
+    }
+
+    #[test]
+    fn global_value_options_accept_hyphen_prefixed_values() {
+        let (global, command) =
+            parse_globals(&strings(&["--session", "-1", "--socket", "-tmp/socket"])).unwrap();
+        assert_eq!(global.session.as_deref(), Some("-1"));
+        assert_eq!(global.socket, Some(PathBuf::from("-tmp/socket")));
+        assert!(command.is_empty());
+    }
+
+    #[test]
+    fn server_lifecycle_routing_flags_follow_action() {
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&["server", "status", "--session", "review-session"])).unwrap()
+        else {
+            panic!("server status must produce a server plan");
+        };
+        assert_eq!(global.session.as_deref(), Some("review-session"));
+        assert!(global.socket.is_none());
+        assert!(matches!(plan.action, lifecycle::ServerAction::Status));
+
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&["server", "stop", "--socket", "/tmp/review.sock", "--force"]))
+                .unwrap()
+        else {
+            panic!("server stop must produce a server plan");
+        };
+        assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
+        assert!(global.session.is_none());
+        assert!(matches!(plan.action, lifecycle::ServerAction::Stop { force: true }));
+
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&[
+                "server",
+                "reload-config",
+                "--session",
+                "review-session",
+                "--socket",
+                "/tmp/review.sock",
+            ]))
+            .unwrap()
+        else {
+            panic!("server reload-config must produce a server plan");
+        };
+        assert_eq!(global.session.as_deref(), Some("review-session"));
+        assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
+        assert!(matches!(plan.action, lifecycle::ServerAction::ReloadConfig));
+    }
+
+    #[test]
+    fn server_stats_parses_with_routing_options() {
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&["server", "stats", "--session", "review-session"])).unwrap()
+        else {
+            panic!("server stats must produce a server plan");
+        };
+        assert_eq!(global.session.as_deref(), Some("review-session"));
+        assert!(matches!(plan.action, lifecycle::ServerAction::Stats));
+        assert!(
+            scope_help_for("server stats", crate::localization::catalog()).contains("server stats")
+        );
+    }
+
+    /// `pane <p> move --new-screen --help` prints the pane move help:
+    /// `--new-screen` takes no value, so it does not swallow `--help`, and
+    /// `--json` after it is the output mode.
+    #[test]
+    fn w4j_pane_move_help_is_the_pane_move_help() {
+        for args in [
+            &["pane", "current", "move", "--new-screen", "--help"][..],
+            &["pane", "move", "--new-tab", "--help"],
+            &["pane", "pane_1", "move", "--to-pane", "x", "--focus", "--help"],
+        ] {
+            let Ok(ParsedCommand::Help(Some(topic))) = parse(&strings(args)) else {
+                panic!("{args:?} is not help");
+            };
+            assert_eq!(topic, "action:pane <selector> move", "{args:?}");
+            let help = scope_help_for(&topic, crate::localization::catalog());
+            assert!(help.contains("--to-pane"), "{help}");
+        }
+        let (global, _) =
+            parse_globals(&strings(&["pane", "move", "--new-screen", "--json"])).unwrap();
+        assert_eq!(global.output, OutputMode::Json);
+    }
+
+    #[test]
+    fn server_stats_help_routes_to_the_stats_topic() {
+        let ParsedCommand::Help(Some(topic)) =
+            parse(&strings(&["server", "stats", "--help"])).unwrap()
+        else {
+            panic!("server stats help must produce a scoped help topic");
+        };
+        assert_eq!(topic, "server stats");
+        assert!(scope_help_for(&topic, crate::localization::catalog()).contains("--json"));
+    }
+
+    #[test]
+    fn every_scope_has_dedicated_help() {
+        let english_catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
+        for scope in PUBLIC_SCOPES {
+            let help = scope_help_for(scope, english_catalog);
+            assert!(help.contains("USAGE"));
+            assert!(help.contains(scope));
+        }
+        let japanese_catalog = crate::localization::catalog_for_locale("ja_JP.UTF-8");
+        let english = session_help(&english_catalog.session_reset, &english_catalog.local_server);
+        let japanese =
+            session_help(&japanese_catalog.session_reset, &japanese_catalog.local_server);
+        assert!(english.contains("creation <correlation-key> resolve"));
+        assert!(english.contains("session <name> reset-state"));
+        assert!(japanese.contains("session <name> reset-state"));
+        assert!(japanese.contains("保存状態のリセット"));
+        assert!(TERMINAL_HELP.contains("screen wait --pattern <regex>"));
+        assert!(TERMINAL_HELP.contains("process wait [--timeout-ms <n>]"));
+        assert!(TERMINAL_HELP.contains("move|project|attach|close"));
+    }
+
+    #[test]
+    fn startup_help_is_explicitly_discoverable() {
+        let help = root_help(crate::localization::catalog_for_locale("en_US.UTF-8"));
+        assert!(help.contains("cmux help start"));
+        assert!(help.starts_with("cmux - "));
+        assert!(!help.contains("cmux-tui"));
+        assert!(matches!(
+            parse(&strings(&["help", "start"])).unwrap(),
+            ParsedCommand::Help(Some(scope)) if scope == "start"
+        ));
+    }
+
+    #[test]
+    fn program_name_is_the_invoked_file_name() {
+        assert_eq!(program_name_from(Some(OsStr::new("/usr/local/bin/cmux-tui"))), "cmux-tui");
+        assert_eq!(program_name_from(Some(OsStr::new("cmux"))), "cmux");
+        assert_eq!(program_name_from(Some(OsStr::new("C:/bin/cmux-tui.exe"))), "cmux-tui");
+        assert_eq!(program_name_from(Some(OsStr::new("C:/bin/CMUX-TUI.EXE"))), "CMUX-TUI");
+        assert_eq!(program_name_from(Some(OsStr::new(""))), "cmux");
+        assert_eq!(program_name_from(None), "cmux");
+    }
+
+    #[test]
+    fn help_commands_use_the_program_name_and_prose_keeps_cmux() {
+        let help = "cmux - terminal multiplexer\n\nUSAGE\n  cmux tab list\n  cmux\n\
+                    USAGE: cmux remote trust\nRun `cmux tab --help`; cmux.protocol/2 and cmux-tui stay.\n\
+                    \x20 cmux Cloud machine prose stays.\n";
+        assert_eq!(
+            with_program_name(help, "cmux-tui"),
+            "cmux-tui - terminal multiplexer\n\nUSAGE\n  cmux-tui tab list\n  cmux-tui\n\
+             USAGE: cmux-tui remote trust\nRun `cmux-tui tab --help`; cmux.protocol/2 and cmux-tui stay.\n\
+             \x20 cmux Cloud machine prose stays.\n"
+        );
+        assert!(matches!(with_program_name(help, "cmux"), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn action_help_topics_resolve_through_shorthand_and_nesting() {
+        for (args, topic) in [
+            (vec!["tab", "create", "terminal", "--help"], "action:tab create terminal"),
+            (
+                vec!["tab", "tab_x", "move", "--pane", "pane_x", "--help"],
+                "action:tab <selector> move",
+            ),
+            (vec!["tab", "move", "--help"], "action:tab <selector> move"),
+            (
+                vec!["ws", "current", "win", "current", "p", "current", "split", "--help"],
+                "action:pane <selector> split",
+            ),
+            (vec!["help", "terminal", "current", "move"], "action:terminal <selector> move"),
+            (vec!["tab", "create", "--help"], "tab"),
+            (vec!["server", "stats", "--help"], "server stats"),
+        ] {
+            let ParsedCommand::Help(Some(found)) = parse(&strings(&args)).unwrap() else {
+                panic!("{args:?} must print help");
+            };
+            assert_eq!(found, topic, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn unknown_flags_are_reported_before_taking_a_value() {
+        for args in [
+            vec!["tab", "create", "terminal", "--bogus"],
+            vec!["tab", "create", "terminal", "--bogus", "1"],
+            vec!["tab", "create", "terminal", "--bogus", "--cwd", "/tmp"],
+        ] {
+            let Err(failure) = parse(&strings(&args)) else { panic!("{args:?} must fail") };
+            assert!(
+                failure.error.0.starts_with("unknown flag --bogus"),
+                "{args:?}: {}",
+                failure.error
+            );
+        }
+    }
+
+    #[test]
+    fn forwarded_server_start_does_not_hide_an_unknown_flag() {
+        let Err(failure) =
+            parse(&strings(&["tab", "create", "terminal", "--name", "server", "start", "--bogus"]))
+        else {
+            panic!("an unknown flag must fail");
+        };
+        assert!(failure.error.0.starts_with("unknown flag --bogus"), "{}", failure.error);
+        let Err(failure) = parse(&strings(&["--term", "xterm-256color", "server", "start"])) else {
+            panic!("startup options before server start must fail");
+        };
+        assert!(failure.error.0.contains("after `server start`"), "{}", failure.error);
+        let Err(failure) = parse(&strings(&[
+            "workspace",
+            "current",
+            "run",
+            "--bogus",
+            "--",
+            "cmux",
+            "server",
+            "start",
+        ])) else {
+            panic!("an unknown flag must fail");
+        };
+        assert!(failure.error.0.starts_with("unknown flag --bogus"), "{}", failure.error);
+    }
+
+    #[test]
+    fn remote_invocation_allows_leading_global_options() {
+        assert!(is_remote_invocation(&strings(&["remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--json", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--session", "-1", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--socket", "-tmp/socket", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--session=dev", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&[
+            "--session",
+            "dev",
+            "--socket",
+            "/tmp/cmux.sock",
+            "remote",
+            "rpc",
+        ])));
+        assert!(!is_remote_invocation(&strings(&["--session", "remote", "workspace", "list"])));
+    }
+
+    #[test]
+    fn remote_invocation_rejects_missing_global_option_values_and_terminator() {
+        assert!(!is_remote_invocation(&strings(&["--session"])));
+        assert!(!is_remote_invocation(&strings(&["--socket"])));
+        assert!(!is_remote_invocation(&strings(&["--session", "--json", "remote", "connect",])));
+        assert!(!is_remote_invocation(&strings(&[
+            "--socket",
+            "--session=dev",
+            "remote",
+            "connect",
+        ])));
+        assert!(!is_remote_invocation(&strings(&["--session=", "remote", "connect",])));
+        assert!(!is_remote_invocation(&strings(&["--session", "--", "remote", "connect",])));
+        assert!(!is_remote_invocation(&strings(&["--session", "dev", "--", "remote", "connect",])));
+        assert!(!is_remote_invocation(&strings(&["--", "remote", "connect"])));
+    }
+
+    #[test]
+    fn shorthand_resource_paths_preserve_selectors_and_payloads() {
+        for (short, canonical) in [
+            (vec!["ws", "ls"], vec!["workspace", "list"]),
+            (vec!["ws", "new", "--name", "term"], vec!["workspace", "create", "--name", "term"]),
+            (vec!["pane", "split", "--down"], vec!["pane", "current", "split", "--down"]),
+            (
+                vec!["ws", "name:ls", "win", "current", "p", "current", "get"],
+                vec!["workspace", "name:ls", "screen", "current", "pane", "current", "show"],
+            ),
+            (
+                vec!["term", "current", "write", "--text", "--json"],
+                vec!["terminal", "current", "write", "--text=--json"],
+            ),
+            (
+                vec!["term", "current", "write", "--text", "--help"],
+                vec!["terminal", "current", "write", "--text=--help"],
+            ),
+            (
+                vec!["ws", "current", "run", "--", "echo", "--json", "neww"],
+                vec!["workspace", "current", "run", "--", "echo", "--json", "neww"],
+            ),
+        ] {
+            let plan = |args: Vec<&str>| {
+                let ParsedCommand::Command { global, plan: CommandPlan::Protocol(request) } =
+                    parse(&strings(&args)).unwrap()
+                else {
+                    panic!("expected typed request")
+                };
+                (global.output, request.operation.name().unwrap(), request.params)
+            };
+            assert_eq!(plan(short), plan(canonical));
+        }
+    }
+
+    #[test]
+    fn shorthand_tmux_commands_share_canonical_operations() {
+        for (short, canonical) in [
+            (vec!["ls"], vec!["session", "list"]),
+            (vec!["lsw"], vec!["screen", "list"]),
+            (vec!["lsp"], vec!["pane", "list"]),
+            (vec!["neww", "-n", "api"], vec!["screen", "create", "--name", "api"]),
+            (vec!["splitw", "-h"], vec!["pane", "current", "split", "--right"]),
+            (vec!["splitw"], vec!["pane", "current", "split", "--down"]),
+            (vec!["selectp", "-L"], vec!["pane", "current", "focus", "direction", "left"]),
+            (vec!["selectw", "-t", "api"], vec!["screen", "api", "focus"]),
+            (
+                vec!["renamew", "-t", "api", "backend"],
+                vec!["screen", "api", "rename", "--name", "backend"],
+            ),
+            (vec!["capturep"], vec!["terminal", "current", "screen", "read"]),
+            (
+                vec!["send-keys", "C-c", "Enter"],
+                vec!["terminal", "current", "keys", "ctrl+c", "enter"],
+            ),
+            (
+                vec!["send-keys", "-l", "hello", "世界"],
+                vec!["terminal", "current", "write", "--text", "hello世界"],
+            ),
+        ] {
+            let plan = |args: Vec<&str>| {
+                let ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. } =
+                    parse(&strings(&args)).unwrap()
+                else {
+                    panic!("expected typed request")
+                };
+                (request.operation.name().unwrap(), request.params)
+            };
+            assert_eq!(plan(short), plan(canonical));
+        }
+    }
+
+    #[test]
+    fn shorthand_rejects_unsupported_or_conflicting_flags_before_execution() {
+        for args in [
+            vec!["splitw", "-h", "-v"],
+            vec!["splitw", "-d"],
+            vec!["selectp", "-L", "-R"],
+            vec!["neww", "-n", "one", "--name", "two"],
+            vec!["selectw", "-t"],
+            vec!["capturep", "-t", "one", "--target", "two"],
+            vec!["send-keys", "hello world"],
+            vec!["new-session"],
+        ] {
+            assert!(parse(&strings(&args)).is_err(), "accepted {args:?}");
+        }
+    }
+}

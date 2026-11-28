@@ -61,21 +61,6 @@ class LiveSchemaTests(unittest.TestCase):
             "ref<TerminalKeyInput>",
         )
 
-    def test_fieldless_struct_variant_has_no_request_fields(self) -> None:
-        # `ReleaseWorkspaceNames {},` is one line with no fields (#53137).
-        self.assertEqual(
-            CHECKER.runtime_command_fields()["release-workspace-names"], {}
-        )
-
-    def test_delta_cursor_maps_to_the_named_since_type(self) -> None:
-        runtime_field = CHECKER.runtime_command_fields()["list-workspaces"]["since"]
-        self.assertEqual(
-            CHECKER._runtime_type_shape(
-                CHECKER._unwrap_rust_option(runtime_field.rust_type)[0]
-            ),
-            "ref<ListWorkspacesSince>",
-        )
-
     def test_boxed_command_request_uses_its_named_struct_fields(self) -> None:
         fields = CHECKER.runtime_command_fields()["create-surface-with-receipt"]
 
@@ -98,72 +83,6 @@ class LiveSchemaTests(unittest.TestCase):
         self.assertEqual(
             CHECKER._runtime_type_shape(fields["selectors"].rust_type),
             "ref<ResourceSelectors>",
-        )
-
-    def test_a_struct_variant_with_no_fields_has_no_request_fields(self) -> None:
-        # `ReleaseWorkspaceNames {},` in the Command enum (base went red on it, 2026-11-24).
-        self.assertEqual(CHECKER.runtime_command_fields()["release-workspace-names"], {})
-
-    def test_struct_fields_accept_restricted_visibility(self) -> None:
-        fields = CHECKER._parse_rust_fields(
-            "    pub(super) conversation: String,\n"
-            "    pub(crate) limit: Option<u32>,\n"
-            "    pub(in crate::server) cursor: Option<String>,\n"
-            "    pub id: u64,\n"
-            "    plain: bool,\n",
-            "Rust struct Fixture",
-        )
-        self.assertEqual(
-            {name: field.rust_type for name, field in fields.items()},
-            {
-                "conversation": "String",
-                "limit": "Option<u32>",
-                "cursor": "Option<String>",
-                "id": "u64",
-                "plain": "bool",
-            },
-        )
-
-    def test_struct_fields_skip_lint_attributes(self) -> None:
-        fields = CHECKER._parse_rust_fields(
-            "    #[serde(default)]\n"
-            "    #[allow(dead_code)]\n"
-            "    ignored: bool,\n"
-            "    #[expect(dead_code, reason = \"wire only\")]\n"
-            "    kept: u64,\n",
-            "Rust struct Fixture",
-        )
-        self.assertEqual(
-            {name: (field.rust_type, field.attributes) for name, field in fields.items()},
-            {"ignored": ("bool", ("default",)), "kept": ("u64", ())},
-        )
-
-    def test_struct_fields_leave_out_a_field_that_serde_skips(self) -> None:
-        fields = CHECKER._parse_rust_fields(
-            "    #[serde(default)]\n"
-            "    place: Option<TabPlaceRequest>,\n"
-            "    #[serde(skip)]\n"
-            "    hole: Option<u64>,\n"
-            "    #[serde(default, skip_serializing_if = \"Option::is_none\")]\n"
-            "    kept: Option<u64>,\n",
-            "Rust struct Fixture",
-        )
-        self.assertEqual(sorted(fields), ["kept", "place"])
-
-    def test_the_place_of_a_create_request_maps_to_its_named_type(self) -> None:
-        commands = CHECKER.runtime_command_fields()
-        for command in ("new-tab", "new-conversation-tab", "new-frontend-browser-tab"):
-            with self.subTest(command=command):
-                self.assertEqual(
-                    CHECKER._runtime_type_shape(commands[command]["place"].rust_type),
-                    "ref<TabPlace>",
-                )
-                self.assertNotIn("hole", commands[command])
-
-    def test_handler_module_request_uses_its_struct_and_flattened_key(self) -> None:
-        fields = CHECKER.runtime_command_fields()["move-bookmark"]
-        self.assertEqual(
-            set(fields), {"origin", "mutation_id", "bookmark", "parent", "index"}
         )
 
     def test_missing_command_is_rejected(self) -> None:

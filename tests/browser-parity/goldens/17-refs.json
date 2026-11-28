@@ -14,7 +14,7 @@
     "not-invalidated-by-scope": "Out clicked",
     "ref-validates": "page.ref: expected a snapshot ref such as \"e5\" or \"f1e2\", got \"button\"",
     "is-visible-stale": false,
-    "after-navigation": "ref e2 is stale: the element was removed; take a new snapshot",
+    "after-navigation": "ref e2 is stale: the element is from a previous document; take a new snapshot",
     "new-document-continues": "e6"
   }
 }

@@ -100,9 +100,6 @@ pub fn key_input_from_chord(chord: &str) -> Option<KeyInput> {
             "ctrl" | "control" => mods = mods | Mods::CTRL,
             "alt" | "option" => mods = mods | Mods::ALT,
             "shift" => mods = mods | Mods::SHIFT,
-            // Command on macOS: a Kitty-protocol program reads Cmd-C, Cmd-Z, Cmd-A
-            // (legacy encoding sends nothing for it, as Ghostty does).
-            "super" | "cmd" | "command" => mods = mods | Mods::SUPER,
             "" => return None,
             other => {
                 if key_name.is_some() {
@@ -234,7 +231,7 @@ impl KeyEncoder {
     /// Sync encoder options (DECCKM, kitty flags, ...) from a terminal.
     pub fn sync_from_terminal(&mut self, terminal: &Terminal) {
         unsafe {
-            sys::ghostty_key_encoder_set_from_terminal(self.encoder, terminal.raw());
+            sys::ghostty_key_encoder_setopt_from_terminal(self.encoder, terminal.raw());
         }
     }
 
@@ -251,7 +248,7 @@ impl KeyEncoder {
             } else {
                 sys::GHOSTTY_OPTION_AS_ALT_FALSE
             };
-            sys::ghostty_key_encoder_set(
+            sys::ghostty_key_encoder_setopt(
                 self.encoder,
                 sys::GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT,
                 ptr::from_ref(&option_as_alt).cast(),
@@ -264,12 +261,15 @@ impl KeyEncoder {
             sys::ghostty_key_event_set_unshifted_codepoint(self.event, input.unshifted_codepoint);
             // The event borrows the utf8 buffer; `input` outlives the
             // encode call below, so the borrow is valid for its lifetime.
-            let utf8 = if input.utf8.is_empty() {
-                sys::GhosttyString { ptr: ptr::null(), len: 0 }
+            if input.utf8.is_empty() {
+                sys::ghostty_key_event_set_utf8(self.event, ptr::null(), 0);
             } else {
-                sys::GhosttyString { ptr: input.utf8.as_ptr(), len: input.utf8.len() }
-            };
-            sys::ghostty_key_event_set_utf8(self.event, utf8);
+                sys::ghostty_key_event_set_utf8(
+                    self.event,
+                    input.utf8.as_ptr() as *const std::os::raw::c_char,
+                    input.utf8.len(),
+                );
+            }
         }
 
         let mut buf = [0u8; 256];
@@ -278,7 +278,7 @@ impl KeyEncoder {
             sys::ghostty_key_encoder_encode(
                 self.encoder,
                 self.event,
-                buf.as_mut_ptr(),
+                buf.as_mut_ptr() as *mut std::os::raw::c_char,
                 buf.len(),
                 &mut written,
             )
@@ -290,7 +290,7 @@ impl KeyEncoder {
                 sys::ghostty_key_encoder_encode(
                     self.encoder,
                     self.event,
-                    big.as_mut_ptr(),
+                    big.as_mut_ptr() as *mut std::os::raw::c_char,
                     big.len(),
                     &mut written2,
                 )
@@ -327,11 +327,7 @@ fn append_encoded_key(input: &KeyInput, encoded: &[u8], out: &mut Vec<u8>) {
         return;
     }
 
-    // colon_count >= 1 above, so the key field has a separator.
-    let Some(shifted_separator) = key_field.iter().position(|byte| *byte == b':') else {
-        out.extend_from_slice(encoded);
-        return;
-    };
+    let shifted_separator = key_field.iter().position(|byte| *byte == b':').unwrap();
     let shifted_start = shifted_separator + 1;
     let base_separator = key_field[shifted_start..]
         .iter()
@@ -383,5 +379,86 @@ impl Drop for KeyEncoder {
             sys::ghostty_key_event_free(self.event);
             sys::ghostty_key_encoder_free(self.encoder);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Callbacks, Terminal};
+
+    #[test]
+    fn chord_parser_encodes_common_keys() {
+        let term = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        let mut encoder = KeyEncoder::new().unwrap();
+        encoder.sync_from_terminal(&term);
+
+        let mut out = Vec::new();
+        encoder.encode(&key_input_from_chord("ctrl+c").unwrap(), &mut out).unwrap();
+        assert_eq!(out, vec![0x03]);
+
+        out.clear();
+        encoder.encode(&key_input_from_chord("enter").unwrap(), &mut out).unwrap();
+        assert_eq!(out, b"\r");
+
+        out.clear();
+        encoder.encode(&key_input_from_chord("up").unwrap(), &mut out).unwrap();
+        assert!(!out.is_empty());
+
+        assert!(key_input_from_chord("not-a-key").is_none());
+    }
+
+    #[test]
+    fn encodes_ctrl_c() {
+        let mut enc = KeyEncoder::new().unwrap();
+        let mut out = Vec::new();
+        enc.encode(
+            &KeyInput {
+                key: sys::GHOSTTY_KEY_C,
+                mods: Mods::CTRL,
+                unshifted_codepoint: 'c' as u32,
+                ..Default::default()
+            },
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(out, vec![0x03]);
+    }
+
+    #[test]
+    fn encodes_arrow_application_mode() {
+        // DECCKM off: ESC [ A. After enabling application cursor keys via
+        // the terminal, syncing makes it ESC O A.
+        let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        let mut enc = KeyEncoder::new().unwrap();
+        let up = KeyInput { key: sys::GHOSTTY_KEY_ARROW_UP, ..Default::default() };
+
+        let mut out = Vec::new();
+        enc.sync_from_terminal(&term);
+        enc.encode(&up, &mut out).unwrap();
+        assert_eq!(out, b"\x1b[A");
+
+        term.vt_write(b"\x1b[?1h");
+        enc.sync_from_terminal(&term);
+        out.clear();
+        enc.encode(&up, &mut out).unwrap();
+        assert_eq!(out, b"\x1bOA");
+    }
+
+    #[test]
+    fn restores_reported_shifted_and_base_layout_alternates() {
+        let input = KeyInput {
+            shifted_codepoint: '\u{427}' as u32,
+            base_layout_codepoint: ';' as u32,
+            ..Default::default()
+        };
+        let mut out = Vec::new();
+
+        append_encoded_key(&input, b"\x1b[1095:;6u", &mut out);
+
+        assert_eq!(out, b"\x1b[1095:1063:59;6u");
+        out.clear();
+        append_encoded_key(&input, b"\x1b[1095::59;6u", &mut out);
+        assert_eq!(out, b"\x1b[1095:1063:59;6u");
     }
 }

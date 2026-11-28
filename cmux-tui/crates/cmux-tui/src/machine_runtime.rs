@@ -1,6 +1,7 @@
 //! Config-backed machine catalog and transport connectors.
 
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -11,9 +12,10 @@ use crate::machine::{
     MachineDescriptor, MachineKey, MachineSnapshot, MachineStatus, MachineUiState,
 };
 use crate::session::{RemoteSession, Session};
-// The ssh config reader lives in acpmux, which lists the hosts for `_acpmux/machine_candidates` too.
-pub(crate) use acpmux::ssh_config_hosts::{SshConfigHost, ssh_config_hosts, ssh_config_targets};
 
+const SSH_CONFIG_MAX_DEPTH: usize = 16;
+const SSH_CONFIG_MAX_FILES: usize = 256;
+const SSH_CONFIG_MAX_HOSTS: usize = 4096;
 /// Provider-backed machine keys grow upward from one. Client-local overlay
 /// keys live in the upper half so the two process-local catalogs cannot
 /// collide without changing the provider protocol.
@@ -58,8 +60,6 @@ impl MachineRuntime {
                     name: current_name,
                     subtitle: "local".to_string(),
                     status: MachineStatus::Running,
-                    platform: None,
-                    capabilities: Vec::new(),
                 },
                 target: MachineTargetConfig::Unix { socket: current_socket },
             }],
@@ -118,8 +118,6 @@ impl MachineRuntime {
                 name: machine.name,
                 subtitle: machine.subtitle,
                 status: MachineStatus::Running,
-                platform: None,
-                capabilities: Vec::new(),
             },
             target: machine.target,
         });
@@ -267,10 +265,154 @@ impl MachineRuntime {
 }
 
 fn discover_ssh_config_hosts() -> Vec<MachineConnectionTarget> {
-    ssh_config_hosts()
+    let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else {
+        return Vec::new();
+    };
+    let home = PathBuf::from(home);
+    let ssh_root = home.join(".ssh");
+    ssh_config_hosts_from_path(&ssh_root.join("config"), &ssh_root, &home)
         .into_iter()
         .map(|host| MachineConnectionTarget { name: host.clone(), target: host })
         .collect()
+}
+
+fn ssh_config_hosts_from_path(config: &Path, ssh_root: &Path, home: &Path) -> Vec<String> {
+    let mut discovery = SshConfigDiscovery {
+        ssh_root,
+        home,
+        visited: HashSet::new(),
+        seen_hosts: HashSet::new(),
+        hosts: Vec::new(),
+    };
+    discovery.visit(config, 0);
+    discovery.hosts
+}
+
+struct SshConfigDiscovery<'a> {
+    ssh_root: &'a Path,
+    home: &'a Path,
+    visited: HashSet<PathBuf>,
+    seen_hosts: HashSet<String>,
+    hosts: Vec<String>,
+}
+
+impl SshConfigDiscovery<'_> {
+    fn visit(&mut self, path: &Path, depth: usize) {
+        if depth > SSH_CONFIG_MAX_DEPTH
+            || self.visited.len() >= SSH_CONFIG_MAX_FILES
+            || self.hosts.len() >= SSH_CONFIG_MAX_HOSTS
+        {
+            return;
+        }
+        let identity = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        if !self.visited.insert(identity) {
+            return;
+        }
+        let Ok(contents) = fs::read_to_string(path) else { return };
+        let mut includes = Vec::new();
+        for line in contents.lines() {
+            let mut words = ssh_config_words(line);
+            let Some(first) = words.first_mut() else { continue };
+            let mut inline_value = None;
+            if let Some((keyword, value)) = first.split_once('=') {
+                inline_value = (!value.is_empty()).then(|| value.to_string());
+                *first = keyword.to_string();
+            }
+            let keyword = first.to_ascii_lowercase();
+            let mut values = inline_value.into_iter().chain(words.into_iter().skip(1));
+            match keyword.as_str() {
+                "host" => {
+                    for host in values.by_ref() {
+                        if self.hosts.len() >= SSH_CONFIG_MAX_HOSTS {
+                            return;
+                        }
+                        if is_concrete_ssh_host(&host)
+                            && self.seen_hosts.insert(host.to_ascii_lowercase())
+                        {
+                            self.hosts.push(host);
+                        }
+                    }
+                }
+                "include" => {
+                    includes.extend(values);
+                }
+                _ => {}
+            }
+        }
+        // The root file is the user's curated catalog. Included files are
+        // often generated inventories, so list direct aliases first while
+        // still following every include for discovery and de-duplication.
+        for pattern in includes {
+            for included in self.expand_include(&pattern) {
+                self.visit(&included, depth.saturating_add(1));
+            }
+        }
+    }
+
+    fn expand_include(&self, pattern: &str) -> Vec<PathBuf> {
+        let path = if pattern == "~" {
+            self.home.to_path_buf()
+        } else if let Some(relative) = pattern.strip_prefix("~/") {
+            self.home.join(relative)
+        } else {
+            let path = PathBuf::from(pattern);
+            if path.is_absolute() { path } else { self.ssh_root.join(path) }
+        };
+        let Some(pattern) = path.to_str() else { return Vec::new() };
+        let Ok(paths) = glob::glob(pattern) else { return Vec::new() };
+        paths.filter_map(Result::ok).take(SSH_CONFIG_MAX_FILES).collect()
+    }
+}
+
+fn is_concrete_ssh_host(host: &str) -> bool {
+    !host.is_empty()
+        && !host.starts_with('-')
+        && !host.chars().any(|character| matches!(character, '*' | '?' | '!' | '[' | ']'))
+}
+
+/// OpenSSH's config grammar only needs shell-like quoting for the directives
+/// read here. Comments start outside quotes; backslashes quote one character.
+fn ssh_config_words(line: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    for character in line.chars() {
+        if escaped {
+            current.push(character);
+            escaped = false;
+            continue;
+        }
+        if character == '\\' {
+            escaped = true;
+            continue;
+        }
+        if let Some(delimiter) = quote {
+            if character == delimiter {
+                quote = None;
+            } else {
+                current.push(character);
+            }
+            continue;
+        }
+        match character {
+            '\'' | '"' => quote = Some(character),
+            '#' => break,
+            character if character.is_whitespace() => {
+                if !current.is_empty() {
+                    words.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(character),
+        }
+    }
+    if escaped {
+        current.push('\\');
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words
 }
 
 pub(crate) trait MachineConnectionLease: Send {}
@@ -775,5 +917,189 @@ fn local_hostname() -> Option<String> {
 }
 
 #[cfg(test)]
-#[path = "machine_runtime_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connected_target_is_deduplicated() {
+        let mut runtime = MachineRuntime::new(PathBuf::from("/tmp/current.sock"), Vec::new());
+        let first = runtime.connect_machine("dev@mini.local").unwrap();
+        let second = runtime.connect_machine("dev@mini.local").unwrap();
+        assert_eq!(first, second);
+        assert_eq!(runtime.snapshot(runtime.initial_key()).machines.len(), 2);
+    }
+
+    #[test]
+    fn typed_ssh_command_prefix_adds_the_same_host_alias() {
+        let mut runtime = MachineRuntime::new(PathBuf::from("/tmp/current.sock"), Vec::new());
+        let command = runtime.connect_machine("ssh build-host").unwrap();
+        let alias = runtime.connect_machine("build-host").unwrap();
+
+        assert_eq!(command, alias);
+        assert_eq!(runtime.name(command), Some("build-host"));
+    }
+
+    #[test]
+    fn client_catalog_machine_rename_is_session_local() {
+        let machine = MachineConfig {
+            id: "mini".into(),
+            name: "Mini".into(),
+            subtitle: "ssh".into(),
+            target: MachineTargetConfig::Unix { socket: PathBuf::from("/tmp/mini.sock") },
+        };
+        let mut runtime = MachineRuntime::new(PathBuf::from("/tmp/current.sock"), vec![machine]);
+        let key = runtime.snapshot(runtime.initial_key()).machines[1].key;
+
+        assert_eq!(runtime.rename_machine(key, "  Build box  ").unwrap(), "Build box");
+        assert_eq!(runtime.name(key), Some("Build box"));
+        assert!(runtime.ui_state(runtime.initial_key()).is_client_machine_renamable(key));
+    }
+
+    #[test]
+    fn ssh_config_discovery_follows_includes_and_skips_patterns() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        let ssh_root = home.join(".ssh");
+        let include_root = ssh_root.join("hosts");
+        fs::create_dir_all(&include_root).unwrap();
+        fs::write(
+            ssh_root.join("config"),
+            "Include hosts/*.conf\nHost buildbox *.internal !blocked duplicate\n",
+        )
+        .unwrap();
+        fs::write(include_root.join("a.conf"), "Host mini duplicate\n  HostName 192.0.2.10\n")
+            .unwrap();
+        fs::write(include_root.join("b.conf"), "Host=quoted-host # note\n").unwrap();
+
+        assert_eq!(
+            ssh_config_hosts_from_path(&ssh_root.join("config"), &ssh_root, home),
+            vec!["buildbox", "duplicate", "mini", "quoted-host"]
+        );
+    }
+
+    #[test]
+    fn ssh_config_discovery_breaks_include_cycles() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        let ssh_root = home.join(".ssh");
+        fs::create_dir_all(&ssh_root).unwrap();
+        fs::write(ssh_root.join("config"), "Include loop\nHost root\n").unwrap();
+        fs::write(ssh_root.join("loop"), "Include config\nHost nested\n").unwrap();
+
+        assert_eq!(
+            ssh_config_hosts_from_path(&ssh_root.join("config"), &ssh_root, home),
+            vec!["root", "nested"]
+        );
+    }
+
+    #[test]
+    fn configured_targets_are_deduplicated_in_one_pass() {
+        let machine = MachineConfig {
+            id: "mini".into(),
+            name: "Mini".into(),
+            subtitle: "local".into(),
+            target: MachineTargetConfig::Unix { socket: PathBuf::from("/tmp/mini.sock") },
+        };
+        let runtime =
+            MachineRuntime::new(PathBuf::from("/tmp/current.sock"), vec![machine.clone(), machine]);
+
+        assert_eq!(runtime.snapshot(runtime.initial_key()).machines.len(), 2);
+    }
+
+    #[test]
+    fn prototype_creation_sources_add_local_catalog_entries_without_provisioning() {
+        let mut runtime = MachineRuntime::with_creation_sources(
+            PathBuf::from("/tmp/current.sock"),
+            Vec::new(),
+            vec![MachineCreationSourceConfig {
+                id: "docker".into(),
+                name: "Docker".into(),
+                subtitle: "container prototype".into(),
+            }],
+        );
+        let active = runtime.initial_key();
+
+        let ui = runtime.ui_state(active);
+        assert!(ui.snapshot.capabilities.create);
+        assert_eq!(ui.creation_sources[0].id, "docker");
+
+        let (first, first_name) = runtime.create_from("docker").unwrap();
+        let (second, second_name) = runtime.create_from("docker").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(first_name, "Docker 1");
+        assert_eq!(second_name, "Docker 2");
+        let snapshot = runtime.snapshot(active);
+        assert_eq!(snapshot.machines.len(), 3);
+        assert_eq!(snapshot.machines[1].id, "prototype:docker:1");
+        assert!(matches!(
+            runtime.entry(first).map(|entry| &entry.target),
+            Some(MachineTargetConfig::Unix { socket }) if socket == &PathBuf::from("/tmp/current.sock")
+        ));
+    }
+
+    #[test]
+    fn external_catalog_has_no_implicit_machine_and_uses_disjoint_keys() {
+        let machine = MachineConfig {
+            id: "mini".into(),
+            name: "Mini".into(),
+            subtitle: "local".into(),
+            target: MachineTargetConfig::Unix { socket: PathBuf::from("/tmp/mini.sock") },
+        };
+        let runtime = MachineRuntime::external(vec![machine], false);
+        let snapshot = runtime.snapshot_with_active(None);
+
+        assert_eq!(snapshot.machines.len(), 1);
+        assert!(snapshot.machines[0].key.0 >= CLIENT_MACHINE_KEY_START);
+        assert_eq!(snapshot.active, None);
+        assert!(!snapshot.capabilities.connect);
+    }
+
+    #[test]
+    fn disabled_external_catalog_rejects_ephemeral_targets() {
+        let mut runtime = MachineRuntime::external(Vec::new(), false);
+        let error = runtime.connect_machine("mini.local").unwrap_err().to_string();
+        assert!(error.contains("cannot connect external machines"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ssh_machine_connection_uses_managed_bootstrap_and_fail_closed_policy() {
+        let options = managed_ssh_options(
+            "mini.local",
+            Some("dev"),
+            Some(2200),
+            Some(Path::new("/tmp/cloud key")),
+            "agents",
+            "/opt/cmux-tui",
+        )
+        .unwrap();
+
+        assert_eq!(options.destination, "dev@mini.local:2200");
+        assert_eq!(options.session, "agents");
+        assert_eq!(options.remote_binary, "/opt/cmux-tui");
+        for option in [
+            "BatchMode=yes",
+            "StrictHostKeyChecking=yes",
+            "ForwardAgent=no",
+            "ForwardX11=no",
+            "ClearAllForwardings=yes",
+        ] {
+            assert!(options.ssh_args.windows(2).any(|pair| pair == ["-o", option]));
+        }
+        assert!(options.ssh_args.windows(2).any(|pair| pair == ["-i", "/tmp/cloud key"]));
+        assert!(
+            managed_ssh_options("mini.local", None, None, None, "agents", "/opt/cmux tui").is_err()
+        );
+    }
+
+    /// These runs turn forwarding off, so they must never become the shared
+    /// ControlMaster that an interactive session to the same host reuses.
+    #[cfg(unix)]
+    #[test]
+    fn managed_machine_connection_uses_hardened_ssh_argv() {
+        let options =
+            managed_ssh_options("mini.local", None, None, None, "agents", "/opt/cmux-tui").unwrap();
+
+        assert!(options.ssh_args.windows(2).any(|pair| pair == ["-o", "ControlMaster=no"]));
+    }
+}

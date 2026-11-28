@@ -125,111 +125,6 @@ def test_disjoint_additions_merge():
     assert list(document["strings"]) == ["a", "b", "c"]
 
 
-def test_theirs_only_keys_keep_their_place_in_theirs():
-    """A key only theirs added lands where theirs has it, not at the end.
-
-    Merging the base into a pull request (ours is the PR, theirs the base) used
-    to append the base's new keys after all of ours. Squashing the PR then moved
-    those keys in the base: d0119cd7dec moved 111 keys of webviews' acpmux catalog
-    to its end, and every later merge reordered more of it.
-    """
-    base = catalog({"a": unit("A"), "b": unit("B"), "c": unit("C")})
-    ours = catalog({"a": unit("A"), "x": unit("X"), "b": unit("B"), "c": unit("C")})
-    theirs = catalog({"a": unit("A"), "b": unit("B"), "m": unit("M"), "n": unit("N"), "c": unit("C")})
-    code, merged, stderr = run(base, ours, theirs)
-    assert code == 0, stderr
-    assert list(json.loads(merged)["strings"]) == ["a", "x", "b", "m", "n", "c"]
-
-
-def test_theirs_only_keys_at_the_start_stay_first():
-    base = catalog({"a": unit("A"), "b": unit("B")})
-    ours = catalog({"a": unit("A"), "b": unit("B"), "y": unit("Y")})
-    theirs = catalog({"z": unit("Z"), "a": unit("A"), "b": unit("B")})
-    code, merged, stderr = run(base, ours, theirs)
-    assert code == 0, stderr
-    assert list(json.loads(merged)["strings"]) == ["z", "a", "b", "y"]
-
-
-def test_theirs_only_key_skips_a_neighbour_ours_deleted():
-    base = catalog({"a": unit("A"), "b": unit("B"), "c": unit("C")})
-    ours = catalog({"a": unit("A"), "c": unit("C")})
-    theirs = catalog({"a": unit("A"), "m": unit("M"), "b": unit("B"), "c": unit("C")})
-    code, merged, stderr = run(base, ours, theirs)
-    assert code == 0, stderr
-    assert list(json.loads(merged)["strings"]) == ["a", "m", "c"]
-
-
-def test_merging_the_base_in_leaves_the_base_order_alone():
-    """The squash of a PR that merged its base in differs from the base only by the PR's keys."""
-    base = catalog({key: unit(key) for key in "abcdef"})
-    pull_request = catalog({key: unit(key) for key in "abpcdef"})
-    newer_base = catalog({key: unit(key) for key in "abcqdreft"})
-    code, merged, stderr = run(base, pull_request, newer_base)
-    assert code == 0, stderr
-    merged_keys = list(json.loads(merged)["strings"])
-    assert [key for key in merged_keys if key != "p"] == list(newer_base["strings"])
-
-
-def test_a_reorder_in_theirs_survives_the_merge():
-    """A base that reordered the catalog keeps its order when it is merged in.
-
-    cmux#48267: the base tip had reordered a 1030-key catalog; the lane merged
-    the base in, this driver assembled every shared key in ours' order, and the
-    result matched neither parent. Every check passed -- only `base...HEAD`
-    showed the 23,644-line rewrite, and a per-commit `--stat` hid it.
-    """
-    base = catalog({key: unit(key) for key in "abcd"})
-    ours = catalog({key: unit(key) for key in "abcd"})
-    theirs = catalog({key: unit(key) for key in "cdab"})
-    code, merged, stderr = run(base, ours, theirs)
-    assert code == 0, stderr
-    assert list(json.loads(merged)["strings"]) == ["c", "d", "a", "b"]
-
-
-def test_a_reorder_in_theirs_keeps_our_added_key():
-    """Following theirs' order still places a key only ours has by its neighbour."""
-    base = catalog({key: unit(key) for key in "abcd"})
-    ours = catalog({key: unit(key) for key in "abpcd"})
-    theirs = catalog({key: unit(key) for key in "cdab"})
-    code, merged, stderr = run(base, ours, theirs)
-    assert code == 0, stderr
-    merged_keys = list(json.loads(merged)["strings"])
-    assert [key for key in merged_keys if key != "p"] == ["c", "d", "a", "b"]
-    assert merged_keys.index("p") + 1 == merged_keys.index("c"), merged_keys
-
-
-def test_our_own_reorder_is_kept():
-    """Ours reordering the catalog is ours to keep: the merge does not undo it."""
-    base = catalog({key: unit(key) for key in "abcd"})
-    ours = catalog({key: unit(key) for key in "dcba"})
-    theirs = catalog({key: unit(key) for key in "abcd"})
-    code, merged, stderr = run(base, ours, theirs)
-    assert code == 0, stderr
-    assert list(json.loads(merged)["strings"]) == ["d", "c", "b", "a"]
-
-
-def test_both_sides_reordering_keeps_ours():
-    """With both orders changed there is no order to restore: ours wins, as before."""
-    base = catalog({key: unit(key) for key in "abcd"})
-    ours = catalog({key: unit(key) for key in "badc"})
-    theirs = catalog({key: unit(key) for key in "cdab"})
-    code, merged, stderr = run(base, ours, theirs)
-    assert code == 0, stderr
-    assert list(json.loads(merged)["strings"]) == ["b", "a", "d", "c"]
-
-
-def test_theirs_only_additions_are_not_a_reorder():
-    """Keys only theirs added leave the shared order alone, so ours still wins."""
-    base = catalog({key: unit(key) for key in "abc"})
-    ours = catalog({key: unit(key) for key in "acb"})
-    theirs = catalog({key: unit(key) for key in "amboc"})
-    code, merged, stderr = run(base, ours, theirs)
-    assert code == 0, stderr
-    merged_keys = list(json.loads(merged)["strings"])
-    assert [key for key in merged_keys if key not in "mo"] == ["a", "c", "b"]
-    assert set("mo") <= set(merged_keys), merged_keys
-
-
 def test_theirs_only_top_level_keys_are_appended():
     base = catalog({"a": unit("A")})
     ours = catalog({"a": unit("A")})
@@ -370,8 +265,7 @@ def test_key_conflicts_preserve_clean_key_merges_and_formatting():
         assert all(json.dumps(key) not in region for region in regions)
         assert merged.count(json.dumps(key) + ":") == 1
     driver = load_driver()
-    # "untouched" keeps theirs' text: only theirs rewrote it (indent 4), and a one-sided change wins.
-    for source, key in ((theirs, "untouched"), (ours, "ours-only"), (theirs, "theirs-only")):
+    for source, key in ((ours, "untouched"), (ours, "ours-only"), (theirs, "theirs-only")):
         top = driver.Layout(source, source.index("{"))
         strings = driver.Layout(source, top.spans["strings"][1])
         assert strings.blocks[key] in merged
@@ -704,37 +598,6 @@ def test_two_conflict_keys_on_one_line_stay_balanced_and_lossless():
     # Ours' value for the second key was truncated to ',: "O2" }'.
     assert '"b": { "v": "O2" }' in merged, merged
     assert_conflict_preserves(merged, "O1", "O2", "T1", "T2", "B1", "B2")
-
-
-def test_merging_a_reformatted_base_in_takes_the_base_format():
-    """A base that only rewrote the catalog's layout keeps its layout through a branch's merge of it (#50146).
-
-    #40447 compacted the agent-pane catalog from 458k lines to 267k and changed no value; merging that base
-    into a branch kept the branch's nested text for every key, so the branch's diff put 360k lines back.
-    """
-    base = catalog({key: unit(key) for key in "abc"})
-    pull_request = catalog({key: unit(key) for key in "abpc"})
-    newer_base = catalog({key: unit(key) for key in "abcq"})
-    compact = json.dumps(newer_base, ensure_ascii=False, separators=(",", ":")) + "\n"
-    code, merged, stderr = run(base, render(pull_request), compact)
-    assert code == 0, stderr
-    expected = catalog({key: unit(key) for key in "abpcq"})
-    assert json.loads(merged) == expected
-    # Every key base carries is base's text, verbatim; only the branch's own key is the branch's.
-    for key in "abcq":
-        assert json.dumps(key) + ":" + json.dumps(unit(key), separators=(",", ":")) in merged, merged
-    assert len(merged.splitlines()) < len(render(pull_request).splitlines()), merged
-
-
-def test_our_own_reformat_is_kept():
-    """The rule only follows the side that rewrote a key; a branch's own rewrite stays the branch's."""
-    base = catalog({key: unit(key) for key in "abc"})
-    ours = json.dumps(catalog({key: unit(key) for key in "abc"}), separators=(",", ":")) + "\n"
-    theirs = catalog({key: unit(key) for key in "abcq"})
-    code, merged, stderr = run(base, ours, theirs)
-    assert code == 0, stderr
-    assert json.loads(merged) == catalog({key: unit(key) for key in "abcq"})
-    assert '"a":' + json.dumps(unit("a"), separators=(",", ":")) in merged, merged
 
 
 def main():

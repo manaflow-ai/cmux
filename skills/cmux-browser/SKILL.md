@@ -1,64 +1,9 @@
 ---
 name: cmux-browser
-description: "Automate cmux browser tabs without stealing focus: open sites, read or drive pages, screenshots, waits, cookies, storage, downloads (REPL and per-tab CLI)."
+description: "End-user browser automation with cmux. Use when you need to open sites, inspect or interact with browser surfaces, wait for page state, and extract data without stealing focus."
 ---
 
 # Browser Automation with cmux
-
-Use this skill to open a page in cmux, read it, and fill or click elements from
-a script or agent. Every command below targets a browser tab by id, so nothing
-depends on which tab is visibly focused.
-
-## Pick the surface
-
-For anything beyond one click or fill, use the browser REPL: persistent
-JavaScript with a Playwright `page`, locators, waits, screenshots, cookies,
-storage, downloads, history and incognito tabs. Reach it in this order:
-
-1. MCP tools `browser_repl_eval`, `browser_repl_open`, `browser_repl_list`,
-   `browser_repl_reset`, `browser_repl_close`, `browser_repl_guide` from the
-   `cmux` MCP server. cmux attaches that server to every agent session it
-   starts; `"mcp": {"enabled": false}` in `~/.config/cmux/cmux-next.json` turns
-   it off.
-2. The bundled CLI, from the app's `Contents/Resources/bin`:
-   `cmux-browser-host eval --session NAME 'await page.goto("https://example.com"); snapshot()'`
-   (also `list`, `close --session NAME`, `guide`). `cmux browser repl` is
-   the planned name for the same thing.
-
-Read [references/repl-guide.md](references/repl-guide.md) (the REPL's own
-guide) before the first call. What it gives you that the per-tab commands
-below do not:
-
-- Tabs: `tabs.list()` reads every tab without waking it; `tabs.open(url, {
-  incognito: true })` opens a tab that keeps no cookie, history or state;
-  `session.configure({ incognito: true })` makes every later tab of the
-  session incognito.
-- History: `tabs.history({ query, from, to, limit })` searches cmux browser
-  history (read-only). Deleting and reopening history entries are the user's
-  app actions (`cmux action list --noun history`); do not run them unless the
-  user asked.
-- Cookies: `page.context().clearCookies()` clears the tab's site and returns
-  `{ restoreIds }`; `page.context().restoreCookies(result)` puts them back.
-  The cleared cookies stay in an encrypted backup. You may restore from a
-  backup; you never delete one (only the person can, from the app).
-- Sign-ins from the person's own browser: `cmux browser import-cookies --from
-  chrome:Work --domain github.com --reason "Open the PR review page signed in"`
-  copies that browser profile's cookies into a cmux browser profile. You must
-  pass `--reason` with what you will do with them; the person sees your chat
-  (by name), your reason and your latest message in a consent panel and must
-  click Allow before anything is read. Ask only for the sites you need. A Deny
-  or no answer within 3 minutes fails the command; do not ask again unless the
-  person tells you to. Never print cookie values. See
-  [references/authentication.md](references/authentication.md).
-- Remote tabs (a page that runs on another machine) use the same tab ids and
-  the same REPL calls once that machine's browser host serves them
-  (`plans/cmux-next/remote-tab.md`); never assume a remote tab shares this
-  Mac's cookies.
-- Input never takes the user's focus. The app shows your input with the cmux
-  agent cursor; it does not move the user's pointer.
-
-For desktop apps (not web pages) the tool is cmux Computer Use (the
-`cmux-cua` skill), for a task that needs an app on the computer; never `osascript`.
 
 ## Read the CLI contract first
 
@@ -66,213 +11,198 @@ Check the binary that will actually run before giving an exact command:
 
 ```bash
 cmux browser --help
-cmux --help
+cmux --version
 ```
 
-There are two kinds of browser in cmux, with different ids:
+There are two deliberately different command shapes:
 
-| Id | Owner | Commands |
-| --- | --- | --- |
-| `tab_…` (or `page` for the browser nearest you) | the cmux app shows the page | `cmux browser tab_… navigate URL`, `snapshot`, `click`, `fill`, `eval`, … |
-| `browser_…` | the cmux-tui daemon | `cmux browser browser_… navigate --url URL`, `key`, `text`, `show`, `close` |
+- **Create a browser surface** with `open`, `open-split`, or `new`. These commands may be workspace-scoped and do not need a surface handle.
+- **Use an existing surface** with every surface-bound navigation, inspection, interaction, tab, state, or diagnostic command. Pass the handle explicitly with `--surface <handle>` or as the first positional token.
 
-In the app, use the `tab_…` form. Page commands accept a tab id or any unique
-prefix of one. `page` means the browser nearest you: one in your own workspace,
-then one in your sidebar group, then one in your window, never the person's
-focused tab in another window, and never one in another session. With none near
-you it fails (`page new-tab URL` opens your first one instead); list every tab
-with `cmux browser page tabs --all` and name one. `cmux --json identify` reports it
-as `browser`.
-
-## Open a browser tab
+Prefer the flag form in scripts because it makes the target unmissable:
 
 ```bash
-cmux --json tab create browser --url https://example.com
+SURFACE="surface:7" # use a ref returned by discovery; do not guess an index
+cmux browser --surface "$SURFACE" get url
+cmux browser --surface "$SURFACE" get-url       # accepted alias
+cmux browser --surface "$SURFACE" snapshot --interactive
+cmux browser --surface "$SURFACE" snapshot -i   # accepted alias
+cmux browser --surface "$SURFACE" url            # accepted alias
+cmux browser --surface "$SURFACE" tab list
+cmux browser --surface "$SURFACE" click e1 --snapshot-after
 ```
 
-The result carries the new tab's `tab_…` id. With no place named, the tab opens
-beside you: in the column right of your chat, which cmux makes when there is
-none. Add `--workspace S` to show a page in another workspace: it opens right
-of that workspace's agent chat, the same way. Add `--screen S --pane S` only
-for a pane the person asked for, and never name a chat's own pane: a chat keeps
-its pane to itself. `--name N` names the tab. The app also has UI actions that open a browser in the focused place:
-`cmux tab new-browser`, `cmux browser split-right`, `cmux browser split-down`.
-Check their arguments with `cmux action describe "tab new-browser"` before use.
+The positional form is equivalent (`cmux browser "$SURFACE" get url`). `url` and
+`get-url` are accepted URL aliases, and the short interactive snapshot flag is
+accepted when a surface is already present; use `get url` and
+`snapshot --interactive` in new documentation so the target and operation are
+clear. Surface-bound operations have no unscoped form. The current CLI's
+explicitly global browser verbs (`open`, `open-split`, `new`, `identify`,
+`import`, `profile`, `profiles`, `react-grab`, `reactgrab`, `devtools`,
+`dev-tools`, `focus-mode`, `design-mode`, `zoom`, and `history`) may omit the
+handle and use caller/workspace routing; do not infer a target from visible
+focus for any other verb.
 
-## Find an existing browser tab without changing focus
+## Find an existing browser surface without changing focus
 
-`list` and `show` are read-only; they never select a workspace, pane or tab.
+`identify`, `tree`, and list commands are read-only and do not select a
+workspace, pane, or browser. Do not infer that the visually focused surface is
+the one the user wants.
+
+First inspect the caller context (useful for the default workspace):
 
 ```bash
-cmux --json tab list \
-  | jq -r '.. | objects | select(.content_kind? == "browser") | [.id, .pane_id, .name] | @tsv'
+cmux identify --json
 ```
 
-Keep the `tab_…` id and target it explicitly. See
-[references/surface-discovery.md](references/surface-discovery.md) for other
-workspaces and matching by URL.
+To discover browser surfaces in the caller or another workspace/window, use the
+all-window tree. It includes parent refs, so a browser in a different workspace
+can be targeted directly without selecting that workspace:
+
+```bash
+cmux tree --all --json \
+  | jq -r '
+      .windows[]? as $window
+      | $window.workspaces[]? as $workspace
+      | $workspace.panes[]? as $pane
+      | $pane.surfaces[]?
+      | select(.type == "browser")
+      | [$window.ref, $workspace.ref, $pane.ref, .ref]
+      | @tsv'
+```
+
+The filtered output is `window`, `workspace`, `pane`, and `surface` refs. Keep
+the `surface` ref, then target it explicitly:
+
+```bash
+SURFACE="surface:N" # copied from the filtered tree output
+cmux browser --surface "$SURFACE" get url
+cmux browser --surface "$SURFACE" snapshot --interactive
+```
+
+If the user gives a URL or title instead of a workspace/pane, match that
+metadata locally and emit only the unique surface ref. This never prints the
+matched URL or title:
+
+```bash
+MATCH_FIELD="url" # use "title" when matching a page title
+MATCH_VALUE="${BROWSER_URL_OR_TITLE:?set BROWSER_URL_OR_TITLE without logging it}"
+SURFACE="$(
+  cmux tree --all --json |
+    jq -r --arg field "$MATCH_FIELD" --arg value "$MATCH_VALUE" '
+      [
+        .windows[]? as $window
+        | $window.workspaces[]? as $workspace
+        | $workspace.panes[]? as $pane
+        | $pane.surfaces[]?
+        | select(.type == "browser")
+        | select((if $field == "url" then (.url // "") else (.title // "") end) == $value)
+        | .ref
+      ] as $matches
+      | if ($matches | length) == 1 then $matches[0]
+        elif ($matches | length) == 0 then error("no matching browser surface")
+        else error("multiple matches; use workspace/pane context")
+        end'
+)"
+if [[ -z "$SURFACE" ]]; then
+  printf '%s\n' 'no uniquely matching browser surface; provide workspace/pane context' >&2
+  exit 1
+fi
+cmux browser --surface "$SURFACE" get url
+```
+
+For one known workspace, `cmux --json list-pane-surfaces --workspace
+<workspace>` is a smaller read-only query. Raw tree/list payloads can contain
+page URLs and titles; filter or redact them before logging or pasting them.
+Never use a focus/select command merely to discover a surface.
 
 ## Core workflow
 
-```bash
-TAB="$(cmux --json tab create browser --url https://example.com | jq -r '.. | .id? // empty | select(startswith("tab_"))' | head -n1)"
-[ -n "$TAB" ] || { printf '%s\n' 'tab create did not return a tab id' >&2; exit 1; }
-cmux browser "$TAB" state
-cmux browser "$TAB" snapshot --interactive
-cmux browser "$TAB" fill e1 "hello"
-cmux browser "$TAB" click e2
-cmux browser "$TAB" snapshot --interactive
-```
-
-`state` prints the tab's URL and title. Selectors are CSS selectors or snapshot
-refs (`e3` or `@e3`). Re-snapshot after navigation, a modal opening or closing,
-or any large DOM change, because refs go stale.
-
-## Waiting
-
-`navigate` returns as soon as the load starts. `wait` blocks until one
-condition holds, then returns; do not poll with `eval`.
+Open (or create) a surface without stealing focus, capture the returned ref,
+then use that ref for every existing-surface operation:
 
 ```bash
-cmux browser "$TAB" wait "#results"
-cmux browser "$TAB" wait --url-contains /dashboard --timeout-ms 15000
-cmux browser "$TAB" wait --text "Saved"
-cmux browser "$TAB" wait --load-state complete
+OPEN_JSON="$(cmux --json browser open https://example.com --focus false)"
+SURFACE="$(printf '%s' "$OPEN_JSON" | jq -r '.surface_ref // .surface_id // empty')"
+[ -n "$SURFACE" ] || { printf '%s\n' 'browser open did not return a surface ref' >&2; exit 1; }
+cmux browser --surface "$SURFACE" get url
+cmux browser --surface "$SURFACE" wait --load-state complete --timeout-ms 15000
+cmux browser --surface "$SURFACE" snapshot --interactive
+cmux browser --surface "$SURFACE" fill e1 "hello"
+cmux browser --surface "$SURFACE" click e2 --snapshot-after
+cmux browser --surface "$SURFACE" snapshot --interactive
 ```
 
-The default timeout is 5000 ms (at most 120 s). On `timeout`, take a
-`snapshot` and report what the page shows instead of retrying blindly. In the
-REPL, use its Playwright waits (`page.waitForURL`, `locator.waitFor`).
-
-## Screenshots
+After a browser download finishes, inspect the same surface's bounded history
+without opening the file or consuming a waiter:
 
 ```bash
-cmux browser "$TAB" screenshot --out page.png
-cmux browser "$TAB" screenshot --selector "#chart" --out chart.png
-cmux browser "$TAB" screenshot --full-page --out full.png
+cmux browser --surface "$SURFACE" download list
+cmux browser --surface "$SURFACE" download list --limit 5 --json
 ```
 
-Without `--out` the PNG goes to a new file in the temporary directory and the
-command prints its path; `--out -` writes the PNG to stdout.
-A tab whose workspace is not on screen is captured too: its page is started
-in the background, never focused. For an agent, `cmux window|pane|tab screenshot`
-masks every browser pane in gray, its toolbar included, and refuses a browser tab no window shows
-([cmux skill](../cmux/SKILL.md)): only the REPL's `page.screenshot()` hides
-the secrets a page shows.
+The JSON records expose the stable `download_id`, filename, actual saved path
+when known, status (`downloading`, `saved`, or `failed`), byte count when
+known, and whether a known path still exists. Listing is newest first and
+repeatable; it remains scoped to the requested surface. Use `download wait` to
+keep the existing event-wait workflow.
 
-## Prove a local preview
+The `open` response contains the new surface ref; in a script, extract it from
+the JSON response instead of printing the full response. If `get url` is empty
+or `about:blank`, navigate first instead of waiting on load state. Re-snapshot
+after navigation, modal open/close, or any major DOM change because refs go
+stale.
 
-When a web UI change runs on a Cloud machine, use the built-in proof helper so
-the user receives the rendered page and the browser's errors in the same tool
-result:
-
-```js
-await previewProof(5173, { path: "/" });
-```
-
-`previewProof(port, options)` opens `http://127.0.0.1:<port><path>` in the
-machine/workspace browser in its own background tab, waits for the page load, collects `console.error`
-messages and uncaught page errors, and takes a screenshot. Its result includes
-the URL, both error lists, and a temporary PNG path. The transcript recognizes
-that path as an image attachment and renders it with the error report. Pass
-`screenshot: { fullPage: true }` when the whole page is needed; the default is
-the viewport. The helper closes its tab on success or failure, preserving the
-user's active tab and the REPL's current page. The screenshot is taken after
-load. For errors that appear later, pass `settleMs: 1000` to wait that many
-milliseconds after the screenshot before reading errors (default `0`).
-Pass `timeout: 5000` to bound navigation in milliseconds
-(default `30000`, `0` disables the navigation timeout). Both timing options
-must be finite nonnegative numbers.
-
-## Verify a flow before you say done
-
-Before you tell the person a UI change works, click through the flow you
-built and let the chat show the proof:
-
-```js
-await verifyFlow(5173, [
-  { open: "/settings", note: "Open Settings" },
-  { type: "#name", text: "Ada" },
-  { click: "text=Save" },
-  { expect: "Saved", note: "The save confirms" },
-]);
-```
-
-Each step gets a screenshot and one line; the first failure skips the rest.
-The chat draws the result as a pass/fail walkthrough under your final
-message, so say what passed rather than pasting the screenshots. A failed
-step means the change is not done: fix it and run the flow again. With no
-dev server on the port it fails with "No dev server answers at …"; start the
-server with `bg_start` first. Step shapes and limits:
-[references/repl-guide.md](references/repl-guide.md).
-
-## What the per-tab CLI does not cover
-
-The per-tab commands have no saved state, console
-capture, dialogs, downloads, recording or proxies. The REPL has all of them (see "Pick the surface"). Viewport and
-device emulation is a tab verb (`cmux tab <tab_…> emulate`; see `cmux tab --help`).
-Network routing, geolocation and offline emulation and `identify` have no agent
-surface yet.
-
-Some have UI actions that act on the browser nearest you (the focused one
-when run outside cmux; they still need some browser to have focus) and return
-no data:
-`cmux browser screenshot-page`, `browser screenshot-section`,
-`browser toggle-developer-tools`, `browser show-javascript-console`,
-`browser delete-site-data`,
-`browser toggle-design-mode`, `browser toggle-focus-mode`,
-`browser toggle-react-grab`. List them with `cmux action list --noun browser`.
-Page zoom of an app browser tab is `cmux tab <tab_…> zoom in|out|reset`, which
-runs the app's zoom action on the tab's pane (the tab must be the one its pane
-shows); the CLI never writes the browser tab record.
-
-## Browser profiles
-
-A browser profile has its own cookies, local storage, IndexedDB, cache and
-permissions. Make a new, empty one for an agent's sign-ins, open tabs in it,
-or move a tab into it. Each command is also an MCP tool: `browser_profile_list`,
-`browser_profile_create`, `browser_profile_open` and `browser_tab_set_profile`.
+## Wait
 
 ```bash
-cmux --json browser profile list                         # browser_profiles[]: id, name, color, icon, index
-cmux --json browser profile create --name "Research"     # value.browser_profile.id
-cmux --json browser profile open https://example.com --profile Research   # value.tab_id
-cmux --json browser tab "$TAB" set-profile --profile Research
-cmux --json tab "$TAB" show                              # extra.browser_profile_id
+cmux browser --surface "$SURFACE" wait --selector "#ready" --timeout-ms 10000
+cmux browser --surface "$SURFACE" wait --text "Success" --timeout-ms 10000
+cmux browser --surface "$SURFACE" wait --url-contains "/dashboard" --timeout-ms 10000
+cmux browser --surface "$SURFACE" wait --load-state complete --timeout-ms 15000
+cmux browser --surface "$SURFACE" wait --function "document.readyState === 'complete'" --timeout-ms 10000
 ```
 
-`open` takes an http or https URL. Without `--engine webkit|cef` the tab opens
-in the person's default engine setting; `--pane <pane_…>` picks the pane (else
-the focused one) and `--background true` keeps the pane's selected tab.
+## Viewport sizing (WKWebView)
 
-A profile is named by its id or its exact name. `set-profile` keeps the tab (same id and
-position): the daemon moves the tab record and the app reloads the page at the
-same URL in the target profile's store. The back/forward list and session
-storage stay with the old profile, and the reload loses unsaved form input.
-Agents may move any tab, also the person's. Do not move a tab into the
-person's own profile unless they asked for it.
+`cmux browser --surface "$SURFACE" viewport <width> <height>` sets an exact
+logical viewport from 1 to 4096 CSS pixels. The page is aspect-fitted inside
+its existing pane, so pane layout and focus stay unchanged, and screenshots use
+the requested logical dimensions. `viewport reset` returns to native pane
+sizing.
 
-Agents cannot delete browser profiles, not even the ones they made. Only a
-person deletes one (Settings, the palette or the menu, then the confirmation
-sheet). The CLI and MCP have no delete command, and the daemon's
-`delete-browser-profile` refuses every agent, script and CLI call.
+Close or detach the browser inspector first: its inspector-managed split layout
+cannot be combined with viewport emulation, and opening or redocking an
+attached inspector resets emulation to native sizing. Large viewport and
+page-zoom combinations are bounded; the command returns structured
+`maximum_page_zoom` details and leaves the viewport unchanged when the
+combination exceeds WKWebView render limits.
 
-## Troubleshooting
+## Limits (WKWebView)
 
-If `snapshot` or `eval` fails on a complex page, check where the page is first,
-then read text by selector:
+Trace/screencast recording, network route interception/mocking, and low-level
+raw input injection return `not_supported`; they depend on Chrome/CDP-only APIs.
+Use `click`, `fill`, `press`, `scroll`, `wait`, and `snapshot` instead.
+`geolocation <lat> <lon>` and `offline true|false` work: pages get the given
+position without a permission prompt, and offline mode blocks http(s) and
+ws(s) loads and reports `navigator.onLine === false`.
+
+## Troubleshooting `js_error`
+
+Some complex pages reject the JavaScript behind `snapshot --interactive` and
+`eval`. Recover by checking whether the page actually navigated, then fall
+back to raw text or HTML:
 
 ```bash
-cmux browser "$TAB" state
-cmux browser "$TAB" text body
+cmux browser --surface "$SURFACE" get url
+cmux browser --surface "$SURFACE" get text body
+cmux browser --surface "$SURFACE" get html body
 ```
 
-`not_found` means the tab id or selector does not exist (list the tabs again).
-`ambiguous` means a tab prefix matches more than one tab (use the full id).
-`Tab … is not a browser tab of this app` means the id is a terminal tab or a
-daemon browser; use `cmux browser browser_… …` for the latter. If the CLI and
-this skill disagree, trust `cmux browser --help` and refresh the skill; do not
-invent a target.
+If it still fails, navigate to a simpler intermediate page and retry from
+there. If the CLI and this skill disagree, refresh help (`cmux browser
+--help`) and refresh the installed skill before continuing; do not invent an
+implicit target.
 
 ## Skill distribution and refresh
 
@@ -298,26 +228,25 @@ pass its `--dest` explicitly when that is the installation path:
 ./skills.sh --dest "$HOME/.codex/skills" --skill cmux-browser
 ```
 
-Never commit home-directory skill copies, credentials or page contents from
-authenticated tabs.
+Never commit home-directory skill copies, credentials, cookies, or saved browser
+state.
 
 ## Deep-dive references
 
 | Reference | When to Use |
 |-----------|-------------|
-| [references/repl-guide.md](references/repl-guide.md) | The browser REPL: globals, snapshot, dialogs, cookies, incognito, history |
-| [references/surface-discovery.md](references/surface-discovery.md) | Find and target an existing browser tab without focus changes |
-| [references/commands.md](references/commands.md) | Every supported browser command, and what was removed |
+| [references/surface-discovery.md](references/surface-discovery.md) | Find and target an existing browser surface without focus changes |
+| [references/commands.md](references/commands.md) | Full command mapping, aliases, `agent-browser` equivalents, viewport error codes |
 | [references/snapshot-refs.md](references/snapshot-refs.md) | Ref lifecycle and stale-ref troubleshooting |
-| [references/authentication.md](references/authentication.md) | Login and 2FA with the supported commands |
-| [references/session-management.md](references/session-management.md) | Several tabs at once; saved state was removed |
-| [references/video-recording.md](references/video-recording.md) | Recording was removed; what to capture instead |
-| [references/proxy-support.md](references/proxy-support.md) | Proxy behavior |
+| [references/authentication.md](references/authentication.md) | Login/OAuth/2FA patterns and state save/load |
+| [references/session-management.md](references/session-management.md) | Multi-surface isolation and state persistence |
+| [references/video-recording.md](references/video-recording.md) | Recording status and practical alternatives |
+| [references/proxy-support.md](references/proxy-support.md) | Proxy behavior in WKWebView and workarounds |
 
 ## Ready-to-use templates
 
 | Template | Description |
 |----------|-------------|
-| [templates/form-automation.sh](templates/form-automation.sh) | Navigate a given tab and snapshot for a form fill |
-| [templates/authenticated-session.sh](templates/authenticated-session.sh) | Open a dashboard in a given tab and detect a login redirect |
-| [templates/capture-workflow.sh](templates/capture-workflow.sh) | Save a snapshot and page state of a given tab |
+| [templates/form-automation.sh](templates/form-automation.sh) | Snapshot/ref form fill loop (requires an explicit surface) |
+| [templates/authenticated-session.sh](templates/authenticated-session.sh) | Login once, save/load state (requires an explicit surface) |
+| [templates/capture-workflow.sh](templates/capture-workflow.sh) | Navigate and capture snapshots/screenshots (requires an explicit surface) |

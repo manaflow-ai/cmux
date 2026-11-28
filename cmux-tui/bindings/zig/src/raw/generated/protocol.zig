@@ -7,78 +7,16 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c";
-
-pub const ActivitySnapshot = struct {
-    attached_clients: u32,
-    echo_at_ms: wire.Field(u64) = .absent,
-    echo_input_at_ms: wire.Field(u64) = .absent,
-    last_agent_action_at_ms: wire.Nullable(u64),
-    last_person_attach_at_ms: wire.Field(u64) = .absent,
-    last_user_input_at_ms: wire.Nullable(u64),
-    live_agents: u32,
-};
-
-pub const ActivitySubscribeResult = struct {
-    activity: ActivitySnapshot,
-};
-
-pub const AgentPresenceActivity = enum {
-    thinking,
-    editing,
-    reading,
-    running,
-    browsing,
-    computer_use,
-    waiting,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "thinking")) return .thinking;
-        if (std.mem.eql(u8, value, "editing")) return .editing;
-        if (std.mem.eql(u8, value, "reading")) return .reading;
-        if (std.mem.eql(u8, value, "running")) return .running;
-        if (std.mem.eql(u8, value, "browsing")) return .browsing;
-        if (std.mem.eql(u8, value, "computer_use")) return .computer_use;
-        if (std.mem.eql(u8, value, "waiting")) return .waiting;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .thinking => "thinking",
-            .editing => "editing",
-            .reading => "reading",
-            .running => "running",
-            .browsing => "browsing",
-            .computer_use => "computer_use",
-            .waiting => "waiting",
-        };
-    }
-};
+pub const ir_sha256 = "93af6692f7f686eafe3bfcb03c01e8570f8cf4dfa8a84ad93824ed07160b504d";
 
 pub const AgentRecord = struct {
-    /// Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports.
-    agent: wire.Field([]const u8) = .absent,
-    /// The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this.
-    agent_session_id: wire.Field([]const u8) = .absent,
-    /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
-    last_prompt: wire.Field([]const u8) = .absent,
     session: wire.Nullable([]const u8),
-    /// When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`.
-    since_ms: ?u64 = null,
     source: AgentSource,
     state: AgentState,
     /// What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`.
     status: wire.Field(AgentState) = .absent,
     surface: Id,
-    /// The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab.
-    terminal_id: ?[]const u8 = null,
     updated_at_ms: u64,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "since_ms",
-        "terminal_id",
-    };
 };
 
 pub const AgentReportSource = enum {
@@ -97,17 +35,6 @@ pub const AgentReportSource = enum {
             .hook => "hook",
         };
     }
-};
-
-pub const AgentSessionSource = struct {
-    /// The agent kind the chat was started with.
-    harness: wire.Field([]const u8) = .absent,
-    /// install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it.
-    host: []const u8,
-    /// Display name of the host machine: 1 to 255 bytes, no control characters.
-    host_name: wire.Field([]const u8) = .absent,
-    /// The acpmux session id; null for a new chat until bind-conversation-tab-session.
-    session: wire.Field([]const u8) = .absent,
 };
 
 pub const AgentSource = enum {
@@ -188,72 +115,11 @@ pub const AttachedViewResizeResult = struct {
 
 pub const Base64 = []const u8;
 
-pub const Bookmark = struct {
-    browser_profile_id: []const u8,
-    created_ms: u64,
-    favicon_key: ?[]const u8 = null,
-    /// Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-{hex} or svg:sha256-{hex}.
-    icon: ?[]const u8 = null,
-    /// `bm_` and 32 lowercase hex digits.
-    id: []const u8,
-    /// Dense 0-based position among the node's siblings.
-    index: u64,
-    /// Known values: url, folder. Other values are future kinds.
-    kind: []const u8,
-    last_used_ms: ?u64 = null,
-    /// `bar`, `other`, or a folder's id.
-    parent: []const u8,
-    /// Folders only.
-    source_key: ?[]const u8 = null,
-    title: []const u8,
-    /// url nodes.
-    url: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "favicon_key",
-        "icon",
-        "last_used_ms",
-        "source_key",
-        "url",
-    };
-};
-
-pub const BookmarkChangeResult = struct {
-    bookmark: Bookmark,
-    changed: bool,
-    replayed: bool,
-};
-
-pub const BookmarkImportNode = struct {
-    /// A folder's nodes.
-    children: ?[]const BookmarkImportNode = null,
-    /// Defaults to now.
-    created_ms: ?u64 = null,
-    /// url or folder.
-    kind: []const u8,
-    title: []const u8,
-    /// Required for a url node; refused for a folder.
-    url: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "children",
-        "created_ms",
-        "url",
-    };
-};
-
 pub const BrowserFrame = struct {
     data: Base64,
     height: u32,
     seq: u64,
     width: u32,
-};
-
-pub const BrowserHostProviderResult = struct {
-    host_pid: u32,
-    listener_pid: u32,
-    secret: []const u8,
-    socket: []const u8,
 };
 
 pub const BrowserProviderAuthentication = enum {
@@ -274,30 +140,11 @@ pub const BrowserProviderAuthentication = enum {
     }
 };
 
-pub const BrowserProviderHosting = enum {
-    daemon,
-    native,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "daemon")) return .daemon;
-        if (std.mem.eql(u8, value, "native")) return .native;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .daemon => "daemon",
-            .native => "native",
-        };
-    }
-};
-
 pub const BrowserProviderSnapshot = struct {
     authentication: ?BrowserProviderAuthentication = null,
     available: bool,
     clients: ?u64 = null,
     endpoint: ?[]const u8 = null,
-    hosting: ?BrowserProviderHosting = null,
     provider_id: ?[]const u8 = null,
     revision: u64,
     targets: []const BrowserProviderTarget,
@@ -306,7 +153,6 @@ pub const BrowserProviderSnapshot = struct {
         "authentication",
         "clients",
         "endpoint",
-        "hosting",
         "provider_id",
     };
 };
@@ -336,77 +182,6 @@ pub const CellPixelSurface = struct {
     height_px: u16,
     surface: Id,
     width_px: u16,
-};
-
-pub const ChiefWorkAgentState = enum {
-    working,
-    waiting,
-    idle,
-    failed,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "working")) return .working;
-        if (std.mem.eql(u8, value, "waiting")) return .waiting;
-        if (std.mem.eql(u8, value, "idle")) return .idle;
-        if (std.mem.eql(u8, value, "failed")) return .failed;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .working => "working",
-            .waiting => "waiting",
-            .idle => "idle",
-            .failed => "failed",
-        };
-    }
-};
-
-pub const ChiefWorkAgent = struct {
-    id: []const u8,
-    name: []const u8,
-    started_at: wire.Nullable(u64),
-    state: ChiefWorkAgentState,
-    task: wire.Nullable([]const u8),
-    updated_at: wire.Nullable(u64),
-};
-
-pub const ChiefWorkTaskStatus = enum {
-    running,
-    done,
-    failed,
-    cancelled,
-    unknown,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "running")) return .running;
-        if (std.mem.eql(u8, value, "done")) return .done;
-        if (std.mem.eql(u8, value, "failed")) return .failed;
-        if (std.mem.eql(u8, value, "cancelled")) return .cancelled;
-        if (std.mem.eql(u8, value, "unknown")) return .unknown;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .running => "running",
-            .done => "done",
-            .failed => "failed",
-            .cancelled => "cancelled",
-            .unknown => "unknown",
-        };
-    }
-};
-
-pub const ChiefWorkTask = struct {
-    command: []const u8,
-    detail: wire.Nullable([]const u8),
-    ended_at: wire.Nullable(u64),
-    id: []const u8,
-    session_id: []const u8,
-    started_at: wire.Nullable(u64),
-    status: ChiefWorkTaskStatus,
-    title: []const u8,
 };
 
 pub const ClientInfo = struct {
@@ -448,21 +223,6 @@ pub const ClientTransport = enum {
     }
 };
 
-pub const CloseReason = enum {
-    session_end,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "session_end")) return .session_end;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .session_end => "session_end",
-        };
-    }
-};
-
 pub const CloseTerminalResult = struct {
     already_closed: bool,
     closed: bool,
@@ -474,308 +234,7 @@ pub const CloseTerminalResult = struct {
     terminal_revision: u64,
 };
 
-pub const CloudConversationPresenceParticipant = struct {
-    participant: []const u8,
-    viewing: bool,
-};
-
 pub const ColorHex = []const u8;
-
-pub const ColumnMoveDirection = enum {
-    left,
-    right,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "left")) return .left;
-        if (std.mem.eql(u8, value, "right")) return .right;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .left => "left",
-            .right => "right",
-        };
-    }
-};
-
-pub const ColumnPin = struct {
-    edge: []const u8,
-    mode: []const u8,
-    role: wire.Field([]const u8) = .absent,
-};
-
-pub const ColumnSide = enum {
-    left,
-    right,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "left")) return .left;
-        if (std.mem.eql(u8, value, "right")) return .right;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .left => "left",
-            .right => "right",
-        };
-    }
-};
-
-pub const ConversationChange = struct {
-    /// kind conversation.
-    conversation: ?ConversationSummary = null,
-    /// Known values: message and message-updated (message), read-cursor (participant, seq), conversation (conversation). A change of another kind keeps its fields in the additional properties.
-    kind: []const u8,
-    /// kind message or message-updated.
-    message: ?ConversationMessage = null,
-    /// kind read-cursor.
-    participant: ?[]const u8 = null,
-    /// kind read-cursor.
-    seq: ?u64 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "conversation",
-        "message",
-        "participant",
-        "seq",
-    };
-};
-
-pub const ConversationImportMessage = struct {
-    author: []const u8,
-    client_msg_id: []const u8,
-    created_at: []const u8,
-    id: wire.Field([]const u8) = .absent,
-    parts: []const ConversationPart,
-};
-
-pub const ConversationMessage = struct {
-    answers: ?[]const []const u8 = null,
-    answers_pending: ?[]const []const u8 = null,
-    author: []const u8,
-    client_msg_id: []const u8,
-    conversation: []const u8,
-    created_at: []const u8,
-    edited_at: ?[]const u8 = null,
-    id: []const u8,
-    parts: []const ConversationPart,
-    reactions: []const ConversationReaction,
-    reply_to: ?ConversationPartRef = null,
-    retracted_at: ?[]const u8 = null,
-    seq: u64,
-    thread: ?ConversationThreadState = null,
-    thread_root: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "answers",
-        "answers_pending",
-        "edited_at",
-        "reply_to",
-        "retracted_at",
-        "thread",
-        "thread_root",
-    };
-};
-
-pub const ConversationPart = struct {
-    /// type work.
-    host: ?[]const u8 = null,
-    /// type work: the reply preview (a string). type attachment (local-attachments-v1): an image's preview object {hash, mime_type, byte_count}.
-    preview: ?JsonValue = null,
-    /// type text.
-    runs: ?[]const ConversationTextRun = null,
-    /// type work.
-    session: ?[]const u8 = null,
-    /// type work. Known values: running, done, failed, waiting.
-    status: ?[]const u8 = null,
-    /// type text.
-    text: ?[]const u8 = null,
-    /// Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview) and link_preview (url, title, site, image; see spec/commands.md). A part of another type keeps its fields in the additional properties.
-    type: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "host",
-        "preview",
-        "runs",
-        "session",
-        "status",
-        "text",
-    };
-};
-
-pub const ConversationPartRef = struct {
-    message_id: []const u8,
-    part_index: u32,
-};
-
-pub const ConversationParticipant = struct {
-    acp_session: ?[]const u8 = null,
-    /// Known values: mux, agent. Other values are future classes.
-    agent_class: ?[]const u8 = null,
-    display_name: []const u8,
-    id: []const u8,
-    /// Known values: human, agent. Other values are future kinds.
-    kind: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "acp_session",
-        "agent_class",
-    };
-};
-
-pub const ConversationReaction = struct {
-    at: []const u8,
-    author: []const u8,
-    kind: ConversationReactionKind,
-    part_index: u32,
-};
-
-pub const ConversationReactionKind = struct {
-    emoji: ?[]const u8 = null,
-    /// Known values: love, like, dislike, laugh, emphasize, question.
-    tapback: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "emoji",
-        "tapback",
-    };
-};
-
-pub const ConversationSearchHit = struct {
-    author: []const u8,
-    conversation: []const u8,
-    created_at: []const u8,
-    message_id: []const u8,
-    seq: u64,
-    snippet: []const u8,
-    title: []const u8,
-};
-
-pub const ConversationSummary = struct {
-    created_at: []const u8,
-    id: []const u8,
-    last_message: ?ConversationMessage = null,
-    last_seq: u64,
-    marked_unread: ?bool = null,
-    owner: []const u8,
-    participants: []const ConversationParticipant,
-    pin_position: ?u64 = null,
-    pinned: ?bool = null,
-    read_cursors: wire.Map(u64),
-    rev: u64,
-    title: []const u8,
-    updated_at: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "last_message",
-        "marked_unread",
-        "pin_position",
-        "pinned",
-    };
-};
-
-pub const ConversationTabRecord = struct {
-    /// Agent session source (agent-session-tabs-v1); exclusive with the other sources.
-    agent_session: ?AgentSessionSource = null,
-    /// Conversation source: a conv_ id, with owner.
-    conversation: ?[]const u8 = null,
-    /// Conversation source: local or cloud.
-    owner: ?[]const u8 = null,
-    /// Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.
-    page: ?[]const u8 = null,
-    /// What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page.
-    route: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "agent_session",
-        "conversation",
-        "owner",
-        "page",
-        "route",
-    };
-};
-
-pub const ConversationTabSplit = struct {
-    /// The split the new split wraps whole, as split-around-v1 on split: pane must be that split's last pane and direction right or down.
-    around: wire.Field(Id) = .absent,
-    /// The side of pane the new pane takes: right, down, left or up.
-    direction: []const u8,
-    /// Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed.
-    pane_id: wire.Field([]const u8) = .absent,
-    /// Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed.
-    split_id: wire.Field([]const u8) = .absent,
-};
-
-pub const ConversationTextRun = struct {
-    length: u32,
-    link: ?[]const u8 = null,
-    mention: ?[]const u8 = null,
-    start: u32,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "link",
-        "mention",
-    };
-};
-
-pub const ConversationThreadResolution = struct {
-    at: []const u8,
-    by: []const u8,
-    seq: u64,
-};
-
-pub const ConversationThreadState = struct {
-    owner: ?[]const u8 = null,
-    resolved: ?ConversationThreadResolution = null,
-    title: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "owner",
-        "resolved",
-        "title",
-    };
-};
-
-pub const ConversationThreadStatus = enum {
-    open,
-    resolved,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "open")) return .open;
-        if (std.mem.eql(u8, value, "resolved")) return .resolved;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .open => "open",
-            .resolved => "resolved",
-        };
-    }
-};
-
-pub const ConversationThreadSummary = struct {
-    authors: []const []const u8,
-    last_reply_at: wire.Nullable([]const u8),
-    last_reply_seq: wire.Nullable(u64),
-    owner: ?[]const u8 = null,
-    reply_count: u64,
-    resolved_at: ?[]const u8 = null,
-    resolved_by: ?[]const u8 = null,
-    root: []const u8,
-    status: ?ConversationThreadStatus = null,
-    title: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "owner",
-        "resolved_at",
-        "resolved_by",
-        "status",
-        "title",
-    };
-};
 
 pub const CopyResultMode = enum {
     screen,
@@ -1028,11 +487,6 @@ pub const GetCellPixelsResult = struct {
     width_px: u16,
 };
 
-pub const GetHostSizePolicyResult = struct {
-    mac_participants: []const []const u8,
-    policy: HostSizePolicy,
-};
-
 pub const GetSizeStateResult = struct {
     self_participant: wire.Nullable([]const u8),
     state: SizeState,
@@ -1052,128 +506,6 @@ pub const GuestUrlOpenResult = struct {
 
 pub const GuestUrlSubscribeResult = struct {
     url_open_ready: bool,
-};
-
-pub const HistorySearchHit = struct {
-    at_ms: i64,
-    highlights: []const HistorySearchRange,
-    key: []const u8,
-    kind: []const u8,
-    position: wire.Nullable(i64),
-    snippet: []const u8,
-    target: []const u8,
-    title: []const u8,
-};
-
-pub const HistorySearchRange = struct {
-    end: u32,
-    start: u32,
-};
-
-pub const HomeChiefState = enum {
-    working,
-    waiting,
-    idle,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "working")) return .working;
-        if (std.mem.eql(u8, value, "waiting")) return .waiting;
-        if (std.mem.eql(u8, value, "idle")) return .idle;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .working => "working",
-            .waiting => "waiting",
-            .idle => "idle",
-        };
-    }
-};
-
-pub const HomeInboxKind = enum {
-    chief,
-    direct,
-    channel,
-    group,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "chief")) return .chief;
-        if (std.mem.eql(u8, value, "direct")) return .direct;
-        if (std.mem.eql(u8, value, "channel")) return .channel;
-        if (std.mem.eql(u8, value, "group")) return .group;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .chief => "chief",
-            .direct => "direct",
-            .channel => "channel",
-            .group => "group",
-        };
-    }
-};
-
-pub const HomeInboxRow = struct {
-    activity_at: []const u8,
-    chief: ?[]const u8 = null,
-    chief_state: ?HomeChiefState = null,
-    id: []const u8,
-    index: ?u64 = null,
-    kind: HomeInboxKind,
-    last_author: ?[]const u8 = null,
-    marked_unread: bool,
-    muted: bool,
-    name: []const u8,
-    owner: []const u8,
-    pin_position: ?u64 = null,
-    pinned: bool,
-    preview: ?[]const u8 = null,
-    unread: u64,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "chief",
-        "chief_state",
-        "index",
-        "last_author",
-        "pin_position",
-        "preview",
-    };
-};
-
-pub const HostSizeMode = enum {
-    smallest,
-    mac,
-    latest,
-    priority,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "smallest")) return .smallest;
-        if (std.mem.eql(u8, value, "mac")) return .mac;
-        if (std.mem.eql(u8, value, "latest")) return .latest;
-        if (std.mem.eql(u8, value, "priority")) return .priority;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .smallest => "smallest",
-            .mac => "mac",
-            .latest => "latest",
-            .priority => "priority",
-        };
-    }
-};
-
-pub const HostSizePolicy = struct {
-    mode: HostSizeMode,
-    order: []const []const u8,
-};
-
-pub const HostSizePolicyRequest = struct {
-    mode: HostSizeMode,
-    order: wire.Field([]const []const u8) = .absent,
 };
 
 pub const Id = u64;
@@ -1208,61 +540,25 @@ pub const IdMapping = struct {
     short_id: []const u8,
 };
 
-pub const IdentifyRestore = struct {
-    done: wire.Nullable(u64),
-    elapsed_ms: u64,
-    last_advance_ms: u64,
-    phase: []const u8,
-    total: wire.Nullable(u64),
-};
-
 pub const IdentifyResult = struct {
-    api_revision: wire.Field(u32) = .absent,
-    api_version: wire.Field([]const u8) = .absent,
     app: []const u8,
     build_commit: wire.Field([]const u8) = .absent,
-    build_id: wire.Field([]const u8) = .absent,
-    build_time: wire.Field(u64) = .absent,
     capabilities: ?[]const []const u8 = null,
-    cli_path: wire.Field([]const u8) = .absent,
-    crate_version: wire.Field([]const u8) = .absent,
     daemon_handoff: i64,
     generation: []const u8,
     ghostty_commit: wire.Field([]const u8) = .absent,
-    install: wire.Field([]const u8) = .absent,
-    launch_snapshot_path: wire.Field([]const u8) = .absent,
     lifecycle_ready: ?bool = null,
-    machine_capabilities: ?[]const []const u8 = null,
-    machine_device: ?[]const u8 = null,
-    machine_id: ?[]const u8 = null,
-    machine_name: ?[]const u8 = null,
-    machine_platform: ?MachinePlatform = null,
-    machine_symbol: ?[]const u8 = null,
-    min_api_revision: wire.Field(u32) = .absent,
-    min_api_version: wire.Field([]const u8) = .absent,
     pid: u32,
     protocol: u32,
     registry_id: []const u8,
-    restore: ?IdentifyRestore = null,
-    screen_device_id: wire.Field([]const u8) = .absent,
     session: []const u8,
-    session_id: ?[]const u8 = null,
     terminal_revision: u64,
-    update_command: wire.Field([]const u8) = .absent,
     version: []const u8,
     workspace_revision: u64,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "capabilities",
         "lifecycle_ready",
-        "machine_capabilities",
-        "machine_device",
-        "machine_id",
-        "machine_name",
-        "machine_platform",
-        "machine_symbol",
-        "restore",
-        "session_id",
     };
 };
 
@@ -1301,12 +597,9 @@ pub const LayoutSplit = struct {
     ratio: f32,
     /// Stable for the lifetime of this split node.
     split: ?Id = null,
-    /// The split's public id (split_ and 32 hex digits): stable across daemon restarts, and the caller-minted split_id of the split request that made it.
-    split_id: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "split",
-        "split_id",
     };
 };
 
@@ -1342,57 +635,6 @@ pub const Layout = union(enum) {
             return .{ .stack = try wire.decodeLeaky(LayoutStack, allocator, value) };
         }
         return error.UnknownUnionVariant;
-    }
-};
-
-pub const LayoutColumnNode = struct {
-    /// dock-columns-v1: the viewport edge the column is pinned to.
-    dock: ?JsonValue = null,
-    id: Id,
-    layout: Layout,
-    /// rows-v1: only for a column with two or more rows.
-    rows: ?[]const LayoutRowNode = null,
-    width: f64,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "dock",
-        "rows",
-    };
-};
-
-pub const LayoutRowNode = struct {
-    height: u64,
-    id: Id,
-    layout: Layout,
-};
-
-pub const LayoutSizePaneWidth = struct {
-    pane: Id,
-    width: f32,
-};
-
-pub const LayoutSizeSplitRatio = struct {
-    ratio: f32,
-    split: Id,
-};
-
-pub const LayoutSizeValue = union(enum) {
-    layout_size_split_ratio: LayoutSizeSplitRatio,
-    layout_size_pane_width: LayoutSizePaneWidth,
-
-    pub const cmux_wire_custom_union = true;
-
-    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
-        return switch (self) {
-            .layout_size_split_ratio => |payload| try wire.encodeValue(allocator, payload),
-            .layout_size_pane_width => |payload| try wire.encodeValue(allocator, payload),
-        };
-    }
-
-    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
-        _ = allocator;
-        _ = value;
-        return error.AmbiguousUnion;
     }
 };
 
@@ -1446,46 +688,22 @@ pub const ListTerminalsResult = struct {
     terminals: []const TerminalRecord,
 };
 
-pub const ListWorkspacesKnown = struct {
-    generation: wire.Field([]const u8) = .absent,
-    pane_revision: wire.Field(u64) = .absent,
-    registry_id: wire.Field([]const u8) = .absent,
-    terminal_revision: wire.Field(u64) = .absent,
-    tree_revision: wire.Field([]const u8) = .absent,
-    workspace_revision: wire.Field(u64) = .absent,
-};
-
-pub const ListWorkspacesSince = struct {
-    epoch: []const u8,
-    seq: u64,
-};
-
 pub const LivePane = struct {
     active_tab: u64,
     focused_at: ?u64 = null,
     id: Id,
     name: wire.Nullable([]const u8),
-    /// The pane's public id.
-    resource_id: wire.Field([]const u8) = .absent,
     short_id: ?[]const u8 = null,
-    /// The pane's tab group runs.
-    tab_groups: ?[]const TabGroupRun = null,
     tabs: []const Tab,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "focused_at",
         "short_id",
-        "tab_groups",
     };
 };
 
 pub const MachineListeningTcpResult = struct {
     stdout: []const u8,
-};
-
-pub const MachinePlatform = struct {
-    arch: []const u8,
-    os: []const u8,
 };
 
 pub const MachineUsage = struct {
@@ -1520,68 +738,15 @@ pub const MoveTerminalResult = struct {
     generation: []const u8,
     lifecycle: TerminalLifecycle,
     pane: wire.Nullable(Id),
-    pane_id: ?[]const u8 = null,
     registry_id: []const u8,
     replayed: bool,
     screen: wire.Nullable(Id),
-    screen_id: ?[]const u8 = null,
     surface: wire.Nullable(Id),
-    tab_id: ?[]const u8 = null,
     terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
-    terminal_resource_id: ?[]const u8 = null,
     terminal_revision: u64,
     workspace: wire.Nullable(Id),
-    workspace_id: ?[]const u8 = null,
     workspace_key: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "pane_id",
-        "screen_id",
-        "tab_id",
-        "terminal_resource_id",
-        "workspace_id",
-    };
-};
-
-pub const NameSource = enum {
-    user,
-    auto,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "user")) return .user;
-        if (std.mem.eql(u8, value, "auto")) return .auto;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .user => "user",
-            .auto => "auto",
-        };
-    }
-};
-
-pub const NewRowResult = struct {
-    pane: Id,
-    pane_id: ?[]const u8 = null,
-    screen_id: ?[]const u8 = null,
-    surface: Id,
-    tab_id: ?[]const u8 = null,
-    terminal_id: wire.Field([]const u8) = .absent,
-    terminal_incarnation: wire.Field([]const u8) = .absent,
-    terminal_resource_id: ?[]const u8 = null,
-    transaction: ?[]const u8 = null,
-    workspace_id: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "pane_id",
-        "screen_id",
-        "tab_id",
-        "terminal_resource_id",
-        "transaction",
-        "workspace_id",
-    };
 };
 
 pub const NoteSizeActivityResult = struct {
@@ -1613,36 +778,7 @@ pub const NotificationLevel = enum {
 pub const NotificationMarker = struct {
     level: NotificationLevel,
     notification: Id,
-    source: ?NotificationSource = null,
     unread: bool,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "source",
-    };
-};
-
-pub const NotificationSource = enum {
-    cli,
-    terminal,
-    agent,
-    daemon,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "cli")) return .cli;
-        if (std.mem.eql(u8, value, "terminal")) return .terminal;
-        if (std.mem.eql(u8, value, "agent")) return .agent;
-        if (std.mem.eql(u8, value, "daemon")) return .daemon;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .cli => "cli",
-            .terminal => "terminal",
-            .agent => "agent",
-            .daemon => "daemon",
-        };
-    }
 };
 
 pub const NotifyResult = struct {
@@ -1694,51 +830,8 @@ pub const PaneDirection = enum {
     }
 };
 
-pub const PaneKind = enum {
-    pty,
-    browser,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "pty")) return .pty;
-        if (std.mem.eql(u8, value, "browser")) return .browser;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .pty => "pty",
-            .browser => "browser",
-        };
-    }
-};
-
 pub const PaneNeighborResult = struct {
     pane: wire.Nullable(Id),
-};
-
-/// A pane named by its numeric id or its public pane_ id.
-pub const PaneRef = wire.Value;
-
-pub const PaneSurfaceResult = struct {
-    pane_id: wire.Field([]const u8) = .absent,
-    replayed: wire.Field(bool) = .absent,
-    screen_id: ?[]const u8 = null,
-    surface: Id,
-    tab_id: wire.Field([]const u8) = .absent,
-    terminal_id: wire.Field([]const u8) = .absent,
-    terminal_incarnation: wire.Field([]const u8) = .absent,
-    terminal_resource_id: ?[]const u8 = null,
-    workspace_id: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "screen_id",
-        "terminal_resource_id",
-        "workspace_id",
-    };
-};
-
-pub const PhoneLinkOfferResult = struct {
-    offered: bool,
 };
 
 pub const PingResult = struct {
@@ -1757,30 +850,6 @@ pub const ProcessInfoResult = struct {
     /// Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
     foreground_executable: wire.Field([]const u8) = .absent,
     pid: wire.Nullable(u32),
-};
-
-pub const ProgramStatusState = enum {
-    working,
-    blocked,
-    @"error",
-    done,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "working")) return .working;
-        if (std.mem.eql(u8, value, "blocked")) return .blocked;
-        if (std.mem.eql(u8, value, "error")) return .@"error";
-        if (std.mem.eql(u8, value, "done")) return .done;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .working => "working",
-            .blocked => "blocked",
-            .@"error" => "error",
-            .done => "done",
-        };
-    }
 };
 
 pub const ProviderWorkspaceMutationResult = struct {
@@ -1803,24 +872,6 @@ pub const ReadScrollbackResult = struct {
 pub const ReattachViewResult = struct {
     participant: []const u8,
     state: SizeState,
-};
-
-pub const ReleaseWorkspaceNamesResult = struct {
-    /// Workspace names this call handed back to the automatic namer.
-    released: u64,
-    /// User-owned names left pinned: a row renamed between the read and its release.
-    still_pinned: u64,
-};
-
-pub const RemoteHostAppPermissions = struct {
-    accessibility: wire.Field(bool) = .absent,
-    screen_recording: wire.Field(bool) = .absent,
-};
-
-pub const RemoteHostAppResult = struct {
-    host_pid: u32,
-    secret: []const u8,
-    socket: []const u8,
 };
 
 pub const RenderCursor = struct {
@@ -1976,25 +1027,12 @@ pub const ResolveTerminalResult = struct {
     generation: []const u8,
     launch_spec: JsonValue,
     lifecycle: TerminalLifecycle,
-    pane_id: ?[]const u8 = null,
     registry_id: []const u8,
-    screen_id: ?[]const u8 = null,
     surface: wire.Nullable(Id),
-    tab_id: ?[]const u8 = null,
     terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
-    terminal_resource_id: ?[]const u8 = null,
     terminal_revision: u64,
-    workspace_id: ?[]const u8 = null,
     workspace_key: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "pane_id",
-        "screen_id",
-        "tab_id",
-        "terminal_resource_id",
-        "workspace_id",
-    };
 };
 
 pub const ResourceSelectors = struct {
@@ -2016,168 +1054,32 @@ pub const ResourceSelectors = struct {
     workspace: wire.Field([]const u8) = .absent,
 };
 
-pub const RowHeight = struct {
-    height: u64,
-    row: Id,
-};
-
-pub const RowMarkerPoint = struct {
-    col: u16,
-    row_marker: u64,
-};
-
 pub const RunResult = struct {
     already_exited: bool,
     exit: wire.Nullable(TerminalExit),
     lifecycle: TerminalLifecycle,
     pane: wire.Nullable(Id),
-    pane_id: ?[]const u8 = null,
     screen: wire.Nullable(Id),
-    screen_id: ?[]const u8 = null,
     surface: wire.Nullable(Id),
-    tab_id: ?[]const u8 = null,
     terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
-    terminal_resource_id: ?[]const u8 = null,
     terminal_revision: u64,
     workspace: wire.Nullable(Id),
-    workspace_id: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "pane_id",
-        "screen_id",
-        "tab_id",
-        "terminal_resource_id",
-        "workspace_id",
-    };
-};
-
-pub const SavedTabGroupMember = struct {
-    /// kind terminal.
-    cwd: wire.Field([]const u8) = .absent,
-    /// kind browser. Known values: webkit, cef.
-    engine: wire.Field([]const u8) = .absent,
-    /// Known values: terminal (terminal_id, cwd, title) and browser (url, engine, profile_id, title). A member of another kind keeps its fields in the additional properties.
-    kind: []const u8,
-    /// kind browser.
-    profile_id: wire.Field([]const u8) = .absent,
-    /// kind terminal.
-    terminal_id: wire.Field([]const u8) = .absent,
-    title: wire.Field([]const u8) = .absent,
-    /// kind browser.
-    url: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "url",
-    };
-};
-
-pub const SavedTabGroupRecord = struct {
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
-    color: []const u8,
-    id: []const u8,
-    members: []const SavedTabGroupMember,
-    name: []const u8,
-    /// The room whose bar shows the saved group (`default` for groups saved by these commands).
-    room: []const u8,
-    updated_at_ms: u64,
 };
 
 pub const Screen = struct {
     active: bool,
     active_pane: Id,
-    /// The screen color.
-    color: wire.Field([]const u8) = .absent,
-    /// The screen's layout columns.
-    columns: ?[]const LayoutColumnNode = null,
-    /// floating-panes-v1: panes above the tiled layout, back to front.
-    floating: ?JsonValue = null,
-    /// The screen group the screen is in.
-    group: wire.Field([]const u8) = .absent,
-    /// split-divider-visibility-v1: splits whose divider is hidden.
-    hidden_dividers: ?[]const Id = null,
-    /// The screen icon.
-    icon: wire.Field([]const u8) = .absent,
     id: Id,
     layout: Layout,
     name: wire.Nullable([]const u8),
     panes: []const Pane,
-    /// The screen is pinned.
-    pinned: ?bool = null,
-    /// quick-terminal-v1: the screen's quick terminal.
-    quick_terminal: ?JsonValue = null,
-    /// The screen's public id.
-    resource_id: wire.Field([]const u8) = .absent,
     short_id: ?[]const u8 = null,
-    /// The viewport width the split widths are relative to.
-    viewport_base_width: ?f64 = null,
-    /// Viewport widths of splits.
-    viewport_splits: ?[]const ViewportSplitWidth = null,
     zoomed_pane: wire.Nullable(Id),
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "columns",
-        "floating",
-        "hidden_dividers",
-        "pinned",
-        "quick_terminal",
         "short_id",
-        "viewport_base_width",
-        "viewport_splits",
     };
-};
-
-pub const ScreenGroupRun = struct {
-    collapsed: bool,
-    color: []const u8,
-    count: u64,
-    icon: wire.Field([]const u8) = .absent,
-    id: []const u8,
-    name: []const u8,
-    saved_id: wire.Nullable([]const u8),
-    screens: []const Id,
-    /// The index of the run's first screen.
-    start: u64,
-};
-
-pub const SelectionPane = struct {
-    active_tab: u64,
-    focused_at: u64,
-    id: Id,
-};
-
-pub const SelectionScreen = struct {
-    active: bool,
-    active_pane: Id,
-    id: Id,
-    panes: []const SelectionPane,
-};
-
-pub const SendExpectAgent = struct {
-    session: wire.Field([]const u8) = .absent,
-};
-
-pub const ServerStatsCommandConnections = struct {
-    accepted: u64,
-    kind: []const u8,
-    refused: u64,
-};
-
-pub const ServerStatsCommandRow = struct {
-    count: u64,
-    hist: []const u64,
-    kind: []const u8,
-    max_ns: u64,
-    name: []const u8,
-    total_ns: u64,
-};
-
-pub const ServerStatsCommands = struct {
-    connections: []const ServerStatsCommandConnections,
-    hist_bounds_ns: []const u64,
-    name_limit: u64,
-    names: u64,
-    rows: []const ServerStatsCommandRow,
 };
 
 pub const ServerStatsConnections = struct {
@@ -2188,78 +1090,6 @@ pub const ServerStatsConnections = struct {
     refused: u64,
 };
 
-pub const ServerStatsDisk = struct {
-    checkpoints: wire.Field(ServerStatsDiskCheckpoints) = .absent,
-    @"error": wire.Nullable([]const u8),
-    files: []const ServerStatsDiskFile,
-    files_truncated: bool,
-    files_unlisted: u64,
-    freelist_pages: u64,
-    journal: wire.Nullable(ServerStatsDiskJournal),
-    page_count: u64,
-    page_size: u64,
-    registry_bytes: u64,
-    segments: wire.Nullable(ServerStatsDiskSegments),
-    shm_bytes: u64,
-    wal_bytes: u64,
-};
-
-pub const ServerStatsDiskCheckpoints = struct {
-    budget_bytes: u64,
-    bytes: u64,
-    checkpoints: u64,
-    largest_bytes: u64,
-    over_budget: bool,
-};
-
-pub const ServerStatsDiskFile = struct {
-    bytes: u64,
-    files: u64,
-    name: []const u8,
-};
-
-pub const ServerStatsDiskJournal = struct {
-    estimated_live_bytes: u64,
-    first_sequence: u64,
-    head_sequence: u64,
-    kinds: []const ServerStatsDiskJournalKind,
-    live_rows: u64,
-    sample_bytes: u64,
-    sample_rows: u64,
-    sample_span_ms: u64,
-};
-
-pub const ServerStatsDiskJournalKind = struct {
-    budget_bytes_per_day: u64,
-    bytes_per_day: wire.Nullable(u64),
-    kind: []const u8,
-    over_budget: bool,
-    sample_bytes: u64,
-    sample_rows: u64,
-};
-
-pub const ServerStatsDiskSegmentCodec = struct {
-    codec: []const u8,
-    compressed_bytes: u64,
-    records: u64,
-    segments: u64,
-    uncompressed_bytes: u64,
-};
-
-pub const ServerStatsDiskSegmentKind = struct {
-    kind: []const u8,
-    segments: u64,
-};
-
-pub const ServerStatsDiskSegments = struct {
-    by_codec: []const ServerStatsDiskSegmentCodec,
-    compressed_bytes: u64,
-    kinds: []const ServerStatsDiskSegmentKind,
-    records: u64,
-    segments: u64,
-    uncompressed_bytes: u64,
-};
-
 pub const ServerStatsHistogram = struct {
     count: u64,
     max: u64,
@@ -2267,33 +1097,6 @@ pub const ServerStatsHistogram = struct {
     p50: u64,
     p90: u64,
     p99: u64,
-};
-
-pub const ServerStatsHookQueue = struct {
-    queued_events: u64,
-    reset_dropped_events: u64,
-    undeliverable_events: u64,
-};
-
-pub const ServerStatsJournalFollower = struct {
-    client: u64,
-    connected_ms: u64,
-    keeps_hook_rows: bool,
-    keeps_report_rows: bool,
-    kinds: []const []const u8,
-    left_ms: wire.Nullable(u64),
-    max_sensitivity: wire.Nullable([]const u8),
-    remote: bool,
-    stream_id: []const u8,
-};
-
-pub const ServerStatsJournalFollowers = struct {
-    followers: []const ServerStatsJournalFollower,
-    grace_ms: u64,
-    hook_rows_kept: bool,
-    journal_hook_keeps_rows: wire.Nullable(bool),
-    keep_all_ms: u64,
-    report_rows_kept: bool,
 };
 
 pub const ServerStatsJournalWriter = struct {
@@ -2312,18 +1115,6 @@ pub const ServerStatsJournalWriter = struct {
     terminal_queued: u64,
 };
 
-pub const ServerStatsLockDetail = struct {
-    by_hold_p99: []const ServerStatsLockSiteDetail,
-    by_hold_total: []const ServerStatsLockSiteDetail,
-    contended_acquisitions: u64,
-    hold_us: ServerStatsHistogram,
-    holder: wire.Nullable(ServerStatsLockHolder),
-    last_stall: wire.Nullable(ServerStatsLockStall),
-    sites: u64,
-    stalls: u64,
-    wait_us: ServerStatsHistogram,
-};
-
 pub const ServerStatsLockHolder = struct {
     held_for_us: u64,
     site: []const u8,
@@ -2336,26 +1127,10 @@ pub const ServerStatsLockSite = struct {
     site: []const u8,
 };
 
-pub const ServerStatsLockSiteDetail = struct {
-    acquisitions: u64,
-    hold_max_us: u64,
-    hold_p99_us: u64,
-    hold_total_us: u64,
-    site: []const u8,
-    wait_max_us: u64,
-    wait_p99_us: u64,
-    wait_total_us: u64,
-};
-
 pub const ServerStatsLockStall = struct {
     blocker: wire.Nullable([]const u8),
     waited_us: u64,
     waiter: []const u8,
-};
-
-pub const ServerStatsLocks = struct {
-    registry: ServerStatsLockDetail,
-    state: ServerStatsLockDetail,
 };
 
 pub const ServerStatsRegistryLock = struct {
@@ -2368,70 +1143,12 @@ pub const ServerStatsRegistryLock = struct {
     wait_us: ServerStatsHistogram,
 };
 
-pub const ServerStatsResourceProjection = struct {
-    commit_apply_us: ServerStatsHistogram,
-    commit_journal_us: ServerStatsHistogram,
-    commit_prune_us: ServerStatsHistogram,
-    commit_us: ServerStatsHistogram,
-    commits: u64,
-    crosscheck_mismatches: u64,
-    crosschecks: u64,
-    diff_us: ServerStatsHistogram,
-    full_projections: u64,
-    index_us: ServerStatsHistogram,
-    journaled_changes: ServerStatsHistogram,
-    projected_changes: ServerStatsHistogram,
-    projections: u64,
-    read_us: ServerStatsHistogram,
-    scope_fallbacks: u64,
-    scoped_projections: u64,
-    written_changes: ServerStatsHistogram,
-};
-
 pub const ServerStatsResult = struct {
-    commands: ?ServerStatsCommands = null,
     connections: ServerStatsConnections,
-    disk: ?ServerStatsDisk = null,
-    hook_queue: ?ServerStatsHookQueue = null,
-    journal_followers: ?ServerStatsJournalFollowers = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
-    locks: ?ServerStatsLocks = null,
     registry_lock: ServerStatsRegistryLock,
-    resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
     uptime_ms: u64,
-    write_path: ?ServerStatsWritePath = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "commands",
-        "disk",
-        "hook_queue",
-        "journal_followers",
-        "locks",
-        "resource_projection",
-        "write_path",
-    };
-};
-
-pub const ServerStatsWritePath = struct {
-    effect_intent_batches: u64,
-    effect_intent_failures: u64,
-    effect_intents: u64,
-    registry_wal_file_bytes: ?u64 = null,
-    registry_wal_file_high_water_bytes: ?u64 = null,
-    registry_wal_frame_bytes: ?u64 = null,
-    request_effect_commits: u64,
-    wal_commits: ?u64 = null,
-    wal_synced_commits: ?u64 = null,
-    writer_registry_locks: u64,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "registry_wal_file_bytes",
-        "registry_wal_file_high_water_bytes",
-        "registry_wal_frame_bytes",
-        "wal_commits",
-        "wal_synced_commits",
-    };
 };
 
 pub const ServerStatsWriterPhase = enum {
@@ -2460,20 +1177,6 @@ pub const SetCellPixelsResult = struct {
     resizes: []const CellPixelResize,
 };
 
-pub const SetClientInfoResult = struct {
-    api_revision: ?u32 = null,
-    api_version: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "api_revision",
-        "api_version",
-    };
-};
-
-pub const SetHostSizePolicyResult = struct {
-    policy: HostSizePolicy,
-};
-
 pub const SetSizeCountsResult = struct {
     changed: ?bool = null,
     outcome: ViewAttachmentOutcome,
@@ -2498,25 +1201,8 @@ pub const SetTerminalIdlePolicyResult = struct {
     terminal_id: []const u8,
 };
 
-pub const SetTerminalKeepResult = struct {
-    keep: bool,
-    terminal_id: []const u8,
-    terminal_resource_id: wire.Field([]const u8) = .absent,
-};
-
-pub const SetTerminalTailPinResult = struct {
-    pinned: bool,
-    terminal: []const u8,
-};
-
-pub const ShownProgramStatus = struct {
-    progress: wire.Nullable(u16),
-    state: ProgramStatusState,
-};
-
 pub const ShutdownDaemonResult = struct {
     accepted: bool,
-    ended_terminals: wire.Field(u64) = .absent,
     generation: []const u8,
     pid: u32,
 };
@@ -2544,8 +1230,6 @@ pub const SizeDeviceKind = enum {
     ipad,
     tui,
     browser,
-    linux,
-    windows,
     unknown,
 
     pub fn fromWire(value: []const u8) !@This() {
@@ -2554,10 +1238,8 @@ pub const SizeDeviceKind = enum {
         if (std.mem.eql(u8, value, "ipad")) return .ipad;
         if (std.mem.eql(u8, value, "tui")) return .tui;
         if (std.mem.eql(u8, value, "browser")) return .browser;
-        if (std.mem.eql(u8, value, "linux")) return .linux;
-        if (std.mem.eql(u8, value, "windows")) return .windows;
         if (std.mem.eql(u8, value, "unknown")) return .unknown;
-        return .unknown;
+        return error.UnknownEnumValue;
     }
 
     pub fn toWire(self: @This()) []const u8 {
@@ -2567,8 +1249,6 @@ pub const SizeDeviceKind = enum {
             .ipad => "ipad",
             .tui => "tui",
             .browser => "browser",
-            .linux => "linux",
-            .windows => "windows",
             .unknown => "unknown",
         };
     }
@@ -2677,41 +1357,6 @@ pub const SizingIdentity = struct {
     user_id: wire.Field([]const u8) = .absent,
 };
 
-pub const SnapshotRequestHave = struct {
-    generation: wire.Field(u64) = .absent,
-    offset: wire.Field(u64) = .absent,
-    snapshot_version: wire.Field(u16) = .absent,
-};
-
-pub const SnapshotRequestResultStatus = enum {
-    accepted,
-    collapsed,
-    snapshot_throttled,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "accepted")) return .accepted;
-        if (std.mem.eql(u8, value, "collapsed")) return .collapsed;
-        if (std.mem.eql(u8, value, "snapshot_throttled")) return .snapshot_throttled;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .accepted => "accepted",
-            .collapsed => "collapsed",
-            .snapshot_throttled => "snapshot_throttled",
-        };
-    }
-};
-
-pub const SnapshotRequestResult = struct {
-    reason: wire.Field([]const u8) = .absent,
-    request_id: wire.Field([]const u8) = .absent,
-    retry_after_ms: wire.Field(u64) = .absent,
-    status: SnapshotRequestResultStatus,
-    surface: Id,
-};
-
 pub const SplitDirection = enum {
     right,
     down,
@@ -2730,53 +1375,10 @@ pub const SplitDirection = enum {
     }
 };
 
-pub const SplitRespawn = struct {
-    cwd: wire.Field([]const u8) = .absent,
-    engine: wire.Field([]const u8) = .absent,
-    env: wire.Field(wire.Map([]const u8)) = .absent,
-    kind: []const u8,
-    profile_id: wire.Field([]const u8) = .absent,
-    shell_args: wire.Field([]const []const u8) = .absent,
-    terminal_id: wire.Field([]const u8) = .absent,
-    url: wire.Field([]const u8) = .absent,
-};
-
 pub const SurfaceResult = struct {
-    pane_id: wire.Field([]const u8) = .absent,
-    screen_id: ?[]const u8 = null,
     surface: Id,
-    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
-    terminal_resource_id: ?[]const u8 = null,
-    /// The transaction of a new-tab request, when it sent one.
-    transaction: ?[]const u8 = null,
-    workspace_id: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "screen_id",
-        "terminal_resource_id",
-        "transaction",
-        "workspace_id",
-    };
-};
-
-pub const TabBrowserRenderer = enum {
-    daemon,
-    frontend,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "daemon")) return .daemon;
-        if (std.mem.eql(u8, value, "frontend")) return .frontend;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .daemon => "daemon",
-            .frontend => "frontend",
-        };
-    }
 };
 
 pub const TabBrowserSource = enum {
@@ -2821,14 +1423,10 @@ pub const TabBrowserStatus = enum {
 pub const TabKind = enum {
     pty,
     browser,
-    conversation,
-    remote_terminal,
 
     pub fn fromWire(value: []const u8) !@This() {
         if (std.mem.eql(u8, value, "pty")) return .pty;
         if (std.mem.eql(u8, value, "browser")) return .browser;
-        if (std.mem.eql(u8, value, "conversation")) return .conversation;
-        if (std.mem.eql(u8, value, "remote-terminal")) return .remote_terminal;
         return error.UnknownEnumValue;
     }
 
@@ -2836,217 +1434,32 @@ pub const TabKind = enum {
         return switch (self) {
             .pty => "pty",
             .browser => "browser",
-            .conversation => "conversation",
-            .remote_terminal => "remote-terminal",
         };
     }
 };
 
 pub const Tab = struct {
-    /// app-screens-v1: the app (and route) an app tab shows.
-    app: ?JsonValue = null,
-    /// tab-attention-v1: an agent needs the person in this tab.
-    attention: wire.Field(TabAttention) = .absent,
-    /// A frontend browser's engine.
-    browser_engine: wire.Field([]const u8) = .absent,
     browser_error: wire.Field([]const u8) = .absent,
     browser_frames_stalled: wire.Field(bool) = .absent,
-    /// The frontend that owns the browser.
-    browser_owner: wire.Field([]const u8) = .absent,
-    /// A frontend browser's profile.
-    browser_profile_id: wire.Field([]const u8) = .absent,
-    /// Who renders a browser tab.
-    browser_renderer: wire.Field(TabBrowserRenderer) = .absent,
     browser_source: wire.Nullable(TabBrowserSource),
     browser_status: wire.Field(TabBrowserStatus) = .absent,
-    /// The public id of what the tab shows.
-    content_resource_id: wire.Field([]const u8) = .absent,
-    /// What a conversation tab shows.
-    conversation: wire.Field(ConversationTabRecord) = .absent,
-    /// The terminal's working directory.
-    cwd: wire.Field([]const u8) = .absent,
     dead: bool,
-    /// terminal-state-v1: why a dead terminal ended.
-    end: wire.Field(JsonValue) = .absent,
-    /// A frontend browser's favicon.
-    favicon_url: wire.Field([]const u8) = .absent,
-    /// The git branch of cwd.
-    git_branch: wire.Field([]const u8) = .absent,
-    /// cwd's checkout has a detached HEAD.
-    git_detached: ?bool = null,
-    /// The tab group the tab is in.
-    group: wire.Field([]const u8) = .absent,
-    /// The record version of a terminal its host has but cannot adopt.
-    host_record_version: wire.Field(u64) = .absent,
     kind: TabKind,
     name: wire.Nullable([]const u8),
     notification: wire.Field(NotificationMarker) = .absent,
-    /// The tab is pinned.
-    pinned: ?bool = null,
-    /// A pinned browser tab's home URL.
-    pinned_url: wire.Field([]const u8) = .absent,
-    program_status: wire.Field(ShownProgramStatus) = .absent,
-    /// How the tab relaunches after a restart.
-    relaunch: wire.Field(JsonValue) = .absent,
-    /// A remote terminal tab's record.
-    remote: ?JsonValue = null,
     short_id: ?[]const u8 = null,
     size: wire.Nullable(Size),
     supports_clear_history_key_fallback: ?bool = null,
     surface: Id,
-    /// The tab's public id.
-    tab_resource_id: wire.Field([]const u8) = .absent,
-    /// Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason.
-    terminal_host_fallback: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
     terminal_resource_id: wire.Field([]const u8) = .absent,
-    /// running, reconnecting, failed or exited, for a terminal tab.
-    terminal_state: wire.Field([]const u8) = .absent,
     title: []const u8,
-    title_activity: wire.Field([]const u8) = .absent,
-    title_text: ?[]const u8 = null,
-    /// A browser tab's URL.
-    url: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "app",
-        "git_detached",
-        "pinned",
-        "remote",
         "short_id",
         "supports_clear_history_key_fallback",
-        "title_text",
     };
-};
-
-pub const TabAttention = struct {
-    /// When it was marked, in Unix milliseconds.
-    at_ms: u64,
-    /// Why the tab needs the person.
-    reason: []const u8,
-};
-
-pub const TabGroupEndedTerminal = struct {
-    terminal_id: []const u8,
-    terminal_incarnation: wire.Nullable([]const u8),
-};
-
-pub const TabGroupOutcome = struct {
-    /// Null when the command left no group.
-    group: wire.Nullable(TabGroupRecord),
-    pane: wire.Nullable(Id),
-    /// Members in strip order.
-    surfaces: []const Id,
-    /// The workspace of the group's pane.
-    workspace: wire.Nullable(Id),
-};
-
-pub const TabGroupRecord = struct {
-    collapsed: bool,
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
-    color: []const u8,
-    id: []const u8,
-    /// May be empty: the group shows only its color.
-    name: []const u8,
-    /// The linked saved group.
-    saved_id: wire.Nullable([]const u8),
-};
-
-pub const TabGroupRun = struct {
-    collapsed: bool,
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
-    color: []const u8,
-    count: u64,
-    /// tab-group-icon-v1: the group's icon string.
-    icon: wire.Field([]const u8) = .absent,
-    id: []const u8,
-    name: []const u8,
-    pane: ?Id = null,
-    saved_id: wire.Nullable([]const u8),
-    /// Strip index of the first member.
-    start: u64,
-    surfaces: []const Id,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "pane",
-    };
-};
-
-pub const TabPlace = struct {
-    /// Right after this tab of pane.
-    after: wire.Field(Id) = .absent,
-    /// Right after the tab of an earlier create request of this connection for pane: the transaction of that request (1 to 128 printable ASCII). That tab does not have to be there yet.
-    after_creation: wire.Field([]const u8) = .absent,
-    /// Right before this tab of pane.
-    before: wire.Field(Id) = .absent,
-    /// true: the tab joins the tab group of the tab that after, after_creation or before names. Refused with start.
-    joins: wire.Field(bool) = .absent,
-    /// true: the first tab after the pinned tabs.
-    start: wire.Field(bool) = .absent,
-};
-
-/// A tab named by its numeric surface id or its public tab_ id.
-pub const TabRef = wire.Value;
-
-pub const TerminalClipboardHost = struct {
-    kind: TerminalClipboardHostKind,
-    name: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "name",
-    };
-};
-
-pub const TerminalClipboardHostKind = enum {
-    local,
-    remote,
-    cloud,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "local")) return .local;
-        if (std.mem.eql(u8, value, "remote")) return .remote;
-        if (std.mem.eql(u8, value, "cloud")) return .cloud;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .local => "local",
-            .remote => "remote",
-            .cloud => "cloud",
-        };
-    }
-};
-
-pub const TerminalClipboardLocation = enum {
-    standard,
-    selection,
-    primary,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "standard")) return .standard;
-        if (std.mem.eql(u8, value, "selection")) return .selection;
-        if (std.mem.eql(u8, value, "primary")) return .primary;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .standard => "standard",
-            .selection => "selection",
-            .primary => "primary",
-        };
-    }
-};
-
-pub const TerminalClipboardReplyResult = struct {
-    accepted: bool,
-    granted: bool,
-};
-
-pub const TerminalClipboardSubscribeResult = struct {
-    clipboard_read_ready: bool,
 };
 
 pub const TerminalColorOverrides = struct {
@@ -3070,64 +1483,6 @@ pub const TerminalColors = struct {
         "overrides",
         "palette",
     };
-};
-
-pub const TerminalCommandContext = struct {
-    command: wire.Nullable([]const u8),
-    cwd: wire.Nullable([]const u8),
-    exit_code: wire.Nullable(i32),
-    output: []const u8,
-    text: []const u8,
-    truncated: bool,
-};
-
-pub const TerminalCommandContextIntent = enum {
-    context,
-    fix,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "context")) return .context;
-        if (std.mem.eql(u8, value, "fix")) return .fix;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .context => "context",
-            .fix => "fix",
-        };
-    }
-};
-
-pub const TerminalCommandContextResult = struct {
-    context: wire.Nullable(TerminalCommandContext),
-};
-
-pub const TerminalCommandDeleteResult = struct {
-    deleted: u64,
-};
-
-pub const TerminalCommandHistoryResult = struct {
-    enabled: bool,
-    retention_days: u32,
-};
-
-pub const TerminalCommandList = struct {
-    commands: []const TerminalCommandRecord,
-    deletions: []const u8,
-    registry_id: []const u8,
-    retention_days: u32,
-    truncated: bool,
-};
-
-pub const TerminalCommandRecord = struct {
-    command: wire.Nullable([]const u8),
-    cwd: wire.Nullable([]const u8),
-    duration_ms: []const u8,
-    exit_code: wire.Nullable(i32),
-    id: []const u8,
-    started_at_ms: []const u8,
-    terminal_id: []const u8,
 };
 
 pub const TerminalEventsResult = struct {
@@ -3183,21 +1538,6 @@ pub const TerminalExitOutcome = union(enum) {
         }
         return error.UnknownUnionVariant;
     }
-};
-
-pub const TerminalHistoryPage = struct {
-    data: []const u8,
-    marker: u64,
-    rows: u16,
-};
-
-pub const TerminalHistoryPagesResult = struct {
-    done: bool,
-    marker_epoch: u64,
-    next_before: wire.Field(u64) = .absent,
-    pages: []const TerminalHistoryPage,
-    snapshot_version: u16,
-    surface: Id,
 };
 
 pub const TerminalKey = enum {
@@ -3589,18 +1929,6 @@ pub const TerminalKeyInput = struct {
     };
 };
 
-pub const TerminalLastCommand = struct {
-    command: []const u8,
-    ended_at_ms: []const u8,
-    exit_code: wire.Nullable(i32),
-    started_at_ms: []const u8,
-};
-
-pub const TerminalLastCommandResult = struct {
-    last_command: wire.Nullable(TerminalLastCommand),
-    terminal_id: []const u8,
-};
-
 pub const TerminalLifecycle = enum {
     launching,
     adopting,
@@ -3644,50 +1972,14 @@ pub const TerminalPlacement = struct {
     key: []const u8,
     lifecycle: TerminalLifecycle,
     pane: wire.Nullable(Id),
-    pane_id: ?[]const u8 = null,
     registry_id: []const u8,
     replayed: bool,
     screen: wire.Nullable(Id),
-    screen_id: ?[]const u8 = null,
     surface: wire.Nullable(Id),
-    tab_id: ?[]const u8 = null,
     terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
-    terminal_resource_id: ?[]const u8 = null,
     terminal_revision: u64,
     workspace: wire.Nullable(Id),
-    workspace_id: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "pane_id",
-        "screen_id",
-        "tab_id",
-        "terminal_resource_id",
-        "workspace_id",
-    };
-};
-
-pub const TerminalPortsListener = struct {
-    /// The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1.
-    bound: []const u8,
-    /// The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, [::1], ...
-    host: []const u8,
-    port: u16,
-    /// The printed URL, or http://HOST:PORT/ when the text had no scheme.
-    url: []const u8,
-};
-
-pub const TerminalPortsResult = struct {
-    /// Ports the text names that refused the connect.
-    closed: []const u16,
-    listeners: []const TerminalPortsListener,
-    surface: Id,
-};
-
-pub const TerminalReadRangeResult = struct {
-    surface: Id,
-    text: []const u8,
-    truncated: bool,
 };
 
 pub const TerminalRecord = struct {
@@ -3709,79 +2001,19 @@ pub const TerminalRegistryEvent = struct {
     workspace_key: []const u8,
 };
 
-pub const TerminalResourceHost = struct {
-    cpu_ns: u64,
-    memory_bytes: u64,
-    pid: u32,
-};
-
-pub const TerminalResourceProcess = struct {
-    cpu_ns: u64,
-    memory_bytes: u64,
-    name: []const u8,
-    pid: u32,
-    ppid: u32,
-};
-
-pub const TerminalResources = struct {
-    host: wire.Nullable(TerminalResourceHost),
-    pid: wire.Nullable(u32),
-    processes: []const TerminalResourceProcess,
-    surface: Id,
-    terminal_id: wire.Nullable([]const u8),
-    truncated: bool,
-};
-
-pub const TerminalResourcesResult = struct {
-    missing: []const Id,
-    sampled_at_ns: u64,
-    terminals: []const TerminalResources,
-};
-
-pub const TerminalResumeCommandResult = struct {
-    command: wire.Nullable([]const u8),
-    terminal_id: []const u8,
-};
-
 pub const Tree = struct {
-    changed: ?[]const Workspace = null,
-    delta: ?bool = null,
-    epoch: ?[]const u8 = null,
     generation: ?[]const u8 = null,
-    /// The sidebar workspace groups.
-    groups: ?[]const WorkspaceGroup = null,
-    /// How many lines the connection had written when the tree was read: a later line may carry a change the tree lacks.
-    lines_written_before_read: ?u64 = null,
-    next: ?u64 = null,
-    order: ?[]const Id = null,
     pane_revision: ?u64 = null,
     registry_id: ?[]const u8 = null,
-    removed: ?[]const Id = null,
-    seq: ?u64 = null,
     terminal_revision: ?u64 = null,
-    total: ?u64 = null,
-    tree_revision: ?[]const u8 = null,
-    unchanged: ?bool = null,
     workspace_revision: ?u64 = null,
     workspaces: []const Workspace,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "changed",
-        "delta",
-        "epoch",
         "generation",
-        "groups",
-        "lines_written_before_read",
-        "next",
-        "order",
         "pane_revision",
         "registry_id",
-        "removed",
-        "seq",
         "terminal_revision",
-        "total",
-        "tree_revision",
-        "unchanged",
         "workspace_revision",
     };
 };
@@ -3807,15 +2039,6 @@ pub const ViewAttachmentOutcome = enum {
     }
 };
 
-pub const ViewportPaneWidthResult = struct {
-    width: f32,
-};
-
-pub const ViewportSplitWidth = struct {
-    split: Id,
-    width: f64,
-};
-
 pub const VtStateResult = struct {
     cols: u16,
     data: Base64,
@@ -3835,129 +2058,22 @@ pub const WaitForResult = struct {
     text: []const u8,
 };
 
-pub const WorkspaceKind = enum {
-    normal,
-    home,
-    app,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "normal")) return .normal;
-        if (std.mem.eql(u8, value, "home")) return .home;
-        if (std.mem.eql(u8, value, "app")) return .app;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .normal => "normal",
-            .home => "home",
-            .app => "app",
-        };
-    }
-};
-
 pub const Workspace = struct {
     active: bool,
-    /// The app an app workspace shows.
-    app: wire.Field([]const u8) = .absent,
-    /// The workspace color.
-    color: wire.Field([]const u8) = .absent,
-    /// The sidebar group the workspace is in.
-    group: wire.Field([]const u8) = .absent,
-    /// The workspace icon.
-    icon: wire.Field([]const u8) = .absent,
     id: Id,
-    /// workspace-keep-awake-v1: the freeing timer never ends this workspace's shells.
-    keep_awake: ?bool = null,
     key: ?[]const u8 = null,
-    /// What the workspace is.
-    kind: ?WorkspaceKind = null,
-    /// The person marked the workspace unread.
-    marked_unread: ?bool = null,
     name: []const u8,
-    name_revision: ?[]const u8 = null,
-    name_source: ?NameSource = null,
-    /// The workspace is pinned.
-    pinned: ?bool = null,
-    /// workspace-recovered-v1: every tab is a recovered terminal.
-    recovered: ?bool = null,
-    /// The workspace's public id.
-    resource_id: wire.Field([]const u8) = .absent,
-    /// The workspace's screen group runs.
-    screen_groups: ?[]const ScreenGroupRun = null,
     screens: []const Screen,
     short_id: ?[]const u8 = null,
-    /// The workspace title.
-    title: wire.Field([]const u8) = .absent,
-    /// Tabs with an unread notification.
-    unread_count: ?u64 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "keep_awake",
         "key",
-        "kind",
-        "marked_unread",
-        "name_revision",
-        "name_source",
-        "pinned",
-        "recovered",
-        "screen_groups",
         "short_id",
-        "unread_count",
     };
-};
-
-pub const WorkspaceFirstTabBrowser = struct {
-    activate: ?bool = null,
-    cols: wire.Field(u16) = .absent,
-    engine: []const u8,
-    favicon_url: wire.Field([]const u8) = .absent,
-    idempotency_key: wire.Field([]const u8) = .absent,
-    owner: wire.Field([]const u8) = .absent,
-    profile_id: wire.Field([]const u8) = .absent,
-    rows: wire.Field(u16) = .absent,
-    title: wire.Field([]const u8) = .absent,
-    url: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "activate",
-    };
-};
-
-pub const WorkspaceFirstTab = union(enum) {
-    browser: WorkspaceFirstTabBrowser,
-
-    pub const cmux_wire_custom_union = true;
-
-    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
-        return switch (self) {
-            .browser => |payload| try wire.encodeTagged(allocator, "kind", "browser", payload),
-        };
-    }
-
-    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
-        const tag_value = try wire.objectString(value, "kind");
-        if (std.mem.eql(u8, tag_value, "browser")) {
-            return .{ .browser = try wire.decodeLeaky(WorkspaceFirstTabBrowser, allocator, value) };
-        }
-        return error.UnknownUnionVariant;
-    }
-};
-
-pub const WorkspaceGroup = struct {
-    collapsed: bool,
-    color: wire.Nullable([]const u8),
-    id: []const u8,
-    index: u64,
-    name: []const u8,
 };
 
 pub const WorkspaceMutationResult = struct {
     changed: ?bool = null,
-    /// close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed.
-    closed_ids: ?[]const []const u8 = null,
-    /// create-workspace with first_tab (workspace-first-tab-v1): the new-frontend-browser-tab reply for the workspace's first tab.
-    first_tab: ?JsonValue = null,
     generation: []const u8,
     index: u64,
     key: []const u8,
@@ -3968,8 +2084,6 @@ pub const WorkspaceMutationResult = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "changed",
-        "closed_ids",
-        "first_tab",
     };
 };
 
@@ -3992,49 +2106,7 @@ pub fn ackTabNotifications(client: anytype, request: AckTabNotificationsRequest)
             .name = "ack-tab-notifications",
             .authority = "control",
             .since = 12,
-            .capability = "notification-ack-v1",
-        },
-        request,
-    );
-}
-
-pub const AddScreensToScreenGroupRequest = struct {
-    group: []const u8,
-    index: wire.Field(u64) = .absent,
-    screens: []const Id,
-};
-
-pub const AddScreensToScreenGroupResult = JsonValue;
-
-pub fn addScreensToScreenGroup(client: anytype, request: AddScreensToScreenGroupRequest) !wire.Decoded(AddScreensToScreenGroupResult) {
-    return client.callTyped(
-        AddScreensToScreenGroupResult,
-        .{
-            .name = "add-screens-to-screen-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "screen-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const AddTabsToTabGroupRequest = struct {
-    group: []const u8,
-    surfaces: []const TabRef,
-    transaction: wire.Field([]const u8) = .absent,
-};
-
-pub const AddTabsToTabGroupResult = TabGroupOutcome;
-
-pub fn addTabsToTabGroup(client: anytype, request: AddTabsToTabGroupRequest) !wire.Decoded(AddTabsToTabGroupResult) {
-    return client.callTyped(
-        AddTabsToTabGroupResult,
-        .{
-            .name = "add-tabs-to-tab-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-groups-v1",
+            .capability = null,
         },
         request,
     );
@@ -4083,27 +2155,9 @@ pub const AttachSurfaceRequest = struct {
     cols: wire.Field(u16) = .absent,
     expected_generation: wire.Field([]const u8) = .absent,
     expected_terminal_id: wire.Field([]const u8) = .absent,
-    hybrid_frame: wire.Field(u64) = .absent,
-    hybrid_stream: wire.Field([]const u8) = .absent,
     mode: wire.Field(AttachSurfaceRequestMode) = .absent,
-    output_coalesce_ms: wire.Field(u32) = .absent,
-    replay_history_rows: wire.Field(u32) = .absent,
-    replay_history_start: wire.Field(u64) = .absent,
-    resume_generation: wire.Field([]const u8) = .absent,
-    resume_max_bytes: wire.Field(u64) = .absent,
-    resume_offset: wire.Field(u64) = .absent,
     rows: wire.Field(u16) = .absent,
-    snapshot: wire.Field([]const u8) = .absent,
-    snapshot_images: ?bool = null,
-    snapshot_local_history: ?bool = null,
-    snapshot_version: wire.Field(u16) = .absent,
     surface: wire.Field(Id) = .absent,
-    viewer_backlog_bytes: wire.Field(u64) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "snapshot_images",
-        "snapshot_local_history",
-    };
 };
 
 pub const AttachSurfaceResult = EmptyResult;
@@ -4119,53 +2173,12 @@ pub fn attachSurface(client: anytype, request: AttachSurfaceRequest) !client_run
                 .{ .name = "cols", .since = null, .capability = "attach-initial-size" },
                 .{ .name = "expected_generation", .since = null, .capability = "attach-identity-v1" },
                 .{ .name = "expected_terminal_id", .since = null, .capability = "attach-identity-v1" },
-                .{ .name = "hybrid_frame", .since = null, .capability = "agent-cli-hybrid-v1" },
-                .{ .name = "hybrid_stream", .since = null, .capability = "agent-cli-hybrid-v1" },
                 .{ .name = "mode", .since = 7, .capability = null },
-                .{ .name = "output_coalesce_ms", .since = null, .capability = "attach-output-coalesce-v1" },
-                .{ .name = "replay_history_rows", .since = null, .capability = "attach-replay-history-rows-v1" },
-                .{ .name = "replay_history_start", .since = null, .capability = "attach-replay-history-window-v1" },
-                .{ .name = "resume_generation", .since = null, .capability = "terminal-resume-v1" },
-                .{ .name = "resume_max_bytes", .since = null, .capability = "terminal-resume-bounded-v1" },
-                .{ .name = "resume_offset", .since = null, .capability = "terminal-resume-v1" },
                 .{ .name = "rows", .since = null, .capability = "attach-initial-size" },
-                .{ .name = "snapshot", .since = null, .capability = "terminal-snapshot-v1" },
-                .{ .name = "snapshot_images", .since = null, .capability = "terminal-snapshot-images-v1" },
-                .{ .name = "snapshot_local_history", .since = null, .capability = "terminal-snapshot-local-history-v1" },
-                .{ .name = "snapshot_version", .since = null, .capability = "terminal-snapshot-v1" },
-                .{ .name = "viewer_backlog_bytes", .since = null, .capability = "terminal-snapshot-v1" },
             },
         },
         request,
         "detached",
-    );
-}
-
-pub const BindConversationTabSessionRequest = struct {
-    /// The tab's current session, or null for a tab without one; the bind applies only when it matches.
-    expected_session: wire.Nullable([]const u8),
-    /// The agent the session runs, as its machine's acpmux reports it; written in the same commit. A bind of the tab's own session with another harness changes the harness alone.
-    harness: wire.Field([]const u8) = .absent,
-    session: []const u8,
-    surface: Id,
-};
-
-pub const BindConversationTabSessionResult = struct {
-    conversation: ConversationTabRecord,
-    replayed: bool,
-    surface: Id,
-};
-
-pub fn bindConversationTabSession(client: anytype, request: BindConversationTabSessionRequest) !wire.Decoded(BindConversationTabSessionResult) {
-    return client.callTyped(
-        BindConversationTabSessionResult,
-        .{
-            .name = "bind-conversation-tab-session",
-            .authority = "control",
-            .since = 12,
-            .capability = "agent-session-tabs-v1",
-        },
-        request,
     );
 }
 
@@ -4241,21 +2254,6 @@ pub fn browserFramePresented(client: anytype, request: BrowserFramePresentedRequ
             .authority = "frontend",
             .since = 10,
             .capability = "browser-pointer-frame-guard-v1",
-        },
-        request,
-    );
-}
-
-pub const BrowserHostProviderRequest = struct {};
-
-pub fn browserHostProvider(client: anytype, request: BrowserHostProviderRequest) !wire.Decoded(BrowserHostProviderResult) {
-    return client.callTyped(
-        BrowserHostProviderResult,
-        .{
-            .name = "browser-host-provider",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "browser-host-provider-v1",
         },
         request,
     );
@@ -4525,79 +2523,6 @@ pub fn browserWheelGuarded(client: anytype, request: BrowserWheelGuardedRequest)
     );
 }
 
-pub const CancelCreatingInputRequest = struct {
-    terminal_id: []const u8,
-};
-
-pub const CancelCreatingInputResult = struct {
-    cancelled: bool,
-};
-
-pub fn cancelCreatingInput(client: anytype, request: CancelCreatingInputRequest) !wire.Decoded(CancelCreatingInputResult) {
-    return client.callTyped(
-        CancelCreatingInputResult,
-        .{
-            .name = "cancel-creating-input",
-            .authority = "control",
-            .since = 12,
-            .capability = "creating-input-cancel-v1",
-        },
-        request,
-    );
-}
-
-pub const ChiefInspectRequest = struct {
-    path: []const u8,
-    query: ?wire.Map([]const u8) = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "query",
-    };
-};
-
-pub const ChiefInspectResult = struct {
-    body: wire.Field(JsonValue) = .absent,
-    @"error": wire.Field([]const u8) = .absent,
-    status: u64,
-};
-
-pub fn chiefInspect(client: anytype, request: ChiefInspectRequest) !wire.Decoded(ChiefInspectResult) {
-    return client.callTyped(
-        ChiefInspectResult,
-        .{
-            .name = "chief-inspect",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "chief-inspect-v1",
-        },
-        request,
-    );
-}
-
-pub const ChiefWorkRequest = struct {
-    chief: []const u8,
-};
-
-pub const ChiefWorkResult = struct {
-    agents: []const ChiefWorkAgent,
-    task_sources: []const []const u8,
-    tasks: []const ChiefWorkTask,
-    truncated: bool,
-};
-
-pub fn chiefWork(client: anytype, request: ChiefWorkRequest) !wire.Decoded(ChiefWorkResult) {
-    return client.callTyped(
-        ChiefWorkResult,
-        .{
-            .name = "chief-work",
-            .authority = "frontend",
-            .since = 12,
-            .capability = "chief-work-v1",
-        },
-        request,
-    );
-}
-
 pub const ClearHistoryRequest = struct {
     fallback_key: wire.Field(TerminalKeyInput) = .absent,
     surface: Id,
@@ -4661,12 +2586,7 @@ pub fn clientFocus(client: anytype, request: ClientFocusRequest) !wire.Decoded(C
 }
 
 pub const ClosePaneRequest = struct {
-    end_terminals: ?bool = null,
     pane: Id,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "end_terminals",
-    };
 };
 
 pub const ClosePaneResult = EmptyResult;
@@ -4679,9 +2599,6 @@ pub fn closePane(client: anytype, request: ClosePaneRequest) !wire.Decoded(Close
             .authority = "control",
             .since = 5,
             .capability = null,
-            .fields = &.{
-                .{ .name = "end_terminals", .since = 12, .capability = "batch-close-v1" },
-            },
         },
         request,
     );
@@ -4709,12 +2626,7 @@ pub fn closeProviderManagedWorkspace(client: anytype, request: CloseProviderMana
 }
 
 pub const CloseScreenRequest = struct {
-    end_terminals: ?bool = null,
     screen: Id,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "end_terminals",
-    };
 };
 
 pub const CloseScreenResult = EmptyResult;
@@ -4727,33 +2639,6 @@ pub fn closeScreen(client: anytype, request: CloseScreenRequest) !wire.Decoded(C
             .authority = "control",
             .since = 5,
             .capability = null,
-            .fields = &.{
-                .{ .name = "end_terminals", .since = 12, .capability = "batch-close-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const CloseScreenGroupRequest = struct {
-    end_terminals: ?bool = null,
-    group: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "end_terminals",
-    };
-};
-
-pub const CloseScreenGroupResult = JsonValue;
-
-pub fn closeScreenGroup(client: anytype, request: CloseScreenGroupRequest) !wire.Decoded(CloseScreenGroupResult) {
-    return client.callTyped(
-        CloseScreenGroupResult,
-        .{
-            .name = "close-screen-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "screen-groups-v1",
         },
         request,
     );
@@ -4773,76 +2658,6 @@ pub fn closeSurface(client: anytype, request: CloseSurfaceRequest) !wire.Decoded
             .authority = "control",
             .since = 5,
             .capability = null,
-        },
-        request,
-    );
-}
-
-pub const CloseTabGroupRequest = struct {
-    end_terminals: ?bool = null,
-    group: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "end_terminals",
-    };
-};
-
-pub const CloseTabGroupResult = struct {
-    closed: []const Id,
-    group: []const u8,
-    /// With end_terminals: the member terminals the close ended.
-    terminals: ?[]const TabGroupEndedTerminal = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "terminals",
-    };
-};
-
-pub fn closeTabGroup(client: anytype, request: CloseTabGroupRequest) !wire.Decoded(CloseTabGroupResult) {
-    return client.callTyped(
-        CloseTabGroupResult,
-        .{
-            .name = "close-tab-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-groups-v1",
-            .fields = &.{
-                .{ .name = "end_terminals", .since = 12, .capability = "batch-close-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const CloseTabsRequest = struct {
-    end_terminals: ?bool = null,
-    expected_generation: wire.Field([]const u8) = .absent,
-    expected_revision: wire.Field(u64) = .absent,
-    mutation_id: wire.Field([]const u8) = .absent,
-    origin: wire.Field([]const u8) = .absent,
-    /// The close is not recorded in the closed history (session_end).
-    reason: wire.Field(CloseReason) = .absent,
-    surfaces: []const TabRef,
-    transaction: wire.Field([]const u8) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "end_terminals",
-    };
-};
-
-pub const CloseTabsResult = JsonValue;
-
-pub fn closeTabs(client: anytype, request: CloseTabsRequest) !wire.Decoded(CloseTabsResult) {
-    return client.callTyped(
-        CloseTabsResult,
-        .{
-            .name = "close-tabs",
-            .authority = "control",
-            .since = 12,
-            .capability = "batch-close-v1",
-            .fields = &.{
-                .{ .name = "reason", .since = null, .capability = "close-reason-v1" },
-            },
         },
         request,
     );
@@ -4871,25 +2686,12 @@ pub fn closeTerminal(client: anytype, request: CloseTerminalRequest) !wire.Decod
 }
 
 pub const CloseWorkspaceRequest = struct {
-    end_terminals: ?bool = null,
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
-    /// Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change.
-    if_empty: ?bool = null,
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
-    /// With end_terminals: the close is not recorded in the closed history (session_end).
-    reason: wire.Field(CloseReason) = .absent,
-    /// With end_terminals: the result names closed_ids, the closed.list groups the close stored. Opt-in so older decoders keep the result shape; a daemon that predates it ignores the field.
-    report_closed_ids: ?bool = null,
     workspace: wire.Field(Id) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "end_terminals",
-        "if_empty",
-        "report_closed_ids",
-    };
 };
 
 pub const CloseWorkspaceResult = WorkspaceMutationResult;
@@ -4903,1372 +2705,12 @@ pub fn closeWorkspace(client: anytype, request: CloseWorkspaceRequest) !wire.Dec
             .since = 5,
             .capability = null,
             .fields = &.{
-                .{ .name = "end_terminals", .since = 12, .capability = "batch-close-v1" },
                 .{ .name = "expected_generation", .since = 7, .capability = null },
                 .{ .name = "expected_revision", .since = 7, .capability = null },
-                .{ .name = "if_empty", .since = null, .capability = "close-workspace-if-empty-v1" },
                 .{ .name = "key", .since = 7, .capability = "workspace-registry-v1" },
                 .{ .name = "mutation_id", .since = 7, .capability = null },
                 .{ .name = "origin", .since = 7, .capability = null },
-                .{ .name = "reason", .since = null, .capability = "close-reason-v1" },
             },
-        },
-        request,
-    );
-}
-
-pub const CloudAttachmentLinkRequest = struct {
-    conversation: []const u8,
-    hash: []const u8,
-    name: wire.Field([]const u8) = .absent,
-    variant: wire.Field([]const u8) = .absent,
-};
-
-pub const CloudAttachmentLinkResult = struct {
-    expires_in_ms: u64,
-    path: []const u8,
-};
-
-pub fn cloudAttachmentLink(client: anytype, request: CloudAttachmentLinkRequest) !wire.Decoded(CloudAttachmentLinkResult) {
-    return client.callTyped(
-        CloudAttachmentLinkResult,
-        .{
-            .name = "cloud-attachment-link",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-attachments-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudAttachmentReadRequest = struct {
-    conversation: []const u8,
-    hash: []const u8,
-    length: wire.Field(u64) = .absent,
-    offset: wire.Field(u64) = .absent,
-    variant: wire.Field([]const u8) = .absent,
-};
-
-pub const CloudAttachmentReadResult = struct {
-    byte_count: u64,
-    data: []const u8,
-    eof: bool,
-    hash: []const u8,
-    mime_type: []const u8,
-    offset: u64,
-};
-
-pub fn cloudAttachmentRead(client: anytype, request: CloudAttachmentReadRequest) !wire.Decoded(CloudAttachmentReadResult) {
-    return client.callTyped(
-        CloudAttachmentReadResult,
-        .{
-            .name = "cloud-attachment-read",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-attachments-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudAttachmentUploadRequest = struct {
-    byte_count: wire.Field(u64) = .absent,
-    conversation: wire.Field([]const u8) = .absent,
-    data: wire.Field([]const u8) = .absent,
-    duration_ms: wire.Field(u64) = .absent,
-    height: wire.Field(u32) = .absent,
-    mime_type: wire.Field([]const u8) = .absent,
-    name: wire.Field([]const u8) = .absent,
-    offset: wire.Field(u64) = .absent,
-    op: []const u8,
-    piece: wire.Field([]const u8) = .absent,
-    poster: wire.Field(JsonValue) = .absent,
-    preview: wire.Field(JsonValue) = .absent,
-    sha256: wire.Field([]const u8) = .absent,
-    upload: wire.Field([]const u8) = .absent,
-    width: wire.Field(u32) = .absent,
-};
-
-pub const CloudAttachmentUploadResult = struct {
-    needs: wire.Field([]const []const u8) = .absent,
-    received: wire.Field(u64) = .absent,
-    stored: wire.Field(wire.Value) = .absent,
-    upload: wire.Field([]const u8) = .absent,
-};
-
-pub fn cloudAttachmentUpload(client: anytype, request: CloudAttachmentUploadRequest) !wire.Decoded(CloudAttachmentUploadResult) {
-    return client.callTyped(
-        CloudAttachmentUploadResult,
-        .{
-            .name = "cloud-attachment-upload",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-attachments-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudConversationHistoryRequest = struct {
-    before_seq: u64,
-    conversation: []const u8,
-    limit: u32,
-};
-
-pub const CloudConversationHistoryResult = JsonValue;
-
-pub fn cloudConversationHistory(client: anytype, request: CloudConversationHistoryRequest) !wire.Decoded(CloudConversationHistoryResult) {
-    return client.callTyped(
-        CloudConversationHistoryResult,
-        .{
-            .name = "cloud-conversation-history",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudConversationLiveRequest = struct {
-    conversation: []const u8,
-};
-
-pub const CloudConversationLiveResult = JsonValue;
-
-pub fn cloudConversationLive(client: anytype, request: CloudConversationLiveRequest) !wire.Decoded(CloudConversationLiveResult) {
-    return client.callTyped(
-        CloudConversationLiveResult,
-        .{
-            .name = "cloud-conversation-live",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-chief-live-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudConversationOpRequest = struct {
-    conversation: wire.Field([]const u8) = .absent,
-    idempotency_key: []const u8,
-    op: wire.Nullable(JsonValue),
-    origin: wire.Field([]const u8) = .absent,
-};
-
-pub const CloudConversationOpResult = JsonValue;
-
-pub fn cloudConversationOp(client: anytype, request: CloudConversationOpRequest) !wire.Decoded(CloudConversationOpResult) {
-    return client.callTyped(
-        CloudConversationOpResult,
-        .{
-            .name = "cloud-conversation-op",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudConversationPresenceRequest = struct {
-    conversation: []const u8,
-    viewing: bool,
-};
-
-pub const CloudConversationPresenceResult = JsonValue;
-
-pub fn cloudConversationPresence(client: anytype, request: CloudConversationPresenceRequest) !wire.Decoded(CloudConversationPresenceResult) {
-    return client.callTyped(
-        CloudConversationPresenceResult,
-        .{
-            .name = "cloud-conversation-presence",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversation-presence-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudConversationRunRequest = struct {
-    after_seq: wire.Field(u64) = .absent,
-    agent: []const u8,
-    conversation: []const u8,
-    run: []const u8,
-};
-
-pub const CloudConversationRunResult = JsonValue;
-
-pub fn cloudConversationRun(client: anytype, request: CloudConversationRunRequest) !wire.Decoded(CloudConversationRunResult) {
-    return client.callTyped(
-        CloudConversationRunResult,
-        .{
-            .name = "cloud-conversation-run",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversation-runs-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudConversationRunsRequest = struct {
-    agent: []const u8,
-    before_started_at: wire.Field(u64) = .absent,
-    conversation: []const u8,
-    limit: wire.Field(u32) = .absent,
-};
-
-pub const CloudConversationRunsResult = JsonValue;
-
-pub fn cloudConversationRuns(client: anytype, request: CloudConversationRunsRequest) !wire.Decoded(CloudConversationRunsResult) {
-    return client.callTyped(
-        CloudConversationRunsResult,
-        .{
-            .name = "cloud-conversation-runs",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversation-runs-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudConversationSnapshotRequest = struct {
-    conversation: []const u8,
-    tail: u32,
-};
-
-pub const CloudConversationSnapshotResult = JsonValue;
-
-pub fn cloudConversationSnapshot(client: anytype, request: CloudConversationSnapshotRequest) !wire.Decoded(CloudConversationSnapshotResult) {
-    return client.callTyped(
-        CloudConversationSnapshotResult,
-        .{
-            .name = "cloud-conversation-snapshot",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudConversationSubscribeRequest = struct {
-    conversation: []const u8,
-};
-
-pub const CloudConversationSubscribeResult = JsonValue;
-
-pub fn cloudConversationSubscribe(client: anytype, request: CloudConversationSubscribeRequest) !wire.Decoded(CloudConversationSubscribeResult) {
-    return client.callTyped(
-        CloudConversationSubscribeResult,
-        .{
-            .name = "cloud-conversation-subscribe",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudConversationThreadRequest = struct {
-    after_seq: wire.Field(u64) = .absent,
-    conversation: []const u8,
-    limit: wire.Field(u32) = .absent,
-    root: []const u8,
-};
-
-pub const CloudConversationThreadResult = JsonValue;
-
-pub fn cloudConversationThread(client: anytype, request: CloudConversationThreadRequest) !wire.Decoded(CloudConversationThreadResult) {
-    return client.callTyped(
-        CloudConversationThreadResult,
-        .{
-            .name = "cloud-conversation-thread",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "conversation-thread-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudConversationTypingRequest = struct {
-    conversation: []const u8,
-    on: bool,
-};
-
-pub const CloudConversationTypingResult = JsonValue;
-
-pub fn cloudConversationTyping(client: anytype, request: CloudConversationTypingRequest) !wire.Decoded(CloudConversationTypingResult) {
-    return client.callTyped(
-        CloudConversationTypingResult,
-        .{
-            .name = "cloud-conversation-typing",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversation-typing-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudConversationUnsubscribeRequest = struct {
-    conversation: []const u8,
-};
-
-pub const CloudConversationUnsubscribeResult = JsonValue;
-
-pub fn cloudConversationUnsubscribe(client: anytype, request: CloudConversationUnsubscribeRequest) !wire.Decoded(CloudConversationUnsubscribeResult) {
-    return client.callTyped(
-        CloudConversationUnsubscribeResult,
-        .{
-            .name = "cloud-conversation-unsubscribe",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudEnvironmentRequest = struct {
-    access_token: []const u8,
-    action: []const u8,
-    params: wire.Nullable(JsonValue),
-    platform_origin: []const u8,
-};
-
-pub const CloudEnvironmentResult = JsonValue;
-
-pub fn cloudEnvironment(client: anytype, request: CloudEnvironmentRequest) !wire.Decoded(CloudEnvironmentResult) {
-    return client.callTyped(
-        CloudEnvironmentResult,
-        .{
-            .name = "cloud-environment",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-environments-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudHostReplicaClearRequest = struct {
-    purge: ?bool = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "purge",
-    };
-};
-
-pub const CloudHostReplicaClearResult = JsonValue;
-
-pub fn cloudHostReplicaClear(client: anytype, request: CloudHostReplicaClearRequest) !wire.Decoded(CloudHostReplicaClearResult) {
-    return client.callTyped(
-        CloudHostReplicaClearResult,
-        .{
-            .name = "cloud-host-replica-clear",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-host-replica-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudHostReplicaSetRequest = struct {
-    api_base_url: []const u8,
-    client_version: wire.Field([]const u8) = .absent,
-    expires_at: u64,
-    host_name: []const u8,
-    install_token: []const u8,
-};
-
-pub const CloudHostReplicaSetResult = JsonValue;
-
-pub fn cloudHostReplicaSet(client: anytype, request: CloudHostReplicaSetRequest) !wire.Decoded(CloudHostReplicaSetResult) {
-    return client.callTyped(
-        CloudHostReplicaSetResult,
-        .{
-            .name = "cloud-host-replica-set",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-host-replica-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudHostReplicaStatusRequest = struct {};
-
-pub const CloudHostReplicaStatusResult = JsonValue;
-
-pub fn cloudHostReplicaStatus(client: anytype, request: CloudHostReplicaStatusRequest) !wire.Decoded(CloudHostReplicaStatusResult) {
-    return client.callTyped(
-        CloudHostReplicaStatusResult,
-        .{
-            .name = "cloud-host-replica-status",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-host-replica-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudInboxListRequest = struct {
-    cursor: wire.Field([]const u8) = .absent,
-    include_archived: ?bool = null,
-    limit: wire.Field(u32) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "include_archived",
-    };
-};
-
-pub const CloudInboxListResult = JsonValue;
-
-pub fn cloudInboxList(client: anytype, request: CloudInboxListRequest) !wire.Decoded(CloudInboxListResult) {
-    return client.callTyped(
-        CloudInboxListResult,
-        .{
-            .name = "cloud-inbox-list",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudInboxOpRequest = struct {
-    conversation: []const u8,
-    idempotency_key: []const u8,
-    op: wire.Nullable(JsonValue),
-};
-
-pub const CloudInboxOpResult = JsonValue;
-
-pub fn cloudInboxOp(client: anytype, request: CloudInboxOpRequest) !wire.Decoded(CloudInboxOpResult) {
-    return client.callTyped(
-        CloudInboxOpResult,
-        .{
-            .name = "cloud-inbox-op",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "conversation-inbox-state-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudInboxSubscribeRequest = struct {};
-
-pub const CloudInboxSubscribeResult = JsonValue;
-
-pub fn cloudInboxSubscribe(client: anytype, request: CloudInboxSubscribeRequest) !wire.Decoded(CloudInboxSubscribeResult) {
-    return client.callTyped(
-        CloudInboxSubscribeResult,
-        .{
-            .name = "cloud-inbox-subscribe",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudInboxUnsubscribeRequest = struct {};
-
-pub const CloudInboxUnsubscribeResult = JsonValue;
-
-pub fn cloudInboxUnsubscribe(client: anytype, request: CloudInboxUnsubscribeRequest) !wire.Decoded(CloudInboxUnsubscribeResult) {
-    return client.callTyped(
-        CloudInboxUnsubscribeResult,
-        .{
-            .name = "cloud-inbox-unsubscribe",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudMuxAckRequest = struct {
-    conversation: []const u8,
-    seq: u64,
-};
-
-pub const CloudMuxAckResult = JsonValue;
-
-pub fn cloudMuxAck(client: anytype, request: CloudMuxAckRequest) !wire.Decoded(CloudMuxAckResult) {
-    return client.callTyped(
-        CloudMuxAckResult,
-        .{
-            .name = "cloud-mux-ack",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudMuxSubscribeRequest = struct {};
-
-pub const CloudMuxSubscribeResult = JsonValue;
-
-pub fn cloudMuxSubscribe(client: anytype, request: CloudMuxSubscribeRequest) !wire.Decoded(CloudMuxSubscribeResult) {
-    return client.callTyped(
-        CloudMuxSubscribeResult,
-        .{
-            .name = "cloud-mux-subscribe",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudMuxUnsubscribeRequest = struct {};
-
-pub const CloudMuxUnsubscribeResult = JsonValue;
-
-pub fn cloudMuxUnsubscribe(client: anytype, request: CloudMuxUnsubscribeRequest) !wire.Decoded(CloudMuxUnsubscribeResult) {
-    return client.callTyped(
-        CloudMuxUnsubscribeResult,
-        .{
-            .name = "cloud-mux-unsubscribe",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudParticipantAvatarGetRequest = struct {
-    conversation: wire.Field([]const u8) = .absent,
-    participant_id: []const u8,
-};
-
-pub const CloudParticipantAvatarGetResult = JsonValue;
-
-pub fn cloudParticipantAvatarGet(client: anytype, request: CloudParticipantAvatarGetRequest) !wire.Decoded(CloudParticipantAvatarGetResult) {
-    return client.callTyped(
-        CloudParticipantAvatarGetResult,
-        .{
-            .name = "cloud-participant-avatar-get",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "participant-avatars-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudRequestsListRequest = struct {};
-
-pub const CloudRequestsListResult = JsonValue;
-
-pub fn cloudRequestsList(client: anytype, request: CloudRequestsListRequest) !wire.Decoded(CloudRequestsListResult) {
-    return client.callTyped(
-        CloudRequestsListResult,
-        .{
-            .name = "cloud-requests-list",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudSelfhostInfoRequest = struct {};
-
-pub const CloudSelfhostInfoResult = JsonValue;
-
-pub fn cloudSelfhostInfo(client: anytype, request: CloudSelfhostInfoRequest) !wire.Decoded(CloudSelfhostInfoResult) {
-    return client.callTyped(
-        CloudSelfhostInfoResult,
-        .{
-            .name = "cloud-selfhost-info",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-selfhost-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudSessionClearRequest = struct {};
-
-pub const CloudSessionClearResult = JsonValue;
-
-pub fn cloudSessionClear(client: anytype, request: CloudSessionClearRequest) !wire.Decoded(CloudSessionClearResult) {
-    return client.callTyped(
-        CloudSessionClearResult,
-        .{
-            .name = "cloud-session-clear",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudSessionSetRequest = struct {
-    access_token: ?[]const u8 = null,
-    api_base_url: []const u8,
-    auth: wire.Field([]const u8) = .absent,
-    client_version: wire.Field([]const u8) = .absent,
-    expires_at: ?u64 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "access_token",
-        "expires_at",
-    };
-};
-
-pub const CloudSessionSetResult = JsonValue;
-
-pub fn cloudSessionSet(client: anytype, request: CloudSessionSetRequest) !wire.Decoded(CloudSessionSetResult) {
-    return client.callTyped(
-        CloudSessionSetResult,
-        .{
-            .name = "cloud-session-set",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const CloudSessionStatusRequest = struct {};
-
-pub const CloudSessionStatusResult = JsonValue;
-
-pub fn cloudSessionStatus(client: anytype, request: CloudSessionStatusRequest) !wire.Decoded(CloudSessionStatusResult) {
-    return client.callTyped(
-        CloudSessionStatusResult,
-        .{
-            .name = "cloud-session-status",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "cloud-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const ComputerUseApprovalsRequest = struct {
-    action: []const u8,
-    answer: wire.Field([]const u8) = .absent,
-    app_id: wire.Field([]const u8) = .absent,
-    id: wire.Field(u64) = .absent,
-};
-
-pub const ComputerUseApprovalsResult = JsonValue;
-
-pub fn computerUseApprovals(client: anytype, request: ComputerUseApprovalsRequest) !wire.Decoded(ComputerUseApprovalsResult) {
-    return client.callTyped(
-        ComputerUseApprovalsResult,
-        .{
-            .name = "computer-use-approvals",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "computer-use-v1",
-        },
-        request,
-    );
-}
-
-pub const ComputerUseConfigRequest = struct {
-    config: wire.Nullable(JsonValue),
-};
-
-pub const ComputerUseConfigResult = JsonValue;
-
-pub fn computerUseConfig(client: anytype, request: ComputerUseConfigRequest) !wire.Decoded(ComputerUseConfigResult) {
-    return client.callTyped(
-        ComputerUseConfigResult,
-        .{
-            .name = "computer-use-config",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "computer-use-v1",
-        },
-        request,
-    );
-}
-
-pub const ComputerUseEndpointRequest = struct {};
-
-pub const ComputerUseEndpointResult = JsonValue;
-
-pub fn computerUseEndpoint(client: anytype, request: ComputerUseEndpointRequest) !wire.Decoded(ComputerUseEndpointResult) {
-    return client.callTyped(
-        ComputerUseEndpointResult,
-        .{
-            .name = "computer-use-endpoint",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "computer-use-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationAgentTokenRequest = struct {
-    participant: []const u8,
-};
-
-pub const ConversationAgentTokenResult = struct {
-    participant: []const u8,
-    token: []const u8,
-};
-
-pub fn conversationAgentToken(client: anytype, request: ConversationAgentTokenRequest) !wire.Decoded(ConversationAgentTokenResult) {
-    return client.callTyped(
-        ConversationAgentTokenResult,
-        .{
-            .name = "conversation-agent-token",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "local-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationAttachmentLinkRequest = struct {
-    conversation: []const u8,
-    hash: []const u8,
-    name: wire.Field([]const u8) = .absent,
-    variant: wire.Field([]const u8) = .absent,
-};
-
-pub const ConversationAttachmentLinkResult = struct {
-    expires_in_ms: u64,
-    path: []const u8,
-};
-
-pub fn conversationAttachmentLink(client: anytype, request: ConversationAttachmentLinkRequest) !wire.Decoded(ConversationAttachmentLinkResult) {
-    return client.callTyped(
-        ConversationAttachmentLinkResult,
-        .{
-            .name = "conversation-attachment-link",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "ws-attachments-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationAttachmentReadRequest = struct {
-    conversation: []const u8,
-    hash: []const u8,
-    length: wire.Field(u64) = .absent,
-    offset: wire.Field(u64) = .absent,
-    variant: wire.Field([]const u8) = .absent,
-};
-
-pub const ConversationAttachmentReadResult = struct {
-    byte_count: u64,
-    data: []const u8,
-    eof: bool,
-    hash: []const u8,
-    mime_type: []const u8,
-    offset: u64,
-};
-
-pub fn conversationAttachmentRead(client: anytype, request: ConversationAttachmentReadRequest) !wire.Decoded(ConversationAttachmentReadResult) {
-    return client.callTyped(
-        ConversationAttachmentReadResult,
-        .{
-            .name = "conversation-attachment-read",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "local-attachments-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationAttachmentUploadRequest = struct {
-    byte_count: wire.Field(u64) = .absent,
-    conversation: wire.Field([]const u8) = .absent,
-    data: wire.Field([]const u8) = .absent,
-    duration_ms: wire.Field(u64) = .absent,
-    height: wire.Field(u32) = .absent,
-    mime_type: wire.Field([]const u8) = .absent,
-    name: wire.Field([]const u8) = .absent,
-    offset: wire.Field(u64) = .absent,
-    op: []const u8,
-    piece: wire.Field([]const u8) = .absent,
-    poster: wire.Field(JsonValue) = .absent,
-    preview: wire.Field(JsonValue) = .absent,
-    sha256: wire.Field([]const u8) = .absent,
-    upload: wire.Field([]const u8) = .absent,
-    width: wire.Field(u32) = .absent,
-};
-
-pub const ConversationAttachmentUploadResult = struct {
-    needs: wire.Field([]const []const u8) = .absent,
-    received: wire.Field(u64) = .absent,
-    stored: wire.Field(wire.Value) = .absent,
-    upload: wire.Field([]const u8) = .absent,
-};
-
-pub fn conversationAttachmentUpload(client: anytype, request: ConversationAttachmentUploadRequest) !wire.Decoded(ConversationAttachmentUploadResult) {
-    return client.callTyped(
-        ConversationAttachmentUploadResult,
-        .{
-            .name = "conversation-attachment-upload",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "local-attachments-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationBindRequest = struct {
-    participant: []const u8,
-    token: []const u8,
-};
-
-pub const ConversationBindResult = struct {
-    participant: []const u8,
-};
-
-pub fn conversationBind(client: anytype, request: ConversationBindRequest) !wire.Decoded(ConversationBindResult) {
-    return client.callTyped(
-        ConversationBindResult,
-        .{
-            .name = "conversation-bind",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "local-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationCreateRequest = struct {
-    actor: wire.Field([]const u8) = .absent,
-    idempotency_key: []const u8,
-    participants: wire.Nullable(JsonValue),
-    title: []const u8,
-};
-
-pub const ConversationCreateResult = struct {
-    conversation: ConversationSummary,
-    replayed: bool,
-};
-
-pub fn conversationCreate(client: anytype, request: ConversationCreateRequest) !wire.Decoded(ConversationCreateResult) {
-    return client.callTyped(
-        ConversationCreateResult,
-        .{
-            .name = "conversation-create",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "local-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationDraftRequest = struct {
-    conversation: []const u8,
-    done: bool,
-    fresh: bool,
-    harness: wire.Field([]const u8) = .absent,
-    kind: []const u8,
-    segment: u64,
-    seq: u64,
-    text: []const u8,
-    truncated: wire.Field(bool) = .absent,
-    turn: []const u8,
-};
-
-pub const ConversationDraftResult = struct {
-    published: bool,
-};
-
-pub fn conversationDraft(client: anytype, request: ConversationDraftRequest) !wire.Decoded(ConversationDraftResult) {
-    return client.callTyped(
-        ConversationDraftResult,
-        .{
-            .name = "conversation-draft",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "conversation-draft-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationHistoryRequest = struct {
-    before_seq: u64,
-    conversation: []const u8,
-    limit: u32,
-};
-
-pub const ConversationHistoryResult = struct {
-    messages: []const ConversationMessage,
-    threads: ?[]const ConversationThreadSummary = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "threads",
-    };
-};
-
-pub fn conversationHistory(client: anytype, request: ConversationHistoryRequest) !wire.Decoded(ConversationHistoryResult) {
-    return client.callTyped(
-        ConversationHistoryResult,
-        .{
-            .name = "conversation-history",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "local-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationImportRequest = struct {
-    conversation: []const u8,
-    messages: []const ConversationImportMessage,
-};
-
-pub const ConversationImportResult = struct {
-    conversation: ConversationSummary,
-    imported: []const u64,
-    skipped: u64,
-};
-
-pub fn conversationImport(client: anytype, request: ConversationImportRequest) !wire.Decoded(ConversationImportResult) {
-    return client.callTyped(
-        ConversationImportResult,
-        .{
-            .name = "conversation-import",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "local-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationInboxOpRequest = struct {
-    conversation: []const u8,
-    op: wire.Nullable(JsonValue),
-    op_id: wire.Field([]const u8) = .absent,
-};
-
-pub const ConversationInboxOpResult = struct {
-    conversation: []const u8,
-    marked_unread: bool,
-    participant: []const u8,
-    pin_position: ?u64 = null,
-    pinned: bool,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "pin_position",
-    };
-};
-
-pub fn conversationInboxOp(client: anytype, request: ConversationInboxOpRequest) !wire.Decoded(ConversationInboxOpResult) {
-    return client.callTyped(
-        ConversationInboxOpResult,
-        .{
-            .name = "conversation-inbox-op",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "conversation-inbox-state-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationLinkResolveRequest = struct {
-    url: []const u8,
-};
-
-pub const ConversationLinkResolveResult = struct {
-    conversation: ConversationSummary,
-    message: ?ConversationMessage = null,
-    path: []const []const u8,
-    thread_root: ?[]const u8 = null,
-    truncated: ?bool = null,
-    url: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "message",
-        "thread_root",
-        "truncated",
-    };
-};
-
-pub fn conversationLinkResolve(client: anytype, request: ConversationLinkResolveRequest) !wire.Decoded(ConversationLinkResolveResult) {
-    return client.callTyped(
-        ConversationLinkResolveResult,
-        .{
-            .name = "conversation-link-resolve",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "conversation-tree-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationListRequest = struct {};
-
-pub const ConversationListResult = struct {
-    conversations: []const ConversationSummary,
-};
-
-pub fn conversationList(client: anytype, request: ConversationListRequest) !wire.Decoded(ConversationListResult) {
-    return client.callTyped(
-        ConversationListResult,
-        .{
-            .name = "conversation-list",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "local-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationLiveRequest = struct {
-    conversation: []const u8,
-};
-
-pub const ConversationLiveResult = struct {
-    conversation: []const u8,
-    runs: []const JsonValue,
-    type: []const u8,
-};
-
-pub fn conversationLive(client: anytype, request: ConversationLiveRequest) !wire.Decoded(ConversationLiveResult) {
-    return client.callTyped(
-        ConversationLiveResult,
-        .{
-            .name = "conversation-live",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "chief-live-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationLivePublishRequest = struct {
-    conversation: []const u8,
-    frame: wire.Nullable(JsonValue),
-};
-
-pub const ConversationLivePublishResult = EmptyResult;
-
-pub fn conversationLivePublish(client: anytype, request: ConversationLivePublishRequest) !wire.Decoded(ConversationLivePublishResult) {
-    return client.callTyped(
-        ConversationLivePublishResult,
-        .{
-            .name = "conversation-live-publish",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "chief-live-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationOpRequest = struct {
-    actor: wire.Field([]const u8) = .absent,
-    conversation: []const u8,
-    idempotency_key: []const u8,
-    op: wire.Nullable(JsonValue),
-    transaction: wire.Field([]const u8) = .absent,
-};
-
-pub const ConversationOpResult = struct {
-    change: ConversationChange,
-    replayed: bool,
-    rev: u64,
-    seq: ?u64 = null,
-    transaction: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "seq",
-        "transaction",
-    };
-};
-
-pub fn conversationOp(client: anytype, request: ConversationOpRequest) !wire.Decoded(ConversationOpResult) {
-    return client.callTyped(
-        ConversationOpResult,
-        .{
-            .name = "conversation-op",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "local-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationRunRequest = struct {
-    after_rev: ?u64 = null,
-    conversation: []const u8,
-    limit: wire.Field(u32) = .absent,
-    run: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "after_rev",
-    };
-};
-
-pub const ConversationRunResult = struct {
-    has_more: bool,
-    run: wire.Nullable(JsonValue),
-    steps: []const JsonValue,
-};
-
-pub fn conversationRun(client: anytype, request: ConversationRunRequest) !wire.Decoded(ConversationRunResult) {
-    return client.callTyped(
-        ConversationRunResult,
-        .{
-            .name = "conversation-run",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "conversation-runs-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationRunAppendRequest = struct {
-    conversation: []const u8,
-    run: wire.Nullable(JsonValue),
-    steps: ?[]const JsonValue = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "steps",
-    };
-};
-
-pub const ConversationRunAppendResult = struct {
-    run: wire.Nullable(JsonValue),
-    steps: []const JsonValue,
-};
-
-pub fn conversationRunAppend(client: anytype, request: ConversationRunAppendRequest) !wire.Decoded(ConversationRunAppendResult) {
-    return client.callTyped(
-        ConversationRunAppendResult,
-        .{
-            .name = "conversation-run-append",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "conversation-runs-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationRunsRequest = struct {
-    answers: wire.Field([]const []const u8) = .absent,
-    before_started_at: wire.Field(u64) = .absent,
-    conversation: []const u8,
-    limit: wire.Field(u32) = .absent,
-    turns: wire.Field([]const []const u8) = .absent,
-};
-
-pub const ConversationRunsResult = struct {
-    has_more: bool,
-    runs: []const JsonValue,
-};
-
-pub fn conversationRuns(client: anytype, request: ConversationRunsRequest) !wire.Decoded(ConversationRunsResult) {
-    return client.callTyped(
-        ConversationRunsResult,
-        .{
-            .name = "conversation-runs",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "conversation-runs-v1",
-            .fields = &.{
-                .{ .name = "answers", .since = null, .capability = "conversation-run-answers-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const ConversationScheduledListRequest = struct {
-    conversation: wire.Field([]const u8) = .absent,
-};
-
-pub const ConversationScheduledListResult = struct {
-    scheduled: []const JsonValue,
-};
-
-pub fn conversationScheduledList(client: anytype, request: ConversationScheduledListRequest) !wire.Decoded(ConversationScheduledListResult) {
-    return client.callTyped(
-        ConversationScheduledListResult,
-        .{
-            .name = "conversation-scheduled-list",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "conversation-scheduled-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationScheduledOpRequest = struct {
-    op: wire.Nullable(JsonValue),
-};
-
-pub const ConversationScheduledOpResult = struct {
-    change: ?JsonValue = null,
-    removed: ?JsonValue = null,
-    replayed: ?bool = null,
-    rev: ?u64 = null,
-    scheduled: wire.Field(JsonValue) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "change",
-        "removed",
-        "replayed",
-        "rev",
-    };
-};
-
-pub fn conversationScheduledOp(client: anytype, request: ConversationScheduledOpRequest) !wire.Decoded(ConversationScheduledOpResult) {
-    return client.callTyped(
-        ConversationScheduledOpResult,
-        .{
-            .name = "conversation-scheduled-op",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "conversation-scheduled-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationSearchRequest = struct {
-    limit: u32,
-    query: []const u8,
-};
-
-pub const ConversationSearchResult = struct {
-    hits: []const ConversationSearchHit,
-};
-
-pub fn conversationSearch(client: anytype, request: ConversationSearchRequest) !wire.Decoded(ConversationSearchResult) {
-    return client.callTyped(
-        ConversationSearchResult,
-        .{
-            .name = "conversation-search",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "conversation-search-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationSnapshotRequest = struct {
-    conversation: []const u8,
-    tail: u32,
-};
-
-pub const ConversationSnapshotResult = struct {
-    conversation: ConversationSummary,
-    messages: []const ConversationMessage,
-    threads: ?[]const ConversationThreadSummary = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "threads",
-    };
-};
-
-pub fn conversationSnapshot(client: anytype, request: ConversationSnapshotRequest) !wire.Decoded(ConversationSnapshotResult) {
-    return client.callTyped(
-        ConversationSnapshotResult,
-        .{
-            .name = "conversation-snapshot",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "local-conversations-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationThreadRequest = struct {
-    after_seq: ?u64 = null,
-    conversation: []const u8,
-    limit: wire.Field(u32) = .absent,
-    root: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "after_seq",
-    };
-};
-
-pub const ConversationThreadResult = struct {
-    has_more: bool,
-    replies: []const ConversationMessage,
-    root: ConversationMessage,
-    thread: ConversationThreadSummary,
-};
-
-pub fn conversationThread(client: anytype, request: ConversationThreadRequest) !wire.Decoded(ConversationThreadResult) {
-    return client.callTyped(
-        ConversationThreadResult,
-        .{
-            .name = "conversation-thread",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "conversation-thread-v1",
-        },
-        request,
-    );
-}
-
-pub const ConversationTypingRequest = struct {
-    actor: wire.Field([]const u8) = .absent,
-    conversation: []const u8,
-    on: bool,
-};
-
-pub const ConversationTypingResult = EmptyResult;
-
-pub fn conversationTyping(client: anytype, request: ConversationTypingRequest) !wire.Decoded(ConversationTypingResult) {
-    return client.callTyped(
-        ConversationTypingResult,
-        .{
-            .name = "conversation-typing",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "local-conversations-v1",
         },
         request,
     );
@@ -6313,137 +2755,6 @@ pub fn copy(client: anytype, request: CopyRequest) !wire.Decoded(CopyResult) {
     );
 }
 
-pub const CreateBookmarkRequest = struct {
-    bookmark: wire.Field([]const u8) = .absent,
-    browser_profile_id: []const u8,
-    created_ms: wire.Field(u64) = .absent,
-    favicon_key: wire.Field([]const u8) = .absent,
-    index: wire.Field(u64) = .absent,
-    kind: []const u8,
-    mutation_id: wire.Field([]const u8) = .absent,
-    origin: wire.Field([]const u8) = .absent,
-    parent: []const u8,
-    source_key: wire.Field([]const u8) = .absent,
-    title: []const u8,
-    url: wire.Field([]const u8) = .absent,
-};
-
-pub const CreateBookmarkResult = BookmarkChangeResult;
-
-pub fn createBookmark(client: anytype, request: CreateBookmarkRequest) !wire.Decoded(CreateBookmarkResult) {
-    return client.callTyped(
-        CreateBookmarkResult,
-        .{
-            .name = "create-bookmark",
-            .authority = "control",
-            .since = 12,
-            .capability = "bookmarks-v1",
-        },
-        request,
-    );
-}
-
-pub const CreateBrowserProfileRequest = struct {
-    browser_profile: wire.Field([]const u8) = .absent,
-    color: wire.Field([]const u8) = .absent,
-    icon: wire.Field([]const u8) = .absent,
-    index: wire.Field(u64) = .absent,
-    name: []const u8,
-    source: wire.Field(JsonValue) = .absent,
-};
-
-pub const CreateBrowserProfileResult = JsonValue;
-
-pub fn createBrowserProfile(client: anytype, request: CreateBrowserProfileRequest) !wire.Decoded(CreateBrowserProfileResult) {
-    return client.callTyped(
-        CreateBrowserProfileResult,
-        .{
-            .name = "create-browser-profile",
-            .authority = "control",
-            .since = 12,
-            .capability = "browser-profiles-v1",
-        },
-        request,
-    );
-}
-
-pub const CreatePersonalGroupRequest = struct {
-    collapsed: ?bool = null,
-    color: wire.Field([]const u8) = .absent,
-    group: wire.Field([]const u8) = .absent,
-    index: wire.Field(u64) = .absent,
-    name: []const u8,
-    profile: wire.Field([]const u8) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "collapsed",
-    };
-};
-
-pub const CreatePersonalGroupResult = JsonValue;
-
-pub fn createPersonalGroup(client: anytype, request: CreatePersonalGroupRequest) !wire.Decoded(CreatePersonalGroupResult) {
-    return client.callTyped(
-        CreatePersonalGroupResult,
-        .{
-            .name = "create-personal-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
-        },
-        request,
-    );
-}
-
-pub const CreateProfileRequest = struct {
-    browser_profile_id: wire.Field([]const u8) = .absent,
-    color: wire.Field([]const u8) = .absent,
-    default_session_id: wire.Field([]const u8) = .absent,
-    defaults: wire.Field(JsonValue) = .absent,
-    follows: wire.Field([]const []const u8) = .absent,
-    icon: wire.Field([]const u8) = .absent,
-    index: wire.Field(u64) = .absent,
-    name: []const u8,
-    profile: wire.Field([]const u8) = .absent,
-    theme: wire.Field([]const u8) = .absent,
-};
-
-pub const CreateProfileResult = JsonValue;
-
-pub fn createProfile(client: anytype, request: CreateProfileRequest) !wire.Decoded(CreateProfileResult) {
-    return client.callTyped(
-        CreateProfileResult,
-        .{
-            .name = "create-profile",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
-        },
-        request,
-    );
-}
-
-pub const CreateScreenGroupRequest = struct {
-    color: wire.Field([]const u8) = .absent,
-    name: wire.Field([]const u8) = .absent,
-    screens: []const Id,
-};
-
-pub const CreateScreenGroupResult = JsonValue;
-
-pub fn createScreenGroup(client: anytype, request: CreateScreenGroupRequest) !wire.Decoded(CreateScreenGroupResult) {
-    return client.callTyped(
-        CreateScreenGroupResult,
-        .{
-            .name = "create-screen-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "screen-groups-v1",
-        },
-        request,
-    );
-}
-
 pub const CreateSurfaceWithReceiptRequest = struct {
     argv: wire.Field([]const []const u8) = .absent,
     cols: wire.Field(u16) = .absent,
@@ -6483,57 +2794,20 @@ pub fn createSurfaceWithReceipt(client: anytype, request: CreateSurfaceWithRecei
     );
 }
 
-pub const CreateTabGroupRequest = struct {
-    color: wire.Field([]const u8) = .absent,
-    group: wire.Field([]const u8) = .absent,
-    name: wire.Field([]const u8) = .absent,
-    surfaces: []const TabRef,
-    transaction: wire.Field([]const u8) = .absent,
-};
-
-pub const CreateTabGroupResult = TabGroupOutcome;
-
-pub fn createTabGroup(client: anytype, request: CreateTabGroupRequest) !wire.Decoded(CreateTabGroupResult) {
-    return client.callTyped(
-        CreateTabGroupResult,
-        .{
-            .name = "create-tab-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-groups-v1",
-        },
-        request,
-    );
-}
-
 pub const CreateTerminalRequest = struct {
     argv: wire.Field([]const []const u8) = .absent,
     cols: wire.Field(u16) = .absent,
     command: wire.Field([]const u8) = .absent,
-    /// Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace.
-    create_workspace: ?bool = null,
     cwd: wire.Field([]const u8) = .absent,
-    detached: ?bool = null,
-    env: wire.Field(wire.Map([]const u8)) = .absent,
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
-    keep: ?bool = null,
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
-    shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
-    /// The name of the workspace create_workspace makes.
-    workspace_name: wire.Field([]const u8) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "create_workspace",
-        "detached",
-        "keep",
-    };
 };
 
 pub const CreateTerminalResult = TerminalPlacement;
@@ -6547,13 +2821,7 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
             .since = 7,
             .capability = "workspace-registry-v1",
             .fields = &.{
-                .{ .name = "create_workspace", .since = 12, .capability = "create-terminal-workspace-v1" },
-                .{ .name = "detached", .since = 12, .capability = "detached-terminals-v1" },
-                .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
-                .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
-                .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 9, .capability = null },
-                .{ .name = "workspace_name", .since = 12, .capability = "create-terminal-workspace-v1" },
             },
         },
         request,
@@ -6563,13 +2831,9 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
 pub const CreateWorkspaceRequest = struct {
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
-    /// The workspace's first tab, made in the same request: {kind: "browser"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply.
-    first_tab: wire.Field(WorkspaceFirstTab) = .absent,
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
-    /// user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace.
-    name_source: wire.Field(NameSource) = .absent,
     origin: wire.Field([]const u8) = .absent,
 };
 
@@ -6583,204 +2847,6 @@ pub fn createWorkspace(client: anytype, request: CreateWorkspaceRequest) !wire.D
             .authority = "control",
             .since = 7,
             .capability = "workspace-registry-v1",
-            .fields = &.{
-                .{ .name = "first_tab", .since = null, .capability = "workspace-first-tab-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const CreateWorkspaceGroupRequest = struct {
-    collapsed: ?bool = null,
-    color: wire.Field([]const u8) = .absent,
-    group: wire.Field([]const u8) = .absent,
-    index: wire.Field(u64) = .absent,
-    name: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "collapsed",
-    };
-};
-
-pub const CreateWorkspaceGroupResult = JsonValue;
-
-pub fn createWorkspaceGroup(client: anytype, request: CreateWorkspaceGroupRequest) !wire.Decoded(CreateWorkspaceGroupResult) {
-    return client.callTyped(
-        CreateWorkspaceGroupResult,
-        .{
-            .name = "create-workspace-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "workspace-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const DeleteBookmarkRequest = struct {
-    bookmark: []const u8,
-    mutation_id: wire.Field([]const u8) = .absent,
-    origin: wire.Field([]const u8) = .absent,
-};
-
-pub const DeleteBookmarkResult = struct {
-    /// The deleted node's id first, then its descendants.
-    deleted: []const []const u8,
-    replayed: bool,
-};
-
-pub fn deleteBookmark(client: anytype, request: DeleteBookmarkRequest) !wire.Decoded(DeleteBookmarkResult) {
-    return client.callTyped(
-        DeleteBookmarkResult,
-        .{
-            .name = "delete-bookmark",
-            .authority = "control",
-            .since = 12,
-            .capability = "bookmarks-v1",
-        },
-        request,
-    );
-}
-
-pub const DeleteBrowserProfileRequest = struct {
-    browser_profile: []const u8,
-};
-
-pub const DeleteBrowserProfileResult = JsonValue;
-
-pub fn deleteBrowserProfile(client: anytype, request: DeleteBrowserProfileRequest) !wire.Decoded(DeleteBrowserProfileResult) {
-    return client.callTyped(
-        DeleteBrowserProfileResult,
-        .{
-            .name = "delete-browser-profile",
-            .authority = "control",
-            .since = 12,
-            .capability = "browser-profiles-v1",
-        },
-        request,
-    );
-}
-
-pub const DeletePersonalGroupRequest = struct {
-    group: []const u8,
-};
-
-pub const DeletePersonalGroupResult = JsonValue;
-
-pub fn deletePersonalGroup(client: anytype, request: DeletePersonalGroupRequest) !wire.Decoded(DeletePersonalGroupResult) {
-    return client.callTyped(
-        DeletePersonalGroupResult,
-        .{
-            .name = "delete-personal-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
-        },
-        request,
-    );
-}
-
-pub const DeleteProfileRequest = struct {
-    move_to: wire.Field([]const u8) = .absent,
-    profile: []const u8,
-};
-
-pub const DeleteProfileResult = JsonValue;
-
-pub fn deleteProfile(client: anytype, request: DeleteProfileRequest) !wire.Decoded(DeleteProfileResult) {
-    return client.callTyped(
-        DeleteProfileResult,
-        .{
-            .name = "delete-profile",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
-        },
-        request,
-    );
-}
-
-pub const DeleteSavedScreenGroupRequest = struct {
-    saved: []const u8,
-};
-
-pub const DeleteSavedScreenGroupResult = JsonValue;
-
-pub fn deleteSavedScreenGroup(client: anytype, request: DeleteSavedScreenGroupRequest) !wire.Decoded(DeleteSavedScreenGroupResult) {
-    return client.callTyped(
-        DeleteSavedScreenGroupResult,
-        .{
-            .name = "delete-saved-screen-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "screen-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const DeleteSavedTabGroupRequest = struct {
-    saved: []const u8,
-};
-
-pub const DeleteSavedTabGroupResult = struct {
-    deleted: bool,
-    saved: []const u8,
-};
-
-pub fn deleteSavedTabGroup(client: anytype, request: DeleteSavedTabGroupRequest) !wire.Decoded(DeleteSavedTabGroupResult) {
-    return client.callTyped(
-        DeleteSavedTabGroupResult,
-        .{
-            .name = "delete-saved-tab-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "saved-tab-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const DeleteTerminalCommandsRequest = struct {
-    all: ?bool = null,
-    ids: wire.Field([]const []const u8) = .absent,
-    started_since_ms: wire.Field([]const u8) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "all",
-    };
-};
-
-pub const DeleteTerminalCommandsResult = TerminalCommandDeleteResult;
-
-pub fn deleteTerminalCommands(client: anytype, request: DeleteTerminalCommandsRequest) !wire.Decoded(DeleteTerminalCommandsResult) {
-    return client.callTyped(
-        DeleteTerminalCommandsResult,
-        .{
-            .name = "delete-terminal-commands",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "terminal-command-history-v1",
-        },
-        request,
-    );
-}
-
-pub const DeleteWorkspaceGroupRequest = struct {
-    group: []const u8,
-};
-
-pub const DeleteWorkspaceGroupResult = JsonValue;
-
-pub fn deleteWorkspaceGroup(client: anytype, request: DeleteWorkspaceGroupRequest) !wire.Decoded(DeleteWorkspaceGroupResult) {
-    return client.callTyped(
-        DeleteWorkspaceGroupResult,
-        .{
-            .name = "delete-workspace-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "workspace-groups-v1",
         },
         request,
     );
@@ -6835,36 +2901,6 @@ pub fn detachClient(client: anytype, request: DetachClientRequest) !wire.Decoded
     );
 }
 
-pub const DeviceSetupRequest = struct {
-    /// Turn on the agents permission (the person's click in the app).
-    allow_agents: ?bool = null,
-    /// A device id, name or address, as `cmux device list` shows it.
-    device: []const u8,
-    dry_run: ?bool = null,
-    /// setup (every step) or start (reach, login item and start).
-    verb: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "allow_agents",
-        "dry_run",
-    };
-};
-
-pub const DeviceSetupResult = JsonValue;
-
-pub fn deviceSetup(client: anytype, request: DeviceSetupRequest) !wire.Decoded(DeviceSetupResult) {
-    return client.callTyped(
-        DeviceSetupResult,
-        .{
-            .name = "device-setup",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "device-setup-v1",
-        },
-        request,
-    );
-}
-
 pub const ExportLayoutRequest = struct {
     screen: wire.Field(Id) = .absent,
 };
@@ -6877,152 +2913,6 @@ pub fn exportLayout(client: anytype, request: ExportLayoutRequest) !wire.Decoded
             .authority = "control",
             .since = 6,
             .capability = null,
-        },
-        request,
-    );
-}
-
-pub const FeedLocalHandoffAbortRequest = struct {
-    item: []const u8,
-};
-
-pub const FeedLocalHandoffAbortResult = JsonValue;
-
-pub fn feedLocalHandoffAbort(client: anytype, request: FeedLocalHandoffAbortRequest) !wire.Decoded(FeedLocalHandoffAbortResult) {
-    return client.callTyped(
-        FeedLocalHandoffAbortResult,
-        .{
-            .name = "feed-local-handoff-abort",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "feed-local-owner-v1",
-        },
-        request,
-    );
-}
-
-pub const FeedLocalHandoffBeginRequest = struct {
-    item: []const u8,
-};
-
-pub const FeedLocalHandoffBeginResult = JsonValue;
-
-pub fn feedLocalHandoffBegin(client: anytype, request: FeedLocalHandoffBeginRequest) !wire.Decoded(FeedLocalHandoffBeginResult) {
-    return client.callTyped(
-        FeedLocalHandoffBeginResult,
-        .{
-            .name = "feed-local-handoff-begin",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "feed-local-owner-v1",
-        },
-        request,
-    );
-}
-
-pub const FeedLocalHandoffDoneRequest = struct {
-    home: []const u8,
-    item: []const u8,
-};
-
-pub const FeedLocalHandoffDoneResult = JsonValue;
-
-pub fn feedLocalHandoffDone(client: anytype, request: FeedLocalHandoffDoneRequest) !wire.Decoded(FeedLocalHandoffDoneResult) {
-    return client.callTyped(
-        FeedLocalHandoffDoneResult,
-        .{
-            .name = "feed-local-handoff-done",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "feed-local-owner-v1",
-        },
-        request,
-    );
-}
-
-pub const FeedLocalListRequest = struct {
-    state: wire.Field([]const u8) = .absent,
-    terminal_id: wire.Field([]const u8) = .absent,
-    unread: ?bool = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "unread",
-    };
-};
-
-pub const FeedLocalListResult = JsonValue;
-
-pub fn feedLocalList(client: anytype, request: FeedLocalListRequest) !wire.Decoded(FeedLocalListResult) {
-    return client.callTyped(
-        FeedLocalListResult,
-        .{
-            .name = "feed-local-list",
-            .authority = "control",
-            .since = 12,
-            .capability = "feed-local-owner-v1",
-        },
-        request,
-    );
-}
-
-pub const FeedLocalReadRequest = struct {
-    items: []const []const u8,
-};
-
-pub const FeedLocalReadResult = JsonValue;
-
-pub fn feedLocalRead(client: anytype, request: FeedLocalReadRequest) !wire.Decoded(FeedLocalReadResult) {
-    return client.callTyped(
-        FeedLocalReadResult,
-        .{
-            .name = "feed-local-read",
-            .authority = "control",
-            .since = 12,
-            .capability = "feed-local-owner-v1",
-        },
-        request,
-    );
-}
-
-pub const FloatPaneRequest = struct {
-    h: wire.Field(f64) = .absent,
-    mode: wire.Field([]const u8) = .absent,
-    pane: Id,
-    transaction: wire.Field(u64) = .absent,
-    w: wire.Field(f64) = .absent,
-    x: wire.Field(f64) = .absent,
-    y: wire.Field(f64) = .absent,
-};
-
-pub const FloatPaneResult = JsonValue;
-
-pub fn floatPane(client: anytype, request: FloatPaneRequest) !wire.Decoded(FloatPaneResult) {
-    return client.callTyped(
-        FloatPaneResult,
-        .{
-            .name = "float-pane",
-            .authority = "control",
-            .since = 12,
-            .capability = "floating-panes-v1",
-        },
-        request,
-    );
-}
-
-pub const FlushLaunchSnapshotRequest = struct {};
-
-pub const FlushLaunchSnapshotResult = struct {
-    flushed: bool,
-};
-
-pub fn flushLaunchSnapshot(client: anytype, request: FlushLaunchSnapshotRequest) !wire.Decoded(FlushLaunchSnapshotResult) {
-    return client.callTyped(
-        FlushLaunchSnapshotResult,
-        .{
-            .name = "flush-launch-snapshot",
-            .authority = "control",
-            .since = 12,
-            .capability = "launch-snapshot-flush-v1",
         },
         request,
     );
@@ -7065,49 +2955,6 @@ pub fn focusPane(client: anytype, request: FocusPaneRequest) !wire.Decoded(Focus
     );
 }
 
-pub const ForgetSessionRequest = struct {
-    force: ?bool = null,
-    session_id: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "force",
-    };
-};
-
-pub const ForgetSessionResult = JsonValue;
-
-pub fn forgetSession(client: anytype, request: ForgetSessionRequest) !wire.Decoded(ForgetSessionResult) {
-    return client.callTyped(
-        ForgetSessionResult,
-        .{
-            .name = "forget-session",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
-        },
-        request,
-    );
-}
-
-pub const GetBlobRequest = struct {
-    blob: []const u8,
-};
-
-pub const GetBlobResult = JsonValue;
-
-pub fn getBlob(client: anytype, request: GetBlobRequest) !wire.Decoded(GetBlobResult) {
-    return client.callTyped(
-        GetBlobResult,
-        .{
-            .name = "get-blob",
-            .authority = "control",
-            .since = 12,
-            .capability = "icon-assets-v1",
-        },
-        request,
-    );
-}
-
 pub const GetBrowserProviderRequest = struct {};
 
 pub const GetBrowserProviderResult = BrowserProviderSnapshot;
@@ -7140,25 +2987,6 @@ pub fn getCellPixels(client: anytype, request: GetCellPixelsRequest) !wire.Decod
     );
 }
 
-pub const GetFrontendBrowserHistoryRequest = struct {
-    surface: Id,
-};
-
-pub const GetFrontendBrowserHistoryResult = JsonValue;
-
-pub fn getFrontendBrowserHistory(client: anytype, request: GetFrontendBrowserHistoryRequest) !wire.Decoded(GetFrontendBrowserHistoryResult) {
-    return client.callTyped(
-        GetFrontendBrowserHistoryResult,
-        .{
-            .name = "get-frontend-browser-history",
-            .authority = "control",
-            .since = 12,
-            .capability = "frontend-browser-history-v1",
-        },
-        request,
-    );
-}
-
 pub const GetFrontendProjectionRequest = struct {
     frontend: []const u8,
     scope: []const u8,
@@ -7175,23 +3003,6 @@ pub fn getFrontendProjection(client: anytype, request: GetFrontendProjectionRequ
             .authority = "control",
             .since = 7,
             .capability = null,
-        },
-        request,
-    );
-}
-
-pub const GetHostSizePolicyRequest = struct {
-    surface: wire.Field(Id) = .absent,
-};
-
-pub fn getHostSizePolicy(client: anytype, request: GetHostSizePolicyRequest) !wire.Decoded(GetHostSizePolicyResult) {
-    return client.callTyped(
-        GetHostSizePolicyResult,
-        .{
-            .name = "get-host-size-policy",
-            .authority = "control",
-            .since = 12,
-            .capability = "host-size-policy-v1",
         },
         request,
     );
@@ -7214,90 +3025,7 @@ pub fn getSizeState(client: anytype, request: GetSizeStateRequest) !wire.Decoded
     );
 }
 
-pub const HistorySearchRequest = struct {
-    kinds: ?[]const []const u8 = null,
-    limit: wire.Field(u32) = .absent,
-    query: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "kinds",
-    };
-};
-
-pub const HistorySearchResult = struct {
-    hits: []const HistorySearchHit,
-    took_us: u64,
-};
-
-pub fn historySearch(client: anytype, request: HistorySearchRequest) !wire.Decoded(HistorySearchResult) {
-    return client.callTyped(
-        HistorySearchResult,
-        .{
-            .name = "history-search",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "history-search-v1",
-        },
-        request,
-    );
-}
-
-pub const HomeInboxRequest = struct {
-    ids: wire.Field([]const []const u8) = .absent,
-    limit: wire.Field(u64) = .absent,
-    offset: wire.Field(u64) = .absent,
-    owners: wire.Field([]const []const u8) = .absent,
-    scope: wire.Field([]const u8) = .absent,
-    since: wire.Field(u64) = .absent,
-};
-
-pub const HomeInboxResult = struct {
-    cloud: []const u8,
-    full: ?bool = null,
-    me: []const u8,
-    offset: ?u64 = null,
-    order: ?[]const u8 = null,
-    removed: ?[]const []const u8 = null,
-    revision: ?u64 = null,
-    rows: []const HomeInboxRow,
-    total: ?u64 = null,
-    window: ?bool = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "full",
-        "offset",
-        "order",
-        "removed",
-        "revision",
-        "total",
-        "window",
-    };
-};
-
-pub fn homeInbox(client: anytype, request: HomeInboxRequest) !wire.Decoded(HomeInboxResult) {
-    return client.callTyped(
-        HomeInboxResult,
-        .{
-            .name = "home-inbox",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "home-inbox-v1",
-        },
-        request,
-    );
-}
-
-pub const IdentifyRequest = struct {
-    machine_metadata: ?bool = null,
-    restore_progress: ?bool = null,
-    revisions: ?bool = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "machine_metadata",
-        "restore_progress",
-        "revisions",
-    };
-};
+pub const IdentifyRequest = struct {};
 
 pub fn identify(client: anytype, request: IdentifyRequest) !wire.Decoded(IdentifyResult) {
     return client.callTyped(
@@ -7307,11 +3035,6 @@ pub fn identify(client: anytype, request: IdentifyRequest) !wire.Decoded(Identif
             .authority = "control",
             .since = 5,
             .capability = null,
-            .fields = &.{
-                .{ .name = "machine_metadata", .since = 12, .capability = "machine-identity-v1" },
-                .{ .name = "restore_progress", .since = 12, .capability = null },
-                .{ .name = "revisions", .since = 12, .capability = null },
-            },
         },
         request,
     );
@@ -7358,68 +3081,6 @@ pub fn ids(client: anytype, request: IdsRequest) !wire.Decoded(IdsResult) {
     );
 }
 
-pub const ImportBookmarksRequest = struct {
-    browser_profile_id: []const u8,
-    index: wire.Field(u64) = .absent,
-    mutation_id: wire.Field([]const u8) = .absent,
-    nodes: []const BookmarkImportNode,
-    origin: wire.Field([]const u8) = .absent,
-    parent: []const u8,
-    replace: ?bool = null,
-    source_key: wire.Field([]const u8) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "replace",
-    };
-};
-
-pub const ImportBookmarksResult = struct {
-    /// Nodes in the request, descendants included.
-    count: u64,
-    replayed: bool,
-    /// Top-level nodes written; in replace mode the kept folder first.
-    root_ids: []const []const u8,
-};
-
-pub fn importBookmarks(client: anytype, request: ImportBookmarksRequest) !wire.Decoded(ImportBookmarksResult) {
-    return client.callTyped(
-        ImportBookmarksResult,
-        .{
-            .name = "import-bookmarks",
-            .authority = "control",
-            .since = 12,
-            .capability = "bookmarks-v1",
-        },
-        request,
-    );
-}
-
-pub const ImportSessionOrganizationRequest = struct {
-    groups: ?[]const JsonValue = null,
-    session_id: []const u8,
-    workspaces: ?[]const JsonValue = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "groups",
-        "workspaces",
-    };
-};
-
-pub const ImportSessionOrganizationResult = JsonValue;
-
-pub fn importSessionOrganization(client: anytype, request: ImportSessionOrganizationRequest) !wire.Decoded(ImportSessionOrganizationResult) {
-    return client.callTyped(
-        ImportSessionOrganizationResult,
-        .{
-            .name = "import-session-organization",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
-        },
-        request,
-    );
-}
-
 pub const JournalFrontendEventRequest = struct {
     event: FrontendJournalEvent,
 };
@@ -7459,29 +3120,6 @@ pub fn listAgents(client: anytype, request: ListAgentsRequest) !wire.Decoded(Lis
     );
 }
 
-pub const ListBookmarksRequest = struct {
-    browser_profile_id: []const u8,
-};
-
-pub const ListBookmarksResult = struct {
-    /// The whole tree in depth-first pre-order: the bar tree, then the other tree.
-    bookmarks: []const Bookmark,
-    bookmarks_revision: u64,
-};
-
-pub fn listBookmarks(client: anytype, request: ListBookmarksRequest) !wire.Decoded(ListBookmarksResult) {
-    return client.callTyped(
-        ListBookmarksResult,
-        .{
-            .name = "list-bookmarks",
-            .authority = "control",
-            .since = 12,
-            .capability = "bookmarks-v1",
-        },
-        request,
-    );
-}
-
 pub const ListClientsRequest = struct {};
 
 pub const ListClientsResult = []const ClientInfo;
@@ -7494,123 +3132,6 @@ pub fn listClients(client: anytype, request: ListClientsRequest) !wire.Decoded(L
             .authority = "control",
             .since = 6,
             .capability = null,
-        },
-        request,
-    );
-}
-
-pub const ListNotificationsRequest = struct {
-    limit: wire.Field(u64) = .absent,
-    /// true: the reply also carries agent_notice_stats.
-    stats: ?bool = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "stats",
-    };
-};
-
-pub const ListNotificationsResult = JsonValue;
-
-pub fn listNotifications(client: anytype, request: ListNotificationsRequest) !wire.Decoded(ListNotificationsResult) {
-    return client.callTyped(
-        ListNotificationsResult,
-        .{
-            .name = "list-notifications",
-            .authority = "control",
-            .since = 12,
-            .capability = "notification-ack-v1",
-        },
-        request,
-    );
-}
-
-pub const ListPersonalRequest = struct {};
-
-pub const ListPersonalResult = JsonValue;
-
-pub fn listPersonal(client: anytype, request: ListPersonalRequest) !wire.Decoded(ListPersonalResult) {
-    return client.callTyped(
-        ListPersonalResult,
-        .{
-            .name = "list-personal",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
-        },
-        request,
-    );
-}
-
-pub const ListSavedScreenGroupsRequest = struct {};
-
-pub const ListSavedScreenGroupsResult = JsonValue;
-
-pub fn listSavedScreenGroups(client: anytype, request: ListSavedScreenGroupsRequest) !wire.Decoded(ListSavedScreenGroupsResult) {
-    return client.callTyped(
-        ListSavedScreenGroupsResult,
-        .{
-            .name = "list-saved-screen-groups",
-            .authority = "control",
-            .since = 12,
-            .capability = "screen-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const ListSavedTabGroupsRequest = struct {};
-
-pub const ListSavedTabGroupsResult = struct {
-    saved_groups: []const SavedTabGroupRecord,
-};
-
-pub fn listSavedTabGroups(client: anytype, request: ListSavedTabGroupsRequest) !wire.Decoded(ListSavedTabGroupsResult) {
-    return client.callTyped(
-        ListSavedTabGroupsResult,
-        .{
-            .name = "list-saved-tab-groups",
-            .authority = "control",
-            .since = 12,
-            .capability = "saved-tab-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const ListTabGroupsRequest = struct {};
-
-pub const ListTabGroupsResult = struct {
-    groups: []const TabGroupRun,
-};
-
-pub fn listTabGroups(client: anytype, request: ListTabGroupsRequest) !wire.Decoded(ListTabGroupsResult) {
-    return client.callTyped(
-        ListTabGroupsResult,
-        .{
-            .name = "list-tab-groups",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const ListTerminalCommandsRequest = struct {
-    after_id: wire.Field([]const u8) = .absent,
-    limit: wire.Field(u32) = .absent,
-};
-
-pub const ListTerminalCommandsResult = TerminalCommandList;
-
-pub fn listTerminalCommands(client: anytype, request: ListTerminalCommandsRequest) !wire.Decoded(ListTerminalCommandsResult) {
-    return client.callTyped(
-        ListTerminalCommandsResult,
-        .{
-            .name = "list-terminal-commands",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "terminal-command-history-v1",
         },
         request,
     );
@@ -7631,29 +3152,7 @@ pub fn listTerminals(client: anytype, request: ListTerminalsRequest) !wire.Decod
     );
 }
 
-pub const ListWorkspaceGroupsRequest = struct {};
-
-pub const ListWorkspaceGroupsResult = JsonValue;
-
-pub fn listWorkspaceGroups(client: anytype, request: ListWorkspaceGroupsRequest) !wire.Decoded(ListWorkspaceGroupsResult) {
-    return client.callTyped(
-        ListWorkspaceGroupsResult,
-        .{
-            .name = "list-workspace-groups",
-            .authority = "control",
-            .since = 12,
-            .capability = "workspace-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const ListWorkspacesRequest = struct {
-    after: wire.Field(u64) = .absent,
-    known: wire.Field(ListWorkspacesKnown) = .absent,
-    limit: wire.Field(u64) = .absent,
-    since: wire.Field(ListWorkspacesSince) = .absent,
-};
+pub const ListWorkspacesRequest = struct {};
 
 pub const ListWorkspacesResult = Tree;
 
@@ -7665,12 +3164,6 @@ pub fn listWorkspaces(client: anytype, request: ListWorkspacesRequest) !wire.Dec
             .authority = "control",
             .since = 5,
             .capability = null,
-            .fields = &.{
-                .{ .name = "after", .since = 12, .capability = "list-workspaces-page-v1" },
-                .{ .name = "known", .since = 12, .capability = "list-workspaces-known-v1" },
-                .{ .name = "limit", .since = 12, .capability = "list-workspaces-limit-v1" },
-                .{ .name = "since", .since = null, .capability = "workspace-list-delta-v1" },
-            },
         },
         request,
     );
@@ -7771,166 +3264,10 @@ pub fn mintTerminalRendererByTerminal(client: anytype, request: MintTerminalRend
     );
 }
 
-pub const MoveBookmarkRequest = struct {
-    bookmark: []const u8,
-    index: u64,
-    mutation_id: wire.Field([]const u8) = .absent,
-    origin: wire.Field([]const u8) = .absent,
-    parent: []const u8,
-};
-
-pub const MoveBookmarkResult = BookmarkChangeResult;
-
-pub fn moveBookmark(client: anytype, request: MoveBookmarkRequest) !wire.Decoded(MoveBookmarkResult) {
-    return client.callTyped(
-        MoveBookmarkResult,
-        .{
-            .name = "move-bookmark",
-            .authority = "control",
-            .since = 12,
-            .capability = "bookmarks-v1",
-        },
-        request,
-    );
-}
-
-pub const MoveBrowserProfileRequest = struct {
-    browser_profile: []const u8,
-    index: u64,
-};
-
-pub const MoveBrowserProfileResult = JsonValue;
-
-pub fn moveBrowserProfile(client: anytype, request: MoveBrowserProfileRequest) !wire.Decoded(MoveBrowserProfileResult) {
-    return client.callTyped(
-        MoveBrowserProfileResult,
-        .{
-            .name = "move-browser-profile",
-            .authority = "control",
-            .since = 12,
-            .capability = "browser-profiles-v1",
-        },
-        request,
-    );
-}
-
-pub const MoveColumnRequest = struct {
-    direction: ColumnMoveDirection,
-    pane: Id,
-};
-
-pub const MoveColumnResult = JsonValue;
-
-pub fn moveColumn(client: anytype, request: MoveColumnRequest) !wire.Decoded(MoveColumnResult) {
-    return client.callTyped(
-        MoveColumnResult,
-        .{
-            .name = "move-column",
-            .authority = "control",
-            .since = 12,
-            .capability = "column-move-v1",
-        },
-        request,
-    );
-}
-
-pub const MovePersonalGroupRequest = struct {
-    group: []const u8,
-    index: u64,
-};
-
-pub const MovePersonalGroupResult = JsonValue;
-
-pub fn movePersonalGroup(client: anytype, request: MovePersonalGroupRequest) !wire.Decoded(MovePersonalGroupResult) {
-    return client.callTyped(
-        MovePersonalGroupResult,
-        .{
-            .name = "move-personal-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
-        },
-        request,
-    );
-}
-
-pub const MoveProfileRequest = struct {
-    index: u64,
-    profile: []const u8,
-};
-
-pub const MoveProfileResult = JsonValue;
-
-pub fn moveProfile(client: anytype, request: MoveProfileRequest) !wire.Decoded(MoveProfileResult) {
-    return client.callTyped(
-        MoveProfileResult,
-        .{
-            .name = "move-profile",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
-        },
-        request,
-    );
-}
-
-pub const MoveScreenRequest = struct {
-    index: wire.Field(u64) = .absent,
-    new_workspace: ?bool = null,
-    screen: Id,
-    workspace: wire.Field(Id) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "new_workspace",
-    };
-};
-
-pub const MoveScreenResult = JsonValue;
-
-pub fn moveScreen(client: anytype, request: MoveScreenRequest) !wire.Decoded(MoveScreenResult) {
-    return client.callTyped(
-        MoveScreenResult,
-        .{
-            .name = "move-screen",
-            .authority = "control",
-            .since = 12,
-            .capability = "screen-metadata-v1",
-        },
-        request,
-    );
-}
-
-pub const MoveScreenGroupRequest = struct {
-    group: []const u8,
-    index: wire.Field(u64) = .absent,
-    new_workspace: ?bool = null,
-    workspace: wire.Field(Id) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "new_workspace",
-    };
-};
-
-pub const MoveScreenGroupResult = JsonValue;
-
-pub fn moveScreenGroup(client: anytype, request: MoveScreenGroupRequest) !wire.Decoded(MoveScreenGroupResult) {
-    return client.callTyped(
-        MoveScreenGroupResult,
-        .{
-            .name = "move-screen-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "screen-groups-v1",
-        },
-        request,
-    );
-}
-
 pub const MoveTabRequest = struct {
     index: u64,
     pane: Id,
     surface: Id,
-    transaction: wire.Field([]const u8) = .absent,
 };
 
 pub const MoveTabResult = EmptyResult;
@@ -7943,197 +3280,6 @@ pub fn moveTab(client: anytype, request: MoveTabRequest) !wire.Decoded(MoveTabRe
             .authority = "control",
             .since = 5,
             .capability = null,
-            .fields = &.{
-                .{ .name = "transaction", .since = 12, .capability = "tab-drag-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const MoveTabGroupRequest = struct {
-    group: []const u8,
-    index: wire.Field(u64) = .absent,
-    pane: wire.Field(PaneRef) = .absent,
-    transaction: wire.Field([]const u8) = .absent,
-};
-
-pub const MoveTabGroupResult = TabGroupOutcome;
-
-pub fn moveTabGroup(client: anytype, request: MoveTabGroupRequest) !wire.Decoded(MoveTabGroupResult) {
-    return client.callTyped(
-        MoveTabGroupResult,
-        .{
-            .name = "move-tab-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const MoveTabGroupToColumnRequest = struct {
-    after_column: wire.Field(Id) = .absent,
-    group: []const u8,
-    pane: wire.Field(PaneRef) = .absent,
-    screen: wire.Field(Id) = .absent,
-    transaction: wire.Field([]const u8) = .absent,
-    width: wire.Field(f32) = .absent,
-};
-
-pub const MoveTabGroupToColumnResult = TabGroupOutcome;
-
-pub fn moveTabGroupToColumn(client: anytype, request: MoveTabGroupToColumnRequest) !wire.Decoded(MoveTabGroupToColumnResult) {
-    return client.callTyped(
-        MoveTabGroupToColumnResult,
-        .{
-            .name = "move-tab-group-to-column",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const MoveTabGroupToNewWorkspaceRequest = struct {
-    group: []const u8,
-    index: wire.Field(u64) = .absent,
-    transaction: wire.Field([]const u8) = .absent,
-    workspace_group: wire.Field([]const u8) = .absent,
-};
-
-pub const MoveTabGroupToNewWorkspaceResult = TabGroupOutcome;
-
-pub fn moveTabGroupToNewWorkspace(client: anytype, request: MoveTabGroupToNewWorkspaceRequest) !wire.Decoded(MoveTabGroupToNewWorkspaceResult) {
-    return client.callTyped(
-        MoveTabGroupToNewWorkspaceResult,
-        .{
-            .name = "move-tab-group-to-new-workspace",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const MoveTabGroupToSplitRequest = struct {
-    edge: []const u8,
-    group: []const u8,
-    pane: PaneRef,
-    ratio: wire.Field(f32) = .absent,
-    transaction: wire.Field([]const u8) = .absent,
-};
-
-pub const MoveTabGroupToSplitResult = TabGroupOutcome;
-
-pub fn moveTabGroupToSplit(client: anytype, request: MoveTabGroupToSplitRequest) !wire.Decoded(MoveTabGroupToSplitResult) {
-    return client.callTyped(
-        MoveTabGroupToSplitResult,
-        .{
-            .name = "move-tab-group-to-split",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const MoveTabToColumnRequest = struct {
-    after_column: wire.Field(Id) = .absent,
-    dock: wire.Field(ColumnPin) = .absent,
-    keep_focus: ?bool = null,
-    pane: wire.Field(Id) = .absent,
-    pane_id: wire.Field([]const u8) = .absent,
-    respawn: wire.Field(SplitRespawn) = .absent,
-    screen: wire.Field(Id) = .absent,
-    surface: Id,
-    transaction: wire.Field([]const u8) = .absent,
-    width: wire.Field(f32) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "keep_focus",
-    };
-};
-
-pub const MoveTabToColumnResult = JsonValue;
-
-pub fn moveTabToColumn(client: anytype, request: MoveTabToColumnRequest) !wire.Decoded(MoveTabToColumnResult) {
-    return client.callTyped(
-        MoveTabToColumnResult,
-        .{
-            .name = "move-tab-to-column",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-drag-v1",
-            .fields = &.{
-                .{ .name = "dock", .since = 12, .capability = "dock-columns-v1" },
-                .{ .name = "keep_focus", .since = 12, .capability = "tab-split-keep-focus-v1" },
-                .{ .name = "pane_id", .since = 12, .capability = "tab-column-client-pane-v1" },
-                .{ .name = "respawn", .since = 12, .capability = "tab-column-respawn-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const MoveTabToNewWorkspaceRequest = struct {
-    group: wire.Field([]const u8) = .absent,
-    index: wire.Field(u64) = .absent,
-    name: wire.Field([]const u8) = .absent,
-    surface: Id,
-    transaction: wire.Field([]const u8) = .absent,
-};
-
-pub const MoveTabToNewWorkspaceResult = JsonValue;
-
-pub fn moveTabToNewWorkspace(client: anytype, request: MoveTabToNewWorkspaceRequest) !wire.Decoded(MoveTabToNewWorkspaceResult) {
-    return client.callTyped(
-        MoveTabToNewWorkspaceResult,
-        .{
-            .name = "move-tab-to-new-workspace",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-drag-v1",
-            .fields = &.{
-                .{ .name = "name", .since = null, .capability = "tab-workspace-name-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const MoveTabToSplitRequest = struct {
-    edge: []const u8,
-    keep_focus: ?bool = null,
-    pane: Id,
-    ratio: wire.Field(f32) = .absent,
-    respawn: wire.Field(SplitRespawn) = .absent,
-    surface: Id,
-    transaction: wire.Field([]const u8) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "keep_focus",
-    };
-};
-
-pub const MoveTabToSplitResult = JsonValue;
-
-pub fn moveTabToSplit(client: anytype, request: MoveTabToSplitRequest) !wire.Decoded(MoveTabToSplitResult) {
-    return client.callTyped(
-        MoveTabToSplitResult,
-        .{
-            .name = "move-tab-to-split",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-drag-v1",
-            .fields = &.{
-                .{ .name = "keep_focus", .since = 12, .capability = "tab-split-keep-focus-v1" },
-                .{ .name = "respawn", .since = 12, .capability = "tab-split-respawn-v1" },
-            },
         },
         request,
     );
@@ -8141,7 +3287,6 @@ pub fn moveTabToSplit(client: anytype, request: MoveTabToSplitRequest) !wire.Dec
 
 pub const MoveTabToWorkspaceRequest = struct {
     surface: Id,
-    transaction: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
 };
 
@@ -8155,9 +3300,6 @@ pub fn moveTabToWorkspace(client: anytype, request: MoveTabToWorkspaceRequest) !
             .authority = "control",
             .since = 12,
             .capability = "tab-workspace-move-v1",
-            .fields = &.{
-                .{ .name = "transaction", .since = 12, .capability = "tab-drag-v1" },
-            },
         },
         request,
     );
@@ -8218,52 +3360,6 @@ pub fn moveWorkspace(client: anytype, request: MoveWorkspaceRequest) !wire.Decod
     );
 }
 
-pub const MoveWorkspaceGroupRequest = struct {
-    group: []const u8,
-    index: u64,
-};
-
-pub const MoveWorkspaceGroupResult = JsonValue;
-
-pub fn moveWorkspaceGroup(client: anytype, request: MoveWorkspaceGroupRequest) !wire.Decoded(MoveWorkspaceGroupResult) {
-    return client.callTyped(
-        MoveWorkspaceGroupResult,
-        .{
-            .name = "move-workspace-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "workspace-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const MoveWorkspaceToGroupRequest = struct {
-    expected_generation: wire.Field([]const u8) = .absent,
-    expected_revision: wire.Field(u64) = .absent,
-    group: wire.Field([]const u8) = .absent,
-    index: wire.Field(u64) = .absent,
-    key: wire.Field([]const u8) = .absent,
-    mutation_id: wire.Field([]const u8) = .absent,
-    origin: wire.Field([]const u8) = .absent,
-    workspace: wire.Field(Id) = .absent,
-};
-
-pub const MoveWorkspaceToGroupResult = JsonValue;
-
-pub fn moveWorkspaceToGroup(client: anytype, request: MoveWorkspaceToGroupRequest) !wire.Decoded(MoveWorkspaceToGroupResult) {
-    return client.callTyped(
-        MoveWorkspaceToGroupResult,
-        .{
-            .name = "move-workspace-to-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "workspace-groups-v1",
-        },
-        request,
-    );
-}
-
 pub const NewBrowserTabRequest = struct {
     cols: wire.Field(u16) = .absent,
     pane: wire.Field(Id) = .absent,
@@ -8286,127 +3382,13 @@ pub fn newBrowserTab(client: anytype, request: NewBrowserTabRequest) !wire.Decod
     );
 }
 
-pub const NewConversationTabRequest = struct {
-    agent_session: wire.Field(AgentSessionSource) = .absent,
-    cols: wire.Field(u16) = .absent,
-    conversation: wire.Field([]const u8) = .absent,
-    mutation_id: wire.Field([]const u8) = .absent,
-    origin: wire.Field([]const u8) = .absent,
-    owner: wire.Field([]const u8) = .absent,
-    page: wire.Field([]const u8) = .absent,
-    pane: wire.Field(Id) = .absent,
-    /// Where the tab goes in the strip of pane. transaction then also names this creation for place.after_creation of a later create request of this connection. Needs pane; refused with workspace or split.
-    place: wire.Field(TabPlace) = .absent,
-    route: wire.Field([]const u8) = .absent,
-    rows: wire.Field(u16) = .absent,
-    /// With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction.
-    split: wire.Field(ConversationTabSplit) = .absent,
-    /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
-    transaction: wire.Field([]const u8) = .absent,
-    workspace: wire.Field(Id) = .absent,
-};
-
-pub const NewConversationTabResult = struct {
-    content_resource_id: wire.Nullable([]const u8),
-    conversation: ConversationTabRecord,
-    replayed: bool,
-    surface: Id,
-    tab_resource_id: wire.Nullable([]const u8),
-    /// The request's transaction, when it sent one.
-    transaction: ?[]const u8 = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "transaction",
-    };
-};
-
-pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !wire.Decoded(NewConversationTabResult) {
-    return client.callTyped(
-        NewConversationTabResult,
-        .{
-            .name = "new-conversation-tab",
-            .authority = "control",
-            .since = 12,
-            .capability = "conversation-tabs-v1",
-            .fields = &.{
-                .{ .name = "agent_session", .since = null, .capability = "agent-session-tabs-v1" },
-                .{ .name = "page", .since = null, .capability = "page-tabs-v1" },
-                .{ .name = "place", .since = null, .capability = "tab-create-place-v1" },
-                .{ .name = "route", .since = null, .capability = "page-tab-route-v1" },
-                .{ .name = "split", .since = null, .capability = "conversation-tab-split-v1" },
-                .{ .name = "transaction", .since = null, .capability = "conversation-tab-transaction-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const NewFrontendBrowserTabRequest = struct {
-    activate: ?bool = null,
-    after: wire.Field(Id) = .absent,
-    cols: wire.Field(u16) = .absent,
-    engine: []const u8,
-    favicon_url: wire.Field([]const u8) = .absent,
-    idempotency_key: wire.Field([]const u8) = .absent,
-    owner: wire.Field([]const u8) = .absent,
-    pane: wire.Field(Id) = .absent,
-    /// Where the tab goes in the strip of pane; it wins over after. Needs pane; refused with workspace or split.
-    place: wire.Field(TabPlace) = .absent,
-    profile_id: wire.Field([]const u8) = .absent,
-    rows: wire.Field(u16) = .absent,
-    /// With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after.
-    split: wire.Field(ConversationTabSplit) = .absent,
-    title: wire.Field([]const u8) = .absent,
-    /// Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation. Refused with workspace or split.
-    transaction: wire.Field([]const u8) = .absent,
-    url: []const u8,
-    /// Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split.
-    workspace: wire.Field(Id) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "activate",
-    };
-};
-
-pub const NewFrontendBrowserTabResult = JsonValue;
-
-pub fn newFrontendBrowserTab(client: anytype, request: NewFrontendBrowserTabRequest) !wire.Decoded(NewFrontendBrowserTabResult) {
-    return client.callTyped(
-        NewFrontendBrowserTabResult,
-        .{
-            .name = "new-frontend-browser-tab",
-            .authority = "control",
-            .since = 12,
-            .capability = "frontend-browser-tabs-v1",
-            .fields = &.{
-                .{ .name = "place", .since = null, .capability = "tab-create-place-v1" },
-                .{ .name = "split", .since = null, .capability = "frontend-browser-tab-split-v1" },
-                .{ .name = "transaction", .since = null, .capability = "tab-create-place-v1" },
-                .{ .name = "workspace", .since = null, .capability = "frontend-browser-tab-workspace-v1" },
-            },
-        },
-        request,
-    );
-}
-
 pub const NewPaneRequest = struct {
     cols: wire.Field(u16) = .absent,
-    cwd: wire.Field([]const u8) = .absent,
-    env: wire.Field(wire.Map([]const u8)) = .absent,
-    keep: ?bool = null,
     pane: Id,
-    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
-    shell_args: wire.Field([]const []const u8) = .absent,
-    tab_id: wire.Field([]const u8) = .absent,
-    terminal_id: wire.Field([]const u8) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "keep",
-    };
 };
 
-pub const NewPaneResult = PaneSurfaceResult;
+pub const NewPaneResult = SurfaceResult;
 
 pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneResult) {
     return client.callTyped(
@@ -8416,15 +3398,6 @@ pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneRe
             .authority = "control",
             .since = 9,
             .capability = null,
-            .fields = &.{
-                .{ .name = "cwd", .since = 12, .capability = "terminal-placement-env-v1" },
-                .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
-                .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
-                .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
-                .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
-                .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
-                .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
-            },
         },
         request,
     );
@@ -8432,26 +3405,12 @@ pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneRe
 
 pub const NewPaneRightRequest = struct {
     cols: wire.Field(u16) = .absent,
-    cwd: wire.Field([]const u8) = .absent,
-    env: wire.Field(wire.Map([]const u8)) = .absent,
-    keep: ?bool = null,
-    kind: wire.Field(PaneKind) = .absent,
     pane: Id,
-    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
-    shell_args: wire.Field([]const []const u8) = .absent,
-    side: wire.Field(ColumnSide) = .absent,
-    tab_id: wire.Field([]const u8) = .absent,
-    terminal_id: wire.Field([]const u8) = .absent,
-    url: wire.Field([]const u8) = .absent,
     width: wire.Field(f32) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "keep",
-    };
 };
 
-pub const NewPaneRightResult = PaneSurfaceResult;
+pub const NewPaneRightResult = SurfaceResult;
 
 pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded(NewPaneRightResult) {
     return client.callTyped(
@@ -8461,97 +3420,14 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
             .authority = "control",
             .since = 9,
             .capability = "viewport-splits-v1",
-            .fields = &.{
-                .{ .name = "cwd", .since = 12, .capability = "terminal-placement-env-v1" },
-                .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
-                .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
-                .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
-                .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
-                .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
-                .{ .name = "side", .since = 12, .capability = "column-left-v1" },
-                .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
-                .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
-                .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const NewRemoteTerminalTabRequest = struct {
-    cols: wire.Field(u16) = .absent,
-    pane: wire.Field(Id) = .absent,
-    rows: wire.Field(u16) = .absent,
-    session_id: []const u8,
-    session_name: []const u8,
-    terminal_id: []const u8,
-    title: wire.Field([]const u8) = .absent,
-};
-
-pub const NewRemoteTerminalTabResult = JsonValue;
-
-pub fn newRemoteTerminalTab(client: anytype, request: NewRemoteTerminalTabRequest) !wire.Decoded(NewRemoteTerminalTabResult) {
-    return client.callTyped(
-        NewRemoteTerminalTabResult,
-        .{
-            .name = "new-remote-terminal-tab",
-            .authority = "control",
-            .since = 12,
-            .capability = "remote-terminal-tabs-v1",
-        },
-        request,
-    );
-}
-
-pub const NewRowRequest = struct {
-    cols: wire.Field(u16) = .absent,
-    cwd: wire.Field([]const u8) = .absent,
-    env: wire.Field(wire.Map([]const u8)) = .absent,
-    height_permille: u64,
-    keep: ?bool = null,
-    pane: Id,
-    pane_id: wire.Field([]const u8) = .absent,
-    rows: wire.Field(u16) = .absent,
-    shell_args: wire.Field([]const []const u8) = .absent,
-    tab_id: wire.Field([]const u8) = .absent,
-    terminal_id: wire.Field([]const u8) = .absent,
-    transaction: wire.Field([]const u8) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "keep",
-    };
-};
-
-pub fn newRow(client: anytype, request: NewRowRequest) !wire.Decoded(NewRowResult) {
-    return client.callTyped(
-        NewRowResult,
-        .{
-            .name = "new-row",
-            .authority = "control",
-            .since = 12,
-            .capability = "rows-v1",
-            .fields = &.{
-                .{ .name = "pane_id", .since = null, .capability = "row-client-keys-v1" },
-                .{ .name = "tab_id", .since = null, .capability = "row-client-keys-v1" },
-            },
         },
         request,
     );
 }
 
 pub const NewScreenRequest = struct {
-    color: wire.Field([]const u8) = .absent,
     cols: wire.Field(u16) = .absent,
-    cwd: wire.Field([]const u8) = .absent,
-    env: wire.Field(wire.Map([]const u8)) = .absent,
-    group: wire.Field([]const u8) = .absent,
-    icon: wire.Field([]const u8) = .absent,
-    index: wire.Field(u64) = .absent,
-    pinned: wire.Field(bool) = .absent,
     rows: wire.Field(u16) = .absent,
-    screen_name: wire.Field([]const u8) = .absent,
-    shell_args: wire.Field([]const []const u8) = .absent,
-    terminal_id: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
 };
 
@@ -8565,11 +3441,6 @@ pub fn newScreen(client: anytype, request: NewScreenRequest) !wire.Decoded(NewSc
             .authority = "control",
             .since = 5,
             .capability = null,
-            .fields = &.{
-                .{ .name = "env", .since = 12, .capability = "screen-terminal-env-v1" },
-                .{ .name = "shell_args", .since = 12, .capability = "screen-terminal-env-v1" },
-                .{ .name = "terminal_id", .since = 12, .capability = "screen-terminal-env-v1" },
-            },
         },
         request,
     );
@@ -8578,20 +3449,8 @@ pub fn newScreen(client: anytype, request: NewScreenRequest) !wire.Decoded(NewSc
 pub const NewTabRequest = struct {
     cols: wire.Field(u16) = .absent,
     cwd: wire.Field([]const u8) = .absent,
-    env: wire.Field(wire.Map([]const u8)) = .absent,
-    keep: ?bool = null,
     pane: wire.Field(Id) = .absent,
-    /// Where the tab goes in the strip of pane. Needs pane.
-    place: wire.Field(TabPlace) = .absent,
     rows: wire.Field(u16) = .absent,
-    shell_args: wire.Field([]const []const u8) = .absent,
-    terminal_id: wire.Field([]const u8) = .absent,
-    /// Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation.
-    transaction: wire.Field([]const u8) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "keep",
-    };
 };
 
 pub const NewTabResult = SurfaceResult;
@@ -8604,14 +3463,6 @@ pub fn newTab(client: anytype, request: NewTabRequest) !wire.Decoded(NewTabResul
             .authority = "control",
             .since = 5,
             .capability = null,
-            .fields = &.{
-                .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
-                .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
-                .{ .name = "place", .since = 12, .capability = "tab-create-place-v1" },
-                .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
-                .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
-                .{ .name = "transaction", .since = 12, .capability = "tab-create-place-v1" },
-            },
         },
         request,
     );
@@ -8659,7 +3510,6 @@ pub fn noteSizeActivity(client: anytype, request: NoteSizeActivityRequest) !wire
 pub const NotifyRequest = struct {
     body: []const u8,
     level: wire.Field(NotificationLevel) = .absent,
-    source: wire.Field(NotificationSource) = .absent,
     surface: wire.Field(Id) = .absent,
     title: []const u8,
 };
@@ -8672,48 +3522,6 @@ pub fn notify(client: anytype, request: NotifyRequest) !wire.Decoded(NotifyResul
             .authority = "control",
             .since = 6,
             .capability = null,
-            .fields = &.{
-                .{ .name = "source", .since = 12, .capability = "notification-source-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const OfferLinkToPhoneRequest = struct {
-    terminal_id: []const u8,
-    url: []const u8,
-};
-
-pub const OfferLinkToPhoneResult = PhoneLinkOfferResult;
-
-pub fn offerLinkToPhone(client: anytype, request: OfferLinkToPhoneRequest) !wire.Decoded(OfferLinkToPhoneResult) {
-    return client.callTyped(
-        OfferLinkToPhoneResult,
-        .{
-            .name = "offer-link-to-phone",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = null,
-        },
-        request,
-    );
-}
-
-pub const PageCredentialRequest = struct {
-    page: wire.Field([]const u8) = .absent,
-};
-
-pub const PageCredentialResult = JsonValue;
-
-pub fn pageCredential(client: anytype, request: PageCredentialRequest) !wire.Decoded(PageCredentialResult) {
-    return client.callTyped(
-        PageCredentialResult,
-        .{
-            .name = "page-credential",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "page-credential-v1",
         },
         request,
     );
@@ -8757,28 +3565,8 @@ pub fn paneNeighbor(client: anytype, request: PaneNeighborRequest) !wire.Decoded
     );
 }
 
-pub const ParkTabsRequest = struct {
-    surfaces: []const TabRef,
-};
-
-pub const ParkTabsResult = JsonValue;
-
-pub fn parkTabs(client: anytype, request: ParkTabsRequest) !wire.Decoded(ParkTabsResult) {
-    return client.callTyped(
-        ParkTabsResult,
-        .{
-            .name = "park-tabs",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-park-v1",
-        },
-        request,
-    );
-}
-
 pub const PasteImageRequest = struct {
     data: wire.Field([]const u8) = .absent,
-    filename: wire.Field([]const u8) = .absent,
     lease: []const u8,
     mime: wire.Field([]const u8) = .absent,
     offset: wire.Field(u64) = .absent,
@@ -8801,30 +3589,6 @@ pub fn pasteImage(client: anytype, request: PasteImageRequest) !wire.Decoded(Pas
             .authority = "control",
             .since = 12,
             .capability = "terminal-image-paste-v1",
-            .fields = &.{
-                .{ .name = "filename", .since = null, .capability = "terminal-file-paste-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const PinWorkspaceRequest = struct {
-    profile: []const u8,
-    session_id: []const u8,
-    workspace_key: []const u8,
-};
-
-pub const PinWorkspaceResult = JsonValue;
-
-pub fn pinWorkspace(client: anytype, request: PinWorkspaceRequest) !wire.Decoded(PinWorkspaceResult) {
-    return client.callTyped(
-        PinWorkspaceResult,
-        .{
-            .name = "pin-workspace",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
         },
         request,
     );
@@ -8845,23 +3609,6 @@ pub fn ping(client: anytype, request: PingRequest) !wire.Decoded(PingResult) {
     );
 }
 
-pub const ProcessCensusRequest = struct {};
-
-pub const ProcessCensusResult = JsonValue;
-
-pub fn processCensus(client: anytype, request: ProcessCensusRequest) !wire.Decoded(ProcessCensusResult) {
-    return client.callTyped(
-        ProcessCensusResult,
-        .{
-            .name = "process-census",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "process-census-v1",
-        },
-        request,
-    );
-}
-
 pub const ProcessInfoRequest = struct {
     surface: Id,
 };
@@ -8874,26 +3621,6 @@ pub fn processInfo(client: anytype, request: ProcessInfoRequest) !wire.Decoded(P
             .authority = "control",
             .since = 6,
             .capability = null,
-        },
-        request,
-    );
-}
-
-pub const PutBlobRequest = struct {
-    data: []const u8,
-    media_type: []const u8,
-};
-
-pub const PutBlobResult = JsonValue;
-
-pub fn putBlob(client: anytype, request: PutBlobRequest) !wire.Decoded(PutBlobResult) {
-    return client.callTyped(
-        PutBlobResult,
-        .{
-            .name = "put-blob",
-            .authority = "control",
-            .since = 12,
-            .capability = "icon-assets-v1",
         },
         request,
     );
@@ -8924,54 +3651,6 @@ pub fn putFrontendProjection(client: anytype, request: PutFrontendProjectionRequ
             .authority = "control",
             .since = 7,
             .capability = null,
-        },
-        request,
-    );
-}
-
-pub const PutSessionRequest = struct {
-    capabilities: wire.Field(JsonValue) = .absent,
-    follow_with: wire.Field([]const u8) = .absent,
-    machine_name: wire.Field([]const u8) = .absent,
-    session_id: []const u8,
-    session_name: wire.Field([]const u8) = .absent,
-    transport: wire.Nullable(JsonValue),
-};
-
-pub const PutSessionResult = JsonValue;
-
-pub fn putSession(client: anytype, request: PutSessionRequest) !wire.Decoded(PutSessionResult) {
-    return client.callTyped(
-        PutSessionResult,
-        .{
-            .name = "put-session",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
-        },
-        request,
-    );
-}
-
-pub const QuickTerminalRequest = struct {
-    h: wire.Field(f64) = .absent,
-    mode: wire.Field([]const u8) = .absent,
-    screen: Id,
-    w: wire.Field(f64) = .absent,
-    x: wire.Field(f64) = .absent,
-    y: wire.Field(f64) = .absent,
-};
-
-pub const QuickTerminalResult = JsonValue;
-
-pub fn quickTerminal(client: anytype, request: QuickTerminalRequest) !wire.Decoded(QuickTerminalResult) {
-    return client.callTyped(
-        QuickTerminalResult,
-        .{
-            .name = "quick-terminal",
-            .authority = "control",
-            .since = 12,
-            .capability = "quick-terminal-v1",
         },
         request,
     );
@@ -9035,7 +3714,6 @@ pub const RegisterBrowserProviderRequest = struct {
     authentication: BrowserProviderAuthentication,
     bearer_token: wire.Field([]const u8) = .absent,
     endpoint: []const u8,
-    hosting: wire.Field(BrowserProviderHosting) = .absent,
     provider_id: []const u8,
     targets: []const BrowserProviderTarget,
 };
@@ -9050,9 +3728,6 @@ pub fn registerBrowserProvider(client: anytype, request: RegisterBrowserProvider
             .authority = "local-admin",
             .since = 10,
             .capability = "browser-provider-v1",
-            .fields = &.{
-                .{ .name = "hosting", .since = null, .capability = "browser-provider-native-hosting-v1" },
-            },
         },
         request,
     );
@@ -9101,21 +3776,6 @@ pub fn releaseSurfaceSize(client: anytype, request: ReleaseSurfaceSizeRequest) !
     );
 }
 
-pub const ReleaseWorkspaceNamesRequest = struct {};
-
-pub fn releaseWorkspaceNames(client: anytype, request: ReleaseWorkspaceNamesRequest) !wire.Decoded(ReleaseWorkspaceNamesResult) {
-    return client.callTyped(
-        ReleaseWorkspaceNamesResult,
-        .{
-            .name = "release-workspace-names",
-            .authority = "control",
-            .since = 12,
-            .capability = null,
-        },
-        request,
-    );
-}
-
 pub const ReloadConfigRequest = struct {};
 
 pub const ReloadConfigResult = struct {
@@ -9131,142 +3791,6 @@ pub fn reloadConfig(client: anytype, request: ReloadConfigRequest) !wire.Decoded
             .authority = "control",
             .since = 6,
             .capability = null,
-        },
-        request,
-    );
-}
-
-pub const RemoteHostAppRequest = struct {};
-
-pub fn remoteHostApp(client: anytype, request: RemoteHostAppRequest) !wire.Decoded(RemoteHostAppResult) {
-    return client.callTyped(
-        RemoteHostAppResult,
-        .{
-            .name = "remote-host-app",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "remote-host-v1",
-        },
-        request,
-    );
-}
-
-pub const RemoteHostCallRequest = struct {
-    method: []const u8,
-    params: wire.Field(JsonValue) = .absent,
-};
-
-pub const RemoteHostCallResult = JsonValue;
-
-pub fn remoteHostCall(client: anytype, request: RemoteHostCallRequest) !wire.Decoded(RemoteHostCallResult) {
-    return client.callTyped(
-        RemoteHostCallResult,
-        .{
-            .name = "remote-host-call",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "remote-host-v1",
-        },
-        request,
-    );
-}
-
-pub const RemoteHostConfigRequest = struct {
-    app_permissions: wire.Field(RemoteHostAppPermissions) = .absent,
-    computer_use: wire.Field(bool) = .absent,
-    headless: wire.Field(bool) = .absent,
-    screen_sharing: wire.Field(bool) = .absent,
-};
-
-pub const RemoteHostConfigResult = JsonValue;
-
-pub fn remoteHostConfig(client: anytype, request: RemoteHostConfigRequest) !wire.Decoded(RemoteHostConfigResult) {
-    return client.callTyped(
-        RemoteHostConfigResult,
-        .{
-            .name = "remote-host-config",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "remote-host-v1",
-        },
-        request,
-    );
-}
-
-pub const RemoteHostStatusRequest = struct {};
-
-pub const RemoteHostStatusResult = JsonValue;
-
-pub fn remoteHostStatus(client: anytype, request: RemoteHostStatusRequest) !wire.Decoded(RemoteHostStatusResult) {
-    return client.callTyped(
-        RemoteHostStatusResult,
-        .{
-            .name = "remote-host-status",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "remote-host-v1",
-        },
-        request,
-    );
-}
-
-pub const RemoteTerminalSnapshotRequest = struct {
-    surface: Id,
-};
-
-pub const RemoteTerminalSnapshotResult = JsonValue;
-
-pub fn remoteTerminalSnapshot(client: anytype, request: RemoteTerminalSnapshotRequest) !wire.Decoded(RemoteTerminalSnapshotResult) {
-    return client.callTyped(
-        RemoteTerminalSnapshotResult,
-        .{
-            .name = "remote-terminal-snapshot",
-            .authority = "control",
-            .since = 12,
-            .capability = "remote-terminal-tabs-v1",
-        },
-        request,
-    );
-}
-
-pub const RemoveScreensFromScreenGroupRequest = struct {
-    screens: []const Id,
-};
-
-pub const RemoveScreensFromScreenGroupResult = JsonValue;
-
-pub fn removeScreensFromScreenGroup(client: anytype, request: RemoveScreensFromScreenGroupRequest) !wire.Decoded(RemoveScreensFromScreenGroupResult) {
-    return client.callTyped(
-        RemoveScreensFromScreenGroupResult,
-        .{
-            .name = "remove-screens-from-screen-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "screen-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const RemoveTabsFromTabGroupRequest = struct {
-    surfaces: []const TabRef,
-    transaction: wire.Field([]const u8) = .absent,
-};
-
-pub const RemoveTabsFromTabGroupResult = struct {
-    /// Ids of the groups the tabs left.
-    groups: []const []const u8,
-    surfaces: []const Id,
-};
-
-pub fn removeTabsFromTabGroup(client: anytype, request: RemoveTabsFromTabGroupRequest) !wire.Decoded(RemoveTabsFromTabGroupResult) {
-    return client.callTyped(
-        RemoveTabsFromTabGroupResult,
-        .{
-            .name = "remove-tabs-from-tab-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-groups-v1",
         },
         request,
     );
@@ -9356,22 +3880,12 @@ pub fn renameSurface(client: anytype, request: RenameSurfaceRequest) !wire.Decod
 
 pub const RenameWorkspaceRequest = struct {
     expected_generation: wire.Field([]const u8) = .absent,
-    /// The workspace name_revision the caller read; a rename since then fails.
-    expected_name_revision: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     name: []const u8,
     origin: wire.Field([]const u8) = .absent,
-    /// With source auto, hand the current name back to the automatic namer; name must equal the current name and no expected_name_revision is needed.
-    release: ?bool = null,
-    /// Who chose the name; absent is user. An automatic name never replaces a user name and needs expected_generation and expected_name_revision.
-    source: wire.Field(NameSource) = .absent,
     workspace: wire.Field(Id) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "release",
-    };
 };
 
 pub const RenameWorkspaceResult = WorkspaceMutationResult;
@@ -9386,55 +3900,11 @@ pub fn renameWorkspace(client: anytype, request: RenameWorkspaceRequest) !wire.D
             .capability = null,
             .fields = &.{
                 .{ .name = "expected_generation", .since = 7, .capability = null },
-                .{ .name = "expected_name_revision", .since = 12, .capability = "workspace-name-source-v1" },
                 .{ .name = "expected_revision", .since = 7, .capability = null },
                 .{ .name = "key", .since = 7, .capability = "workspace-registry-v1" },
                 .{ .name = "mutation_id", .since = 7, .capability = null },
                 .{ .name = "origin", .since = 7, .capability = null },
-                .{ .name = "release", .since = 12, .capability = "workspace-name-source-v1" },
-                .{ .name = "source", .since = 12, .capability = "workspace-name-source-v1" },
             },
-        },
-        request,
-    );
-}
-
-pub const ReopenSavedScreenGroupRequest = struct {
-    saved: []const u8,
-    workspace: wire.Field(Id) = .absent,
-};
-
-pub const ReopenSavedScreenGroupResult = JsonValue;
-
-pub fn reopenSavedScreenGroup(client: anytype, request: ReopenSavedScreenGroupRequest) !wire.Decoded(ReopenSavedScreenGroupResult) {
-    return client.callTyped(
-        ReopenSavedScreenGroupResult,
-        .{
-            .name = "reopen-saved-screen-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "screen-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const ReopenSavedTabGroupRequest = struct {
-    pane: PaneRef,
-    saved: []const u8,
-    transaction: wire.Field([]const u8) = .absent,
-};
-
-pub const ReopenSavedTabGroupResult = TabGroupOutcome;
-
-pub fn reopenSavedTabGroup(client: anytype, request: ReopenSavedTabGroupRequest) !wire.Decoded(ReopenSavedTabGroupResult) {
-    return client.callTyped(
-        ReopenSavedTabGroupResult,
-        .{
-            .name = "reopen-saved-tab-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "saved-tab-groups-v1",
         },
         request,
     );
@@ -9545,25 +4015,6 @@ pub fn resolveTerminal(client: anytype, request: ResolveTerminalRequest) !wire.D
     );
 }
 
-pub const RestartTabRequest = struct {
-    surface: TabRef,
-};
-
-pub const RestartTabResult = JsonValue;
-
-pub fn restartTab(client: anytype, request: RestartTabRequest) !wire.Decoded(RestartTabResult) {
-    return client.callTyped(
-        RestartTabResult,
-        .{
-            .name = "restart-tab",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-restart-v1",
-        },
-        request,
-    );
-}
-
 pub const RunRequest = struct {
     argv: wire.Field([]const []const u8) = .absent,
     cols: wire.Field(u16) = .absent,
@@ -9591,47 +4042,6 @@ pub fn run(client: anytype, request: RunRequest) !wire.Decoded(RunResult) {
             .fields = &.{
                 .{ .name = "key", .since = 9, .capability = null },
             },
-        },
-        request,
-    );
-}
-
-pub const SaveScreenGroupRequest = struct {
-    group: []const u8,
-};
-
-pub const SaveScreenGroupResult = JsonValue;
-
-pub fn saveScreenGroup(client: anytype, request: SaveScreenGroupRequest) !wire.Decoded(SaveScreenGroupResult) {
-    return client.callTyped(
-        SaveScreenGroupResult,
-        .{
-            .name = "save-screen-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "screen-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const SaveTabGroupRequest = struct {
-    group: []const u8,
-};
-
-pub const SaveTabGroupResult = struct {
-    group: []const u8,
-    saved: []const u8,
-};
-
-pub fn saveTabGroup(client: anytype, request: SaveTabGroupRequest) !wire.Decoded(SaveTabGroupResult) {
-    return client.callTyped(
-        SaveTabGroupResult,
-        .{
-            .name = "save-tab-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "saved-tab-groups-v1",
         },
         request,
     );
@@ -9720,29 +4130,16 @@ pub fn selectWorkspace(client: anytype, request: SelectWorkspaceRequest) !wire.D
 
 pub const SendRequest = struct {
     bytes: wire.Field(Base64) = .absent,
-    expect_agent: wire.Field(SendExpectAgent) = .absent,
-    expect_foreground: wire.Field([]const u8) = .absent,
-    flow: wire.Field(u64) = .absent,
-    key: wire.Field([]const u8) = .absent,
     paste: ?bool = null,
-    submit: ?bool = null,
-    surface: wire.Field(Id) = .absent,
-    terminal_id: wire.Field([]const u8) = .absent,
+    surface: Id,
     text: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "paste",
-        "submit",
     };
 };
 
-pub const SendResult = struct {
-    queued: ?bool = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "queued",
-    };
-};
+pub const SendResult = EmptyResult;
 
 pub fn send(client: anytype, request: SendRequest) !wire.Decoded(SendResult) {
     return client.callTyped(
@@ -9753,12 +4150,7 @@ pub fn send(client: anytype, request: SendRequest) !wire.Decoded(SendResult) {
             .since = 5,
             .capability = null,
             .fields = &.{
-                .{ .name = "expect_agent", .since = null, .capability = "send-expect-agent-v1" },
-                .{ .name = "expect_foreground", .since = null, .capability = "send-expect-foreground-v1" },
-                .{ .name = "key", .since = null, .capability = "send-key-v1" },
                 .{ .name = "paste", .since = 7, .capability = null },
-                .{ .name = "submit", .since = null, .capability = "send-expect-agent-v1" },
-                .{ .name = "terminal_id", .since = null, .capability = "terminal-input-while-creating-v1" },
             },
         },
         request,
@@ -9785,14 +4177,7 @@ pub fn sendKey(client: anytype, request: SendKeyRequest) !wire.Decoded(SendKeyRe
     );
 }
 
-pub const ServerStatsRequest = struct {
-    include: wire.Field([]const []const u8) = .absent,
-    restore_progress: ?bool = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "restore_progress",
-    };
-};
+pub const ServerStatsRequest = struct {};
 
 pub fn serverStats(client: anytype, request: ServerStatsRequest) !wire.Decoded(ServerStatsResult) {
     return client.callTyped(
@@ -9802,31 +4187,6 @@ pub fn serverStats(client: anytype, request: ServerStatsRequest) !wire.Decoded(S
             .authority = "local-admin",
             .since = 12,
             .capability = "server-stats-v1",
-            .fields = &.{
-                .{ .name = "restore_progress", .since = 12, .capability = null },
-            },
-        },
-        request,
-    );
-}
-
-pub const SetAttachVisibilityRequest = struct {
-    surface: Id,
-    visible: bool,
-};
-
-pub const SetAttachVisibilityResult = struct {
-    viewers: u32,
-};
-
-pub fn setAttachVisibility(client: anytype, request: SetAttachVisibilityRequest) !wire.Decoded(SetAttachVisibilityResult) {
-    return client.callTyped(
-        SetAttachVisibilityResult,
-        .{
-            .name = "set-attach-visibility",
-            .authority = "frontend",
-            .since = 12,
-            .capability = "attach-visibility-v1",
         },
         request,
     );
@@ -9851,20 +4211,17 @@ pub fn setCellPixels(client: anytype, request: SetCellPixelsRequest) !wire.Decod
 }
 
 pub const SetClientInfoRequest = struct {
-    api_revision: wire.Field(u32) = .absent,
-    api_version: wire.Field([]const u8) = .absent,
     capabilities: wire.Field([]const []const u8) = .absent,
     device_id: wire.Field([]const u8) = .absent,
     device_kind: wire.Field([]const u8) = .absent,
     device_name: wire.Field([]const u8) = .absent,
     display_name: wire.Field([]const u8) = .absent,
-    install: wire.Field([]const u8) = .absent,
     kind: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
-    remote: wire.Field(bool) = .absent,
     user_id: wire.Field([]const u8) = .absent,
-    version: wire.Field([]const u8) = .absent,
 };
+
+pub const SetClientInfoResult = EmptyResult;
 
 pub fn setClientInfo(client: anytype, request: SetClientInfoRequest) !wire.Decoded(SetClientInfoResult) {
     return client.callTyped(
@@ -9875,16 +4232,11 @@ pub fn setClientInfo(client: anytype, request: SetClientInfoRequest) !wire.Decod
             .since = 6,
             .capability = null,
             .fields = &.{
-                .{ .name = "api_revision", .since = 12, .capability = null },
-                .{ .name = "api_version", .since = 12, .capability = null },
                 .{ .name = "device_id", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_kind", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_name", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "display_name", .since = 12, .capability = "shared-sizing-v1" },
-                .{ .name = "install", .since = 12, .capability = null },
-                .{ .name = "remote", .since = 12, .capability = "host-size-policy-v1" },
                 .{ .name = "user_id", .since = 12, .capability = "shared-sizing-v1" },
-                .{ .name = "version", .since = 12, .capability = null },
             },
         },
         request,
@@ -9912,36 +4264,6 @@ pub fn setClientSizing(client: anytype, request: SetClientSizingRequest) !wire.D
             .authority = "control",
             .since = 10,
             .capability = null,
-        },
-        request,
-    );
-}
-
-pub const SetColumnDockRequest = struct {
-    dock: bool,
-    edge: wire.Field([]const u8) = .absent,
-    mode: wire.Field([]const u8) = .absent,
-    pane: Id,
-    permanent: wire.Field(bool) = .absent,
-    pinned: wire.Field(bool) = .absent,
-    role: wire.Field([]const u8) = .absent,
-    transaction: wire.Field(u64) = .absent,
-};
-
-pub const SetColumnDockResult = JsonValue;
-
-pub fn setColumnDock(client: anytype, request: SetColumnDockRequest) !wire.Decoded(SetColumnDockResult) {
-    return client.callTyped(
-        SetColumnDockResult,
-        .{
-            .name = "set-column-dock",
-            .authority = "control",
-            .since = 12,
-            .capability = "dock-columns-v1",
-            .fields = &.{
-                .{ .name = "pinned", .since = 12, .capability = "pinned-dock-v1" },
-                .{ .name = "role", .since = 12, .capability = "dock-column-role-v1" },
-            },
         },
         request,
     );
@@ -9987,153 +4309,6 @@ pub fn setDefaultColors(client: anytype, request: SetDefaultColorsRequest) !wire
     );
 }
 
-pub const SetDividerVisibleRequest = struct {
-    split: Id,
-    transaction: wire.Field(u64) = .absent,
-    visible: bool,
-};
-
-pub const SetDividerVisibleResult = EmptyResult;
-
-pub fn setDividerVisible(client: anytype, request: SetDividerVisibleRequest) !wire.Decoded(SetDividerVisibleResult) {
-    return client.callTyped(
-        SetDividerVisibleResult,
-        .{
-            .name = "set-divider-visible",
-            .authority = "control",
-            .since = 12,
-            .capability = "split-divider-visibility-v1",
-        },
-        request,
-    );
-}
-
-pub const SetFrontendBrowserHistoryRequest = struct {
-    history: wire.Nullable(JsonValue),
-    surface: Id,
-};
-
-pub const SetFrontendBrowserHistoryResult = JsonValue;
-
-pub fn setFrontendBrowserHistory(client: anytype, request: SetFrontendBrowserHistoryRequest) !wire.Decoded(SetFrontendBrowserHistoryResult) {
-    return client.callTyped(
-        SetFrontendBrowserHistoryResult,
-        .{
-            .name = "set-frontend-browser-history",
-            .authority = "control",
-            .since = 12,
-            .capability = "frontend-browser-history-v1",
-        },
-        request,
-    );
-}
-
-pub const SetHostSizePolicyRequest = struct {
-    policy: HostSizePolicyRequest,
-};
-
-pub fn setHostSizePolicy(client: anytype, request: SetHostSizePolicyRequest) !wire.Decoded(SetHostSizePolicyResult) {
-    return client.callTyped(
-        SetHostSizePolicyResult,
-        .{
-            .name = "set-host-size-policy",
-            .authority = "control",
-            .since = 12,
-            .capability = "host-size-policy-v1",
-        },
-        request,
-    );
-}
-
-pub const SetLayoutSizesRequest = struct {
-    transaction: u64,
-    values: []const LayoutSizeValue,
-};
-
-pub const SetLayoutSizesResult = EmptyResult;
-
-pub fn setLayoutSizes(client: anytype, request: SetLayoutSizesRequest) !wire.Decoded(SetLayoutSizesResult) {
-    return client.callTyped(
-        SetLayoutSizesResult,
-        .{
-            .name = "set-layout-sizes",
-            .authority = "control",
-            .since = 12,
-            .capability = "layout-sizes-batch-v1",
-        },
-        request,
-    );
-}
-
-pub const SetPersonalTerminalRequest = struct {
-    session_id: []const u8,
-    terminal_key: []const u8,
-    theme: wire.Field([]const u8) = .absent,
-};
-
-pub const SetPersonalTerminalResult = JsonValue;
-
-pub fn setPersonalTerminal(client: anytype, request: SetPersonalTerminalRequest) !wire.Decoded(SetPersonalTerminalResult) {
-    return client.callTyped(
-        SetPersonalTerminalResult,
-        .{
-            .name = "set-personal-terminal",
-            .authority = "control",
-            .since = 12,
-            .capability = "personal-terminals-v1",
-        },
-        request,
-    );
-}
-
-pub const SetPersonalWorkspaceRequest = struct {
-    browser_profile_id: wire.Field([]const u8) = .absent,
-    group: wire.Field([]const u8) = .absent,
-    index: wire.Field(u64) = .absent,
-    remote_localhost: wire.Field(bool) = .absent,
-    session_id: []const u8,
-    theme: wire.Field([]const u8) = .absent,
-    workspace_key: []const u8,
-};
-
-pub const SetPersonalWorkspaceResult = JsonValue;
-
-pub fn setPersonalWorkspace(client: anytype, request: SetPersonalWorkspaceRequest) !wire.Decoded(SetPersonalWorkspaceResult) {
-    return client.callTyped(
-        SetPersonalWorkspaceResult,
-        .{
-            .name = "set-personal-workspace",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
-            .fields = &.{
-                .{ .name = "remote_localhost", .since = 12, .capability = "personal-remote-localhost-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const SetProfileFollowsRequest = struct {
-    profile: []const u8,
-    session_ids: []const []const u8,
-};
-
-pub const SetProfileFollowsResult = JsonValue;
-
-pub fn setProfileFollows(client: anytype, request: SetProfileFollowsRequest) !wire.Decoded(SetProfileFollowsResult) {
-    return client.callTyped(
-        SetProfileFollowsResult,
-        .{
-            .name = "set-profile-follows",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
-        },
-        request,
-    );
-}
-
 pub const SetRatioRequest = struct {
     dir: SplitDirection,
     pane: Id,
@@ -10150,94 +4325,6 @@ pub fn setRatio(client: anytype, request: SetRatioRequest) !wire.Decoded(SetRati
             .authority = "control",
             .since = 5,
             .capability = null,
-        },
-        request,
-    );
-}
-
-pub const SetRowHeightsRequest = struct {
-    column: Id,
-    fit: ?bool = null,
-    heights: []const RowHeight,
-    transaction: wire.Field(u64) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "fit",
-    };
-};
-
-pub const SetRowHeightsResult = JsonValue;
-
-pub fn setRowHeights(client: anytype, request: SetRowHeightsRequest) !wire.Decoded(SetRowHeightsResult) {
-    return client.callTyped(
-        SetRowHeightsResult,
-        .{
-            .name = "set-row-heights",
-            .authority = "control",
-            .since = 12,
-            .capability = "rows-v1",
-        },
-        request,
-    );
-}
-
-pub const SetScreenMetadataRequest = struct {
-    color: wire.Field([]const u8) = .absent,
-    icon: wire.Field([]const u8) = .absent,
-    screen: Id,
-};
-
-pub const SetScreenMetadataResult = JsonValue;
-
-pub fn setScreenMetadata(client: anytype, request: SetScreenMetadataRequest) !wire.Decoded(SetScreenMetadataResult) {
-    return client.callTyped(
-        SetScreenMetadataResult,
-        .{
-            .name = "set-screen-metadata",
-            .authority = "control",
-            .since = 12,
-            .capability = "screen-metadata-v1",
-        },
-        request,
-    );
-}
-
-pub const SetScreenPinnedRequest = struct {
-    pinned: bool,
-    screen: Id,
-};
-
-pub const SetScreenPinnedResult = JsonValue;
-
-pub fn setScreenPinned(client: anytype, request: SetScreenPinnedRequest) !wire.Decoded(SetScreenPinnedResult) {
-    return client.callTyped(
-        SetScreenPinnedResult,
-        .{
-            .name = "set-screen-pinned",
-            .authority = "control",
-            .since = 12,
-            .capability = "screen-metadata-v1",
-        },
-        request,
-    );
-}
-
-pub const SetSessionIconRequest = struct {
-    /// An icon value sets the session's (machine's) icon; null clears it.
-    icon: wire.Nullable([]const u8),
-    session_id: []const u8,
-};
-
-pub const SetSessionIconResult = JsonValue;
-
-pub fn setSessionIcon(client: anytype, request: SetSessionIconRequest) !wire.Decoded(SetSessionIconResult) {
-    return client.callTyped(
-        SetSessionIconResult,
-        .{
-            .name = "set-session-icon",
-            .authority = "control",
-            .since = 12,
-            .capability = "session-icon-v1",
         },
         request,
     );
@@ -10308,46 +4395,6 @@ pub fn setSplitRatio(client: anytype, request: SetSplitRatioRequest) !wire.Decod
     );
 }
 
-pub const SetTabPinnedRequest = struct {
-    pinned: bool,
-    surface: Id,
-};
-
-pub const SetTabPinnedResult = JsonValue;
-
-pub fn setTabPinned(client: anytype, request: SetTabPinnedRequest) !wire.Decoded(SetTabPinnedResult) {
-    return client.callTyped(
-        SetTabPinnedResult,
-        .{
-            .name = "set-tab-pinned",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-metadata-v1",
-        },
-        request,
-    );
-}
-
-pub const SetTerminalCommandHistoryRequest = struct {
-    enabled: bool,
-    retention_days: wire.Field(u32) = .absent,
-};
-
-pub const SetTerminalCommandHistoryResult = TerminalCommandHistoryResult;
-
-pub fn setTerminalCommandHistory(client: anytype, request: SetTerminalCommandHistoryRequest) !wire.Decoded(SetTerminalCommandHistoryResult) {
-    return client.callTyped(
-        SetTerminalCommandHistoryResult,
-        .{
-            .name = "set-terminal-command-history",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "terminal-command-history-v1",
-        },
-        request,
-    );
-}
-
 pub const SetTerminalIdlePolicyRequest = struct {
     idle_close_seconds: wire.Field(u64) = .absent,
     surface: wire.Field(Id) = .absent,
@@ -10367,51 +4414,13 @@ pub fn setTerminalIdlePolicy(client: anytype, request: SetTerminalIdlePolicyRequ
     );
 }
 
-pub const SetTerminalKeepRequest = struct {
-    keep: bool,
-    surface: wire.Field(Id) = .absent,
-    terminal_id: wire.Field([]const u8) = .absent,
-};
-
-pub fn setTerminalKeep(client: anytype, request: SetTerminalKeepRequest) !wire.Decoded(SetTerminalKeepResult) {
-    return client.callTyped(
-        SetTerminalKeepResult,
-        .{
-            .name = "set-terminal-keep",
-            .authority = "control",
-            .since = 12,
-            .capability = "terminal-reap-v1",
-        },
-        request,
-    );
-}
-
-pub const SetTerminalTailPinRequest = struct {
-    pinned: bool,
-    surface: wire.Field(Id) = .absent,
-    terminal: wire.Field([]const u8) = .absent,
-};
-
-pub fn setTerminalTailPin(client: anytype, request: SetTerminalTailPinRequest) !wire.Decoded(SetTerminalTailPinResult) {
-    return client.callTyped(
-        SetTerminalTailPinResult,
-        .{
-            .name = "set-terminal-tail-pin",
-            .authority = "control",
-            .since = 12,
-            .capability = "terminal-tail-pin-v1",
-        },
-        request,
-    );
-}
-
 pub const SetViewportPaneWidthRequest = struct {
     pane: Id,
     transaction: wire.Field(u64) = .absent,
     width: f32,
 };
 
-pub const SetViewportPaneWidthResult = ViewportPaneWidthResult;
+pub const SetViewportPaneWidthResult = EmptyResult;
 
 pub fn setViewportPaneWidth(client: anytype, request: SetViewportPaneWidthRequest) !wire.Decoded(SetViewportPaneWidthResult) {
     return client.callTyped(
@@ -10448,121 +4457,13 @@ pub fn setWindowTitle(client: anytype, request: SetWindowTitleRequest) !wire.Dec
     );
 }
 
-pub const SetWorkspaceMetadataRequest = struct {
-    color: wire.Field([]const u8) = .absent,
-    expected_generation: wire.Field([]const u8) = .absent,
-    expected_revision: wire.Field(u64) = .absent,
-    icon: wire.Field([]const u8) = .absent,
-    keep_awake: wire.Field(bool) = .absent,
-    key: wire.Field([]const u8) = .absent,
-    marked_unread: wire.Field(bool) = .absent,
-    mutation_id: wire.Field([]const u8) = .absent,
-    origin: wire.Field([]const u8) = .absent,
-    pinned: wire.Field(bool) = .absent,
-    title: wire.Field([]const u8) = .absent,
-    workspace: wire.Field(Id) = .absent,
-};
-
-pub const SetWorkspaceMetadataResult = JsonValue;
-
-pub fn setWorkspaceMetadata(client: anytype, request: SetWorkspaceMetadataRequest) !wire.Decoded(SetWorkspaceMetadataResult) {
-    return client.callTyped(
-        SetWorkspaceMetadataResult,
-        .{
-            .name = "set-workspace-metadata",
-            .authority = "control",
-            .since = 12,
-            .capability = "workspace-metadata-v1",
-            .fields = &.{
-                .{ .name = "keep_awake", .since = 12, .capability = "workspace-keep-awake-v1" },
-                .{ .name = "marked_unread", .since = 12, .capability = "notification-mark-unread-v1" },
-                .{ .name = "pinned", .since = 12, .capability = "workspace-pin-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const ShellReadRequest = struct {
-    after: ?u64 = null,
-    run: []const u8,
-    wait_ms: wire.Field(u64) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "after",
-    };
-};
-
-pub const ShellReadResult = JsonValue;
-
-pub fn shellRead(client: anytype, request: ShellReadRequest) !wire.Decoded(ShellReadResult) {
-    return client.callTyped(
-        ShellReadResult,
-        .{
-            .name = "shell-read",
-            .authority = "control",
-            .since = 12,
-            .capability = "shell-runs-v1",
-        },
-        request,
-    );
-}
-
-pub const ShellRunRequest = struct {
-    command: []const u8,
-    cwd: wire.Field([]const u8) = .absent,
-    run: wire.Field([]const u8) = .absent,
-    scope: wire.Field([]const u8) = .absent,
-};
-
-pub const ShellRunResult = JsonValue;
-
-pub fn shellRun(client: anytype, request: ShellRunRequest) !wire.Decoded(ShellRunResult) {
-    return client.callTyped(
-        ShellRunResult,
-        .{
-            .name = "shell-run",
-            .authority = "control",
-            .since = 12,
-            .capability = "shell-runs-v1",
-        },
-        request,
-    );
-}
-
-pub const ShellStopRequest = struct {
-    run: []const u8,
-};
-
-pub const ShellStopResult = JsonValue;
-
-pub fn shellStop(client: anytype, request: ShellStopRequest) !wire.Decoded(ShellStopResult) {
-    return client.callTyped(
-        ShellStopResult,
-        .{
-            .name = "shell-stop",
-            .authority = "control",
-            .since = 12,
-            .capability = "shell-runs-v1",
-        },
-        request,
-    );
-}
-
 pub const ShutdownDaemonRequest = struct {
-    end_terminals: ?bool = null,
     force: ?bool = null,
     generation: []const u8,
-    if_idle: ?bool = null,
-    keep_layout: ?bool = null,
     pid: u32,
-    restart: wire.Field(bool) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "end_terminals",
         "force",
-        "if_idle",
-        "keep_layout",
     };
 };
 
@@ -10575,11 +4476,7 @@ pub fn shutdownDaemon(client: anytype, request: ShutdownDaemonRequest) !wire.Dec
             .since = 9,
             .capability = null,
             .fields = &.{
-                .{ .name = "end_terminals", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "force", .since = 10, .capability = "daemon-handoff-force-v1" },
-                .{ .name = "if_idle", .since = 12, .capability = "daemon-stop-if-idle-v1" },
-                .{ .name = "keep_layout", .since = 12, .capability = "end-terminals-keep-layout-v1" },
-                .{ .name = "restart", .since = 12, .capability = null },
             },
         },
         request,
@@ -10609,52 +4506,14 @@ pub fn sidebarPlugin(client: anytype, request: SidebarPluginRequest) !wire.Decod
     );
 }
 
-pub const SnapshotRequestRequest = struct {
-    have: wire.Field(SnapshotRequestHave) = .absent,
-    reason: wire.Field([]const u8) = .absent,
-    request_id: wire.Field([]const u8) = .absent,
-    surface: Id,
-};
-
-pub fn snapshotRequest(client: anytype, request: SnapshotRequestRequest) !wire.Decoded(SnapshotRequestResult) {
-    return client.callTyped(
-        SnapshotRequestResult,
-        .{
-            .name = "snapshot-request",
-            .authority = "frontend",
-            .since = 12,
-            .capability = "terminal-snapshot-v1",
-        },
-        request,
-    );
-}
-
 pub const SplitRequest = struct {
-    /// The split the new split wraps whole (the new pane after it, as wide or tall as the whole subtree): inserting a pane at a divider. pane must be that split's last pane and dir right or down.
-    around: wire.Field(Id) = .absent,
-    before: ?bool = null,
     cols: wire.Field(u16) = .absent,
-    cwd: wire.Field([]const u8) = .absent,
     dir: SplitDirection,
-    env: wire.Field(wire.Map([]const u8)) = .absent,
-    keep: ?bool = null,
-    kind: wire.Field(PaneKind) = .absent,
     pane: Id,
-    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
-    shell_args: wire.Field([]const []const u8) = .absent,
-    split_id: wire.Field([]const u8) = .absent,
-    tab_id: wire.Field([]const u8) = .absent,
-    terminal_id: wire.Field([]const u8) = .absent,
-    url: wire.Field([]const u8) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "before",
-        "keep",
-    };
 };
 
-pub const SplitResult = PaneSurfaceResult;
+pub const SplitResult = SurfaceResult;
 
 pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) {
     return client.callTyped(
@@ -10664,20 +4523,6 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
             .authority = "control",
             .since = 5,
             .capability = null,
-            .fields = &.{
-                .{ .name = "around", .since = 12, .capability = "split-around-v1" },
-                .{ .name = "before", .since = 12, .capability = "split-before-v1" },
-                .{ .name = "cwd", .since = 12, .capability = "terminal-env-v1" },
-                .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
-                .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
-                .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
-                .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
-                .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
-                .{ .name = "split_id", .since = 12, .capability = "split-client-split-id-v1" },
-                .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
-                .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
-                .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },
-            },
         },
         request,
     );
@@ -10725,23 +4570,6 @@ pub fn subscribe(client: anytype, request: SubscribeRequest) !client_runtime.Str
     );
 }
 
-pub const SubscribeActivityRequest = struct {};
-
-pub const SubscribeActivityResult = ActivitySubscribeResult;
-
-pub fn subscribeActivity(client: anytype, request: SubscribeActivityRequest) !client_runtime.Stream {
-    return client.openStream(
-        .{
-            .name = "subscribe-activity",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "vm-activity-v1",
-        },
-        request,
-        null,
-    );
-}
-
 pub const SwapPaneRequest = struct {
     dir: wire.Field(PaneDirection) = .absent,
     pane: Id,
@@ -10763,63 +4591,6 @@ pub fn swapPane(client: anytype, request: SwapPaneRequest) !wire.Decoded(SwapPan
     );
 }
 
-pub const TerminalClipboardReplyRequest = struct {
-    request_id: []const u8,
-    text: wire.Field([]const u8) = .absent,
-};
-
-pub fn terminalClipboardReply(client: anytype, request: TerminalClipboardReplyRequest) !wire.Decoded(TerminalClipboardReplyResult) {
-    return client.callTyped(
-        TerminalClipboardReplyResult,
-        .{
-            .name = "terminal-clipboard-reply",
-            .authority = "frontend",
-            .since = 12,
-            .capability = "terminal-clipboard-read-v1",
-        },
-        request,
-    );
-}
-
-pub const TerminalClipboardSubscribeRequest = struct {
-    terminal_ids: []const []const u8,
-};
-
-pub fn terminalClipboardSubscribe(client: anytype, request: TerminalClipboardSubscribeRequest) !client_runtime.Stream {
-    return client.openStream(
-        .{
-            .name = "terminal-clipboard-subscribe",
-            .authority = "frontend",
-            .since = 12,
-            .capability = "terminal-clipboard-read-v1",
-        },
-        request,
-        null,
-    );
-}
-
-pub const TerminalCommandContextRequest = struct {
-    intent: ?TerminalCommandContextIntent = null,
-    surface: Id,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "intent",
-    };
-};
-
-pub fn terminalCommandContext(client: anytype, request: TerminalCommandContextRequest) !wire.Decoded(TerminalCommandContextResult) {
-    return client.callTyped(
-        TerminalCommandContextResult,
-        .{
-            .name = "terminal-command-context",
-            .authority = "control",
-            .since = 12,
-            .capability = "terminal-command-context-v1",
-        },
-        request,
-    );
-}
-
 pub const TerminalEventsRequest = struct {
     after_revision: ?u64 = null,
 
@@ -10836,158 +4607,6 @@ pub fn terminalEvents(client: anytype, request: TerminalEventsRequest) !wire.Dec
             .authority = "control",
             .since = 9,
             .capability = null,
-        },
-        request,
-    );
-}
-
-pub const TerminalFindRequest = struct {
-    /// Marker the page ends above (exclusive): the previous page's next_before.
-    before: wire.Field(u64) = .absent,
-    case_sensitive: ?bool = null,
-    /// The previous page's epoch; a different one restarts at the bottom.
-    epoch: wire.Field(u64) = .absent,
-    max_matches: wire.Field(u64) = .absent,
-    page_rows: wire.Field(u64) = .absent,
-    /// Empty matches nothing.
-    query: []const u8,
-    /// query is a Rust regex pattern, not a literal.
-    regex: ?bool = null,
-    surface: Id,
-    whole_word: ?bool = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "case_sensitive",
-        "regex",
-        "whole_word",
-    };
-};
-
-pub const TerminalFindResult = JsonValue;
-
-pub fn terminalFind(client: anytype, request: TerminalFindRequest) !wire.Decoded(TerminalFindResult) {
-    return client.callTyped(
-        TerminalFindResult,
-        .{
-            .name = "terminal-find",
-            .authority = "control",
-            .since = 7,
-            .capability = null,
-        },
-        request,
-    );
-}
-
-pub const TerminalHistoryRequest = struct {
-    before: wire.Field(u64) = .absent,
-    marker_epoch: u64,
-    max_bytes: wire.Field(u64) = .absent,
-    surface: Id,
-};
-
-pub const TerminalHistoryResult = TerminalHistoryPagesResult;
-
-pub fn terminalHistory(client: anytype, request: TerminalHistoryRequest) !wire.Decoded(TerminalHistoryResult) {
-    return client.callTyped(
-        TerminalHistoryResult,
-        .{
-            .name = "terminal-history",
-            .authority = "control",
-            .since = 12,
-            .capability = "terminal-snapshot-v1",
-        },
-        request,
-    );
-}
-
-pub const TerminalLastCommandRequest = struct {
-    surface: wire.Field(Id) = .absent,
-    terminal_id: wire.Field([]const u8) = .absent,
-};
-
-pub fn terminalLastCommand(client: anytype, request: TerminalLastCommandRequest) !wire.Decoded(TerminalLastCommandResult) {
-    return client.callTyped(
-        TerminalLastCommandResult,
-        .{
-            .name = "terminal-last-command",
-            .authority = "control",
-            .since = 12,
-            .capability = "terminal-last-command-v1",
-        },
-        request,
-    );
-}
-
-pub const TerminalPortsRequest = struct {
-    surface: Id,
-};
-
-pub fn terminalPorts(client: anytype, request: TerminalPortsRequest) !wire.Decoded(TerminalPortsResult) {
-    return client.callTyped(
-        TerminalPortsResult,
-        .{
-            .name = "terminal-ports",
-            .authority = "control",
-            .since = 12,
-            .capability = "terminal-ports-v1",
-        },
-        request,
-    );
-}
-
-pub const TerminalReadRangeRequest = struct {
-    format: wire.Field([]const u8) = .absent,
-    from: RowMarkerPoint,
-    marker_epoch: u64,
-    max_bytes: wire.Field(u64) = .absent,
-    surface: Id,
-    to: RowMarkerPoint,
-};
-
-pub fn terminalReadRange(client: anytype, request: TerminalReadRangeRequest) !wire.Decoded(TerminalReadRangeResult) {
-    return client.callTyped(
-        TerminalReadRangeResult,
-        .{
-            .name = "terminal-read-range",
-            .authority = "control",
-            .since = 12,
-            .capability = "terminal-snapshot-v1",
-        },
-        request,
-    );
-}
-
-pub const TerminalResourcesRequest = struct {
-    surfaces: wire.Field([]const Id) = .absent,
-};
-
-pub fn terminalResources(client: anytype, request: TerminalResourcesRequest) !wire.Decoded(TerminalResourcesResult) {
-    return client.callTyped(
-        TerminalResourcesResult,
-        .{
-            .name = "terminal-resources",
-            .authority = "control",
-            .since = 12,
-            .capability = "terminal-resources-v1",
-        },
-        request,
-    );
-}
-
-pub const TerminalResumeCommandRequest = struct {
-    command: wire.Field([]const u8) = .absent,
-    surface: wire.Field(Id) = .absent,
-    terminal_id: wire.Field([]const u8) = .absent,
-};
-
-pub fn terminalResumeCommand(client: anytype, request: TerminalResumeCommandRequest) !wire.Decoded(TerminalResumeCommandResult) {
-    return client.callTyped(
-        TerminalResumeCommandResult,
-        .{
-            .name = "terminal-resume-command",
-            .authority = "control",
-            .since = 12,
-            .capability = "resume-command",
         },
         request,
     );
@@ -11018,67 +4637,6 @@ pub fn undoLayout(client: anytype, request: UndoLayoutRequest) !wire.Decoded(Und
     );
 }
 
-pub const UngroupScreenGroupRequest = struct {
-    group: []const u8,
-};
-
-pub const UngroupScreenGroupResult = JsonValue;
-
-pub fn ungroupScreenGroup(client: anytype, request: UngroupScreenGroupRequest) !wire.Decoded(UngroupScreenGroupResult) {
-    return client.callTyped(
-        UngroupScreenGroupResult,
-        .{
-            .name = "ungroup-screen-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "screen-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const UngroupTabGroupRequest = struct {
-    group: []const u8,
-};
-
-pub const UngroupTabGroupResult = struct {
-    group: []const u8,
-    surfaces: []const Id,
-};
-
-pub fn ungroupTabGroup(client: anytype, request: UngroupTabGroupRequest) !wire.Decoded(UngroupTabGroupResult) {
-    return client.callTyped(
-        UngroupTabGroupResult,
-        .{
-            .name = "ungroup-tab-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const UnpinWorkspaceRequest = struct {
-    session_id: []const u8,
-    workspace_key: []const u8,
-};
-
-pub const UnpinWorkspaceResult = JsonValue;
-
-pub fn unpinWorkspace(client: anytype, request: UnpinWorkspaceRequest) !wire.Decoded(UnpinWorkspaceResult) {
-    return client.callTyped(
-        UnpinWorkspaceResult,
-        .{
-            .name = "unpin-workspace",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
-        },
-        request,
-    );
-}
-
 pub const UnregisterBrowserProviderRequest = struct {};
 
 pub const UnregisterBrowserProviderResult = BrowserProviderUnregisterResult;
@@ -11091,270 +4649,6 @@ pub fn unregisterBrowserProvider(client: anytype, request: UnregisterBrowserProv
             .authority = "local-admin",
             .since = 10,
             .capability = "browser-provider-v1",
-        },
-        request,
-    );
-}
-
-pub const UnsaveScreenGroupRequest = struct {
-    group: []const u8,
-};
-
-pub const UnsaveScreenGroupResult = JsonValue;
-
-pub fn unsaveScreenGroup(client: anytype, request: UnsaveScreenGroupRequest) !wire.Decoded(UnsaveScreenGroupResult) {
-    return client.callTyped(
-        UnsaveScreenGroupResult,
-        .{
-            .name = "unsave-screen-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "screen-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const UnsaveTabGroupRequest = struct {
-    group: []const u8,
-};
-
-pub const UnsaveTabGroupResult = struct {
-    group: []const u8,
-    unsaved: bool,
-};
-
-pub fn unsaveTabGroup(client: anytype, request: UnsaveTabGroupRequest) !wire.Decoded(UnsaveTabGroupResult) {
-    return client.callTyped(
-        UnsaveTabGroupResult,
-        .{
-            .name = "unsave-tab-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "saved-tab-groups-v1",
-        },
-        request,
-    );
-}
-
-pub const UpdateBookmarkRequest = struct {
-    bookmark: []const u8,
-    favicon_key: wire.Field([]const u8) = .absent,
-    /// Folders only; null clears. Refused on a url node.
-    icon: wire.Field([]const u8) = .absent,
-    last_used_ms: wire.Field(u64) = .absent,
-    mutation_id: wire.Field([]const u8) = .absent,
-    origin: wire.Field([]const u8) = .absent,
-    title: wire.Field([]const u8) = .absent,
-    url: wire.Field([]const u8) = .absent,
-};
-
-pub const UpdateBookmarkResult = BookmarkChangeResult;
-
-pub fn updateBookmark(client: anytype, request: UpdateBookmarkRequest) !wire.Decoded(UpdateBookmarkResult) {
-    return client.callTyped(
-        UpdateBookmarkResult,
-        .{
-            .name = "update-bookmark",
-            .authority = "control",
-            .since = 12,
-            .capability = "bookmarks-v1",
-            .fields = &.{
-                .{ .name = "icon", .since = 12, .capability = "bookmark-icon-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const UpdateBrowserProfileRequest = struct {
-    browser_profile: []const u8,
-    color: wire.Field([]const u8) = .absent,
-    icon: wire.Field([]const u8) = .absent,
-    name: wire.Field([]const u8) = .absent,
-    proxy: wire.Field(JsonValue) = .absent,
-};
-
-pub const UpdateBrowserProfileResult = JsonValue;
-
-pub fn updateBrowserProfile(client: anytype, request: UpdateBrowserProfileRequest) !wire.Decoded(UpdateBrowserProfileResult) {
-    return client.callTyped(
-        UpdateBrowserProfileResult,
-        .{
-            .name = "update-browser-profile",
-            .authority = "control",
-            .since = 12,
-            .capability = "browser-profiles-v1",
-        },
-        request,
-    );
-}
-
-pub const UpdateFrontendBrowserTabRequest = struct {
-    favicon_url: wire.Field([]const u8) = .absent,
-    owner: wire.Field([]const u8) = .absent,
-    /// Move the frontend browser tab to this browser profile; null clears its profile.
-    profile_id: wire.Field([]const u8) = .absent,
-    surface: Id,
-    title: wire.Field([]const u8) = .absent,
-    url: wire.Field([]const u8) = .absent,
-};
-
-pub const UpdateFrontendBrowserTabResult = JsonValue;
-
-pub fn updateFrontendBrowserTab(client: anytype, request: UpdateFrontendBrowserTabRequest) !wire.Decoded(UpdateFrontendBrowserTabResult) {
-    return client.callTyped(
-        UpdateFrontendBrowserTabResult,
-        .{
-            .name = "update-frontend-browser-tab",
-            .authority = "control",
-            .since = 12,
-            .capability = "frontend-browser-tabs-v1",
-        },
-        request,
-    );
-}
-
-pub const UpdatePersonalGroupRequest = struct {
-    collapsed: wire.Field(bool) = .absent,
-    color: wire.Field([]const u8) = .absent,
-    group: []const u8,
-    name: wire.Field([]const u8) = .absent,
-    profile: wire.Field([]const u8) = .absent,
-};
-
-pub const UpdatePersonalGroupResult = JsonValue;
-
-pub fn updatePersonalGroup(client: anytype, request: UpdatePersonalGroupRequest) !wire.Decoded(UpdatePersonalGroupResult) {
-    return client.callTyped(
-        UpdatePersonalGroupResult,
-        .{
-            .name = "update-personal-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
-        },
-        request,
-    );
-}
-
-pub const UpdateProfileRequest = struct {
-    browser_profile_id: wire.Field([]const u8) = .absent,
-    color: wire.Field([]const u8) = .absent,
-    default_session_id: wire.Field([]const u8) = .absent,
-    defaults: wire.Field(JsonValue) = .absent,
-    icon: wire.Field([]const u8) = .absent,
-    name: wire.Field([]const u8) = .absent,
-    profile: []const u8,
-    theme: wire.Field([]const u8) = .absent,
-};
-
-pub const UpdateProfileResult = JsonValue;
-
-pub fn updateProfile(client: anytype, request: UpdateProfileRequest) !wire.Decoded(UpdateProfileResult) {
-    return client.callTyped(
-        UpdateProfileResult,
-        .{
-            .name = "update-profile",
-            .authority = "control",
-            .since = 12,
-            .capability = "profiles-v1",
-        },
-        request,
-    );
-}
-
-pub const UpdateRemoteTerminalTabRequest = struct {
-    session_name: wire.Field([]const u8) = .absent,
-    snapshot: wire.Field([]const u8) = .absent,
-    surface: Id,
-    title: wire.Field([]const u8) = .absent,
-};
-
-pub const UpdateRemoteTerminalTabResult = JsonValue;
-
-pub fn updateRemoteTerminalTab(client: anytype, request: UpdateRemoteTerminalTabRequest) !wire.Decoded(UpdateRemoteTerminalTabResult) {
-    return client.callTyped(
-        UpdateRemoteTerminalTabResult,
-        .{
-            .name = "update-remote-terminal-tab",
-            .authority = "control",
-            .since = 12,
-            .capability = "remote-terminal-tabs-v1",
-        },
-        request,
-    );
-}
-
-pub const UpdateScreenGroupRequest = struct {
-    collapsed: wire.Field(bool) = .absent,
-    color: wire.Field([]const u8) = .absent,
-    group: []const u8,
-    icon: wire.Field([]const u8) = .absent,
-    name: wire.Field([]const u8) = .absent,
-};
-
-pub const UpdateScreenGroupResult = JsonValue;
-
-pub fn updateScreenGroup(client: anytype, request: UpdateScreenGroupRequest) !wire.Decoded(UpdateScreenGroupResult) {
-    return client.callTyped(
-        UpdateScreenGroupResult,
-        .{
-            .name = "update-screen-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "screen-groups-v1",
-            .fields = &.{
-                .{ .name = "icon", .since = 12, .capability = "screen-group-icon-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const UpdateTabGroupRequest = struct {
-    collapsed: wire.Field(bool) = .absent,
-    color: wire.Field([]const u8) = .absent,
-    group: []const u8,
-    icon: wire.Field([]const u8) = .absent,
-    name: wire.Field([]const u8) = .absent,
-};
-
-pub const UpdateTabGroupResult = TabGroupOutcome;
-
-pub fn updateTabGroup(client: anytype, request: UpdateTabGroupRequest) !wire.Decoded(UpdateTabGroupResult) {
-    return client.callTyped(
-        UpdateTabGroupResult,
-        .{
-            .name = "update-tab-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "tab-groups-v1",
-            .fields = &.{
-                .{ .name = "icon", .since = 12, .capability = "tab-group-icon-v1" },
-            },
-        },
-        request,
-    );
-}
-
-pub const UpdateWorkspaceGroupRequest = struct {
-    collapsed: wire.Field(bool) = .absent,
-    color: wire.Field([]const u8) = .absent,
-    group: []const u8,
-    name: wire.Field([]const u8) = .absent,
-};
-
-pub const UpdateWorkspaceGroupResult = JsonValue;
-
-pub fn updateWorkspaceGroup(client: anytype, request: UpdateWorkspaceGroupRequest) !wire.Decoded(UpdateWorkspaceGroupResult) {
-    return client.callTyped(
-        UpdateWorkspaceGroupResult,
-        .{
-            .name = "update-workspace-group",
-            .authority = "control",
-            .since = 12,
-            .capability = "workspace-groups-v1",
         },
         request,
     );
@@ -11475,26 +4769,6 @@ pub fn waitFor(client: anytype, request: WaitForRequest) !wire.Decoded(WaitForRe
     );
 }
 
-pub const WsListenRequest = struct {
-    allow_origin: wire.Field([]const u8) = .absent,
-    allow_origins: wire.Field([]const []const u8) = .absent,
-};
-
-pub const WsListenResult = JsonValue;
-
-pub fn wsListen(client: anytype, request: WsListenRequest) !wire.Decoded(WsListenResult) {
-    return client.callTyped(
-        WsListenResult,
-        .{
-            .name = "ws-listen",
-            .authority = "local-admin",
-            .since = 12,
-            .capability = "ws-listen-v1",
-        },
-        request,
-    );
-}
-
 pub const ZoomPaneRequestMode = enum {
     toggle,
     on,
@@ -11534,134 +4808,20 @@ pub fn zoomPane(client: anytype, request: ZoomPaneRequest) !wire.Decoded(ZoomPan
     );
 }
 
-pub const ActivityChangedEvent = struct {
-    activity: ActivitySnapshot,
-    event: []const u8,
-};
-
 pub const AgentChangedEvent = struct {
     /// Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.
     agent: wire.Field([]const u8) = .absent,
-    /// The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this.
-    agent_session_id: wire.Field([]const u8) = .absent,
     event: []const u8,
-    /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
-    last_prompt: wire.Field([]const u8) = .absent,
     session: wire.Nullable([]const u8),
-    /// When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`.
-    since_ms: ?u64 = null,
     source: AgentSource,
     state: AgentState,
     surface: Id,
-    /// The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab.
-    terminal_id: ?[]const u8 = null,
     updated_at_ms: u64,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "since_ms",
-        "terminal_id",
-    };
-};
-
-pub const AgentCliFrameEvent = struct {
-    base: wire.Nullable(u64),
-    cols: u16,
-    cursor_visible: bool,
-    cursor_x: u16,
-    cursor_y: u16,
-    data: Base64,
-    event: []const u8,
-    frame: u64,
-    rows: u16,
-    stream: []const u8,
-    surface: Id,
-};
-
-pub const AgentCliLeanEvent = struct {
-    event: []const u8,
-    f: Base64,
-    surface: Id,
-};
-
-pub const AgentInventoryChangedEvent = struct {
-    event: []const u8,
-    machine: []const u8,
-    revision: u64,
-    watch_id: []const u8,
-};
-
-pub const AgentInventoryWatchEndedEvent = struct {
-    event: []const u8,
-    machine: []const u8,
-    reason: []const u8,
-    watch_id: []const u8,
-};
-
-pub const AgentPresenceChangedEvent = struct {
-    /// What the agent is doing now; null clears the surface's presence and every other field is then null.
-    activity: wire.Nullable(AgentPresenceActivity),
-    /// Adapter identity (claude, codex, ...).
-    agent: wire.Nullable([]const u8),
-    event: []const u8,
-    /// The 1-based line the tool call targets, when the tool input names one.
-    line: wire.Nullable(u64),
-    /// The file the tool call targets, when the tool input names one.
-    path: wire.Nullable([]const u8),
-    /// The agent's portable session id, a stable identity for colour.
-    session: wire.Nullable([]const u8),
-    surface: Id,
-    /// The native tool name of the current or last tool call.
-    tool: wire.Nullable([]const u8),
-    /// When the hook observed the event; null on clear.
-    updated_at_ms: wire.Nullable(u64),
-};
-
-pub const AgentSessionShareChangedEvent = struct {
-    event: []const u8,
-    session: []const u8,
-};
-
-pub const AppsCloudMachineEventKind = enum {
-    record,
-    live,
-    lost,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "record")) return .record;
-        if (std.mem.eql(u8, value, "live")) return .live;
-        if (std.mem.eql(u8, value, "lost")) return .lost;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .record => "record",
-            .live => "live",
-            .lost => "lost",
-        };
-    }
-};
-
-pub const AppsCloudMachineEvent = struct {
-    event: []const u8,
-    kind: AppsCloudMachineEventKind,
-    machine: []const u8,
-    record: ?JsonValue = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "record",
-    };
 };
 
 pub const BellEvent = struct {
     event: []const u8,
     surface: Id,
-};
-
-pub const BookmarksChangedEvent = struct {
-    bookmarks_revision: u64,
-    browser_profile_id: []const u8,
-    event: []const u8,
 };
 
 pub const BrowserStateEventStatus = enum {
@@ -11697,33 +4857,6 @@ pub const BrowserStateEvent = struct {
     surface: Id,
     title: []const u8,
     url: []const u8,
-};
-
-pub const ChiefChangedEventChange = enum {
-    created,
-    updated,
-    deleted,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "created")) return .created;
-        if (std.mem.eql(u8, value, "updated")) return .updated;
-        if (std.mem.eql(u8, value, "deleted")) return .deleted;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .created => "created",
-            .updated => "updated",
-            .deleted => "deleted",
-        };
-    }
-};
-
-pub const ChiefChangedEvent = struct {
-    change: ChiefChangedEventChange,
-    chief: []const u8,
-    event: []const u8,
 };
 
 pub const ClientAttachedEventTransport = enum {
@@ -11764,160 +4897,8 @@ pub const ClientDetachedEvent = struct {
     event: []const u8,
 };
 
-pub const ClientDisconnectedByEvent = struct {
-    by: ?SizeDetachActor = null,
-    event: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "by",
-    };
-};
-
 pub const ClientListInvalidatedEvent = struct {
     event: []const u8,
-};
-
-pub const CloudConversationChangedEvent = struct {
-    account: ?[]const u8 = null,
-    change: wire.Nullable(JsonValue),
-    conversation: []const u8,
-    event: []const u8,
-    rev: u64,
-    seq: u64,
-    transaction: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "account",
-    };
-};
-
-pub const CloudConversationLiveEvent = struct {
-    account: ?[]const u8 = null,
-    conversation: []const u8,
-    event: []const u8,
-    frame: wire.Nullable(JsonValue),
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "account",
-    };
-};
-
-pub const CloudConversationPresenceEvent = struct {
-    account: ?[]const u8 = null,
-    conversation: []const u8,
-    event: []const u8,
-    participants: []const CloudConversationPresenceParticipant,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "account",
-    };
-};
-
-pub const CloudConversationResyncedEvent = struct {
-    account: ?[]const u8 = null,
-    conversation: []const u8,
-    event: []const u8,
-    messages: wire.Nullable(JsonValue),
-    rev: u64,
-    seq: u64,
-    summary: wire.Nullable(JsonValue),
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "account",
-    };
-};
-
-pub const CloudConversationRunChangedEvent = struct {
-    account: ?[]const u8 = null,
-    conversation: []const u8,
-    event: []const u8,
-    run: wire.Nullable(JsonValue),
-    steps: []const JsonValue,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "account",
-    };
-};
-
-pub const CloudConversationTypingEvent = struct {
-    account: ?[]const u8 = null,
-    conversation: []const u8,
-    event: []const u8,
-    on: bool,
-    participant: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "account",
-    };
-};
-
-pub const CloudHostReplicaNeededEvent = struct {
-    event: []const u8,
-    expires_at: wire.Field(u64) = .absent,
-    reason: []const u8,
-};
-
-pub const CloudInboxChangedEvent = struct {
-    account: ?[]const u8 = null,
-    entries: wire.Nullable(JsonValue),
-    event: []const u8,
-    seq: u64,
-    transaction: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "account",
-    };
-};
-
-pub const CloudInboxResetEvent = struct {
-    account: ?[]const u8 = null,
-    event: []const u8,
-    seq: u64,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "account",
-    };
-};
-
-pub const CloudMuxResyncedEvent = struct {
-    account: ?[]const u8 = null,
-    event: []const u8,
-    pending: wire.Nullable(JsonValue),
-    seq: u64,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "account",
-    };
-};
-
-pub const CloudMuxWakeEvent = struct {
-    account: ?[]const u8 = null,
-    event: []const u8,
-    seq: u64,
-    wakes: wire.Nullable(JsonValue),
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "account",
-    };
-};
-
-pub const CloudSessionNeededEvent = struct {
-    event: []const u8,
-    expires_at: wire.Field(u64) = .absent,
-    reason: []const u8,
-};
-
-pub const CloudSubscriptionStateEvent = struct {
-    account: ?[]const u8 = null,
-    conversation: wire.Field([]const u8) = .absent,
-    event: []const u8,
-    reason: wire.Field([]const u8) = .absent,
-    scope: []const u8,
-    state: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "account",
-    };
 };
 
 pub const ColorsChangedEvent = struct {
@@ -11944,74 +4925,8 @@ pub const ConfigReloadRequestedEvent = struct {
     event: []const u8,
 };
 
-pub const ConversationChangedEvent = struct {
-    change: wire.Nullable(JsonValue),
-    conversation: []const u8,
-    event: []const u8,
-    rev: u64,
-    transaction: wire.Nullable([]const u8),
-};
-
-pub const ConversationDraftEvent = struct {
-    conversation: []const u8,
-    event: []const u8,
-    item: JsonValue,
-    participant: []const u8,
-};
-
-pub const ConversationInboxChangedEvent = struct {
-    conversation: []const u8,
-    event: []const u8,
-    marked_unread: bool,
-    participant: []const u8,
-    pin_position: ?u64 = null,
-    pinned: bool,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "pin_position",
-    };
-};
-
-pub const ConversationLiveEvent = struct {
-    conversation: []const u8,
-    event: []const u8,
-    frame: wire.Nullable(JsonValue),
-};
-
-pub const ConversationRunChangedEvent = struct {
-    conversation: []const u8,
-    event: []const u8,
-    run: wire.Nullable(JsonValue),
-    steps: []const JsonValue,
-};
-
-pub const ConversationScheduledChangedEvent = struct {
-    conversation: []const u8,
-    event: []const u8,
-    participant: []const u8,
-    removed: ?JsonValue = null,
-    scheduled: ?JsonValue = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "removed",
-        "scheduled",
-    };
-};
-
-pub const ConversationTypingEvent = struct {
-    conversation: []const u8,
-    event: []const u8,
-    on: bool,
-    participant: []const u8,
-};
-
 pub const DaemonShutdownEvent = struct {
     event: []const u8,
-    restart: ?bool = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "restart",
-    };
 };
 
 pub const DetachedEvent = struct {
@@ -12030,28 +4945,8 @@ pub const DetachedEvent = struct {
     };
 };
 
-pub const DeviceSetupStepEvent = struct {
-    detail: []const u8,
-    device: []const u8,
-    event: []const u8,
-    fix: []const u8,
-    state: []const u8,
-    step: []const u8,
-};
-
 pub const EmptyEvent = struct {
     event: []const u8,
-};
-
-pub const FeedReportsChangedEvent = struct {
-    event: []const u8,
-    revision: u64,
-};
-
-pub const FeedViewChangedEvent = struct {
-    changed: []const []const u8,
-    event: []const u8,
-    revision: u64,
 };
 
 pub const FrameEvent = struct {
@@ -12116,66 +5011,9 @@ pub const GraphicsStatusEvent = struct {
     };
 };
 
-pub const HistoryChangedEvent = struct {
-    event: []const u8,
-    kinds: []const []const u8,
-    revision: u64,
-};
-
-pub const KeybindingsChangedEventOrigin = enum {
-    user,
-    cli,
-    mcp,
-    script,
-    remote,
-    app,
-    file,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "user")) return .user;
-        if (std.mem.eql(u8, value, "cli")) return .cli;
-        if (std.mem.eql(u8, value, "mcp")) return .mcp;
-        if (std.mem.eql(u8, value, "script")) return .script;
-        if (std.mem.eql(u8, value, "remote")) return .remote;
-        if (std.mem.eql(u8, value, "app")) return .app;
-        if (std.mem.eql(u8, value, "file")) return .file;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .user => "user",
-            .cli => "cli",
-            .mcp => "mcp",
-            .script => "script",
-            .remote => "remote",
-            .app => "app",
-            .file => "file",
-        };
-    }
-};
-
-pub const KeybindingsChangedEvent = struct {
-    event: []const u8,
-    origin: KeybindingsChangedEventOrigin,
-    revision: u64,
-};
-
 pub const LayoutChangedEvent = struct {
-    active_pane: ?Id = null,
     event: []const u8,
-    layout: ?Layout = null,
     screen: Id,
-    transaction: ?[]const u8 = null,
-    workspace: ?Id = null,
-    zoomed_pane: wire.Field(Id) = .absent,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "active_pane",
-        "layout",
-        "transaction",
-        "workspace",
-    };
 };
 
 pub const MachineUsageChangedEvent = struct {
@@ -12185,20 +5023,11 @@ pub const MachineUsageChangedEvent = struct {
 
 pub const NotificationEvent = struct {
     body: []const u8,
-    desktop: ?bool = null,
     event: []const u8,
     level: NotificationLevel,
     notification: Id,
-    reply: ?bool = null,
-    source: ?NotificationSource = null,
     surface: wire.Nullable(Id),
     title: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "desktop",
-        "reply",
-        "source",
-    };
 };
 
 pub const OutputEvent = struct {
@@ -12255,29 +5084,6 @@ pub const PaneClosedEvent = struct {
     workspace: Id,
 };
 
-pub const ParticipantAvatarChangedEvent = struct {
-    avatar: wire.Nullable(JsonValue),
-    event: []const u8,
-    participant: []const u8,
-};
-
-pub const PersonalChangedEvent = struct {
-    event: []const u8,
-    personal_revision: u64,
-};
-
-pub const PhoneOpenLinkEvent = struct {
-    event: []const u8,
-    terminal_id: []const u8,
-    url: []const u8,
-};
-
-pub const ProgramStatusChangedEvent = struct {
-    event: []const u8,
-    program_status: wire.Nullable(ShownProgramStatus),
-    surface: Id,
-};
-
 pub const RenderDeltaEvent = struct {
     cursor: RenderCursor,
     default_bg: ?ColorHex = null,
@@ -12324,7 +5130,6 @@ pub const ResizedEvent = struct {
     /// Protocol 6 compatibility field.
     data: ?Base64 = null,
     event: []const u8,
-    history_rows_omitted: ?u64 = null,
     kitty_graphics_state: ?KittyGraphicsState = null,
     kitty_image_aliases: ?[]const KittyImageAlias = null,
     replay: ?Base64 = null,
@@ -12334,7 +5139,6 @@ pub const ResizedEvent = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "colors",
         "data",
-        "history_rows_omitted",
         "kitty_graphics_state",
         "kitty_image_aliases",
         "replay",
@@ -12349,26 +5153,12 @@ pub const ScreenAddedEvent = struct {
     workspace: Id,
 };
 
-pub const ScreenChangedEvent = struct {
-    entity: Screen,
-    event: []const u8,
-    index: wire.Field(u64) = .absent,
-    screen: Id,
-    workspace: Id,
-};
-
 pub const ScreenClosedEvent = struct {
     entity: Screen,
     event: []const u8,
     index: u64,
     screen: Id,
     workspace: Id,
-};
-
-pub const ScreenDeviceChangedEvent = struct {
-    event: []const u8,
-    /// The authenticated worker screen UUID, or null when the worker is unavailable.
-    screen_device_id: wire.Nullable([]const u8),
 };
 
 pub const ScreenRenamedEvent = struct {
@@ -12385,54 +5175,6 @@ pub const ScrollChangedEvent = struct {
     surface: Id,
 };
 
-pub const SelectionChangedEvent = struct {
-    active: bool,
-    active_workspace: wire.Nullable(Id),
-    event: []const u8,
-    screens: []const SelectionScreen,
-    workspace: Id,
-};
-
-pub const SettingsChangedEventOrigin = enum {
-    user,
-    cli,
-    mcp,
-    script,
-    remote,
-    app,
-    file,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "user")) return .user;
-        if (std.mem.eql(u8, value, "cli")) return .cli;
-        if (std.mem.eql(u8, value, "mcp")) return .mcp;
-        if (std.mem.eql(u8, value, "script")) return .script;
-        if (std.mem.eql(u8, value, "remote")) return .remote;
-        if (std.mem.eql(u8, value, "app")) return .app;
-        if (std.mem.eql(u8, value, "file")) return .file;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .user => "user",
-            .cli => "cli",
-            .mcp => "mcp",
-            .script => "script",
-            .remote => "remote",
-            .app => "app",
-            .file => "file",
-        };
-    }
-};
-
-pub const SettingsChangedEvent = struct {
-    event: []const u8,
-    keys: []const []const u8,
-    origin: SettingsChangedEventOrigin,
-    revision: u64,
-};
-
 pub const SizeStateEvent = struct {
     event: []const u8,
     self_participant: ?[]const u8 = null,
@@ -12442,11 +5184,6 @@ pub const SizeStateEvent = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "self_participant",
     };
-};
-
-pub const StashChangedEvent = struct {
-    event: []const u8,
-    revision: u64,
 };
 
 pub const StatusEvent = struct {
@@ -12489,19 +5226,6 @@ pub const TabAddedEvent = struct {
     pane: Id,
     screen: Id,
     surface: Id,
-    /// The transaction of the create request that made the tab, when it sent one (conversation-tab-transaction-v1, tab-create-place-v1).
-    transaction: wire.Field([]const u8) = .absent,
-    workspace: Id,
-};
-
-pub const TabChangedEvent = struct {
-    entity: Tab,
-    event: []const u8,
-    index: wire.Field(u64) = .absent,
-    pane: Id,
-    screen: Id,
-    surface: Id,
-    transaction: wire.Field([]const u8) = .absent,
     workspace: Id,
 };
 
@@ -12524,33 +5248,6 @@ pub const TabRenamedEvent = struct {
     workspace: Id,
 };
 
-pub const TerminalClipboardReadEvent = struct {
-    event: []const u8,
-    host: TerminalClipboardHost,
-    location: TerminalClipboardLocation,
-    request_id: []const u8,
-    terminal_id: []const u8,
-};
-
-pub const TerminalClipboardReadCancelledEvent = struct {
-    event: []const u8,
-    request_id: []const u8,
-};
-
-pub const TerminalInputUnclaimedEvent = struct {
-    bytes_base64: Base64,
-    event: []const u8,
-    reason: []const u8,
-    terminal_id: []const u8,
-};
-
-pub const TerminalReapedEvent = struct {
-    event: []const u8,
-    grace_ms: u64,
-    terminal: wire.Nullable([]const u8),
-    terminal_id: []const u8,
-};
-
 pub const TerminalRegistryChangedEvent = struct {
     event: []const u8,
     generation: []const u8,
@@ -12560,14 +5257,11 @@ pub const TerminalRegistryChangedEvent = struct {
 };
 
 pub const TitleChangedEvent = struct {
-    activity: wire.Field([]const u8) = .absent,
     event: []const u8,
     surface: Id,
-    text: ?[]const u8 = null,
     title: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "text",
         "title",
     };
 };
@@ -12588,8 +5282,6 @@ pub const VtStateEvent = struct {
     cols: u16,
     data: Base64,
     event: []const u8,
-    history_rows_omitted: ?u64 = null,
-    history_rows_skipped: ?u64 = null,
     kitty_graphics_state: ?KittyGraphicsState = null,
     kitty_image_aliases: ?[]const KittyImageAlias = null,
     rows: u16,
@@ -12597,8 +5289,6 @@ pub const VtStateEvent = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "colors",
-        "history_rows_omitted",
-        "history_rows_skipped",
         "kitty_graphics_state",
         "kitty_image_aliases",
     };
@@ -12614,23 +5304,6 @@ pub const WorkspaceAddedEvent = struct {
     event: []const u8,
     generation: []const u8,
     index: u64,
-    mutation_id: ?[]const u8 = null,
-    origin: ?[]const u8 = null,
-    registry_id: []const u8,
-    workspace: Id,
-    workspace_revision: u64,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "mutation_id",
-        "origin",
-    };
-};
-
-pub const WorkspaceChangedEvent = struct {
-    entity: Workspace,
-    event: []const u8,
-    generation: []const u8,
-    index: wire.Field(u64) = .absent,
     mutation_id: ?[]const u8 = null,
     origin: ?[]const u8 = null,
     registry_id: []const u8,
@@ -12677,12 +5350,6 @@ pub const WorkspaceMovedEvent = struct {
     };
 };
 
-pub const WorkspacePresentationChangedEvent = struct {
-    entity: Workspace,
-    event: []const u8,
-    workspace: Id,
-};
-
 pub const WorkspaceRenamedEvent = struct {
     entity: Workspace,
     event: []const u8,
@@ -12705,57 +5372,21 @@ pub const UnknownEvent = struct {
 };
 
 pub const Event = union(enum) {
-    activity_changed: ActivityChangedEvent,
     agent_changed: AgentChangedEvent,
-    agent_cli_frame: AgentCliFrameEvent,
-    agent_cli_lean: AgentCliLeanEvent,
-    agent_inventory_changed: AgentInventoryChangedEvent,
-    agent_inventory_watch_ended: AgentInventoryWatchEndedEvent,
-    agent_presence_changed: AgentPresenceChangedEvent,
-    agent_session_share_changed: AgentSessionShareChangedEvent,
-    apps_cloud_machine: AppsCloudMachineEvent,
     bell: BellEvent,
-    bookmarks_changed: BookmarksChangedEvent,
     browser_state: BrowserStateEvent,
-    chief_changed: ChiefChangedEvent,
     client_attached: ClientAttachedEvent,
     client_changed: ClientChangedEvent,
     client_detached: ClientDetachedEvent,
-    client_disconnected_by: ClientDisconnectedByEvent,
     client_list_invalidated: ClientListInvalidatedEvent,
-    cloud_conversation_changed: CloudConversationChangedEvent,
-    cloud_conversation_live: CloudConversationLiveEvent,
-    cloud_conversation_presence: CloudConversationPresenceEvent,
-    cloud_conversation_resynced: CloudConversationResyncedEvent,
-    cloud_conversation_run_changed: CloudConversationRunChangedEvent,
-    cloud_conversation_typing: CloudConversationTypingEvent,
-    cloud_host_replica_needed: CloudHostReplicaNeededEvent,
-    cloud_inbox_changed: CloudInboxChangedEvent,
-    cloud_inbox_reset: CloudInboxResetEvent,
-    cloud_mux_resynced: CloudMuxResyncedEvent,
-    cloud_mux_wake: CloudMuxWakeEvent,
-    cloud_session_needed: CloudSessionNeededEvent,
-    cloud_subscription_state: CloudSubscriptionStateEvent,
     colors_changed: ColorsChangedEvent,
     config_reload_requested: ConfigReloadRequestedEvent,
-    conversation_changed: ConversationChangedEvent,
-    conversation_draft: ConversationDraftEvent,
-    conversation_inbox_changed: ConversationInboxChangedEvent,
-    conversation_live: ConversationLiveEvent,
-    conversation_run_changed: ConversationRunChangedEvent,
-    conversation_scheduled_changed: ConversationScheduledChangedEvent,
-    conversation_typing: ConversationTypingEvent,
     daemon_shutdown: DaemonShutdownEvent,
     detached: DetachedEvent,
-    device_setup_step: DeviceSetupStepEvent,
     empty: EmptyEvent,
-    feed_reports_changed: FeedReportsChangedEvent,
-    feed_view_changed: FeedViewChangedEvent,
     frame: FrameEvent,
     frontend_projection_changed: FrontendProjectionChangedEvent,
     graphics_status: GraphicsStatusEvent,
-    history_changed: HistoryChangedEvent,
-    keybindings_changed: KeybindingsChangedEvent,
     layout_changed: LayoutChangedEvent,
     machine_usage_changed: MachineUsageChangedEvent,
     notification: NotificationEvent,
@@ -12765,36 +5396,22 @@ pub const Event = union(enum) {
     pairing_resolved: PairingResolvedEvent,
     pane_added: PaneAddedEvent,
     pane_closed: PaneClosedEvent,
-    participant_avatar_changed: ParticipantAvatarChangedEvent,
-    personal_changed: PersonalChangedEvent,
-    phone_open_link: PhoneOpenLinkEvent,
-    program_status_changed: ProgramStatusChangedEvent,
     render_delta: RenderDeltaEvent,
     render_state: RenderStateEvent,
     resized: ResizedEvent,
     screen_added: ScreenAddedEvent,
-    screen_changed: ScreenChangedEvent,
     screen_closed: ScreenClosedEvent,
-    screen_device_changed: ScreenDeviceChangedEvent,
     screen_renamed: ScreenRenamedEvent,
     scroll_changed: ScrollChangedEvent,
-    selection_changed: SelectionChangedEvent,
-    settings_changed: SettingsChangedEvent,
     size_state: SizeStateEvent,
-    stash_changed: StashChangedEvent,
     status: StatusEvent,
     surface_exited: SurfaceExitedEvent,
     surface_output: SurfaceOutputEvent,
     surface_resize_failed: SurfaceResizeFailedEvent,
     surface_resized: SurfaceResizedEvent,
     tab_added: TabAddedEvent,
-    tab_changed: TabChangedEvent,
     tab_closed: TabClosedEvent,
     tab_renamed: TabRenamedEvent,
-    terminal_clipboard_read: TerminalClipboardReadEvent,
-    terminal_clipboard_read_cancelled: TerminalClipboardReadCancelledEvent,
-    terminal_input_unclaimed: TerminalInputUnclaimedEvent,
-    terminal_reaped: TerminalReapedEvent,
     terminal_registry_changed: TerminalRegistryChangedEvent,
     title_changed: TitleChangedEvent,
     tree_changed: TreeChangedEvent,
@@ -12802,67 +5419,29 @@ pub const Event = union(enum) {
     vt_state: VtStateEvent,
     window_title_requested: WindowTitleRequestedEvent,
     workspace_added: WorkspaceAddedEvent,
-    workspace_changed: WorkspaceChangedEvent,
     workspace_closed: WorkspaceClosedEvent,
     workspace_moved: WorkspaceMovedEvent,
-    workspace_presentation_changed: WorkspacePresentationChangedEvent,
     workspace_renamed: WorkspaceRenamedEvent,
     unknown: UnknownEvent,
 };
 
 pub fn eventWireName(event: Event) []const u8 {
     return switch (event) {
-        .activity_changed => "activity-changed",
         .agent_changed => "agent-changed",
-        .agent_cli_frame => "agent-cli-frame",
-        .agent_cli_lean => "agent-cli-lean",
-        .agent_inventory_changed => "agent-inventory-changed",
-        .agent_inventory_watch_ended => "agent-inventory-watch-ended",
-        .agent_presence_changed => "agent-presence-changed",
-        .agent_session_share_changed => "agent-session-share-changed",
-        .apps_cloud_machine => "apps-cloud-machine",
         .bell => "bell",
-        .bookmarks_changed => "bookmarks-changed",
         .browser_state => "browser-state",
-        .chief_changed => "chief-changed",
         .client_attached => "client-attached",
         .client_changed => "client-changed",
         .client_detached => "client-detached",
-        .client_disconnected_by => "client-disconnected-by",
         .client_list_invalidated => "client-list-invalidated",
-        .cloud_conversation_changed => "cloud-conversation-changed",
-        .cloud_conversation_live => "cloud-conversation-live",
-        .cloud_conversation_presence => "cloud-conversation-presence",
-        .cloud_conversation_resynced => "cloud-conversation-resynced",
-        .cloud_conversation_run_changed => "cloud-conversation-run-changed",
-        .cloud_conversation_typing => "cloud-conversation-typing",
-        .cloud_host_replica_needed => "cloud-host-replica-needed",
-        .cloud_inbox_changed => "cloud-inbox-changed",
-        .cloud_inbox_reset => "cloud-inbox-reset",
-        .cloud_mux_resynced => "cloud-mux-resynced",
-        .cloud_mux_wake => "cloud-mux-wake",
-        .cloud_session_needed => "cloud-session-needed",
-        .cloud_subscription_state => "cloud-subscription-state",
         .colors_changed => "colors-changed",
         .config_reload_requested => "config-reload-requested",
-        .conversation_changed => "conversation-changed",
-        .conversation_draft => "conversation-draft",
-        .conversation_inbox_changed => "conversation-inbox-changed",
-        .conversation_live => "conversation-live",
-        .conversation_run_changed => "conversation-run-changed",
-        .conversation_scheduled_changed => "conversation-scheduled-changed",
-        .conversation_typing => "conversation-typing",
         .daemon_shutdown => "daemon-shutdown",
         .detached => "detached",
-        .device_setup_step => "device-setup-step",
         .empty => "empty",
-        .feed_reports_changed => "feed-reports-changed",
-        .feed_view_changed => "feed-view-changed",
         .frame => "frame",
         .frontend_projection_changed => "frontend-projection-changed",
         .graphics_status => "graphics-status",
-        .history_changed => "history-changed",
-        .keybindings_changed => "keybindings-changed",
         .layout_changed => "layout-changed",
         .machine_usage_changed => "machine-usage-changed",
         .notification => "notification",
@@ -12872,36 +5451,22 @@ pub fn eventWireName(event: Event) []const u8 {
         .pairing_resolved => "pairing-resolved",
         .pane_added => "pane-added",
         .pane_closed => "pane-closed",
-        .participant_avatar_changed => "participant-avatar-changed",
-        .personal_changed => "personal-changed",
-        .phone_open_link => "phone-open-link",
-        .program_status_changed => "program-status-changed",
         .render_delta => "render-delta",
         .render_state => "render-state",
         .resized => "resized",
         .screen_added => "screen-added",
-        .screen_changed => "screen-changed",
         .screen_closed => "screen-closed",
-        .screen_device_changed => "screen-device-changed",
         .screen_renamed => "screen-renamed",
         .scroll_changed => "scroll-changed",
-        .selection_changed => "selection-changed",
-        .settings_changed => "settings-changed",
         .size_state => "size-state",
-        .stash_changed => "stash-changed",
         .status => "status",
         .surface_exited => "surface-exited",
         .surface_output => "surface-output",
         .surface_resize_failed => "surface-resize-failed",
         .surface_resized => "surface-resized",
         .tab_added => "tab-added",
-        .tab_changed => "tab-changed",
         .tab_closed => "tab-closed",
         .tab_renamed => "tab-renamed",
-        .terminal_clipboard_read => "terminal-clipboard-read",
-        .terminal_clipboard_read_cancelled => "terminal-clipboard-read-cancelled",
-        .terminal_input_unclaimed => "terminal-input-unclaimed",
-        .terminal_reaped => "terminal-reaped",
         .terminal_registry_changed => "terminal-registry-changed",
         .title_changed => "title-changed",
         .tree_changed => "tree-changed",
@@ -12909,10 +5474,8 @@ pub fn eventWireName(event: Event) []const u8 {
         .vt_state => "vt-state",
         .window_title_requested => "window-title-requested",
         .workspace_added => "workspace-added",
-        .workspace_changed => "workspace-changed",
         .workspace_closed => "workspace-closed",
         .workspace_moved => "workspace-moved",
-        .workspace_presentation_changed => "workspace-presentation-changed",
         .workspace_renamed => "workspace-renamed",
         .unknown => |unknown| unknown.name,
     };
@@ -12932,57 +5495,17 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
     const name = try wire.eventName(value);
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
-    if (std.mem.eql(u8, name, "activity-changed")) {
-        const decoded = try wire.decodeLeaky(ActivityChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .activity_changed = decoded } };
-    }
     if (std.mem.eql(u8, name, "agent-changed")) {
         const decoded = try wire.decodeLeaky(AgentChangedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .agent_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "agent-cli-frame")) {
-        const decoded = try wire.decodeLeaky(AgentCliFrameEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .agent_cli_frame = decoded } };
-    }
-    if (std.mem.eql(u8, name, "agent-cli-lean")) {
-        const decoded = try wire.decodeLeaky(AgentCliLeanEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .agent_cli_lean = decoded } };
-    }
-    if (std.mem.eql(u8, name, "agent-inventory-changed")) {
-        const decoded = try wire.decodeLeaky(AgentInventoryChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .agent_inventory_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "agent-inventory-watch-ended")) {
-        const decoded = try wire.decodeLeaky(AgentInventoryWatchEndedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .agent_inventory_watch_ended = decoded } };
-    }
-    if (std.mem.eql(u8, name, "agent-presence-changed")) {
-        const decoded = try wire.decodeLeaky(AgentPresenceChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .agent_presence_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "agent-session-share-changed")) {
-        const decoded = try wire.decodeLeaky(AgentSessionShareChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .agent_session_share_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "apps-cloud-machine")) {
-        const decoded = try wire.decodeLeaky(AppsCloudMachineEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .apps_cloud_machine = decoded } };
     }
     if (std.mem.eql(u8, name, "bell")) {
         const decoded = try wire.decodeLeaky(BellEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .bell = decoded } };
     }
-    if (std.mem.eql(u8, name, "bookmarks-changed")) {
-        const decoded = try wire.decodeLeaky(BookmarksChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .bookmarks_changed = decoded } };
-    }
     if (std.mem.eql(u8, name, "browser-state")) {
         const decoded = try wire.decodeLeaky(BrowserStateEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .browser_state = decoded } };
-    }
-    if (std.mem.eql(u8, name, "chief-changed")) {
-        const decoded = try wire.decodeLeaky(ChiefChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .chief_changed = decoded } };
     }
     if (std.mem.eql(u8, name, "client-attached")) {
         const decoded = try wire.decodeLeaky(ClientAttachedEvent, arena.allocator(), value);
@@ -12996,65 +5519,9 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(ClientDetachedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .client_detached = decoded } };
     }
-    if (std.mem.eql(u8, name, "client-disconnected-by")) {
-        const decoded = try wire.decodeLeaky(ClientDisconnectedByEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .client_disconnected_by = decoded } };
-    }
     if (std.mem.eql(u8, name, "client-list-invalidated")) {
         const decoded = try wire.decodeLeaky(ClientListInvalidatedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .client_list_invalidated = decoded } };
-    }
-    if (std.mem.eql(u8, name, "cloud-conversation-changed")) {
-        const decoded = try wire.decodeLeaky(CloudConversationChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .cloud_conversation_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "cloud-conversation-live")) {
-        const decoded = try wire.decodeLeaky(CloudConversationLiveEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .cloud_conversation_live = decoded } };
-    }
-    if (std.mem.eql(u8, name, "cloud-conversation-presence")) {
-        const decoded = try wire.decodeLeaky(CloudConversationPresenceEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .cloud_conversation_presence = decoded } };
-    }
-    if (std.mem.eql(u8, name, "cloud-conversation-resynced")) {
-        const decoded = try wire.decodeLeaky(CloudConversationResyncedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .cloud_conversation_resynced = decoded } };
-    }
-    if (std.mem.eql(u8, name, "cloud-conversation-run-changed")) {
-        const decoded = try wire.decodeLeaky(CloudConversationRunChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .cloud_conversation_run_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "cloud-conversation-typing")) {
-        const decoded = try wire.decodeLeaky(CloudConversationTypingEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .cloud_conversation_typing = decoded } };
-    }
-    if (std.mem.eql(u8, name, "cloud-host-replica-needed")) {
-        const decoded = try wire.decodeLeaky(CloudHostReplicaNeededEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .cloud_host_replica_needed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "cloud-inbox-changed")) {
-        const decoded = try wire.decodeLeaky(CloudInboxChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .cloud_inbox_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "cloud-inbox-reset")) {
-        const decoded = try wire.decodeLeaky(CloudInboxResetEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .cloud_inbox_reset = decoded } };
-    }
-    if (std.mem.eql(u8, name, "cloud-mux-resynced")) {
-        const decoded = try wire.decodeLeaky(CloudMuxResyncedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .cloud_mux_resynced = decoded } };
-    }
-    if (std.mem.eql(u8, name, "cloud-mux-wake")) {
-        const decoded = try wire.decodeLeaky(CloudMuxWakeEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .cloud_mux_wake = decoded } };
-    }
-    if (std.mem.eql(u8, name, "cloud-session-needed")) {
-        const decoded = try wire.decodeLeaky(CloudSessionNeededEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .cloud_session_needed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "cloud-subscription-state")) {
-        const decoded = try wire.decodeLeaky(CloudSubscriptionStateEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .cloud_subscription_state = decoded } };
     }
     if (std.mem.eql(u8, name, "colors-changed")) {
         const decoded = try wire.decodeLeaky(ColorsChangedEvent, arena.allocator(), value);
@@ -13064,34 +5531,6 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(ConfigReloadRequestedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .config_reload_requested = decoded } };
     }
-    if (std.mem.eql(u8, name, "conversation-changed")) {
-        const decoded = try wire.decodeLeaky(ConversationChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .conversation_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "conversation-draft")) {
-        const decoded = try wire.decodeLeaky(ConversationDraftEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .conversation_draft = decoded } };
-    }
-    if (std.mem.eql(u8, name, "conversation-inbox-changed")) {
-        const decoded = try wire.decodeLeaky(ConversationInboxChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .conversation_inbox_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "conversation-live")) {
-        const decoded = try wire.decodeLeaky(ConversationLiveEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .conversation_live = decoded } };
-    }
-    if (std.mem.eql(u8, name, "conversation-run-changed")) {
-        const decoded = try wire.decodeLeaky(ConversationRunChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .conversation_run_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "conversation-scheduled-changed")) {
-        const decoded = try wire.decodeLeaky(ConversationScheduledChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .conversation_scheduled_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "conversation-typing")) {
-        const decoded = try wire.decodeLeaky(ConversationTypingEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .conversation_typing = decoded } };
-    }
     if (std.mem.eql(u8, name, "daemon-shutdown")) {
         const decoded = try wire.decodeLeaky(DaemonShutdownEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .daemon_shutdown = decoded } };
@@ -13100,21 +5539,9 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(DetachedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .detached = decoded } };
     }
-    if (std.mem.eql(u8, name, "device-setup-step")) {
-        const decoded = try wire.decodeLeaky(DeviceSetupStepEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .device_setup_step = decoded } };
-    }
     if (std.mem.eql(u8, name, "empty")) {
         const decoded = try wire.decodeLeaky(EmptyEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .empty = decoded } };
-    }
-    if (std.mem.eql(u8, name, "feed-reports-changed")) {
-        const decoded = try wire.decodeLeaky(FeedReportsChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .feed_reports_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "feed-view-changed")) {
-        const decoded = try wire.decodeLeaky(FeedViewChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .feed_view_changed = decoded } };
     }
     if (std.mem.eql(u8, name, "frame")) {
         const decoded = try wire.decodeLeaky(FrameEvent, arena.allocator(), value);
@@ -13127,14 +5554,6 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
     if (std.mem.eql(u8, name, "graphics-status")) {
         const decoded = try wire.decodeLeaky(GraphicsStatusEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .graphics_status = decoded } };
-    }
-    if (std.mem.eql(u8, name, "history-changed")) {
-        const decoded = try wire.decodeLeaky(HistoryChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .history_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "keybindings-changed")) {
-        const decoded = try wire.decodeLeaky(KeybindingsChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .keybindings_changed = decoded } };
     }
     if (std.mem.eql(u8, name, "layout-changed")) {
         const decoded = try wire.decodeLeaky(LayoutChangedEvent, arena.allocator(), value);
@@ -13172,22 +5591,6 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(PaneClosedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .pane_closed = decoded } };
     }
-    if (std.mem.eql(u8, name, "participant-avatar-changed")) {
-        const decoded = try wire.decodeLeaky(ParticipantAvatarChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .participant_avatar_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "personal-changed")) {
-        const decoded = try wire.decodeLeaky(PersonalChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .personal_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "phone-open-link")) {
-        const decoded = try wire.decodeLeaky(PhoneOpenLinkEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .phone_open_link = decoded } };
-    }
-    if (std.mem.eql(u8, name, "program-status-changed")) {
-        const decoded = try wire.decodeLeaky(ProgramStatusChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .program_status_changed = decoded } };
-    }
     if (std.mem.eql(u8, name, "render-delta")) {
         const decoded = try wire.decodeLeaky(RenderDeltaEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .render_delta = decoded } };
@@ -13204,17 +5607,9 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(ScreenAddedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .screen_added = decoded } };
     }
-    if (std.mem.eql(u8, name, "screen-changed")) {
-        const decoded = try wire.decodeLeaky(ScreenChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .screen_changed = decoded } };
-    }
     if (std.mem.eql(u8, name, "screen-closed")) {
         const decoded = try wire.decodeLeaky(ScreenClosedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .screen_closed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "screen-device-changed")) {
-        const decoded = try wire.decodeLeaky(ScreenDeviceChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .screen_device_changed = decoded } };
     }
     if (std.mem.eql(u8, name, "screen-renamed")) {
         const decoded = try wire.decodeLeaky(ScreenRenamedEvent, arena.allocator(), value);
@@ -13224,21 +5619,9 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(ScrollChangedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .scroll_changed = decoded } };
     }
-    if (std.mem.eql(u8, name, "selection-changed")) {
-        const decoded = try wire.decodeLeaky(SelectionChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .selection_changed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "settings-changed")) {
-        const decoded = try wire.decodeLeaky(SettingsChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .settings_changed = decoded } };
-    }
     if (std.mem.eql(u8, name, "size-state")) {
         const decoded = try wire.decodeLeaky(SizeStateEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .size_state = decoded } };
-    }
-    if (std.mem.eql(u8, name, "stash-changed")) {
-        const decoded = try wire.decodeLeaky(StashChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .stash_changed = decoded } };
     }
     if (std.mem.eql(u8, name, "status")) {
         const decoded = try wire.decodeLeaky(StatusEvent, arena.allocator(), value);
@@ -13264,10 +5647,6 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(TabAddedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .tab_added = decoded } };
     }
-    if (std.mem.eql(u8, name, "tab-changed")) {
-        const decoded = try wire.decodeLeaky(TabChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .tab_changed = decoded } };
-    }
     if (std.mem.eql(u8, name, "tab-closed")) {
         const decoded = try wire.decodeLeaky(TabClosedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .tab_closed = decoded } };
@@ -13275,22 +5654,6 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
     if (std.mem.eql(u8, name, "tab-renamed")) {
         const decoded = try wire.decodeLeaky(TabRenamedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .tab_renamed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "terminal-clipboard-read")) {
-        const decoded = try wire.decodeLeaky(TerminalClipboardReadEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .terminal_clipboard_read = decoded } };
-    }
-    if (std.mem.eql(u8, name, "terminal-clipboard-read-cancelled")) {
-        const decoded = try wire.decodeLeaky(TerminalClipboardReadCancelledEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .terminal_clipboard_read_cancelled = decoded } };
-    }
-    if (std.mem.eql(u8, name, "terminal-input-unclaimed")) {
-        const decoded = try wire.decodeLeaky(TerminalInputUnclaimedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .terminal_input_unclaimed = decoded } };
-    }
-    if (std.mem.eql(u8, name, "terminal-reaped")) {
-        const decoded = try wire.decodeLeaky(TerminalReapedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .terminal_reaped = decoded } };
     }
     if (std.mem.eql(u8, name, "terminal-registry-changed")) {
         const decoded = try wire.decodeLeaky(TerminalRegistryChangedEvent, arena.allocator(), value);
@@ -13320,10 +5683,6 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(WorkspaceAddedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .workspace_added = decoded } };
     }
-    if (std.mem.eql(u8, name, "workspace-changed")) {
-        const decoded = try wire.decodeLeaky(WorkspaceChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .workspace_changed = decoded } };
-    }
     if (std.mem.eql(u8, name, "workspace-closed")) {
         const decoded = try wire.decodeLeaky(WorkspaceClosedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .workspace_closed = decoded } };
@@ -13331,10 +5690,6 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
     if (std.mem.eql(u8, name, "workspace-moved")) {
         const decoded = try wire.decodeLeaky(WorkspaceMovedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .workspace_moved = decoded } };
-    }
-    if (std.mem.eql(u8, name, "workspace-presentation-changed")) {
-        const decoded = try wire.decodeLeaky(WorkspacePresentationChangedEvent, arena.allocator(), value);
-        return .{ .arena = arena, .value = .{ .workspace_presentation_changed = decoded } };
     }
     if (std.mem.eql(u8, name, "workspace-renamed")) {
         const decoded = try wire.decodeLeaky(WorkspaceRenamedEvent, arena.allocator(), value);
@@ -13365,19 +5720,15 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 315;
+pub const command_count: usize = 119;
 pub const commands = [_]CommandDescriptor{
-    .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
-    .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
-    .{ .name = "add-tabs-to-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
+    .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = null, .stream = null },
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
-    .{ .name = "bind-conversation-tab-session", .authority = "control", .since = 12, .capability = "agent-session-tabs-v1", .stream = null },
     .{ .name = "browser-activate", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-back", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-forward", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-frame-presented", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
-    .{ .name = "browser-host-provider", .authority = "local-admin", .since = 12, .capability = "browser-host-provider-v1", .stream = null },
     .{ .name = "browser-insert-text", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-key", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-key-press", .authority = "frontend", .since = 10, .capability = null, .stream = null },
@@ -13387,220 +5738,76 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "browser-reload", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel-guarded", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
-    .{ .name = "cancel-creating-input", .authority = "control", .since = 12, .capability = "creating-input-cancel-v1", .stream = null },
-    .{ .name = "chief-inspect", .authority = "local-admin", .since = 12, .capability = "chief-inspect-v1", .stream = null },
-    .{ .name = "chief-work", .authority = "frontend", .since = 12, .capability = "chief-work-v1", .stream = null },
     .{ .name = "clear-history", .authority = "control", .since = 9, .capability = "clear-history-v1", .stream = null },
     .{ .name = "clear-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "client-focus", .authority = "control", .since = 12, .capability = "client-focus-v1", .stream = null },
     .{ .name = "close-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "close-provider-managed-workspace", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "close-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
-    .{ .name = "close-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "close-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
-    .{ .name = "close-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
-    .{ .name = "close-tabs", .authority = "control", .since = 12, .capability = "batch-close-v1", .stream = null },
     .{ .name = "close-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "close-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
-    .{ .name = "cloud-attachment-link", .authority = "local-admin", .since = 12, .capability = "cloud-attachments-v1", .stream = null },
-    .{ .name = "cloud-attachment-read", .authority = "local-admin", .since = 12, .capability = "cloud-attachments-v1", .stream = null },
-    .{ .name = "cloud-attachment-upload", .authority = "local-admin", .since = 12, .capability = "cloud-attachments-v1", .stream = null },
-    .{ .name = "cloud-conversation-history", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "cloud-conversation-live", .authority = "local-admin", .since = 12, .capability = "cloud-chief-live-v1", .stream = null },
-    .{ .name = "cloud-conversation-op", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "cloud-conversation-presence", .authority = "local-admin", .since = 12, .capability = "cloud-conversation-presence-v1", .stream = null },
-    .{ .name = "cloud-conversation-run", .authority = "local-admin", .since = 12, .capability = "cloud-conversation-runs-v1", .stream = null },
-    .{ .name = "cloud-conversation-runs", .authority = "local-admin", .since = 12, .capability = "cloud-conversation-runs-v1", .stream = null },
-    .{ .name = "cloud-conversation-snapshot", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "cloud-conversation-subscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "cloud-conversation-thread", .authority = "local-admin", .since = 12, .capability = "conversation-thread-v1", .stream = null },
-    .{ .name = "cloud-conversation-typing", .authority = "local-admin", .since = 12, .capability = "cloud-conversation-typing-v1", .stream = null },
-    .{ .name = "cloud-conversation-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "cloud-environment", .authority = "local-admin", .since = 12, .capability = "cloud-environments-v1", .stream = null },
-    .{ .name = "cloud-host-replica-clear", .authority = "local-admin", .since = 12, .capability = "cloud-host-replica-v1", .stream = null },
-    .{ .name = "cloud-host-replica-set", .authority = "local-admin", .since = 12, .capability = "cloud-host-replica-v1", .stream = null },
-    .{ .name = "cloud-host-replica-status", .authority = "local-admin", .since = 12, .capability = "cloud-host-replica-v1", .stream = null },
-    .{ .name = "cloud-inbox-list", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "cloud-inbox-op", .authority = "local-admin", .since = 12, .capability = "conversation-inbox-state-v1", .stream = null },
-    .{ .name = "cloud-inbox-subscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "cloud-inbox-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "cloud-mux-ack", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "cloud-mux-subscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "cloud-mux-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "cloud-participant-avatar-get", .authority = "local-admin", .since = 12, .capability = "participant-avatars-v1", .stream = null },
-    .{ .name = "cloud-requests-list", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "cloud-selfhost-info", .authority = "local-admin", .since = 12, .capability = "cloud-selfhost-v1", .stream = null },
-    .{ .name = "cloud-session-clear", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "cloud-session-set", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "cloud-session-status", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
-    .{ .name = "computer-use-approvals", .authority = "local-admin", .since = 12, .capability = "computer-use-v1", .stream = null },
-    .{ .name = "computer-use-config", .authority = "local-admin", .since = 12, .capability = "computer-use-v1", .stream = null },
-    .{ .name = "computer-use-endpoint", .authority = "local-admin", .since = 12, .capability = "computer-use-v1", .stream = null },
-    .{ .name = "conversation-agent-token", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
-    .{ .name = "conversation-attachment-link", .authority = "local-admin", .since = 12, .capability = "ws-attachments-v1", .stream = null },
-    .{ .name = "conversation-attachment-read", .authority = "local-admin", .since = 12, .capability = "local-attachments-v1", .stream = null },
-    .{ .name = "conversation-attachment-upload", .authority = "local-admin", .since = 12, .capability = "local-attachments-v1", .stream = null },
-    .{ .name = "conversation-bind", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
-    .{ .name = "conversation-create", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
-    .{ .name = "conversation-draft", .authority = "local-admin", .since = 12, .capability = "conversation-draft-v1", .stream = null },
-    .{ .name = "conversation-history", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
-    .{ .name = "conversation-import", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
-    .{ .name = "conversation-inbox-op", .authority = "local-admin", .since = 12, .capability = "conversation-inbox-state-v1", .stream = null },
-    .{ .name = "conversation-link-resolve", .authority = "local-admin", .since = 12, .capability = "conversation-tree-v1", .stream = null },
-    .{ .name = "conversation-list", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
-    .{ .name = "conversation-live", .authority = "local-admin", .since = 12, .capability = "chief-live-v1", .stream = null },
-    .{ .name = "conversation-live-publish", .authority = "local-admin", .since = 12, .capability = "chief-live-v1", .stream = null },
-    .{ .name = "conversation-op", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
-    .{ .name = "conversation-run", .authority = "local-admin", .since = 12, .capability = "conversation-runs-v1", .stream = null },
-    .{ .name = "conversation-run-append", .authority = "local-admin", .since = 12, .capability = "conversation-runs-v1", .stream = null },
-    .{ .name = "conversation-runs", .authority = "local-admin", .since = 12, .capability = "conversation-runs-v1", .stream = null },
-    .{ .name = "conversation-scheduled-list", .authority = "local-admin", .since = 12, .capability = "conversation-scheduled-v1", .stream = null },
-    .{ .name = "conversation-scheduled-op", .authority = "local-admin", .since = 12, .capability = "conversation-scheduled-v1", .stream = null },
-    .{ .name = "conversation-search", .authority = "local-admin", .since = 12, .capability = "conversation-search-v1", .stream = null },
-    .{ .name = "conversation-snapshot", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
-    .{ .name = "conversation-thread", .authority = "local-admin", .since = 12, .capability = "conversation-thread-v1", .stream = null },
-    .{ .name = "conversation-typing", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "copy", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "create-bookmark", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },
-    .{ .name = "create-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
-    .{ .name = "create-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
-    .{ .name = "create-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
-    .{ .name = "create-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "create-surface-with-receipt", .authority = "control", .since = 10, .capability = "creation-receipts-v1", .stream = null },
-    .{ .name = "create-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "create-terminal", .authority = "control", .since = 7, .capability = "workspace-registry-v1", .stream = null },
     .{ .name = "create-workspace", .authority = "control", .since = 7, .capability = "workspace-registry-v1", .stream = null },
-    .{ .name = "create-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
-    .{ .name = "delete-bookmark", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },
-    .{ .name = "delete-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
-    .{ .name = "delete-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
-    .{ .name = "delete-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
-    .{ .name = "delete-saved-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
-    .{ .name = "delete-saved-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
-    .{ .name = "delete-terminal-commands", .authority = "local-admin", .since = 12, .capability = "terminal-command-history-v1", .stream = null },
-    .{ .name = "delete-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "detach-attached-view", .authority = "frontend", .since = 10, .capability = "view-attachment-detach-v1", .stream = null },
     .{ .name = "detach-client", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "device-setup", .authority = "local-admin", .since = 12, .capability = "device-setup-v1", .stream = null },
     .{ .name = "export-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "feed-local-handoff-abort", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
-    .{ .name = "feed-local-handoff-begin", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
-    .{ .name = "feed-local-handoff-done", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
-    .{ .name = "feed-local-list", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
-    .{ .name = "feed-local-read", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
-    .{ .name = "float-pane", .authority = "control", .since = 12, .capability = "floating-panes-v1", .stream = null },
-    .{ .name = "flush-launch-snapshot", .authority = "control", .since = 12, .capability = "launch-snapshot-flush-v1", .stream = null },
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
-    .{ .name = "forget-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
-    .{ .name = "get-blob", .authority = "control", .since = 12, .capability = "icon-assets-v1", .stream = null },
     .{ .name = "get-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "get-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
-    .{ .name = "get-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
     .{ .name = "get-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
-    .{ .name = "get-host-size-policy", .authority = "control", .since = 12, .capability = "host-size-policy-v1", .stream = null },
     .{ .name = "get-size-state", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
-    .{ .name = "history-search", .authority = "local-admin", .since = 12, .capability = "history-search-v1", .stream = null },
-    .{ .name = "home-inbox", .authority = "local-admin", .since = 12, .capability = "home-inbox-v1", .stream = null },
     .{ .name = "identify", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "ids", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "import-bookmarks", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },
-    .{ .name = "import-session-organization", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "journal-frontend-event", .authority = "control", .since = 10, .capability = "frontend-journal-v1", .stream = null },
     .{ .name = "list-agents", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "list-bookmarks", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },
     .{ .name = "list-clients", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "list-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
-    .{ .name = "list-personal", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
-    .{ .name = "list-saved-screen-groups", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
-    .{ .name = "list-saved-tab-groups", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
-    .{ .name = "list-tab-groups", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
-    .{ .name = "list-terminal-commands", .authority = "local-admin", .since = 12, .capability = "terminal-command-history-v1", .stream = null },
     .{ .name = "list-terminals", .authority = "control", .since = 9, .capability = null, .stream = null },
-    .{ .name = "list-workspace-groups", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "list-workspaces", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "machine-listening-tcp", .authority = "control", .since = 12, .capability = "machine-listening-tcp-v1", .stream = null },
     .{ .name = "machine-usage", .authority = "control", .since = 12, .capability = "machine-usage-v1", .stream = null },
     .{ .name = "mark-workspaces-provider-managed", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
     .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
-    .{ .name = "move-bookmark", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },
-    .{ .name = "move-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
-    .{ .name = "move-column", .authority = "control", .since = 12, .capability = "column-move-v1", .stream = null },
-    .{ .name = "move-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
-    .{ .name = "move-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
-    .{ .name = "move-screen", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
-    .{ .name = "move-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "move-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
-    .{ .name = "move-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
-    .{ .name = "move-tab-group-to-column", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
-    .{ .name = "move-tab-group-to-new-workspace", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
-    .{ .name = "move-tab-group-to-split", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
-    .{ .name = "move-tab-to-column", .authority = "control", .since = 12, .capability = "tab-drag-v1", .stream = null },
-    .{ .name = "move-tab-to-new-workspace", .authority = "control", .since = 12, .capability = "tab-drag-v1", .stream = null },
-    .{ .name = "move-tab-to-split", .authority = "control", .since = 12, .capability = "tab-drag-v1", .stream = null },
     .{ .name = "move-tab-to-workspace", .authority = "control", .since = 12, .capability = "tab-workspace-move-v1", .stream = null },
     .{ .name = "move-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "move-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
-    .{ .name = "move-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
-    .{ .name = "move-workspace-to-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "new-browser-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
-    .{ .name = "new-conversation-tab", .authority = "control", .since = 12, .capability = "conversation-tabs-v1", .stream = null },
-    .{ .name = "new-frontend-browser-tab", .authority = "control", .since = 12, .capability = "frontend-browser-tabs-v1", .stream = null },
     .{ .name = "new-pane", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "new-pane-right", .authority = "control", .since = 9, .capability = "viewport-splits-v1", .stream = null },
-    .{ .name = "new-remote-terminal-tab", .authority = "control", .since = 12, .capability = "remote-terminal-tabs-v1", .stream = null },
-    .{ .name = "new-row", .authority = "control", .since = 12, .capability = "rows-v1", .stream = null },
     .{ .name = "new-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "note-size-activity", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "notify", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "offer-link-to-phone", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
-    .{ .name = "page-credential", .authority = "local-admin", .since = 12, .capability = "page-credential-v1", .stream = null },
     .{ .name = "pairing-response", .authority = "local-admin", .since = 7, .capability = null, .stream = null },
     .{ .name = "pane-neighbor", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "park-tabs", .authority = "control", .since = 12, .capability = "tab-park-v1", .stream = null },
     .{ .name = "paste-image", .authority = "control", .since = 12, .capability = "terminal-image-paste-v1", .stream = null },
-    .{ .name = "pin-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "ping", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "process-census", .authority = "local-admin", .since = 12, .capability = "process-census-v1", .stream = null },
     .{ .name = "process-info", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "put-blob", .authority = "control", .since = 12, .capability = "icon-assets-v1", .stream = null },
     .{ .name = "put-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
-    .{ .name = "put-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
-    .{ .name = "quick-terminal", .authority = "control", .since = 12, .capability = "quick-terminal-v1", .stream = null },
     .{ .name = "read-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "read-scrollback", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reattach-view", .authority = "control", .since = 12, .capability = "sizing-view-detach-v1", .stream = null },
     .{ .name = "register-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
-    .{ .name = "release-workspace-names", .authority = "control", .since = 12, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "remote-host-app", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
-    .{ .name = "remote-host-call", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
-    .{ .name = "remote-host-config", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
-    .{ .name = "remote-host-status", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
-    .{ .name = "remote-terminal-snapshot", .authority = "control", .since = 12, .capability = "remote-terminal-tabs-v1", .stream = null },
-    .{ .name = "remove-screens-from-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
-    .{ .name = "remove-tabs-from-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "rename-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "rename-provider-managed-workspace", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "rename-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "rename-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "rename-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
-    .{ .name = "reopen-saved-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
-    .{ .name = "reopen-saved-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
     .{ .name = "report-agent", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "report-focus", .authority = "control", .since = 12, .capability = "client-focus-v1", .stream = null },
     .{ .name = "resize-attached-view", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "resize-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "resolve-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
-    .{ .name = "restart-tab", .authority = "control", .since = 12, .capability = "tab-restart-v1", .stream = null },
     .{ .name = "run", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "save-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
-    .{ .name = "save-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
     .{ .name = "scroll-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "select-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "select-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -13608,79 +5815,31 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "send", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "send-key", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "server-stats", .authority = "local-admin", .since = 12, .capability = "server-stats-v1", .stream = null },
-    .{ .name = "set-attach-visibility", .authority = "frontend", .since = 12, .capability = "attach-visibility-v1", .stream = null },
     .{ .name = "set-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-sizing", .authority = "control", .since = 10, .capability = null, .stream = null },
-    .{ .name = "set-column-dock", .authority = "control", .since = 12, .capability = "dock-columns-v1", .stream = null },
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
-    .{ .name = "set-divider-visible", .authority = "control", .since = 12, .capability = "split-divider-visibility-v1", .stream = null },
-    .{ .name = "set-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
-    .{ .name = "set-host-size-policy", .authority = "control", .since = 12, .capability = "host-size-policy-v1", .stream = null },
-    .{ .name = "set-layout-sizes", .authority = "control", .since = 12, .capability = "layout-sizes-batch-v1", .stream = null },
-    .{ .name = "set-personal-terminal", .authority = "control", .since = 12, .capability = "personal-terminals-v1", .stream = null },
-    .{ .name = "set-personal-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
-    .{ .name = "set-profile-follows", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-ratio", .authority = "control", .since = 5, .capability = null, .stream = null },
-    .{ .name = "set-row-heights", .authority = "control", .since = 12, .capability = "rows-v1", .stream = null },
-    .{ .name = "set-screen-metadata", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
-    .{ .name = "set-screen-pinned", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
-    .{ .name = "set-session-icon", .authority = "control", .since = 12, .capability = "session-icon-v1", .stream = null },
     .{ .name = "set-size-counts", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-size-policy", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-split-ratio", .authority = "control", .since = 8, .capability = null, .stream = null },
-    .{ .name = "set-tab-pinned", .authority = "control", .since = 12, .capability = "tab-metadata-v1", .stream = null },
-    .{ .name = "set-terminal-command-history", .authority = "local-admin", .since = 12, .capability = "terminal-command-history-v1", .stream = null },
     .{ .name = "set-terminal-idle-policy", .authority = "control", .since = 12, .capability = "terminal-idle-close-v1", .stream = null },
-    .{ .name = "set-terminal-keep", .authority = "control", .since = 12, .capability = "terminal-reap-v1", .stream = null },
-    .{ .name = "set-terminal-tail-pin", .authority = "control", .since = 12, .capability = "terminal-tail-pin-v1", .stream = null },
     .{ .name = "set-viewport-pane-width", .authority = "control", .since = 9, .capability = "viewport-column-resize-v1", .stream = null },
     .{ .name = "set-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "set-workspace-metadata", .authority = "control", .since = 12, .capability = "workspace-metadata-v1", .stream = null },
-    .{ .name = "shell-read", .authority = "control", .since = 12, .capability = "shell-runs-v1", .stream = null },
-    .{ .name = "shell-run", .authority = "control", .since = 12, .capability = "shell-runs-v1", .stream = null },
-    .{ .name = "shell-stop", .authority = "control", .since = 12, .capability = "shell-runs-v1", .stream = null },
     .{ .name = "shutdown-daemon", .authority = "local-admin", .since = 9, .capability = null, .stream = null },
     .{ .name = "sidebar-plugin", .authority = "frontend", .since = 6, .capability = null, .stream = null },
-    .{ .name = "snapshot-request", .authority = "frontend", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "split", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "subscribe", .authority = "frontend", .since = 5, .capability = null, .stream = "subscribe" },
-    .{ .name = "subscribe-activity", .authority = "local-admin", .since = 12, .capability = "vm-activity-v1", .stream = "subscribe" },
     .{ .name = "swap-pane", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "terminal-clipboard-reply", .authority = "frontend", .since = 12, .capability = "terminal-clipboard-read-v1", .stream = null },
-    .{ .name = "terminal-clipboard-subscribe", .authority = "frontend", .since = 12, .capability = "terminal-clipboard-read-v1", .stream = "subscribe" },
-    .{ .name = "terminal-command-context", .authority = "control", .since = 12, .capability = "terminal-command-context-v1", .stream = null },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
-    .{ .name = "terminal-find", .authority = "control", .since = 7, .capability = null, .stream = null },
-    .{ .name = "terminal-history", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
-    .{ .name = "terminal-last-command", .authority = "control", .since = 12, .capability = "terminal-last-command-v1", .stream = null },
-    .{ .name = "terminal-ports", .authority = "control", .since = 12, .capability = "terminal-ports-v1", .stream = null },
-    .{ .name = "terminal-read-range", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
-    .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },
-    .{ .name = "terminal-resume-command", .authority = "control", .since = 12, .capability = "resume-command", .stream = null },
     .{ .name = "undo-layout", .authority = "control", .since = 9, .capability = "layout-undo-v1", .stream = null },
-    .{ .name = "ungroup-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
-    .{ .name = "ungroup-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
-    .{ .name = "unpin-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "unregister-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
-    .{ .name = "unsave-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
-    .{ .name = "unsave-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
-    .{ .name = "update-bookmark", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },
-    .{ .name = "update-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
-    .{ .name = "update-frontend-browser-tab", .authority = "control", .since = 12, .capability = "frontend-browser-tabs-v1", .stream = null },
-    .{ .name = "update-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
-    .{ .name = "update-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
-    .{ .name = "update-remote-terminal-tab", .authority = "control", .since = 12, .capability = "remote-terminal-tabs-v1", .stream = null },
-    .{ .name = "update-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
-    .{ .name = "update-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
-    .{ .name = "update-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "url-open", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
     .{ .name = "url-open-claim", .authority = "frontend", .since = 12, .capability = null, .stream = null },
     .{ .name = "url-open-result", .authority = "frontend", .since = 12, .capability = null, .stream = null },
     .{ .name = "url-open-subscribe", .authority = "frontend", .since = 12, .capability = null, .stream = "subscribe" },
     .{ .name = "vt-state", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "wait-for", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "ws-listen", .authority = "local-admin", .since = 12, .capability = "ws-listen-v1", .stream = null },
     .{ .name = "zoom-pane", .authority = "control", .since = 6, .capability = null, .stream = null },
 };
 
@@ -13691,211 +5850,107 @@ pub const EventDescriptor = struct {
     streams: []const []const u8,
 };
 
-const event_streams_0 = [_][]const u8{"control"};
+const event_streams_0 = [_][]const u8{"subscribe"};
 const event_streams_1 = [_][]const u8{"subscribe"};
-const event_streams_2 = [_][]const u8{"attach-byte"};
-const event_streams_3 = [_][]const u8{"attach-byte"};
-const event_streams_4 = [_][]const u8{"control"};
-const event_streams_5 = [_][]const u8{"control"};
+const event_streams_2 = [_][]const u8{"attach-browser"};
+const event_streams_3 = [_][]const u8{"subscribe"};
+const event_streams_4 = [_][]const u8{"subscribe"};
+const event_streams_5 = [_][]const u8{"subscribe"};
 const event_streams_6 = [_][]const u8{"subscribe"};
-const event_streams_7 = [_][]const u8{"subscribe"};
-const event_streams_8 = [_][]const u8{"control"};
-const event_streams_9 = [_][]const u8{"subscribe"};
-const event_streams_10 = [_][]const u8{"subscribe"};
-const event_streams_11 = [_][]const u8{"attach-browser"};
-const event_streams_12 = [_][]const u8{"subscribe"};
+const event_streams_7 = [_][]const u8{"attach-byte"};
+const event_streams_8 = [_][]const u8{"subscribe"};
+const event_streams_9 = [_][]const u8{"control"};
+const event_streams_10 = [_][]const u8{ "attach-byte", "attach-render", "attach-browser" };
+const event_streams_11 = [_][]const u8{"subscribe"};
+const event_streams_12 = [_][]const u8{"attach-browser"};
 const event_streams_13 = [_][]const u8{"subscribe"};
 const event_streams_14 = [_][]const u8{"subscribe"};
 const event_streams_15 = [_][]const u8{"subscribe"};
-const event_streams_16 = [_][]const u8{"control"};
-const event_streams_17 = [_][]const u8{"subscribe"};
-const event_streams_18 = [_][]const u8{"subscribe"};
-const event_streams_19 = [_][]const u8{"subscribe"};
+const event_streams_16 = [_][]const u8{"subscribe"};
+const event_streams_17 = [_][]const u8{ "subscribe", "attach-byte", "attach-browser" };
+const event_streams_18 = [_][]const u8{"attach-byte"};
+const event_streams_19 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
 const event_streams_20 = [_][]const u8{"subscribe"};
 const event_streams_21 = [_][]const u8{"subscribe"};
-const event_streams_22 = [_][]const u8{"subscribe"};
-const event_streams_23 = [_][]const u8{"subscribe"};
-const event_streams_24 = [_][]const u8{"subscribe"};
-const event_streams_25 = [_][]const u8{"subscribe"};
-const event_streams_26 = [_][]const u8{"subscribe"};
-const event_streams_27 = [_][]const u8{"subscribe"};
-const event_streams_28 = [_][]const u8{"subscribe"};
-const event_streams_29 = [_][]const u8{"subscribe"};
-const event_streams_30 = [_][]const u8{"subscribe"};
-const event_streams_31 = [_][]const u8{"attach-byte"};
+const event_streams_22 = [_][]const u8{"subscribe-deltas"};
+const event_streams_23 = [_][]const u8{"subscribe-deltas"};
+const event_streams_24 = [_][]const u8{"attach-render"};
+const event_streams_25 = [_][]const u8{"attach-render"};
+const event_streams_26 = [_][]const u8{"attach-byte"};
+const event_streams_27 = [_][]const u8{"subscribe-deltas"};
+const event_streams_28 = [_][]const u8{"subscribe-deltas"};
+const event_streams_29 = [_][]const u8{"subscribe-deltas"};
+const event_streams_30 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
+const event_streams_31 = [_][]const u8{ "subscribe", "attach-byte", "attach-render" };
 const event_streams_32 = [_][]const u8{"subscribe"};
 const event_streams_33 = [_][]const u8{"subscribe"};
 const event_streams_34 = [_][]const u8{"subscribe"};
 const event_streams_35 = [_][]const u8{"subscribe"};
 const event_streams_36 = [_][]const u8{"subscribe"};
-const event_streams_37 = [_][]const u8{"subscribe"};
-const event_streams_38 = [_][]const u8{"subscribe"};
-const event_streams_39 = [_][]const u8{"subscribe"};
-const event_streams_40 = [_][]const u8{"control"};
-const event_streams_41 = [_][]const u8{ "attach-byte", "attach-render", "attach-browser" };
-const event_streams_42 = [_][]const u8{"control"};
-const event_streams_43 = [_][]const u8{"subscribe"};
-const event_streams_44 = [_][]const u8{"subscribe"};
+const event_streams_37 = [_][]const u8{"subscribe-deltas"};
+const event_streams_38 = [_][]const u8{"subscribe-deltas"};
+const event_streams_39 = [_][]const u8{"subscribe-deltas"};
+const event_streams_40 = [_][]const u8{"subscribe"};
+const event_streams_41 = [_][]const u8{"subscribe"};
+const event_streams_42 = [_][]const u8{"subscribe"};
+const event_streams_43 = [_][]const u8{"control"};
+const event_streams_44 = [_][]const u8{"attach-byte"};
 const event_streams_45 = [_][]const u8{"subscribe"};
-const event_streams_46 = [_][]const u8{"attach-browser"};
-const event_streams_47 = [_][]const u8{"subscribe"};
-const event_streams_48 = [_][]const u8{"subscribe"};
-const event_streams_49 = [_][]const u8{"subscribe"};
-const event_streams_50 = [_][]const u8{"subscribe"};
-const event_streams_51 = [_][]const u8{"subscribe"};
-const event_streams_52 = [_][]const u8{"subscribe"};
-const event_streams_53 = [_][]const u8{ "subscribe", "attach-byte", "attach-browser" };
-const event_streams_54 = [_][]const u8{"attach-byte"};
-const event_streams_55 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
-const event_streams_56 = [_][]const u8{"subscribe"};
-const event_streams_57 = [_][]const u8{"subscribe"};
-const event_streams_58 = [_][]const u8{"subscribe-deltas"};
-const event_streams_59 = [_][]const u8{"subscribe-deltas"};
-const event_streams_60 = [_][]const u8{"subscribe"};
-const event_streams_61 = [_][]const u8{"subscribe"};
-const event_streams_62 = [_][]const u8{"control"};
-const event_streams_63 = [_][]const u8{"subscribe"};
-const event_streams_64 = [_][]const u8{"attach-render"};
-const event_streams_65 = [_][]const u8{"attach-render"};
-const event_streams_66 = [_][]const u8{"attach-byte"};
-const event_streams_67 = [_][]const u8{"subscribe-deltas"};
-const event_streams_68 = [_][]const u8{"subscribe-deltas"};
-const event_streams_69 = [_][]const u8{"subscribe-deltas"};
-const event_streams_70 = [_][]const u8{"subscribe"};
-const event_streams_71 = [_][]const u8{"subscribe-deltas"};
-const event_streams_72 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
-const event_streams_73 = [_][]const u8{"subscribe-deltas"};
-const event_streams_74 = [_][]const u8{"subscribe"};
-const event_streams_75 = [_][]const u8{ "subscribe", "attach-byte", "attach-render" };
-const event_streams_76 = [_][]const u8{"subscribe"};
-const event_streams_77 = [_][]const u8{"subscribe"};
-const event_streams_78 = [_][]const u8{"subscribe"};
-const event_streams_79 = [_][]const u8{"subscribe"};
-const event_streams_80 = [_][]const u8{"subscribe"};
-const event_streams_81 = [_][]const u8{"subscribe"};
-const event_streams_82 = [_][]const u8{"subscribe-deltas"};
-const event_streams_83 = [_][]const u8{"subscribe-deltas"};
-const event_streams_84 = [_][]const u8{"subscribe-deltas"};
-const event_streams_85 = [_][]const u8{"subscribe-deltas"};
-const event_streams_86 = [_][]const u8{"control"};
-const event_streams_87 = [_][]const u8{"control"};
-const event_streams_88 = [_][]const u8{"control"};
-const event_streams_89 = [_][]const u8{"subscribe"};
-const event_streams_90 = [_][]const u8{"subscribe"};
-const event_streams_91 = [_][]const u8{"subscribe"};
-const event_streams_92 = [_][]const u8{"subscribe"};
-const event_streams_93 = [_][]const u8{"control"};
-const event_streams_94 = [_][]const u8{"attach-byte"};
-const event_streams_95 = [_][]const u8{"subscribe"};
-const event_streams_96 = [_][]const u8{"subscribe-deltas"};
-const event_streams_97 = [_][]const u8{"subscribe-deltas"};
-const event_streams_98 = [_][]const u8{"subscribe-deltas"};
-const event_streams_99 = [_][]const u8{"subscribe-deltas"};
-const event_streams_100 = [_][]const u8{"subscribe-deltas"};
-const event_streams_101 = [_][]const u8{"subscribe-deltas"};
+const event_streams_46 = [_][]const u8{"subscribe-deltas"};
+const event_streams_47 = [_][]const u8{"subscribe-deltas"};
+const event_streams_48 = [_][]const u8{"subscribe-deltas"};
+const event_streams_49 = [_][]const u8{"subscribe-deltas"};
 
-pub const event_count: usize = 102;
+pub const event_count: usize = 50;
 pub const events = [_]EventDescriptor{
-    .{ .name = "activity-changed", .since = 12, .capability = "vm-activity-v1", .streams = &event_streams_0 },
-    .{ .name = "agent-changed", .since = 11, .capability = null, .streams = &event_streams_1 },
-    .{ .name = "agent-cli-frame", .since = 12, .capability = "agent-cli-hybrid-v1", .streams = &event_streams_2 },
-    .{ .name = "agent-cli-lean", .since = 12, .capability = "agent-cli-hybrid-v2", .streams = &event_streams_3 },
-    .{ .name = "agent-inventory-changed", .since = 12, .capability = "agent-inventory-watch-v1", .streams = &event_streams_4 },
-    .{ .name = "agent-inventory-watch-ended", .since = 12, .capability = "agent-inventory-watch-v1", .streams = &event_streams_5 },
-    .{ .name = "agent-presence-changed", .since = 12, .capability = "agent-presence-v1", .streams = &event_streams_6 },
-    .{ .name = "agent-session-share-changed", .since = 12, .capability = "agent-session-share-events-v1", .streams = &event_streams_7 },
-    .{ .name = "apps-cloud-machine", .since = 12, .capability = "apps-v1", .streams = &event_streams_8 },
-    .{ .name = "bell", .since = 5, .capability = null, .streams = &event_streams_9 },
-    .{ .name = "bookmarks-changed", .since = 12, .capability = "bookmarks-v1", .streams = &event_streams_10 },
-    .{ .name = "browser-state", .since = 6, .capability = null, .streams = &event_streams_11 },
-    .{ .name = "chief-changed", .since = 12, .capability = "chief-events-v1", .streams = &event_streams_12 },
-    .{ .name = "client-attached", .since = 6, .capability = null, .streams = &event_streams_13 },
-    .{ .name = "client-changed", .since = 6, .capability = null, .streams = &event_streams_14 },
-    .{ .name = "client-detached", .since = 6, .capability = null, .streams = &event_streams_15 },
-    .{ .name = "client-disconnected-by", .since = 12, .capability = null, .streams = &event_streams_16 },
-    .{ .name = "client-list-invalidated", .since = 9, .capability = null, .streams = &event_streams_17 },
-    .{ .name = "cloud-conversation-changed", .since = 12, .capability = "cloud-conversations-v1", .streams = &event_streams_18 },
-    .{ .name = "cloud-conversation-live", .since = 12, .capability = "cloud-chief-live-v1", .streams = &event_streams_19 },
-    .{ .name = "cloud-conversation-presence", .since = 12, .capability = "cloud-conversation-presence-v1", .streams = &event_streams_20 },
-    .{ .name = "cloud-conversation-resynced", .since = 12, .capability = "cloud-conversations-v1", .streams = &event_streams_21 },
-    .{ .name = "cloud-conversation-run-changed", .since = 12, .capability = "cloud-conversation-runs-v1", .streams = &event_streams_22 },
-    .{ .name = "cloud-conversation-typing", .since = 12, .capability = "cloud-conversation-typing-v1", .streams = &event_streams_23 },
-    .{ .name = "cloud-host-replica-needed", .since = 12, .capability = "cloud-host-replica-v1", .streams = &event_streams_24 },
-    .{ .name = "cloud-inbox-changed", .since = 12, .capability = "cloud-conversations-v1", .streams = &event_streams_25 },
-    .{ .name = "cloud-inbox-reset", .since = 12, .capability = "cloud-conversations-v1", .streams = &event_streams_26 },
-    .{ .name = "cloud-mux-resynced", .since = 12, .capability = "cloud-conversations-v1", .streams = &event_streams_27 },
-    .{ .name = "cloud-mux-wake", .since = 12, .capability = "cloud-conversations-v1", .streams = &event_streams_28 },
-    .{ .name = "cloud-session-needed", .since = 12, .capability = "cloud-conversations-v1", .streams = &event_streams_29 },
-    .{ .name = "cloud-subscription-state", .since = 12, .capability = "cloud-conversations-v1", .streams = &event_streams_30 },
-    .{ .name = "colors-changed", .since = 6, .capability = null, .streams = &event_streams_31 },
-    .{ .name = "config-reload-requested", .since = 6, .capability = null, .streams = &event_streams_32 },
-    .{ .name = "conversation-changed", .since = 12, .capability = "local-conversations-v1", .streams = &event_streams_33 },
-    .{ .name = "conversation-draft", .since = 12, .capability = "conversation-draft-events-v1", .streams = &event_streams_34 },
-    .{ .name = "conversation-inbox-changed", .since = 12, .capability = "conversation-inbox-state-v1", .streams = &event_streams_35 },
-    .{ .name = "conversation-live", .since = 12, .capability = "chief-live-v1", .streams = &event_streams_36 },
-    .{ .name = "conversation-run-changed", .since = 12, .capability = "conversation-runs-v1", .streams = &event_streams_37 },
-    .{ .name = "conversation-scheduled-changed", .since = 12, .capability = "conversation-scheduled-v1", .streams = &event_streams_38 },
-    .{ .name = "conversation-typing", .since = 12, .capability = "local-conversations-v1", .streams = &event_streams_39 },
-    .{ .name = "daemon-shutdown", .since = 12, .capability = null, .streams = &event_streams_40 },
-    .{ .name = "detached", .since = 5, .capability = null, .streams = &event_streams_41 },
-    .{ .name = "device-setup-step", .since = 12, .capability = null, .streams = &event_streams_42 },
-    .{ .name = "empty", .since = 5, .capability = null, .streams = &event_streams_43 },
-    .{ .name = "feed-reports-changed", .since = 12, .capability = "feed-client-v1", .streams = &event_streams_44 },
-    .{ .name = "feed-view-changed", .since = 12, .capability = "feed-client-v1", .streams = &event_streams_45 },
-    .{ .name = "frame", .since = 6, .capability = null, .streams = &event_streams_46 },
-    .{ .name = "frontend-projection-changed", .since = 7, .capability = null, .streams = &event_streams_47 },
-    .{ .name = "graphics-status", .since = 10, .capability = null, .streams = &event_streams_48 },
-    .{ .name = "history-changed", .since = 12, .capability = "history-v1", .streams = &event_streams_49 },
-    .{ .name = "keybindings-changed", .since = 12, .capability = "keybindings-v1", .streams = &event_streams_50 },
-    .{ .name = "layout-changed", .since = 6, .capability = null, .streams = &event_streams_51 },
-    .{ .name = "machine-usage-changed", .since = 12, .capability = "machine-usage-v1", .streams = &event_streams_52 },
-    .{ .name = "notification", .since = 6, .capability = null, .streams = &event_streams_53 },
-    .{ .name = "output", .since = 5, .capability = null, .streams = &event_streams_54 },
-    .{ .name = "overflow", .since = 7, .capability = null, .streams = &event_streams_55 },
-    .{ .name = "pairing-requested", .since = 7, .capability = null, .streams = &event_streams_56 },
-    .{ .name = "pairing-resolved", .since = 7, .capability = null, .streams = &event_streams_57 },
-    .{ .name = "pane-added", .since = 7, .capability = null, .streams = &event_streams_58 },
-    .{ .name = "pane-closed", .since = 7, .capability = null, .streams = &event_streams_59 },
-    .{ .name = "participant-avatar-changed", .since = 12, .capability = "participant-avatars-v1", .streams = &event_streams_60 },
-    .{ .name = "personal-changed", .since = 12, .capability = "profiles-v1", .streams = &event_streams_61 },
-    .{ .name = "phone-open-link", .since = 12, .capability = null, .streams = &event_streams_62 },
-    .{ .name = "program-status-changed", .since = 12, .capability = null, .streams = &event_streams_63 },
-    .{ .name = "render-delta", .since = 7, .capability = null, .streams = &event_streams_64 },
-    .{ .name = "render-state", .since = 7, .capability = null, .streams = &event_streams_65 },
-    .{ .name = "resized", .since = 6, .capability = null, .streams = &event_streams_66 },
-    .{ .name = "screen-added", .since = 7, .capability = null, .streams = &event_streams_67 },
-    .{ .name = "screen-changed", .since = 12, .capability = "screen-metadata-v1", .streams = &event_streams_68 },
-    .{ .name = "screen-closed", .since = 7, .capability = null, .streams = &event_streams_69 },
-    .{ .name = "screen-device-changed", .since = 12, .capability = "screen-device-identity-v1", .streams = &event_streams_70 },
-    .{ .name = "screen-renamed", .since = 7, .capability = null, .streams = &event_streams_71 },
-    .{ .name = "scroll-changed", .since = 6, .capability = null, .streams = &event_streams_72 },
-    .{ .name = "selection-changed", .since = 12, .capability = "tree-selection-deltas-v1", .streams = &event_streams_73 },
-    .{ .name = "settings-changed", .since = 12, .capability = "settings-v1", .streams = &event_streams_74 },
-    .{ .name = "size-state", .since = 12, .capability = "shared-sizing-v1", .streams = &event_streams_75 },
-    .{ .name = "stash-changed", .since = 12, .capability = "stash-v1", .streams = &event_streams_76 },
-    .{ .name = "status", .since = 5, .capability = null, .streams = &event_streams_77 },
-    .{ .name = "surface-exited", .since = 5, .capability = null, .streams = &event_streams_78 },
-    .{ .name = "surface-output", .since = 5, .capability = null, .streams = &event_streams_79 },
-    .{ .name = "surface-resize-failed", .since = 7, .capability = null, .streams = &event_streams_80 },
-    .{ .name = "surface-resized", .since = 5, .capability = null, .streams = &event_streams_81 },
-    .{ .name = "tab-added", .since = 7, .capability = null, .streams = &event_streams_82 },
-    .{ .name = "tab-changed", .since = 12, .capability = "tab-metadata-v1", .streams = &event_streams_83 },
-    .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_84 },
-    .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_85 },
-    .{ .name = "terminal-clipboard-read", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_86 },
-    .{ .name = "terminal-clipboard-read-cancelled", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_87 },
-    .{ .name = "terminal-input-unclaimed", .since = 12, .capability = "terminal-input-while-creating-v1", .streams = &event_streams_88 },
-    .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_89 },
-    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_90 },
-    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_91 },
-    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_92 },
-    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_93 },
-    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_94 },
-    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_95 },
-    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_96 },
-    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_97 },
-    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_98 },
-    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_99 },
-    .{ .name = "workspace-presentation-changed", .since = 12, .capability = "tree-selection-deltas-v1", .streams = &event_streams_100 },
-    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_101 },
+    .{ .name = "agent-changed", .since = 11, .capability = null, .streams = &event_streams_0 },
+    .{ .name = "bell", .since = 5, .capability = null, .streams = &event_streams_1 },
+    .{ .name = "browser-state", .since = 6, .capability = null, .streams = &event_streams_2 },
+    .{ .name = "client-attached", .since = 6, .capability = null, .streams = &event_streams_3 },
+    .{ .name = "client-changed", .since = 6, .capability = null, .streams = &event_streams_4 },
+    .{ .name = "client-detached", .since = 6, .capability = null, .streams = &event_streams_5 },
+    .{ .name = "client-list-invalidated", .since = 9, .capability = null, .streams = &event_streams_6 },
+    .{ .name = "colors-changed", .since = 6, .capability = null, .streams = &event_streams_7 },
+    .{ .name = "config-reload-requested", .since = 6, .capability = null, .streams = &event_streams_8 },
+    .{ .name = "daemon-shutdown", .since = 12, .capability = null, .streams = &event_streams_9 },
+    .{ .name = "detached", .since = 5, .capability = null, .streams = &event_streams_10 },
+    .{ .name = "empty", .since = 5, .capability = null, .streams = &event_streams_11 },
+    .{ .name = "frame", .since = 6, .capability = null, .streams = &event_streams_12 },
+    .{ .name = "frontend-projection-changed", .since = 7, .capability = null, .streams = &event_streams_13 },
+    .{ .name = "graphics-status", .since = 10, .capability = null, .streams = &event_streams_14 },
+    .{ .name = "layout-changed", .since = 6, .capability = null, .streams = &event_streams_15 },
+    .{ .name = "machine-usage-changed", .since = 12, .capability = "machine-usage-v1", .streams = &event_streams_16 },
+    .{ .name = "notification", .since = 6, .capability = null, .streams = &event_streams_17 },
+    .{ .name = "output", .since = 5, .capability = null, .streams = &event_streams_18 },
+    .{ .name = "overflow", .since = 7, .capability = null, .streams = &event_streams_19 },
+    .{ .name = "pairing-requested", .since = 7, .capability = null, .streams = &event_streams_20 },
+    .{ .name = "pairing-resolved", .since = 7, .capability = null, .streams = &event_streams_21 },
+    .{ .name = "pane-added", .since = 7, .capability = null, .streams = &event_streams_22 },
+    .{ .name = "pane-closed", .since = 7, .capability = null, .streams = &event_streams_23 },
+    .{ .name = "render-delta", .since = 7, .capability = null, .streams = &event_streams_24 },
+    .{ .name = "render-state", .since = 7, .capability = null, .streams = &event_streams_25 },
+    .{ .name = "resized", .since = 6, .capability = null, .streams = &event_streams_26 },
+    .{ .name = "screen-added", .since = 7, .capability = null, .streams = &event_streams_27 },
+    .{ .name = "screen-closed", .since = 7, .capability = null, .streams = &event_streams_28 },
+    .{ .name = "screen-renamed", .since = 7, .capability = null, .streams = &event_streams_29 },
+    .{ .name = "scroll-changed", .since = 6, .capability = null, .streams = &event_streams_30 },
+    .{ .name = "size-state", .since = 12, .capability = "shared-sizing-v1", .streams = &event_streams_31 },
+    .{ .name = "status", .since = 5, .capability = null, .streams = &event_streams_32 },
+    .{ .name = "surface-exited", .since = 5, .capability = null, .streams = &event_streams_33 },
+    .{ .name = "surface-output", .since = 5, .capability = null, .streams = &event_streams_34 },
+    .{ .name = "surface-resize-failed", .since = 7, .capability = null, .streams = &event_streams_35 },
+    .{ .name = "surface-resized", .since = 5, .capability = null, .streams = &event_streams_36 },
+    .{ .name = "tab-added", .since = 7, .capability = null, .streams = &event_streams_37 },
+    .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_38 },
+    .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_39 },
+    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_40 },
+    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_41 },
+    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_42 },
+    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_43 },
+    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_44 },
+    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_45 },
+    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_46 },
+    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_47 },
+    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_48 },
+    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_49 },
 };

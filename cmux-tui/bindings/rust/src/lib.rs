@@ -27,35 +27,21 @@
 //! use cmux::Id;
 //! ```
 //!
-//! The byte-mode terminal attachment is a protocol-v12 escape hatch too:
-//!
-//! ```compile_fail
-//! use cmux::ByteAttachment;
-//! ```
-//!
 //! Local sidebar plugin installation and selection are CLI-only:
 //!
 //! ```compile_fail
 //! use cmux::SidebarPlugin;
 //! ```
 
-mod chat_target;
 mod client;
 mod codec;
 mod convenience;
-pub mod conversation_rules;
 mod generated;
-#[cfg(any(windows, feature = "local-socket"))]
-pub mod local_socket;
 mod presence;
 pub mod raw;
 mod raw_support;
 mod resource;
-pub mod session_list_sync;
-mod socket_hash;
-mod socket_paths;
-// Used by the hashed-socket tests only.
-#[cfg(all(test, unix, feature = "socket-path-hash"))]
+#[cfg(all(test, unix))]
 mod test_roots;
 mod topology;
 
@@ -65,8 +51,5 @@ use client::{CmuxClient, CmuxStream};
 use presence::{Nullable, Optional};
 use raw_support::{CommandMetadata, EventMetadata, ProfileMetadata, StreamMetadata};
 
-pub use chat_target::{
-    CHAT_CAPABILITY, ChatTarget, ChatTargetRefusal, catalog_machines, resolve_chat_target,
-};
 pub use client::{CmuxError as Error, Result};
 pub use resource::*;

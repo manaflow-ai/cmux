@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 @testable import StackAuth
 
 /// Each ephemeral URLSession routes to its own actor through a unique synthetic

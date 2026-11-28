@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stand-ins for the macOS tools (ditto, PlistBuddy, the Sparkle key) for jobs that have none.
+"""Linux stand-ins for the macOS tools cmux-next-dev-daily.yml's sign job used.
 
   dev_app_linux.py unzip ARCHIVE DEST     ditto -x -k
   dev_app_linux.py zip APP ARCHIVE        ditto -c -k --keepParent

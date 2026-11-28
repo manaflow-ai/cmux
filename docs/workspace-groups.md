@@ -52,59 +52,67 @@ Pressing `⌘N` while the active workspace is a group anchor or group member als
 
 ## CLI
 
-Groups are scriptable with `cmux workspace group …`. Group and workspace arguments take a group id or key and a workspace id or key.
+All group operations are scriptable via `cmux workspace-group <subcommand>`. The hyphenated form ships first; once the broader `cmux workspace <noun>` namespace lands, `cmux workspace group ...` will be the canonical form with the hyphenated form kept as an alias forever.
+
+### Subcommands
 
 ```bash
-cmux workspace group list
-cmux workspace group create --name "manaflow" [--color <token|#hex>] [--id <id>] [--index <n>] [--collapse]
-cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color] [--collapse|--expand]
-cmux workspace group <group> delete
-cmux workspace group <group> move --index <n>
-cmux workspace group <group> add --workspace <key|id> [--index <n>]
-cmux workspace group remove --workspace <key|id>
+cmux workspace-group list [--json]
+cmux workspace-group create --name "manaflow" [--cwd ~/projects/manaflow] [--from <id>,<id>] [--idempotency-key <key>]
+cmux workspace-group ungroup <group-id> [--remove-generated-anchor]
+cmux workspace-group delete <group-id>                         # dissolve; keep workspaces
+cmux workspace-group delete <group-id> --close-workspaces      # explicitly destructive
+cmux workspace-group rename <group-id> --name "new name"
+cmux workspace-group collapse <group-id>
+cmux workspace-group expand <group-id>
+cmux workspace-group pin <group-id>
+cmux workspace-group unpin <group-id>
+cmux workspace-group add --group <group-id> --workspace <workspace-id>
+cmux workspace-group remove --workspace <workspace-id>
+cmux workspace-group set-anchor --group <group-id> --workspace <workspace-id>
+cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]
 ```
 
-The rest are app actions on the focused group, or the one `--target` names (list them with `cmux action list --noun workspace-group`):
+`create` returns a group handle (`workspace_group:N` by default). Omitting `--from` creates an anchor-only group; existing workspaces are never inferred from selection or caller context. Pass `--json` for the full structured payload.
 
-```bash
-cmux workspace-group new-workspace
-cmux workspace-group ungroup
-cmux workspace-group toggle-pin
-cmux workspace-group close-workspaces     # closes every member workspace
-```
+Use a stable `--idempotency-key` (or `--external-id`) when more than one controller can reconcile the same logical group. The key is atomic within the target window and is persisted with the group. `--remove-generated-anchor` is an explicit cleanup path for an anchor-only group whose current anchor still has cmux-generated provenance; it refuses groups with child workspaces or user-selected anchors.
 
-The Swift CLI's `cmux workspace-group …` flags `--cwd`, `--from`, `--idempotency-key`, `--external-id`, `--remove-generated-anchor`, `--close-workspaces`, and `--placement`, and the `set-anchor` verb, were removed with no Rust equivalent yet (see [plans/cmux-next/cli.md](../plans/cmux-next/cli.md)).
+`delete` dissolves the group and keeps its workspaces by default. Pass `--close-workspaces` only when you intend to close every member workspace and terminate its processes. The response reports whether the group was dissolved or its workspaces were closed, including the affected count.
 
 ### Examples
 
 Group two explicitly chosen workspaces under a name:
 
 ```bash
-cmux workspace group create --name manaflow --id manaflow
-cmux workspace group manaflow add --workspace ws_0123456789abcdef0123456789abcdef
-cmux workspace group manaflow add --workspace ws_fedcba9876543210fedcba9876543210
+cmux workspace-group create --name manaflow --from workspace:1,workspace:2
 ```
 
-List groups:
+Spin up a new workspace inside an existing group (e.g. wired to a worktree script):
 
 ```bash
-cmux --json workspace group list
+cmux workspace-group new-workspace workspace_group:1
+```
+
+List groups in the focused window:
+
+```bash
+cmux workspace-group list
 ```
 
 ## Configuration
 
-Per-group configuration is keyed by the anchor's working directory in `~/.config/cmux/cmux.json`. A group's entry sets its header color and icon, where New Workspace in Group puts a new workspace, and extra rows for its header menu. **Edit Group Config…** in a group's header menu opens the file at that group's entry, and adds an empty entry for the group's folder when none matches:
+Per-group configuration is keyed by the anchor's working directory in `~/.config/cmux/cmux.json` (this surface lands in a follow-up; the file location is reserved). The intent:
 
 ```jsonc
 {
   "workspaceGroups": {
     // Global default for Cmd-N inside a group, the group header + button, and
     // configured group actions. Per-cwd entries below can override it.
-    //   "end" (default)  - after the trailing member
-    //   "top"            - second slot, right after the anchor
-    //   "afterCurrent"   - after the active in-group workspace; falls back
-    //                      to top when there is no member reference
-    "newWorkspacePlacement": "end",
+    //   "afterCurrent" (default) - after the active in-group workspace; falls
+    //                              back to top when there is no member reference
+    //   "top"                    - second slot, right after the anchor
+    //   "end"                    - after the trailing member
+    "newWorkspacePlacement": "afterCurrent",
     "byCwd": {
       "/Users/you/manaflow/cmux": {
         "color": "#7A4FD8",
@@ -129,9 +137,9 @@ Per-group configuration is keyed by the anchor's working directory in `~/.config
 Matching: keys containing `*` or `?` are globs; otherwise they are path prefixes. Longest match wins.
 
 Resolution order for group new-workspace placement:
-1. Explicit `"placement"` in the v2 `workspace.group.new_workspace` params.
+1. Explicit `--placement afterCurrent|top|end` on `cmux workspace-group new-workspace`, or `"placement"` in the v2 `workspace.group.new_workspace` params.
 2. The per-cwd entry above.
-3. Global default via Settings > App > Group New Workspace Placement or `workspaceGroups.newWorkspacePlacement` in `cmux.json` (defaults to `end`).
+3. Global default via Settings > App > Group New Workspace Placement or `workspaceGroups.newWorkspacePlacement` in `cmux.json` (defaults to `afterCurrent`).
 
 `Cmd-N` inside a group uses the active group workspace as the placement reference. The group header `+` button and CLI path use the anchor as the reference, so `afterCurrent` behaves like `top` there.
 

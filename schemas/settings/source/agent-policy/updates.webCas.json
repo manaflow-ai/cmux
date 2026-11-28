@@ -1,4 +1,0 @@
-{
-  "agent": "network",
-  "why": "On, web UI updates download chunks of new page code from files.cmux.com."
-}

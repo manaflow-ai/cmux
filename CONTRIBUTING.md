@@ -13,7 +13,8 @@ Only needed for the native app. Docs, translations, Python tooling, `cmux-tui` a
 `web/` work on Linux; see [what you can fix without a Mac build](docs/start-here.md#2-things-you-can-fix-without-a-mac-build).
 
 - macOS 14+
-- Xcode 26 (the pinned toolchain)
+- Xcode 26 (the pinned toolchain). Xcode 16.2 on Intel Macs with macOS 14.5+ also
+  builds the app, best effort ([Swift 6.0 limits](skills/cmux-architecture/references/swift-6-0-compatibility.md)).
 - The Xcode 26 Metal compiler, which is a separate download. Select the Xcode you
   build with first (`DEVELOPER_DIR` overrides `xcode-select`), then:
 
@@ -21,9 +22,9 @@ Only needed for the native app. Docs, translations, Python tooling, `cmux-tui` a
   xcodebuild -downloadComponent MetalToolchain
   ```
 
-- [Zig](https://ziglang.org/) (install via `brew install zig`)
-- [Rust](https://rustup.rs). Every app build compiles the bundled Rust helpers
-  (acpmux, the cmux-tui client) with `cargo`, and `scripts/setup.sh` looks for `rustup` in `~/.cargo/bin`, where
+- [Zig](https://ziglang.org/): `brew install zig`
+- [Rust](https://rustup.rs). Every app build compiles the bundled `cmux-cua` engine
+  with `cargo`, and `scripts/setup.sh` looks for `rustup` in `~/.cargo/bin`, where
   the official installer puts it:
 
   ```bash
@@ -45,10 +46,6 @@ CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag my-feature
 - `setup.sh` initializes the submodules, installs the pinned Rust toolchain, and
   fetches a checksum-pinned prebuilt `GhosttyKit.xcframework` (it builds from source
   with Zig if that fails; force that with `CMUX_GHOSTTYKIT_NO_PREBUILT=1`).
-- With cmux NIGHTLY installed, a change to the web UI or the daemon needs no build:
-  `cmux app try .` copies your nightly and swaps your code into the copy, beside your
-  cmux (`--stop` deletes it; [the loop](docs/cmux-next/hot-reload.md#the-loop)).
-  The tagged build below stays the way for Swift.
 - `reload.sh --tag <tag>` builds a tagged Debug app and prints its path. Add
   `--launch` to open it, or `--build-only` to only compile.
   `CMUX_DEV_BACKEND_MODE=local` points it at the local dev origin; without it a
@@ -63,13 +60,6 @@ CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag my-feature
 - After pulling changes to setup or the merge drivers, rerun
   `./scripts/install-git-hooks.sh`. With a custom `core.hooksPath` it prints the
   `pre-commit` and `post-merge` lines to add yourself; wire both.
-- The tracked pre-commit hook formats only staged webview files with `vp fmt`
-  and staged `cmux-tui` Rust files with direct `rustfmt`, then re-stages
-  formatter output. It never builds, and skips all formatters during a merge
-  commit. Install it in every worktree with
-  `./scripts/install-git-hooks.sh` (the configured hooks path is shared by the
-  worktrees in a clone). Stage or stash edits in the affected file or Rust
-  package before committing so the hook cannot include unstaged changes.
 
 Team members with a Stack account can also sign DEBUG builds in and attach an iOS
 build: see [team dev setup](docs/team-dev-setup.md).
@@ -78,18 +68,8 @@ build: see [team dev setup](docs/team-dev-setup.md).
 
 ## Fast checks before committing or building
 
-Run `python3 scripts/verify-local.py` on your reviewed checkout. It selects
-affected static checks and parses changed Swift, including committed branch edits.
-The base comes from local `upstream/HEAD`, then `origin/HEAD`; nothing is fetched.
-Use `--list` to preview, `--all` for the full CI static recipe, or `--affected BASE`
-to choose a different static comparison base.
-
-Checks cover localization, project wiring, package grouping, generated policy
-and feature flags. Unknown inputs or a missing base select the full static recipe.
-CI also keeps the full static recipe. Failures print a focused rerun command:
-
-```sh
-python3 scripts/verify-local.py --only project
+```bash
+python3 scripts/verify-local.py
 ```
 
 It picks the static checks your diff touches (localization, project and test
@@ -133,16 +113,14 @@ for CI:
 - The broad macOS suite is label-gated. A maintainer adds `full-ci` when a change
   needs it ([PR CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)).
   It is not a merge requirement.
+- No pull request job runs `cmuxUITests/` in full. If you touch that directory, the
+  `suite-coverage` check stays red until a maintainer runs the affected classes and
+  records it with `no-full-ci`.
 - On your first pull request, checks wait for a maintainer to approve the workflow
   run. That's a GitHub default for new contributors, not a judgement on the patch.
 
 Read which tests actually ran on your commit, not the color of the checks list: a
 skipped job is green and is not coverage.
-
-To see whether a red check is yours or already red on the base branch, run
-`scripts/ci-why` (your current branch's pull request) or `scripts/ci-why N`. It uses
-your own `gh` login, reads once and changes nothing
-([is this red mine?](docs/ci/landing.md#is-this-red-mine)).
 
 ## Ghostty Submodule
 
@@ -179,5 +157,5 @@ Agents working in this repository also follow [CLAUDE.md](CLAUDE.md) (also `AGEN
 
 By contributing to this repository, you agree that:
 
-1. Your contributions are licensed under the license of the directory you contribute to: the Business Source License 1.1 (`BUSL-1.1`) for the server directories listed in [LICENSE](LICENSE) (`web/`, `workers/ci-artifacts/`, `workers/iroh-v2/`, `workers/presence/`, `workers/device-hub/`, `services/iroh-relay-minter/`, `cmux-tui/relays/cloudflare-do/`), and the project's GNU General Public License v3.0 or later (`GPL-3.0-or-later`) everywhere else unless a file states otherwise.
+1. Your contributions are licensed under the license of the directory you contribute to: the Business Source License 1.1 (`BUSL-1.1`) for the server directories listed in [LICENSE](LICENSE) (`web/`, `workers/ci-artifacts/`, `workers/iroh-v2/`, `workers/presence/`, `services/iroh-relay-minter/`, `cmux-tui/relays/cloudflare-do/`), and the project's GNU General Public License v3.0 or later (`GPL-3.0-or-later`) everywhere else unless a file states otherwise.
 2. You grant Manaflow, Inc. a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use, reproduce, modify, sublicense, and distribute your contributions under any license, including a commercial license offered to third parties.

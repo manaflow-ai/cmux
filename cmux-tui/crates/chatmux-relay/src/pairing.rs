@@ -8,6 +8,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::config::Config;
@@ -102,18 +103,6 @@ pub fn websocket_url(value: &str) -> String {
     }
 }
 
-/// How long a pairing start waits out the server's rate limit before it stops.
-const PAIRING_RATE_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
-
-/// The wait a 429 names (`Retry-After` seconds), else 30 s; at least 1 s.
-fn rate_wait(retry_after: Option<&reqwest::header::HeaderValue>) -> std::time::Duration {
-    let secs = retry_after
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .unwrap_or(30);
-    std::time::Duration::from_secs(secs.clamp(1, 120))
-}
-
 /// `POST /v2/pairing/start`; verifies the server derived OUR cute code.
 pub async fn start_pairing(
     client: &reqwest::Client,
@@ -125,46 +114,25 @@ pub async fn start_pairing(
     let secret = random_secret()?;
     let relay_public_key = mint_relay_public_key()?;
     let cute_code = derive_cute_code(&relay_public_key);
-    let body = serde_json::json!({
-        "version": PAIRING_WIRE_VERSION,
-        "pairId": pair_id,
-        "secretHash": hash_base64url(&secret),
-        "relayPublicKey": relay_public_key,
-        "relayName": name,
-        "platform": platform,
-    });
-    // A 429 refused the start (nothing was made), so the same start is sent
-    // again after the server's wait, within PAIRING_RATE_WAIT; the person
-    // only sees one line saying it waits.
-    let deadline = tokio::time::Instant::now() + PAIRING_RATE_WAIT;
-    let mut told = false;
-    let response = loop {
-        let response = client
-            .post(format!("{backend}/v2/pairing/start"))
-            .json(&body)
-            .send()
-            .await
-            .map_err(|error| RelayError::transient(format!("pairing start failed: {error}")))?;
-        if response.status() != reqwest::StatusCode::TOO_MANY_REQUESTS {
-            break response;
-        }
-        let wait = rate_wait(response.headers().get(reqwest::header::RETRY_AFTER));
-        if tokio::time::Instant::now() + wait > deadline {
-            return Err(RelayError::fatal(
-                // retry-prompt-ok: a rate limit the person must wait out, already waited for 2 minutes here.
-                "The server is rate-limiting pairing attempts from this network for longer than \
-                 the relay waits (2 minutes). Wait a few minutes, then re-run npx cmux-relay.",
-            ));
-        }
-        if !told {
-            told = true;
-            eprintln!(
-                "The server is rate-limiting pairing attempts from this network; waiting {} s\u{2026}",
-                wait.as_secs()
-            );
-        }
-        tokio::time::sleep(wait).await;
-    };
+    let response = client
+        .post(format!("{backend}/v2/pairing/start"))
+        .json(&serde_json::json!({
+            "version": PAIRING_WIRE_VERSION,
+            "pairId": pair_id,
+            "secretHash": hash_base64url(&secret),
+            "relayPublicKey": relay_public_key,
+            "relayName": name,
+            "platform": platform,
+        }))
+        .send()
+        .await
+        .map_err(|error| RelayError::transient(format!("pairing start failed: {error}")))?;
+    if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return Err(RelayError::fatal(
+            "The server is rate-limiting pairing attempts from this network. \
+             Wait a minute, then re-run npx cmux-relay.",
+        ));
+    }
     let status = response.status();
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
@@ -181,7 +149,7 @@ pub async fn start_pairing(
         // or something between us altered the key. Do not continue.
         return Err(RelayError::fatal(
             "Verification-code mismatch between this terminal and the server. \
-             Aborting pairing; pair again from a network you trust.",
+             Aborting pairing; try again on a network you trust.",
         ));
     }
     Ok(StartedPairing {
@@ -218,10 +186,9 @@ pub async fn await_ceremony(
     platform: &str,
 ) -> Result<PairedOutcome, RelayError> {
     let socket_url = websocket_url(&format!("{backend}/v2/pairing/{}/socket", started.pair_id));
-    let (mut socket, _response) =
-        cmux_egress::ws::connect_async(socket_url.as_str(), "chatmux_relay::pairing")
-            .await
-            .map_err(|error| RelayError::transient(format!("pairing socket failed: {error}")))?;
+    let (mut socket, _response) = connect_async(socket_url.as_str())
+        .await
+        .map_err(|error| RelayError::transient(format!("pairing socket failed: {error}")))?;
     let authenticate = serde_json::json!({
         "version": PAIRING_WIRE_VERSION,
         "type": "authenticate",
@@ -340,17 +307,52 @@ pub async fn await_ceremony(
 }
 
 #[cfg(test)]
-mod rate_wait_tests {
-    use super::rate_wait;
-    use reqwest::header::HeaderValue;
-    use std::time::Duration;
+mod tests {
+    use super::*;
 
     #[test]
-    fn a_429_waits_what_the_server_names_within_bounds() {
-        assert_eq!(rate_wait(Some(&HeaderValue::from_static("7"))), Duration::from_secs(7));
-        assert_eq!(rate_wait(Some(&HeaderValue::from_static("0"))), Duration::from_secs(1));
-        assert_eq!(rate_wait(Some(&HeaderValue::from_static("9999"))), Duration::from_secs(120));
-        assert_eq!(rate_wait(Some(&HeaderValue::from_static("soon"))), Duration::from_secs(30));
-        assert_eq!(rate_wait(None), Duration::from_secs(30));
+    fn pair_ids_have_the_w100_shape() {
+        for _ in 0..16 {
+            let id = mint_pair_id().expect("OS randomness available in test");
+            assert_eq!(id.len(), "pair_".len() + 24);
+            let tail = id.strip_prefix("pair_").expect("prefix");
+            assert!(tail.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
+        }
+        assert_ne!(mint_pair_id().unwrap(), mint_pair_id().unwrap());
+    }
+
+    #[test]
+    fn relay_public_keys_are_x25519_spki_der_base64url() {
+        let key = mint_relay_public_key().expect("OS randomness available in test");
+        // 44 DER bytes -> 59 unpadded base64url characters.
+        assert_eq!(key.len(), 59);
+        let der = URL_SAFE_NO_PAD.decode(&key).expect("decodes");
+        assert_eq!(der.len(), 44);
+        assert_eq!(
+            &der[..12],
+            &[0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x03, 0x21, 0x00]
+        );
+        assert_ne!(mint_relay_public_key().unwrap(), mint_relay_public_key().unwrap());
+    }
+
+    #[test]
+    fn secrets_are_43_base64url_characters() {
+        // The Worker's pairing URL regex pins #<secret> to exactly 43
+        // [A-Za-z0-9_-] characters (32 bytes, unpadded).
+        let secret = random_secret().expect("OS randomness available in test");
+        assert_eq!(secret.len(), 43);
+        assert!(secret.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+    }
+
+    #[test]
+    fn websocket_urls_upgrade_scheme_like_the_js_relay() {
+        assert_eq!(websocket_url("https://api.chatmux.dev/x"), "wss://api.chatmux.dev/x");
+        assert_eq!(websocket_url("http://localhost:8788/x"), "ws://localhost:8788/x");
+    }
+
+    #[test]
+    fn secret_hash_matches_node_sha256_base64url() {
+        // node -e 'console.log(require("crypto").createHash("sha256").update("secret").digest("base64url"))'
+        assert_eq!(hash_base64url("secret"), "K7gNU3sdo-OL0wNhqoVWhr3g6s1xYv72ol_pe_Unols");
     }
 }
