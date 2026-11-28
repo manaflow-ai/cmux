@@ -2838,7 +2838,7 @@ exit "$rc"
 job = "linux"
 tier = "push"
 land_gate = true
-timeout = 600
+timeout = 360
 title = "Webviews checks (check:*, new findings only)"
 about = "webviews' check:* ratchets (surface-bypass, catalog keys, fixed waits, design tokens, layers, ...) add no finding the base lacks"
 needs = ["bun", "node"]
