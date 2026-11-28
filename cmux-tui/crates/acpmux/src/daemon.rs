@@ -1314,6 +1314,14 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                             let _phase = gauges.phase("all chat logs");
                             hub.load_logs_async().await;
                         }
+                        // The replay's transient blocks (peak, then freed) stay resident in glibc's
+                        // arenas; give them back once the replay is done.
+                        #[cfg(all(not(feature = "mimalloc-gnu"), target_os = "linux", target_env = "gnu"))]
+                        // SAFETY: malloc_trim only returns free heap pages to the system; glibc
+                        // documents it as MT-safe.
+                        unsafe {
+                            libc::malloc_trim(0);
+                        }
                         if hub.shutting_down() {
                             return;
                         }
