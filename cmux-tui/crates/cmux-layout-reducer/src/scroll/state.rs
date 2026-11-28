@@ -536,7 +536,7 @@ impl ColumnScrollState {
 /// `ColumnScrollState.anchorShift`): all of it while the shifted target stays
 /// in the strip, up to the strip's end otherwise, and none that would take a
 /// target already outside it further out (never a shift the other way).
-fn anchor_shift(delta: f64, target: f64, max_offset: f64) -> f64 {
+pub(crate) fn anchor_shift(delta: f64, target: f64, max_offset: f64) -> f64 {
     if delta > 0. {
         swift_min(delta, swift_max(0., max_offset - target))
     } else {

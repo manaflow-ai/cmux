@@ -1,14 +1,17 @@
 //! The layout geometry rules through the C ABI (`cmux_layout_reducer_json`, ops `layout_geometry_*`):
-//! every case of the reducer's vectors (`cmux-layout-reducer/tests/data/layout_geometry_vectors.json`,
-//! answered by a transliteration of the Swift) answers the same through the C call, and an unknown
-//! op or a bad request is refused.
+//! every case of the reducer's vectors (`cmux-layout-reducer/tests/data/layout_geometry_vectors.json`
+//! and `layout_geometry_split_vectors.json`, answered by a transliteration of the Swift) answers the
+//! same through the C call, and an unknown op or a bad request is refused.
 
 use cmux_layout_reducer_ffi::{ERR_BUFFER, ERR_INVALID, OK, cmux_layout_reducer_json};
 use serde_json::Value;
 use std::ffi::CString;
 
-const VECTORS: &str =
-    include_str!("../../cmux-layout-reducer/tests/data/layout_geometry_vectors.json");
+const VECTORS: [&str; 3] = [
+    include_str!("../../cmux-layout-reducer/tests/data/layout_geometry_vectors.json"),
+    include_str!("../../cmux-layout-reducer/tests/data/layout_geometry_split_vectors.json"),
+    include_str!("../../cmux-layout-reducer/tests/data/layout_geometry_strip_vectors.json"),
+];
 
 fn call(op: &str, request: &[u8]) -> Result<Value, i32> {
     let op = CString::new(op).expect("op");
@@ -51,13 +54,19 @@ fn same(a: &Value, b: &Value) -> bool {
 
 #[test]
 fn layout_geometry_vectors_answer_through_the_c_call() {
-    let cases: Vec<Value> = serde_json::from_str(VECTORS).expect("vectors");
-    assert!(cases.len() >= 1000, "the vectors lost cases: {}", cases.len());
-    for (index, case) in cases.iter().enumerate() {
-        let op = case["op"].as_str().expect("op");
-        let request = serde_json::to_vec(&case["request"]).expect("request");
-        let answer = call(op, &request).unwrap_or_else(|e| panic!("{index} {op}: status {e}"));
-        assert!(same(&answer, &case["response"]), "{index} {op}: {answer} != {}", case["response"]);
+    for vectors in VECTORS {
+        let cases: Vec<Value> = serde_json::from_str(vectors).expect("vectors");
+        assert!(cases.len() >= 1000, "the vectors lost cases: {}", cases.len());
+        for (index, case) in cases.iter().enumerate() {
+            let op = case["op"].as_str().expect("op");
+            let request = serde_json::to_vec(&case["request"]).expect("request");
+            let answer = call(op, &request).unwrap_or_else(|e| panic!("{index} {op}: status {e}"));
+            assert!(
+                same(&answer, &case["response"]),
+                "{index} {op}: {answer} != {}",
+                case["response"]
+            );
+        }
     }
 }
 
