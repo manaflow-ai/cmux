@@ -1,0 +1,287 @@
+# The iPhone app views and drives a Linux desktop end to end, measured: a Linux job puts a virtual X display
+# (Xvfb) with `cmux-rd testapp`'s marker on the dev device hub as a `linux` screen host (`cmux-rd linux-host
+# enable`, then `run --capture x11`), and a macOS job runs the cmux-next iPhone app (Demo configuration: the
+# DEBUG developer surface, the dev hub, the development Stack project) in an iOS simulator, signed in to the
+# same account, which opens that host by name (CMUX_MOBILE_OPEN_URL cmux://mac-screen?device=NAME&control=1)
+# and times each key press to the marker's next counter on its own screen (ScreenPresentProbe on
+# MacScreenRdView: the `iphonesim:` line, the same report as screen-stream-eval's iphone-sim target).
+#
+# Leo, 2026-11-27: "go ahead and freaking do the screen sharing ... did you fucking test it? Like, are you
+# getting blocked by fucking anything?"
+#
+# Nothing here needs a macOS privacy grant: the Mac captures and injects nothing (the Linux host captures X11
+# and injects through XTest), so the eval harness's TCC preflight does not apply (screen-stream-eval.sh
+# caps `no-host-grants`).
+#
+# Both jobs sign in to the staging agent account of cmux-next-vm-image-dev (feat-cmux-next only, by that
+# environment's branch policy) with scripts/cmux-next/dev-signin-token.py --token: each writes its one token to a
+# 0600 file, never argv or a log. The two jobs meet on the hub, not through `needs`: the Mac job waits until the
+# Linux host serves, and the Linux host serves until the Mac job ends (each bounded, reading this run's jobs).
+name: iOS to Linux screen sharing e2e
+on:
+  # A change to this workflow or the iPhone target runs it once on feat-cmux-next (which also registers it for
+  # dispatch: GitHub dispatches only a workflow it has seen run, and this one is not on main).
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/ios-linux-screen-e2e.yml
+      - scripts/measure/screen-stream-eval/targets/iphone-sim.sh
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: Key presses to time
+        required: false
+        default: "30"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-linux-screen-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  HOST_NAME: ci-ios-linux-${{ github.run_id }}-${{ github.run_attempt }}
+  DEV_HUB: https://cmux-device-hub-dev.debussy.workers.dev
+  # The screen the host shares: the marker's 32 px cells are 32/1280 of its width (EVAL_HUB_MARKER).
+  SCREEN: 1280x720x24
+
+jobs:
+  linux-host:
+    name: Linux screen host
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    runs-on: cmux-linux
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Build and display packages
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends build-essential pkg-config libssl-dev nasm curl xvfb x11-xkb-utils
+
+      - name: Build cmux-rd (release features)
+        run: |
+          set -euo pipefail
+          toolchain=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' cmux-tui/rust-toolchain.toml)
+          if ! command -v rustup >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install "$toolchain" --profile minimal
+          CARGO_TARGET_DIR=$RUNNER_TEMP/rd-target RUSTUP_TOOLCHAIN=$toolchain cargo build --release --locked --bin cmux-rd --no-default-features \
+            --features openh264,link --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml
+          install -m 755 "$RUNNER_TEMP/rd-target/release/cmux-rd" "$RUNNER_TEMP/cmux-rd"
+
+      - name: Virtual display and marker
+        run: |
+          set -euo pipefail
+          # This job's own home for the host: a fresh device identity every run, nothing of the runner's.
+          for d in cfg data run; do mkdir -m 700 -p "$RUNNER_TEMP/host-$d"; done
+          {
+            echo "XDG_CONFIG_HOME=$RUNNER_TEMP/host-cfg"
+            echo "XDG_DATA_HOME=$RUNNER_TEMP/host-data"
+            echo "XDG_RUNTIME_DIR=$RUNNER_TEMP/host-run"
+            echo "DISPLAY=:77"
+          } >> "$GITHUB_ENV"
+          nohup Xvfb :77 -screen 0 "$SCREEN" -nolisten tcp >"$RUNNER_TEMP/xvfb.log" 2>&1 &
+          echo $! >"$RUNNER_TEMP/xvfb.pid"
+          for _ in $(seq 1 50); do [ -e /tmp/.X11-unix/X77 ] && break; sleep 0.2; done # bounded: 10 s
+          [ -e /tmp/.X11-unix/X77 ] || { cat "$RUNNER_TEMP/xvfb.log"; echo "::error::Xvfb :77 did not start in 10 s"; exit 1; }
+          nohup "$RUNNER_TEMP/cmux-rd" testapp --display :77 --workload marker >"$RUNNER_TEMP/testapp.log" 2>&1 &
+          echo $! >"$RUNNER_TEMP/testapp.pid"
+
+      - name: Sign in and enable the host on the dev hub
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          token="$RUNNER_TEMP/host-run/access-token"
+          python3 -I scripts/cmux-next/dev-signin-token.py --token access --out "$token"
+          "$RUNNER_TEMP/cmux-rd" linux-host enable --stack-token-file "$token" --hub "$DEV_HUB" --name "$HOST_NAME"
+          rm -f "$token"
+          "$RUNNER_TEMP/cmux-rd" linux-host status --json | python3 -I -c 'import json, sys; d = json.load(sys.stdin); print({k: d.get(k) for k in ("device", "name", "sharing", "hub") if k in d})'
+
+      - name: Serve the desktop until the iPhone job ends
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CMUX_RD_TIMING_LOG="$RUNNER_TEMP/encode.jsonl" nohup "$RUNNER_TEMP/cmux-rd" linux-host run --display :77 --capture x11 \
+            >"$RUNNER_TEMP/host.log" 2>&1 &
+          host=$!
+          echo "$host" >"$RUNNER_TEMP/host.pid"
+          # Bounded: 60 min, the iPhone job's own bound; ends early when that job ends or the host exits.
+          deadline=$((SECONDS + 3600))
+          while (( SECONDS < deadline )); do
+            kill -0 "$host" 2>/dev/null || { tail -40 "$RUNNER_TEMP/host.log"; echo "::error::the host exited"; exit 1; }
+            state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
+              --jq '.jobs[] | select(.name == "iPhone viewer") | .status' 2>/dev/null || echo unknown)
+            [ "$state" = completed ] && break
+            sleep 20 # bounded by the deadline above
+          done
+          tail -60 "$RUNNER_TEMP/host.log"
+
+      - name: Stop the host, marker and display
+        if: always()
+        run: |
+          # Only the processes this job started, by the pids it recorded.
+          for p in host testapp xvfb; do
+            [ -s "$RUNNER_TEMP/$p.pid" ] && kill "$(cat "$RUNNER_TEMP/$p.pid")" 2>/dev/null || true
+          done
+
+      - name: Upload host logs
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: ios-linux-screen-e2e-host
+          path: |
+            ${{ runner.temp }}/host.log
+            ${{ runner.temp }}/testapp.log
+            ${{ runner.temp }}/encode.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
+
+  iphone:
+    name: iPhone viewer
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    env:
+      EVAL_ROOT: ${{ github.workspace }}
+      SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Rust for the app's link
+        run: |
+          set -euo pipefail
+          if ! command -v rustup >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Build the iPhone app (Demo, simulator)
+        run: |
+          set -euo pipefail
+          xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
+          mkdir -p "$RUNNER_TEMP/eval-state" "$RUNNER_TEMP/eval-bin"
+          {
+            echo "EVAL_STATE=$RUNNER_TEMP/eval-state"
+            echo "EVAL_BIN=$RUNNER_TEMP/eval-bin"
+          } >> "$GITHUB_ENV"
+          EVAL_STATE=$RUNNER_TEMP/eval-state EVAL_BIN=$RUNNER_TEMP/eval-bin \
+            bash scripts/measure/screen-stream-eval/targets/iphone-sim.sh app-build
+
+      - name: Sign in to the host's account
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -m 700 -p "$RUNNER_TEMP/secret"
+          python3 -I scripts/cmux-next/dev-signin-token.py --token refresh --out "$RUNNER_TEMP/secret/refresh-token"
+          echo "EVAL_REFRESH_TOKEN_FILE=$RUNNER_TEMP/secret/refresh-token" >> "$GITHUB_ENV"
+
+      - name: Wait for the Linux host to serve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Bounded: 40 min (the Linux build is the long part); the host's serve step running means it is on the hub.
+          deadline=$((SECONDS + 2400))
+          while (( SECONDS < deadline )); do
+            read -r status conclusion step < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
+              --jq '.jobs[] | select(.name == "Linux screen host") | "\(.status) \(.conclusion // "-") \(any(.steps[]?; (.name | startswith("Serve the desktop")) and .status == "in_progress"))"' 2>/dev/null || echo "unknown - false")
+            [ "$step" = true ] && { echo "the Linux host serves"; exit 0; }
+            [ "$status" = completed ] && { echo "::error::the Linux host job ended ($conclusion) before it served"; exit 1; }
+            sleep 15 # bounded by the deadline above
+          done
+          echo "::error::the Linux host did not serve within 40 min"; exit 1
+
+      - name: Time key presses on the Linux screen
+        env:
+          SAMPLES: ${{ inputs.samples || '30' }}
+          EVAL_HUB_URL: ${{ env.DEV_HUB }}
+          EVAL_HUB_MARKER: "0.025,0"
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/out"
+          mkdir -p "$out"
+          bash scripts/measure/screen-stream-eval/targets/iphone-sim.sh hub-view "$HOST_NAME" key "$SAMPLES" "$out/key.raw"
+          bash scripts/measure/screen-stream-eval/targets/iphone-sim.sh latency-report key "$out/key.raw" "$out/key.json"
+          # results.json in screen-stream-eval's shape (eval.py SCHEMA), one iphone-sim target whose host is this
+          # run's Linux cmux-rd host: hq's screen_share_fast_receipt.py extract --format iphone-sim reads it into
+          # tools/screenshare-bench/iphone-sim/runs/, which NOW's screen_share_fast.iphone_present_p95_ms reads.
+          python3 -I - "$out/key.json" "$out/results.json" <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import datetime, json, os, sys
+          key = json.load(open(sys.argv[1]))
+          g2g = key.get("g2g_ms") or {}
+          target = {
+              "name": "iphone-sim", "caps": ["latency-only", "no-host-grants"],
+              "host": {"kind": "linux-rd", "carrier": "cmux.rd/1 over the dev device hub", "capture": "x11 (Xvfb)",
+                       "name": os.environ["HOST_NAME"]},
+              "latency": {"key": {"p50_ms": g2g.get("p50"), "p95_ms": g2g.get("p95"), "n": g2g.get("n"), "lost": key.get("lost")},
+                          "pointer": {"p50_ms": None, "p95_ms": None, "n": None, "lost": None}},
+              "split": {"key": key.get("split")},
+              "errors": [] if g2g.get("p95") is not None else ["no presented key latency in the iphonesim: line"],
+          }
+          results = {
+              "schema": "cmux.screen-stream-eval/1",
+              "run": {"at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+                      "rev": os.environ["GITHUB_SHA"], "worker": "gh-macos-sim",
+                      "workflow": "ios-linux-screen-e2e.yml",
+                      "run_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+                      "samples": int(os.environ["SAMPLES"])},
+              "scenarios": [],
+              "targets": {"iphone-sim": target},
+          }
+          json.dump(results, open(sys.argv[2], "w"), indent=1)
+          lat = target["latency"]["key"]
+          print("## iPhone simulator to Linux cmux-rd host: key to presented marker\n")
+          print(f"p50 {lat['p50_ms']} ms, p95 {lat['p95_ms']} ms, n {lat['n']} of {results['run']['samples']}, lost {lat['lost']}\n")
+          print(f"engine: {(key.get('raw') or {}).get('engine')}\n")
+          print("```json\n" + json.dumps(key.get("split"), indent=1)[:3000] + "\n```")
+          if lat["p95_ms"] is None:
+              sys.exit("no presented key latency")
+          EOF
+
+      - name: Remove the token and simulator
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/secret/refresh-token"
+          [ -n "${EVAL_STATE:-}" ] && bash scripts/measure/screen-stream-eval/targets/iphone-sim.sh sims-delete || true
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          # screen-stream-eval's artifact name, results.json at its root (screen_share_fast_receipt fetch_eval_results).
+          name: screen-stream-eval
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: ignore
+          retention-days: 14

@@ -329,6 +329,45 @@ class ReportTests(unittest.TestCase):
 
 
 class ExternalContenderTests(unittest.TestCase):
+    def test_no_host_grants_targets_skip_the_tcc_preflight_and_the_local_marker(self):
+        # A target whose host runs elsewhere (iphone-sim-linux) needs no grant on this Mac: a run of
+        # only such targets neither runs the preflight nor starts the local marker; any other keeps both.
+        import shutil
+        target = """case "$1" in
+  caps) echo latency-only; echo "$FAKE_CAPS" ;;
+  latency-view) echo "view $2" >>"$FAKE_LOG"; echo 'iphonesim: {}' >"$4" ;;
+  latency-report) echo '{}' >"$4" ;;
+esac
+"""
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            measure = root / "scripts/measure"
+            measure.mkdir(parents=True)
+            shutil.copy(HERE.parent / "screen-stream-eval.sh", measure)
+            shutil.copytree(HERE, measure / "screen-stream-eval", ignore=shutil.ignore_patterns("__pycache__"))
+            (measure / "screen-stream-eval/targets/remote.sh").write_text(target)
+            tools = root / "tools"
+            tools.mkdir()
+            for tool in ("screen-eval-preflight", "screen-eval-scene", "screen-eval-ocr", "cmux-rd-marker"):
+                (tools / tool).write_text(f'#!/bin/sh\necho "{tool} ran" >>"$FAKE_LOG"\necho "{{}}"\n')
+                (tools / tool).chmod(0o755)
+            log = root / "log"
+            for caps, expect_gate in (("no-host-grants", False), ("", True)):
+                log.write_text("")
+                done = subprocess.run(["bash", str(measure / "screen-stream-eval.sh"), f"prebuilt={tools}",
+                                       "targets=remote", "samples=1"],
+                                      env={**os.environ, "FAKE_CAPS": caps, "FAKE_LOG": str(log)},
+                                      capture_output=True, text=True, timeout=120)
+                ran = log.read_text()
+                self.assertEqual("screen-eval-preflight ran" in ran, expect_gate, done.stdout[-2000:])
+                if expect_gate:
+                    self.assertEqual(done.returncode, 3)
+                else:
+                    self.assertIn('SCREEN-STREAM-EVAL-GRANTS {"skipped"', done.stdout)
+                    self.assertNotIn("cmux-rd-marker ran", ran)
+                    self.assertIn("view pointer", ran)
+                    self.assertIn("view key", ran)
+
     def test_readback_numbers_and_null_for_missing(self):
         records = [{"type": "first_frame", "ms": 412.0}]
         records += [{"type": "key", "g2g_ms": float(v)} for v in range(1, 21)] + [{"type": "key", "lost": True}]

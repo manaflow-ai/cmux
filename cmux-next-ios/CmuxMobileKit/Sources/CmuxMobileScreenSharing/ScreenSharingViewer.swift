@@ -377,6 +377,9 @@ public final class ScreenSharingViewer: Identifiable {
         stopStream()
         pendingRd = signalingKept
         rdControl = control
+        #if DEBUG
+        ScreenSharingLinkRoot.measureRd(model)
+        #endif
         rdScreen = model
     }
 
