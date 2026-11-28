@@ -20,9 +20,15 @@ public struct ConnectMacSteps: View {
     let noMacsForAccount: Bool
     /// Opens Settings → Account (the shell only).
     let openAccount: (() -> Void)?
+    /// How the status line and the Account link line up: leading on the setup page, centred under the
+    /// Workspaces empty state's centred title (iOS release bar read-back, 2026-11-28: the link sat
+    /// left-aligned under centred content).
+    let alignment: HorizontalAlignment
 
     public init(email: String?, onlineMac: String?, teamName: String? = nil,
-                noMacsForAccount: Bool = false, openAccount: (() -> Void)? = nil) {
+                noMacsForAccount: Bool = false, openAccount: (() -> Void)? = nil,
+                alignment: HorizontalAlignment = .leading) {
+        self.alignment = alignment
         self.email = email
         self.onlineMac = onlineMac
         self.teamName = teamName
@@ -36,7 +42,7 @@ public struct ConnectMacSteps: View {
     /// (Leo, 2026-11-23: "NEVER THIS F***ING TMI ... THERE ARE HOVERS AND QUESTION MARK CIRCLES AND INFO CIRCLES").
     /// With no Mac on this account, the way to its settings stays out, styled as a link (iOS release bar read-back, 2026-11-22).
     public var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: alignment, spacing: 10) {
             HStack(spacing: 8) {
                 status
                 helpButton
@@ -56,7 +62,7 @@ public struct ConnectMacSteps: View {
                 .accessibilityIdentifier("connect-mac.account")
             }
         }
-        .frame(maxWidth: 340, alignment: .leading)
+        .frame(maxWidth: 340, alignment: Alignment(horizontal: alignment, vertical: .center))
     }
 
     private var helpButton: some View {

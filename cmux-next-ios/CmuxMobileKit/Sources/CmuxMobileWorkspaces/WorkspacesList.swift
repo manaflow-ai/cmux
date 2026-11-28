@@ -44,6 +44,8 @@ public struct WorkspacesList: View {
     var switchTeam: ((String) -> Void)?
     /// Opens Settings → Account (the empty state, when no Mac uses this account).
     var openAccount: (() -> Void)?
+    /// Opens the Cloud Chief: the empty state's way forward with no Mac (App Review 2.1(a)).
+    var openCloudChief: (() -> Void)?
     /// Told whether a Mac's panel (one Mac's recovery, or every Mac offline) is on the page: the
     /// shell then hides its floating "Mac offline" chip, which the panel already says, with its
     /// Retry (cmux#52200 walk: the chip sat over the panel's icon).
@@ -116,6 +118,7 @@ public struct WorkspacesList: View {
                 reconnect: ((String) -> Void)? = nil, linking: MacLinking? = nil,
                 refresh: (() async -> Void)? = nil, retryLoad: (() async -> Void)? = nil,
                 switchTeam: ((String) -> Void)? = nil, openAccount: (() -> Void)? = nil,
+                openCloudChief: (() -> Void)? = nil,
                 filter: MacFilter = MacFilter(), macPanelShown: ((Bool) -> Void)? = nil,
                 rememberedWorkspaceID: String? = nil,
                 open: @escaping (Workspace) -> Void) {
@@ -130,6 +133,7 @@ public struct WorkspacesList: View {
         self.retryLoad = retryLoad
         self.switchTeam = switchTeam
         self.openAccount = openAccount
+        self.openCloudChief = openCloudChief
         _filter = State(initialValue: filter)
         self.open = open
     }
@@ -435,7 +439,8 @@ public struct WorkspacesList: View {
                     elsewhere: store.teamWithMacsElsewhere(),
                     switchTeam: switchTeam,
                     noMacsForAccount: store.accountMacCount == 0,
-                    openAccount: openAccount
+                    openAccount: openAccount,
+                    openCloudChief: openCloudChief
                 )
             } else {
                 list(inbox)
@@ -2033,6 +2038,9 @@ struct ConnectMacEmptyState: View {
     let switchTeam: ((String) -> Void)?
     let noMacsForAccount: Bool
     let openAccount: (() -> Void)?
+    /// The way forward with no Mac at all: Chief runs in the cloud (App Review 2.1(a): a reviewer
+    /// with no Mac saw only "Waiting for your Mac…", iOS release bar read-back 2026-11-28).
+    var openCloudChief: (() -> Void)? = nil
 
     var body: some View {
         ScrollView {
@@ -2066,7 +2074,19 @@ struct ConnectMacEmptyState: View {
                     }
                     .padding(.bottom, 28)
                 }
-                ConnectMacSteps(email: email, onlineMac: nil, noMacsForAccount: noMacsForAccount, openAccount: openAccount)
+                ConnectMacSteps(email: email, onlineMac: nil, noMacsForAccount: noMacsForAccount, openAccount: openAccount,
+                                alignment: .center)
+                if elsewhere == nil, let openCloudChief {
+                    VStack(spacing: 12) {
+                        Text("No Mac? Chief runs in the cloud.")
+                            .font(theme.type.rowSubtitle)
+                            .foregroundStyle(theme.colors.label2)
+                            .multilineTextAlignment(.center)
+                        SecondaryCapsule("Chat with Chief", systemImage: "sparkles", size: .inline, action: openCloudChief)
+                            .accessibilityIdentifier("workspaces.connect-mac.cloud-chief")
+                    }
+                    .padding(.top, 32)
+                }
             }
             .padding(.horizontal, theme.metrics.sideMargin)
             .frame(maxWidth: .infinity)

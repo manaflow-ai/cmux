@@ -1007,6 +1007,14 @@ final class ShellModel {
         }
     }
 
+    /// Home's Cloud Chief conversation: needs no Mac (the Workspaces empty state's way forward).
+    func openCloudChief() {
+        tab = .home
+        var path = NavigationPath()
+        path.append(ChiefRoute(place: .cloud))
+        homePath = path
+    }
+
     func openChiefCallSettings() {
         tab = .settings
         settingsPath = [.chiefCalls]
