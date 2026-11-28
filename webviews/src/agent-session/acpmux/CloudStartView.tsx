@@ -7,6 +7,8 @@ import {
   CLOUD_START_STALL_MS,
   CLOUD_START_STEPS,
   cloudStartWayOn,
+  SURFACE_NEXT,
+  SURFACE_WHAT,
   type CloudFolderTooBig,
   type CloudStartAsk as Ask,
   type CloudStartProgress,
@@ -702,7 +704,8 @@ export function CloudStartView({
   // it, to name the step it stopped at.
   const autoOpen = (failed && !POLICY_REFUSALS.has(start.code ?? "")) || stalled;
   const [expanded, setExpanded] = useState(autoOpen);
-  const signInRequired = failed && start.code === "not_signed_in" && onSignIn;
+  const signInRequired =
+    failed && (start.code === "not_signed_in" || start.surface?.next === "cloudSignIn") && onSignIn;
   const [signingIn, setSigningIn] = useState(false);
   const signInTitleId = useId();
   const now = usePageNow(!start.initialized && start.state !== "failed");
@@ -1022,7 +1025,17 @@ export function CloudStartView({
       {planTeamRefusal}
       {failed && !planTeamRefusal && (
         <div className="acpmux-cloud-start__failure" role="alert">
+          {start.surface && (
+            <strong className="acpmux-cloud-start__failure-what" data-what={start.surface.what}>
+              {t(SURFACE_WHAT[start.surface.what])}
+            </strong>
+          )}
           <output className="acpmux-cloud-start__status">{start.message ?? t("sandbox.failed")}</output>
+          {start.surface && (
+            <p className="acpmux-cloud-start__failure-next" data-next={start.surface.next}>
+              {t(SURFACE_NEXT[start.surface.next])}
+            </p>
+          )}
           {signInRequired && (
             <button
               type="button"

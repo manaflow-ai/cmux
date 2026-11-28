@@ -520,3 +520,32 @@ test("the host's waking push says Waking machine on the machine step until it en
   expect(cloudStartPushed(waking, { key: "k-1", waking: false })?.waking).toBeUndefined();
   expect(cloudStartPushed(machine, { key: "k-1", waking: "yes" })?.waking).toBeUndefined();
 });
+
+// ask-17e4ae3662 (Austin): "surfacing right errors (ie cloud machine did not start, repo did not clone, claude
+// has no more usage etc) as well as the sign ins": the host's `details.surface` (cmux-cloud-start-core
+// `surface::surface`) names what failed and its next step on the card, beside the host's words.
+test("a failure the host names keeps what failed and its next step for the card", () => {
+  const clone = cloudStartEnded(begun(), "k-1", {
+    ok: false,
+    code: "cloud.clone_failed",
+    message: "The repository did not clone on the Cloud machine, so /w/r is not there: fatal: repository not found",
+    details: { surface: { what: "repoDidNotClone", next: "repoAccess" } },
+  });
+  expect(clone?.surface).toEqual({ what: "repoDidNotClone", next: "repoAccess" });
+  expect(clone?.message).toContain("fatal: repository not found");
+  for (const [what, next] of [
+    ["machineDidNotStart", "retry"],
+    ["agentOutOfUsage", "waitForUsage"],
+    ["agentNotSignedIn", "agentSignIn"],
+    ["cloudSignedOut", "cloudSignIn"],
+  ] as [string, string][]) {
+    const ended = cloudStartEnded(begun(), "k-1", { ok: false, code: "x", details: { surface: { what, next } } });
+    expect(ended?.surface as unknown).toEqual({ what, next });
+  }
+  // A surface the card has no words for, or none, shows the host's words alone, as before.
+  for (const details of [undefined, {}, { surface: { what: "nope", next: "retry" } }, { surface: "repoDidNotClone" }]) {
+    expect(cloudStartEnded(begun(), "k-1", { ok: false, code: "x", details })?.surface).toBeUndefined();
+  }
+  // A later failure without one drops the earlier's.
+  expect(cloudStartEnded({ ...clone!, state: "starting" }, "k-1", { ok: false, code: "x" })?.surface).toBeUndefined();
+});

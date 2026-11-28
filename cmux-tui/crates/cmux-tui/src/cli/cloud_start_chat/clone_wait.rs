@@ -78,13 +78,16 @@ pub(super) enum Folder {
     /// No folder and no bootstrap making it: missing on an old machine, asked again on a young one
     /// ([`YOUNG`]).
     Absent,
-    /// The bootstrap failed (with the folder missing, or in its repository step); its status file.
-    Missing(Value),
+    /// The bootstrap failed (with the folder missing, or in its repository step); its status file and
+    /// the git (or `cmux repo:`) error lines at the end of its log, if any.
+    Missing(Value, Vec<String>),
 }
 
 /// The script: waits up to `slice` seconds while the bootstrap runs, then prints one of `ready`,
-/// `busy`, `absent` (no folder, no bootstrap making it), `unknown`, or `ended` and the status file. `cwd` is one
-/// single-quoted shell word, whatever it holds.
+/// `busy`, `absent` (no folder, no bootstrap making it), `unknown`, or `ended` and the status file, then up to
+/// [`ERROR_LINES`] lines `log: <line>`: the error lines git (`fatal:`, `error:`, `remote:`) and the repo step
+/// (`cmux repo:`) left at the end of the log, credentials in URLs cut. `cwd` is one single-quoted shell word,
+/// whatever it holds.
 pub(super) fn script(cwd: &str, slice: u64) -> String {
     format!(
         "{GUEST_PRELUDE}dir={dir}; b=\"$HOME/{BOOTSTRAP}\"; \
@@ -102,7 +105,9 @@ pub(super) fn script(cwd: &str, slice: u64) -> String {
          i=0; while [ -f \"$b/status.json\" ] && ! ready && busy && [ \"$i\" -lt {slice} ]; do sleep 1; i=$((i+1)); done; \
          if [ ! -f \"$b/status.json\" ]; then if [ -d \"$dir\" ]; then echo ready; else echo absent; fi; \
          elif ready; then echo ready; \
-         elif [ \"$(state)\" = failed ]; then echo ended; cat \"$b/status.json\"; \
+         elif [ \"$(state)\" = failed ]; then echo ended; cat \"$b/status.json\"; echo; \
+         tail -n 60 \"$b/bootstrap.log\" 2>/dev/null | grep -E '^(fatal|error|remote|cmux repo): ' \
+         | sed 's#://[^/@ ]*@#://#g' | tail -n {ERROR_LINES} | sed 's/^/log: /'; \
          elif busy; then echo busy; \
          elif [ \"$(state)\" = done ]; then echo absent; \
          else echo unknown; fi",
@@ -111,21 +116,77 @@ pub(super) fn script(cwd: &str, slice: u64) -> String {
 }
 
 /// Reads one answer of [`script`]: a check that exited non-zero, or printed anything else, is not known.
+/// Whether a failed bootstrap's status file says its repository step failed: the runner's `step`, or
+/// (from a runner that wrote none) `repo.status` `failed`, or `needs_github` with [`NEEDS_GITHUB_EXIT`].
+/// The same reading as the script's `repo_failed`.
+pub(super) fn repo_failed(status: &Value) -> bool {
+    if let Some(step) = at(status, "step").as_str() {
+        return step == "repo";
+    }
+    match at(at(status, "repo"), "status").as_str() {
+        Some("failed") => true,
+        Some("needs_github") => at(status, "exit_code").as_i64() == Some(NEEDS_GITHUB_EXIT),
+        _ => false,
+    }
+}
+
+/// `cloud.clone_failed`: the repository did not clone on the machine. The message names that and the
+/// git error the log ended on (`details.git_error`, every line of it); the log's path stays in details.
+pub(super) fn clone_failed(cwd: &str, machine: &str, status: Value, log: &[String]) -> Outcome {
+    let needs_github = at(at(&status, "repo"), "status").as_str() == Some("needs_github")
+        || at(&status, "exit_code").as_i64() == Some(NEEDS_GITHUB_EXIT);
+    // The most telling line is git's own (`fatal:`, `error:`, `remote:`); else the repo step's.
+    let said = log
+        .iter()
+        .rev()
+        .find(|line| !line.starts_with("cmux repo: "))
+        .or_else(|| log.last())
+        .map(|line| line.strip_prefix("cmux repo: ").unwrap_or(line));
+    let why = match (said, needs_github) {
+        (Some(said), _) => said.to_owned(),
+        (None, true) => "this machine has no access to it; connect the repository's owner to the cmux GitHub App".to_owned(),
+        (None, false) => format!("git gave no error; read ~/{LOG} on the machine"),
+    };
+    failed(
+        "cloud.clone_failed",
+        format!("The repository did not clone on the Cloud machine, so {cwd} is not there: {why}"),
+        json!({
+            "cwd": cwd, "machine_id": machine, "bootstrap": status, "log": format!("~/{LOG}"),
+            "git_error": (!log.is_empty()).then(|| log.join("\n")),
+            "needs_github": needs_github, "reason": "clone_failed",
+        }),
+        1,
+    )
+}
+
+/// The most error lines of the bootstrap log one answer carries.
+pub(super) const ERROR_LINES: usize = 3;
+
 pub(super) fn read(exit_code: Option<i64>, stdout: &str) -> Folder {
     if exit_code != Some(0) {
         return Folder::Again;
     }
-    // Exactly the script's line (and the status file's after `ended`), trailing whitespace at most:
-    // anything more is malformed.
+    // Exactly the script's line (and the status file's after `ended`, then its `log:` lines), trailing
+    // whitespace at most: anything more is malformed.
     let lines: Vec<&str> = stdout.trim_end().split('\n').map(str::trim_end).collect();
     match lines.as_slice() {
         ["ready"] => Folder::Ready,
         ["busy"] => Folder::Cloning,
         ["absent"] => Folder::Absent,
-        ["ended", status] => match serde_json::from_str::<Value>(status) {
-            Ok(status) if status.is_object() => Folder::Missing(status),
-            _ => Folder::Again,
-        },
+        ["ended", status, rest @ ..] => {
+            // The status file's own newline leaves one empty line before the log's.
+            let rest = rest.strip_prefix(&[""][..]).unwrap_or(rest);
+            let log: Option<Vec<String>> = rest
+                .iter()
+                .map(|line| line.strip_prefix("log: ").map(|line| line.trim().to_owned()))
+                .collect();
+            match (serde_json::from_str::<Value>(status), log) {
+                (Ok(status), Some(log)) if status.is_object() && log.len() <= ERROR_LINES => {
+                    Folder::Missing(status, log)
+                }
+                _ => Folder::Again,
+            }
+        }
         _ => Folder::Again,
     }
 }
@@ -298,8 +359,11 @@ pub(super) fn wait(
         };
         match answer {
             Folder::Ready => return None,
-            Folder::Missing(status) => {
+            Folder::Missing(status, log) => {
                 let repo = at(at(&status, "repo"), "status").as_str().unwrap_or("none");
+                if repo_failed(&status) {
+                    return Some(clone_failed(cwd, machine, status, &log));
+                }
                 return Some(failed(
                     "cloud.folder_missing",
                     format!(
