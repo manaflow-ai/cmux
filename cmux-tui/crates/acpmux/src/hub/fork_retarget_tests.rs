@@ -24,16 +24,22 @@ fn hub() -> Arc<Hub> {
                         "listing": {"argv": ["python3", fake], "family": "listing",
                                     "env": {"FAKE_MODEL_ARG": "${model}", "FAKE_NEW_MODE": "strict"},
                                     "models": ["haiku", "opus"]},
-                        // Cloud credential families (cmux#57418).
-                        "claude-like": {"argv": ["python3", fake], "family": "claude"},
-                        "claude-other": {"argv": ["python3", fake], "family": "claude"},
-                        "codex-like": {"argv": ["python3", fake], "family": "codex"}},
+                        // Cloud credential families (cmux#57418), asking as the others do, so a
+                        // fork across them holds the chat's level.
+                        "claude-like": {"argv": ["python3", fake], "family": "claude",
+                                        "env": {"FAKE_NEW_MODE": "strict"}},
+                        "claude-other": {"argv": ["python3", fake], "family": "claude",
+                                         "env": {"FAKE_NEW_MODE": "strict"}},
+                        "codex-like": {"argv": ["python3", fake], "family": "codex",
+                                       "env": {"FAKE_NEW_MODE": "strict"}}},
                      "defaults": {"spawned": {"env": {"FAKE_MODEL_ARG": "${model}"}}},
                      "webAskingModes": {"fake": ["normal", "strict"],
                                          "other": ["normal", "strict"],
                                          "picky": ["normal", "strict"],
                                          "spawned": ["normal", "strict"],
-                                         "listing": ["normal", "strict"]},
+                                         "listing": ["normal", "strict"],
+                                         "claude": ["normal", "strict"],
+                                         "codex": ["normal", "strict"]},
                      "defaultHarness": "fake",
                      "titles": {"generate": false}});
     let mut cfg: Config = serde_json::from_value(cfg).unwrap();
