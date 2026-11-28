@@ -28,6 +28,13 @@ import Foundation
 /// The quiet check collects twice. One collection left the renderer at 655 MB resident on the same bench, and a
 /// second `HeapProfiler.collectGarbage` right after took it to 543 MB: the first frees the JavaScript wrappers,
 /// and the DOM they kept goes with the next. The second costs the same small pause, once per quiet period.
+///
+/// A hide schedules the same quiet check (``pageHidden()``). Pages that only hide and never close leave garbage
+/// too, and no close ever collected it: Mac infinite-tabs at c0a6c29c (255 workspaces, no chat closed, so
+/// `page_gc` empty) ended with the chat renderer's two hidden pages at 125.7 MB of V8 heap used. One
+/// `HeapProfiler.collectGarbage` took that to 43.2 MB, the renderer's footprint from 216.6 to 166.3 MB and its
+/// resident size from 513 to 427 MB. The memory-pressure notice of the same hide (`CEFHiddenPageTrim`) gave back
+/// nothing there: it runs in the browser process only.
 @MainActor
 final class CEFPageRendererGC {
     static let delay: Duration = .seconds(10)
@@ -77,6 +84,12 @@ final class CEFPageRendererGC {
     func pageClosed() {
         count("closes")
         timer.scheduleIfIdle(after: Self.delay) { @MainActor [weak self] in await self?.check() }
+        scheduleQuietCheck()
+    }
+
+    /// A cmux page hid: its renderer gets the quiet check ``quietDelay`` after the newest hide or close.
+    func pageHidden() {
+        count("hides")
         scheduleQuietCheck()
     }
 
