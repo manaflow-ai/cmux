@@ -9,6 +9,8 @@
 2. Select. cmux-next-ios/FlowSuite/select_flows.py picks the flows the diff can affect (flows.json).
 3. Run, in parallel, on the simulator fleet: two shards by default, placed by the controller. Explicit --workers
    (or env CMUX_IOS_VERIFY_WORKERS; never cosmic-gray or air-blue) selects worker hints, one shard per worker.
+   A hint a reservation lease holds (read up front from `cmux-ci lease list`, or the controller's refusal) falls
+   to the next named worker, then to unpinned placement; --pin-strict never falls back.
    Each `cmux-ci run --class simulator` runs `test only=KIT ui=UI video` against scripts/ci/cmux-next-ios-sim.sh,
    reusing cached DerivedData, FFI/cargo cache and a slim simulator (--sim-features none); `pair-e2e` (a tagged DEBUG Mac pairs by QR, drops and
    reconnects) when a selected flow has "pair_e2e": true; the flows' `scripts` here. A flow's macOS `swift` tests
@@ -173,7 +175,57 @@ def stream(cmd: list[str], tag: str) -> tuple[int, str]:
     return p.wait(), "".join(lines)
 
 
-def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
+# The controller refuses a step pinned (--target-worker) to a host a fleet registry reservation lease holds for another
+# account: "fleet registry reservation lease-...: nothing is moved to or tested on it ... omit target_worker so the job
+# places on the rest of the fleet". A worker hint was then a FAIL unrelated to the PR (cmux/ios-fast red on a lease).
+LEASE_REFUSAL = re.compile(r"reservation lease|omit target_worker", re.I)
+
+
+def short(host: str | None) -> str:
+    return (host or "").split(".")[0]
+
+
+def leased_hosts() -> set[str]:
+    """Short names of the hosts an active fleet lease holds (`cmux-ci lease list --json --active`), or an empty set
+    when the controller cannot say: the refusal check in run_step still catches a lease this read missed."""
+    try:
+        p = subprocess.run(["cmux-ci", "lease", "list", "--json", "--active"], capture_output=True, text=True,
+                           timeout=60)
+        rows = (json.loads(p.stdout or "{}").get("leases") or []) if p.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+        return set()
+    return {short(h) for r in rows if isinstance(r, dict) for h in (r.get("hosts") or []) if h}
+
+
+def placements_for(step: dict, workers: list[str], strict: bool, leased: set[str]) -> list[str | None]:
+    """Where STEP may run, in order. Under --pin-strict, only its named worker (the host is the evidence). Otherwise
+    its worker hint, then the other named workers, skipping any a lease holds, then unpinned fleet placement."""
+    if strict or not step["worker"]:
+        return [step["worker"]]
+    order = [step["worker"], *(w for w in workers if w != step["worker"])]
+    return [w for w in order if short(w) not in leased] + [None]
+
+
+def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1",
+             workers: list[str] | None = None, leased: set[str] | None = None) -> dict:
+    """Run STEP on the first placement the controller takes. A placement refused for a reservation lease (and only
+    that refusal) moves to the next; under --pin-strict the refusal is the result."""
+    refused = []
+    for where in placements_for(step, workers or [], strict, leased or set()):
+        # A fallback gets its own key: off --pin-strict the key leaves the worker out, so the refused step's key
+        # would dedupe the retry back onto the refusal.
+        tries = attempt if not refused else f"{attempt}-fallback{len(refused)}"
+        run = dispatch_step({**step, "worker": where}, head, pr, strict, tries)
+        if strict or where is None or run["result"] == "pass" or not LEASE_REFUSAL.search(run["tail"]):
+            run["refused_workers"] = refused
+            return run
+        print(f"ios verify: {step['name']}: {where} is held by a reservation lease; trying the next placement",
+              file=sys.stderr, flush=True)
+        refused.append(where)
+    return run
+
+
+def dispatch_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
            "--key", step_key(step, head, pr, strict, attempt),
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
@@ -405,7 +457,7 @@ def public_runs(runs: list[dict]) -> list[dict]:
     """RUNS as the posted record holds them: no output tail and no worker. The record is PR text, and a public repo's
     PR text names no fleet host (public-body-guard refused the proof on cmux#61688 for naming two); no gate reads the
     worker, and the step id still leads to it. The worker stays in this run's stderr."""
-    return [{k: v for k, v in r.items() if k not in ("tail", "worker")} for r in runs]
+    return [{k: v for k, v in r.items() if k not in ("tail", "worker", "refused_workers")} for r in runs]
 
 
 def scrub_hosts(body: str, hosts: list[str]) -> str:
@@ -493,8 +545,10 @@ def main(argv: list[str] | None = None) -> int:
         if not selection["ios"]:
             print("not iOS-affecting: cmux/ios-fast passes without a proof", file=sys.stderr)
         return 0
+    leased = set() if a.pin_strict or not workers else leased_hosts()
     with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
-        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt) for s in steps]
+        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt, workers, leased)
+                for s in steps]
         futs += [pool.submit(run_script, s) for s in selection["scripts"]]
         runs = [f.result() for f in futs]
     runs += delegated(selection)
@@ -531,7 +585,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"FAIL {r['name']} on {r.get('worker', '?')}:\n{r.get('tail', '')}\n", file=sys.stderr)
     body = scrub_hosts(proof_record.render(record, summary_md(record)),
                        [*workers, *LEGACY_WORKERS, *FORBIDDEN_WORKERS, os.uname().nodename,
-                        *(r.get("worker", "") for r in runs)])
+                        *(r.get("worker") or "" for r in runs),
+                        *(w for r in runs for w in r.get("refused_workers") or [])])
     if a.out:
         Path(a.out).write_text(json.dumps(record, indent=1))
     if not a.no_post:
