@@ -34,6 +34,7 @@ extension NSWindow {
     /// kind whose content paints its own backdrop (`.main`) ignores it.
     public func install(kind: WindowKind, content: NSView, scope: ThemeScope, activeLook: ActiveLookScope?) {
         WindowKindRegistry.setKind(kind, of: self)
+        keepKeyLookUnderItsPages() // its controls keep the key look while its own page has the keys
         let traits = kind.traits
         styleMask.formUnion([.titled, .closable])
         if traits.hidesMinimizeAndZoom {
