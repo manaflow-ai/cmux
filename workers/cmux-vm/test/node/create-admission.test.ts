@@ -355,7 +355,7 @@ describe("a create that names its deadline (cmux-platform#2217)", () => {
 
   it("waits for a slot across the time left before its deadline, where 25 s refused it", async () => {
     const client = await fullQueue();
-    const waiting = client.admit("d", false, Date.now() + 300_000);
+    const waiting = client.admit("d", false, undefined, Date.now() + 300_000);
     await vi.advanceTimersByTimeAsync(50_000);
     expect(await waiting).toMatchObject({ admitted: true, waitedMs: 50_000 });
   });
@@ -370,8 +370,8 @@ describe("a create that names its deadline (cmux-platform#2217)", () => {
   it("refuses at once when its deadline is past or too close to finish a create, even with a slot free", async () => {
     const queue = new CreateAdmissionQueue(memoryLedgerStorage());
     const client = localCreateAdmission(queue, SETTINGS);
-    expect(await client.admit("late", false, Date.now() - 1)).toMatchObject({ admitted: false, reason: "queue_full", waitedMs: 0 });
-    expect(await client.admit("close", false, Date.now() + CREATE_DEADLINE_MARGIN_MS - 1)).toMatchObject({ admitted: false, reason: "queue_full" });
+    expect(await client.admit("late", false, undefined, Date.now() - 1)).toMatchObject({ admitted: false, reason: "queue_full", waitedMs: 0 });
+    expect(await client.admit("close", false, undefined, Date.now() + CREATE_DEADLINE_MARGIN_MS - 1)).toMatchObject({ admitted: false, reason: "queue_full" });
     expect(queue.state.inFlight).toBe(0);
   });
 
@@ -384,7 +384,7 @@ describe("a create that names its deadline (cmux-platform#2217)", () => {
       setTimeout(() => { void queue.release("a"); }, 54_000);
       const outcome = (async () => {
         for (let attempt = 0; attempt < 4; attempt++) {
-          const answer = await client.admit("person", false, deadline ? 300_000 : undefined);
+          const answer = await client.admit("person", false, undefined, deadline ? 300_000 : undefined);
           if (answer.admitted) return { admittedAtMs: Date.now(), refusals: attempt };
           await sleep(Math.min(30_000, 1000 * 2 ** attempt));
         }
