@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCloudStart
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
@@ -21,13 +22,8 @@ extension AppServices: AgentShareHost {
     }
     func shareOwnerToken(api: URL?) async -> String? { await cloud.shareOwnerToken(api: api) }
     var shareAccountScope: String? { cloud.auth.accountKey }
-    var shareTeams: [AgentShareTeam] {
-        guard cloud.isSignedIn, cloud.mayCallCloud else { return [] }
-        return cloud.shareTeams.map { AgentShareTeam(id: $0.id, name: $0.name) }
-    }
-    func shareTeamOwnerToken(api: URL?, team: String, accountScope: String) async -> String? {
-        return await cloud.shareOwnerToken(api: api, team: team, accountScope: accountScope)
-    }
+    var shareTeams: [AgentShareTeam] { cloud.isSignedIn && cloud.mayCallCloud ? cloud.auth.shareTeams.map { AgentShareTeam(id: $0.id, name: $0.name) } : [] }
+    func shareTeamOwnerToken(api: URL?, team: String, accountScope: String) async -> String? { await cloud.shareOwnerToken(api: api, team: team, accountScope: accountScope) }
     func shareLinkOpener() async -> (connection: DaemonConnection?, token: String?) { (await machines.local.connectionOnceStarted(), await cloud.auth.restoredAccessToken()) }
     func shareCopy(_ text: String) { AppActionContext(services: self).copy(text) }
     func shareNotice(_ message: String) { BrowserFileImport.toast(self, id: "agent-share", message) }
