@@ -13,7 +13,9 @@ This is the same policy for every reader under scripts/ci, in one place:
   change them;
 - each wait honors Retry-After, else x-ratelimit-reset, else 5, 15, 30 s; never over MAX_WAIT_S, except a
   rate limit that NAMES its end (Retry-After, or x-ratelimit-remaining 0 with x-ratelimit-reset): that wait
-  is taken to the end, up to RATE_MAX_WAIT_S, and any number of times inside RATE_BUDGET_S (an installation
+  is taken to the end, up to RATE_MAX_WAIT_S, and any number of times inside rate_budget_s, which DEFAULTS to the caller's budget_s (BUDGET_S 110 s) so a job with a short
+  timeout-minutes is never cancelled by a sleep; only a caller that opts in (rate_budget_s=RATE_BUDGET_S, 1200 s) waits
+  longer (an installation
   limit lasts minutes; cmux run 46019347396 gave up after 2 tries and 60 s and went red). A caller with
   another token to try, or a job shorter than the wait, passes a smaller rate_budget_s: 0 gives up on a named
   limit at once, so the caller's next token reads it (cmux's `ios fast verdict status`, a 5-min job, slept 900 s
@@ -141,7 +143,7 @@ def limited_until(headers, now: float | None = None) -> str | None:
 
 def request(req: urllib.request.Request | str, seconds: float = CALL_S, *, raise_errors: bool = False,
             follow_redirects: bool = True, max_bytes: int | None = None, tries: int = TRIES,
-            budget_s: float = BUDGET_S, rate_budget_s: float = RATE_BUDGET_S, sleep: Callable[[float], None] = time.sleep,
+            budget_s: float = BUDGET_S, rate_budget_s: float | None = None, sleep: Callable[[float], None] = time.sleep,
             clock: Callable[[], float] = time.monotonic, now: Callable[[], float] = time.time,
             log: Callable[[str], None] | None = None) -> tuple[int, bytes, deadline_http.Headers]:
     """deadline_http.request(REQ, SECONDS, ...), asked again on a refusal that can change (module doc).
@@ -152,6 +154,9 @@ def request(req: urllib.request.Request | str, seconds: float = CALL_S, *, raise
     method = req.get_method()
     tries = tries if method in READS else 1
     log = log or (lambda line: print(line, file=sys.stderr))
+    # A caller that does not opt in (rate_budget_s=RATE_BUDGET_S) never sleeps on a rate limit past its own
+    # budget_s: Actions jobs have timeout-minutes of 5-15, and a 20 min default cancelled them.
+    rate_budget_s = budget_s if rate_budget_s is None else rate_budget_s
     start = clock()
     job_left = deadline_left(clock, now)
     if job_left is not None:
