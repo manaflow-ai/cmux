@@ -9,7 +9,7 @@
 //   - a failure the page says is one (a refusal at once, a recovery past its deadline);
 //   - a read chat and a New Tab page still are.
 import { expect, test } from "bun:test";
-import { pageShowsWhatItIs, type FirstPaintState } from "../src/agent-session/acpmux/firstPaint";
+import { newTabPaintReady, pageShowsWhatItIs, type FirstPaintState } from "../src/agent-session/acpmux/firstPaint";
 
 const waiting: FirstPaintState = {
   handshaken: false,
@@ -32,6 +32,14 @@ test("a read chat and a New Tab page are first paints; a chat not read yet is no
   expect(pageShowsWhatItIs({ ...waiting, newTab: true })).toBe(true);
   expect(pageShowsWhatItIs({ ...waiting, handshaken: true })).toBe(false);
   expect(pageShowsWhatItIs(waiting)).toBe(false);
+});
+
+test("a New Tab stays covered while its lazy screen is null, then releases once it draws", () => {
+  expect(pageShowsWhatItIs({ ...waiting, newTab: true })).toBe(true);
+  expect(newTabPaintReady(true, false, false)).toBe(false);
+  expect(newTabPaintReady(true, true, false)).toBe(true);
+  expect(newTabPaintReady(true, false, true)).toBe(true);
+  expect(newTabPaintReady(false, false, false)).toBe(true);
 });
 
 test("over the last launch's copy only the chat itself, a said failure or a refused open is a first paint", () => {
