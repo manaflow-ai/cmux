@@ -435,34 +435,27 @@ struct TerminalComposer: View {
         }
     }
 
-    static func loadWithInactivityDeadline<T: Sendable>(
+    /// `clock` is the one the idle window is measured on; tests pass one they advance.
+    static func loadWithInactivityDeadline<T: Sendable, C: Clock<Duration>>(
         _ operation: (@escaping @Sendable (Result<T?, Error>) -> Void) -> Progress,
         inactivityDeadline: Duration = .seconds(30),
-        progressPoll: Duration = .milliseconds(250)
+        progressPoll: Duration = .milliseconds(250),
+        clock: C = ContinuousClock()
     ) async throws -> T {
         try Task.checkCancellation()
         let race = PhotoLoadRace<T?>()
         let progress = operation { [weak race] result in _ = race?.finish(result) }
         let monitor = Task {
-            let clock = ContinuousClock()
             var lastFraction = progress.fractionCompleted
             var lastAdvance = clock.now
-            var lastPoll = clock.now
             while !Task.isCancelled {
-                do { try await Task.sleep(for: progressPoll) }
+                do { try await clock.sleep(for: progressPoll) }
                 catch { return }
-                // Time this monitor itself went unscheduled (a loaded or
-                // low-power device) is not the load's inactivity: the load
-                // was starved alongside it, so that gap does not count.
-                let now = clock.now
-                let late = now - lastPoll - progressPoll
-                if late > progressPoll { lastAdvance += late }
-                lastPoll = now
                 let fraction = progress.fractionCompleted
                 if fraction > lastFraction {
                     lastFraction = fraction
-                    lastAdvance = now
-                } else if now - lastAdvance >= inactivityDeadline {
+                    lastAdvance = clock.now
+                } else if lastAdvance.duration(to: clock.now) >= inactivityDeadline {
                     if race.finish(.failure(PhotoLoadError.deadline)) { progress.cancel() }
                     return
                 }

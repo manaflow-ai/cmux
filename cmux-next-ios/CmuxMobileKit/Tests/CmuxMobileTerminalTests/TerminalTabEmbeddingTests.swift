@@ -61,7 +61,8 @@ import UIKit
         // The final owner leaving still releases the claim once the debounce runs out, so the
         // recording above saw a working session, not a silent one.
         incoming.rootView = AnyView(EmptyView())
-        // test: the release debounce (1 s) runs out; a loaded simulator can take longer, so wait for it.
+        // Wait for the release itself, not a fixed window: a loaded simulator can run the 1 s
+        // debounce late, and a fixed 1.5 s sleep then reads `[]`.
         try await TerminalPredictionInputTests.waitUntil(10) { !session.claims.isEmpty }
         #expect(session.claims == [false], "the last page's departure releases the claim: \(session.claims)")
     }
