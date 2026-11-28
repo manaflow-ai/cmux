@@ -238,9 +238,13 @@ class Tree:
                 # A concat! prefix may stop inside a file name: watch its directory.
                 read = [(PurePosixPath(source).parent, literal if not prefix or literal.endswith("/")
                          else str(PurePosixPath(literal).parent)) for prefix, literal in INCLUDE.findall(text)]
-                read += [(PurePosixPath(directory), literal) for literal in MANIFEST_DIR.findall(text)]
+                joined = MANIFEST_DIR.findall(text)
+                read += [(PurePosixPath(directory), literal) for literal in joined]
                 paths = {os.path.normpath(str(base / literal.lstrip("/"))) for base, literal in read}
-                for literal in PARENT_LITERAL.findall(text):
+                # A CARGO_MANIFEST_DIR join is read from the package above; read again from the source's own
+                # directories, its "../../.." named whole trees (cmux-tui, cmux-next-ios) no file reads, so every
+                # change under them planned the workspace on a landing head.
+                for literal in set(PARENT_LITERAL.findall(text)) - set(joined):
                     for base in (PurePosixPath(source).parent, *PurePosixPath(source).parent.parents):
                         path = os.path.normpath(str(base / literal))
                         if path in self.tracked:

@@ -1100,6 +1100,10 @@ path = "tests/test_ci_rust_workspaces_land_head.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_rust_workspaces_reads_past_post_merge.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_same_head_job.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_same_head_job.py"
@@ -1237,6 +1241,10 @@ lane = "linux-guard"
 path = "tests/test_ci_swiftpm_prefetch_shared_cache.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_swiftpm_prefetch_shared_cache.py"
+
+[[test]]
+path = "tests/test_ci_tailnet_oidc_identity_scope.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_target_graph.py"
@@ -1425,10 +1433,6 @@ reason = "Unit tests of scripts/ci/workflow_start_lint.py, the lint cmux-next-gu
 
 [[test]]
 path = "tests/test_ci_workflow_step_id_grep_guarded.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_tailnet_oidc_identity_scope.py"
 lane = "linux-guard"
 
 [[test]]
