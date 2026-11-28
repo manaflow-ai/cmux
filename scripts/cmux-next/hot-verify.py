@@ -508,6 +508,17 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
     if behind:
         out["notes"].append(f"the app's commit {base[:12]} is {lag} commits behind the change's fork {fork[:12]} "
                             "on feat-cmux-next: those commits are not the change, and a look does not show them")
+    elif fork != base:
+        # An app newer than the change's fork (a nightly cut after the PR branched, cmux#64758): the look puts the
+        # change's whole web bundle, built at its head, over the app, so web commits merged between the fork and
+        # the app are not in the look, and the app's native side may expect web it no longer gets. The notes were
+        # empty here, and a blank New Tab on such a look read as the change's own regression.
+        ahead = git(repo, "rev-list", "--count", f"{fork}..{base}", check=False) or "?"
+        web_ahead = git(repo, "rev-list", "--count", f"{fork}..{base}", "--", "webviews", check=False) or "?"
+        out["notes"].append(f"the app's commit {base[:12]} is {ahead} commits ahead of the change's fork "
+                            f"{fork[:12]} on feat-cmux-next ({web_ahead} of them in webviews/): a look shows the "
+                            "change's own web bundle over the app, without the web merged after the fork, so a "
+                            "difference there may be that gap and not the change")
     left = dict(planned.get("left") or {})
     web = left.pop(LEFT_WEB, [])
     # The web checks' router decides the web layer too: a change it routes the webview suite on (land-judge's

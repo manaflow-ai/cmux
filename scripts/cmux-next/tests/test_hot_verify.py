@@ -219,6 +219,23 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planned["fork"], tip)
         self.assertTrue(any("behind" in note for note in planned["notes"]), planned["notes"])
 
+    def test_an_app_newer_than_the_change_s_fork_is_noted(self):
+        # cmux#64758: a look of a PR forked before the nightly overlaid its older web bundle on the newer app and
+        # drew a blank New Tab with no note saying the app was ahead of the change's fork.
+        head = self.fx.change({"webviews/src/app.tsx": "export const title = 'Home 4'\n"})
+        app = self.advance_base({"webviews/src/newtab.tsx": "export const newTab = 2\n", "docs/notes.md": "x\n"})
+        planned = self.plan(head, base=app)
+        self.assertEqual(planned["fork"], self.fx.base)
+        self.assertEqual(planned["base"], app)
+        ahead = [note for note in planned["notes"] if "ahead of the change's fork" in note]
+        self.assertEqual(len(ahead), 1, planned["notes"])
+        self.assertIn("1 commits ahead", ahead[0])
+        self.assertIn("(1 of them in webviews/)", ahead[0])
+
+    def test_an_app_at_the_change_s_fork_has_no_gap_note(self):
+        planned = self.plan(self.fx.change({"webviews/src/app.tsx": "export const title = 'Home 5'\n"}))
+        self.assertFalse([note for note in planned["notes"] if "ahead" in note or "behind" in note], planned["notes"])
+
     def test_the_change_s_own_swift_still_needs_a_build_after_drift(self):
         tip = self.advance_base({"docs/notes.md": "drift\n"})
         head = self.fx.commit({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift":
