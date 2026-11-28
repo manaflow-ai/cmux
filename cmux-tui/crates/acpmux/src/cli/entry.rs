@@ -84,8 +84,7 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     }
     crate::daemon::set_daemon_prefix(invocation.daemon_prefix.clone());
     // An agent host serves one harness for its controller; it has no CLI.
-    // Agent work yields CPU and disk to the app (`qos.rs`): before any thread
-    // starts, since on macOS this re-executes the host in place under a clamp.
+    // Its tier (`qos.rs`) is set before any thread starts.
     if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
         crate::oom_rank::raise_agent();
         crate::qos::enter(crate::qos::Role::AgentHost);
@@ -122,10 +121,15 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::github_lane_mint::CLI_ARG) {
         crate::install_github_source();
         let rest: Vec<String> =
-            args[1..].iter().map(|a| a.to_string_lossy().into_owned()).collect();
+            args.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
         let code = cmux_host::github_cli::run(&rest);
         // crash-allow: git and gh read this exit code (a helper's refusal, gh's own status); no runtime or daemon runs yet
         std::process::exit(i32::from(code));
+    }
+    // The held pipes' host (`hub_carrier_pipe_host.rs`): its own runtime, no daemon start.
+    #[cfg(all(unix, feature = "hub-carrier"))]
+    if args.first().is_some_and(|a| a == crate::hub_carrier_pipe_host::PIPE_HOST_ARG) {
+        return crate::hub_carrier_pipe_host::main(args.get(1..).unwrap_or_default());
     }
     // A Codex start's PreToolUse hook in a filling checkout (`codex_repo_gate.rs`): no runtime.
     if args.first().is_some_and(|a| a == crate::codex_repo_gate::HOOK_ARG) {
@@ -148,6 +152,9 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-keeper") {
         crate::linux_sandbox::keeper::main(args.into_iter().skip(1).collect());
+    }
+    if args.first().is_some_and(|arg| arg == crate::subscriptions::grok_hook::ARG) {
+        return crate::subscriptions::grok_hook::run(args.get(1).and_then(|arg| arg.to_str()));
     }
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
@@ -280,11 +287,11 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
     // (`acpmux --json exec …`), so these rewrites see the same command.
     let at = command_index(&argv);
     // `acpmux daemon` with nothing after it means `daemon run`.
-    if at + 1 == argv.len() && argv[at] == "daemon" {
+    if at + 1 == argv.len() && argv.get(at).is_some_and(|a| a == "daemon") {
         argv.push("run".into());
     }
-    if argv.get(at).map(|a| a == "--skill" || a == "--guide").unwrap_or(false) {
-        argv[at] = "skill".into();
+    if let Some(word) = argv.get_mut(at).filter(|a| *a == "--skill" || *a == "--guide") {
+        *word = "skill".into();
     }
     // `acpmux stop NAME` stops that session (`session stop`), never the daemon (`daemon stop`).
     if let Some(word) = argv.get_mut(at).filter(|a| *a == "stop") {
@@ -379,6 +386,7 @@ async fn async_main(parsed: Parsed) -> Result<()> {
     match command {
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
         Some(Command::PrWait(args)) => crate::cli::pr_wait::run(args, json_out).await,
+        Some(Command::GhRead(args)) => crate::cli::gh_read::run(args, json_out).await,
         Some(Command::Ci(ci)) => crate::cli::ci_wait::run(ci, json_out).await,
         Some(Command::RunAsk { file }) => crate::run_ask::run_cli(file).await,
         // Before anything that reads or writes the home: this runs as root.
@@ -715,6 +723,12 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         }
         Some(Command::Exec(crate::cli::command::ExecCmd::Trace { last })) => {
             match crate::placement::exec_router::trace_main(last, cli.json) {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
+        Some(Command::Exec(crate::cli::command::ExecCmd::Conformance { cases, dir, keep })) => {
+            match crate::placement::exec_conformance::main(&cases, dir, keep, cli.json).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, cli.json),
             }

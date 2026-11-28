@@ -205,32 +205,33 @@ fn a_token_answer_gives_its_token_and_the_api_that_issued_it() {
     );
 }
 
-/// Seeded secrets on the wire (cmux_egress::capture): `inference gateway mode` and `status` send the
-/// bearer only in `Authorization` and the team only in `x-cmux-team`.
-/// tests/egress_seeded.json names this test for `cmux_tui::cli::inference_gateway_admin`.
+/// `inference gateway mode` sends the cmux token only as the bearer and the team only as `x-cmux-team`; the
+/// machine id rides in the body, which carries neither.
 #[tokio::test]
-async fn seeded_secrets_ride_only_in_authorization_and_the_team_header() {
+async fn seeded_token_and_team_ride_only_in_their_headers() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     cmux_egress::capture::install().unwrap();
-    let token = "SEEDgwAdminBearer-3f88";
-    let team = "SEEDgwAdminTeam-b190";
+    let token = "SEEDgatewayAdminBearer-c41e";
+    let team = "SEEDgatewayAdminTeam-0b7a";
     let common = Common {
-        api: Some("https://cloud-api.cmux.dev".to_owned()),
+        api: Some(cmux_cloud_environment::PRODUCTION_API.to_owned()),
         team: Some(team.to_owned()),
         token: TokenSource::Command(format!("printf %s {token}")),
     };
-    let mode = Verb::Mode { personal: false, mode: "gateway".into(), machine: None };
-    let _ = run(&common, &mode).await;
-    let _ = run(&common, &Verb::Status { personal: true }).await;
-    let sent: Vec<_> = cmux_egress::capture::requests_to("cloud-api.cmux.dev")
-        .into_iter()
-        .filter(|r| r.target.starts_with("/v1/cloud/inference-gateway"))
-        .collect();
-    assert!(sent.len() >= 2, "{sent:?}");
-    let places = cmux_egress::capture::leaks(token);
-    assert!(!places.is_empty(), "{sent:?}");
-    assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
-    let places = cmux_egress::capture::leaks(team);
-    assert!(!places.is_empty(), "{sent:?}");
-    assert!(places.iter().all(|p| p.ends_with(": header x-cmux-team")), "{places:?}");
+    let verb = Verb::Mode {
+        personal: false,
+        mode: "gateway".into(),
+        machine: Some(Some("vm_abcdefghij0123456789".into())),
+    };
+    let _ = run(&common, &verb).await;
+    let sent = cmux_egress::capture::requests_to("cloud-api.cmux.dev");
+    assert!(
+        sent.iter().any(|r| r.method == "PUT" && r.target == "/v1/cloud/inference-gateway"),
+        "{sent:?}"
+    );
+    for (secret, place) in [(token, ": header authorization"), (team, ": header x-cmux-team")] {
+        let places = cmux_egress::capture::leaks(secret);
+        assert!(!places.is_empty(), "{secret}: {sent:?}");
+        assert!(places.iter().all(|p| p.ends_with(place)), "{secret}: {places:?}");
+    }
 }

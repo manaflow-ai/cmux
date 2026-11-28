@@ -719,6 +719,9 @@ export type AcpmuxRow = {
   folded?: boolean;
   /// A Worked-for row's actual open state, including a provisional key from paged history.
   foldOpen?: boolean;
+  /// A running turn's header whose fold holds nothing to open yet (turns.ts `liveFoldHidesWork`): its
+  /// first call still runs on the live line, or no step came. It draws no chevron until work lands.
+  foldEmpty?: boolean;
   /// A turn's header ("Worked for", turns.ts `turnHeaderId`) is one row from the turn's start to its
   /// end: `running` while the turn runs ("Working for 32s", its clock ticking from `at`, or held at
   /// `durationMs` once the answer came), unset once it ended.
@@ -1388,6 +1391,8 @@ export type AcpmuxSnapshot = {
   peers?: string[];
   /// Each peer's transport by name: `ssh` for an `ssh://` peer, `cloud` for any other (environments.ts).
   peerKinds?: Record<string, "ssh" | "cloud">;
+  /// The workspace registry ID of each peer leased by a Cloud link.
+  peerCloudRegistries?: Record<string, string>;
   /// Whether each peer is connected, as `_acpmux/status` last said (environments.ts).
   peerConnected?: Record<string, boolean>;
   /// Each peer's link state (`connected`, `reconnecting`, …), as `_acpmux/status` last said (environments.ts).
@@ -1686,6 +1691,7 @@ export type AcpmuxSnapshot = {
     pickable?: boolean;
     /** The declared launcher or route kind; routers cannot represent a harness family. */
     kind?: string;
+    endpoint?: true;
     /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
     family?: string;
     /** `_acpmux/harnesses` `icon`: the profile's own icon value (a brand id, an emoji, an SF
@@ -1887,13 +1893,6 @@ const MESSAGE_GAP = 0;
 /// A collapsed sub-session disclosure (subagents/AgentCard.css): one 26px line plus its transcript
 /// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
 const cardHeight = (_state: string) => 32;
-
-/// A sub-session reply under its card (SubsessionCallCard.tsx `Cut`): up to three 16px detail lines of
-/// about 60 characters, and the toggle once it is cut.
-function replyHeight(reply: string): number {
-  const lines = reply.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 60)), 0);
-  return Math.min(lines, 3) * 16 + (lines > 3 ? 20 : 0);
-}
 
 /// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
 const TOOL_RUN_TOP = 0;
@@ -4995,6 +4994,7 @@ import { laneNotice } from "./conversation/laneReport";
 import { receivedLook } from "./conversation/receivedLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { ROW_METRIC } from "./rowMetric";
+import { replyHeight } from "./replyHeight";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 import type { SurgeHold } from "./conversation/surgeHold";
 

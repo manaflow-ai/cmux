@@ -641,3 +641,58 @@ fn the_live_client_sends_the_bootstrap_only_in_authorization() {
     assert_eq!(places.len(), 2, "{places:?}");
     assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
 }
+
+/// Seeded sinks for the capture test: the bootstrap token `connect` proves, and an unrelated provider token.
+struct SeededSinks {
+    bootstrap: &'static str,
+    provider: &'static str,
+}
+
+impl Sinks for SeededSinks {
+    fn provider_token(&self, _: &str) -> Result<Zeroizing<String>, String> {
+        Ok(Zeroizing::new(self.provider.into()))
+    }
+    fn save_provider_token(&self, _: &str, _: &str) -> Result<(), String> {
+        Ok(())
+    }
+    fn read_bootstrap(&self) -> Result<Zeroizing<String>, String> {
+        Ok(Zeroizing::new(self.bootstrap.into()))
+    }
+    fn put(&self, _: &Store, _: &str, _: &str) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// `keys connect` sends the bootstrap token only as the Cloudflare API's bearer, and no other token it holds.
+#[test]
+fn seeded_bootstrap_rides_only_as_the_cloudflare_bearer() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let sinks = SeededSinks {
+        bootstrap: "SEEDkeyBrokerBootstrap-91d3",
+        provider: "SEEDkeyBrokerOther-5be0",
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths { audit: dir.path().join("keys.json") };
+    let _ = run(
+        Command::Connect { account: ACCOUNT.into() },
+        &paths,
+        &Live::new().unwrap(),
+        &sinks,
+        &local::tests::MemoryVault::default(),
+    );
+    let sent = cmux_egress::capture::requests_to("api.cloudflare.com");
+    assert!(
+        sent.iter().any(|r| r.target.ends_with(&format!("/accounts/{ACCOUNT}/tokens/verify"))),
+        "{sent:?}"
+    );
+    let places = cmux_egress::capture::leaks(sinks.bootstrap);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(
+        places
+            .iter()
+            .all(|p| p.starts_with("api.cloudflare.com ") && p.ends_with(": header authorization")),
+        "{places:?}"
+    );
+    assert_eq!(cmux_egress::capture::leaks(sinks.provider), Vec::<String>::new());
+}

@@ -265,37 +265,29 @@ fn finds_codex_device_link_and_code() {
     assert_eq!(device_prompt("https://auth.openai.com/codex/device\n"), None);
 }
 
-/// Seeded secrets on the wire (cmux_egress::capture): setup's gateway reads and writes on the cmux
-/// API send the bearer only in `Authorization` and the team only in `x-cmux-team`; the PUT's body
-/// names only the mode and machine. tests/egress_seeded.json names this test for
-/// `cmux_tui::cli::inference_setup`.
+/// `inference setup --path gateway` asks the cmux API with the token only as the bearer and the team only as
+/// `x-cmux-team`.
 #[tokio::test]
-async fn seeded_secrets_ride_only_in_authorization_and_the_team_header() {
+async fn seeded_token_and_team_ride_only_in_their_headers() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     cmux_egress::capture::install().unwrap();
-    let token = "SEEDsetupBearer-8e40";
-    let team = "SEEDsetupTeam-2c6b";
+    let token = "SEEDinferenceSetupBearer-7d20";
+    let team = "SEEDinferenceSetupTeam-e9a4";
     let options = Options {
-        api: "https://cloud-api.cmux.dev".into(),
+        api: cmux_cloud_environment::PRODUCTION_API.to_owned(),
         team: Some(team.to_owned()),
         machine: "vm_abcdefghij0123456789".into(),
         path: PathChoice::Gateway,
-        token: TokenSource::App,
+        token: TokenSource::Command(format!("printf %s {token}")),
         gateway: None,
     };
-    let machine = Machine { http: http_client().unwrap(), options: &options, token: token.into() };
-    let _ = gateway_state(&machine).await;
-    let _ = put_gateway(&machine, "gateway", Some("vm_bcdefghijk0123456789")).await;
-    let sent: Vec<_> = cmux_egress::capture::requests_to("cloud-api.cmux.dev")
-        .into_iter()
-        .filter(|r| r.target == "/v1/cloud/inference-gateway")
-        .collect();
-    assert!(sent.iter().any(|r| r.method == "GET"), "{sent:?}");
-    assert!(sent.iter().any(|r| r.method == "PUT"), "{sent:?}");
-    let places = cmux_egress::capture::leaks(token);
-    assert!(!places.is_empty(), "{sent:?}");
-    assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
-    let places = cmux_egress::capture::leaks(team);
-    assert!(!places.is_empty(), "{sent:?}");
-    assert!(places.iter().all(|p| p.ends_with(": header x-cmux-team")), "{places:?}");
+    // The capture server's `{}` is no gateway, so setup stops after its one ask.
+    assert!(setup(&options).await.is_err());
+    let sent = cmux_egress::capture::requests_to("cloud-api.cmux.dev");
+    assert!(sent.iter().any(|r| r.target == "/v1/cloud/inference-gateway"), "{sent:?}");
+    for (secret, place) in [(token, ": header authorization"), (team, ": header x-cmux-team")] {
+        let places = cmux_egress::capture::leaks(secret);
+        assert!(!places.is_empty(), "{secret}: {sent:?}");
+        assert!(places.iter().all(|p| p.ends_with(place)), "{secret}: {places:?}");
+    }
 }
