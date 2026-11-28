@@ -152,7 +152,8 @@ extension SidebarViewComponents {
                 return section
             }
             aboveRegion.update(content(loose.filter { !$0.items.isEmpty }), width: width)
-            if list.blocks != blocks {
+            // Only the items' looks changed (a pinned workspace's status or progress, a badge): drawn in place.
+            if list.blocks != blocks, !(reloadsList && list.patchBlocks(blocks)) {
                 list.blocks = blocks
                 // The document changed under the list (an item added, a section an agent filled): calm, not under the pointer.
                 if reloadsList { list.showModelChange(animates: true) }

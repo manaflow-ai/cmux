@@ -27,6 +27,9 @@ pub(crate) fn fleet_hold_line_at(hold: &FleetHold, held: Option<u64>, now_ms: u6
         Some(until) => line.push_str(&format!("; lifts in {}", span(until.saturating_sub(now_ms)))),
         None => line.push_str("; never lifts by itself"),
     }
+    if !hold.thaw_order.is_empty() {
+        line.push_str(&format!("; thaws {} first", hold.thaw_order.join(", ")));
+    }
     line.push_str(" (`acpmux session release --fleet` lifts it now)");
     line
 }

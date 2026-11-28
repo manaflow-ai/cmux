@@ -4,7 +4,7 @@
 // shadow, no glass, no wallpaper; every height on the 8 px grid.
 {
   "name": "Grid Light",
-  "description": "White page, black ink, 1 px rules, ultramarine accent, zero corners, no glass.",
+  "description": "White page, black text, square corners, a blue accent.",
 
   "appearance.theme": "Builtin Light",
   // The window, sidebar and pages take this theme too, over an App Theme of your own.

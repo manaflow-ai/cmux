@@ -255,7 +255,7 @@ describe("VM alert checks", () => {
         ${sql.json({
           coverage: { inventoryComplete: true, skippedBudget: 0 },
           errors: [],
-          hung: [{ vmId: "provider-health", owner: { cloudVmId: healthVm!.id } }],
+          hung: [{ confirmedThisSweep: true, vmId: "provider-health", owner: { cloudVmId: healthVm!.id } }],
         })},
         ${new Date(now.getTime() - 6 * 60 * 1000)}
       )
@@ -277,7 +277,7 @@ describe("VM alert checks", () => {
         ${sql.json({
           coverage: { inventoryComplete: true, skippedBudget: 0 },
           errors: [],
-          hung: [{ vmId: "provider-health", owner: { cloudVmId: healthVm!.id } }],
+          hung: [{ confirmedThisSweep: true, vmId: "provider-health", owner: { cloudVmId: healthVm!.id } }],
         })},
         ${now}
       )
@@ -294,6 +294,47 @@ describe("VM alert checks", () => {
     expect(summary.health).toEqual({ triggered: true, count: 1 });
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({ key: "vm-health-stale", severity: "critical" });
+
+    const checkAt = (time: Date) => runVmAlertChecks({
+      db: cloudDb(),
+      now: time,
+      sendAlert: async (input): Promise<AlertResult> => {
+        alerts.push(input);
+        return { sent: true, configured: true, status: 200 };
+      },
+    });
+    const inconclusiveAt = new Date(now.getTime() + 1);
+    await sql`
+      insert into cloud_vm_health_snapshots (attention_needed, report, created_at)
+      values (true, ${sql.json({
+        coverage: { inventoryComplete: true, skippedBudget: 0, probeErrors: 1 },
+        errors: [],
+        hung: [{ vmId: "provider-health", confirmedThisSweep: false }],
+      })}, ${inconclusiveAt})
+    `;
+    expect((await checkAt(inconclusiveAt)).health).toEqual({ triggered: false, count: 0 });
+    const [pending] = await sql`select active from cloud_vm_alert_states where alert_key = 'vm-health-stale'`;
+    expect(pending?.active).toBe(true);
+
+    const recheckAt = new Date(now.getTime() + 2);
+    await sql`
+      insert into cloud_vm_health_snapshots (attention_needed, report, created_at)
+      values (true, ${sql.json({
+        coverage: { inventoryComplete: true, skippedBudget: 0, probeErrors: 0 },
+        errors: [],
+        hung: [{ vmId: "provider-health", confirmedThisSweep: true, owner: { cloudVmId: healthVm!.id } }],
+      })}, ${recheckAt})
+    `;
+    expect((await checkAt(recheckAt)).health).toEqual({ triggered: true, count: 1 });
+    expect(alerts).toHaveLength(1);
+
+    // The row UUID survives replacement. The old guest's timeout belongs to its own provider ID.
+    await sql`
+      update cloud_vms set provider_vm_id = 'provider-replacement',
+        provider_metadata = ${sql.json({ cmuxResourceUsage: { providerVmId: "provider-replacement", receivedAt: 1 } })}
+      where id = ${healthVm!.id}
+    `;
+    expect((await checkAt(recheckAt)).health).toEqual({ triggered: false, count: 0 });
   });
 
   dbTest("does not page the create-failure spike for reconciliation housekeeping", async () => {

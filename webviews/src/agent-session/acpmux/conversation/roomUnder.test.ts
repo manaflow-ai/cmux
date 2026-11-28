@@ -82,6 +82,21 @@ describe("roomUnder", () => {
     expect(moved.next.trayTaken).toBe(true);
   });
 
+  test("trayHold: folding a list the room had taken leaves no blank room under the rows", () => {
+    // The room took the open list (120), then the reader folds it to its line (40): nothing is held.
+    const folded = roomUnder(
+      pass({ dockTray: 40, bases: { tray: 120, trayToggled: true, card: 100, cardRest: 0, notice: 0 } }),
+    );
+    expect(folded.trayHold).toBe(0);
+    expect(folded.room).toBe(220);
+    expect(folded.next.bases.tray).toBe(40);
+    // A fold of what the reader opened over the rows still gives back only its hold.
+    const opened = roomUnder(
+      pass({ dockTray: 120, bases: { tray: 40, trayToggled: true, card: 100, cardRest: 0, notice: 0 } }),
+    );
+    expect(opened.trayHold).toBe(80);
+  });
+
   test("trayHold: never over the running turn's live line past half its rest gap", () => {
     const under = roomUnder(
       pass({

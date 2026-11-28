@@ -12,6 +12,7 @@ fn joined_hub(home: &std::path::Path) -> Arc<crate::hub::Hub> {
         team_messaging: true,
         credential: Some("join".into()),
         control_from: Vec::new(),
+        direct_send: false,
     });
     let store = crate::store::open(&config.store, home).unwrap();
     crate::hub::Hub::new(config, store)

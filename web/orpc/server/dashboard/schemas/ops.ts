@@ -12,6 +12,7 @@ const ownerSchema = z.object({
 }).nullable();
 
 const hungSchema = z.object({
+  confirmedThisSweep: z.boolean().optional(),
   vmId: z.string(),
   workload: z.string(),
   owner: ownerSchema,
