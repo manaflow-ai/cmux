@@ -12,6 +12,21 @@ pub(crate) const MAX_KEYS: usize = 100;
 /// The most row bytes one reply of [`rows`] holds; it holds one row however large.
 pub(crate) const ROWS_REPLY_BYTES: usize = 256 * 1024;
 
+/// A local caller's `deliveryAttempt` on a permission answer (`hub/permissions/receipt.rs`);
+/// a paired device's is refused.
+pub(super) fn delivery_attempt<T: serde::de::DeserializeOwned>(
+    conn: &Conn,
+    params: &Value,
+) -> Result<Option<T>, RpcError> {
+    let Some(value) = params.get("deliveryAttempt") else { return Ok(None) };
+    if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+        return Err(RpcError::invalid_params("deliveryAttempt is local only"));
+    }
+    serde_json::from_value(value.clone())
+        .map(Some)
+        .map_err(|_| RpcError::invalid_params("invalid deliveryAttempt"))
+}
+
 /// `transferBlocked` is the cached durable transfer decision (`hub/transfer_authority.rs`):
 /// true while a move away is begun or committed, null until a restored log is read.
 pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {

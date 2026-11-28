@@ -2791,21 +2791,6 @@ fn resolve_tab_refs(mux: &Mux, refs: &[TabRef]) -> anyhow::Result<Vec<SurfaceId>
 /// Upper bound on one `close-tabs` request; larger sets split into several.
 const MAX_CLOSE_TABS_SURFACES: usize = 4096;
 
-fn batch_close_terminals_json(outcome: &crate::mux::BatchCloseOutcome) -> Value {
-    Value::Array(
-        outcome
-            .terminals()
-            .into_iter()
-            .map(|terminal| {
-                json!({
-                    "terminal_id": terminal.terminal_id,
-                    "terminal_incarnation": terminal.terminal_incarnation,
-                })
-            })
-            .collect(),
-    )
-}
-
 /// A client transaction id: opaque, 1-128 printable ASCII characters.
 fn validate_client_transaction(transaction: Option<&str>) -> anyhow::Result<()> {
     if let Some(transaction) = transaction {

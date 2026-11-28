@@ -53,31 +53,10 @@ pub(super) use time_breakdown_gate::without as without_time_breakdown;
 mod turn_opener;
 mod workflow_dispatch;
 pub use workflow_dispatch::FEATURE as DURABLE_DISPATCH_FEATURE;
+mod disallowed_tools;
 #[path = "watches.rs"]
 mod watches;
-
-/// `_meta.acpmux.disallowedTools`: Claude Code built-in tools the new chat
-/// never gets (`acpmux new --worktree` sends `["AskUserQuestion"]`). Each is
-/// a tool's name, letters, digits and `_`, so none is a permission rule
-/// (`Bash(rm *)`) or a flag; it only takes tools away, from any origin.
-fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
-    let refused = || RpcError::invalid_params("disallowedTools must be a list of tool names");
-    match meta.and_then(|m| m.get("disallowedTools")) {
-        None | Some(Value::Null) => Ok(Vec::new()),
-        Some(Value::Array(names)) => names
-            .iter()
-            .map(|n| {
-                n.as_str()
-                    .filter(|n| {
-                        !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-                    })
-                    .map(str::to_owned)
-                    .ok_or_else(refused)
-            })
-            .collect(),
-        Some(_) => Err(refused()),
-    }
-}
+use disallowed_tools::disallowed_tools;
 
 /// Validate the read-free `_acpmux/attach {hold:true}` shape and return its exact-kind filter.
 fn hold_attach_filter(params: &Value) -> Result<crate::hub::EventFilter, RpcError> {
@@ -4527,18 +4506,7 @@ async fn dispatch_method(
             // The paired machine that answers, for D13 (`Hub::local_claude_refusal`).
             let device = super::remote_guard::sending_device(conn, &params);
             answerer.device = device.as_deref();
-            if params.get("deliveryAttempt").is_some()
-                && !matches!(conn.origin, Origin::Local | Origin::LocalApp)
-            {
-                return Err(RpcError::invalid_params("deliveryAttempt is local only"));
-            }
-            let attempt = params
-                .get("deliveryAttempt")
-                .map(|value| {
-                    serde_json::from_value(value.clone())
-                        .map_err(|_| RpcError::invalid_params("invalid deliveryAttempt"))
-                })
-                .transpose()?;
+            let attempt = info::delivery_attempt(conn, &params)?;
             hub.respond_permission_receipted(
                 &s,
                 pid,

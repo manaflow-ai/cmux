@@ -3,8 +3,6 @@
 //! close, move, save, reopen), and new browser/conversation/frontend tabs.
 //! Each function is one `Command` arm of `handle_command_with_cancellation`.
 
-use super::batch_close_terminals_json;
-
 use super::MutationRequest;
 use super::PaneRef;
 use super::SplitRespawnRequest;
@@ -30,8 +28,8 @@ use crate::ScreenId;
 use crate::SplitId;
 use crate::SurfaceId;
 use crate::WorkspaceId;
-use serde_json::Value;
 use serde_json::json;
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 pub(super) fn new_tab(
@@ -553,4 +551,19 @@ pub(super) fn surface_placement(
             .map(|workspace| workspace.id);
         (workspace, pane)
     })
+}
+
+pub(super) fn batch_close_terminals_json(outcome: &crate::mux::BatchCloseOutcome) -> Value {
+    Value::Array(
+        outcome
+            .terminals()
+            .into_iter()
+            .map(|terminal| {
+                json!({
+                    "terminal_id": terminal.terminal_id,
+                    "terminal_incarnation": terminal.terminal_incarnation,
+                })
+            })
+            .collect(),
+    )
 }
