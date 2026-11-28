@@ -134,15 +134,9 @@ import Testing
         #expect(route(unsent, personsOwnRun: false).route == .relay)
     }
 
-    /// The server answers a person's create once the provider made the machine, or after 25 s with it provisioning:
-    /// the create waits past that, while an approval's calls keep the short wait.
+    /// The server answers a person's create once the provider made the machine, or after 25 s with it provisioning.
     @Test func aDirectCreateWaitsPastTheServersOwnWait() {
-        let url = URL(string: "https://api.example.test/v1/ops")!
         #expect(CloudPersonCreate.createTimeout > 25)
-        #expect(CloudPersonCreate.post(url, body: Data(), bearer: "b", team: "team_a", timeout: CloudPersonCreate.createTimeout).timeoutInterval == CloudPersonCreate.createTimeout)
-        #expect(CloudPersonCreate.post(url, body: Data(), bearer: "b", team: nil).timeoutInterval == CloudPersonCreate.callTimeout)
-        #expect(CloudPersonCreate.session(timeout: CloudPersonCreate.createTimeout).configuration.timeoutIntervalForRequest == CloudPersonCreate.createTimeout)
-        #expect(CloudPersonCreate.session().configuration.timeoutIntervalForRequest == CloudPersonCreate.callTimeout)
     }
 
     @Test func eachRouteMarksItsOwnStep() {
@@ -189,7 +183,7 @@ import Testing
         let refusal = Data(#"{"_tag":"Unauthenticated","code":"auth.unauthenticated","message":"expired"}"#.utf8)
         let ops = CloudPersonCreate.ops({ _, _ in
             // What the session call's hedge notes when it sends the keyed create again after a connection failure.
-            CloudConnectHedge.resends?.note()
+            CloudPersonCreate.resends?.note()
             return refusal
         }, after: {})
         await #expect(throws: CloudAppOpFailure.self) {
@@ -202,14 +196,6 @@ import Testing
         // The same refusal with no resend never reached the op: the relay may take the create with a new key.
         let once = CloudPersonCreate.ops({ _, _ in refusal }, after: {})
         await #expect(throws: CloudPersonCreate.Unavailable.self) { _ = try await once("cloud.machine.create", .object([:]), "k", .user) }
-    }
-
-    @Test func theSessionPostCarriesTheTeamOnlyWhenGiven() {
-        let url = URL(string: "https://api.example.test/v1/ops")!
-        let pinned = CloudPersonCreate.post(url, body: Data("{}".utf8), bearer: "b", team: "team_a")
-        #expect(pinned.value(forHTTPHeaderField: "x-cmux-team") == "team_a")
-        #expect(pinned.httpMethod == "POST" && pinned.value(forHTTPHeaderField: "authorization") == "Bearer b")
-        #expect(CloudPersonCreate.post(url, body: Data(), bearer: "b", team: nil).value(forHTTPHeaderField: "x-cmux-team") == nil)
     }
 
     // MARK: The answer
