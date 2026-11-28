@@ -458,6 +458,7 @@ jobs:
             scripts/ci/cmux_tui_publisher_testing.py
             scripts/ci/nightly_tree_source.py
             scripts/ci/job_input_fingerprint.py
+            scripts/ci/ci_steps.py
             scripts/ci/job_reuse.py
             scripts/ci/cmux_next_route.py
             scripts/ci/affected-jobs.json
@@ -501,6 +502,7 @@ jobs:
             scripts/ci/cmux_tui_publisher_testing.py
             scripts/ci/nightly_tree_source.py
             scripts/ci/job_input_fingerprint.py
+            scripts/ci/ci_steps.py
             scripts/ci/job_reuse.py
             scripts/ci/cmux_next_route.py
             scripts/ci/affected-jobs.json
