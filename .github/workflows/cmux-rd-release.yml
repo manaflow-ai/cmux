@@ -10,10 +10,20 @@ name: cmux-rd release
 # LICENSE (GPL-3.0-or-later) and THIRD_PARTY_LICENSES.md, generated from the
 # exact crate tree of the build. Cisco's OpenH264 is never bundled: the host
 # downloads it from Cisco on the machine (`cmux-rd openh264-install`).
+#
+# The release follows the crate version: a push to feat-cmux-next that changes
+# cmux-rd-host's Cargo.toml makes tag cmux-rd-v<version> on that commit when it is
+# missing, then builds and publishes it in this same run (a tag pushed with the
+# default token starts no other workflow). A version bump is just a pull request;
+# nobody pushes the tag by hand. A version that already has its tag does nothing.
 on:
   push:
     tags:
       - "cmux-rd-v*"
+    branches:
+      - feat-cmux-next
+    paths:
+      - "cmux-tui/crates/cmux-rd-host/Cargo.toml"
   workflow_dispatch:
     inputs:
       tag:
@@ -34,11 +44,52 @@ env:
   GLIBC_FLOOR: "2.31"
   TARGET: x86_64-unknown-linux-gnu
   FEATURES: openh264,link
-  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
+  tag:
+    name: release tag
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        if: github.ref_type == 'branch' && github.event_name == 'push'
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Tag the crate version when it has none
+        id: tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          version="$(python3 cmux-tui/crates/cmux-rd-host/scripts/release.py version)"
+          tag="cmux-rd-v$version"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
+            echo "$tag exists; nothing to release"
+            echo "tag=" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$tag" -f "sha=$GITHUB_SHA" >/dev/null
+          echo "made $tag at $GITHUB_SHA"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
   build:
     name: build x86_64-unknown-linux-gnu
+    needs: tag
+    if: needs.tag.outputs.tag != ''
+    env:
+      RELEASE_TAG: ${{ needs.tag.outputs.tag }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 60
     permissions:
@@ -47,7 +98,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       sha: ${{ steps.version.outputs.sha }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -162,8 +213,10 @@ jobs:
 
   publish:
     name: publish
-    needs: build
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    needs: [tag, build]
+    env:
+      RELEASE_TAG: ${{ needs.tag.outputs.tag }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: holds signing material
     timeout-minutes: 30
     permissions:
       contents: write

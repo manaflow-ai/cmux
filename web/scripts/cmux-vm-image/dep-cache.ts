@@ -12,7 +12,7 @@
  * at bake time, so the cache is as fresh as the agents layer; an older version only costs a download.
  * clean.py keeps exactly ~/.npm/_cacache (the content and index) and drops npm's logs.
  */
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/workUser";
 import { sq } from "./lock";
 import prefillDeps from "./prefill-deps.json";
 
@@ -36,17 +36,41 @@ export const PREFILL_NODE_DEPS: readonly string[] = prefillNodeDeps();
 /** The cache directory npm uses for the work user, the one directory clean.py keeps. */
 export const NPM_CACHE_DIR = `${DEVBOX_WORK_HOME}/.npm/_cacache`;
 
+/** Login profile shipped only on images baked with --labs-npm-host-cache. */
+export const NPM_HOST_CACHE_PROFILE = "/etc/profile.d/cmux-npm-host-cache.sh";
+
+export function npmHostCacheProfileCheck(enabled: boolean): string {
+  if (!enabled) return `test ! -e ${NPM_HOST_CACHE_PROFILE} && echo "host cache profile absent"`;
+  return [
+    `test -s ${NPM_HOST_CACHE_PROFILE}`,
+    `test "$(stat -c '%U:%G %a' ${NPM_HOST_CACHE_PROFILE})" = 'root:root 644'`,
+    `sh -n ${NPM_HOST_CACHE_PROFILE}`,
+    // A smoke clone has no host cache mounted, so npm must still use the baked cache.
+    `runuser -u ${DEVBOX_WORK_USER} -- bash -lc ${sq(`test "$(npm config get cache)" = ${DEVBOX_WORK_HOME}/.npm`)}`,
+    'echo "host cache profile installed and unmounted clone uses baked cache"',
+  ].join(" && ");
+}
+
 /** The most the baked npm cache may take on disk. */
 export const NPM_CACHE_CAP_MB = 300;
 
 /**
+ * Runs of the prefill before the bake fails. It takes 13-16 s on a usual bake (rolls 46090412457, 46091967248), but
+ * roll 46099659860's agents builder fetched so slowly that it hit status 124 at 293 s (its apt `graduated` step took
+ * 207 s against 28-50 s), and that one slow exec failed the whole roll.
+ */
+export const NPM_PREFILL_ATTEMPTS = 3;
+
+/**
  * Fill the work user's npm cache with one install of PREFILL_NODE_DEPS; print `npm-cache-mb N`; fail over the cap.
+ * The first run (`fresh`) empties the cache; a run again after a failed one keeps the tarballs that run verified, so it
+ * only downloads what is still missing. It is the same list, so the cache still holds only one install's packages.
  * POSIX sh: the guest runs a step with /bin/sh (dash), which has no pipefail (run 42104967506).
  */
-export function npmCachePrefillCommand(): string {
+export function npmCachePrefillCommand(fresh = true): string {
   const dir = "/tmp/cmux-npm-prefill";
   const install = [
-    `rm -rf ${dir} ${NPM_CACHE_DIR} && mkdir -p ${dir} && cd ${dir}`,
+    `rm -rf ${dir}${fresh ? ` ${NPM_CACHE_DIR}` : ""} && mkdir -p ${dir} && cd ${dir}`,
     `printf '%s' '{"name":"npm-prefill","private":true}' > package.json`,
     `npm install --ignore-scripts --no-audit --no-fund --loglevel=error ${PREFILL_NODE_DEPS.join(" ")} >/dev/null`,
     `cd / && rm -rf ${dir}`,

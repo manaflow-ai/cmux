@@ -40,6 +40,9 @@ export const KNOWN_PROGRAMS = [
   // The compiler cache shared across one person's machines (RFD 0068 item 6). The image only installs it: a
   // machine's RUSTC_WRAPPER and cache settings come from the platform, and only when the cache is configured.
   "sccache",
+  // Executor (executor.sh, MIT) for the Cloud Chief (RFD 0111 step 4): cmux-executor.service serves it to the
+  // Chief's MCP store with a key it makes on each machine's first start; nothing secret is baked.
+  "executor",
 ] as const;
 /**
  * Programs the lock may carry but does not require yet: their release does not
@@ -768,6 +771,19 @@ export function sq(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+// RFD 0056 part 3: every pinned release file is copied to the edge bucket under its sha256
+// (scripts/ci/pinned_files_mirror.py, .github/workflows/pinned-files-mirror.yml). GitHub release downloads ran at about
+// 100 KB/s into the builder on 2026-11-23 (rolls 45109809346, 45113664312, 45126299464). A fetch tries the edge copy first
+// and falls back to the origin URL; the caller's sha256 check is unchanged, so a wrong or missing edge copy never lands.
+// CMUX_PINNED_MIRROR="" on the guest turns the edge off.
+export const PINNED_MIRROR = "https://ci-cache-next.cmux.com/v1/any/pinned";
+
+/** Download a pinned file to `dest`: whole file kept, partial one continued, edge copy by sha256 first, origin after. */
+export function pinnedFetchCommand(dest: string, sha256: string, size: number, url: string): string {
+  const edge = `{ test -n "\${CMUX_PINNED_MIRROR-x}" && curl -fsL --connect-timeout 5 --retry 2 -C - -o ${dest} "\${CMUX_PINNED_MIRROR:-${PINNED_MIRROR}}/${sha256}"; }`;
+  return `{ test "$(stat -c %s ${dest} 2>/dev/null)" = ${size} || ${edge} || curl -fsSL --retry 3 -C - -o ${dest} ${sq(url)}; }`;
+}
+
 export function storeEntry(sha256: string): string {
   if (!SHA256.test(sha256)) throw new Error(`store key ${sha256} is not a sha256`);
   return `${STORE_DIR}/${sha256}`;
@@ -820,7 +836,7 @@ export function programInstallCommand(program: InstallableProgram): string {
   return [
     `mkdir -p /tmp/cmux-dl ${STORE_DIR}`,
     `rm -rf ${stage} && mkdir -p ${stage}`,
-    `{ test "$(stat -c %s ${dl} 2>/dev/null)" = ${program.size} || curl -fsSL --retry 3 -C - -o ${dl} ${sq(program.url)}; }`,
+    pinnedFetchCommand(dl, program.sha256, program.size, program.url),
     `${checksums}{ printf '%s  %s\\n' ${program.sha256} ${dl} | sha256sum -c --quiet - || { rm -f ${dl}; false; }; }`,
     `test "$(stat -c %s ${dl})" = ${program.size}`,
     program.format === "npm" ? `mv ${dl} ${dl}.tgz` : "true",

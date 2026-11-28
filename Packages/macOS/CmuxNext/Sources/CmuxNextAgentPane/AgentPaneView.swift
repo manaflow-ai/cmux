@@ -42,7 +42,7 @@ public final class AgentPaneView: NSView {
     /// App-wide state pushes held to one per turn, and while nobody sees the pane (``AgentPaneShownPushes``).
     let shownPushes = AgentPaneShownPushes()
     /// The newest recently closed items for the New Tab page's Recently Closed section.
-    public var recentlyClosed: AgentPaneClosedList = .empty { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.push(recentlyClosed, to: self) } } }
+    public var recentlyClosed: AgentPaneClosedList = .empty { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.owe(to: self) } } }
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }
@@ -86,6 +86,8 @@ public final class AgentPaneView: NSView {
     var remoteApprovalsNotice: AgentPaneNotice?
     /// "The Cloud chat ended" on a Mac tab whose Cloud chat went (``showCloudChatEnded(machine:promptBack:)``, cmux#55066).
     var cloudChatEndedNotice: AgentPaneNotice?
+    /// A credential refusal for this chat, with the Settings action supplied by the app.
+    var modelConnectionNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
     /// Why the notice says a peer of this Mac's daemon did not count this Mac's allow (peer-route
     /// approvals); nil for no notice or another one.
@@ -381,6 +383,7 @@ public final class AgentPaneView: NSView {
         model.paneShown = { [weak self] in self.map { $0.window != nil && !$0.isHidden } ?? false }
         model.onTabKeyChange = { [weak self] in self?.announceTab() }
         model.onPaintReport = { [weak self] in self?.documentCoverPaintReported() }
+        model.onRenderFailed = { [weak self] in self?.pageRenderFailed() }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
             self.rendersAtFullRate = full
@@ -452,7 +455,7 @@ public final class AgentPaneView: NSView {
 
     private func observeMotion() {
         motionObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (Motion.speed, Motion.web.isEnabled, Motion.indicators.isEnabled, DesignSettings.shared.statusIndicator.animation, DesignSettings.shared.focusRing.enabled) }) {
+            for await _ in ObservationStream({ (Motion.speed, Motion.web.isEnabled, Motion.indicators.isEnabled, DesignSettings.shared.statusIndicator.animation, DesignSettings.shared.focusRing.enabled, DesignSettings.shared.homeCardStyle) }) {
                 guard let self else { return }
                 self.applyTheme()
             }

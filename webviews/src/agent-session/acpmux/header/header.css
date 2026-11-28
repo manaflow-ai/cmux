@@ -108,8 +108,8 @@
 .acpmux-header-pr[data-state=closed]>svg{color:var(--agent-status-failure)}
 .acpmux-header-pr[data-state=draft]>svg{color:var(--agent-muted)}
 .acpmux-header-pr[data-checks]:not([data-checks=none])::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-status-success)}
-.acpmux-header-pr[data-checks=pending]::after{background:var(--agent-status-warning)}
-.acpmux-header-pr[data-checks=failing]::after{background:var(--agent-status-failure)}
+.acpmux-header-pr[data-checks][data-checks=pending]::after{background:var(--agent-status-warning)}
+.acpmux-header-pr[data-checks][data-checks=failing]::after{background:var(--agent-status-failure)}
 /* A worktree chat's branch (cx-lyqio.3b): a quiet label beside the PR chip, the full name in its tooltip. */
 .acpmux-header-tool.acpmux-header-worktree{width:auto;gap:4px;min-width:0;max-width:180px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-header-worktree>svg{flex:none}
@@ -509,6 +509,24 @@
 [data-tab-row-accessories="hidden"] [data-tab-row-accessory] {
   display: none;
 }
+/* The connection warning is an accessory too (ChatHeaderStatus.tsx): with no room for it, the "..." carries it as a
+   dot, so a disconnected chat in a narrow pane still says so without moving a button. */
+.acpmux-handoff-header-tools[data-tab-row-accessories="hidden"]:has(.acpmux-status--inline) .acpmux-header-more {
+  --acpmux-header-more-dot-inset: 3px;
+  --acpmux-status-dot: 6px;
+  position: relative;
+}
+.acpmux-handoff-header-tools[data-tab-row-accessories="hidden"]:has(.acpmux-status--inline) .acpmux-header-more::after {
+  content: "";
+  position: absolute;
+  top: var(--acpmux-header-more-dot-inset);
+  right: var(--acpmux-header-more-dot-inset);
+  width: var(--acpmux-status-dot);
+  height: var(--acpmux-status-dot);
+  border-radius: 50%;
+  background: var(--agent-status-warning);
+  pointer-events: none;
+}
 /* Contextual header icons (headerRelevance.ts, Debug `agentChat.headerIcons.contextual`). Peek: the icons not relevant now hold their place at the row's leading end, so nothing at rest moves, and fade in while the pointer or focus is in the tools. The fades run on the page's motion tokens (the web Motion gate sets them to 0 when motion is off), and Reduce Motion drops them. */
 .acpmux-header-tools[data-header-icons=contextualPeek] [data-header-dormant]{opacity:0;pointer-events:none}
 .acpmux-header-tools[data-header-icons=contextualPeek]:is(:hover,:focus-within) [data-header-dormant],.acpmux-header-tools[data-header-icons=contextualPeek]:is(:has([data-popup-open]),:focus-within) [data-header-dormant],.acpmux-header-tools[data-header-icons=contextualPeek]:has([data-header-dormant] [aria-expanded=true]) [data-header-dormant]{opacity:1;pointer-events:auto}
@@ -518,4 +536,43 @@
 /* An icon that turns relevant (Changes after an edit, the globe once the chat names a page) is in its place from its first frame and fades in there. */
 .acpmux-header-tools[data-header-icons] .acpmux-header-tool-group-actions .acpmux-header-tool{transition:opacity var(--agent-motion-in,120ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 @starting-style{.acpmux-header-tools[data-header-icons] .acpmux-header-tool-group-actions .acpmux-header-tool{opacity:0}}
+}
+.acpmux-pr-head {
+  display: block;
+  padding: 6px;
+  overflow-wrap: anywhere;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-pr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px;
+}
+.acpmux-pr-actions button {
+  min-height: 24px;
+  max-width: 100%;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: var(--agent-control, color-mix(in srgb, var(--agent-text) 10%, var(--agent-page-bg)));
+  color: var(--agent-text);
+  font: inherit;
+}
+.acpmux-pr-actions button:not(:disabled):hover {
+  background: var(--agent-control-hover, color-mix(in srgb, var(--agent-text) 14%, var(--agent-page-bg)));
+}
+.acpmux-pr-actions button:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: 1px;
+}
+.acpmux-pr-actions button:disabled {
+  opacity: .6;
+}
+.acpmux-pr-action-error {
+  display: block;
+  padding: 6px;
+  overflow-wrap: anywhere;
+  color: var(--agent-status-failure);
 }

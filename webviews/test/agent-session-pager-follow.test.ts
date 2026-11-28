@@ -162,6 +162,30 @@ test("a follow cut at its page size follows on from the position it reached", as
   expect(calls.at(-1)?.params).toMatchObject({ afterSeq: 6, listEpoch: "e1" });
 });
 
+test("a follow that says more but leaves its position where it was asked ends, not asked again", async () => {
+  const calls: Call[] = [];
+  const client = { held: [] as Row[] };
+  let answered = 0;
+  const pager = new SessionPager<Row>(
+    async (method, params) => {
+      calls.push({ method, params });
+      answered += 1;
+      if (answered === 1) return { sessions: [row("a", 1)], listSeq: 2, listEpoch: "e1" };
+      if (answered > 6) throw new Error("asked the same follow again and again");
+      // Every follow after the first list stays at 4 and says there is more.
+      return { follow: true, sessions: [row("b", 2)], gone: [], listSeq: 4, listEpoch: "e1", more: true };
+    },
+    () => client.held,
+  );
+  pager.follows = true;
+  await listed(pager, client);
+  calls.length = 0;
+  const followed = await pager.first();
+  // From 2 to 4 moved; asked at 4, the reply at 4 did not, so the follow ends there.
+  expect(calls.map((call) => call.params.afterSeq)).toEqual([2, 4]);
+  expect(followed?.sessions.map((s) => s.sessionId)).toEqual(["b", "a"]);
+});
+
 test("a reset answers the first page, which replaces the rows held", async () => {
   const { calls, pager, client } = scripted(
     [],

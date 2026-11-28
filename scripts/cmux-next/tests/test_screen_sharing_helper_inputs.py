@@ -13,6 +13,7 @@ build script's cache key and the Xcode phase against it.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -129,6 +130,31 @@ class ScreenSharingHelperInputs(unittest.TestCase):
         for found in (self.script, self.phase):
             self.assertNotIn("cmux-tui/crates", found)
             self.assertNotIn("cmux-tui/crates/acpmux", found)
+
+
+    def test_the_stub_apps_code_and_icon_key_the_published_helper(self):
+        """cmux-tui-team-signed.yml publishes one helper per key, bundled into the stub app (and its icon) that
+        screen_sharing_helper_release.py stub-app makes: a stub or icon change must publish a new helper, so the
+        blank-icon helper published before cmux#63540 is rebuilt. They key it but are not crates."""
+        match = re.search(r"^stub_inputs=\(([^)]*)\)", SCRIPT.read_text(encoding="utf-8"), re.M)
+        self.assertIsNotNone(match, "build-screen-sharing-helper.sh has no stub_inputs=( ... ) line")
+        self.assertEqual(set(match.group(1).split()),
+                         {"scripts/ci/screen_sharing_helper_release.py", "Assets.xcassets/AppIcon-Nightly.appiconset"})
+        for path in match.group(1).split():
+            self.assertTrue((ROOT / path).exists(), path)
+
+        def key():
+            return subprocess.run([str(SCRIPT), "--print-key"], cwd=ROOT, capture_output=True, text=True,
+                                  check=True).stdout.strip()
+
+        before = key()
+        probe = ROOT / "Assets.xcassets/AppIcon-Nightly.appiconset/zz-key-probe.png"
+        probe.write_bytes(b"not an icon")
+        try:
+            self.assertNotEqual(key(), before, "an icon set change does not change the helper key")
+        finally:
+            probe.unlink()
+        self.assertEqual(key(), before)
 
 
 if __name__ == "__main__":

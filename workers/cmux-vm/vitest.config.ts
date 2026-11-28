@@ -1,5 +1,10 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { tmpdir } from "node:os";
 import { defineConfig } from "vitest/config";
+
+// workerd's SQLite writes its temp files to SQLITE_TMPDIR, else TMPDIR, else /var/tmp: on a runner whose /var/tmp was
+// unlinked that failed Durable Object writes with SQLITE_CANTOPEN (backend/apps/api/vitest.config.ts has the runs).
+process.env.SQLITE_TMPDIR ||= process.env.RUNNER_TEMP || tmpdir();
 
 // Integration tests run inside workerd with the Worker's own wrangler config.
 export default defineConfig({

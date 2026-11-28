@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Reads the pull request a cmux-next-hot-verify.yml dispatch names and says whether to look at it, or post its look:
-# ok, pr, head, pr_head, web, rust, layers, kind, attempt and event_at lines to GITHUB_OUTPUT. Both dispatch kinds
+# ok, pr, head, pr_head, publish_web, rust, layers, kind, attempt and event_at lines to GITHUB_OUTPUT. Both dispatch kinds
 # run it: the request run's `target` job and the result run's one `publish` job, so a result pays one runner queue
 # wait, not two (the result run's `target` sat queued for a shared 4 vCPU Linux runner for hours, 2026-11-19).
 # Env: PR, HEAD_SHA, LAYERS, KIND, ATTEMPT, EVENT_AT, GH_TOKEN, GITHUB_REPOSITORY.
 set -euo pipefail
 [[ "$PR" =~ ^[1-9][0-9]{0,6}$ ]] || { echo "::error::pr must be a pull request number"; exit 1; }
 [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::head must be a full commit sha"; exit 1; }
-[[ "$LAYERS" =~ ^(web|rust|customize)(,(web|rust|customize)){0,2}$ ]] || { echo "::error::layers takes web, rust and customize"; exit 1; }
+# app: the look builds the head's app on the fleet first (a Swift change; hot-verify-ci.py verdict).
+[[ "$LAYERS" =~ ^(app|web|rust|customize)(,(app|web|rust|customize)){0,3}$ ]] || { echo "::error::layers takes app, web, rust and customize"; exit 1; }
 # These go into the request job's name, which the build fleet controller parses: only these shapes.
 KIND="${KIND:-head}" ATTEMPT="${ATTEMPT:-0}" EVENT_AT="${EVENT_AT:-}"
 [[ "$KIND" =~ ^(head|merge)$ ]] || { echo "::error::kind takes head or merge"; exit 1; }
@@ -44,7 +45,9 @@ fi
   echo "pr=$PR"
   echo "head=$HEAD_SHA"
   echo "pr_head=$live"
-  [[ ",$LAYERS," == *,web,* ]] && echo "web=true" || echo "web=false"
+  # A merged web PR gets its layer from the base push. Its branch may already
+  # be gone. The look still requests every layer in LAYERS from the worker.
+  [[ "$state" == open && ",$LAYERS," == *,web,* ]] && echo "publish_web=true" || echo "publish_web=false"
   [[ ",$LAYERS," == *,rust,* ]] && echo "rust=true" || echo "rust=false"
   echo "layers=$LAYERS"
   echo "kind=$KIND"

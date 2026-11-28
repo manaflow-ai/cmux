@@ -42,7 +42,7 @@ on:
         default: "3"
         type: string
       suites:
-        description: "What to run: fling, golden (the golden interactions), both, instant (Cmd-N/T/D/Shift-D key to frame, idle and loaded), or perf (cold and warm launch, browser tab memory at 1/10/20 tabs)"
+        description: "What to run: fling, golden (the golden interactions), both, instant (Cmd-N/T/D/Shift-D key to frame, idle and loaded), perf (cold and warm launch, browser tab memory at 1/10/20 tabs), or frames (golden.py's motion_frames alone: blank or late frames on Cmd-Shift-Enter, Cmd-P, Cmd-W)"
         required: false
         default: fling,golden
         type: string
@@ -55,8 +55,8 @@ concurrency:
   # One bench at a time: every run uses the same tag, socket and console session. A
   # golden-only run (a pull request's) has a tag and a group per ref, where a newer push
   # supersedes the older run and other branches' runs never cancel its build.
-  group: ${{ (inputs.suites == 'golden' || inputs.suites == 'instant' || inputs.suites == 'perf') && format('cmux-next-frame-pacing-{0}-{1}', inputs.suites, inputs.ref) || 'cmux-next-frame-pacing' }}
-  cancel-in-progress: ${{ inputs.suites == 'golden' || inputs.suites == 'instant' || inputs.suites == 'perf' }}
+  group: ${{ (inputs.suites == 'golden' || inputs.suites == 'instant' || inputs.suites == 'perf' || inputs.suites == 'frames') && format('cmux-next-frame-pacing-{0}-{1}', inputs.suites, inputs.ref) || 'cmux-next-frame-pacing' }}
+  cancel-in-progress: ${{ inputs.suites == 'golden' || inputs.suites == 'instant' || inputs.suites == 'perf' || inputs.suites == 'frames' }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -69,6 +69,49 @@ jobs:
     uses: ./.github/workflows/resolve-dispatch-ref.yml
     with:
       ref: ${{ inputs.ref || 'feat-cmux-next' }}
+
+  desktop-input-key:
+    needs: resolve-ref
+    if: needs.resolve-ref.outputs.sha != ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 15
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+      files: ${{ steps.key.outputs.files }}
+      revision: ${{ needs.resolve-ref.outputs.sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-ref.outputs.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/setup-cmux-tui-rust
+            .github/actions/runner-cargo-home
+            .github/golden-inputs.json
+            cmux-tui
+            # cargo loads every cmux-tui member; one links this by path (tests/test_ci_sparse_cargo_path_deps.py).
+            workers/cmux-vm/cli
+            scripts
+            Cargo.toml
+            rust-toolchain.toml
+            .cargo
+          sparse-checkout-cone-mode: false
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Build cmux-shotdiff and compute the frame-pacing input key
+        id: key
+        working-directory: cmux-tui
+        env:
+          INPUT_REVISION: ${{ needs.resolve-ref.outputs.sha }}
+        run: |
+          set -euo pipefail
+          timeout 900 cargo build --locked --release -p cmux-shotdiff --bin cmux-shotdiff
+          keyjson="$(target/release/cmux-shotdiff key --inputs "$GITHUB_WORKSPACE/.github/golden-inputs.json" \
+            --family desktop-frame-pacing --variant 120hz --rev "$INPUT_REVISION" --repo "$GITHUB_WORKSPACE")"
+          echo "key=$(jq -r .key <<<"$keyjson")" >> "$GITHUB_OUTPUT"
+          echo "files=$(jq -r .files <<<"$keyjson")" >> "$GITHUB_OUTPUT"
 
   gate:
     environment:
@@ -91,7 +134,7 @@ jobs:
           REF_INPUT: ${{ inputs.ref }}
         run: |
           tag=frame-pacing
-          if [ "$SUITES_INPUT" = golden ] || [ "$SUITES_INPUT" = instant ] || [ "$SUITES_INPUT" = perf ]; then
+          if [ "$SUITES_INPUT" = golden ] || [ "$SUITES_INPUT" = instant ] || [ "$SUITES_INPUT" = perf ] || [ "$SUITES_INPUT" = frames ]; then
             slug="$(printf '%s' "$REF_INPUT" | tr '[:upper:]' '[:lower:]' | sed -E -e 's/[^a-z0-9]+/-/g' | cut -c1-32 | sed -E -e 's/^-+//' -e 's/-+$//')"
             # The checksum keeps two refs that share a 32-character prefix on their own tags.
             sum="$(printf '%s' "$REF_INPUT" | cksum | cut -d' ' -f1)"
@@ -103,7 +146,7 @@ jobs:
       # (resolve-dispatch-ref.yml's trusted_ref), as for the side lanes.
       - name: Checkout pool helper
         if: github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER != '' && needs.resolve-ref.outputs.trusted_ref == 'true'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             scripts/ci/e2e_runner_pool.py
@@ -200,7 +243,7 @@ jobs:
       backend_mode: local
 
   bench:
-    needs: [resolve-ref, gate, build]
+    needs: [resolve-ref, desktop-input-key, gate, build]
     if: needs.gate.outputs.run == 'true' && github.run_attempt <= 2
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.gate.outputs.runner || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || 'blacksmith-6vcpu-macos-26') }}
     # The GUI-token wait and bench step both fit in this job timeout.
@@ -211,6 +254,8 @@ jobs:
       # that produced it; the summary remains warning-only for now.
       CMUX_PERF_SOURCE_SHA: ${{ needs.resolve-ref.outputs.sha }}
       CMUX_PERF_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      CMUX_DESKTOP_FRAME_KEY: ${{ needs.desktop-input-key.outputs.key }}
+      CMUX_DESKTOP_FRAME_KEY_FILES: ${{ needs.desktop-input-key.outputs.files }}
     steps:
       # All suites share the GUI lock: fling still creates a virtual display in the
       # console session, so it must not overlap pixel-producing suites.
@@ -235,7 +280,7 @@ jobs:
 
       - name: Checkout the bench
         if: steps.gui.outputs.taken == 'true'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           sparse-checkout: |
@@ -248,6 +293,7 @@ jobs:
             scripts/cmux-next/cmd-n-paint-e2e.py
             scripts/cmux-next/bench-startup.py
             scripts/cmux-next/bench_memory.py
+            scripts/cmux-next/macos_libs.py
             scripts/cmux-next/bench_arms.py
             scripts/cmux-next/bench_cli_storm.py
             scripts/cmux-next/bench_launch.py
@@ -294,6 +340,28 @@ jobs:
           # The console user runs the bench and writes out/.
           chmod -R a+rwX "$work"
 
+      - name: Record the desktop frame-pacing input key
+        if: steps.gui.outputs.taken == 'true'
+        env:
+          INPUT_REVISION: ${{ needs.desktop-input-key.outputs.revision }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/frame-pacing"
+          jq -n \
+            --arg family desktop-frame-pacing \
+            --arg runtime macos \
+            --arg engine webkit \
+            --arg variant 120hz \
+            --arg key "$CMUX_DESKTOP_FRAME_KEY" \
+            --arg files "$CMUX_DESKTOP_FRAME_KEY_FILES" \
+            --arg revision "$INPUT_REVISION" \
+            '{schema:"cmux.desktop-input-key/v1", family:$family, runtime:$runtime,
+              engine:$engine, variant:$variant, key:$key, files:($files|tonumber), revision:$revision,
+              store:("desktop-frame-pacing-" + $runtime + "-" + $engine + "-" + $variant + "-" + $key)}' \
+            > "$work/out/input-key.json"
+          jq -r '"### Desktop frame-pacing input key\n\n- runtime: `" + .runtime + "`\n- engine: `" + .engine + "`\n- variant: `" + .variant + "`\n- key: `" + .key + "`\n- files: " + (.files|tostring)' \
+            "$work/out/input-key.json" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Fling bench at 120 Hz
         if: steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'fling')
         continue-on-error: true
@@ -302,10 +370,14 @@ jobs:
           FLINGS: ${{ inputs.flings || '3' }}
         run: scripts/ci/frame-pacing/console-session.sh scripts/ci/frame-pacing/bench.sh "$RUNNER_TEMP/frame-pacing" "$FLINGS"
 
+      # `frames` (cmux-next-motion-frames.yml, a pull request touching a motion area) drives only
+      # golden.py's motion_frames: blank or late frames around Cmd-Shift-Enter, Cmd-P and Cmd-W.
       - name: Golden interactions at 120 Hz
-        if: steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'golden')
+        if: steps.gui.outputs.taken == 'true' && (contains(env.SUITES, 'golden') || contains(env.SUITES, 'frames'))
         continue-on-error: true
         timeout-minutes: 10
+        env:
+          GOLDEN_ONLY: ${{ !contains(env.SUITES, 'golden') && 'motion_frames' || '' }}
         run: scripts/ci/frame-pacing/console-session.sh scripts/ci/frame-pacing/golden.sh "$RUNNER_TEMP/frame-pacing"
 
       # Cmd-N, Cmd-T, Cmd-D, Cmd-Shift-D through the real key path: key to visible frame and to
@@ -377,7 +449,7 @@ jobs:
             --tabs 1,10,20 --urls real --settle 30 --measure 10 --out "$out/memory-tabs-real.json" || true
       # Warning only: exits 1 (an annotation and a red step) when an animation did not run.
       - name: Judge the golden interactions
-        if: always() && steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'golden')
+        if: always() && steps.gui.outputs.taken == 'true' && (contains(env.SUITES, 'golden') || contains(env.SUITES, 'frames'))
         continue-on-error: true
         run: python3 scripts/ci/frame-pacing/golden.py judge "$RUNNER_TEMP/frame-pacing/out/golden" >> "$GITHUB_STEP_SUMMARY"
 

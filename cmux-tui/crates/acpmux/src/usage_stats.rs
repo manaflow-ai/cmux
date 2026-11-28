@@ -23,8 +23,16 @@
 //! before they are parsed. Spend is kept in minute buckets for the last day, so the 24-hour and
 //! one-hour sums need no rescan. Cost is the model catalog's list price for the
 //! tokens (USD per million), null when no model of the window has a price.
+//!
+//! A tracker outlives its daemon ([`Tracker::save_if_due`], [`Tracker::load`]): its offsets,
+//! coverage and minute buckets are saved to the daemon's state folder and read back by the next
+//! daemon, which reads on from where the last one stopped. Before this, each restart started
+//! every chat over from its newest [`FIRST_READ_BYTES`], so a chat whose newest 256 MiB cover less
+//! than a day read as unmetered (`no_counters`) for up to a day after each of the several restarts
+//! an hour a build rollout makes (2026-11-28).
 
 use crate::protocol::session::{Autocompact, UsageStats};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{Read, Seek, SeekFrom};
@@ -116,6 +124,10 @@ pub struct Source {
     pub argv: Option<Vec<String>>,
     /// The env its harness starts with (profile, preset, chat store, the chat's own).
     pub env: BTreeMap<String, String>,
+    /// No turn ran on this chat here and it carries no conversation from elsewhere (not
+    /// adopted, watched, resumed or forked): its harness has written no transcript yet, so
+    /// none found means it spent nothing, not that it went unmeasured.
+    pub unprompted: bool,
 }
 
 impl Source {
@@ -134,10 +146,11 @@ impl Source {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct Bucket {
     tokens: u64,
     by_model: BTreeMap<String, u64>,
+    cache_read_by_model: BTreeMap<String, u64>,
     cost_usd: f64,
     priced: bool,
     compactions: u64,
@@ -160,7 +173,7 @@ fn cache_read_share(day: &Bucket) -> Option<f64> {
 }
 
 /// One file read so far.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 struct Tail {
     path: PathBuf,
     offset: u64,
@@ -206,7 +219,7 @@ impl Tail {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 struct Subagent {
     tail: Tail,
     /// Its first record was read and counted as a spawn.
@@ -217,7 +230,7 @@ struct Subagent {
 }
 
 /// The running state for one chat: offsets, the day's minute buckets, the last call's context.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Tracker {
     main: Option<Tail>,
     look_again_at: u64,
@@ -229,23 +242,122 @@ pub struct Tracker {
     context_at: u64,
     context_window: Option<u64>,
     /// The newest call older than the window a read passed over, parsed at the read's end.
+    #[serde(skip)]
     old_context: Option<Vec<u8>>,
     /// Since when (unix ms) the last refresh's reads cover every file, each read to its end:
     /// None when one was not. A count whose window starts before it is lower than the truth,
     /// so it reads as unknown; the previous UTC hour needs only that hour covered, not the day.
     covered_since: Option<u64>,
+    /// When the chat's transcript was last written, while only its compressed copy is found
+    /// (`FILE.jsonl.zst`): leo-workspace `tools/transcript_hygiene.py` compresses a transcript in
+    /// place, keeping its mtime, only once its session is closed and the file is a day old or more.
+    /// No call was made since, so the counts are known, and zero, from then on. Before this, such
+    /// a closed chat had no stats at all and its machine's spend read as unmetered (2026-11-27).
+    archived_since: Option<u64>,
     /// The most a first read takes and the most one refresh reads, per file (tests set them).
+    #[serde(skip)]
     limits: Option<(u64, u64)>,
+    /// When it was last saved or loaded, and what it had read then ([`Tracker::mark`]).
+    #[serde(skip)]
+    saved: Option<(u64, Mark)>,
+}
+
+/// The version of a saved tracker: one saved by a build with another reads as none, and the chat
+/// is read over from its newest [`FIRST_READ_BYTES`], as before trackers were saved.
+const SAVED_VERSION: u32 = 1;
+/// The least time between two saves of one tracker. A save is whole (offsets and the buckets they
+/// filled, together), so one older than the last read only makes the next daemon read again the
+/// lines read since.
+const SAVE_EVERY_MS: u64 = MINUTE_MS;
+
+/// What a tracker has read: unchanged, a save would write what is saved.
+type Mark = (Option<u64>, usize, u64, usize, Option<u64>);
+
+#[derive(Serialize)]
+struct SavedRef<'a> {
+    version: u32,
+    tracker: &'a Tracker,
+}
+
+#[derive(Deserialize)]
+struct Saved {
+    version: u32,
+    tracker: Tracker,
 }
 
 impl Tracker {
+    /// The tracker saved at `path` ([`Self::save_if_due`]); None when there is none, or it is
+    /// not one this build reads. Its files are read on from its offsets: one that shrank since
+    /// is read over from its start ([`read_new`]).
+    pub fn load(path: &Path) -> Option<Tracker> {
+        let bytes = std::fs::read(path).ok()?;
+        let saved: Saved = serde_json::from_slice(&bytes).ok()?;
+        let mut tracker = (saved.version == SAVED_VERSION).then_some(saved.tracker)?;
+        tracker.saved = Some((0, tracker.mark()));
+        Some(tracker)
+    }
+
+    /// Saves the tracker to `path` when it read anything since its last save and that save is
+    /// [`SAVE_EVERY_MS`] old: written to a temporary file beside it, then renamed over it, so a
+    /// reader finds the last whole save or this one. Returns whether it wrote.
+    pub fn save_if_due(&mut self, path: &Path, now: u64) -> bool {
+        let mark = self.mark();
+        if let Some((at, saved)) = &self.saved
+            && (*saved == mark || now < at.saturating_add(SAVE_EVERY_MS))
+        {
+            return false;
+        }
+        let Ok(bytes) = serde_json::to_vec(&SavedRef { version: SAVED_VERSION, tracker: self })
+        else {
+            return false;
+        };
+        let tmp = path.with_extension("json.tmp");
+        let written = path.parent().is_some_and(|dir| std::fs::create_dir_all(dir).is_ok())
+            && std::fs::write(&tmp, &bytes).is_ok()
+            && std::fs::rename(&tmp, path).is_ok();
+        if !written {
+            let _ = std::fs::remove_file(&tmp);
+            return false;
+        }
+        self.saved = Some((now, mark));
+        true
+    }
+
+    /// What it has read: the main file's offset, the subagents found, their offsets summed, the
+    /// finished ones, and when the compressed copy was written.
+    fn mark(&self) -> Mark {
+        let agents = self.subagents.values();
+        (
+            self.main.as_ref().map(|t| t.offset),
+            self.subagents.len(),
+            agents.clone().fold(0_u64, |sum, a| sum.wrapping_add(a.tail.offset)),
+            agents.filter(|a| a.done).count(),
+            self.archived_since,
+        )
+    }
+
     /// Reads what the chat's harness appended since the last refresh and returns the stats as
-    /// of `now`; None while its transcript is not found.
+    /// of `now`; None while its transcript is not found, plain or compressed.
     pub fn refresh(&mut self, source: &Source, now: u64, models: &Models) -> Option<UsageStats> {
+        // The file this tracker read is gone (compressed in place to FILE.jsonl.zst, or moved):
+        // start over as a new tracker would, locating it again. Holding the dead path left every
+        // count null for as long as the daemon ran, so the chat read as unmetered
+        // (2026-11-28: a closed chat's transcript compressed under its tracker).
+        // The minutes it counted go too: a moved file is read again from its start, never twice.
+        if self.main.as_ref().is_some_and(|t| !t.path.exists()) {
+            *self = Tracker { limits: self.limits, ..Tracker::default() };
+        }
         if self.main.is_none() && now >= self.look_again_at {
-            match locate(source) {
-                Some(path) => self.main = Some(Tail { path, ..Tail::default() }),
-                None => self.look_again_at = now.saturating_add(LOOK_AGAIN_MS),
+            match locate(source, ".jsonl") {
+                Some(path) => {
+                    self.main = Some(Tail { path, ..Tail::default() });
+                    self.archived_since = None;
+                }
+                None => {
+                    self.look_again_at = now.saturating_add(LOOK_AGAIN_MS);
+                    self.archived_since =
+                        locate(source, ".jsonl.zst").and_then(|p| modified_ms(&p));
+                }
             }
         }
         let codex = source.family == "codex";
@@ -271,7 +383,9 @@ impl Tracker {
         self.minutes = self.minutes.split_off(&cutoff.saturating_sub(cutoff % MINUTE_MS));
         let window =
             self.context_window.or_else(|| self.model.as_deref().and_then(|m| models.window(m)));
-        self.main.as_ref()?;
+        if self.main.is_none() {
+            self.covered_since = Some(self.archived_since?);
+        }
         Some(self.stats(source, now, window))
     }
 
@@ -283,7 +397,9 @@ impl Tracker {
         let hour_known = covers(rolling_from.saturating_sub(rolling_from % MINUTE_MS));
         let (mut day, mut hour_spawns, mut priced) = (Bucket::default(), 0_u64, false);
         let mut hourly = BTreeMap::<String, u64>::new();
+        let mut cache_read_hourly = BTreeMap::<String, u64>::new();
         let mut previous_hour = BTreeMap::<String, u64>::new();
+        let mut cache_read_previous_hour = BTreeMap::<String, u64>::new();
         let hour_start = now - now % HOUR_MS;
         let previous = hour_start.saturating_sub(HOUR_MS)..hour_start;
         let previous_known = covers(previous.start);
@@ -301,12 +417,17 @@ impl Tracker {
             if rolling {
                 hour_spawns = hour_spawns.saturating_add(b.spawns);
             }
-            for (included, totals) in
-                [(rolling, &mut hourly), (previous.contains(minute), &mut previous_hour)]
-            {
+            for (included, totals, cache_read_totals) in [
+                (rolling, &mut hourly, &mut cache_read_hourly),
+                (previous.contains(minute), &mut previous_hour, &mut cache_read_previous_hour),
+            ] {
                 if included {
                     for (model, tokens) in &b.by_model {
                         let total = totals.entry(model.clone()).or_default();
+                        *total = total.saturating_add(*tokens);
+                    }
+                    for (model, tokens) in &b.cache_read_by_model {
+                        let total = cache_read_totals.entry(model.clone()).or_default();
                         *total = total.saturating_add(*tokens);
                     }
                 }
@@ -328,7 +449,10 @@ impl Tracker {
             subagents24h: known(day.spawns),
             tokens24h: known(day.tokens),
             tokens_by_model1h: hour_known.then_some(hourly),
+            cache_read_by_model1h: hour_known.then_some(cache_read_hourly),
             tokens_by_model_previous_utc_hour: previous_known.then_some(previous_hour),
+            cache_read_by_model_previous_utc_hour: previous_known
+                .then_some(cache_read_previous_hour),
             // Rounded to the cent's hundredth: a sum of list prices, not a bill.
             cost_usd24h: (complete && priced).then(|| (day.cost_usd * 10_000.0).round() / 10_000.0),
             calls24h: known(day.calls),
@@ -439,11 +563,11 @@ impl Tracker {
                 let cost = models.prices(&model).map(|p| t.cost(&p));
                 if let Some(b) = self.bucket(at, now) {
                     b.tokens = b.tokens.saturating_add(t.total);
-                    let total = b
-                        .by_model
-                        .entry(if model.is_empty() { "unknown".into() } else { model })
-                        .or_default();
+                    let model_key = if model.is_empty() { "unknown".into() } else { model };
+                    let total = b.by_model.entry(model_key.clone()).or_default();
                     *total = total.saturating_add(t.total);
+                    let cache_read = b.cache_read_by_model.entry(model_key).or_default();
+                    *cache_read = cache_read.saturating_add(t.cache_read);
                     b.calls = b.calls.saturating_add(1);
                     b.prompt_read = b.prompt_read.saturating_add(t.cache_read);
                     b.prompt_rest =
@@ -819,8 +943,8 @@ fn read_new(
 
 /// The chat's transcript: Claude's under its project folder (else any project
 /// folder, for a chat whose cwd moved), Codex's rollout under its creation day
-/// (else any day).
-fn locate(source: &Source) -> Option<PathBuf> {
+/// (else any day). Its file name ends in `ext`: `.jsonl`, or `.jsonl.zst` once compressed.
+fn locate(source: &Source, ext: &str) -> Option<PathBuf> {
     let sid = source.agent_session_id.as_str();
     if sid.is_empty() || sid.contains(['/', '\\']) {
         return None;
@@ -829,7 +953,7 @@ fn locate(source: &Source) -> Option<PathBuf> {
     match source.family.as_str() {
         "claude" => {
             let projects = home.join("projects");
-            let name = format!("{sid}.jsonl");
+            let name = format!("{sid}{ext}");
             let direct = projects.join(claude_project_dir(&source.cwd)).join(&name);
             if direct.is_file() {
                 return Some(direct);
@@ -839,7 +963,7 @@ fn locate(source: &Source) -> Option<PathBuf> {
         }
         "codex" => {
             let sessions = home.join("sessions");
-            let suffix = format!("-{sid}.jsonl");
+            let suffix = format!("-{sid}{ext}");
             let day = source.created_at / DAY_MS;
             let near = [day.saturating_sub(1), day, day.saturating_add(1)].map(|d| {
                 let (y, m, d) = civil_from_days(d);

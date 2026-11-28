@@ -25,12 +25,12 @@ struct ScreenStreamTests {
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_VNC_WEBRTC_LIVE"] == "1"), .timeLimit(.minutes(2)))
     func viewerDecodesTheScreenTrack() async throws {
-        let server = VNCDemoServer(configuration: .init(width: 1280, height: 800, password: "hunter2"))
+        let server = VNCDemoServer(configuration: .init(width: 1280, height: 800, password: "hunter2", rules: .fixture))
         let port = try await server.start()
         defer { server.stop() }
         let pairing = VNCPairing.generate(name: "stream-test", kind: "stream")
         let host = ScreenStreamHost(pairing: pairing, target: VNCEndpoint(host: "127.0.0.1", port: port),
-                                    credentials: VNCCredentials(password: "hunter2")) { print("host: \($0)") }
+                                    credentials: VNCCredentials(password: "hunter2"), vncRules: .fixture) { print("host: \($0)") }
         let hostTask = Task { await host.run() }
         defer { hostTask.cancel() }
         try await Task.sleep(for: .seconds(2)) // the host creates the room
@@ -66,12 +66,12 @@ struct ScreenStreamTests {
     /// A second socket for a role replaces the first, as a reconnect does.
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_VNC_WEBRTC_LIVE"] == "1"), .timeLimit(.minutes(2)))
     func streamSurvivesRoomConnectionDrops() async throws {
-        let server = VNCDemoServer(configuration: .init(width: 1280, height: 800, password: "hunter2"))
+        let server = VNCDemoServer(configuration: .init(width: 1280, height: 800, password: "hunter2", rules: .fixture))
         let port = try await server.start()
         defer { server.stop() }
         let pairing = VNCPairing.generate(name: "stream-drop-test", kind: "stream")
         let host = ScreenStreamHost(pairing: pairing, target: VNCEndpoint(host: "127.0.0.1", port: port),
-                                    credentials: VNCCredentials(password: "hunter2")) { print("host: \($0)") }
+                                    credentials: VNCCredentials(password: "hunter2"), vncRules: .fixture) { print("host: \($0)") }
         let hostTask = Task { await host.run() }
         defer { hostTask.cancel() }
         try await Task.sleep(for: .seconds(2)) // the host creates the room
@@ -107,12 +107,12 @@ struct ScreenStreamTests {
     /// sends 720p, and Auto goes back to the display's full size.
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_VNC_WEBRTC_LIVE"] == "1"), .timeLimit(.minutes(2)))
     func qualityChoiceChangesTheVideo() async throws {
-        let server = VNCDemoServer(configuration: .init(width: 1920, height: 1080, password: "hunter2"))
+        let server = VNCDemoServer(configuration: .init(width: 1920, height: 1080, password: "hunter2", rules: .fixture))
         let port = try await server.start()
         defer { server.stop() }
         let pairing = VNCPairing.generate(name: "stream-quality-test", kind: "stream")
         let host = ScreenStreamHost(pairing: pairing, target: VNCEndpoint(host: "127.0.0.1", port: port),
-                                    credentials: VNCCredentials(password: "hunter2")) { print("host: \($0)") }
+                                    credentials: VNCCredentials(password: "hunter2"), vncRules: .fixture) { print("host: \($0)") }
         let hostTask = Task { await host.run() }
         defer { hostTask.cancel() }
         try await Task.sleep(for: .seconds(2)) // the host creates the room

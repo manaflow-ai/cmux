@@ -81,6 +81,22 @@ ADHOC_ARMS = ("adhoc-copy",)
 UPDATE_ARMS = ("prewarm-update-moved",)
 # The arms that run the update path's whole pre-warm (prewarm_until_main, the binaries, the helpers, Chromium).
 CHROMIUM_PREWARM = ("prewarm-chromium-moved", "prewarm-update-moved")
+# The update arm's measured launch waits (up to SETTLE_MAX_S) for the 1-minute load to fall under SETTLE_LOAD after its
+# prewarm: a staged update prewarms long before the person's next launch, not seconds before it, and the goal row
+# (app_update_launch_idle_median_ms) only counts launches at load under 5. Every update reading on the fleet through
+# 2026-11-28 launched at load 7-60, partly from the prewarm's own Chromium start, so the idle row never filled.
+SETTLE_LOAD = 5.0
+SETTLE_MAX_S = 90.0
+
+
+def settle_load(limit: float = SETTLE_LOAD, max_s: float = SETTLE_MAX_S) -> dict:
+    """Wait (bounded) for the 1-minute load under LIMIT; the wait and the load it launched at go in the report."""
+    started = time.monotonic()
+    load = os.getloadavg()[0]
+    while load >= limit and time.monotonic() - started < max_s:
+        time.sleep(2)  # bounded settle before a timed launch, not synchronization
+        load = os.getloadavg()[0]
+    return {"waited_s": round(time.monotonic() - started, 1), "load1": round(load, 2), "settled": load < limit}
 # --arms=premain: what a new copy's pre-main is made of. Each arm is its own new copy and home, warmed in one way only,
 # and every launch of the run (the base arms too) keeps a `log stream` of the first-exec subsystems (PREMAIN_LOG), each
 # event timed from the spawn (NFL-PREMAIN lines):
@@ -588,6 +604,8 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
                 os.rename(app.parent, placed / "app")
                 app = placed / "app" / app.name
             (root / "m").mkdir()
+            if arm in UPDATE_ARMS:
+                before["settle"] = settle_load()
             row = launch(smoke, root, app, executable, root / "m", seconds, "measured", log_premain=log_premain)
         return {"arm": arm, "before": before, **row}
     finally:

@@ -381,7 +381,7 @@ fn read(path: &Path) -> Result<RunRecord> {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NOFOLLOW);
     }
-    let record: RunRecord = serde_json::from_reader(options.open(path)?)
+    let record: RunRecord = serde_json::from_reader(std::io::BufReader::new(options.open(path)?))
         .with_context(|| format!("read workflow record {}", path.display()))?;
     ensure!(record.version == 1, "unsupported workflow record version");
     ensure!(record.source_hash == digest(&record.source), "workflow source hash does not match");

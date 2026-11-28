@@ -76,6 +76,7 @@ impl JsonSchema for AcpmuxRequestMeta {
 
 /// [`AcpmuxRequestMeta`]'s keys.
 pub const ACPMUX_REQUEST_META: &[&str] = &[
+    "abi",
     "adopt",
     "agentSessionId",
     "answeredBy",
@@ -85,6 +86,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "author",
     "autoPlace",
     "beforePromptId",
+    "build",
     "callerKind",
     "callerProtocol",
     "callerSession",
@@ -92,6 +94,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "chunkDeltas",
     "class",
     "cliHost",
+    "cloudRegistryId",
     "compression",
     "context",
     "createKey",
@@ -134,6 +137,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "personStop",
     "personVerified",
     "placeRedirect",
+    "placedBy",
     "policy",
     "pr",
     "preset",
@@ -189,15 +193,17 @@ keyed! {
     /// `_acpmux/agent_login/cancel`.
     AgentLoginCancelParams: ["loginId", "sessionId"];
     /// `_acpmux/agent_login/finish`.
-    AgentLoginFinishParams: ["loginId", "code", "sessionId"];
+    AgentLoginFinishParams: ["loginId", "code", "sessionId", "recoverySession"];
     /// `_acpmux/agent_login/start`.
-    AgentLoginStartParams: ["agent", "sessionId"];
+    AgentLoginStartParams: ["agent", "sessionId", "reuseExisting", "recoverySession"];
     /// `_acpmux/agent_pair_resume`.
     AgentPairResumeParams: ["sessionId", "peerSessionId"];
     /// `_acpmux/app_reply`.
     AppReplyParams: ["sessionId", "to", "replyTo", "threadId", "text", "replyId"];
     /// `_acpmux/archive`.
     ArchiveParams: ["sessionId", "archived", "opId"];
+    /// `_acpmux/undelete`.
+    UndeleteParams: ["sessionId"];
     /// `_acpmux/attachment`.
     AttachmentParams: ["sessionId", "id"];
     /// `_acpmux/turn_shots`.
@@ -218,14 +224,15 @@ keyed! {
     AgentHomeResolveParams: ["sessionId", "accept", "drop"];
     /// `_acpmux/prompt_coach`.
     PromptCoachParams: ["sessionId", "coachId"];
+    PullRequestActionParams: ["sessionId", "url", "headSha", "action"];
     /// `_acpmux/btw`.
     BtwParams: ["sessionId", "question", "model", "inline", "targetHarness"];
     /// `_acpmux/chat/route.set`.
     ChatRouteSetParams: ["sessionId", "routeId", "when"];
     /// `_acpmux/draft_get`.
-    DraftGetParams: ["sessionId"];
+    DraftGetParams: ["sessionId", "attachments"];
     /// `_acpmux/draft_set`.
-    DraftSetParams: ["sessionId", "text"];
+    DraftSetParams: ["sessionId", "text", "attachments"];
     /// `_acpmux/forum/rules`.
     ForumRulesParams: [];
     /// `_acpmux/handoff_discard`.
@@ -251,7 +258,9 @@ keyed! {
     /// `initialize`.
     InitializeParams: ["protocolVersion", "clientCapabilities", "clientInfo"];
     /// `_acpmux/kill`.
-    KillParams: ["sessionId", "purge", "cancelFork", "cancelToken", "ifIdle", "expectRevision"];
+    KillParams: [
+        "sessionId", "purge", "grace", "cancelFork", "cancelToken", "ifIdle", "expectRevision",
+    ];
     /// `_acpmux/mcp/reconnect`.
     McpReconnectParams: ["sessionId", "server"];
     /// `_acpmux/models`.

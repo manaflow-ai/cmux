@@ -28,6 +28,7 @@ import argparse, json, os, socket, subprocess, sys, tempfile, threading, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from state_wait import wait_until  # noqa: E402
+from bench_launch import bundle_executable  # noqa: E402  (a bench build's executable is not `cmux DEV`)
 
 MAX_RESYNCS = 64  # a 1440x900 window shows at most ~40 sidebar rows and ~20 strip tabs
 
@@ -283,7 +284,7 @@ class App:
         except ImportError:
             self.teardown = None
         log = open(os.path.join(self.out, "app.log"), "a")
-        self.process = subprocess.Popen([os.path.join(self.bundle, "Contents/MacOS/cmux DEV")], env=env,
+        self.process = subprocess.Popen([bundle_executable(self.bundle)], env=env,
                                         stdout=log, stderr=log, stdin=subprocess.DEVNULL)
         print(f"activation-perf: launched {self.tag} pid {self.process.pid}", flush=True)
         if not wait(lambda: os.path.exists(self.socket) and "error" not in (self.rpc("debug.layout_counters") or {"error": 1}), 180):

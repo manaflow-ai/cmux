@@ -1029,21 +1029,29 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         self.assertEqual(upload["with"]["name"], "${{ steps.pr-exports.outputs.name }}")
 
     def test_the_mac_job_is_skipped_when_a_matching_pack_exists_and_runs_otherwise(self):
+        for name in ("action-exports-linux", "settings-exports-linux"):
+            self.assertEqual(PR_AUTOFIX["jobs"][name]["outputs"]["fallback"],
+                             "${{ steps.regenerate.outcome == 'failure' && 'true' || 'false' }}", name)
         mac = PR_AUTOFIX["jobs"]["action-exports"]
         self.assertIn("generated-exports", mac["needs"])
         condition = mac["if"].removeprefix("${{ ").removesuffix(" }}")
         # The draft-head term (tests/test_head_tier.py) is tested there; this test is about the pack.
-        condition = condition.split(") && ", 1)[1]
+        # Cut at the job's own term: the tier term holds ") && " pairs of its own (ready-to-land with
+        # CI_LAND_FULL_PER_PR), so the first ") && " no longer ends it.
+        condition = condition[condition.index("(!cancelled()"):]
         # So is the label guard (tests/test_ci_label_events_skip_full_ci.py).
         condition = condition.split(" && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref", 1)[0]
 
-        def runs(hit: str, result: str = "success", actions: str = "true", coming: str = "false") -> bool:
+        def runs(hit: str, result: str = "success", actions: str = "true", coming: str = "false",
+                 linux: str = "success", fallback: str = "true") -> bool:
             values = {"needs.generated-exports.outputs.hit": hit, "needs.generated-exports.outputs.coming": coming,
                       "needs.action-areas.result": result,
                       "needs.action-areas.outputs.actions": actions, "needs.action-areas.outputs.settings": "false",
-                      # action-exports-linux and settings-exports-linux did not verify: this Mac job is their fallback.
-                      "needs.action-exports-linux.outputs.verified": "false",
-                      "needs.settings-exports-linux.outputs.verified": "false"}
+                      # action-exports-linux's exporter ran and could not decide: this Mac job is its fallback.
+                      "needs.action-exports-linux.result": linux,
+                      "needs.action-exports-linux.outputs.fallback": fallback,
+                      "needs.settings-exports-linux.result": "skipped",
+                      "needs.settings-exports-linux.outputs.fallback": "false"}
             expression = condition.replace("!cancelled()", "True")
             for key, value in values.items():
                 expression = expression.replace(key, repr(value))
@@ -1056,13 +1064,24 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         # This head's generated-files job regenerates the same exports: no second Mac build.
         self.assertFalse(runs("false", coming="true"))
         self.assertTrue(runs("", coming=""))  # generated-exports skipped (a fork): the Mac job regenerates
+        # Leo, 2026-11-26: "How about freeing up the Mac's from doing things that don't need Mac's asap?" The Mac
+        # makes the action exports only when the Linux exporter ran and could not decide, or the Linux job did not
+        # run (CMUX_ACTION_EXPORTS_LINUX=0). A Linux job that failed before its exporter (the pool's GitHub fetch
+        # stalling) leaves the exports unverified, and the Mac, which failed the same way in 282 of 290 runs
+        # (2026-11-25), stays free.
+        self.assertTrue(runs("false", linux="skipped", fallback=""))
+        self.assertFalse(runs("false", linux="failure", fallback="false"))
+        self.assertFalse(runs("false", linux="success", fallback="false"))
+        self.assertTrue(runs("false", linux="success", fallback="true"))
 
     def test_the_consumer_reads_only_waits_on_the_app_token_and_feeds_repair(self):
         job = PR_AUTOFIX["jobs"]["generated-exports"]
         self.assertEqual(job["permissions"], {"contents": "read"})
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", job["if"])
         lookup = next(s for s in job["steps"] if s.get("id") == "lookup")
-        self.assertEqual(lookup["env"]["GH_TOKEN"], "${{ steps.read-token.outputs.token }}")
+        # cmux-bot's read token first (its own installation budget), the routing App's when it is not minted.
+        self.assertEqual(lookup["env"]["GH_TOKEN"],
+                         "${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}")
         self.assertIn("pr-lookup", lookup["run"])
         # One look, no wait: a 10-minute wait hit 1 of 224 lookups (2026-11-20 21:30Z to 11-21 19:40Z).
         self.assertIn("--wait 0 ", lookup["run"])

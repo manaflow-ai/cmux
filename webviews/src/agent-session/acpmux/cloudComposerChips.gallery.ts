@@ -2,7 +2,7 @@
 // A new chat's composer with Cloud picked, the prompt empty: every chip of the location strip and
 // the Mode chip shows its whole label, the Mode chip names a mode (never the bare "Mode" placeholder),
 // the Cloud chip says only Cloud (Austin, 2026-11-16: "get rid of the austin wang's team part just
-// have cloud and that's it"), and the Environment menu's Cloud row says only Cloud too, never the
+// have cloud and that's it"), and the Computer menu's Cloud row says only Cloud too, never the
 // active team (https://github.com/manaflow-ai/cmux/issues/45695). This is the gallery half of
 // scripts/cmux-next/cloud-composer-journey.py's matrix. Leo, 2026-11-10, of the nightly's Cloud
 // composer ("Cl…", "Mode", a removed team still named): "how did NONE of these work/get tested?",
@@ -137,14 +137,14 @@ async function assertChips(ctx: PlayContext, before: string[] = []) {
 /// The Environment menu's Cloud row, the menu opened, then closed: what is wrong if it names a team
 /// or its label reads anything but Cloud (https://github.com/manaflow-ai/cmux/issues/45695).
 async function cloudRowProblems(ctx: PlayContext): Promise<string[]> {
-  await ctx.click({ role: "button", name: /^Environment/ });
+  await ctx.click({ role: "button", name: /^Computer/ });
   const row = () => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"]');
   await ctx.waitFor(row, { capMs: 5_000 });
   const problems: string[] = [];
   const tag = row()!.querySelector(".acpmux-team-tag");
-  if (tag) problems.push(`the Environment menu's Cloud row names the team (“${textOf(tag)}”)`);
+  if (tag) problems.push(`the Computer menu's Cloud row names the team (“${textOf(tag)}”)`);
   const label = textOf(row()!.querySelector(".acpmux-menu-label") ?? row()!);
-  if (label !== "Cloud") problems.push(`the Environment menu's Cloud row reads “${label}”, not Cloud`);
+  if (label !== "Cloud") problems.push(`the Computer menu's Cloud row reads “${label}”, not Cloud`);
   await ctx.press("Escape");
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-env-popover"), { capMs: 5_000 });
   return problems;
@@ -192,7 +192,7 @@ const STATES: Record<"personal-default" | "team-bypass" | "removed-team", State>
     },
   },
   "team-bypass": {
-    note: `Cloud picked in a shared team with a long name (“${LONG_TEAM}”), Bypass permissions picked from the Mode menu: the Cloud chip and the Environment menu's Cloud row say only Cloud and every chip shows whole.`,
+    note: `Cloud picked in a shared team with a long name (“${LONG_TEAM}”), Bypass permissions picked from the Mode menu: the Cloud chip and the Computer menu's Cloud row say only Cloud and every chip shows whole.`,
     team: { name: LONG_TEAM, personal: false },
     teams: [
       { id: PERSONAL_ID, name: "Personal", personal: true },
@@ -208,7 +208,7 @@ const STATES: Record<"personal-default" | "team-bypass" | "removed-team", State>
     },
   },
   "removed-team": {
-    note: `The app's reply names an active team (“${LONG_TEAM}”) the account's team list no longer has, as a removal leaves it: nothing names it, and the Environment menu's Cloud row says only Cloud.`,
+    note: `The app's reply names an active team (“${LONG_TEAM}”) the account's team list no longer has, as a removal leaves it: nothing names it, and the Computer menu's Cloud row says only Cloud.`,
     team: { name: LONG_TEAM, personal: false },
     teams: [{ id: PERSONAL_ID, name: "Personal", personal: true }],
     async reach(ctx) {
@@ -280,6 +280,16 @@ const moved = (box: Box | null, rest: Box) =>
   Math.abs(box.height - rest.height) > SHIFT_PX;
 const shown = (box: Box | null) =>
   box ? `${Math.round(box.x)},${Math.round(box.y)} ${Math.round(box.width)}x${Math.round(box.height)}` : "gone";
+/// What the model chip reads, so a move names what changed in it (a longer label, a new detail), not only its box.
+const reads = (element: Element | null) => {
+  if (!element) return "nothing";
+  // The row's fit form for the model (composerRowFit.ts: no attribute is the full form) and its step.
+  const bar = element.closest<HTMLElement>(
+    "[data-fit-extra], [data-fit-model], .acpmux-composer-bar, .acpmux-composer-foot",
+  );
+  const form = bar?.getAttribute("data-fit-model") ?? "full";
+  return `“${textOf(element)}” (form ${form}, step ${bar?.dataset.fitExtra ?? 0}, composer ${element.ownerDocument.defaultView?.innerWidth} px)`;
+};
 
 const modelHoldsStill: Play = async (ctx) => {
   const view = ctx.document.defaultView as Frame;
@@ -303,6 +313,7 @@ const modelHoldsStill: Play = async (ctx) => {
       if (now) rest = now;
     }
   }
+  const restText = reads(ctx.document.querySelector(MODEL));
   const stripTop = () => boxOf(ctx.document.querySelector(STRIP))?.y;
   const restStrip = stripTop();
   // Each frame's model box, by the step it belongs to.
@@ -311,9 +322,12 @@ const modelHoldsStill: Play = async (ctx) => {
   let sampling = true;
   const sample = () => {
     if (!sampling) return;
-    const box = boxOf(ctx.document.querySelector(MODEL));
+    const chip = ctx.document.querySelector(MODEL);
+    const box = boxOf(chip);
     if (moved(box, rest) && problems.length < 6)
-      problems.push(`${step}: the model chip is at ${shown(box)}, it rested at ${shown(rest)}`);
+      problems.push(
+        `${step}: the model chip is at ${shown(box)} reading ${reads(chip)}, it rested at ${shown(rest)} reading ${restText}`,
+      );
     const top = stripTop();
     if (restStrip !== undefined && top !== undefined && Math.abs(top - restStrip) > SHIFT_PX && problems.length < 6)
       problems.push(`${step}: the location strip's row moved from y ${Math.round(restStrip)} to ${Math.round(top)}`);

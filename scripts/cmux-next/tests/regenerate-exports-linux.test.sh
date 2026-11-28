@@ -60,4 +60,42 @@ if scripts/cmux-next/regenerate-settings-exports-linux.sh "$tmp/o5" 2>/dev/null;
 rm -f extra docs/mdm/unlisted.json
 rc=0; scripts/cmux-next/regenerate-settings-exports-linux.sh "$tmp/x.patch" 2>/dev/null || rc=$?
 [[ "$rc" == 2 ]] || fail "bundle mode exited $rc, not 2"
+
+# A settings source the caller checked out before the export (check-settings-exports.sh puts the base
+# parent's sources in place, staged) is not the export's write: base-tier run 45805125044 refused
+# schemas/settings/source/agent-cache.json this way. The same file rewritten by the export still fails.
+mkdir -p schemas/settings/source && echo base > schemas/settings/source/s.json
+git add -A && git commit -qm source && echo head > schemas/settings/source/s.json && git add schemas/settings/source/s.json
+out="$(scripts/cmux-next/regenerate-settings-exports-linux.sh "$tmp/o6")" || fail "a checked-out settings source failed the export"
+[[ -z "$out" ]] || fail "a checked-out settings source printed: $out"
+cat >> scripts/cmux-next/export-settings-linux.sh <<'SH'
+[[ ! -f rewrite ]] || echo rewritten > schemas/settings/source/s.json
+SH
+touch rewrite
+if scripts/cmux-next/regenerate-settings-exports-linux.sh "$tmp/o7" 2>/dev/null; then fail "an unlisted rewrite of a changed file passed"; fi
+rm -f rewrite && git checkout -q HEAD -- . && git reset -q
+
+# The action exporter: the tool writes only the exports whose bytes changed, and every export still reads as
+# this run's (newer than a marker taken before it), which base-autofix-exports-pack.sh checks: base-tier run
+# 45805125044 made no pack because the current action-catalog.json kept its old mtime. swift and the catalog
+# build are faked; the fake tool rewrites only action-surfaces.json.
+cp "$here/regenerate-action-exports-linux.sh" scripts/cmux-next/
+printf '#!/usr/bin/env bash\nmkdir -p "$1/include"\n' > scripts/cmux-next/build-action-catalog-linux.sh
+mkdir -p Packages/macOS/CmuxNext/LinuxActionExports "$tmp/bin" && : > Packages/macOS/CmuxNext/LinuxActionExports/sources.txt
+cat > "$tmp/bin/swift" <<'SH'
+#!/usr/bin/env bash
+while [[ $# -gt 0 && "$1" != --scratch-path ]]; do shift; done
+mkdir -p "$2/debug"
+printf '#!/usr/bin/env bash\necho new > "$1/plans/cmux-next/action-surfaces.json"\n' > "$2/debug/cmux-next-action-exports"
+chmod +x "$2/debug/cmux-next-action-exports"
+SH
+chmod +x scripts/cmux-next/*.sh "$tmp/bin/swift"
+for f in action-surfaces.json action-catalog.json actions.md links.json; do echo old > "plans/cmux-next/$f"; done
+git add -A && git commit -qm actions
+marker="$tmp/action-marker" && : > "$marker" && sleep 1 # sleep-ok: an mtime-granularity tick before the export
+out="$(PATH="$tmp/bin:$PATH" scripts/cmux-next/regenerate-action-exports-linux.sh "$tmp/o8")" || fail "the action export failed"
+grep -qx 'regenerated: plans/cmux-next/action-surfaces.json' <<<"$out" || fail "the action export printed: $out"
+for f in action-surfaces.json action-catalog.json actions.md links.json; do
+  [[ "plans/cmux-next/$f" -nt "$marker" ]] || fail "an unchanged action export kept its old mtime: $f"
+done
 echo "regenerate-exports-linux: ok"

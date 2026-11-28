@@ -54,6 +54,12 @@ public struct TerminalConnectingView: View {
         case nothing
     }
 
+    /// Where a cover with no kept frame (the Mac's screen text or the skeleton) ends: the
+    /// composer's top as it rests (`rowsLift` above the view's bottom), never below it.
+    static func coverBottom(height: CGFloat, rowsLift: CGFloat?) -> CGFloat {
+        max(0, height - max(0, rowsLift ?? 0))
+    }
+
     static func content(hasLastFrame: Bool, showsPlaceholder: Bool, hasScreenText: Bool = false) -> Content {
         if hasLastFrame { return .lastFrame }
         // Only where the skeleton would be: a warm surface keeps its own live rows.
@@ -102,7 +108,15 @@ public struct TerminalConnectingView: View {
                 GeometryReader { proxy in
                     // Not dimmed: a grayed-out page reads as one that takes no input (Leo,
                     // 2026-11-24: "the entire thing is somehow grayed out").
-                    TerminalCardScreenText(text: screenText ?? "", topInset: topInset, width: proxy.size.width)
+                    // Ends at the composer's top, as the skeleton and a kept frame do: the Mac's
+                    // rows never run on under the composer bar (Aziz, 2026-11-26: "the loading
+                    // terminal placeholder shouldnt leak under the composer bar").
+                    let bottom = Self.coverBottom(height: proxy.size.height, rowsLift: rowsLift)
+                    TerminalCardScreenText(text: screenText ?? "", topInset: topInset, width: proxy.size.width,
+                                           visibleHeight: rowsLift == nil ? nil : bottom)
+                        .frame(width: proxy.size.width, height: bottom, alignment: .top)
+                        .clipped()
+                        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
                 }
                 .accessibilityHidden(true)
             case .skeleton:
@@ -113,6 +127,99 @@ public struct TerminalConnectingView: View {
         }
         .allowsHitTesting(false)
         .accessibilityIdentifier("terminal.connecting")
+        .environment(\.colorScheme, .dark)
+    }
+}
+
+/// The bound on a terminal page's connecting cover. A page whose Mac's rows never came drew the
+/// skeleton's gray bars for good (Aziz's TestFlight build, 2026-11-25). Now the cover is a
+/// skeleton only for ``bound``: past it, or at once when the session gave up or the Mac is
+/// offline, the page says what is going on in words with Retry, and tries the attach again by
+/// itself after each of ``retryDelays`` (the last one repeating) while the cover is up.
+enum TerminalLoadWatch {
+    /// How long the skeleton shows before the page offers Retry.
+    static let bound: Duration = .seconds(8)
+    /// The waits between the page's own retries of the attach, the first after ``bound``.
+    static let retryDelays: [Duration] = [.seconds(8), .seconds(15), .seconds(30), .seconds(60)]
+
+    /// The wait before the page's `attempt`th own retry (0 is the first).
+    static func retryDelay(_ attempt: Int) -> Duration {
+        retryDelays[min(max(0, attempt), retryDelays.count - 1)]
+    }
+
+    /// What the cover draws.
+    enum Stage: Equatable {
+        /// The skeleton (or the Mac's screen text): the rows are on their way.
+        case loading
+        /// Retry, with failure details only when the connection has failed or is offline.
+        case stalled
+    }
+
+    static func stage(_ state: TerminalConnectionState, waited: Duration) -> Stage {
+        switch state {
+        case .attached:
+            return .loading
+        case .failed, .offline:
+            return .stalled
+        case .connecting, .reattaching:
+            guard waited >= bound else { return .loading }
+            return .stalled
+        }
+    }
+}
+
+/// The connecting cover past ``TerminalLoadWatch/bound``: what is going on and Retry, centered
+/// on the page, in place of the skeleton.
+public struct TerminalLoadStalledPanel: View {
+    let state: TerminalConnectionState
+    /// The link's own status line for the Mac (``TerminalModel/linkStatus``): a network that
+    /// blocks the link says so there, and that is the reason shown, over the generic words.
+    let linkStatus: String?
+    let retry: @MainActor () async -> Void
+
+    public init(state: TerminalConnectionState, linkStatus: String? = nil, retry: @escaping @MainActor () async -> Void) {
+        self.state = state
+        self.linkStatus = linkStatus
+        self.retry = retry
+    }
+
+    /// Keep failure copy with the action that resolves it; an ongoing attach has no notice.
+    static func notice(_ state: TerminalConnectionState, linkStatus: String? = nil) -> (title: String, detail: String)? {
+        // "Offline" alone repeats the title: the generic reason stays.
+        let status = linkStatus.flatMap { $0.isEmpty || $0 == "Offline" ? nil : $0 }
+        switch state {
+        case .failed:
+            return ("Can't reach this terminal", status ?? "Check that the Mac is on and cmux is open.")
+        case .offline:
+            return (state.quietLine ?? "Your Mac is offline", status ?? "The terminal opens when it is back.")
+        case .attached, .connecting, .reattaching:
+            return nil
+        }
+    }
+
+    public var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "terminal")
+                .font(.system(size: 28, weight: .regular))
+                .foregroundStyle(Color.white.opacity(0.6))
+                .accessibilityHidden(true)
+            if let notice = Self.notice(state, linkStatus: linkStatus) {
+                Text(verbatim: notice.title)
+                    .font(.headline)
+                    .foregroundStyle(Color.white)
+                    .multilineTextAlignment(.center)
+                Text(verbatim: notice.detail)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
+            RetryButton(action: retry)
+                .accessibilityIdentifier("terminal.connecting.retry")
+        }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("terminal.connecting.stalled")
         .environment(\.colorScheme, .dark)
     }
 }
@@ -146,7 +253,7 @@ struct TerminalSkeleton: View {
     var body: some View {
         GeometryReader { proxy in
             let pitch = Self.pitch
-            let bottom = max(0, proxy.size.height - (rowsLift ?? 0))
+            let bottom = TerminalConnectingView.coverBottom(height: proxy.size.height, rowsLift: rowsLift)
             // As many of the rows as fit between the top bar and the composer, newest last.
             let room = max(0, Int((bottom - topInset - 8) / pitch) - 1)
             let shown = Array(Self.rows.suffix(room))

@@ -63,6 +63,57 @@
       },
       "rows": [
         {
+          "key": "appearance.mode",
+          "note": "The app's own appearance (NSApp.appearance): system (the default) follows macOS; light and dark pin it. Terminal themes with a light/dark pair and the chrome follow the effective appearance. AppearanceModeSetting parses and applies it.",
+          "title": {
+            "key": "settings.appearance.mode",
+            "text": "Appearance"
+          },
+          "help": {
+            "key": "settings.appearance.mode.help",
+            "text": "Light, Dark, or Match System to follow macOS. Terminals with a light/dark theme pair follow it too."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "system",
+              "title": {
+                "key": "settings.choice.appearanceMode.system",
+                "text": "Match System"
+              }
+            },
+            {
+              "value": "light",
+              "title": {
+                "key": "settings.choice.appearanceMode.light",
+                "text": "Light"
+              }
+            },
+            {
+              "value": "dark",
+              "title": {
+                "key": "settings.choice.appearanceMode.dark",
+                "text": "Dark"
+              }
+            }
+          ],
+          "swift_enum": {
+            "name": "AppearanceMode"
+          },
+          "swift_owner": "AppearanceModeSetting",
+          "default": "system",
+          "keywords": [
+            "appearance",
+            "light",
+            "dark",
+            "light mode",
+            "dark mode",
+            "system",
+            "color scheme",
+            "mode"
+          ]
+        },
+        {
           "key": "appearance.theme",
           "note": "cmux's terminal theme: a Ghostty theme name or a light/dark pair; unset is the Ghostty config's theme.",
           "title": {
@@ -902,7 +953,7 @@
         {
           "key": "appearance.backgroundPlacement",
           "name": "placement",
-          "note": "Where each picture lies in its window or pane (Leo, 2026-11-22: \"we also want people to be able to reposition the images easily\"): picture id (the id the background shows, a listed painting, file:, system: or a folder's file:) to a placement text, the mode (fill, fit, center or stretch), then optionally the anchor X Y (0 to 1 from the top-left, like CSS object-position) and a zoom (1 to 4). Unset, or a picture with no entry, is today's centered fill. Adjust Background\u2026 and the Settings page's Background preview write it; cmux-config backdrop_placement is the math the app mirrors.",
+          "note": "Where each picture lies in its window or pane (Leo, 2026-11-22: \"we also want people to be able to reposition the images easily\"): picture id (the id the background shows, a listed painting, file:, system: or a folder's file:) to a placement text, the mode (fill, fit, center or stretch), then optionally the anchor X Y (0 to 1 from the top-left, like CSS object-position) and a zoom (1 to 4). Unset, or a picture with no entry, is today's centered fill. Adjust Background… and the Settings page's Background preview write it; cmux-config backdrop_placement is the math the app mirrors.",
           "title": {
             "key": "settings.appearance.backgroundPlacement",
             "text": "Background Placement"
@@ -930,7 +981,7 @@
         {
           "key": "appearance.backgroundRecents",
           "name": "recents",
-          "note": "The backgrounds shown before, newest first (Leo, 2026-11-22: \"it was cumbersome back then to switch back\"): each an appearance.background value (a rotating folder, daily, desktop, a picture or a mode), at most 8, each once. The daemon's settings write (cmux-config) puts the replaced value first whenever appearance.background changes, from every surface; Switch to Previous Background, Recent Backgrounds\u2026, cmux wallpaper back|recent and the Settings page's Recent strip read it.",
+          "note": "The backgrounds shown before, newest first (Leo, 2026-11-22: \"it was cumbersome back then to switch back\"): each an appearance.background value (a rotating folder, daily, desktop, a picture or a mode), at most 8, each once. The daemon's settings write (cmux-config) puts the replaced value first whenever appearance.background changes, from every surface; Switch to Previous Background, Recent Backgrounds…, cmux wallpaper back|recent and the Settings page's Recent strip read it.",
           "title": {
             "key": "settings.appearance.backgroundRecents",
             "text": "Recent Backgrounds"
@@ -1199,7 +1250,10 @@
             "text": "Draws the knobs of the switches and sliders in Settings as glass."
           },
           "kind": "toggle",
-          "swift_owner": {"type": "AppearanceSettingsSchema", "prefixed": true},
+          "swift_owner": {
+            "type": "AppearanceSettingsSchema",
+            "prefixed": true
+          },
           "default": false,
           "keywords": [
             "experimental",
@@ -2931,6 +2985,129 @@
           ]
         },
         {
+          "key": "appearance.toolbarButtonStyle",
+          "note": "How the buttons at a pane's top right (the pinned tab bar buttons, Exit Zoom and the pane's ⋮) and the tab bar's + and ⌄ draw. standard (the default) is today's look, unchanged. plain: bare glyphs, a fill only under the pointer. grouped: one filled pill holds the pane's buttons. glass: that pill in see-through glass with a rim. A theme file sets it like any appearance.* key; a change applies at once (ToolbarButtonStyleSetting, PaneToolbarView). Leo 2026-11-18: \"you guys should be customizing the tabs/sidebars a lot deeper too. prob likewise the session info and the top right buttons as well\".",
+          "title": {
+            "key": "settings.appearance.toolbarButtonStyle",
+            "text": "Top Right Buttons"
+          },
+          "help": {
+            "key": "settings.appearance.toolbarButtonStyle.help",
+            "text": "How a pane's buttons draw: today's, plain glyphs, a grouped pill, or glass."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "plain",
+              "title": {
+                "key": "settings.choice.toolbarButtonStyle.plain",
+                "text": "Plain"
+              }
+            },
+            {
+              "value": "grouped",
+              "title": {
+                "key": "settings.choice.toolbarButtonStyle.grouped",
+                "text": "Grouped"
+              }
+            },
+            {
+              "value": "glass",
+              "title": {
+                "key": "settings.choice.glass",
+                "text": "Glass"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "toolbar",
+            "buttons",
+            "top right",
+            "pill",
+            "glass",
+            "plain",
+            "grouped",
+            "capsule",
+            "tab bar"
+          ],
+          "swift_enum": {
+            "name": "ToolbarButtonStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "ToolbarButtonStyleSetting"
+        },
+        {
+          "key": "appearance.homeCardStyle",
+          "note": "How the cards on Home and the New Tab page draw: the recent chats' cards, the environment and suggestions cards over the composer, and the Home lists under a new chat's composer. standard (the default) is today's look, unchanged. flat: a tonal fill, no edge, no shadow. raised: an elevated card with a hairline and a soft shadow. glass: see-through cards with a rim over the window's picture. A theme file sets it like any appearance.* key; a change applies at once (HomeCardStyleSetting, AgentPaneTheme homeCardStyle, the page's data-home-cards). Leo 2026-11-18: \"you guys should be customizing the tabs/sidebars a lot deeper too. prob likewise the session info and the top right buttons as well\" / \"how about the customizations for claude/codex/t3code aka \"studio\" ... alongside customizing tabs and whatnot\".",
+          "title": {
+            "key": "settings.appearance.homeCardStyle",
+            "text": "Home Cards"
+          },
+          "help": {
+            "key": "settings.appearance.homeCardStyle.help",
+            "text": "How the cards on Home and the New Tab page draw: today's, flat, raised, or glass."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "flat",
+              "title": {
+                "key": "settings.choice.homeCardStyle.flat",
+                "text": "Flat"
+              }
+            },
+            {
+              "value": "raised",
+              "title": {
+                "key": "settings.choice.homeCardStyle.raised",
+                "text": "Raised"
+              }
+            },
+            {
+              "value": "glass",
+              "title": {
+                "key": "settings.choice.glass",
+                "text": "Glass"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "home",
+            "new tab",
+            "cards",
+            "card",
+            "chats",
+            "flat",
+            "raised",
+            "shadow",
+            "glass",
+            "elevated"
+          ],
+          "swift_enum": {
+            "name": "HomeCardStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "HomeCardStyleSetting"
+        },
+        {
           "key": "appearance.titleAreaTone",
           "note": "One colour (the default: no shade; the sidebar's edge line, the split panes' lines, the tab row's divider and the selected tab's pill separate) or a subtle tone (half the flush corner's frame shade, scaled by appearance.titleAreaContrast; the selected tab is a folder tab in the content's glass). Only the default flush-corner frame follows it; a picked chrome style keeps its own shade. Leo 2026-11-12: the default is mono-ish as Lawrence wants, with the divider kept across most panes; a refined subtle tone is the option.",
           "title": {
@@ -3846,6 +4023,326 @@
       ]
     },
     {
+      "name": "themeFlourishes",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.themeFlourishes",
+        "text": "Theme Flourishes"
+      },
+      "rows": [
+        {
+          "key": "appearance.accentGlow.dark",
+          "name": "accentGlowDark",
+          "title": {
+            "key": "settings.appearance.accentGlow.dark",
+            "text": "Accent Glow (Dark)"
+          },
+          "help": {
+            "key": "settings.appearance.accentGlow.dark.help",
+            "text": "A soft glow in this color around the focused pane in the dark appearance. Unset, no glow."
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.off",
+            "text": "Off"
+          },
+          "keywords": [
+            "theme",
+            "flourish",
+            "color",
+            "glow"
+          ]
+        },
+        {
+          "key": "appearance.accentGlow.light",
+          "name": "accentGlowLight",
+          "title": {
+            "key": "settings.appearance.accentGlow.light",
+            "text": "Accent Glow (Light)"
+          },
+          "help": {
+            "key": "settings.appearance.accentGlow.light.help",
+            "text": "The glow's color in the light appearance. Unset, the dark color."
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsDark",
+            "text": "Same as Dark"
+          },
+          "keywords": [
+            "theme",
+            "flourish",
+            "color",
+            "glow"
+          ]
+        },
+        {
+          "key": "appearance.accentGlow.radius",
+          "name": "accentGlowRadius",
+          "title": {
+            "key": "settings.appearance.accentGlow.radius",
+            "text": "Accent Glow Radius"
+          },
+          "help": {
+            "key": "settings.appearance.accentGlow.radius.help",
+            "text": "How far the accent glow spreads from the focused pane."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 200,
+            "step": 1,
+            "unit": "points"
+          },
+          "default": null,
+          "keywords": [
+            "theme",
+            "flourish",
+            "glow"
+          ]
+        },
+        {
+          "key": "appearance.accentGlow.opacity",
+          "name": "accentGlowOpacity",
+          "title": {
+            "key": "settings.appearance.accentGlow.opacity",
+            "text": "Accent Glow Opacity"
+          },
+          "help": {
+            "key": "settings.appearance.accentGlow.opacity.help",
+            "text": "How strong the accent glow is."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "keywords": [
+            "theme",
+            "flourish",
+            "glow"
+          ]
+        },
+        {
+          "key": "appearance.tabClose.from",
+          "name": "tabCloseFrom",
+          "title": {
+            "key": "settings.appearance.tabClose.from",
+            "text": "Tab Close Color"
+          },
+          "help": {
+            "key": "settings.appearance.tabClose.from.help",
+            "text": "The color of a tab's close button. Unset, the text color."
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "theme",
+            "flourish",
+            "color",
+            "tab"
+          ]
+        },
+        {
+          "key": "appearance.tabClose.toDark",
+          "name": "tabCloseToDark",
+          "title": {
+            "key": "settings.appearance.tabClose.toDark",
+            "text": "Tab Close Hover Color (Dark)"
+          },
+          "help": {
+            "key": "settings.appearance.tabClose.toDark.help",
+            "text": "The color a tab's close button turns to under the pointer in the dark appearance. Unset, the standard hover."
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "theme",
+            "flourish",
+            "color",
+            "tab"
+          ]
+        },
+        {
+          "key": "appearance.tabClose.toLight",
+          "name": "tabCloseToLight",
+          "title": {
+            "key": "settings.appearance.tabClose.toLight",
+            "text": "Tab Close Hover Color (Light)"
+          },
+          "help": {
+            "key": "settings.appearance.tabClose.toLight.help",
+            "text": "The close button's hover color in the light appearance. Unset, the dark color."
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsDark",
+            "text": "Same as Dark"
+          },
+          "keywords": [
+            "theme",
+            "flourish",
+            "color",
+            "tab"
+          ]
+        },
+        {
+          "key": "appearance.tabClose.interpolation",
+          "name": "tabCloseInterpolation",
+          "title": {
+            "key": "settings.appearance.tabClose.interpolation",
+            "text": "Tab Close Blend"
+          },
+          "help": {
+            "key": "settings.appearance.tabClose.interpolation.help",
+            "text": "How the close button's color blends to its hover color."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "oklab",
+              "title": {
+                "key": "settings.choice.tabCloseInterpolation.oklab",
+                "text": "Perceptual (OKLab)"
+              }
+            },
+            {
+              "value": "srgb",
+              "title": {
+                "key": "settings.choice.tabCloseInterpolation.srgb",
+                "text": "sRGB"
+              }
+            }
+          ],
+          "default": null,
+          "keywords": [
+            "theme",
+            "flourish",
+            "tab",
+            "close"
+          ]
+        },
+        {
+          "key": "appearance.sidebarHeader.dark",
+          "name": "sidebarHeaderDark",
+          "title": {
+            "key": "settings.appearance.sidebarHeader.dark",
+            "text": "Sidebar Header Image (Dark)"
+          },
+          "help": {
+            "key": "settings.appearance.sidebarHeader.dark.help",
+            "text": "A picture across the top of the sidebar in the dark appearance (file: and an absolute path). Unset, none."
+          },
+          "kind": "text",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.none",
+            "text": "None"
+          },
+          "keywords": [
+            "theme",
+            "flourish",
+            "sidebar",
+            "header",
+            "banner",
+            "image"
+          ]
+        },
+        {
+          "key": "appearance.sidebarHeader.light",
+          "name": "sidebarHeaderLight",
+          "title": {
+            "key": "settings.appearance.sidebarHeader.light",
+            "text": "Sidebar Header Image (Light)"
+          },
+          "help": {
+            "key": "settings.appearance.sidebarHeader.light.help",
+            "text": "The sidebar header picture in the light appearance. Unset, the dark picture."
+          },
+          "kind": "text",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsDark",
+            "text": "Same as Dark"
+          },
+          "keywords": [
+            "theme",
+            "flourish",
+            "sidebar",
+            "header",
+            "banner",
+            "image"
+          ]
+        },
+        {
+          "key": "appearance.paneArt.dark",
+          "name": "paneArtDark",
+          "title": {
+            "key": "settings.appearance.paneArt.dark",
+            "text": "Pane Art (Dark)"
+          },
+          "help": {
+            "key": "settings.appearance.paneArt.dark.help",
+            "text": "Pictures behind panes in the dark appearance, one per pane in turn. Empty, panes show the window background as set above."
+          },
+          "placeholder": {
+            "key": "settings.appearance.paneArt.placeholder",
+            "text": "file:/path/to/picture.webp"
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "theme",
+            "flourish",
+            "pane",
+            "wallpaper",
+            "background",
+            "art"
+          ]
+        },
+        {
+          "key": "appearance.paneArt.light",
+          "name": "paneArtLight",
+          "title": {
+            "key": "settings.appearance.paneArt.light",
+            "text": "Pane Art (Light)"
+          },
+          "help": {
+            "key": "settings.appearance.paneArt.light.help",
+            "text": "Pictures behind panes in the light appearance. Empty, the dark list."
+          },
+          "placeholder": {
+            "key": "settings.appearance.paneArt.placeholder",
+            "text": "file:/path/to/picture.webp"
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "theme",
+            "flourish",
+            "pane",
+            "wallpaper",
+            "background",
+            "art"
+          ]
+        }
+      ]
+    },
+    {
       "name": "menuLook",
       "section": "appearance",
       "group": {
@@ -3860,6 +4357,10 @@
           "title": {
             "key": "settings.appearance.menu.cornerRadius",
             "text": "Menu Corner Radius"
+          },
+          "help": {
+            "key": "settings.appearance.menu.cornerRadius.help",
+            "text": "The corner radius of menus."
           },
           "kind": "number",
           "swift_owner": {
@@ -3896,6 +4397,10 @@
             "key": "settings.appearance.menu.borderOpacity",
             "text": "Menu Border Opacity"
           },
+          "help": {
+            "key": "settings.appearance.menu.borderOpacity.help",
+            "text": "How visible the menu's edge line is."
+          },
           "kind": "number",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -3929,6 +4434,10 @@
           "title": {
             "key": "settings.appearance.menu.shadow",
             "text": "Menu Shadow"
+          },
+          "help": {
+            "key": "settings.appearance.menu.shadow.help",
+            "text": "The shadow under menus."
           },
           "kind": "choice",
           "swift_owner": {
@@ -3983,6 +4492,10 @@
             "key": "settings.appearance.menu.fill",
             "text": "Menu Fill"
           },
+          "help": {
+            "key": "settings.appearance.menu.fill.help",
+            "text": "The menu background color, as #RRGGBB or #RRGGBBAA."
+          },
           "kind": "color",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4010,6 +4523,10 @@
           "title": {
             "key": "settings.appearance.menu.padding",
             "text": "Menu Padding"
+          },
+          "help": {
+            "key": "settings.appearance.menu.padding.help",
+            "text": "The space inside the menu's edges."
           },
           "kind": "number",
           "swift_owner": {
@@ -4043,6 +4560,10 @@
           "title": {
             "key": "settings.appearance.menu.highlightRadius",
             "text": "Menu Highlight Radius"
+          },
+          "help": {
+            "key": "settings.appearance.menu.highlightRadius.help",
+            "text": "The corner radius of the hovered row's highlight."
           },
           "kind": "number",
           "swift_owner": {
@@ -4078,6 +4599,10 @@
             "key": "settings.appearance.menu.rowHeight",
             "text": "Menu Row Height"
           },
+          "help": {
+            "key": "settings.appearance.menu.rowHeight.help",
+            "text": "The height of a one-line menu row."
+          },
           "kind": "number",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4111,6 +4636,10 @@
           "title": {
             "key": "settings.appearance.menu.shortcuts",
             "text": "Menu Shortcuts"
+          },
+          "help": {
+            "key": "settings.appearance.menu.shortcuts.help",
+            "text": "How strongly menu shortcuts are drawn."
           },
           "kind": "choice",
           "swift_owner": {
@@ -4152,6 +4681,10 @@
             "key": "settings.appearance.menu.sectionLabel",
             "text": "Menu Section Labels"
           },
+          "help": {
+            "key": "settings.appearance.menu.sectionLabel.help",
+            "text": "How menu section labels are drawn."
+          },
           "kind": "choice",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4190,6 +4723,10 @@
           "title": {
             "key": "settings.appearance.menu.separator",
             "text": "Menu Separators"
+          },
+          "help": {
+            "key": "settings.appearance.menu.separator.help",
+            "text": "How the lines between menu row groups are drawn."
           },
           "kind": "choice",
           "swift_owner": {
@@ -4236,6 +4773,10 @@
             "key": "settings.appearance.menu.destructiveInk",
             "text": "Menu Destructive Rows"
           },
+          "help": {
+            "key": "settings.appearance.menu.destructiveInk.help",
+            "text": "Whether destructive menu rows, such as Delete, are drawn in red."
+          },
           "kind": "choice",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4274,6 +4815,10 @@
           "title": {
             "key": "settings.appearance.menu.submenu",
             "text": "Submenu Placement"
+          },
+          "help": {
+            "key": "settings.appearance.menu.submenu.help",
+            "text": "Where a submenu opens next to its menu."
           },
           "kind": "choice",
           "swift_owner": {
@@ -4315,6 +4860,10 @@
             "key": "settings.appearance.menu.subtitle",
             "text": "Menu Subtitles"
           },
+          "help": {
+            "key": "settings.appearance.menu.subtitle.help",
+            "text": "How the second line of a menu row is drawn."
+          },
           "kind": "choice",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4354,6 +4903,10 @@
             "key": "settings.appearance.popover.padding",
             "text": "Popover Padding"
           },
+          "help": {
+            "key": "settings.appearance.popover.padding.help",
+            "text": "The space inside a popover's edges."
+          },
           "kind": "number",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4386,6 +4939,10 @@
           "title": {
             "key": "settings.appearance.popover.header",
             "text": "Popover Headers"
+          },
+          "help": {
+            "key": "settings.appearance.popover.header.help",
+            "text": "How a popover's header line is drawn."
           },
           "kind": "choice",
           "swift_owner": {
@@ -4425,6 +4982,10 @@
             "key": "settings.appearance.popover.progressHeight",
             "text": "Popover Progress Height"
           },
+          "help": {
+            "key": "settings.appearance.popover.progressHeight.help",
+            "text": "The height of progress bars in popovers."
+          },
           "kind": "number",
           "swift_owner": {
             "type": "MenuLookSetting",
@@ -4459,6 +5020,10 @@
           "title": {
             "key": "settings.appearance.popover.progressFill",
             "text": "Popover Progress Fill"
+          },
+          "help": {
+            "key": "settings.appearance.popover.progressFill.help",
+            "text": "The color of progress bars in popovers."
           },
           "kind": "choice",
           "swift_owner": {

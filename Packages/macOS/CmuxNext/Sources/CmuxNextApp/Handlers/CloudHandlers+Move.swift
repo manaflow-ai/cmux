@@ -73,8 +73,8 @@ extension CloudHandlers {
         for id in [AppServices.placeSet, AppServices.prioritySet, AppServices.placeRetry, AppServices.placeEvacuate, AppServices.placeCancel, AppServices.placeEvacuateCancel, AppServices.placeBringBackAll] {
             let cancels = id == AppServices.placeCancel || id == AppServices.placeEvacuateCancel
             // A cancel is never refused.
-            let allowed: @MainActor () -> String? = { nil }
-            bind(id, registry, reason: cancels ? allowed : reason) { invocation in
+            let allowed: @MainActor () -> String? = { nil }, gated: @MainActor () -> String? = { reason() ?? CloudMoveStrings.placeOff(services.settings?.snapshot.experimentSwitches) }
+            bind(id, registry, reason: cancels ? allowed : gated) { invocation in
                 guard !CloudMoveAsks.isAgent(invocation), !invocation.viaControlSocket else { throw ActionFailure(message: CloudMoveStrings.placeIsPersons) }
                 let tab = context.daemonTab(invocation)?.0.id, named = CloudPlaceDriver.named(invocation["sessions"]?.stringValue), row = CloudPlaceDriver.row(named)
                 switch id {
@@ -276,9 +276,7 @@ extension AppServices: CloudPlaceHost {
                 })
     }
 
-    func placeOnTurnEnded(_ handler: @escaping @MainActor (String) -> Void) {
-        AgentTurnStateStore.shared.turnEndedObservers.append { session, _ in handler(session) }
-    }
+    func placeOnTurnEnded(_ handler: @escaping @MainActor (String) -> Void) { AgentTurnStateStore.shared.turnEndedObservers.append { session, _ in handler(session) } }
 
     /// The account, team and Cloud a new machine is made under now (as an Always grant is scoped, ``CloudMoveAsks``).
     func placeIdentity() -> CloudPlaceIdentity? {
@@ -288,4 +286,6 @@ extension AppServices: CloudPlaceHost {
     }
 
     func placeIdentityChangedReason() -> String { CloudMoveStrings.identityChanged }
+    func placeVerdict() async -> Data? { await QuitAgents.environment(self)?.hostPressure(deadline: .seconds(5)) }
+    func placeShadow(_ line: String) { QuitAgents.environment(self).map { CloudPlaceShadowLog.appendDetached(line, home: $0.home) } }
 }

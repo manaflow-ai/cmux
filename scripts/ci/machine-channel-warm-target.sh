@@ -4,7 +4,7 @@
 # and the shipped fat-LTO legs (both musl targets and aarch64-apple-darwin built on Linux),
 # each on its own disk, so thin and fat objects never mix.
 #
-# usage: scripts/ci/machine-channel-warm-target.sh restore|record|probe DISK TRIPLE
+# usage: scripts/ci/machine-channel-warm-target.sh restore|record|probe|release DISK TRIPLE
 #        scripts/ci/machine-channel-warm-target.sh pool-dir TRIPLE
 #
 # Why: the legs restored a Swatinem/rust-cache entry, which holds dependency
@@ -17,7 +17,8 @@
 # previous build's whole target dir, mounted in seconds and never evicted.
 #
 # restore (before the build): when DISK is mounted, link cmux-tui/target and
-# the cargo registry to it, then give every source file whose content equals
+# the cargo registry to it (on a pool runner only the target: HOME keeps the
+# registry, and a link there outlived the job), then give every source file whose content equals
 # the one the snapshot was built from its recorded mtime back
 # (scripts/blacksmith-testbox-source-mtimes.py), so Cargo rebuilds only what
 # changed. A changed file keeps its fresh mtime: correctness never depends on
@@ -45,9 +46,17 @@
 # 1475 s for the build step (job 139565194555, 2026-11-25: 270 workspace and 102 dependency
 # crates recompiled after an exact R2 hit). Pool hosts are shared and have run out of disk
 # (jobs 139596782005, 45713322066), so a pool tree is bounded tighter: record prunes it to
-# MACHINE_CHANNEL_WARM_POOL_MAX_BYTES (48 GiB; the fat darwin tree is about 39 GB), and
-# restore and record remove it outright when the filesystem has less than
-# MACHINE_CHANNEL_WARM_POOL_MIN_FREE_BYTES (40 GiB) free: a cold build, never a full disk.
+# MACHINE_CHANNEL_WARM_POOL_MAX_BYTES (48 GiB), and restore and release remove it outright when
+# the filesystem has less than MACHINE_CHANNEL_WARM_POOL_MIN_FREE_BYTES (20 GiB) free: a cold
+# build, never a full disk. The floor was 40 GiB, sized for a 39 GB tree; the darwin tree
+# records 7.7 GB, and a pool host held 38.6 GB free after recording it, so 40 GiB removed
+# every tree it had just recorded and the leg never ran warm (job 140059291498, 2026-11-26).
+# 20 GiB still leaves room for a whole darwin build (7.7 GB of output) beside the tree.
+# release runs last in the job ("Release the pool warm target"), never in record: the steps
+# after record read cmux-tui/target through the link (the workspace delta's pack, the R2
+# dependency save), and record's removal left them a dangling link, so the darwin leg saved
+# neither (job 140189679068, 2026-11-26: "pool tree removed after record", then "cargo delta:
+# no cmux-tui/target ...; nothing packed" and "r2-cache: cmux-tui/target does not exist").
 # On a pool tree's first job the workflow's R2 restore has filled cmux-tui/target; restore
 # moves it into the empty tree instead of refusing, so the tree starts from R2 (kept only
 # when MACHINE_CHANNEL_WARM_SEED_EXACT=true says the restore was an exact, same-stamp hit).
@@ -69,8 +78,8 @@ if [[ "${1:-}" == pool-dir ]] && (($# == 2)); then
   printf '%s/%s/%s\n' "$(pool_root)" "$RUNNER_NAME" "$2"
   exit 0
 fi
-if (($# != 3)) || [[ "$1" != restore && "$1" != record && "$1" != probe ]]; then
-  echo "usage: $0 restore|record|probe DISK TRIPLE | pool-dir TRIPLE" >&2
+if (($# != 3)) || [[ "$1" != restore && "$1" != record && "$1" != probe && "$1" != release ]]; then
+  echo "usage: $0 restore|record|probe|release DISK TRIPLE | pool-dir TRIPLE" >&2
   exit 2
 fi
 command=$1 disk=$2 triple=$3
@@ -96,7 +105,7 @@ registry="${CARGO_HOME:-$HOME/.cargo}/registry"
 # tests/test_ci_cmux_tui_fat_warm_target.py keeps it above measured use.
 max_bytes="${MACHINE_CHANNEL_WARM_MAX_BYTES:-$((100 * 1024 * 1024 * 1024))}"
 pool_max_bytes="${MACHINE_CHANNEL_WARM_POOL_MAX_BYTES:-$((48 * 1024 * 1024 * 1024))}"
-pool_min_free="${MACHINE_CHANNEL_WARM_POOL_MIN_FREE_BYTES:-$((40 * 1024 * 1024 * 1024))}"
+pool_min_free="${MACHINE_CHANNEL_WARM_POOL_MIN_FREE_BYTES:-$((20 * 1024 * 1024 * 1024))}"
 
 # DISK is this pool runner slot's own tree (never a path outside it).
 pool_disk() {
@@ -155,7 +164,8 @@ restore() {
     echo "warm target: miss ($link already exists); cold build"
     return 0
   fi
-  mkdir -p "$target" "$disk/cargo-registry"
+  mkdir -p "$target"
+  pool_disk || mkdir -p "$disk/cargo-registry"
   if [[ -n "$toolchain" && -n "$(ls -A "$target")" ]]; then
     local recorded=""
     [[ -f "$toolchain_record" && ! -L "$toolchain_record" ]] && recorded="$(head -c 4096 "$toolchain_record")"
@@ -169,6 +179,27 @@ restore() {
     echo "warm target: hit, built from $(head -c 40 "$source_record" | tr -cd '0-9a-f')"
   else
     echo "warm target: miss (empty sticky disk); cold build"
+  fi
+  # A pool runner keeps HOME, so its registry is warm where it is: linking it into the slot's tree
+  # left ~/.cargo/registry a link for every later job on the slot, whatever its workflow, and
+  # rust-cache saved that link (entry v0-rust-cmux-tui-acpmux-tests-ad0a7f2f..., saved on
+  # cmux-runner-pool-w4a-0079-2). On a fresh runner the restore made a link to a path that host
+  # lacks, and cargo's first call failed: "failed to create directory
+  # ~/.cargo/registry/cache/index.crates.io-...: File exists (os error 17)" (acpmux tests, jobs
+  # 140850174447 and 140851740236, 2026-11-28). A link an earlier job left goes back to a directory.
+  if pool_disk; then
+    if [[ -L "$registry" ]]; then
+      local kept="$disk/cargo-registry"
+      rm -f "$registry"
+      mkdir -p "$registry"
+      [[ ! -d "$kept" ]] || cp -a --update=none "$kept/." "$registry/"
+      rm -rf "$kept"
+      echo "warm target: $registry was a link into the pool tree; made a directory again"
+    fi
+    ln -s "$target" "$link"
+    python3 -I "$repo/scripts/blacksmith-testbox-source-mtimes.py" restore "$repo" "$manifest"
+    echo "warm target: $(du -sxh "$target" | cut -f1) of build output; crates stay in $registry"
+    return 0
   fi
   # Crates fetched before this step (cargo install) join the disk's registry.
   if [[ -d "$registry" && ! -L "$registry" ]]; then
@@ -216,9 +247,15 @@ record() {
   [[ -z "$toolchain" ]] || printf '%s' "$toolchain" > "$toolchain_record"
   git -C "$repo" rev-parse HEAD > "$source_record"
   echo "warm target: recorded $(du -sxh "$target" | cut -f1) of build output for $(cat "$source_record")"
+}
+
+# Last in the job, after every step that reads cmux-tui/target: a pool tree on a host short of
+# disk goes, with the link that now points at nothing.
+release() {
+  pool_disk || return 0
   if ! pool_room; then
-    # The link now points at nothing; later steps that read cmux-tui/target ran before this one.
-    echo "warm target: pool tree removed after record (host short of disk)"
+    [[ "$(readlink "$link" 2>/dev/null || true)" != "$target" ]] || rm -f "$link"
+    echo "warm target: pool tree removed at the end of the job (host short of disk)"
   fi
 }
 

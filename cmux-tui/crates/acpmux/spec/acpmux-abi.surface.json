@@ -255,6 +255,7 @@
           "\"connected\"",
           "\"connecting\"",
           "\"degraded\"",
+          "\"idle\"",
           "\"offline\"",
           "\"paused\"",
           "\"reconnecting\"",
@@ -434,6 +435,34 @@
       "/*untyped*": {
         "ty": "json",
         "nullable": true
+      }
+    },
+    "event:_acpmux/room": {
+      "/deltas": {
+        "ty": "array"
+      },
+      "/deltas/*": {
+        "ty": "json"
+      },
+      "/left": {
+        "ty": "array"
+      },
+      "/left/*": {
+        "ty": "string"
+      },
+      "/presence": {
+        "ty": "array",
+        "required": true
+      },
+      "/presence/*": {
+        "ty": "json"
+      },
+      "/room": {
+        "ty": "json",
+        "required": true
+      },
+      "/snapshot": {
+        "ty": "boolean"
       }
     },
     "event:_acpmux/rows_lagged": {
@@ -753,6 +782,10 @@
       "/session/harness": {
         "ty": "string",
         "required": true
+      },
+      "/session/harnessSandboxError": {
+        "ty": "string",
+        "nullable": true
       },
       "/session/harnessSandboxFailed": {
         "ty": "uint64",
@@ -1279,6 +1312,9 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/session/residency": {
+        "ty": "json"
+      },
       "/session/retiredAgentSessionIds": {
         "ty": "array"
       },
@@ -1592,6 +1628,22 @@
         "required": true,
         "nullable": true
       },
+      "/session/usageStats/cacheReadByModel1h": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/session/usageStats/cacheReadByModel1h/*": {
+        "ty": "uint64"
+      },
+      "/session/usageStats/cacheReadByModelPreviousUtcHour": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/session/usageStats/cacheReadByModelPreviousUtcHour/*": {
+        "ty": "uint64"
+      },
       "/session/usageStats/cacheReadShare24h": {
         "ty": "double",
         "required": true,
@@ -1786,6 +1838,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -1811,6 +1866,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -1958,6 +2016,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -2088,6 +2149,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -2113,6 +2177,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -2260,6 +2327,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -2393,6 +2463,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -2418,6 +2491,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -2565,6 +2641,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -2692,6 +2771,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -2717,6 +2799,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -2864,6 +2949,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -2994,6 +3082,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -3019,6 +3110,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -3166,6 +3260,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -3290,6 +3387,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -3315,6 +3415,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -3462,6 +3565,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -3598,6 +3704,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -3623,6 +3732,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -3770,6 +3882,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -3897,6 +4012,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -3922,6 +4040,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -4069,6 +4190,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -4193,6 +4317,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -4218,6 +4345,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -4365,6 +4495,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -4495,6 +4628,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -4520,6 +4656,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -4667,6 +4806,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -4797,6 +4939,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -4822,6 +4967,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -4969,6 +5117,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -5096,6 +5247,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -5121,6 +5275,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -5268,6 +5425,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -5387,16 +5547,28 @@
       "/loginId": {
         "ty": "json"
       },
+      "/recoverySession": {
+        "ty": "json"
+      },
       "/sessionId": {
         "ty": "json"
       }
     },
-    "request:_acpmux/agent_login/start": {
+    "request:_acpmux/agent_login/logout": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/agent_login/recover_finish": {
       "/_meta": {
         "ty": "object"
       },
       "/_meta/acpmux": {
         "ty": "object"
+      },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
       },
       "/_meta/acpmux/adopt": {
         "ty": "json"
@@ -5423,6 +5595,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -5570,6 +5745,323 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/policy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/pr": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/preset": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/promptFileText": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/promptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/promptSuggestion": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/provenance": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/reportTo": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/requestId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/requireAsking": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/requireFullAccess": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/resend": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/restricted": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/route": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/senderHarness": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/senderHarnessChecked": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/senderToken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/sessionChangedDelta": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/sessionCreatedAt": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/spawnToolCallId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/startLater": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/steer": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/steerNow": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/steerOnly": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/supersede": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/surface": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/tags": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/teamMessage": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/throughSeq": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/throwaway": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/topic": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/via": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitStart": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/workflowAllowedTools": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/workspaceId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/worktree": {
+        "ty": "json"
+      },
+      "/code": {
+        "ty": "json"
+      },
+      "/loginId": {
+        "ty": "json"
+      },
+      "/recoverySession": {
+        "ty": "json"
+      },
+      "/sessionId": {
+        "ty": "json"
+      }
+    },
+    "request:_acpmux/agent_login/recover_start": {
+      "/_meta": {
+        "ty": "object"
+      },
+      "/_meta/acpmux": {
+        "ty": "object"
+      },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/adopt": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/agentSessionId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/answeredBy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/approverDecision": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/approverDecisions": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/argv": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/callerKind": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/callerProtocol": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/callerSession": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cancelToken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/chunkDeltas": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/class": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/compression": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/context": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/createKey": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/createdBy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cwd": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/decisionNonce": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/disallowedTools": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/dispatchSource": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/effort": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/env": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/ephemeral": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/features": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/forceAdmit": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/forwardProjection": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/fromAgent": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/fromHarness": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/fromSessionId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/githubBroker": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/harness": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/harnessFrom": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/host": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/ifNameTaken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/inlineParts": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/interrupt": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/localAppToken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/mcpServers": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/messageId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/messageSender": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/mode": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/model": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/name": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/notice": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/observer": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/parent": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/peer": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/peerHops": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/peerRowBatches": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personDecision": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personKey": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personStop": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personVerified": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -5686,16 +6178,25 @@
       "/agent": {
         "ty": "json"
       },
+      "/recoverySession": {
+        "ty": "json"
+      },
+      "/reuseExisting": {
+        "ty": "json"
+      },
       "/sessionId": {
         "ty": "json"
       }
     },
-    "request:_acpmux/agent_pair_resume": {
+    "request:_acpmux/agent_login/start": {
       "/_meta": {
         "ty": "object"
       },
       "/_meta/acpmux": {
         "ty": "object"
+      },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
       },
       "/_meta/acpmux/adopt": {
         "ty": "json"
@@ -5722,6 +6223,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -5869,6 +6373,329 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/policy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/pr": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/preset": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/promptFileText": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/promptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/promptSuggestion": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/provenance": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/reportTo": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/requestId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/requireAsking": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/requireFullAccess": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/resend": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/restricted": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/route": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/senderHarness": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/senderHarnessChecked": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/senderToken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/sessionChangedDelta": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/sessionCreatedAt": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/spawnToolCallId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/startLater": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/steer": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/steerNow": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/steerOnly": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/supersede": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/surface": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/tags": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/teamMessage": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/throughSeq": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/throwaway": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/topic": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/via": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitStart": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/workflowAllowedTools": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/workspaceId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/worktree": {
+        "ty": "json"
+      },
+      "/agent": {
+        "ty": "json"
+      },
+      "/recoverySession": {
+        "ty": "json"
+      },
+      "/reuseExisting": {
+        "ty": "json"
+      },
+      "/sessionId": {
+        "ty": "json"
+      }
+    },
+    "request:_acpmux/agent_login/status": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/agent_pair_resume": {
+      "/_meta": {
+        "ty": "object"
+      },
+      "/_meta/acpmux": {
+        "ty": "object"
+      },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/adopt": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/agentSessionId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/answeredBy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/approverDecision": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/approverDecisions": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/argv": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/callerKind": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/callerProtocol": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/callerSession": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cancelToken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/chunkDeltas": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/class": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/compression": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/context": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/createKey": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/createdBy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cwd": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/decisionNonce": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/disallowedTools": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/dispatchSource": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/effort": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/env": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/ephemeral": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/features": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/forceAdmit": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/forwardProjection": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/fromAgent": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/fromHarness": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/fromSessionId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/githubBroker": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/harness": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/harnessFrom": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/host": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/ifNameTaken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/inlineParts": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/interrupt": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/localAppToken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/mcpServers": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/messageId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/messageSender": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/mode": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/model": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/name": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/notice": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/observer": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/parent": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/peer": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/peerHops": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/peerRowBatches": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personDecision": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personKey": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personStop": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personVerified": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -5996,6 +6823,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -6021,6 +6851,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -6168,6 +7001,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -6319,6 +7155,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -6344,6 +7183,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -6491,6 +7333,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -6637,6 +7482,10 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/hold": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/kinds": {
         "ty": "untagged_union|string|array",
         "nullable": true
@@ -6688,6 +7537,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -6713,6 +7565,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -6860,6 +7715,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -7022,6 +7880,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/autocloud_enroll": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/bg/list": {
       "/*untyped*": {
         "ty": "json",
@@ -7029,6 +7893,12 @@
       }
     },
     "request:_acpmux/bg/output": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/bg/rearm": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -7052,6 +7922,9 @@
       },
       "/_meta/acpmux": {
         "ty": "object"
+      },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
       },
       "/_meta/acpmux/adopt": {
         "ty": "json"
@@ -7078,6 +7951,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -7225,6 +8101,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -7349,6 +8228,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -7374,6 +8256,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -7521,6 +8406,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -7681,6 +8569,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -7706,6 +8597,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -7853,6 +8747,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -8031,6 +8928,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -8056,6 +8956,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -8203,6 +9106,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -8524,6 +9430,24 @@
         "nullable": true
       }
     },
+    "request:_acpmux/connections/chatgpt.device.begin": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/connections/chatgpt.device.cancel": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/connections/chatgpt.device.wait": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/connections/chatgpt.import": {
       "/*untyped*": {
         "ty": "json",
@@ -8578,6 +9502,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/connections/grok.hook": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/connections/key.add": {
       "/*untyped*": {
         "ty": "json",
@@ -8602,7 +9532,73 @@
         "nullable": true
       }
     },
+    "request:_acpmux/connections/secret.delete": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/connections/secret.store": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/connections/spread.set": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/connections/subscription.begin": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/connections/subscription.cancel": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/connections/subscription.wait": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/consent_account_set": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/consent_grantor_trust": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/consent_remote_set": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/consent_remote_status": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/consent_screen_auto": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/consent_trust_refresh": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -8633,6 +9629,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -8658,6 +9657,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -8805,6 +9807,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -8928,6 +9933,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/deleted": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/detach": {
       "/sessionId": {
         "ty": "string",
@@ -8935,6 +9946,12 @@
       }
     },
     "request:_acpmux/detach_parent": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/device_challenge": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -8971,6 +9988,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -8996,6 +10016,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -9145,6 +10168,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -9254,6 +10280,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/worktree": {
+        "ty": "json"
+      },
+      "/attachments": {
         "ty": "json"
       },
       "/sessionId": {
@@ -9267,6 +10296,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -9292,6 +10324,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -9441,6 +10476,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -9550,6 +10588,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/worktree": {
+        "ty": "json"
+      },
+      "/attachments": {
         "ty": "json"
       },
       "/sessionId": {
@@ -9607,6 +10648,10 @@
       },
       "/beforeSeq": {
         "ty": "uint64",
+        "nullable": true
+      },
+      "/inOrder": {
+        "ty": "boolean",
         "nullable": true
       },
       "/kinds": {
@@ -9701,6 +10746,47 @@
         "nullable": true
       }
     },
+    "request:_acpmux/follow": {
+      "/_meta": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/_meta/acpmux": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/_meta/acpmux/author": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/_meta/acpmux/author/approval": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "owner"
+        ]
+      },
+      "/_meta/acpmux/author/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/_meta/acpmux/author/login": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/_meta/acpmux/author/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/_meta/acpmux/author/node": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/target": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
     "request:_acpmux/forum/ack": {
       "/*untyped*": {
         "ty": "json",
@@ -9732,6 +10818,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -9757,6 +10846,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -9904,6 +10996,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -10036,6 +11131,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/github/read": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/github_action": {
       "/*untyped*": {
         "ty": "json",
@@ -10079,6 +11180,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -10104,6 +11208,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -10251,6 +11358,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -10375,6 +11485,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -10400,6 +11513,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -10547,6 +11663,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -10683,6 +11802,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -10708,6 +11830,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -10855,6 +11980,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -10982,6 +12110,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -11007,6 +12138,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -11154,6 +12288,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -11287,6 +12424,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -11312,6 +12452,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -11459,6 +12602,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -11607,6 +12753,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -11632,6 +12781,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -11779,6 +12931,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -11964,6 +13119,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -11989,6 +13147,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -12136,6 +13297,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -12263,6 +13427,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -12288,6 +13455,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -12435,6 +13605,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -12562,6 +13735,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -12587,6 +13763,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -12734,6 +13913,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -12851,7 +14033,16 @@
         "ty": "json"
       }
     },
+    "request:_acpmux/heap_profile": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/here": {
+      "/includeSync": {
+        "ty": "boolean"
+      },
       "/scope": {
         "ty": "string",
         "nullable": true
@@ -12939,6 +14130,24 @@
         "nullable": true
       }
     },
+    "request:_acpmux/history/read": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/history_delete": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/history_offload": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/host_health": {
       "/*untyped*": {
         "ty": "json",
@@ -13012,6 +14221,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -13037,6 +14249,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -13184,6 +14399,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -13344,6 +14562,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -13369,6 +14590,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -13518,6 +14742,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -13638,6 +14865,9 @@
       "/expectRevision": {
         "ty": "json"
       },
+      "/grace": {
+        "ty": "json"
+      },
       "/ifIdle": {
         "ty": "json"
       },
@@ -13648,12 +14878,31 @@
         "ty": "json"
       }
     },
+    "request:_acpmux/last": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/ledger": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
       }
     },
+    "request:_acpmux/lifecycle": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/live": {
+      "/live": {
+        "ty": "boolean",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/live_list": {},
     "request:_acpmux/mac_approver_set": {
       "/*untyped*": {
         "ty": "json",
@@ -13882,6 +15131,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -13907,6 +15159,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -14054,6 +15309,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -14205,6 +15463,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -14230,6 +15491,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -14377,6 +15641,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -14519,6 +15786,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -14544,6 +15814,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -14691,6 +15964,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -14821,6 +16097,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -14846,6 +16125,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -14993,6 +16275,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -15120,6 +16405,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -15145,6 +16433,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -15292,6 +16583,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -15428,6 +16722,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -15453,6 +16750,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -15600,6 +16900,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -15805,6 +17108,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -15830,6 +17136,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -15977,6 +17286,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -16113,6 +17425,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -16138,6 +17453,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -16285,6 +17603,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -16430,6 +17751,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -16455,6 +17779,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -16602,6 +17929,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -16929,6 +18259,9 @@
       "/answers": {
         "ty": "json"
       },
+      "/forkCheckpoint": {
+        "ty": "json"
+      },
       "/optionId": {
         "ty": "string",
         "nullable": true
@@ -17031,6 +18364,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -17056,6 +18392,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -17203,6 +18542,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -17367,6 +18709,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -17392,6 +18737,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -17539,6 +18887,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -17669,6 +19020,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -17694,6 +19048,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -17841,6 +19198,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -17980,6 +19340,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -18005,6 +19368,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -18152,6 +19518,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -18291,6 +19660,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -18316,6 +19688,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -18463,6 +19838,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -18596,6 +19974,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -18621,6 +20002,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -18768,6 +20152,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -18892,6 +20279,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -18917,6 +20307,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -19064,6 +20457,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -19185,6 +20581,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -19210,6 +20609,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -19357,6 +20759,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -19478,12 +20883,15 @@
       }
     },
     "request:_acpmux/protocol": {},
-    "request:_acpmux/queue_approve": {
+    "request:_acpmux/pull_request_action": {
       "/_meta": {
         "ty": "object"
       },
       "/_meta/acpmux": {
         "ty": "object"
+      },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
       },
       "/_meta/acpmux/adopt": {
         "ty": "json"
@@ -19510,6 +20918,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -19657,6 +21068,323 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/policy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/pr": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/preset": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/promptFileText": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/promptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/promptSuggestion": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/provenance": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/reportTo": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/requestId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/requireAsking": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/requireFullAccess": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/resend": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/restricted": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/route": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/senderHarness": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/senderHarnessChecked": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/senderToken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/sessionChangedDelta": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/sessionCreatedAt": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/spawnToolCallId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/startLater": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/steer": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/steerNow": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/steerOnly": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/supersede": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/surface": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/tags": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/teamMessage": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/throughSeq": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/throwaway": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/topic": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/via": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitStart": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/workflowAllowedTools": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/workspaceId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/worktree": {
+        "ty": "json"
+      },
+      "/action": {
+        "ty": "json"
+      },
+      "/headSha": {
+        "ty": "json"
+      },
+      "/sessionId": {
+        "ty": "json"
+      },
+      "/url": {
+        "ty": "json"
+      }
+    },
+    "request:_acpmux/queue_approve": {
+      "/_meta": {
+        "ty": "object"
+      },
+      "/_meta/acpmux": {
+        "ty": "object"
+      },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/adopt": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/agentSessionId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/answeredBy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/approverDecision": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/approverDecisions": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/argv": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/callerKind": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/callerProtocol": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/callerSession": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cancelToken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/chunkDeltas": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/class": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/compression": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/context": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/createKey": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/createdBy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cwd": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/decisionNonce": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/disallowedTools": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/dispatchSource": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/effort": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/env": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/ephemeral": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/features": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/forceAdmit": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/forwardProjection": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/fromAgent": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/fromHarness": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/fromSessionId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/githubBroker": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/harness": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/harnessFrom": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/host": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/ifNameTaken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/inlineParts": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/interrupt": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/localAppToken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/mcpServers": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/messageId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/messageSender": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/mode": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/model": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/name": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/notice": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/observer": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/parent": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/peer": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/peerHops": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/peerRowBatches": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personDecision": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personKey": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personStop": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personVerified": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -19790,6 +21518,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -19815,6 +21546,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -19962,6 +21696,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -20089,6 +21826,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -20114,6 +21854,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -20261,6 +22004,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -20400,6 +22146,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -20425,6 +22174,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -20572,6 +22324,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -20699,6 +22454,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -20724,6 +22482,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -20871,6 +22632,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -21046,6 +22810,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -21071,6 +22838,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -21218,6 +22988,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -21372,6 +23145,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -21397,6 +23173,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -21544,6 +23323,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -21707,6 +23489,20 @@
         "nullable": true
       }
     },
+    "request:_acpmux/rooms": {
+      "/chats": {
+        "ty": "array"
+      },
+      "/chats/*": {
+        "ty": "string"
+      },
+      "/workspaces": {
+        "ty": "array"
+      },
+      "/workspaces/*": {
+        "ty": "string"
+      }
+    },
     "request:_acpmux/route/add": {
       "/*untyped*": {
         "ty": "json",
@@ -21731,6 +23527,9 @@
       },
       "/_meta/acpmux": {
         "ty": "object"
+      },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
       },
       "/_meta/acpmux/adopt": {
         "ty": "json"
@@ -21757,6 +23556,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -21904,6 +23706,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -22075,6 +23880,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/scorecard_replay": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/secret_request": {
       "/*untyped*": {
         "ty": "json",
@@ -22093,6 +23904,9 @@
       },
       "/_meta/acpmux": {
         "ty": "object"
+      },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
       },
       "/_meta/acpmux/adopt": {
         "ty": "json"
@@ -22119,6 +23933,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -22266,6 +24083,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -22443,6 +24263,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/send_hop": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/send_queue": {
       "/*untyped*": {
         "ty": "json",
@@ -22491,6 +24317,12 @@
       }
     },
     "request:_acpmux/session_hold": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/session_resources": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -22594,6 +24426,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -22619,6 +24454,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -22766,6 +24604,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -22914,6 +24755,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -22939,6 +24783,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -23086,6 +24933,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -23213,6 +25063,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -23238,6 +25091,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -23385,6 +25241,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -23515,6 +25374,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -23540,6 +25402,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -23687,6 +25552,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -23814,6 +25682,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -23839,6 +25710,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -23986,6 +25860,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -24113,6 +25990,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -24138,6 +26018,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -24285,6 +26168,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -24409,6 +26295,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -24434,6 +26323,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -24581,6 +26473,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -24708,6 +26603,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -24733,6 +26631,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -24880,6 +26781,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -25019,6 +26923,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -25044,6 +26951,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -25191,6 +27101,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -25330,6 +27243,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -25355,6 +27271,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -25502,6 +27421,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -25629,6 +27551,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -25654,6 +27579,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -25801,6 +27729,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -25940,6 +27871,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -25965,6 +27899,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -26112,6 +28049,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -26251,6 +28191,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -26276,6 +28219,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -26423,6 +28369,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -26659,6 +28608,24 @@
         "nullable": true
       }
     },
+    "request:_acpmux/team/customization": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/team/customize": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/team/handoff": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/team/inbox": {
       "/*untyped*": {
         "ty": "json",
@@ -26671,6 +28638,18 @@
         "nullable": true
       }
     },
+    "request:_acpmux/team/navigator": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/team/pick": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/team/read": {
       "/*untyped*": {
         "ty": "json",
@@ -26678,6 +28657,12 @@
       }
     },
     "request:_acpmux/team/send": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/team/session_info": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -26696,6 +28681,12 @@
       }
     },
     "request:_acpmux/trace/status": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/transcript_offload": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -26767,6 +28758,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/transfer_interrupts": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/transfer_preflight": {
       "/*untyped*": {
         "ty": "json",
@@ -26828,6 +28825,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -26853,6 +28853,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -27000,6 +29003,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -27136,6 +29142,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -27161,6 +29170,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -27308,6 +29320,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -27473,123 +29488,15 @@
         "required": true
       }
     },
-    "request:_acpmux/uploads_keep": {
-      "/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "request:_acpmux/usage": {
-      "/known": {
-        "ty": "string",
-        "nullable": true
-      }
-    },
-    "request:_acpmux/v2": {
-      "/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "request:_acpmux/vault_forget": {
-      "/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "request:_acpmux/vault_pull": {
-      "/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "request:_acpmux/vault_status": {
-      "/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "request:_acpmux/view": {
-      "/_meta": {
-        "ty": "object",
-        "nullable": true
-      },
-      "/_meta/acpmux": {
-        "ty": "object",
-        "nullable": true
-      },
-      "/_meta/acpmux/author": {
-        "ty": "object",
-        "nullable": true
-      },
-      "/_meta/acpmux/author/approval": {
-        "ty": "enum",
-        "nullable": true,
-        "values": [
-          "owner"
-        ]
-      },
-      "/_meta/acpmux/author/id": {
-        "ty": "string",
-        "required": true
-      },
-      "/_meta/acpmux/author/login": {
-        "ty": "string",
-        "nullable": true
-      },
-      "/_meta/acpmux/author/name": {
-        "ty": "string",
-        "required": true
-      },
-      "/_meta/acpmux/author/node": {
-        "ty": "string",
-        "nullable": true
-      },
-      "/attending": {
-        "ty": "boolean",
-        "nullable": true
-      },
-      "/cutoverSeq": {
-        "ty": "uint64",
-        "nullable": true
-      },
-      "/seenSeq": {
-        "ty": "uint64",
-        "nullable": true
-      },
-      "/sessionId": {
-        "ty": "string",
-        "required": true
-      },
-      "/visible": {
-        "ty": "boolean",
-        "required": true
-      }
-    },
-    "request:_acpmux/vm_host": {
-      "/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "request:_acpmux/wait": {
-      "/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "request:_acpmux/wake": {
-      "/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "request:_acpmux/warm": {
+    "request:_acpmux/undelete": {
       "/_meta": {
         "ty": "object"
       },
       "/_meta/acpmux": {
         "ty": "object"
+      },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
       },
       "/_meta/acpmux/adopt": {
         "ty": "json"
@@ -27616,6 +29523,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -27763,6 +29673,425 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/policy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/pr": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/preset": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/promptFileText": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/promptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/promptSuggestion": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/provenance": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/reportTo": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/requestId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/requireAsking": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/requireFullAccess": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/resend": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/restricted": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/route": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/senderHarness": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/senderHarnessChecked": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/senderToken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/sessionChangedDelta": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/sessionCreatedAt": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/spawnToolCallId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/startLater": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/steer": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/steerNow": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/steerOnly": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/supersede": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/surface": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/tags": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/teamMessage": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/throughSeq": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/throwaway": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/topic": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/via": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitStart": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/workflowAllowedTools": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/workspaceId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/worktree": {
+        "ty": "json"
+      },
+      "/sessionId": {
+        "ty": "json"
+      }
+    },
+    "request:_acpmux/uploads_keep": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/usage": {
+      "/known": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/v2": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/vault_forget": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/vault_pull": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/vault_status": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/view": {
+      "/_meta": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/_meta/acpmux": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/_meta/acpmux/author": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/_meta/acpmux/author/approval": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "owner"
+        ]
+      },
+      "/_meta/acpmux/author/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/_meta/acpmux/author/login": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/_meta/acpmux/author/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/_meta/acpmux/author/node": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/attending": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/cutoverSeq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/seenSeq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/sessionId": {
+        "ty": "string",
+        "required": true
+      },
+      "/visible": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
+    "request:_acpmux/vm_host": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/wait": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/wake": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/warm": {
+      "/_meta": {
+        "ty": "object"
+      },
+      "/_meta/acpmux": {
+        "ty": "object"
+      },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/adopt": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/agentSessionId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/answeredBy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/approverDecision": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/approverDecisions": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/argv": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/callerKind": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/callerProtocol": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/callerSession": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cancelToken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/chunkDeltas": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/class": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/compression": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/context": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/createKey": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/createdBy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cwd": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/decisionNonce": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/disallowedTools": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/dispatchSource": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/effort": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/env": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/ephemeral": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/features": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/forceAdmit": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/forwardProjection": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/fromAgent": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/fromHarness": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/fromSessionId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/githubBroker": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/harness": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/harnessFrom": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/host": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/ifNameTaken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/inlineParts": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/interrupt": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/localAppToken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/mcpServers": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/messageId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/messageSender": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/mode": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/model": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/name": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/notice": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/observer": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/parent": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/peer": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/peerHops": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/peerRowBatches": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personDecision": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personKey": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personStop": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personVerified": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -27934,6 +30263,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -27959,6 +30291,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -28106,6 +30441,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -28226,6 +30564,12 @@
         "ty": "json"
       }
     },
+    "request:_acpmux/watchdog_hold": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/web_modes": {
       "/*untyped*": {
         "ty": "json",
@@ -28239,6 +30583,12 @@
       }
     },
     "request:_acpmux/who_else": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/wireguard_admit": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -28332,6 +30682,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -28357,6 +30710,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -28504,6 +30860,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -28634,6 +30993,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -28659,6 +31021,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -28806,6 +31171,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -28987,6 +31355,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -29012,6 +31383,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -29159,6 +31533,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -29295,6 +31672,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -29320,6 +31700,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -29467,6 +31850,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -29621,6 +32007,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -29646,6 +32035,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -29793,6 +32185,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -29923,6 +32318,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -29948,6 +32346,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -30095,6 +32496,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -30231,6 +32635,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -30256,6 +32663,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -30403,6 +32813,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -30533,6 +32946,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -30558,6 +32974,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -30705,6 +33124,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -30832,6 +33254,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -30857,6 +33282,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -31006,6 +33434,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -31124,6 +33555,18 @@
         "ty": "json"
       }
     },
+    "request:session/signature": {
+      "/_meta": {
+        "ty": "json"
+      },
+      "/sessionIds": {
+        "ty": "array",
+        "required": true
+      },
+      "/sessionIds/*": {
+        "ty": "string"
+      }
+    },
     "request:trigger/chat.ensure": {
       "/*untyped*": {
         "ty": "json",
@@ -31238,7 +33681,31 @@
         "nullable": true
       }
     },
+    "response:_acpmux/agent_login/logout": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/agent_login/recover_finish": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/agent_login/recover_start": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/agent_login/start": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/agent_login/status": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -31654,6 +34121,10 @@
       "/data/session/harness": {
         "ty": "string",
         "required": true
+      },
+      "/data/session/harnessSandboxError": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/session/harnessSandboxFailed": {
         "ty": "uint64",
@@ -32193,6 +34664,9 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/data/session/residency": {
+        "ty": "json"
+      },
       "/data/session/retiredAgentSessionIds": {
         "ty": "array"
       },
@@ -32512,6 +34986,22 @@
         "required": true,
         "nullable": true
       },
+      "/data/session/usageStats/cacheReadByModel1h": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/session/usageStats/cacheReadByModel1h/*": {
+        "ty": "uint64"
+      },
+      "/data/session/usageStats/cacheReadByModelPreviousUtcHour": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/session/usageStats/cacheReadByModelPreviousUtcHour/*": {
+        "ty": "uint64"
+      },
       "/data/session/usageStats/cacheReadShare24h": {
         "ty": "double",
         "required": true,
@@ -32693,6 +35183,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/autocloud_enroll": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/bg/list": {
       "/data/*untyped*": {
         "ty": "json",
@@ -32700,6 +35196,12 @@
       }
     },
     "response:_acpmux/bg/output": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/bg/rearm": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -32993,6 +35495,24 @@
         "nullable": true
       }
     },
+    "response:_acpmux/connections/chatgpt.device.begin": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/connections/chatgpt.device.cancel": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/connections/chatgpt.device.wait": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/connections/chatgpt.import": {
       "/data/*untyped*": {
         "ty": "json",
@@ -33047,6 +35567,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/connections/grok.hook": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/connections/key.add": {
       "/data/*untyped*": {
         "ty": "json",
@@ -33071,7 +35597,73 @@
         "nullable": true
       }
     },
+    "response:_acpmux/connections/secret.delete": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/connections/secret.store": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/connections/spread.set": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/connections/subscription.begin": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/connections/subscription.cancel": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/connections/subscription.wait": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/consent_account_set": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/consent_grantor_trust": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/consent_remote_set": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/consent_remote_status": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/consent_screen_auto": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/consent_trust_refresh": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -33107,8 +35699,20 @@
         "nullable": true
       }
     },
+    "response:_acpmux/deleted": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/detach": {},
     "response:_acpmux/detach_parent": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/device_challenge": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -33269,6 +35873,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/follow": {
+      "/data/following": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
     "response:_acpmux/forum/ack": {
       "/data/*untyped*": {
         "ty": "json",
@@ -33312,6 +35922,12 @@
       }
     },
     "response:_acpmux/github/pr_wait": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/github/read": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -33473,6 +36089,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/heap_profile": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/here": {
       "/data/here": {
         "ty": "array",
@@ -33548,6 +36170,29 @@
       "/data/here/*/working": {
         "ty": "boolean",
         "required": true
+      },
+      "/data/sync": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/data/sync/*": {
+        "ty": "object"
+      },
+      "/data/sync/*/acknowledged": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/sync/*/connected": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/sync/*/peer": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/sync/*/unacknowledgedEdits": {
+        "ty": "uint64",
+        "required": true
       }
     },
     "response:_acpmux/here/beat": {
@@ -33557,6 +36202,24 @@
       }
     },
     "response:_acpmux/history": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/history/read": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/history_delete": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/history_offload": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -33670,10 +36333,41 @@
         "nullable": true
       }
     },
+    "response:_acpmux/last": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/ledger": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
+      }
+    },
+    "response:_acpmux/lifecycle": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/live": {
+      "/data/live": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:_acpmux/live_list": {
+      "/data/live": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/people": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/people/*": {
+        "ty": "json"
       }
     },
     "response:_acpmux/mac_approver_set": {
@@ -34751,6 +37445,10 @@
         "ty": "string",
         "required": true
       },
+      "/data/harnessSandboxError": {
+        "ty": "string",
+        "nullable": true
+      },
       "/data/harnessSandboxFailed": {
         "ty": "uint64",
         "nullable": true
@@ -35276,6 +37974,9 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/data/residency": {
+        "ty": "json"
+      },
       "/data/retiredAgentSessionIds": {
         "ty": "array"
       },
@@ -35589,6 +38290,22 @@
         "required": true,
         "nullable": true
       },
+      "/data/usageStats/cacheReadByModel1h": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/cacheReadByModel1h/*": {
+        "ty": "uint64"
+      },
+      "/data/usageStats/cacheReadByModelPreviousUtcHour": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usageStats/cacheReadByModelPreviousUtcHour/*": {
+        "ty": "uint64"
+      },
       "/data/usageStats/cacheReadShare24h": {
         "ty": "double",
         "required": true,
@@ -35820,6 +38537,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/pull_request_action": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/queue_approve": {
       "/data/*untyped*": {
         "ty": "json",
@@ -35988,6 +38711,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/rooms": {
+      "/data/rooms": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "response:_acpmux/route/add": {
       "/data/*untyped*": {
         "ty": "json",
@@ -36066,6 +38795,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/scorecard_replay": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/secret_request": {
       "/data/*untyped*": {
         "ty": "json",
@@ -36091,6 +38826,12 @@
       }
     },
     "response:_acpmux/send_fanout": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/send_hop": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -36202,6 +38943,12 @@
       }
     },
     "response:_acpmux/session_hold": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/session_resources": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -36543,6 +39290,10 @@
       "/data/sessions/*/harness": {
         "ty": "string",
         "required": true
+      },
+      "/data/sessions/*/harnessSandboxError": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/sessions/*/harnessSandboxFailed": {
         "ty": "uint64",
@@ -37069,6 +39820,9 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/data/sessions/*/residency": {
+        "ty": "json"
+      },
       "/data/sessions/*/retiredAgentSessionIds": {
         "ty": "array"
       },
@@ -37381,6 +40135,22 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/sessions/*/usageStats/cacheReadByModel1h": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/sessions/*/usageStats/cacheReadByModel1h/*": {
+        "ty": "uint64"
+      },
+      "/data/sessions/*/usageStats/cacheReadByModelPreviousUtcHour": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/sessions/*/usageStats/cacheReadByModelPreviousUtcHour/*": {
+        "ty": "uint64"
       },
       "/data/sessions/*/usageStats/cacheReadShare24h": {
         "ty": "double",
@@ -37776,6 +40546,24 @@
         "nullable": true
       }
     },
+    "response:_acpmux/team/customization": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/team/customize": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/team/handoff": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/team/inbox": {
       "/data/*untyped*": {
         "ty": "json",
@@ -37788,6 +40576,18 @@
         "nullable": true
       }
     },
+    "response:_acpmux/team/navigator": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/team/pick": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/team/read": {
       "/data/*untyped*": {
         "ty": "json",
@@ -37795,6 +40595,12 @@
       }
     },
     "response:_acpmux/team/send": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/team/session_info": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -37813,6 +40619,12 @@
       }
     },
     "response:_acpmux/trace/status": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/transcript_offload": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -37879,6 +40691,12 @@
       }
     },
     "response:_acpmux/transfer_history_have": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/transfer_interrupts": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -37951,6 +40769,12 @@
       }
     },
     "response:_acpmux/typing": {},
+    "response:_acpmux/undelete": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/uploads_keep": {
       "/data/*untyped*": {
         "ty": "json",
@@ -37985,6 +40809,22 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/usage/*/cacheReadByModel1h": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usage/*/cacheReadByModel1h/*": {
+        "ty": "uint64"
+      },
+      "/data/usage/*/cacheReadByModelPreviousUtcHour": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/usage/*/cacheReadByModelPreviousUtcHour/*": {
+        "ty": "uint64"
       },
       "/data/usage/*/cacheReadShare24h": {
         "ty": "double",
@@ -38454,6 +41294,10 @@
         "ty": "string",
         "required": true
       },
+      "/data/sessions/*/harnessSandboxError": {
+        "ty": "string",
+        "nullable": true
+      },
       "/data/sessions/*/harnessSandboxFailed": {
         "ty": "uint64",
         "nullable": true
@@ -38979,6 +41823,9 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/data/sessions/*/residency": {
+        "ty": "json"
+      },
       "/data/sessions/*/retiredAgentSessionIds": {
         "ty": "array"
       },
@@ -39292,6 +42139,22 @@
         "required": true,
         "nullable": true
       },
+      "/data/sessions/*/usageStats/cacheReadByModel1h": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/sessions/*/usageStats/cacheReadByModel1h/*": {
+        "ty": "uint64"
+      },
+      "/data/sessions/*/usageStats/cacheReadByModelPreviousUtcHour": {
+        "ty": "map",
+        "required": true,
+        "nullable": true
+      },
+      "/data/sessions/*/usageStats/cacheReadByModelPreviousUtcHour/*": {
+        "ty": "uint64"
+      },
       "/data/sessions/*/usageStats/cacheReadShare24h": {
         "ty": "double",
         "required": true,
@@ -39415,6 +42278,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/watchdog_hold": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/web_modes": {
       "/data/*untyped*": {
         "ty": "json",
@@ -39428,6 +42297,12 @@
       }
     },
     "response:_acpmux/who_else": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/wireguard_admit": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -39605,6 +42480,54 @@
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
+      }
+    },
+    "response:session/signature": {
+      "/data/signatures": {
+        "ty": "map",
+        "required": true
+      },
+      "/data/signatures/*": {
+        "ty": "object"
+      },
+      "/data/signatures/*/accent": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/signatures/*/dots": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/signatures/*/dots/*": {
+        "ty": "object"
+      },
+      "/data/signatures/*/dots/*/phase": {
+        "ty": "double",
+        "required": true
+      },
+      "/data/signatures/*/dots/*/r": {
+        "ty": "double",
+        "required": true
+      },
+      "/data/signatures/*/dots/*/x": {
+        "ty": "double",
+        "required": true
+      },
+      "/data/signatures/*/dots/*/y": {
+        "ty": "double",
+        "required": true
+      },
+      "/data/signatures/*/drift": {
+        "ty": "double",
+        "required": true
+      },
+      "/data/signatures/*/seed": {
+        "ty": "double",
+        "required": true
+      },
+      "/data/signatures/*/variant": {
+        "ty": "string",
+        "required": true
       }
     },
     "response:trigger/chat.ensure": {

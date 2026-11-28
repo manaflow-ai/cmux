@@ -748,6 +748,19 @@ pub fn summarize_with(
 }
 
 /// The scorecard as JSON (the RPC's answer).
+/// The `harnessMagic` counters that are a prefix churn (RFD 0158 §1, `hub/cache_alarm.rs`): a
+/// turn whose cache-read share collapsed with no boundary, and a call that missed with no cause.
+pub const CHURN_COUNTERS: &[&str] = &["cacheAlarm.collapses", "cacheAlarm.callChurn"];
+
+/// The prefix churns a scorecard's `totals` counted (`--assert-no-churn`).
+pub fn churn(card: &Value) -> u64 {
+    CHURN_COUNTERS
+        .iter()
+        .filter_map(|k| card.pointer("/totals/harnessMagic").and_then(|h| h.get(*k)))
+        .filter_map(Value::as_u64)
+        .sum()
+}
+
 pub fn to_value(card: &Scorecard) -> Value {
     serde_json::to_value(card).unwrap_or_else(|e| json!({"error": e.to_string()}))
 }

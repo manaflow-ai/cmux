@@ -8,7 +8,7 @@ name: head fail-fast
 #
 #   <job>-fail-fast:
 #     needs: <job>
-#     if: ${{ failure() && needs.<job>.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+#     if: ${{ failure() && needs.<job>.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
 #     uses: ./.github/workflows/head-fail-fast.yml
 #     with: { workflow: <this file> }
 #     permissions: { actions: write, contents: read }
@@ -44,7 +44,7 @@ jobs:
       actions: write
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           path: .head-fail-fast-src

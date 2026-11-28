@@ -1,0 +1,97 @@
+name: iOS base bisect
+
+# The base's iOS simulator runs are already batched: `iOS simulator tests` (test-ios.yml) and
+# `cmux-next-ios kit tests` (cmux-next-ios-kit.yml) run on feat-cmux-next pushes with one run in
+# flight and only the newest push waiting, so a red run there covers every merge since the last
+# green one. When one goes red, this names the pull request: scripts/ci/ios_base_bisect.py lists the
+# first-parent merges between the last green push run's commit and the red one, re-runs the fleet
+# simulator step (cmux-next-ios-sim.sh test) per candidate, and posts one comment on the first red
+# merge's pull request with the failing test and the run link (RFD 0029 step 3 in cmuxterm-hq:
+# 3 of 13 iOS breaks that reached the base were two PRs each green alone).
+#
+# It never reverts and never blocks: no required check reads it, and it is never red for a red it
+# found. One bisect at a time (the concurrency group); a newer red waits, and GitHub keeps only the
+# newest waiting one. vars.IOS_BASE_BISECT = 0 turns it off.
+on:
+  workflow_run:
+    workflows: ["iOS simulator tests", "cmux-next-ios kit tests"]
+    types: [completed]
+    branches: [feat-cmux-next]
+
+permissions: {}
+
+env:
+  SOURCE_WORKFLOW_PATHS: >-
+    .github/workflows/test-ios.yml
+    .github/workflows/cmux-next-ios-kit.yml
+
+concurrency:
+  group: ios-base-bisect
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: >-
+      ${{ github.repository == 'manaflow-ai/cmux' && (vars.IOS_BASE_BISECT || '1') != '0'
+          && github.event.workflow_run.event == 'push'
+          && github.event.workflow_run.head_branch == 'feat-cmux-next'
+          && github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      good: ${{ steps.plan.outputs.good }}
+      red: ${{ steps.plan.outputs.red }}
+    steps:
+      - name: Find the last green push run before the red one
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          RED: ${{ github.event.workflow_run.head_sha }}
+          RED_RUN: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          good="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_ID/runs?branch=feat-cmux-next&event=push&status=success&per_page=20" \
+            --jq "[.workflow_runs[] | select(.id < $RED_RUN)][0].head_sha // \"\"")"
+          if ! [[ "$good" =~ ^[0-9a-f]{40}$ ]] || \
+             [ "$(gh api "repos/$GITHUB_REPOSITORY/compare/$good...$RED" --jq .status 2>/dev/null || true)" != ahead ]; then
+            echo "No green push run of this workflow is an ancestor of $RED; nothing to bisect." >> "$GITHUB_STEP_SUMMARY"
+            good=""
+          fi
+          echo "good=$good" >> "$GITHUB_OUTPUT"
+          echo "red=$RED" >> "$GITHUB_OUTPUT"
+
+  bisect:
+    needs: plan
+    if: ${{ needs.plan.outputs.good != '' && vars.CI_EVAL_STEP_GATEWAY != '' }}
+    # The build-fleet gateway runner: it only hands each probe to the controller with cmux-ci run.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
+    # At most MAX_PROBES (8) simulator steps of up to an hour each, plus their queue.
+    timeout-minutes: 600
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ needs.plan.outputs.red }}
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: |
+            scripts/ci/ios_base_bisect.py
+            .gitmodules
+          sparse-checkout-cone-mode: false
+      - name: Bisect the merges on the fleet simulator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GOOD: ${{ needs.plan.outputs.good }}
+          RED: ${{ needs.plan.outputs.red }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          python3 scripts/ci/ios_base_bisect.py --repo "$GITHUB_REPOSITORY" --good "$GOOD" --red "$RED" \
+            --mode test --run-url "$RUN_URL"
