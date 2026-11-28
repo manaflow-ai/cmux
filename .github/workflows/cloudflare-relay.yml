@@ -200,6 +200,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/edge-hashes"
           (cd "$out" && find . -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.wasm' \) -print0 | sort -z | xargs -0 sha256sum) > "$RUNNER_TEMP/edge-hashes/SHA256SUMS"
           test -s "$RUNNER_TEMP/edge-hashes/SHA256SUMS"
+          bash scripts/ci/check-edge-hashes.sh "$out" "$RUNNER_TEMP/edge-hashes/SHA256SUMS"
           printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/edge-hashes/SOURCE_SHA"
           { echo "### cmux-cloudflare-relay edge build hashes ($GITHUB_SHA)"; echo '```'; cat "$RUNNER_TEMP/edge-hashes/SHA256SUMS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
