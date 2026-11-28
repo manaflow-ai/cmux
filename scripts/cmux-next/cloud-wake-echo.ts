@@ -323,9 +323,13 @@ export function intentMarkdown(cycles: WakeCycle[], leadsMs: number[], targetMs 
 /** The deployment the run measured (meta.deploy, read by the journey before and after the cycles), never an API version. */
 function deployLines(meta: Record<string, unknown>): string[] {
   const d = meta.deploy as Record<string, { commit: string | null; commit_unavailable: string | null } | undefined> | undefined;
-  if (!d) return ["Serving deploy: not read."];
+  // An updater swap mid-run is a different product than the one asked about: name it so its cycles are not read as the starting build's.
+  const swap = meta.daemon_before && meta.daemon_after && meta.daemon_before !== meta.daemon_after
+    ? [`**Updater swap during the run**: daemon ${String(meta.daemon_before)} -> ${String(meta.daemon_after)}; cycles straddle two builds (guest-updater.json has the swap).`] : [];
+  if (!d) return ["Serving deploy: not read.", ...swap];
   const one = (k: string) => (d[k]?.commit ? d[k]!.commit!.slice(0, 12) : `unread (${d[k]?.commit_unavailable ?? "not read"})`);
-  return [`Serving deploy: platform ${one("platform_before")} before, ${one("platform_after")} after; API ${one("api_before")}. Daemon ${String(meta.daemon_before ?? "?")} at running, ${String(meta.daemon_after ?? "?")} at the end.`];
+  const lines = [`Serving deploy: platform ${one("platform_before")} before, ${one("platform_after")} after; API ${one("api_before")}. Daemon ${String(meta.daemon_before ?? "?")} at running, ${String(meta.daemon_after ?? "?")} at the end.`];
+  return [...lines, ...swap];
 }
 
 export function wakeEchoMarkdown(cycles: WakeCycle[], meta: Record<string, unknown>): string {
