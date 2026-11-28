@@ -12,6 +12,9 @@ use super::resolve::{Draft, Resolved, draft_meta};
 use super::start_watch::{StartWatch, start_deadline_exceeded, start_hung};
 #[path = "lifecycle_cold_start.rs"]
 mod cold_start;
+// A local Codex app-server's Seatbelt profile follows the chat's mode and folders.
+#[path = "lifecycle_codex_sandbox.rs"]
+mod codex_sandbox;
 
 /// How often the person's agent start that is still under way says so (`person_start`).
 const START_PROGRESS: std::time::Duration = std::time::Duration::from_secs(10);
@@ -1068,6 +1071,7 @@ impl Hub {
         let current = self.opencode_ask_now(session, profile).await;
         let profile = current.as_ref().unwrap_or(profile);
         self.record_spawn_inputs(session, profile).await;
+        self.note_codex_sandbox(session, profile);
         // What the agent runs is this argv, not the creation's (`FullAccessView::of_session`). On
         // disk before the agent starts: a daemon that dies while it starts leaves a host the next
         // one judges by this argv (review 44 of #23322). Not left to the folder check's save, which

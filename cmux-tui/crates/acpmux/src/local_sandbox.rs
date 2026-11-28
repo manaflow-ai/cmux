@@ -1,0 +1,895 @@
+//! A local chat's Claude Code in the macOS Seatbelt sandbox, on by default
+//! (hq RFD "Sandboxing and lockdown for Cloud, AutoCloud and the app"; Leo,
+//! 2026-11-25: "what about if someone wants to lock down a vm? lock down
+//! their app?").
+//!
+//! acpmux starts a local chat's Claude Code (`HarnessKind::ClaudeStdio`) as
+//! `sandbox-exec -p <sandbox/local-agent.sb> -D CWD=… … claude …`. The profile
+//! is looser than a remote chain's (`hub/remote_sandbox.rs`): it keeps today's
+//! flows (git, builds, dev servers on loopback, the Keychain login) and stops
+//! the prompt-injection path: reading a credential (`~/.ssh`, `~/.aws`, cloud
+//! and registry tokens, browser cookies), writing outside the chat's folders
+//! and the toolchains' state, and sending anything off the Mac except on ports
+//! 443, 80 and 22 (and Claude Code's own API port).
+//!
+//! The chat's folders are its cwd, every `--add-dir` (Session Info's added
+//! folders: `set_directories` restarts the agent, so the profile follows), and
+//! the git folder a worktree or a subfolder of a repository commits into.
+//!
+//! Off when:
+//! - `sessions.sandbox` is false in the cmux settings file. A file that cannot be
+//!   read keeps it on (fail closed). The managed-preference source (MDM on macOS)
+//!   can force it on; `_acpmux/chat_settings` reports that state but is
+//!   not trusted as an enforcement input.
+//! - Claude Code's own Bash sandbox is on (its settings' `sandbox.enabled`):
+//!   macOS refuses a nested `sandbox_apply`, so every Bash call would fail; the
+//!   person's own sandbox stays, logged once.
+//! - Not macOS. Linux confines remote chains with bwrap (`linux_sandbox/`); a
+//!   local chat there is the machine's own (a Cloud VM is the boundary).
+//!
+//! Ambiguous Claude sandbox settings or an unavailable required Seatbelt boundary stop the
+//! launch and report the cause to the chat.
+//!
+//! A local `codex app-server` runs in the same profile ([`codex_prefix`]), with the bridge told
+//! the host sandboxes it (`cmux_codex_acp::Options::outer_sandbox`): Codex's own per-command
+//! Seatbelt cannot start inside this one, so every mode runs Codex's `danger-full-access` and keeps
+//! its meaning through the approval policy it asks under. That policy alone is not a boundary: a
+//! command an exec-policy rule allows runs without asking whatever the policy (codex
+//! `core/src/exec_policy.rs`), so the profile follows the mode. Read Only gets [`Bound::read_only`]:
+//! no folder of the chat is writable, only Codex's own home (`CODEX_HOME`), the temporary folders
+//! and the caches. Entering or leaving Read Only restarts the app-server in the other profile and
+//! resumes its thread (`hub/lifecycle_codex_sandbox.rs`). Codex's own `auth.json` stays readable to it.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+
+use serde_json::Value;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// The checked-in Seatbelt profile.
+pub(crate) const PROFILE: &str = include_str!("../sandbox/local-agent.sb");
+
+/// The cmux setting (Settings > Agents > Agent Sessions).
+pub(crate) const SETTING: &str = "sessions.sandbox";
+
+pub(crate) const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
+
+/// The settings file's answer: on unless it sets `sessions.sandbox` to false. Unreadable: on.
+pub(crate) fn file_wants(settings: &crate::user_settings::Settings) -> bool {
+    match settings {
+        crate::user_settings::Settings::Missing | crate::user_settings::Settings::Unreadable(_) => {
+            true
+        }
+        crate::user_settings::Settings::Parsed(doc) => {
+            !matches!(crate::user_settings::value(doc, SETTING), Some(Value::Bool(false)))
+        }
+    }
+}
+
+/// Whether a new local chat's Claude Code runs in the sandbox.
+pub(crate) fn enabled() -> bool {
+    let managed = cmux_config::managed::default_reader(|name| std::env::var(name).ok()).read();
+    let managed_on = managed.forced.get(SETTING) == Some(&Value::Bool(true));
+    enabled_by(managed_on, file_wants(&crate::user_settings::read()))
+}
+
+pub(crate) fn enabled_by(managed_on: bool, file_wants: bool) -> bool {
+    managed_on || file_wants
+}
+
+/// The folders and ports the profile is given.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Bound {
+    pub(crate) cwd: PathBuf,
+    pub(crate) home: PathBuf,
+    pub(crate) agent_home: PathBuf,
+    pub(crate) acpmux_home: PathBuf,
+    pub(crate) session_tmp: PathBuf,
+    /// The cmux settings files that decide whether later chats are sandboxed.
+    pub(crate) cmux_config: PathBuf,
+    pub(crate) cmux_legacy_config: PathBuf,
+    pub(crate) cmux_agent_config: PathBuf,
+    pub(crate) cmux_agent_legacy_config: PathBuf,
+    pub(crate) cmux_config_real: PathBuf,
+    pub(crate) gh_config_dir: PathBuf,
+    pub(crate) xdg_gh_config_dir: PathBuf,
+    /// The chat's other folders (`--add-dir`) and the git folders its folders commit into.
+    pub(crate) folders: Vec<PathBuf>,
+    /// Settings files and drop-in directories that decide confinement on a later launch.
+    pub(crate) policy_files: Vec<PathBuf>,
+    /// Claude Code's own API port when it is not one the profile already opens.
+    pub(crate) api_port: Option<u16>,
+    /// A Codex launch's own homes (its `CODEX_HOME`, the CLI's base home its shadow logins link
+    /// into): writable in every mode, and their `auth.json` readable. Empty for Claude Code.
+    pub(crate) codex_homes: Vec<PathBuf>,
+    /// Read Only: the chat folder and its other folders are not writable.
+    pub(crate) read_only: bool,
+}
+
+/// Resolve existing ancestors too: a credential or policy file may not exist at launch.
+fn canonical(path: &Path) -> PathBuf {
+    for ancestor in path.ancestors() {
+        let Ok(mut resolved) = std::fs::canonicalize(ancestor) else { continue };
+        let Ok(tail) = path.strip_prefix(ancestor) else { continue };
+        for component in tail.components() {
+            match component {
+                std::path::Component::ParentDir => {
+                    resolved.pop();
+                }
+                std::path::Component::CurDir => {}
+                other => resolved.push(other.as_os_str()),
+            }
+        }
+        return resolved;
+    }
+    path.to_path_buf()
+}
+
+/// Make a settings override absolute before passing it to Seatbelt. An override can name a
+/// missing file, so canonicalization alone is insufficient for the policy to protect it.
+fn absolute(base: &Path, path: PathBuf) -> PathBuf {
+    if path.is_absolute() { path } else { base.join(path) }
+}
+
+/// A literal path as a regex: Seatbelt's regex is POSIX extended.
+pub(crate) fn regex_escape(path: &Path) -> String {
+    let mut out = String::new();
+    for c in path.to_string_lossy().chars() {
+        if "\\.^$|?*+()[]{}".contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// The profile's grant of the chat folder, which Read Only drops.
+pub(crate) const CWD_WRITE: &str = "  (subpath (param \"CWD\"))\n";
+
+impl Bound {
+    /// `sandbox-exec` arguments up to the command: the profile and its parameters.
+    pub(crate) fn sandbox_args(&self) -> Vec<String> {
+        let mut profile = PROFILE.to_owned();
+        if self.read_only {
+            profile = profile.replacen(CWD_WRITE, "", 1);
+        }
+        let folders = if self.read_only { 0 } else { self.folders.len() };
+        let mut folders: String =
+            (0..folders).map(|i| format!("  (subpath (param \"DIR{i}\"))\n")).collect();
+        // Before the state and policy denials below: a home inside one of them stays denied.
+        for i in 0..self.codex_homes.len() {
+            folders.push_str(&format!("  (subpath (param \"CODEX_HOME{i}\"))\n"));
+        }
+        profile = profile.replacen(";; @FOLDERS@\n", &folders, 1);
+        // After the credential denials: Codex reads and refreshes its own sign-in.
+        for i in 0..self.codex_homes.len() {
+            profile.push_str(&format!(
+                "(allow file-read* file-write* (literal (string-append (param \"CODEX_HOME{i}\") \"/auth.json\")))\n"
+            ));
+        }
+        for i in 0..self.policy_files.len() {
+            profile.push_str(&format!("(deny file-write* (subpath (param \"POLICY_FILE{i}\")))\n"));
+        }
+        // A protected file must not be replaceable by renaming or symlinking a parent.
+        let policy_parents: std::collections::BTreeSet<_> =
+            self.policy_files.iter().flat_map(|path| path.ancestors().skip(1)).collect();
+        for i in 0..policy_parents.len() {
+            profile.push_str(&format!("(deny file-write-unlink file-write-create (literal (param \"POLICY_PARENT{i}\")))\n"));
+        }
+        if let Some(port) = self.api_port {
+            profile.push_str(&format!("(allow network-outbound (remote ip \"*:{port}\"))\n"));
+        }
+        let mut out = vec!["-p".to_owned(), profile];
+        let mut param = |k: String, v: String| {
+            out.push("-D".into());
+            out.push(format!("{k}={v}"));
+        };
+        let show = |p: &Path| p.to_string_lossy().into_owned();
+        param("CWD".into(), show(&self.cwd));
+        param("HOME".into(), show(&self.home));
+        param("AGENT_HOME".into(), show(&self.agent_home));
+        param("HOME_RE".into(), regex_escape(&self.home));
+        param("AGENT_HOME_RE".into(), regex_escape(&self.agent_home));
+        param("ACPMUX_HOME".into(), show(&self.acpmux_home));
+        param("SESSION_TMP".into(), show(&self.session_tmp));
+        param("CMUX_CONFIG".into(), show(&self.cmux_config));
+        param("CMUX_CONFIG_REAL".into(), show(&self.cmux_config_real));
+        param("CMUX_LEGACY_CONFIG".into(), show(&self.cmux_legacy_config));
+        param("CMUX_AGENT_CONFIG".into(), show(&self.cmux_agent_config));
+        param("CMUX_AGENT_LEGACY_CONFIG".into(), show(&self.cmux_agent_legacy_config));
+        param("GH_CONFIG_DIR".into(), show(&self.gh_config_dir));
+        param("XDG_GH_CONFIG_DIR".into(), show(&self.xdg_gh_config_dir));
+        for (i, path) in self.policy_files.iter().enumerate() {
+            param(format!("POLICY_FILE{i}"), show(path));
+        }
+        for (i, path) in policy_parents.iter().enumerate() {
+            param(format!("POLICY_PARENT{i}"), show(path));
+        }
+        if !self.read_only {
+            for (i, dir) in self.folders.iter().enumerate() {
+                param(format!("DIR{i}"), show(dir));
+            }
+        }
+        for (i, dir) in self.codex_homes.iter().enumerate() {
+            param(format!("CODEX_HOME{i}"), show(dir));
+        }
+        out
+    }
+}
+
+/// The `--add-dir` folders of a Claude Code command line.
+pub(crate) fn added_dirs(args: &[String]) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        if word == "--" {
+            break;
+        }
+        if word == "--add-dir" {
+            // `--add-dir A B …`: every word up to the next flag.
+            let rest = words.clone().take_while(|w| !w.starts_with('-'));
+            out.extend(rest.map(PathBuf::from));
+        } else if let Some(v) = word.strip_prefix("--add-dir=") {
+            out.push(PathBuf::from(v));
+        }
+    }
+    out
+}
+
+/// The git folders a commit in `folder` writes: the repository's `.git` above it, and for a
+/// worktree (a `.git` file) its own git folder and the common one.
+pub(crate) fn git_dirs(folder: &Path) -> Vec<PathBuf> {
+    let Some(dot_git) = folder.ancestors().map(|d| d.join(".git")).find(|p| p.exists()) else {
+        return Vec::new();
+    };
+    if dot_git.is_dir() {
+        let Ok(dot_git) = std::fs::canonicalize(dot_git) else { return Vec::new() };
+        return dot_git
+            .file_name()
+            .is_some_and(|name| name == ".git")
+            .then_some(vec![dot_git])
+            .unwrap_or_default();
+    }
+    let Ok(text) = std::fs::read_to_string(&dot_git) else { return Vec::new() };
+    let Some(gitdir) = text.lines().find_map(|l| l.strip_prefix("gitdir:")) else {
+        return Vec::new();
+    };
+    let base = dot_git.parent().unwrap_or(Path::new("/"));
+    let Ok(gitdir) = std::fs::canonicalize(base.join(gitdir.trim())) else {
+        return Vec::new();
+    };
+    if !gitdir.is_dir() {
+        return Vec::new();
+    }
+    let Some(common_root) = gitdir
+        .ancestors()
+        .find(|path| path.file_name().is_some_and(|name| name == ".git") && path.is_dir())
+    else {
+        return Vec::new();
+    };
+    let Ok(common_root) = std::fs::canonicalize(common_root) else { return Vec::new() };
+    if !gitdir.starts_with(&common_root) {
+        return Vec::new();
+    }
+    let mut out = vec![gitdir.clone()];
+    if let Ok(common) = std::fs::read_to_string(gitdir.join("commondir")) {
+        if let Ok(common) = std::fs::canonicalize(gitdir.join(common.trim()))
+            && common.is_dir()
+            && common.starts_with(&common_root)
+        {
+            out.push(common);
+        }
+    }
+    out
+}
+
+/// Paths from the child's effective environment; an explicit config directory replaces HOME.
+fn claude_files(
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+) -> anyhow::Result<crate::agent_tools::project_mcp::Claude> {
+    // Inspect the config home the child actually uses, not both the daemon's and child's homes.
+    let mut config_env = env.clone();
+    let config_home = env
+        .get("CLAUDE_CONFIG_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            env.get("HOME")
+                .filter(|value| !value.is_empty())
+                .map(|home| Path::new(home).join(".claude"))
+        })
+        .or_else(|| dirs::home_dir().map(|home| home.join(".claude")));
+    if let Some(home) = config_home {
+        config_env
+            .insert("CLAUDE_CONFIG_DIR".into(), absolute(cwd, home).to_string_lossy().into_owned());
+    }
+    let (files, complete) = crate::agent_tools::project_mcp::Claude::discover(&config_env, cwd);
+    complete.map(|()| files)
+}
+
+fn source_enabled(args: &[String], source: &str) -> bool {
+    let mut setting_sources = None;
+    let mut words = args.iter().take_while(|arg| arg.as_str() != "--");
+    while let Some(word) = words.next() {
+        if word == "--setting-sources" {
+            setting_sources = words.next().cloned();
+        } else if let Some(sources) = word.strip_prefix("--setting-sources=") {
+            setting_sources = Some(sources.to_owned());
+        }
+    }
+    setting_sources
+        .as_deref()
+        .map_or(true, |sources| sources.split(',').any(|candidate| candidate.trim() == source))
+}
+
+/// A launch may use settings in a project, including one named by a config-home override or
+/// a file-backed flag. Project content cannot grant exceptions to the outer sandbox.
+fn project_roots(args: &[String], cwd: &Path) -> Vec<PathBuf> {
+    std::iter::once(cwd.to_owned())
+        .chain(added_dirs(args).into_iter().map(|dir| cwd.join(dir)))
+        .map(|dir| {
+            let dir = canonical(&dir);
+            dir.ancestors()
+                .filter(|parent| parent.join(".git").exists())
+                .last()
+                .unwrap_or(&dir)
+                .to_owned()
+        })
+        .collect()
+}
+
+fn outside_projects(path: &Path, roots: &[PathBuf]) -> bool {
+    let target = canonical(path);
+    !roots.iter().any(|root| path.starts_with(root) || target.starts_with(root))
+}
+
+/// Only options before the positional delimiter participate. A missing explicit value is
+/// ambiguous, so it cannot authorize an exception.
+fn last_settings(args: &[String]) -> Result<Option<&str>, ()> {
+    let mut words = args.iter().take_while(|arg| arg.as_str() != "--");
+    let mut flag = None;
+    while let Some(word) = words.next() {
+        if word == "--settings" {
+            flag = Some(words.next().ok_or(())?.as_str());
+        } else if let Some(value) = word.strip_prefix("--settings=") {
+            flag = Some(value);
+        }
+    }
+    Ok(flag)
+}
+
+/// Private launch metadata: normalization may turn a project file into inline JSON.
+/// Only the original profile contributes this value, and it never reaches the child.
+pub(crate) const FLAG_ORIGIN: &str = "ACPMUX_LOCAL_SETTINGS_ORIGIN";
+
+pub(crate) fn capture_flag_origin(argv: &[String], cwd: &Path, env: &mut BTreeMap<String, String>) {
+    env.remove(FLAG_ORIGIN);
+    let origin = match last_settings(argv.get(1..).unwrap_or_default()) {
+        Ok(Some(value)) if !value.trim_start().starts_with('{') => cwd.join(value),
+        Err(()) => PathBuf::new(),
+        _ => return,
+    };
+    env.insert(FLAG_ORIGIN.into(), origin.to_string_lossy().into_owned());
+}
+
+fn flag_is_trusted(
+    args: &[String],
+    cwd: &Path,
+    roots: &[PathBuf],
+    env: &BTreeMap<String, String>,
+) -> Result<bool, ()> {
+    let flag = last_settings(args)?;
+    if env.get(FLAG_ORIGIN).is_some_and(String::is_empty) {
+        return Err(());
+    }
+    let original = env.get(FLAG_ORIGIN).is_none_or(|path| outside_projects(Path::new(path), roots));
+    Ok(original
+        && flag.is_none_or(|value| {
+            value.trim_start().starts_with('{') || outside_projects(&cwd.join(value), roots)
+        }))
+}
+
+/// Settings env overrides process env. Managed providers must agree before granting an
+/// additional network port; malformed or conflicting settings grant no extra access.
+fn api_endpoint(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> Option<String> {
+    fn endpoint(value: &Value) -> Result<Option<String>, ()> {
+        let object = value.as_object().ok_or(())?;
+        let Some(env) = object.get("env") else { return Ok(None) };
+        let env = env.as_object().ok_or(())?;
+        env.get("ANTHROPIC_BASE_URL")
+            .map(|value| value.as_str().map(str::to_owned).ok_or(()))
+            .transpose()
+    }
+    let file = |path: &Path| -> Result<Option<String>, ()> {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(()),
+        };
+        let value: Value = serde_json::from_slice(&bytes)
+            .or_else(|_| plist::from_bytes(&bytes))
+            .map_err(|_| ())?;
+        endpoint(&value)
+    };
+    let claude = claude_files(cwd, env).ok()?;
+    let roots = project_roots(args, cwd);
+    let mut managed = None;
+    for path in &claude.managed {
+        if let Some(value) = file(path).ok()? {
+            if !outside_projects(path, &roots)
+                || managed.as_ref().is_some_and(|prior| prior != &value)
+            {
+                return None;
+            }
+            managed = Some(value);
+        }
+    }
+    if managed.is_some() {
+        return managed;
+    }
+    let trusted_flag = flag_is_trusted(args, cwd, &roots, env).ok()?;
+    if let Some(flag) = crate::claude_cloud_auth::flag_settings(args, cwd).ok()?
+        && let Some(value) = endpoint(&Value::Object(flag)).ok()?
+    {
+        return trusted_flag.then_some(value);
+    }
+    let project = cwd.join(".claude/settings.json");
+    let local = cwd.join(".claude/settings.local.json");
+    for (source, path) in [("local", &local), ("project", &project)] {
+        if source_enabled(args, source) && file(path).ok()?.is_some() {
+            return None;
+        }
+    }
+    if source_enabled(args, "user") {
+        for path in claude
+            .settings
+            .iter()
+            .filter(|path| !claude.managed.contains(path) && *path != &project && *path != &local)
+        {
+            if let Some(value) = file(path).ok()? {
+                return outside_projects(path, &roots).then_some(value);
+            }
+        }
+    }
+    env.get("ANTHROPIC_BASE_URL").cloned()
+}
+
+/// All decision sources remain immutable, even sources excluded for this launch: a later
+/// launch may enable them. Include both the named path and its resolved target.
+fn policy_files(
+    args: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+) -> anyhow::Result<Vec<PathBuf>> {
+    let claude = claude_files(cwd, env)?;
+    let mut files = claude.settings;
+    // Protect future drop-ins as well as the files discovered for this launch. The managed
+    // root comes from the same resolver that discovers Claude's managed policy sources.
+    if let Some(managed_dir) = claude.managed_mcp.parent() {
+        files.push(managed_dir.join("managed-settings.d"));
+    }
+    if let Ok(Some(file)) = last_settings(args)
+        && !file.trim_start().starts_with('{')
+    {
+        files.push(absolute(cwd, PathBuf::from(file)));
+    }
+    if let Some(original) = env.get(FLAG_ORIGIN).filter(|path| !path.is_empty()) {
+        files.push(PathBuf::from(original));
+    }
+    Ok(files
+        .into_iter()
+        .flat_map(|path| [path.clone(), canonical(&path)])
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect())
+}
+
+#[derive(Default)]
+struct ClaudeSandboxSetting {
+    enabled: Option<bool>,
+    other_options: bool,
+}
+
+impl ClaudeSandboxSetting {
+    fn from_json(value: &Value) -> Option<Self> {
+        let Some(sandbox) = value.as_object()?.get("sandbox") else {
+            return Some(Self::default());
+        };
+        let sandbox = sandbox.as_object()?;
+        let enabled = match sandbox.get("enabled") {
+            Some(value) => Some(value.as_bool()?),
+            None => None,
+        };
+        Some(Self { enabled, other_options: sandbox.keys().any(|key| key != "enabled") })
+    }
+
+    fn from_file(path: &Path, bytes: &[u8]) -> Option<Self> {
+        if path.extension().is_some_and(|ext| ext == "plist") {
+            let value = plist::Value::from_reader(std::io::Cursor::new(bytes)).ok()?;
+            let dict = value.as_dictionary()?;
+            let sandbox = match dict.get("sandbox") {
+                Some(value) => Some(value.as_dictionary()?),
+                None => None,
+            };
+            let mut enabled = None;
+            for value in [dict.get("sandbox.enabled"), sandbox.and_then(|s| s.get("enabled"))]
+                .into_iter()
+                .flatten()
+            {
+                let value = value.as_boolean()?;
+                if enabled.is_some_and(|prior| prior != value) {
+                    return None;
+                }
+                enabled = Some(value);
+            }
+            let other_options = sandbox.is_some_and(|s| s.iter().any(|(key, _)| key != "enabled"))
+                || dict
+                    .iter()
+                    .any(|(key, _)| key.starts_with("sandbox.") && key != "sandbox.enabled");
+            return Some(Self { enabled, other_options });
+        }
+        Self::from_json(&serde_json::from_slice(bytes).ok()?)
+    }
+}
+
+/// Claude applies managed policy, the last --settings, local, project and user settings in
+/// that order. An ambiguous launch must stop: wrapping an already-sandboxed Claude would
+/// leave the chat running with every Bash call failing on the nested sandbox.
+fn claude_sandbox_on(
+    args: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+) -> anyhow::Result<bool> {
+    let roots = project_roots(args, cwd);
+    let claude = claude_files(cwd, env)?;
+    let mut effective = None;
+    let mut project_source = None;
+    let mut consider = |setting: ClaudeSandboxSetting,
+                        source: &str,
+                        trusted: bool,
+                        managed: bool| {
+        if let Some(enabled) = setting.enabled {
+            anyhow::ensure!(
+                !managed || effective.is_none_or(|prior| prior == enabled),
+                "Managed Claude sandbox settings conflict at {source}. Ask your administrator to reconcile sandbox.enabled in the managed policies before starting this chat."
+            );
+            if !trusted && enabled && (effective.is_none() || managed) {
+                project_source = Some(source.to_owned());
+            }
+            effective.get_or_insert(enabled);
+        }
+        // Claude merges other keys (including command exclusions) across sources.
+        if !trusted && setting.other_options {
+            project_source = Some(source.to_owned());
+        }
+        Ok::<_, anyhow::Error>(())
+    };
+    let read = |path: &Path| -> anyhow::Result<ClaudeSandboxSetting> {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(ClaudeSandboxSetting::default());
+            }
+            Err(error) => anyhow::bail!(
+                "Cannot read Claude settings at {} ({error}). Restore read access before starting this chat.",
+                path.display()
+            ),
+        };
+        ClaudeSandboxSetting::from_file(path, &bytes).ok_or_else(|| anyhow::anyhow!(
+            "Cannot determine sandbox.enabled in {}. Correct the Claude settings file before starting this chat.",
+            path.display()
+        ))
+    };
+    for path in &claude.managed {
+        consider(read(path)?, &path.to_string_lossy(), outside_projects(path, &roots), true)?;
+    }
+    let trusted_flag = flag_is_trusted(args, cwd, &roots, env).map_err(|_| anyhow::anyhow!(
+        "The final --settings has no usable value. Supply a readable Claude settings file or JSON object before starting this chat."
+    ))?;
+    let flag = crate::claude_cloud_auth::flag_settings(args, cwd).map_err(|_| anyhow::anyhow!(
+        "Cannot read the final --settings value. Supply a readable Claude settings file or JSON object before starting this chat."
+    ))?;
+    if let Some(flag) = flag {
+        let value = ClaudeSandboxSetting::from_json(&Value::Object(flag)).ok_or_else(|| anyhow::anyhow!(
+            "Correct the sandbox object and its boolean sandbox.enabled in the final --settings value before starting this chat."
+        ))?;
+        consider(value, "--settings", trusted_flag, false)?;
+    }
+    let local = cwd.join(".claude/settings.local.json");
+    let project = cwd.join(".claude/settings.json");
+    for (source, path) in [("local", &local), ("project", &project)] {
+        if source_enabled(args, source) {
+            consider(read(path)?, &path.to_string_lossy(), false, false)?;
+        }
+    }
+    if source_enabled(args, "user") {
+        for path in claude
+            .settings
+            .iter()
+            .filter(|path| !claude.managed.contains(path) && *path != &project && *path != &local)
+        {
+            consider(read(path)?, &path.to_string_lossy(), outside_projects(path, &roots), false)?;
+        }
+    }
+    let enabled = effective.unwrap_or(false);
+    if enabled && let Some(source) = project_source {
+        anyhow::bail!(
+            "Project-controlled Claude sandbox settings from {source} prevent safe sandbox selection. Remove those sandbox settings from the project source before starting this chat."
+        );
+    }
+    Ok(enabled)
+}
+
+/// The port of an `ANTHROPIC_BASE_URL` that the profile does not already open (443, 80, 22 or
+/// any loopback port).
+pub(crate) fn extra_api_port(url: &str) -> Option<u16> {
+    let rest = url.strip_prefix("http://").or_else(|| url.strip_prefix("https://"))?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let authority = authority.rsplit('@').next()?;
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((h, p)) if !h.ends_with(']') || authority.starts_with('[') => {
+            (h, p.parse::<u16>().ok()?)
+        }
+        _ => return None,
+    };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let loopback =
+        host == "localhost" || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback());
+    (!loopback && ![443, 80, 22].contains(&port)).then_some(port)
+}
+
+static CLAUDE_OWN_LOGGED: AtomicBool = AtomicBool::new(false);
+
+/// Build the local sandbox command prefix or report why a required sandbox cannot start.
+pub(crate) fn prefix(
+    args: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+) -> anyhow::Result<Option<(&'static str, Vec<String>)>> {
+    if !cfg!(target_os = "macos") || !enabled() {
+        return Ok(None);
+    }
+    required_prefix(SANDBOX_EXEC, args, cwd, env)
+}
+
+fn required_prefix(
+    exec: &'static str,
+    args: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+) -> anyhow::Result<Option<(&'static str, Vec<String>)>> {
+    if claude_sandbox_on(args, cwd, env)? {
+        if !CLAUDE_OWN_LOGGED.swap(true, Ordering::Relaxed) {
+            tracing::info!(
+                "Claude Code's own sandbox is on: its chats keep it (Seatbelt does not nest)"
+            );
+        }
+        return Ok(None);
+    }
+    anyhow::ensure!(
+        Path::new(exec).is_file(),
+        "Local chat requires Seatbelt, but {exec} is unavailable"
+    );
+    let bound = bound(args, cwd, env).ok_or_else(|| anyhow::anyhow!(
+        "Cannot start this sandboxed chat in {}: the chat folder must be below or outside the home directories and the daemon must be able to resolve its configuration paths",
+        cwd.display()
+    ))?;
+    Ok(Some((exec, bound.sandbox_args())))
+}
+
+/// The profile's folders for a launch. A chat at or above home cannot use the home as a write root.
+pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> Option<Bound> {
+    let home = canonical(&dirs::home_dir()?);
+    let cwd = canonical(cwd);
+    let agent_home = env
+        .get("HOME")
+        .filter(|h| !h.is_empty())
+        .map(|h| canonical(&absolute(&cwd, PathBuf::from(h))));
+    let agent_home = agent_home.unwrap_or_else(|| home.clone());
+    if home.starts_with(&cwd) || agent_home.starts_with(&cwd) {
+        return None;
+    }
+    let mut folders: Vec<PathBuf> = Vec::new();
+    let added: Vec<PathBuf> = added_dirs(args).iter().map(|d| canonical(&cwd.join(d))).collect();
+    for dir in std::iter::once(cwd.clone()).chain(added.iter().cloned()) {
+        for d in std::iter::once(dir.clone()).chain(git_dirs(&dir)) {
+            let d = canonical(&d);
+            // An added folder that is the home or above it is left out, not the whole home.
+            if d != cwd
+                && !home.starts_with(&d)
+                && !agent_home.starts_with(&d)
+                && !folders.contains(&d)
+            {
+                folders.push(d);
+            }
+        }
+    }
+    let url = api_endpoint(args, &cwd, env);
+    let config_dir = Path::new(".config");
+    let cmux_legacy_config = home
+        .join(config_dir)
+        .join(cmux_config::location::LEGACY_DIR)
+        .join(cmux_config::location::NEXT_FILE_NAME);
+    let cmux_agent_config = agent_home
+        .join(config_dir)
+        .join(cmux_config::NEXT_DIR)
+        .join(cmux_config::location::NEXT_FILE_NAME);
+    let cmux_agent_legacy_config = agent_home
+        .join(config_dir)
+        .join(cmux_config::location::LEGACY_DIR)
+        .join(cmux_config::location::NEXT_FILE_NAME);
+    // The daemon reads this override relative to its own cwd, unlike child GH/Claude paths.
+    let cmux_config = std::path::absolute(crate::user_settings::resolved_path()).ok()?;
+    let cmux_config_real = canonical(&cmux_config);
+    let gh_config_dir = env
+        .get("GH_CONFIG_DIR")
+        .filter(|p| !p.is_empty())
+        .map(|p| canonical(&absolute(&cwd, PathBuf::from(p))))
+        .unwrap_or_else(|| agent_home.join(".config/gh"));
+    let xdg_gh_config_dir = env
+        .get("XDG_CONFIG_HOME")
+        .filter(|p| !p.is_empty())
+        .map(|p| canonical(&absolute(&cwd, PathBuf::from(p).join("gh"))))
+        .unwrap_or_else(|| agent_home.join(".config/gh"));
+    let acpmux_home = std::path::absolute(crate::config::home()).ok()?;
+    let mut policy_files = policy_files(args, &cwd, env).ok()?;
+    policy_files.extend([
+        acpmux_home.clone(),
+        cmux_config.clone(),
+        cmux_config_real.clone(),
+        cmux_legacy_config.clone(),
+        cmux_agent_config.clone(),
+        cmux_agent_legacy_config.clone(),
+    ]);
+    // Defaults can cross symlinks too (for example an agent home's .config).
+    // Keep both the spelling the reader uses and every resolved policy target.
+    policy_files.extend(policy_files.clone().iter().map(|path| canonical(path)));
+    policy_files.sort();
+    policy_files.dedup();
+    Some(Bound {
+        cwd,
+        home,
+        agent_home,
+        acpmux_home: canonical(&acpmux_home),
+        session_tmp: canonical(&crate::agent::session_tmp::per_user_base()),
+        cmux_config,
+        cmux_legacy_config,
+        cmux_agent_config,
+        cmux_agent_legacy_config,
+        cmux_config_real,
+        gh_config_dir,
+        xdg_gh_config_dir,
+        folders,
+        policy_files,
+        api_port: url.as_deref().and_then(extra_api_port),
+        codex_homes: Vec::new(),
+        read_only: false,
+    })
+}
+
+/// What a session's next local `codex app-server` launch runs under. The hub sets it before each
+/// start (`hub/lifecycle_codex_sandbox.rs`): Codex takes the chat's added folders in `session/new`, not on
+/// its command line, and its mode lives in the session, not in the launch.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct CodexWant {
+    pub(crate) read_only: bool,
+    pub(crate) folders: Vec<PathBuf>,
+}
+
+static CODEX_WANT: Mutex<BTreeMap<String, CodexWant>> = Mutex::new(BTreeMap::new());
+/// Whether each session's running app-server was launched in the Read Only profile.
+static CODEX_LAUNCHED: Mutex<BTreeMap<String, bool>> = Mutex::new(BTreeMap::new());
+
+pub(crate) fn want_codex(session: &str, want: CodexWant) {
+    CODEX_WANT.lock().unwrap_or_else(|e| e.into_inner()).insert(session.to_owned(), want);
+}
+
+/// The launch a session wants; a launch for no session (a pool spare, a title) is a writing one.
+pub(crate) fn codex_want(session: Option<&str>) -> CodexWant {
+    session
+        .and_then(|id| CODEX_WANT.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned())
+        .unwrap_or_default()
+}
+
+pub(crate) fn note_codex_launch(session: &str, read_only: bool) {
+    CODEX_LAUNCHED.lock().unwrap_or_else(|e| e.into_inner()).insert(session.to_owned(), read_only);
+}
+
+/// The profile the session's app-server runs in: None when it is not a wrapped Codex launch.
+pub(crate) fn codex_launched_read_only(session: &str) -> Option<bool> {
+    CODEX_LAUNCHED.lock().unwrap_or_else(|e| e.into_inner()).get(session).copied()
+}
+
+/// A start about to run: whatever the last app-server ran in is not what this one will.
+pub(crate) fn forget_codex_launch(session: &str) {
+    CODEX_LAUNCHED.lock().unwrap_or_else(|e| e.into_inner()).remove(session);
+}
+
+#[cfg(test)]
+pub(crate) fn forget_codex(session: &str) {
+    CODEX_WANT.lock().unwrap_or_else(|e| e.into_inner()).remove(session);
+    CODEX_LAUNCHED.lock().unwrap_or_else(|e| e.into_inner()).remove(session);
+}
+
+/// [`prefix`] for a local `codex app-server`. Codex has no sandbox setting of its own to defer
+/// to: under the bridge's `outer_sandbox` it never starts its own, so it is always wrapped.
+pub(crate) fn codex_prefix(
+    args: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+    want: &CodexWant,
+) -> anyhow::Result<Option<(&'static str, Vec<String>)>> {
+    if !cfg!(target_os = "macos") || !enabled() {
+        return Ok(None);
+    }
+    codex_required_prefix(SANDBOX_EXEC, args, cwd, env, want)
+}
+
+fn codex_required_prefix(
+    exec: &'static str,
+    args: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+    want: &CodexWant,
+) -> anyhow::Result<Option<(&'static str, Vec<String>)>> {
+    anyhow::ensure!(
+        Path::new(exec).is_file(),
+        "Local chat requires Seatbelt, but {exec} is unavailable"
+    );
+    let bound = codex_bound(args, cwd, env, want).ok_or_else(|| anyhow::anyhow!(
+        "Cannot start this sandboxed chat in {}: the chat folder must be below or outside the home directories and the daemon must be able to resolve its configuration paths",
+        cwd.display()
+    ))?;
+    Ok(Some((exec, bound.sandbox_args())))
+}
+
+/// [`bound`] for Codex: its homes, its added folders and the git folders they commit into, and
+/// Read Only's profile.
+pub(crate) fn codex_bound(
+    args: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+    want: &CodexWant,
+) -> Option<Bound> {
+    let mut bound = bound(args, cwd, env)?;
+    for dir in &want.folders {
+        let dir = canonical(&bound.cwd.join(dir));
+        for d in std::iter::once(dir.clone()).chain(git_dirs(&dir)) {
+            let d = canonical(&d);
+            if d != bound.cwd
+                && !bound.home.starts_with(&d)
+                && !bound.agent_home.starts_with(&d)
+                && !bound.folders.contains(&d)
+            {
+                bound.folders.push(d);
+            }
+        }
+    }
+    bound.codex_homes = codex_homes(&bound.cwd, &bound.agent_home, env);
+    bound.read_only = want.read_only;
+    Some(bound)
+}
+
+/// The launch's `CODEX_HOME` (relative to the chat folder, as the child reads it), else the
+/// agent home's `.codex`; and the CLI's base home a shadow login links its conversations into
+/// (`route_shadow.rs`). A home at or above the agent home is left out, not the whole home.
+fn codex_homes(cwd: &Path, agent_home: &Path, env: &BTreeMap<String, String>) -> Vec<PathBuf> {
+    let own = env
+        .get("CODEX_HOME")
+        .filter(|p| !p.is_empty())
+        .map(|p| canonical(&absolute(cwd, PathBuf::from(p))))
+        .unwrap_or_else(|| agent_home.join(".codex"));
+    let mut homes = vec![own];
+    if let Some(base) = crate::route_shadow::codex_base() {
+        homes.push(canonical(&base));
+    }
+    homes.retain(|h| !agent_home.starts_with(h));
+    homes.dedup();
+    homes
+}
+
+#[cfg(test)]
+#[path = "local_sandbox_tests.rs"]
+mod tests;
