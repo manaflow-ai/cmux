@@ -187,12 +187,7 @@ export function drewLiveLine(rows: readonly AcpmuxRow[] | undefined): void {
             : !shape
               ? "noshape"
               : !drewShaped(shape.shaped, open)
-                ? `drewShaped/${shapedMiss(shape.shaped, open)}/via=${shape.via}/fin=${shape.final}/age=${stamp - shape.stamp}/assist=${[
-                    ...open.values(),
-                  ]
-                    .filter((r) => r.kind === "assistant")
-                    .map((r) => r.assistantPhase ?? "-")
-                    .join(":")}`
+                ? `drewShaped/${shapedMiss(shape.shaped, open)}`
                 : "turnOf"
       }`;
     return;

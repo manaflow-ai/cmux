@@ -25,7 +25,7 @@ final class ComposerSwipeCollapseUITests: XCTestCase {
         let app = launch(demo: demo)
         defer { app.terminate() }
         let field = app.textViews[id]
-        if !field.waitForExistence(timeout: 30) { app.buttons["Reply to Claude"].firstMatch.tap() }
+        if !field.waitForExistence(timeout: 30) { app.buttons["agentChat.composer.collapsed"].firstMatch.tap() }
         XCTAssertTrue(field.waitForExistence(timeout: 10), "composer field \(id)\n\(app.debugDescription)")
         focus(app, field)
         field.typeText("draft")
