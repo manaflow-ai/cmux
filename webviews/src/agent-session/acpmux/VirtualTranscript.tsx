@@ -2051,12 +2051,12 @@ function TranscriptView({
         // sendMoves knows, #50851), so holding the field for one drew the tall composer still for the
         // hold's bound (266 ms measured, 15-lines-busy-latest) and then dropped it 149 px in one frame
         // (Leo, 2026-11-22: the collapse of the composer took too long, and the send jumped). A queued
-        // send's collapse lands as an unheld send's does: the field in the send's frame, the rows gliding from
-        // where they were drawn (`resized`, the transaction's stack move), so nothing jumps.
-        if (workingRef.current) return;
-        const tx = threadTransaction(rows);
-        tx.expect("send");
-        tx.ride(detail.animation);
+        // send's collapse plays as a growth does: the field on its own spring, the rows on its clock.
+        if (!workingRef.current) {
+          const tx = threadTransaction(rows);
+          tx.expect("send");
+          tx.ride(detail.animation);
+        }
         detail.outside.claim();
       }
       growth = { field: target, to: detail.to };

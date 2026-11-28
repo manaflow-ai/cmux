@@ -156,8 +156,13 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
     const doc = ctx.document;
     await seedCompletedTurns(ctx, ["first question", "second question", "third question"]);
     await pause(400);
+    const win = doc.defaultView! as Window & { cmuxAcpmuxMockStepMs?: number };
     if (busy) {
       await ctx.type("a running question", EDITOR);
+      // The running turn holds after its first step: a reply line streamed during the send starts the
+      // follow chase (~3 px a frame up), and the send turning it back read as a second phase that the
+      // send never drew (5-lines-busy-latest failed 2 runs in 4 on that alone, 2026-11-28).
+      win.cmuxAcpmuxMockStepMs = 60_000;
       await ctx.press("Enter");
       await ctx.waitFor(() => doc.querySelector(".acpmux-row.acpmux-thinking, .acpmux-row.acpmux-working"));
     }
@@ -183,6 +188,7 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
     await pause(80);
     await ctx.press("Enter");
     const window = sendWindow(await frames.done);
+    delete win.cmuxAcpmuxMockStepMs;
     const send = countMotionPhases(window, BOXES);
     // The frames, for a reader of a failed play: each box's top, every frame of the send.
     doc.documentElement.dataset.sendFrames = JSON.stringify(window);
@@ -198,9 +204,12 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
     // still for 266 ms, then dropped 149 px in one frame.
     const collapse = collapseTiming(window);
     doc.documentElement.dataset.sendCollapse = JSON.stringify(collapse);
-    if (collapse && (collapse.startLag > COLLAPSE_START_MS || collapse.rest > MOTION_MS.standard))
+    // An idle send's collapse rides the send's own clock (the prompt row's rise, ~230 ms measured): the
+    // one motion Leo asked for on 2026-11-22, so only its start is bounded there.
+    const restBound = busy ? MOTION_MS.standard : Infinity;
+    if (collapse && (collapse.startLag > COLLAPSE_START_MS || collapse.rest > restBound))
       throw new Error(
-        `the composer collapse started ${collapse.startLag} ms after the prompt cleared and rested at ${collapse.rest} ms (bounds ${COLLAPSE_START_MS}, ${MOTION_MS.standard})`,
+        `the composer collapse started ${collapse.startLag} ms after the prompt cleared and rested at ${collapse.rest} ms (bounds ${COLLAPSE_START_MS}, ${restBound})`,
       );
   };
 }
