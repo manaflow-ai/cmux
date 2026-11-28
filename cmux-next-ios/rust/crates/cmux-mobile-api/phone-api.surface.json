@@ -4613,7 +4613,40 @@
         "ty": "object"
       },
       "/entity/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/columns/*/id": {
         "ty": "uint64",
@@ -4744,7 +4777,30 @@
         "required": true
       },
       "/entity/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/floating/*": {
+        "ty": "object"
+      },
+      "/entity/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/group": {
         "ty": "string",
@@ -5265,7 +5321,40 @@
         "ty": "object"
       },
       "/entity/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/columns/*/id": {
         "ty": "uint64",
@@ -5396,7 +5485,30 @@
         "required": true
       },
       "/entity/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/floating/*": {
+        "ty": "object"
+      },
+      "/entity/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/group": {
         "ty": "string",
@@ -5917,7 +6029,40 @@
         "ty": "object"
       },
       "/entity/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/columns/*/id": {
         "ty": "uint64",
@@ -6048,7 +6193,30 @@
         "required": true
       },
       "/entity/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/floating/*": {
+        "ty": "object"
+      },
+      "/entity/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/group": {
         "ty": "string",
@@ -6583,7 +6751,40 @@
         "ty": "object"
       },
       "/entity/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/columns/*/id": {
         "ty": "uint64",
@@ -6714,7 +6915,30 @@
         "required": true
       },
       "/entity/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/floating/*": {
+        "ty": "object"
+      },
+      "/entity/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/group": {
         "ty": "string",
@@ -9296,7 +9520,40 @@
         "ty": "object"
       },
       "/entity/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/screens/*/columns/*/id": {
         "ty": "uint64",
@@ -9427,7 +9684,30 @@
         "required": true
       },
       "/entity/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/entity/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/screens/*/group": {
         "ty": "string",
@@ -10090,7 +10370,40 @@
         "ty": "object"
       },
       "/entity/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/screens/*/columns/*/id": {
         "ty": "uint64",
@@ -10221,7 +10534,30 @@
         "required": true
       },
       "/entity/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/entity/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/screens/*/group": {
         "ty": "string",
@@ -10884,7 +11220,40 @@
         "ty": "object"
       },
       "/entity/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/screens/*/columns/*/id": {
         "ty": "uint64",
@@ -11015,7 +11384,30 @@
         "required": true
       },
       "/entity/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/entity/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/screens/*/group": {
         "ty": "string",
@@ -11678,7 +12070,40 @@
         "ty": "object"
       },
       "/entity/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/screens/*/columns/*/id": {
         "ty": "uint64",
@@ -11809,7 +12234,30 @@
         "required": true
       },
       "/entity/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/entity/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/screens/*/group": {
         "ty": "string",
@@ -12472,7 +12920,40 @@
         "ty": "object"
       },
       "/entity/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/screens/*/columns/*/id": {
         "ty": "uint64",
@@ -12603,7 +13084,30 @@
         "required": true
       },
       "/entity/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/entity/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/screens/*/group": {
         "ty": "string",
@@ -13244,7 +13748,40 @@
         "ty": "object"
       },
       "/entity/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/screens/*/columns/*/id": {
         "ty": "uint64",
@@ -13375,7 +13912,30 @@
         "required": true
       },
       "/entity/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/entity/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/screens/*/group": {
         "ty": "string",
@@ -13953,6 +14513,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -14179,6 +14742,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -14329,6 +14895,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -14555,6 +15124,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -14637,6 +15209,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -14863,6 +15438,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -14942,6 +15520,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -15168,6 +15749,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -15357,6 +15941,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -15583,6 +16170,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -15662,6 +16252,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -15888,6 +16481,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -15976,6 +16572,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -16202,6 +16801,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -16293,6 +16895,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -16519,6 +17124,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -16604,6 +17212,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -16830,6 +17441,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -17032,6 +17646,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -17258,6 +17875,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -17352,6 +17972,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -17578,6 +18201,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -17670,6 +18296,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -17896,6 +18525,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -18033,6 +18665,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -18259,6 +18894,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -18406,6 +19044,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -18632,6 +19273,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -18717,6 +19361,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -18943,6 +19590,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -19028,6 +19678,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -19254,6 +19907,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -19339,6 +19995,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -19565,6 +20224,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -19650,6 +20312,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -19876,6 +20541,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -19961,6 +20629,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -20187,6 +20858,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -20269,6 +20943,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -20495,6 +21172,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -29456,7 +30136,40 @@
         "ty": "object"
       },
       "/data/changed/*/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/data/changed/*/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/data/changed/*/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/data/changed/*/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/data/changed/*/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/data/changed/*/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/data/changed/*/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/data/changed/*/screens/*/columns/*/id": {
         "ty": "uint64",
@@ -29587,7 +30300,30 @@
         "required": true
       },
       "/data/changed/*/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/data/changed/*/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/data/changed/*/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/data/changed/*/screens/*/group": {
         "ty": "string",
@@ -30296,7 +31032,40 @@
         "ty": "object"
       },
       "/data/workspaces/*/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/data/workspaces/*/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/data/workspaces/*/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/data/workspaces/*/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/data/workspaces/*/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/data/workspaces/*/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/data/workspaces/*/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/data/workspaces/*/screens/*/columns/*/id": {
         "ty": "uint64",
@@ -30427,7 +31196,30 @@
         "required": true
       },
       "/data/workspaces/*/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/data/workspaces/*/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/data/workspaces/*/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/workspaces/*/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/workspaces/*/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/workspaces/*/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/workspaces/*/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/data/workspaces/*/screens/*/group": {
         "ty": "string",
