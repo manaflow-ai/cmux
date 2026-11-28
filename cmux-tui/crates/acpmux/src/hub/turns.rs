@@ -21,6 +21,12 @@ mod prompt_entry;
 
 pub(super) use pdf_attachments::{acp_prompt_blocks, remove_pdf_attachments};
 
+/// The project's folder of PDFs saved for agents, `<cwd>/.cmux/attachments` (it holds one folder
+/// per chat and a `.gitignore`).
+fn pdf_attachments_root(cwd: &Path) -> PathBuf {
+    cwd.join(".cmux").join("attachments")
+}
+
 /// What the agent of `session` is sent for `blocks`: model-sized copies of its large images
 /// (`model_copies.rs`), then [`acp_prompt_blocks`]. No copy is made, or kept, for a turn a remote
 /// device controls: it is read from this machine's disk as the prompt's sender, who was local.

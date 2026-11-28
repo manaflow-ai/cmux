@@ -2,13 +2,8 @@
 //! folder (moved from `turns.rs`).
 
 use super::super::*;
+use super::pdf_attachments_root;
 use std::path::{Path, PathBuf};
-
-/// The project's folder of PDFs saved for agents, `<cwd>/.cmux/attachments` (it holds one folder
-/// per chat and a `.gitignore`).
-fn pdf_attachments_root(cwd: &Path) -> PathBuf {
-    cwd.join(".cmux").join("attachments")
-}
 
 /// Session `id`'s folder of PDFs under `root` (`<cwd>/.cmux/attachments`); none for an id that is
 /// not one plain path component.
