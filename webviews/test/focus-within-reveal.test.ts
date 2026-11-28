@@ -30,7 +30,6 @@ const ALLOWED: Record<string, string> = {
  * its reason); the list only shrinks. */
 const KNOWN = new Set([
   // Landed on base after this list (2026-11-23 scan, cmux#50446); each still to move to :has(:focus-visible).
-  'src/agent-session/acpmux/composerV2.css: :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="rim"]:focus-within::after',
   "src/agent-session/acpmux/conversation/conversation.css: .cv-user:focus-within .cv-user__queued-hover",
   "src/agent-session/acpmux/harnessUpdates.css: .acpmux-harness-update:is(:hover, :focus-within) .acpmux-harness-update-run[data-reveal]",
   "src/agent-session/acpmux/header/header.css: .acpmux-header-tools[data-header-icons=contextualPeek]:is(:hover,:focus-within) [data-header-dormant]",
