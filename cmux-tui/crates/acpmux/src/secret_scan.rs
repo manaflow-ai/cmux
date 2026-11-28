@@ -355,41 +355,38 @@ static RULES: LazyLock<Rules> = LazyLock::new(|| {
 /// "API key: ..." line, reached the chat index in clear; the assignment rule reads only
 /// `client_secret=` / `api_key:` spellings).
 const LABEL: &str = r"(?:client|app|consumer|api|signing|webhook|shared)[ _-]?secret|secret(?:[ _-]?key)?|api[ _-]?key|access[ _-]?key|private[ _-]?key|(?:access|refresh|auth|bearer|api|personal[ _-]access)[ _-]?token|token|password|passwd|passphrase|bearer";
+// The label rule's patterns are constants the `labelled` tests compile: one that did not would
+// only leave the rule finding nothing (`CODE_VALUE` none: nothing is taken as code).
+
 /// The label alone on its line (a `:` or `=` after it allowed), up to two blank lines, then one
 /// word alone on its line: the word.
-static LABEL_LINE: LazyLock<Regex> = LazyLock::new(|| {
+static LABEL_LINE: LazyLock<Option<Regex>> = LazyLock::new(|| {
     compile(&format!(
         r"(?im)^[ \t]*(?:[-*>#]+[ \t]*)?(?:{LABEL})[ \t]*[:=]?[ \t]*\n(?:[ \t]*\n){{0,2}}[ \t]*([^\s]{{6,512}})[ \t]*$"
     ))
-    .expect("constant pattern") // crash-allow: constant pattern
 });
 /// The label, then `:` or `=` (or "is"/"was"), then the value, maybe in brackets or quotes.
-static LABEL_INLINE: LazyLock<Regex> = LazyLock::new(|| {
+static LABEL_INLINE: LazyLock<Option<Regex>> = LazyLock::new(|| {
     compile(&format!(
         r#"(?i)(?:^|[^\w-])(?:{LABEL})\b["']?[ \t]*(?:[:=][ \t]*|[ \t]+(?:is|was)[ \t]+)[(\[<"'`]?([^\s)\]>"'`]{{8,512}})"#
     ))
-    .expect("constant pattern") // crash-allow: constant pattern
 });
 /// The label as a word, for the high-entropy runs near it.
-static LABEL_WORD: LazyLock<Regex> = LazyLock::new(|| {
-    compile(&format!(r"(?i)(?:^|[^\w-])((?:{LABEL}))(?:[^\w-]|$)")).expect("constant pattern") // crash-allow: constant pattern
-});
-static LABEL_RUN: LazyLock<Regex> =
-    LazyLock::new(|| compile(r"[A-Za-z0-9_+/=-]{24,}").expect("constant pattern")); // crash-allow: constant pattern
+static LABEL_WORD: LazyLock<Option<Regex>> =
+    LazyLock::new(|| compile(&format!(r"(?i)(?:^|[^\w-])((?:{LABEL}))(?:[^\w-]|$)")));
+static LABEL_RUN: LazyLock<Option<Regex>> = LazyLock::new(|| compile(r"[A-Za-z0-9_+/=-]{24,}"));
 /// A code expression after a label (`secret = compute_secret(input)`, `token = self.config.token`),
 /// not its value. Port of `secret_scrub.CODE_VALUE`, matched whole; a token prefix is never code.
-static CODE_VALUE: LazyLock<Regex> = LazyLock::new(|| {
+static CODE_VALUE: LazyLock<Option<Regex>> = LazyLock::new(|| {
     compile(concat!(
         r"^(?:(?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*[(\[].*",
         r"|(?:[A-Za-z_]+\.)+[A-Za-z_]+[)\],;:]*",
         r"|[a-z]+(?:_[a-z]+)+[)\],;:]*",
         r#"|f["'](?:\{[^{}]*\})+(?:["'].*)?)$"#,
     ))
-    .expect("constant pattern") // crash-allow: constant pattern
 });
-static TOKEN_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
-    compile(r"^(?:gh[pousr]_|github_pat_|sk-|xox[abprs]-|AKIA|eyJ)").expect("constant pattern") // crash-allow: constant pattern
-});
+static TOKEN_PREFIX: LazyLock<Option<Regex>> =
+    LazyLock::new(|| compile(r"^(?:gh[pousr]_|github_pat_|sk-|xox[abprs]-|AKIA|eyJ)"));
 /// How far from a label, on its line, a high-entropy run is taken as its value.
 const NEAR_LABEL: usize = 40;
 /// Words that follow a label in prose ("the api key is missing"), not its value.
@@ -494,14 +491,15 @@ fn labelled_values(text: &str) -> Vec<Range<usize>> {
     let bytes = text.as_bytes();
     let mut out = Vec::new();
     for (re, alone) in [(&*LABEL_LINE, true), (&*LABEL_INLINE, false)] {
+        let Some(re) = re else { continue };
         for caps in re.captures_iter(bytes) {
             let Some(m) = caps.get(1) else { continue };
             let Ok(value) = std::str::from_utf8(m.as_bytes()) else { continue };
             // An unquoted code expression is not a value; a quoted one is a literal.
             let quoted = m.start().checked_sub(1).is_some_and(|i| b"\"'`".contains(&bytes[i]));
             let code = !quoted
-                && !TOKEN_PREFIX.is_match(m.as_bytes())
-                && CODE_VALUE.is_match(m.as_bytes());
+                && !TOKEN_PREFIX.as_ref().is_some_and(|re| re.is_match(m.as_bytes()))
+                && CODE_VALUE.as_ref().is_some_and(|re| re.is_match(m.as_bytes()));
             if labelled(value, alone) && !code {
                 // Trailing punctuation stays: it is the sentence's, not the value's.
                 let core = value.trim_end_matches(['.', ',', ';', ':', '!', '?', ')']);
@@ -509,7 +507,8 @@ fn labelled_values(text: &str) -> Vec<Range<usize>> {
             }
         }
     }
-    let spans: Vec<Range<usize>> = LABEL_WORD
+    let (Some(label_word), Some(label_run)) = (&*LABEL_WORD, &*LABEL_RUN) else { return out };
+    let spans: Vec<Range<usize>> = label_word
         .captures_iter(bytes)
         .filter_map(|c| c.get(1))
         // A mask's own words ("[AWS access key]") are not a label: masking stays idempotent.
@@ -523,7 +522,7 @@ fn labelled_values(text: &str) -> Vec<Range<usize>> {
     if spans.is_empty() {
         return out;
     }
-    for m in LABEL_RUN.find_iter(bytes) {
+    for m in label_run.find_iter(bytes) {
         let w = m.as_bytes();
         let near = spans.iter().any(|s| {
             (s.start <= m.start() && m.start() <= s.end) || (s.start <= m.end() && m.end() <= s.end)
