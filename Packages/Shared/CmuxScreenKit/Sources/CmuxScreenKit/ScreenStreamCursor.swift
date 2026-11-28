@@ -1,3 +1,4 @@
+import CCmuxScreenKit
 import CmuxVNCWebRTC
 import CoreGraphics
 import Foundation
@@ -32,11 +33,12 @@ public struct ScreenStreamCursor: Sendable, Equatable {
     /// the image's rectangle (its top left at the hotspot's offset from
     /// `pointer`), and frame pixels per Mac point (for the shadow).
     public func placement(at pointer: CGPoint, frame: CGSize) -> (rect: CGRect, pixelsPerPoint: CGFloat) {
-        let width = size.width * frame.width
-        let height = size.height * frame.height
-        let origin = CGPoint(x: pointer.x - hotspot.x * width, y: pointer.y - hotspot.y * height)
-        let pixelsPerPoint = points.width > 0 ? width / points.width : 1
-        return (CGRect(origin: origin, size: CGSize(width: width, height: height)), pixelsPerPoint)
+        let placement = cmux_screen_cursor_placement(geometry, CmuxScreenPoint(pointer), CmuxScreenSize(frame))
+        return (CGRect(placement.rect), placement.pixels_per_point)
+    }
+
+    var geometry: CmuxScreenCursorGeometry {
+        CmuxScreenCursorGeometry(size: CmuxScreenSize(size), hotspot: CmuxScreenPoint(hotspot), points: CmuxScreenSize(points))
     }
 }
 
@@ -44,26 +46,35 @@ public struct ScreenStreamCursor: Sendable, Equatable {
 /// shape the host names without sending again is here) and the one the
 /// telepointers name. A telepointer that names a shape not here yet keeps
 /// the last one until it arrives: the cursor never flashes to another shape.
+/// The cache's rules are cmux-rd-core `screen_kit::cursor`; this keeps the
+/// images and drops the one it evicts.
 package struct ScreenStreamCursorCache {
     package static let capacity = 128
-    private var shapes: [String: ScreenStreamCursor] = [:]
-    private var order: [String] = []
-    /// The shape the latest telepointers named.
-    private var wanted: String?
+    private let handle = ScreenKitHandle(cmux_screen_cursor_cache_new(), free: cmux_screen_cursor_cache_free)
+    private var images: [String: ScreenStreamCursor] = [:]
+    /// The longest id added: an evicted id fits in this many bytes.
+    private var longestID = 64
     package private(set) var current: ScreenStreamCursor?
 
     package init() {}
 
     /// Adds a shape from the host; true when it becomes ``current``.
     package mutating func add(_ shape: ScreenStreamCursor) -> Bool {
-        if shapes.updateValue(shape, forKey: shape.id) == nil {
-            order.append(shape.id)
-            if order.count > Self.capacity {
-                let gone = order.removeFirst()
-                shapes[gone] = nil
+        var id = shape.id
+        longestID = max(longestID, id.utf8.count)
+        images[id] = shape
+        var becameCurrent = false
+        let evicted: String? = withUnsafeTemporaryAllocation(of: UInt8.self, capacity: longestID) { buffer in
+            var length = 0
+            let status = id.withUTF8 { bytes in
+                cmux_screen_cursor_cache_add(handle.raw, bytes.baseAddress, bytes.count, shape.geometry,
+                                             &becameCurrent, buffer.baseAddress, buffer.count, &length)
             }
+            guard status == CMUX_SCREEN_OK, length > 0 else { return nil }
+            return String(decoding: buffer.prefix(length), as: UTF8.self)
         }
-        guard shape.id == wanted, current != shape else { return false }
+        if let evicted { images[evicted] = nil }
+        guard becameCurrent else { return false }
         current = shape
         return true
     }
@@ -71,20 +82,26 @@ package struct ScreenStreamCursorCache {
     /// The telepointers named `id` (nil: a host that sends no shapes, no
     /// change); true when ``current`` changed.
     package mutating func select(_ id: String?) -> Bool {
-        guard let id else { return false }
-        wanted = id
-        // Named again: newest, as the host's own memory has it.
-        if let index = order.firstIndex(of: id), index != order.count - 1 {
-            order.remove(at: index)
-            order.append(id)
+        guard var id else { return false }
+        var changed = false
+        id.withUTF8 { bytes in
+            if let base = bytes.baseAddress {
+                _ = cmux_screen_cursor_cache_select(handle.raw, base, bytes.count, &changed)
+            } else {
+                // The empty id still names a shape; NULL would mean no change.
+                let empty: UInt8 = 0
+                withUnsafePointer(to: empty) { _ = cmux_screen_cursor_cache_select(handle.raw, $0, 0, &changed) }
+            }
         }
-        guard let shape = shapes[id], current != shape else { return false }
+        guard changed, let shape = images[id] else { return false }
         current = shape
         return true
     }
 
     /// A new stream: its host's shapes start over.
     package mutating func reset() {
-        self = Self()
+        cmux_screen_cursor_cache_reset(handle.raw)
+        images = [:]
+        current = nil
     }
 }
