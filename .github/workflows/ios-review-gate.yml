@@ -166,11 +166,12 @@ on:
         required: false
       ASC_API_KEY_P8_BASE64:
         required: false
-      # Declared so a called run's references resolve; the INTERNAL builder
-      # passes none of these (only the ASC key), so a called run mints no
-      # routing token and saves no R2 cache, as before: both steps continue on error.
+      # The routing App key: the INTERNAL builder passes it, so the called plan's picker reads the queue on
+      # the App's own hour, not the shared job token's (tests/test_ci_reusable_route_key_passed.py).
       GLAEDA_ROUTE_APP_KEY:
         required: false
+      # Declared so a called run's references resolve; the INTERNAL builder passes none
+      # of these, so a called run saves no R2 cache, as before: the step continues on error.
       CI_CACHE_R2_ACCESS_KEY_ID:
         required: false
       CI_CACHE_R2_SECRET_ACCESS_KEY:
@@ -189,7 +190,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ios-review-gate-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.ref || github.ref }}-${{ inputs.lane || 'appstore' }}
+  group: ios-review-gate-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.ref || github.ref }}-${{ inputs.lane || 'appstore' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   # Latest wins for pull requests. A feat-cmux-next push run finishes: the
   # group holds one running and one pending run, and a newer push replaces
   # only the pending one, so base gets a verdict at its tip every run's length.
@@ -369,8 +370,8 @@ jobs:
       # the review-gate lane of scripts/ci/ios_runner_pool.py (the gate's own
       # copy, so a call from another branch picks with it too), then fall back
       # to Blacksmith macOS 26 on retries, forks, and when no owned simulator
-      # mini is free. asc-validate keeps its ephemeral Blacksmith Mac: it
-      # writes the App Store Connect key to the runner.
+      # mini is free. asc-validate needs no Mac: it runs on the ephemeral
+      # Linux runner that already holds the App Store Connect key.
       - name: Mint the owned-pool routing token
         id: route-token
         if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
@@ -1046,7 +1047,12 @@ jobs:
     needs: plan
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' && ((needs.plan.outputs.lane == 'appstore' && github.ref == 'refs/heads/main') || (needs.plan.outputs.lane == 'internal-submission' && github.ref == 'refs/heads/rc/cnx-ios-builder'))) }}
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # API calls only, no Xcode: the ephemeral Linux runner that holds this
+    # same key for previous-build (ios-internal-nightly.yml) and submit
+    # (ios-internal-submit.yml), not a Blacksmith Mac (CI v2 step 10). A pull
+    # request never runs this job; its runs-on still resolves off the
+    # reserved nightly label.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     timeout-minutes: 20
     env:
       ASC_APP_ID: ${{ needs.plan.outputs.lane == 'internal-submission' && vars.IOS_INTERNAL_APP_ID || vars.IOS_APPSTORE_APP_ID }}
@@ -1064,9 +1070,6 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             cmux-next-ios/scripts
-            scripts/select-ci-xcode.sh
-            scripts/ci/xcode-pins.txt
-            .xcode-version
             .gitmodules
           sparse-checkout-cone-mode: false
       - name: Checkout the app source (data only)
@@ -1080,10 +1083,22 @@ jobs:
             cmux-next-ios/AppStoreReview
             .gitmodules
           sparse-checkout-cone-mode: false
-      - name: Select Xcode
-        run: ./gate/scripts/select-ci-xcode.sh
-      - name: Install asc
-        run: brew list asc >/dev/null 2>&1 || brew install asc
+      - name: Install pinned Linux asc
+        run: |
+          set -euo pipefail
+          version=7.6.1
+          case "$(uname -m)" in
+            x86_64) arch=amd64; digest=fa3901f4a794e435eec2bc9c0a3b4756e86f093df9a91a9083f3239676248f22 ;;
+            aarch64|arm64) arch=arm64; digest=558e3a2936465825bd2e2f62e8fbaf0bf361a9f7634071a6e10be6c2c70bf7d7 ;;
+            *) echo "::error::unsupported Linux architecture: $(uname -m)"; exit 1 ;;
+          esac
+          bin="$RUNNER_TEMP/asc-bin"; mkdir -p "$bin"
+          curl --fail --show-error --location --connect-timeout 10 --max-time 120 --retry 3 \
+            "https://github.com/rorkai/App-Store-Connect-CLI/releases/download/$version/asc_${version}_linux_$arch" -o "$bin/asc"
+          printf '%s  %s\n' "$digest" "$bin/asc" | sha256sum --check --status
+          chmod 700 "$bin/asc"
+          "$bin/asc" --version
+          echo "$bin" >> "$GITHUB_PATH"
       - name: The version to validate
         id: version
         run: |
