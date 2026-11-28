@@ -7,7 +7,7 @@ tests in that bundle is the same on both sides. A disagreement ends the streak; 
 
   python3 -I scripts/ci/ios_sim_agreement.py CACHE_DIR [--fetch] [--since ISO] [--limit N] [--need N]
 
-CACHE_DIR holds runs.json (gh run list --json databaseId,headSha,conclusion,createdAt) and, per run, RUN/jobs.json,
+CACHE_DIR holds runs.json (gh run list --json databaseId,headSha,conclusion,createdAt,event) and, per run, RUN/jobs.json,
 RUN/mac.log and RUN/linux/{junit.xml,summary.txt}. --fetch fills what is missing with gh (one call at a time,
 900 s bound each, never retried); without it the script only reads the cache.
 """
@@ -245,6 +245,19 @@ def load_run(cache: Path, run: dict) -> dict:
     return out
 
 
+# The runs that run both sides: the kit's push runs and its nightly (a workflow_dispatch on feat-cmux-next, the
+# cron in main's copy). cmux-next-post-merge.yml replaced the push runs (only an edit of the workflow file pushes
+# one now) and its batch runs the pool as the check with no Mac beside it, so a push-only count stopped: 0 of 233
+# kit runs counted from 11-25 to 11-28 and no bundle could leave ios-sim-mac-bundles.txt. A listing with no event
+# field (an older cache) is taken whole.
+EVENTS = ("push", "workflow_dispatch")
+
+
+def listed_runs(listing: list[dict], since: str) -> list[dict]:
+    return sorted((r for r in listing if r["createdAt"] >= since and r.get("event", "push") in EVENTS),
+                  key=lambda r: r["createdAt"], reverse=True)
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("cache")
@@ -260,10 +273,9 @@ def main(argv: list[str]) -> int:
         if not args.fetch:
             print("no runs.json in the cache; use --fetch", file=sys.stderr)
             return 2
-        gh(["run", "list", "-R", REPO, "-w", WORKFLOW, "-b", BRANCH, "-e", "push", "-L", "300",
-            "--json", "databaseId,headSha,conclusion,createdAt"], listing)
-    runs = sorted((r for r in json.loads(listing.read_text()) if r["createdAt"] >= args.since),
-                  key=lambda r: r["createdAt"], reverse=True)
+        gh(["run", "list", "-R", REPO, "-w", WORKFLOW, "-b", BRANCH, "-L", "300",
+            "--json", "databaseId,headSha,conclusion,createdAt,event"], listing)
+    runs = listed_runs(json.loads(listing.read_text()), args.since)
     if args.limit:
         runs = runs[: args.limit]
     notes: list[str] = []

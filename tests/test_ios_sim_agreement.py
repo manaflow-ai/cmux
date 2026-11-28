@@ -69,3 +69,14 @@ job\tUNKNOWN STEP\t2026-11-27T04:30:25.2Z FAILED: CmuxMobileShellTests / Z / q
 def test_unknown_step_log_is_cut_by_group_markers_and_root_is_dropped():
     ok, failing = m.parse_mac(UNKNOWN)
     assert ok and failing == {("CmuxMobileLiveTests", "Suite", "aTest")}
+
+
+def test_the_nightly_dispatch_counts_and_other_events_do_not():
+    listing = [
+        {"databaseId": 1, "createdAt": "2026-11-28T07:49:00Z", "event": "workflow_dispatch"},
+        {"databaseId": 2, "createdAt": "2026-11-28T13:14:00Z", "event": "push"},
+        {"databaseId": 3, "createdAt": "2026-11-28T14:00:00Z", "event": "pull_request"},
+        {"databaseId": 4, "createdAt": "2026-11-24T07:49:00Z", "event": "workflow_dispatch"},
+        {"databaseId": 5, "createdAt": "2026-11-28T15:00:00Z"},  # an older cache: no event field
+    ]
+    assert [r["databaseId"] for r in m.listed_runs(listing, "2026-11-25T07:53:00Z")] == [5, 2, 1]
