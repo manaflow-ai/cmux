@@ -24,5 +24,8 @@ public nonisolated struct CloudTunables {
     /// Wake on intent (hq#21300), off by default; its rules are Rust's (cmux-cloud-handlers `wake_hint`).
     public static let wakeOnIntent = Tunable<Bool>.toggle("cloud.wakeOnIntent", PageTunables.section, "Wake Cloud machines on focus", help: "A paused Cloud machine starts waking when you focus its chat; unused for 30 seconds, it pauses again.", default: true, code: "CloudTunables.wakeOnIntent")
 
-    public static var all: [TunableDescriptor] { [updateCloudMachinesAutomatically.descriptor, wakeOnIntent.descriptor] }
+    /// RFD 0144 piece 2: a read never wakes a VM. On, opening a paused machine's chat shows the daemon's copy of it
+    /// (`_acpmux/peer_snapshot`) and wakes nothing; the composer's first key and a terminal still wake it. Default off.
+    public static let openWithoutWake = Tunable<Bool>.toggle("cloud.openWithoutWake", PageTunables.section, "Open paused chats without waking", help: "Opening a paused Cloud machine's chat shows its last copy and leaves the machine paused; typing or a terminal wakes it.", default: false, code: "CloudTunables.openWithoutWake")
+    public static var all: [TunableDescriptor] { [updateCloudMachinesAutomatically.descriptor, wakeOnIntent.descriptor, openWithoutWake.descriptor] }
 }

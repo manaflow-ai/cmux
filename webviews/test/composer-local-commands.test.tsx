@@ -2,7 +2,10 @@
 // queued, steered or held behind the running turn, while a normal prompt mid-turn still queues (Leo,
 // 2026-11-10: "typing /mcp or /status on its own should NOT queue/steer and wait behind... at least
 // for these types of nonsending type messages, they should just... go there. and run. instead of
-// being treated like normal messages"). cmux's own /status runs at once the same way.
+// being treated like normal messages"). cmux's own /status runs at once the same way, and so does a
+// bare /mcp: it became cmux's own command (#40200, Session Info's Connectors), which wins over this
+// list (localCommands.ts), so the harness-local examples here are Claude Code's /cost and Codex's
+// /usage.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -190,13 +193,26 @@ test("/status mid-turn runs at once: nothing is sent, so nothing queues or steer
   });
 });
 
-test("/mcp mid-turn runs at once in the GUI: nothing is sent, so nothing queues or steers", async () => {
+test("/cost mid-turn runs at once in the GUI: nothing is sent, so nothing queues or steers", async () => {
   for (const steering of [true, false]) {
-    const run = await composer(working("claude", steering), "/mcp");
+    const run = await composer(working("claude", steering), "/cost");
     await enter(run.field);
     expect({ sent: run.sent, local: run.local, left: run.field.textContent }).toEqual({
       sent: [],
-      local: ["mcp"],
+      local: ["cost"],
+      left: "",
+    });
+  }
+});
+
+test("a bare /mcp mid-turn is cmux's own and runs at once: nothing is sent, so nothing queues or steers", async () => {
+  for (const steering of [true, false]) {
+    const run = await composer(working("claude", steering), "/mcp");
+    await enter(run.field);
+    expect({ sent: run.sent, owned: run.owned, local: run.local, left: run.field.textContent }).toEqual({
+      sent: [],
+      owned: ["mcp"],
+      local: [],
       left: "",
     });
   }
@@ -218,16 +234,16 @@ test("a command that sends to the model keeps the normal path: it waits for the 
 });
 
 test("a local command with arguments is the harness's, sent as typed", async () => {
-  const run = await composer(working(), "/mcp reconnect github");
+  const run = await composer(working(), "/cost --all");
   await enter(run.field);
   expect(run.local).toEqual([]);
-  expect(run.sent.map((sent) => sent.text)).toEqual(["/mcp reconnect github"]);
+  expect(run.sent.map((sent) => sent.text)).toEqual(["/cost --all"]);
 });
 
 test("with nothing to show it in, a local command goes to the harness as typed", async () => {
-  const run = await composer(working(), "/mcp", false);
+  const run = await composer(working(), "/cost", false);
   await enter(run.field);
-  expect(run.sent.map((sent) => sent.text)).toEqual(["/mcp"]);
+  expect(run.sent.map((sent) => sent.text)).toEqual(["/cost"]);
 });
 
 test("the set is per harness, and never holds a command that sends to the model", () => {
@@ -258,14 +274,14 @@ test("Codex's /diff mid-turn runs at once: the chat's changes open, nothing is s
   expect({ sent: run.sent, local: run.local }).toEqual({ sent: [], local: ["diff"] });
 });
 
-test("Cmd-Return on /mcp mid-turn runs it at once too: nothing queues", async () => {
-  const run = await composer(working("claude", true), "/mcp");
+test("Cmd-Return on /cost mid-turn runs it at once too: nothing queues", async () => {
+  const run = await composer(working("claude", true), "/cost");
   await enter(run.field, true);
-  expect({ sent: run.sent, local: run.local }).toEqual({ sent: [], local: ["mcp"] });
+  expect({ sent: run.sent, local: run.local }).toEqual({ sent: [], local: ["cost"] });
 });
 
 test("with nowhere to show it, a local command keeps the normal send: it steers if the agent steers", async () => {
-  const run = await composer(working("codex", true), "/mcp", false);
+  const run = await composer(working("codex", true), "/usage", false);
   await enter(run.field);
-  expect(run.sent).toEqual([{ text: "/mcp", steer: true }]);
+  expect(run.sent).toEqual([{ text: "/usage", steer: true }]);
 });
