@@ -14,6 +14,7 @@
 //! into a Mac answer and the same cursors move; Swift sends it over its own authenticated HTTPS
 //! and applies each answer as a Mac reply's. Off unless the app's `relay.deltaCatchup` is on.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use cmux_mobile_core::catch_up::relay::{self, Floors};
@@ -184,6 +185,14 @@ pub struct RelayCatchUpAnswer {
 pub struct PhoneCatchUp {
     cursors: Mutex<Cursors>,
     floors: Mutex<Floors>,
+    /// The last request was a background wake's: its reply spends from the hour's bound.
+    background: AtomicBool,
+}
+
+/// The wall clock in seconds, the hour's bound's clock (`now` of the exported calls is the
+/// app's own, for recency only).
+fn wall_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs())
 }
 
 impl PhoneCatchUp {
@@ -224,8 +233,10 @@ impl PhoneCatchUp {
 }
 
 impl PhoneCatchUp {
-    fn request(&self, wake: Wake, ask: CatchUpAsk) -> String {
+    fn request(&self, wake: Wake, ask: CatchUpAsk, hour_now: Option<u64>) -> String {
+        self.background.store(hour_now.is_some(), Ordering::Relaxed);
         let mut core_ask = Ask::new(wake);
+        core_ask.hour_now = hour_now;
         core_ask.budget = ask.budget_bytes;
         core_ask.known = ask.known_json.and_then(|text| serde_json::from_str::<Value>(&text).ok());
         core_ask.capabilities = ask.capabilities;
@@ -248,7 +259,11 @@ impl PhoneCatchUp {
     #[uniffi::constructor]
     pub fn open(kept: Option<Vec<u8>>) -> Arc<Self> {
         let cursors = kept.map(|bytes| Cursors::decode(&bytes)).unwrap_or_default();
-        Arc::new(Self { cursors: Mutex::new(cursors), floors: Mutex::default() })
+        Arc::new(Self {
+            cursors: Mutex::new(cursors),
+            floors: Mutex::default(),
+            background: AtomicBool::new(false),
+        })
     }
 
     /// Reads back the relay positions [`PhoneCatchUp::relay_encode`] kept.
@@ -354,22 +369,28 @@ impl PhoneCatchUp {
     /// The `catch-up` channel's open args (a JSON object) for a foreground wake.
     pub fn foreground_request(&self, ask: CatchUpAsk) -> String {
         let wake = Wake::Foreground { chat: ask.on_screen_chat.clone(), terminal: None };
-        self.request(wake, ask)
+        self.request(wake, ask, None)
     }
 
     /// The args for a background wake: a push about `push_chat`, or a refresh when nil
-    /// (`budget_bytes` 0 asks for the wake's budget).
+    /// (`budget_bytes` 0 asks for the wake's budget). The chats ask for no more than the
+    /// background hour's bound has left (256 KiB an hour, `cmux_mobile_core::catch_up::hour`),
+    /// none once it is spent; what is behind stays behind its cursor for the next wake.
     pub fn background_request(&self, ask: CatchUpAsk, push_chat: Option<String>) -> String {
         let wake = match push_chat {
             Some(chat) => Wake::Push { chat: Some(chat) },
             None => Wake::Refresh,
         };
-        self.request(wake, ask)
+        self.request(wake, ask, Some(wall_secs()))
     }
 
     /// Reads the reply frame and moves the cursors of what it answered; a cut surface keeps
     /// its cursor.
+    /// The reply of a background request spends what it weighed from the hour's bound.
     pub fn apply(&self, reply: Vec<u8>, now: u64) -> Result<CatchUpAnswer, CatchUpError> {
+        if self.background.swap(false, Ordering::Relaxed) {
+            self.cursors().spend_background(wall_secs(), reply.len() as u64);
+        }
         let answer =
             core::read(&reply).map_err(|error| CatchUpError::Reply { message: error.to_string() })?;
         Ok(self.take(&answer, now))
@@ -418,6 +439,38 @@ mod tests {
         assert!(catch_up.apply(b"nope".to_vec(), 2).is_err());
         assert!(catch_up_falls_back("unknown_service".into()));
         assert!(!catch_up_falls_back("timeout".into()));
+    }
+
+    #[test]
+    fn a_background_reply_spends_from_the_hour_and_a_spent_hour_asks_no_chats() {
+        let catch_up = PhoneCatchUp::open(None);
+        let ask = || CatchUpAsk {
+            on_screen_chat: None,
+            known_json: None,
+            capabilities: vec![],
+            chats: vec![CatchUpChatAsk { session_id: "a".into(), last_seq: Some(4) }],
+            budget_bytes: 0,
+        };
+        let args: Value = serde_json::from_str(&catch_up.background_request(ask(), None)).unwrap();
+        assert_eq!(args["budgetBytes"], 64 * 1024);
+        // A Mac that overshot: the hour counts what came, not what was asked.
+        let page = "x".repeat(300 * 1024);
+        let reply = format!(
+            r#"{{"v":1,"chats":[{{"sessionId":"a","events":[{{"t":"{page}"}}],"lastSeq":9,"pageThrough":9,"hasMore":false}}],"cut":[]}}"#
+        );
+        catch_up.apply(reply.clone().into_bytes(), 1).unwrap();
+        let args: Value = serde_json::from_str(&catch_up.background_request(ask(), None)).unwrap();
+        assert_eq!(args["budgetBytes"], 0);
+        assert_eq!(args["chats"], serde_json::json!([]));
+        // The hour is kept with the cursors (the extension's wake spends from the same one).
+        let reopened = PhoneCatchUp::open(Some(catch_up.encode()));
+        let args: Value = serde_json::from_str(&reopened.background_request(ask(), None)).unwrap();
+        assert_eq!(args["chats"], serde_json::json!([]));
+        // The foreground is not bounded, and its reply spends nothing.
+        let args: Value = serde_json::from_str(&reopened.foreground_request(ask())).unwrap();
+        assert_eq!(args["budgetBytes"], 64 * 1024);
+        reopened.apply(reply.into_bytes(), 2).unwrap();
+        assert_eq!(reopened.encode(), catch_up.encode());
     }
 
     #[test]

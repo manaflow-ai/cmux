@@ -53,6 +53,10 @@ pub struct Ask {
     pub chats: Vec<(String, Option<u64>)>,
     /// The chat event kinds the phone draws; empty leaves the Mac's default.
     pub chat_kinds: Vec<String>,
+    /// A background wake's wall clock, in seconds: its chats ask for no more than the hour's
+    /// bound has left ([`super::hour`]), and none at all once it is spent (the lists still
+    /// go: a few hundred bytes when nothing changed). None: the wake's budget only.
+    pub hour_now: Option<u64>,
 }
 
 impl Ask {
@@ -65,6 +69,7 @@ impl Ask {
             workspace_delta: false,
             chats: Vec::new(),
             chat_kinds: Vec::new(),
+            hour_now: None,
         }
     }
 }
@@ -76,7 +81,12 @@ pub fn request(cursors: &Cursors, ask: &Ask) -> Value {
         Wake::Push { chat } => ("background", chat.as_deref(), RECENT_CHATS),
         Wake::Refresh => ("background", None, RECENT_CHATS),
     };
-    let budget = if ask.budget == 0 { WAKE_BUDGET_BYTES } else { ask.budget.min(MAX_BUDGET_BYTES) };
+    let mut budget =
+        if ask.budget == 0 { WAKE_BUDGET_BYTES } else { ask.budget.min(MAX_BUDGET_BYTES) };
+    let background = !matches!(ask.wake, Wake::Foreground { .. });
+    if background && let Some(now) = ask.hour_now {
+        budget = cursors.hour.chat_budget(now, budget);
+    }
 
     let mut workspaces = Map::new();
     let known = ask.known.clone().filter(Value::is_object).unwrap_or_else(|| {
@@ -123,6 +133,11 @@ pub fn request(cursors: &Cursors, ask: &Ask) -> Value {
     by_recency.sort_by(|a, b| b.1.opened_at.cmp(&a.1.opened_at).then(a.0.cmp(b.0)));
     for (id, _) in by_recency.into_iter().take(recent) {
         push(id, None);
+    }
+    if budget == 0 {
+        // The hour is spent: what is behind waits behind its cursor for the next hour or the
+        // foreground. Asked with no chats, the Mac reads none.
+        ids.clear();
     }
     let chats: Vec<Value> = ids
         .into_iter()
@@ -302,6 +317,12 @@ pub fn read(bytes: &[u8]) -> Result<Answer, ReadError> {
 }
 
 impl Cursors {
+    /// A background wake's reply of `bytes` arrived at `now` (wall clock seconds): the hour's
+    /// bound counts it, whatever the Mac answered, so a Mac that overshot shrinks the next wakes.
+    pub fn spend_background(&mut self, now: u64, bytes: u64) {
+        self.hour.spend(now, bytes);
+    }
+
     /// Moves the cursor of each surface `answer` answered past what it held. A cut surface,
     /// and a chat the reply left out (the phone may not see it), keep theirs.
     pub fn apply_catch_up(&mut self, answer: &Answer, now: u64) {

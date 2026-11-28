@@ -239,3 +239,50 @@ fn only_a_mac_without_the_service_falls_back_to_todays_calls() {
         matches!(&requests[0], crate::catch_up::Request::Workspaces { known: Some(r), .. } if r == "r1")
     );
 }
+
+#[test]
+fn background_wakes_share_the_hour_and_a_spent_hour_asks_the_lists_only() {
+    use crate::catch_up::LIST_ESTIMATE_BYTES;
+    use crate::catch_up::hour::HOUR_BUDGET_BYTES;
+    let mut cursors = cursors();
+    let mut ask = Ask::new(Wake::Refresh);
+    ask.hour_now = Some(1_000);
+    let args = request(&cursors, &ask);
+    assert_eq!(args["budgetBytes"], json!(WAKE_BUDGET_BYTES), "a fresh hour: the wake's budget");
+    assert_eq!(args["chats"].as_array().map(Vec::len), Some(RECENT_CHATS));
+
+    // Three full wakes and part of a fourth: what is left after the lists' estimate.
+    for at in [1_000, 1_900, 2_800] {
+        cursors.spend_background(at, WAKE_BUDGET_BYTES);
+    }
+    cursors.spend_background(3_000, 40 * 1024);
+    ask.hour_now = Some(3_100);
+    let left = HOUR_BUDGET_BYTES - 3 * WAKE_BUDGET_BYTES - 40 * 1024 - 2 * LIST_ESTIMATE_BYTES;
+    assert_eq!(args_budget(&cursors, &ask), left);
+
+    // Spent: the lists go, no chat does; the cursors stay where they were.
+    cursors.spend_background(3_100, 64 * 1024);
+    let args = request(&cursors, &ask);
+    assert_eq!(args["budgetBytes"], json!(0));
+    assert_eq!(args["chats"], json!([]));
+    assert_eq!(args["chatList"], json!({"afterSeq": 40, "listEpoch": "E"}));
+    assert_eq!(cursors.chats["e"].last_seq, 40);
+
+    // The foreground is the person asking: the hour does not bound it.
+    let mut fg = foreground("b");
+    fg.hour_now = Some(3_100);
+    assert_eq!(args_budget(&cursors, &fg), WAKE_BUDGET_BYTES);
+
+    // An hour after the first wake, its bytes leave the window; the kept ledger survives a
+    // relaunch (the app and its extension spend from one hour).
+    ask.hour_now = Some(4_600);
+    let relaunched = Cursors::decode(&cursors.encode());
+    assert_eq!(relaunched, cursors);
+    assert_eq!(args_budget(&relaunched, &ask), 16 * 1024, "the 1 000 s wake left: 232 KiB spent");
+    ask.hour_now = Some(5_500);
+    assert_eq!(args_budget(&relaunched, &ask), WAKE_BUDGET_BYTES, "168 KiB spent");
+}
+
+fn args_budget(cursors: &Cursors, ask: &Ask) -> u64 {
+    request(cursors, ask)["budgetBytes"].as_u64().unwrap()
+}

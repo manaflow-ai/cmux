@@ -6779,12 +6779,15 @@ public protocol PhoneCatchUpProtocol: AnyObject, Sendable {
     /**
      * Reads the reply frame and moves the cursors of what it answered; a cut surface keeps
      * its cursor.
+     * The reply of a background request spends what it weighed from the hour's bound.
      */
     func apply(reply: Data, now: UInt64) throws  -> CatchUpAnswer
     
     /**
      * The args for a background wake: a push about `push_chat`, or a refresh when nil
-     * (`budget_bytes` 0 asks for the wake's budget).
+     * (`budget_bytes` 0 asks for the wake's budget). The chats ask for no more than the
+     * background hour's bound has left (256 KiB an hour, `cmux_mobile_core::catch_up::hour`),
+     * none once it is spent; what is behind stays behind its cursor for the next wake.
      */
     func backgroundRequest(ask: CatchUpAsk, pushChat: String?)  -> String
     
@@ -6900,6 +6903,7 @@ public static func `open`(kept: Data?) -> PhoneCatchUp  {
     /**
      * Reads the reply frame and moves the cursors of what it answered; a cut surface keeps
      * its cursor.
+     * The reply of a background request spends what it weighed from the hour's bound.
      */
 open func apply(reply: Data, now: UInt64)throws  -> CatchUpAnswer  {
     return try  FfiConverterTypeCatchUpAnswer_lift(try rustCallWithError(FfiConverterTypeCatchUpError_lift) {
@@ -6913,7 +6917,9 @@ open func apply(reply: Data, now: UInt64)throws  -> CatchUpAnswer  {
     
     /**
      * The args for a background wake: a push about `push_chat`, or a refresh when nil
-     * (`budget_bytes` 0 asks for the wake's budget).
+     * (`budget_bytes` 0 asks for the wake's budget). The chats ask for no more than the
+     * background hour's bound has left (256 KiB an hour, `cmux_mobile_core::catch_up::hour`),
+     * none once it is spent; what is behind stays behind its cursor for the next wake.
      */
 open func backgroundRequest(ask: CatchUpAsk, pushChat: String?) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
@@ -30326,10 +30332,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_stats() != 19072) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_apply() != 48986) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_apply() != 61191) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_background_request() != 4735) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_background_request() != 40264) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_encode() != 59540) {
