@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts and commands, not shipped UI.
-// A single permission card (an ask outside the grouped panel) went once answered and left nothing:
-// the grouped panel shows a receipt, the single card none. Codex and Claude Code keep the answer
+// A single permission card (an ask outside the grouped panel) went once answered and left nothing.
+// Codex and Claude Code keep the answer
 // with the turn. The transcript now keeps a one-line receipt where the ask was answered: "Allowed:
 // Run npm test", "Always allowed: …", "Denied: …", or "Not answered: …" for one the turn's end
 // cancelled. It comes from acpmux's log (`permission_request`, then its `permission_decision`), so

@@ -1,8 +1,7 @@
-// An answered permission leaves the chat with its turn (dogfood run 5). After "Allow once" the
-// panel kept a strip above the composer, "ACP requests only · Isolation unverified" and
-// "Allow once", for the rest of the chat, turns after the one that asked included. Codex and
-// Claude keep an answered approval with its turn. The receipt now shows while the turn that
-// asked still runs, and the panel leaves once that turn ends.
+// An answered permission leaves the panel at once. The panel used to keep a receipt over the
+// composer ("▶ Allow once") until the turn ended, which repeated what the transcript already says:
+// the call is back in its place, and a single card's answer reads on its row or as a one-line
+// receipt (record.ts).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -67,16 +66,15 @@ const listed = (groups: PermissionGroup[]): PermissionClientState => ({
   busy: false,
 });
 
-test("an answered permission shows while its turn runs, and leaves the chat once the turn ends", async () => {
+test("an answered permission leaves the panel at once, with no receipt over the composer", async () => {
   const { createRoot } = await import("react-dom/client");
   const { PermissionPanel } = await import("../src/agent-session/acpmux/permissions/Panel");
   root = createRoot(host);
-  const show = (state: PermissionClientState, working: boolean) =>
+  const show = (state: PermissionClientState) =>
     act(async () =>
       root!.render(
         <PermissionPanel
           state={state}
-          working={working}
           onRespond={() => {}}
           onRetry={() => {}}
           onRevoke={() => {}}
@@ -86,18 +84,13 @@ test("an answered permission shows while its turn runs, and leaves the chat once
     );
   const panel = () => host.querySelector(".acpmux-permission-panel")?.textContent ?? null;
 
-  await show(listed([edit("pending", null)]), true);
+  await show(listed([edit("pending", null)]));
   expect(panel()).toContain("Always");
 
-  // Answered, the turn still running: the receipt says what was chosen.
-  await show(listed([edit("resolved", "allow_once")]), true);
-  expect(panel()).toContain("Allow once");
-
-  // The turn ended: nothing stays above the composer.
-  await show(listed([edit("resolved", "allow_once")]), false);
-  expect(panel()).toBeNull();
-
-  // The next turn asks nothing: the old receipt does not come back.
-  await show(listed([edit("resolved", "allow_once")]), true);
+  for (const decision of ["allow_once", "allow_chat", "deny"] as const) {
+    await show(listed([edit("resolved", decision)]));
+    expect(panel()).toBeNull();
+  }
+  await show(listed([edit("cancelled", null)]));
   expect(panel()).toBeNull();
 });

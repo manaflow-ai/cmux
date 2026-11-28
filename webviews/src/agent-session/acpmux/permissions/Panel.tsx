@@ -22,13 +22,6 @@ import type { HoldScope } from "./holdToApprove.experiment";
 /// Each answer's letter, as the single card's (prompt.ts PERMISSION_LETTERS).
 const LETTERS: Record<PermissionDecision, string> = { allow_once: "y", allow_chat: "a", deny: "n" };
 
-/// What a receipt says was answered.
-const choices: Record<PermissionDecision, StringKey> = {
-  allow_once: "permission.allowOnce",
-  allow_chat: "permission.allowChat",
-  deny: "permission.deny",
-};
-
 /// The answers at the end of a waiting ask's row, short, in this order (Leo 2026-10-14).
 const answers: [PermissionDecision, StringKey][] = [
   ["allow_once", "permission.allow"],
@@ -49,8 +42,6 @@ const verbs: Partial<Record<string, StringKey>> = {
 
 type Props = {
   state: PermissionClientState;
-  /// The chat's turn is running: an answered group's receipt shows only until its turn ends.
-  working: boolean;
   onRespond(groupId: string, revision: number, decision: PermissionDecision): void;
   onRetry(): void;
   onRevoke(): void;
@@ -255,7 +246,7 @@ function AskRow({
   );
 }
 
-export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh, hold }: Props) {
+export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh, hold }: Props) {
   const t = useT();
   // Hold to approve (HoldButton.tsx, off unless its experiment is on), read once per panel.
   const [experimentHold] = useState(holdSettings);
@@ -352,14 +343,6 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
       for (const [name, handler] of handlers) window.removeEventListener(`cmux-acpmux-${name}`, handler);
     };
   }, []);
-  // The answered group whose turn has ended: its receipt left the chat with that turn, and a later
-  // turn that asks nothing does not bring it back (cx-1lq0s).
-  const last = state.groups.at(-1);
-  const answered = last && last.state !== "pending" && last.state !== "collecting" ? last.groupId : undefined;
-  const [ended, setEnded] = useState<string>();
-  useEffect(() => {
-    if (!working && answered) setEnded(answered);
-  }, [working, answered]);
   // The chat's permission requests could not be read (`ready` false, nothing in doubt): they are read
   // again on its own (autoRetry.ts), never behind a Refresh button, since a read has no cost (Leo,
   // 2026-11-22: "vacuous decisions like that should be just done"). Nothing shows at first; past
@@ -372,9 +355,10 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
   });
   if (!state.supported) return null;
   const pending = state.groups.filter((group) => group.state === "pending" || group.state === "collecting");
-  const receipt = pending.length === 0 && working && answered !== ended ? last : undefined;
+  // An answered group leaves the panel at once: its answer reads in the transcript, on the call it
+  // approved or as a one-line receipt where it was answered, never again over the composer.
   const still = reading && stillTrying;
-  if (!pending.length && !receipt && !still && (!state.error || readFailed)) return null;
+  if (!pending.length && !still && (!state.error || readFailed)) return null;
   const disabled = state.busy || state.loading || state.ready === false || !!state.uncertain;
   // The group the keys answer (respondToPending): the first one waiting, whose answers list the
   // letters. No keycap is drawn: the pending command is one quiet row (Leo 2026-10-14), its answers small.
@@ -452,20 +436,6 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
           </fieldset>
         );
       })}
-      {receipt && (
-        <details className="acpmux-permission-receipt">
-          <summary>
-            {receipt.state === "cancelled"
-              ? t("permission.cancelled")
-              : receipt.decision
-                ? t(choices[receipt.decision])
-                : t("permission.answered")}
-          </summary>
-          {receipt.items.map((item) => (
-            <AskRow key={item.permissionId} item={item} expandSignal={expandSignal} />
-          ))}
-        </details>
-      )}
       {reading
         ? still && (
             <p className="acpmux-permission-coverage" data-still-trying="">

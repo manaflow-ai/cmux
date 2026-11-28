@@ -10610,7 +10610,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       {hasPermissionGroups && snapshot.permissionGroups && (
         <PermissionPanel
           state={snapshot.permissionGroups}
-          working={snapshot.isWorking}
           onRespond={(groupId, revision, decision) => {
             void callNative("chat.permission_group.respond", { groupId, revision, decision });
           }}
