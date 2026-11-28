@@ -368,6 +368,9 @@ pub(super) async fn forward(
     {
         return Some(Ok(row));
     }
+    if m == method::SESSION_PROMPT {
+        crate::prompt_probe::mark_params("used", params);
+    }
     // A message to a chat on a peer ends that peer's typing wake as sent (`compose_wake.rs`).
     if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE)
         && let Some(peer) = session_key(params).ok().and_then(|key| hub.resolve_remote(key))
@@ -1075,6 +1078,9 @@ async fn forward_inner(
                     })
             })
             .flatten();
+        if m == method::SESSION_PROMPT {
+            crate::prompt_probe::mark_params("send", &p);
+        }
         let result = if shared_presence {
             conn.outgoing_presence.send(hub, conn, peer.clone(), m, p, on.unwrap_or(link)).await
         } else if matches!(

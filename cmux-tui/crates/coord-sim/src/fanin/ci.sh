@@ -156,6 +156,7 @@ for d in "$RUN"/n*; do
   cp "$d/ops.ndjson" "$d/proc.ndjson" "$OUT/$n/" 2>/dev/null || true
   for h in "$d"/controller "$d"/h[0-9]*; do
     [ -f "$h/daemon.stderr" ] && tail -c 20000 "$h/daemon.stderr" > "$OUT/$n/$(basename "$h").stderr.tail"
+    [ -f "$h/prompt-trace.log" ] && gzip -c "$h/prompt-trace.log" > "$OUT/$n/$(basename "$h").prompt-trace.log.gz"
   done
 done
 python3 - "$RUN/fanin-summary.json" <<'PY' || true

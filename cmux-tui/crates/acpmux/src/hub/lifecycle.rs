@@ -831,7 +831,10 @@ impl Hub {
         }
         // Boxed: a start is a deep future, and the stack a caller polls it on is not.
         let wake = self.wake_began(session);
-        let child = match Box::pin(self.reach_or_start(session, profile, stops, &off)).await {
+        crate::prompt_probe::mark("reach0", &session.id, "-");
+        let reached = Box::pin(self.reach_or_start(session, profile, stops, &off)).await;
+        crate::prompt_probe::mark("reach1", &session.id, "-");
+        let child = match reached {
             Ok(child) => child,
             Err(e) if super::policy_mode::is_unenforceable(&e) => {
                 // Keyed by the chat as the refused start left it (its agent reports its mode).

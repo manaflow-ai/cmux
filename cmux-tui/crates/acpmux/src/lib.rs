@@ -152,9 +152,9 @@ pub mod hypervisor;
 pub mod install_share;
 pub mod key_check;
 pub mod memory_follow;
+pub mod model_router;
 mod subscription_store;
 mod subscriptions;
-pub mod model_router;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -420,6 +420,7 @@ pub mod sim_agent;
 pub(crate) mod slow_notice;
 // The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
 pub mod perf_watch;
+pub mod prompt_probe;
 pub mod scorecard;
 pub mod scorecard_replay;
 #[cfg(all(test, unix))]

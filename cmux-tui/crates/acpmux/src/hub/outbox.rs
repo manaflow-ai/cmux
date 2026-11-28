@@ -1330,6 +1330,7 @@ impl PeerAccepts {
     pub fn accepted(&self, peer: &str, params: &Value) {
         let Some(session_id) = params.get("sessionId").and_then(Value::as_str) else { return };
         let Some(prompt_id) = params.get("promptId").and_then(Value::as_str) else { return };
+        crate::prompt_probe::mark("acc_in", session_id, prompt_id);
         let key = (peer.to_owned(), session_id.to_owned(), prompt_id.to_owned());
         // Preserve a retry's early acknowledgement, including a retry registered
         // after the real acceptance. A provisional notice cannot persist or settle

@@ -119,6 +119,9 @@ pub(super) async fn route(
     params: Value,
     sender_token: Option<crate::sender_token::Presented>,
 ) -> Result<Value, RpcError> {
+    if m == crate::rpc::method::SESSION_PROMPT {
+        crate::prompt_probe::mark_params("route", &params);
+    }
     // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
     let params = super::pairing::gate(conn, m, params)?;
     // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
