@@ -216,7 +216,9 @@ describe("editors", () => {
           // So does its Customization Library card, its list.
           op !== "cmux.settings.customize.library" &&
           // Undo reads the durable settings history around each step (a read, no write).
-          op !== "cmux.settings.history",
+          op !== "cmux.settings.history" &&
+          // The Looks gallery reads its list and each look's preview when Appearance opens.
+          op !== "cmux.settings.looks",
       );
     expect(order).toEqual([
       "cmux.settings.preview",

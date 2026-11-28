@@ -14,13 +14,8 @@ import { t } from "../strings";
 import { GroupHeader } from "./GroupHeader";
 import { SettingsErrorRow } from "./SettingsErrorRow";
 
-export const STATUS: Record<string, string> = {
-  unbuilt: "settingsPage.cloudEnvironments.status.unbuilt",
-  building: "settingsPage.cloudEnvironments.status.building",
-  ready: "settingsPage.cloudEnvironments.status.ready",
-  stale: "settingsPage.cloudEnvironments.status.stale",
-  failed: "settingsPage.cloudEnvironments.status.failed",
-};
+export { STATUS } from "./cloudEnvironmentStatus";
+import { STATUS } from "./cloudEnvironmentStatus";
 
 const FAILURE = {
   refresh: "settingsPage.cloudEnvironments.loadFailed",

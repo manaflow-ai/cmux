@@ -237,6 +237,9 @@ export function isBackdropLocation(value: unknown): boolean {
   return Math.abs(Number(parts[0])) <= 90 && Math.abs(Number(parts[1])) <= 180;
 }
 
+/** Rust schema/backdrop.rs RECENTS_CAP (Swift BackdropSelectionSetting.recentsCap). */
+const BACKDROP_RECENTS_CAP = 8;
+
 /** Returns null when `value` is valid for `row`, otherwise a short English reason. */
 export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domains>): string | null {
   const choices = row.choices?.map((choice) => choice.value) ?? [];
@@ -278,6 +281,26 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       !Array.isArray(value) &&
       Object.entries(value).every(([name, text]) => Object.hasOwn(member, name) && member[name]!(text));
     return ok ? null : 'expected {"rotate": daily | folder:<path>, "folder": folder:<path>, "off": none | picture}';
+  }
+  if (row.validation === "domain:backdrop_pictures") {
+    // appearance.paneArt.*: pictures only (Rust schema/backdrop.rs is_picture), no mode or folder.
+    return Array.isArray(value) && value.every((item) => isBackdropPicture(item, choices))
+      ? null
+      : "expected a list of pictures: a listed painting, system:<absolute path> or file:<absolute path>";
+  }
+  if (row.validation === "domain:backdrop_recents") {
+    // appearance.backgroundRecents: at most 8 distinct background values, newest first (Rust is_recents).
+    const selection = (item: unknown) =>
+      typeof item === "string" &&
+      (["none", "daily", "appearance", "schedule", "desktop"].includes(item) ||
+        /^folder:\/./.test(item) ||
+        isBackdropPicture(item, choices));
+    return Array.isArray(value) &&
+      value.length <= BACKDROP_RECENTS_CAP &&
+      new Set(value).size === value.length &&
+      value.every(selection)
+      ? null
+      : `expected at most ${BACKDROP_RECENTS_CAP} distinct backgrounds`;
   }
   if (row.validation === "domain:backdrop_location") {
     return isBackdropLocation(value) ? null : "expected LAT,LON such as 37.77,-122.42";

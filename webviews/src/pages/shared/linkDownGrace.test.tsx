@@ -14,7 +14,11 @@ import { teardownDom } from "../../../test/support/domTeardown";
 import { installVirtualSizes } from "../../../test/support/virtualSizes";
 import { createStrings } from "./i18n";
 
-const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
+// pretendToBeVisual: the Bookmarks tree's virtualizer reconciles its scroll on requestAnimationFrame.
+const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+  url: "http://localhost/",
+  pretendToBeVisual: true,
+});
 // jsdom draws no layout, so it has no scrollIntoView; the Bookmarks tree reveals its selected row with it.
 dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
 const globals = globalThis as Record<string, unknown>;
