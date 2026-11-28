@@ -53,31 +53,9 @@ pub(super) use time_breakdown_gate::without as without_time_breakdown;
 mod turn_opener;
 mod workflow_dispatch;
 pub use workflow_dispatch::FEATURE as DURABLE_DISPATCH_FEATURE;
+mod disallowed_tools;
 #[path = "watches.rs"]
 mod watches;
-
-/// `_meta.acpmux.disallowedTools`: Claude Code built-in tools the new chat
-/// never gets (`acpmux new --worktree` sends `["AskUserQuestion"]`). Each is
-/// a tool's name, letters, digits and `_`, so none is a permission rule
-/// (`Bash(rm *)`) or a flag; it only takes tools away, from any origin.
-fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
-    let refused = || RpcError::invalid_params("disallowedTools must be a list of tool names");
-    match meta.and_then(|m| m.get("disallowedTools")) {
-        None | Some(Value::Null) => Ok(Vec::new()),
-        Some(Value::Array(names)) => names
-            .iter()
-            .map(|n| {
-                n.as_str()
-                    .filter(|n| {
-                        !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-                    })
-                    .map(str::to_owned)
-                    .ok_or_else(refused)
-            })
-            .collect(),
-        Some(_) => Err(refused()),
-    }
-}
 
 /// Validate the read-free `_acpmux/attach {hold:true}` shape and return its exact-kind filter.
 fn hold_attach_filter(params: &Value) -> Result<crate::hub::EventFilter, RpcError> {
@@ -2105,7 +2083,7 @@ async fn dispatch_method(
             if claude_team_route {
                 env.insert(crate::claude_cloud_auth::REQUIRED_TEAM.into(), "1".into());
             }
-            let disallowed_tools = disallowed_tools(meta)?;
+            let disallowed_tools = disallowed_tools::disallowed_tools(meta)?;
             let additional_directories = crate::hub::additional_dirs::requested(&params).await?;
             let stop_condition = crate::hub::stop_condition::requested(meta)?;
             // Read-only work in a folder not trusted (`hub/restricted.rs`): review, or narrower.
