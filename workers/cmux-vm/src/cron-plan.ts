@@ -10,21 +10,26 @@
  *  - The VM sweep deletes VMs no ownership row records, the absence of a row: in preview another Worker's VM has no
  *    row here, so it runs only where one Worker owns the environment (staging and production).
  *  - The agent reaper runs in staging and production, as before the preview cron existed.
+ *  - The idle sweep (src/upstream/idle-sweep.ts) deletes VMs paused or stopped for 24 h, in every tenant: staging only,
+ *    where every VM is a test machine. Never production, where a user's paused machine is kept; never preview, whose
+ *    Workers share one environment's slugs.
  */
 export interface CronPlan {
   readonly reap: boolean;
   readonly sweepVms: boolean;
   readonly sweepTunnels: boolean;
+  readonly sweepIdleVms: boolean;
 }
 
 export const cronPlan = (environment: string | undefined): CronPlan => {
   switch (environment) {
     case "staging":
+      return { reap: true, sweepVms: true, sweepTunnels: true, sweepIdleVms: true };
     case "production":
-      return { reap: true, sweepVms: true, sweepTunnels: true };
+      return { reap: true, sweepVms: true, sweepTunnels: true, sweepIdleVms: false };
     case "preview":
-      return { reap: false, sweepVms: false, sweepTunnels: true };
+      return { reap: false, sweepVms: false, sweepTunnels: true, sweepIdleVms: false };
     default:
-      return { reap: false, sweepVms: false, sweepTunnels: false };
+      return { reap: false, sweepVms: false, sweepTunnels: false, sweepIdleVms: false };
   }
 };

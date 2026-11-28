@@ -70,8 +70,7 @@ pub fn harness_choice(
 /// The compactor's harness when none is set (Lawrence 2026-10-09: "just
 /// always use haiku for default compactor"): the turns' own when it is a
 /// Claude harness (claude-sr stays claude-sr), else `claude`, the Claude
-/// route acpmux has (the configured CodeRouter route, else the user's own
-/// login).
+/// route acpmux has (the user's own login).
 pub fn default_compactor_harness(turn: &str, family: Family, claude: &str) -> String {
     if family == Family::Claude {
         turn.to_owned()
@@ -111,7 +110,7 @@ pub fn compactor_harness_for(
 /// harnesses the Chief can use, so its model probes never start another
 /// harness's agent (a Claude-only Chief never starts codex-acp). The set
 /// turn, compactor and subagent harnesses and engine.json's, and always the
-/// Claude routes (`DEFAULT_HARNESS`, `CODEROUTER_HARNESS`, `SR2_HARNESS`): the default turn
+/// Claude routes (`DEFAULT_HARNESS`, `SR2_HARNESS`): the default turn
 /// harness, and the compactor of a turn harness that is not Claude.
 pub fn probe_harnesses(
     chief: Option<&str>,
@@ -128,7 +127,7 @@ pub fn probe_harnesses(
     ]
     .into_iter()
     .flatten()
-    .chain([DEFAULT_HARNESS, CODEROUTER_HARNESS, SR2_HARNESS])
+    .chain([DEFAULT_HARNESS, SR2_HARNESS])
     .collect();
     names.into_iter().collect::<Vec<_>>().join(",")
 }
@@ -138,33 +137,19 @@ pub fn probe_harnesses(
 /// is only an explicit choice.
 pub const DEFAULT_HARNESS: &str = "claude";
 
-/// The harness the Chief uses when none is set: the configured CodeRouter
-/// route (`claude-cr`, which acpmux has only when `coderouterClaudeRoute`
-/// names one) whether or not it can run, so an unavailable route is
-/// refused with its reason instead of silently moving to another account;
-/// else the user's own Claude CLI (`DEFAULT_HARNESS`: the `claude` acpmux
-/// finds on the login shell's PATH, run with the user's own
-/// `~/.claude/settings.json` and login; Lawrence 2026-10-19: "make sure
-/// Chief, by default, will talk to the correct Claude, using the user's
-/// Claude CLI"). The subrouter2 route (`claude-sr2`) is an explicit choice
-/// (`chief engine set --harness claude-sr2`), and the default only when
-/// acpmux has no usable `claude` but can run sr2.
-pub fn default_harness(answer: &serde_json::Value) -> &'static str {
-    let harnesses = answer.get("harnesses");
-    if harnesses.and_then(|h| h.get(CODEROUTER_HARNESS)).is_some() {
-        return CODEROUTER_HARNESS;
-    }
-    let runnable_stdio = |name: &str| {
-        harnesses.and_then(|h| h.get(name)).is_some_and(|p| {
-            p.get("kind").and_then(serde_json::Value::as_str) == Some("claude-stdio")
-                && p.get("unavailable").is_none()
-        })
-    };
-    if !runnable_stdio(DEFAULT_HARNESS) && runnable_stdio(SR2_HARNESS) {
-        SR2_HARNESS
-    } else {
-        DEFAULT_HARNESS
-    }
+/// The harness the Chief uses when none is set: the user's own Claude CLI
+/// (`DEFAULT_HARNESS`: the `claude` acpmux finds on the login shell's PATH,
+/// run with the user's own `~/.claude/settings.json` and login; Lawrence
+/// 2026-10-19: "make sure Chief, by default, will talk to the correct
+/// Claude, using the user's Claude CLI"). No other route is ever picked for
+/// the person: not the CodeRouter route (Leo: "For cmux next, just rip it out
+/// for now then"), and the subrouter2 route (`claude-sr2`) only as an
+/// explicit choice (`chief engine set --harness claude-sr2`): a missing
+/// `claude` is refused with its reason, never moved to another route (Leo
+/// 2026-11-26: "identify all the weird opinoinated fleet things we shipped
+/// into the app and remove them").
+pub fn default_harness(_answer: &serde_json::Value) -> &'static str {
+    DEFAULT_HARNESS
 }
 
 /// Records which executable (and its `--version`) the turns, compactor and
@@ -230,9 +215,6 @@ fn trace_codex(paths: &Paths, trace: &crate::trace::Trace, log: &dyn Fn(String))
         log(format!("codex: {} ({version})", path.display()));
     }
 }
-
-/// acpmux's profile for a configured CodeRouter Claude route.
-pub const CODEROUTER_HARNESS: &str = "claude-cr";
 
 /// acpmux's profile for Claude Code through the subrouter2 gateway
 /// (`~/.config/cmux/harnesses/claude-sr2.toml`, command `sr2 claude`).
@@ -976,13 +958,14 @@ fn start(
             "chief": chief.unwrap_or_else(|| crate::paths::home_id(home)),
         }),
     );
-    // Spec 4 (gist 3c190e0): a compaction sends the turns' own system
-    // prompt, so it reads it from the turns' cache entry.
+    // Turns read the full system prompt; compactions have their own small
+    // prompt with the view and compaction contract, without the Chief's turn
+    // and cmux instructions.
     let claude_text =
         crate::prompt::system_text(instructions.as_deref(), &crate::prompt::Tools::Mcp);
     let mut config = Config {
         agent: crate::prompt::AGENT.to_owned(),
-        prompt: optchat_host::CompactPrompt::Custom(claude_text.clone()),
+        prompt: optchat_host::CompactPrompt::Custom(crate::prompt::compactor_system_text()),
         reporter: Arc::new(|r: &Report| log(format!("memory: {r}"))),
         db: Some(paths.memory_db.clone()),
         ..Config::default()
@@ -1058,8 +1041,7 @@ fn start(
             );
             brain_states = crate::brain_home::prepare(paths, &answer, &setup, &|line| log(line));
         }
-        // Nothing set: the configured CodeRouter route when acpmux has one,
-        // else the user's own Claude CLI (default_harness).
+        // Nothing set: the user's own Claude CLI (default_harness).
         if chief_set.is_none() {
             harness = default_harness(&answer).to_owned();
             if sub_set.is_none() {
@@ -1172,6 +1154,9 @@ fn start(
         .map_err(|e| format!("writing the subagent directory: {e}"))?;
 
     let (base_url, api_key) = (config.base_url.clone(), config.api_key.clone());
+    let direct_base_url = optchat_host::DEFAULT_BASE_URL.to_owned();
+    let direct_api_key = optchat_host::api_key(&direct_base_url, env);
+    let has_direct_credentials = direct_api_key != optchat_host::SUBROUTER_KEY;
     let (payer, provider) = crate::usage::payer_provider("native", Some(&base_url));
     trace.emit(
         "usage.native_route",
@@ -1809,6 +1794,32 @@ fn start(
     } else {
         "this Chief host could not reach a cmux session to make the workspace in".to_owned()
     };
+    let gateway = uses_acpmux.then(|| {
+        let probe = crate::auto_resume::TcpProbe::from_env(
+            env,
+            std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .as_deref(),
+        );
+        let endpoint = probe
+            .endpoints
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "api.anthropic.com:443".into());
+        let fallback = if has_direct_credentials {
+            crate::gateway::GatewayFallback::DirectAnthropic
+        } else {
+            crate::gateway::GatewayFallback::Harness("codex".into())
+        };
+        Arc::new(
+            crate::gateway::GatewayHealth::new(
+                endpoint,
+                crate::gateway::DEFAULT_THRESHOLD,
+                fallback,
+            )
+            .with_probe(Arc::new(probe)),
+        )
+    });
     let mut sub_starter = None;
     let orchestrator = uses_acpmux.then(|| {
         let spawner = crate::subagents::Spawner::new(
@@ -1835,8 +1846,10 @@ fn start(
         .with_pinned_harness(sub_set.is_some())
         // goal.rs: Claude subagents work under /goal on Opus 5.5 until done.
         .with_goal(true)
+        .with_background_start(std::env::var("OPTCHAT_SPAWN_BACKGROUND").as_deref() == Ok("1"))
         .with_engine_file(Some(crate::engine::path(home)))
         .with_families(families.clone())
+        .with_gateway(gateway.clone())
         .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
         .with_no_workspace_reason(no_workspace_reason.clone())
@@ -1977,40 +1990,50 @@ fn start(
     {
         log(format!("OPTCHAT_CACHE_TTL={v:?} is not 5m or 1h; ignored"));
     }
+    let build_native_engine = |model_base_url: &str, model_api_key: &str| {
+        let native_config = NativeConfig {
+            model: env("OPTCHAT_CHIEF_MODEL").unwrap_or_else(|| NATIVE_MODEL.into()),
+            effort: Some(crate::effort::native_effort(env("OPTCHAT_CHIEF_EFFORT"))),
+            max_tokens: 64_000,
+            server_fallback: env("OPTCHAT_CHIEF_SERVER_FALLBACK").as_deref() == Some("1"),
+            system: crate::prompt::claude_md(instructions.as_deref()),
+            cwd: paths.session.clone(),
+            env: native_env(&setup, paths),
+            bash_timeout: BASH_TIMEOUT,
+            pwd_file: paths.root.join("bash.pwd"),
+        };
+        log(format!(
+            "turns: native engine, {} at effort {} via {}",
+            native_config.model,
+            native_config.effort.as_deref().unwrap_or("default"),
+            model_base_url
+        ));
+        let model = HttpModel::new(
+            model_base_url,
+            model_api_key.to_owned(),
+            native_config.server_fallback,
+        );
+        // The direct API: 5 minutes unless OPTCHAT_CACHE_TTL or cache.ttl
+        // says otherwise (read at host start).
+        let native_ttl = cache_ttl_env
+            .or(
+                crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json"))
+                    .cache_ttl,
+            )
+            .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
+        Engine::Native(Arc::new(
+            Native::new(native_config, Arc::new(model), crate::native::RETRY_BASE)
+                .with_trace(trace.clone())
+                .with_cache_ttl(native_ttl),
+        ))
+    };
+    let fallback_engine = if uses_acpmux && has_direct_credentials {
+        Some(build_native_engine(&direct_base_url, &direct_api_key))
+    } else {
+        None
+    };
     let engine = match engine_choice.as_deref() {
-        Some("native") => {
-            let native_config = NativeConfig {
-                model: env("OPTCHAT_CHIEF_MODEL").unwrap_or_else(|| NATIVE_MODEL.into()),
-                effort: Some(crate::effort::native_effort(env("OPTCHAT_CHIEF_EFFORT"))),
-                max_tokens: 64_000,
-                server_fallback: env("OPTCHAT_CHIEF_SERVER_FALLBACK").as_deref() == Some("1"),
-                system: crate::prompt::claude_md(instructions.as_deref()),
-                cwd: paths.session.clone(),
-                env: native_env(&setup, paths),
-                bash_timeout: BASH_TIMEOUT,
-                pwd_file: paths.root.join("bash.pwd"),
-            };
-            log(format!(
-                "turns: native engine, {} at effort {} via {}",
-                native_config.model,
-                native_config.effort.as_deref().unwrap_or("default"),
-                base_url
-            ));
-            let model = HttpModel::new(&base_url, api_key, native_config.server_fallback);
-            // The direct API: 5 minutes unless OPTCHAT_CACHE_TTL or cache.ttl
-            // says otherwise (read at host start).
-            let native_ttl = cache_ttl_env
-                .or(
-                    crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json"))
-                        .cache_ttl,
-                )
-                .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
-            Engine::Native(Arc::new(
-                Native::new(native_config, Arc::new(model), crate::native::RETRY_BASE)
-                    .with_trace(trace.clone())
-                    .with_cache_ttl(native_ttl),
-            ))
-        }
+        Some("native") => build_native_engine(&base_url, &api_key),
         None | Some("acpmux") => {
             log(format!(
                 "turns: {harness} sessions through acpmux ({}); no Messages API",
@@ -2130,6 +2153,8 @@ fn start(
         ))
     };
     let mut brain = brain;
+    brain.set_gateway(gateway.clone());
+    brain.set_fallback_engine(fallback_engine);
     brain.set_reported_elsewhere(reported_elsewhere);
     brain.set_sub_starter(sub_starter);
     let idle = brain.cloud_auto_pause_idle();

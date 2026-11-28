@@ -279,7 +279,7 @@ impl Mux {
         let index = state.workspace_index_by_key(workspace_key)?;
         let workspace = state.workspaces[index].id;
         let decorations = self.workspace_tree_decorations_in_state(state, index);
-        let entity = crate::server::tree_entity_json(state, &decorations, kind, workspace)?;
+        let entity = crate::tree_wire::tree_entity_json(state, &decorations, kind, workspace)?;
         Some(TreeDelta {
             kind,
             workspace,
@@ -320,13 +320,9 @@ impl Mux {
             expected_generation,
             expected_revision,
             move |state, registry| {
-                anyhow::ensure!(
-                    state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
-                    "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
-                );
                 let key = generated_key.clone();
-                let name_source =
-                    crate::resource_name::NameSource::for_requested_workspace_name(name.as_deref());
+                let (name_source, name_revision) =
+                    crate::resource_name::NameSource::for_created_workspace(name.as_deref(), true);
                 let name = name.clone().unwrap_or_else(|| self.default_workspace_name(state));
                 let index = state.workspaces.len();
                 let workspace = Workspace {
@@ -335,7 +331,7 @@ impl Mux {
                     key: key.clone(),
                     name: name.clone(),
                     name_source,
-                    name_revision: 0,
+                    name_revision,
                     screens: Vec::new(),
                     active_screen: 0,
                 };
@@ -369,7 +365,7 @@ impl Mux {
                     registry.session_id().as_str(),
                     &public_id,
                     &name,
-                    (name_source, 0),
+                    (name_source, name_revision),
                     index,
                     true,
                 ));
@@ -379,7 +375,7 @@ impl Mux {
                     key: key.clone(),
                     name,
                     name_source,
-                    name_revision: 0,
+                    name_revision,
                     group_key: self.session.clone(),
                 };
                 let mut desired = self.registry_projection(state);

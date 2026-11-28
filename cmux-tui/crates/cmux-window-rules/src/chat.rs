@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 pub mod agent;
+pub mod host_op;
 
 /// A dock column's role.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]

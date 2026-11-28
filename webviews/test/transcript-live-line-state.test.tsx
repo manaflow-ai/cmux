@@ -91,7 +91,7 @@ const drawn = (line: AcpmuxRow, now: number) =>
     ),
   );
 
-test('a turn waiting on its foreground subagents says so, with the turn\'s time beside it and no "total"', () => {
+test('a turn waiting on its foreground subagents draws their mark and count, with the turn\'s time beside it and no "total"', () => {
   const user = row("u", "user");
   const line = codex([
     user,
@@ -99,7 +99,8 @@ test('a turn waiting on its foreground subagents says so, with the turn\'s time 
     row("g", SUBAGENTS, { subagents: [agent("review-a", "running"), agent("review-b", "running")] }),
   ]).at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, liveState: "subagents", liveAgents: 2, turnTotal: true });
-  expect(drawn(line, user.at + 5_047_000)).toBe("Waiting on 2 subagents 1h 24m 7s");
+  // The wait is the subagents' mark and count, no words (Leo, 2026-11-23: ""running" doesn't need text").
+  expect(drawn(line, user.at + 5_047_000)).toBe("2 1h 24m 7s");
 });
 
 // With the running tray (the default) the groups leave the transcript for the tray, so the pane
@@ -170,7 +171,7 @@ test("a call in flight still names the call, over any subagent wait", () => {
     row("g", SUBAGENTS, { subagents: [agent("fg", "running")] }),
     row("run", "activity", { items: [call("bun test", "in_progress")] }),
   ]).at(-1)!;
-  expect(line).toMatchObject({ doing: "bun test", doingShell: true });
+  expect(line).toMatchObject({ doing: "Running tests", doingShell: false });
   expect(line.liveState).toBeUndefined();
 });
 
@@ -262,11 +263,11 @@ test("before the turn's first output it still reads Thinking with the turn's tim
   expect(drawn(line, user.at + 18_000)).toBe("Thinking 18s");
 });
 
-test("the long-wait gallery entry's live line names its subagents and the turn's total", () => {
+test("the long-wait gallery entry's live line draws its subagents' mark and the turn's total", () => {
   const rows = longWait.variants["waiting-on-subagents"]!.snapshot.rows;
   const line = codex(rows).at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, liveState: "subagents", liveAgents: 3 });
-  expect(drawn(line, GALLERY_NOW)).toBe("Waiting on 3 subagents 1h 24m 7s");
+  expect(drawn(line, GALLERY_NOW)).toBe("3 1h 24m 7s");
   // Its finished step ended 1m 33s before the gallery's now, with nothing heard since: Waiting.
   const step = codex(longWait.variants["finished-step"]!.snapshot.rows).at(-1)!;
   expect(drawn(step, GALLERY_NOW)).toBe("Waiting on the model's next step 1m 33s · turn 1h 24m 7s");
@@ -278,16 +279,17 @@ test("a running call reads the turn's clock as its total, never a clock that sta
   const html = renderToStaticMarkup(
     <Thinking since={start} doing="bun test" doingShell doingAt={start + 5_000} turnTotal now={() => start + 13_000} />,
   );
-  expect(words(html)).toBe("Running bun test 13s");
+  expect(words(html)).toBe("bun test 13s");
   expect(html).toContain('<span class="cv-worked__time">13s</span>');
 });
 
-test("waiting on subagents, the line names them once, with no count after its time", () => {
+test("waiting on subagents, the line is their mark and count once, named in its spoken label, no count after its time", () => {
   const start = 1_000_000;
   const html = renderToStaticMarkup(
     <Thinking since={start} liveState="subagents" liveAgents={2} turnTotal now={() => start + 60_000} />,
   );
-  expect(words(html)).toBe("Waiting on 2 subagents 1m");
+  expect(words(html)).toBe("2 1m");
+  expect(html).toContain('aria-label="Waiting on 2 subagents"');
 });
 
 test("Thinking past the first step times only this stretch of thinking, the waits go to the total", () => {

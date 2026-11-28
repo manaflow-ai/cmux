@@ -62,6 +62,18 @@ pub struct HistoryQuery {
     pub range: HistoryRange,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
+    /// Page provenance filter. Mine is the default for the history page.
+    #[serde(default)]
+    pub actor: ActorFilter,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum ActorFilter {
+    #[default]
+    Mine,
+    Agents,
+    All,
 }
 
 impl HistoryQuery {

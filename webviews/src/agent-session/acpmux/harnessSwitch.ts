@@ -114,6 +114,11 @@ export const browserSwitchClock: SwitchClock = {
   },
 };
 
+/// How long a switch's `session/new` may take before the start fails with Retry. acpmux bounds an
+/// agent's start and each start setting by its start budget (90 s by default); past this, the
+/// person sees why nothing happens instead of a prompt that never goes (cmux#55755).
+export const START_DEADLINE_MS = 120_000;
+
 /// How long the pointer or keyboard rests on a harness before the prewarm hint goes out.
 export const PREWARM_DEBOUNCE_MS = 150;
 /// The same harness hinted again this soon after its last hint is not sent again (acpmux keeps
@@ -818,9 +823,20 @@ export class HarnessSwitch {
     if (!sessionId && intent.queued.length === 0 && port.startsOnSend?.()) return;
     intent.running = port;
     if (!sessionId) {
+      // A start that never answers fails into the switch's card, with Retry and the held prompts
+      // back in the composer, instead of holding them under a Thinking line forever (cmux#55755).
+      let expired = false;
+      const stopDeadline = this.clock.schedule(() => {
+        if (this.intent !== intent || intent.running !== port || intent.phase !== "starting") return;
+        expired = true;
+        intent.running = undefined;
+        this.fail(intent, new Error(t("switch.startTimedOut", { agent: agentName(intent.harness) })));
+      }, START_DEADLINE_MS);
       try {
         sessionId = await port.create(intent.harness, intent.cwd, intent.config.model);
       } catch (error) {
+        stopDeadline();
+        if (expired) return;
         if (intent.running === port) intent.running = undefined;
         // A dropped connection is not a failure: the next client runs it again.
         if (this.intent !== intent) return;
@@ -829,7 +845,9 @@ export class HarnessSwitch {
         this.fail(intent, error);
         return;
       }
-      if (this.intent !== intent) {
+      stopDeadline();
+      // Answered after the deadline failed it, or after a newer pick: nobody uses that session.
+      if (expired || this.intent !== intent) {
         if (sessionId) port.discard(sessionId);
         return;
       }
@@ -1114,15 +1132,19 @@ export class HarnessSwitch {
 /// saved default or the profile's own model (`start`, acpmux start_defaults.rs), else the one last
 /// picked on it here (lastPick.ts) while the harness still offers it, else acpmux's catalog
 /// default, else what a session acpmux last started there reported, else its last session's, else
-/// the catalog's first.
+/// the catalog's first. For New Tab (`newTab`), acpmux's New Tab start (`start.newTab`) stands in
+/// for `start`: a pick in a chat saves acpmux's default, and New Tab is no chat (Leo 2026-11-27:
+/// "it should purely just be new tab"). Its last pick here is then New Tab's own (ComposerPickers).
 export function defaultModel(
   harness: string,
   catalog: Catalog,
   profiles: HarnessProfiles = harnessProfiles,
   folder?: string,
+  newTab = false,
 ): string | undefined {
   const profile = profiles.get(harness);
-  const start = catalog.find((entry) => entry.id === harness)?.start;
+  const started = catalog.find((entry) => entry.id === harness)?.start;
+  const start = newTab && started?.newTab ? started.newTab : started;
   // A saved default (acpmux defaults, or a pick acpmux saved) or the profile's own model wins over
   // this page's last pick: acpmux starts the chat on it.
   const decided = start?.modelSource === "saved" || start?.modelSource === "profile" ? start.model : undefined;

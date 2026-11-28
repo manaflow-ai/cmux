@@ -7,6 +7,8 @@
 // `onDiagnostic`, and each compiled function (Babel) or file (Oxc) to `onCompiled`.
 import { transformAsync } from "@babel/core";
 import { transformSync } from "oxc-transform-react";
+import crypto from "node:crypto";
+import fs from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { REACT_COMPILER_TARGET } from "../../reactCompiler.mjs";
@@ -80,10 +82,17 @@ function compileWithOxc(file, relative, source, onCompiled, onDiagnostic) {
 
 /**
  * @param {{ mode: "babel" | "oxc", srcRoot: string, onCompiled?: (id: string) => void,
- *   onDiagnostic?: (diagnostic: object) => void }} options
+ *   onDiagnostic?: (diagnostic: object) => void, cacheDir?: string }} options
  */
-export function reactCompilerPlugin({ mode, srcRoot, onCompiled = () => {}, onDiagnostic = () => {} }) {
-  const compile = mode === "oxc" ? compileWithOxc : compileWithBabel;
+export function reactCompilerPlugin({
+  mode,
+  srcRoot,
+  onCompiled = () => {},
+  onDiagnostic = () => {},
+  cacheDir = process.env.CMUX_VITE_TRANSFORM_CACHE,
+}) {
+  const uncached = mode === "oxc" ? compileWithOxc : compileWithBabel;
+  const compile = cacheDir ? cachedCompile(uncached, mode, srcRoot, cacheDir) : uncached;
   return {
     name: "react-compiler",
     setup(context) {
@@ -93,5 +102,67 @@ export function reactCompilerPlugin({ mode, srcRoot, onCompiled = () => {}, onDi
         return compile(args.path, path.relative(srcRoot, args.path), source, onCompiled, onDiagnostic);
       });
     },
+  };
+}
+
+/**
+ * The compiler's output kept on disk in CMUX_VITE_TRANSFORM_CACHE when that is set, as reactCompiler.mjs
+ * keeps Vite's. The Babel pass is most of an agent pane bundle: build-agent-pane-web.sh took 60 s in
+ * cmux-tui-build-package.yml's x86_64 thin leg (job 140256154463, 1,515 functions compiled), and the
+ * sources change little between runs. The key is the mode, the target, the lockfile, the file (relative
+ * to src/, so a cache written in another checkout path hits) and its exact source, so a hit is the output
+ * the pass would make. Its compiled functions and diagnostics replay with it, so the bundle's report is
+ * the same. Entries live under bundle/, beside Vite's. Unset, nothing changes.
+ */
+function cachedCompile(compile, mode, srcRoot, cacheDir) {
+  let lock = "";
+  try {
+    lock = crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(path.join(srcRoot, "..", "bun.lock")))
+      .digest("hex");
+  } catch {}
+  const salt = JSON.stringify(["bundle-v1", mode, REACT_COMPILER_TARGET, lock]);
+  return async (file, relative, source, onCompiled, onDiagnostic) => {
+    const key = crypto
+      .createHash("sha256")
+      .update(`${salt}\0${relative}\0`)
+      .update(source)
+      .digest("hex");
+    const entry = path.join(cacheDir, "bundle", key.slice(0, 2), `${key}.json`);
+    try {
+      const hit = JSON.parse(fs.readFileSync(entry, "utf8"));
+      for (const id of hit.compiled) onCompiled(id);
+      for (const diagnostic of hit.diagnostics) onDiagnostic(diagnostic);
+      // A hit is still in use: CI keeps the cache across runs and drops entries no run has read lately.
+      try {
+        const now = new Date();
+        fs.utimesSync(entry, now, now);
+      } catch {}
+      return hit.result;
+    } catch {}
+    const compiled = [];
+    const diagnostics = [];
+    const result = await compile(
+      file,
+      relative,
+      source,
+      (id) => {
+        compiled.push(id);
+        onCompiled(id);
+      },
+      (diagnostic) => {
+        diagnostics.push(diagnostic);
+        onDiagnostic(diagnostic);
+      },
+    );
+    // Written whole and renamed into place: another bundle may read the same key at once.
+    try {
+      fs.mkdirSync(path.dirname(entry), { recursive: true });
+      const temporary = `${entry}.${process.pid}.${crypto.randomUUID()}`;
+      fs.writeFileSync(temporary, JSON.stringify({ result, compiled, diagnostics }));
+      fs.renameSync(temporary, entry);
+    } catch {}
+    return result;
   };
 }

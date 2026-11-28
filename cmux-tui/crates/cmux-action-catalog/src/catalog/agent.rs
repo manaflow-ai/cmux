@@ -57,6 +57,23 @@ pub static ACTIONS: &[Action] = &[
         main_menu: Some("view"),
         ..Action::DEFAULT
     },
+    // Cmd-R in a chat reloads it under a picture of itself, its draft kept (Leo, 2026-11-22: "apparently i cant cmd r to
+    // refresh an agent page"); without it Cmd-R fell to Rename Tab. A more specific binding than renameTab, as in a page.
+    Action {
+        id: "agentPaneReload",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentPaneReload", "Agent Chat: Reload"),
+        keywords: &["agent", "chat", "reload", "refresh"],
+        default_shortcut: Some(Shortcut { key: "r", modifiers: CMD }),
+        category: "agents",
+        symbol: "arrow.clockwise",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "agent reload",
+        ..Action::DEFAULT
+    },
     Action {
         id: "agentChat.toggleNotificationMute",
         group: GROUP,
@@ -249,6 +266,25 @@ pub static ACTIONS: &[Action] = &[
         requires: &["agentPaneFocused"],
         targets: &["pane"],
         cli_name: "agent show-background-tasks",
+        ..Action::DEFAULT
+    },
+    // The last turn that edited files, its diff in a tab beside the chat, as the edited-files card's
+    // View changes opens it, from the keyboard: Command-J G (G as Show Diff Viewer's Control-Shift-
+    // Command-G; the leader look's D is its Show Diff Viewer). The page offers it while a turn
+    // edited something (`pane.commandAvailability`).
+    Action {
+        id: "agentPane.openLastTurnChanges",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentPane.openLastTurnChanges", "Open Last Turn's Changes"),
+        keywords: &["agent", "chat", "diff", "changes", "turn", "edits", "view changes", "review"],
+        default_chord: Some(Chord { first: Shortcut { key: "j", modifiers: CMD }, second: Shortcut { key: "g", modifiers: 0 } }),
+        category: "agents",
+        symbol: "plusminus",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "action agent-pane-open-last-turn-changes",
         ..Action::DEFAULT
     },
     Action {
@@ -645,6 +681,9 @@ pub static ACTIONS: &[Action] = &[
         group: GROUP,
         title: t("ActionCatalog", "action.agentPane.searchChats", "Search Agent Chats"),
         keywords: &["agent", "chat", "search", "find", "sessions", "acpmux"],
+        // Command-J K reaches it from terminals and the code editor too, where Command-K stays
+        // the terminal's Clear and the editor's Command-K chords (bindings.rs's scoped Command-K).
+        default_chord: Some(Chord { first: Shortcut { key: "j", modifiers: CMD }, second: Shortcut { key: "k", modifiers: 0 } }),
         category: "agents",
         symbol: "magnifyingglass",
         surfaces: PALETTE | KEYBOARD,

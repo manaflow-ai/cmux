@@ -8,8 +8,7 @@ nonisolated extension CloudHomeSource {
     public func historyPage(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> HistoryPage {
         let (commands, identity, _) = try requireEndpoint()
         let page = try await reply(for: identity) { try await commands.history(conversation.rawValue, before: beforeSeq, limit: limit) }
-        return HistoryPage(messages: page.messages.map { CloudHomeMapping.message($0, identity: identity) },
-                           threads: page.threads.map { HomeCoreMapping.thread($0, author: identity.toHome) })
+        return HomeCoreMapping.historyPage(messages: page.messages, threads: page.threads, identity: identity)
     }
 
     /// ConversationDO's `conversation.thread` through the proxy; a daemon
@@ -24,6 +23,6 @@ nonisolated extension CloudHomeSource {
             }
         }
         guard let page else { return try await scanThread(of: conversation, root: root, after: afterSeq, limit: limit) }
-        return HomeCoreMapping.threadPage(page, message: { CloudHomeMapping.message($0, identity: identity) }, author: identity.toHome)
+        return HomeCoreMapping.threadPage(page, identity: identity)
     }
 }

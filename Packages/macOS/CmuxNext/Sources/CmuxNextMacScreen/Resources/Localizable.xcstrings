@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "macScreen.home.thisMacHubFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على هذا الـ Mac الوصول إلى مركز الأجهزة: %@. يواصل cmux المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac nije mogao dosegnuti centar uređaja: %@. cmux nastavlja pokušavati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac kunne ikke nå enhedshubben: %@. cmux bliver ved med at prøve."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac konnte den Geräte-Hub nicht erreichen: %@. cmux versucht es weiter."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac could not reach the device hub: %@. cmux keeps trying."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no pudo conectar con el centro de dispositivos: %@. cmux sigue intentándolo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’a pas pu joindre le hub d’appareils : %@. cmux continue d’essayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac non ha potuto raggiungere l’hub dei dispositivi: %@. cmux continua a provare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacはデバイスハブに接続できませんでした: %@。cmuxは再試行を続けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះមិនអាចភ្ជាប់ទៅមជ្ឈមណ្ឌលឧបករណ៍បានទេ៖ %@។ cmux បន្តព្យាយាម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac이 기기 허브에 연결할 수 없습니다: %@. cmux가 계속 시도합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen nådde ikke enhetshuben: %@. cmux fortsetter å prøve."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac nie mógł połączyć się z centrum urządzeń: %@. cmux próbuje dalej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac não conseguiu acessar o hub de dispositivos: %@. O cmux continua tentando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac не смог подключиться к центру устройств: %@. cmux продолжает попытки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้เข้าถึงฮับอุปกรณ์ไม่ได้: %@ cmux จะลองต่อไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac cihaz merkezine ulaşamadı: %@. cmux denemeye devam ediyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac не зміг підключитися до центру пристроїв: %@. cmux продовжує спроби."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này không thể kết nối trung tâm thiết bị: %@. cmux vẫn tiếp tục thử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 无法连接设备中心：%@。cmux 会继续尝试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 無法連接裝置中心：%@。cmux 會持續嘗試。"
+          }
+        }
+      }
+    },
+    "macScreen.home.thisMacJoining": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ توصيل هذا الـ Mac بمركز الأجهزة…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povezivanje ovog Maca s centrom uređaja…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbinder denne Mac til enhedshubben…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac wird mit dem Geräte-Hub verbunden …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting this Mac to the device hub…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando este Mac al centro de dispositivos…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion de ce Mac au hub d’appareils…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connessione di questo Mac all’hub dei dispositivi…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacをデバイスハブに接続しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងភ្ជាប់ Mac នេះទៅមជ្ឈមណ្ឌលឧបករណ៍…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac을 기기 허브에 연결하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kobler denne Macen til enhetshuben …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Łączenie tego Maca z centrum urządzeń…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando este Mac ao hub de dispositivos…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключение этого Mac к центру устройств…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังเชื่อมต่อ Mac เครื่องนี้กับฮับอุปกรณ์…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac cihaz merkezine bağlanıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключення цього Mac до центру пристроїв…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang kết nối máy Mac này với trung tâm thiết bị…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在将这台 Mac 连接到设备中心…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在將這台 Mac 連接到裝置中心…"
+          }
+        }
+      }
+    },
     "devices.access": {
       "extractionState": "manual",
       "localizations": {
@@ -19526,127 +19788,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "شاشته مطفأة. أيقظه ثم حاول مرة أخرى."
+            "value": "شاشته مطفأة. أيقظه للاتصال."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ekran mu je isključen. Probudite ga pa pokušajte ponovo."
+            "value": "Ekran mu je isključen. Probudite ga da se povežete."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skærmen er slukket. Væk den, og prøv igen."
+            "value": "Skærmen er slukket. Væk den for at oprette forbindelse."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sein Display ist aus. Wecke ihn auf und versuche es erneut."
+            "value": "Sein Display ist aus. Wecke ihn auf, um dich zu verbinden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Its display is off. Wake it, then try again."
+            "value": "Its display is off. Wake it to connect."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Su pantalla está apagada. Actívalo e inténtalo de nuevo."
+            "value": "Su pantalla está apagada. Actívalo para conectarte."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Son écran est éteint. Réveillez-le, puis réessayez."
+            "value": "Son écran est éteint. Réveillez-le pour vous connecter."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il suo schermo è spento. Riattivalo, poi riprova."
+            "value": "Il suo schermo è spento. Riattivalo per connetterti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ディスプレイがオフです。スリープを解除してから、もう一度お試しください。"
+            "value": "ディスプレイがオフです。接続するにはスリープを解除してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អេក្រង់របស់វាបិទ។ ដាស់វា រួចព្យាយាមម្ដងទៀត។"
+            "value": "អេក្រង់របស់វាបិទ។ ដាស់វាដើម្បីភ្ជាប់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "디스플레이가 꺼져 있습니다. 깨운 다음 다시 시도하세요."
+            "value": "디스플레이가 꺼져 있습니다. 연결하려면 깨우세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skjermen er av. Vekk den, og prøv igjen."
+            "value": "Skjermen er av. Vekk den for å koble til."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jego ekran jest wyłączony. Wybudź go i spróbuj ponownie."
+            "value": "Jego ekran jest wyłączony. Wybudź go, aby się połączyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A tela está desligada. Desperte-o e tente novamente."
+            "value": "A tela está desligada. Desperte-o para conectar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Его дисплей выключен. Разбудите его и попробуйте снова."
+            "value": "Его дисплей выключен. Разбудите его, чтобы подключиться."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "จอภาพปิดอยู่ ปลุกเครื่องแล้วลองอีกครั้ง"
+            "value": "จอภาพปิดอยู่ ปลุกเครื่องเพื่อเชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ekranı kapalı. Uyandırın, sonra yeniden deneyin."
+            "value": "Ekranı kapalı. Bağlanmak için uyandırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Його дисплей вимкнено. Розбудіть його й спробуйте ще раз."
+            "value": "Його дисплей вимкнено. Розбудіть його, щоб під’єднатися."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Màn hình đang tắt. Hãy đánh thức máy rồi thử lại."
+            "value": "Màn hình đang tắt. Hãy đánh thức máy để kết nối."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "它的显示器已关闭。请将其唤醒后重试。"
+            "value": "它的显示器已关闭。唤醒它即可连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "它的顯示器已關閉。請將其喚醒後再試一次。"
+            "value": "它的顯示器已關閉。喚醒它即可連線。"
           }
         }
       }
@@ -28172,127 +28434,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر على مركز الأجهزة بدء الجلسة. حاول مرة أخرى."
+            "value": "تعذّر على مركز الأجهزة بدء الجلسة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Čvorište uređaja nije moglo pokrenuti sesiju. Pokušajte ponovo."
+            "value": "Čvorište uređaja nije moglo pokrenuti sesiju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enhedshubben kunne ikke starte sessionen. Prøv igen."
+            "value": "Enhedshubben kunne ikke starte sessionen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Geräte-Hub konnte die Sitzung nicht starten. Versuche es erneut."
+            "value": "Der Geräte-Hub konnte die Sitzung nicht starten."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The device hub could not start the session. Try again."
+            "value": "The device hub could not start the session."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El centro de dispositivos no pudo iniciar la sesión. Inténtalo de nuevo."
+            "value": "El centro de dispositivos no pudo iniciar la sesión."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le hub des appareils n’a pas pu démarrer la session. Réessayez."
+            "value": "Le hub des appareils n’a pas pu démarrer la session."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’hub dei dispositivi non ha potuto avviare la sessione. Riprova."
+            "value": "L’hub dei dispositivi non ha potuto avviare la sessione."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デバイスハブはセッションを開始できませんでした。もう一度お試しください。"
+            "value": "デバイスハブはセッションを開始できませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មជ្ឈមណ្ឌលឧបករណ៍មិនអាចចាប់ផ្ដើមវគ្គបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+            "value": "មជ្ឈមណ្ឌលឧបករណ៍មិនអាចចាប់ផ្ដើមវគ្គបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "기기 허브에서 세션을 시작할 수 없습니다. 다시 시도하십시오."
+            "value": "기기 허브에서 세션을 시작할 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enhetshuben kunne ikke starte økten. Prøv igjen."
+            "value": "Enhetshuben kunne ikke starte økten."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Centrum urządzeń nie mogło rozpocząć sesji. Spróbuj ponownie."
+            "value": "Centrum urządzeń nie mogło rozpocząć sesji."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A central de dispositivos não conseguiu iniciar a sessão. Tente novamente."
+            "value": "A central de dispositivos não conseguiu iniciar a sessão."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Центру устройств не удалось начать сеанс. Повторите попытку."
+            "value": "Центру устройств не удалось начать сеанс."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ศูนย์กลางอุปกรณ์ไม่สามารถเริ่มเซสชันได้ ลองอีกครั้ง"
+            "value": "ศูนย์กลางอุปกรณ์ไม่สามารถเริ่มเซสชันได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aygıt merkezi oturumu başlatamadı. Yeniden deneyin."
+            "value": "Aygıt merkezi oturumu başlatamadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Центр пристроїв не зміг розпочати сеанс. Спробуйте ще раз."
+            "value": "Центр пристроїв не зміг розпочати сеанс."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trung tâm thiết bị không thể bắt đầu phiên. Hãy thử lại."
+            "value": "Trung tâm thiết bị không thể bắt đầu phiên."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设备中心无法开始会话。请重试。"
+            "value": "设备中心无法开始会话。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "裝置中心無法開始工作階段。請再試一次。"
+            "value": "裝置中心無法開始工作階段。"
           }
         }
       }
@@ -28434,127 +28696,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سمح %@ بالجلسة، لكن تعذّر بدؤها. حاول مرة أخرى."
+            "value": "سمح %@ بالجلسة، لكن تعذّر بدؤها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ je dozvolio sesiju, ali nije mogla početi. Pokušajte ponovo."
+            "value": "%@ je dozvolio sesiju, ali nije mogla početi."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ tillod sessionen, men den kunne ikke starte. Prøv igen."
+            "value": "%@ tillod sessionen, men den kunne ikke starte."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ hat die Sitzung erlaubt, aber sie konnte nicht starten. Versuch es noch einmal."
+            "value": "%@ hat die Sitzung erlaubt, aber sie konnte nicht starten."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ allowed the session, but it couldn’t start. Try again."
+            "value": "%@ allowed the session, but it couldn’t start."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ permitió la sesión, pero no se pudo iniciar. Vuelve a intentarlo."
+            "value": "%@ permitió la sesión, pero no se pudo iniciar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ a autorisé la session, mais elle n’a pas pu démarrer. Réessayez."
+            "value": "%@ a autorisé la session, mais elle n’a pas pu démarrer."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ ha consentito la sessione, ma non è stato possibile avviarla. Riprova."
+            "value": "%@ ha consentito la sessione, ma non è stato possibile avviarla."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ はセッションを許可しましたが、開始できませんでした。もう一度お試しください。"
+            "value": "%@ はセッションを許可しましたが、開始できませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ បានអនុញ្ញាតវគ្គ ប៉ុន្តែមិនអាចចាប់ផ្ដើមបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+            "value": "%@ បានអនុញ្ញាតវគ្គ ប៉ុន្តែមិនអាចចាប់ផ្ដើមបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에서 세션을 허용했지만 시작할 수 없었습니다. 다시 시도하십시오."
+            "value": "%@에서 세션을 허용했지만 시작할 수 없었습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ tillot økten, men den kunne ikke starte. Prøv igjen."
+            "value": "%@ tillot økten, men den kunne ikke starte."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ zezwolił na sesję, ale nie udało się jej rozpocząć. Spróbuj ponownie."
+            "value": "%@ zezwolił na sesję, ale nie udało się jej rozpocząć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ permitiu a sessão, mas ela não pôde ser iniciada. Tente novamente."
+            "value": "%@ permitiu a sessão, mas ela não pôde ser iniciada."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ разрешил сеанс, но его не удалось начать. Повторите попытку."
+            "value": "%@ разрешил сеанс, но его не удалось начать."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ อนุญาตเซสชันแล้ว แต่เริ่มไม่ได้ ลองอีกครั้ง"
+            "value": "%@ อนุญาตเซสชันแล้ว แต่เริ่มไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ oturuma izin verdi ancak oturum başlatılamadı. Yeniden deneyin."
+            "value": "%@ oturuma izin verdi ancak oturum başlatılamadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ дозволив сеанс, але його не вдалося почати. Спробуйте ще раз."
+            "value": "%@ дозволив сеанс, але його не вдалося почати."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ đã cho phép phiên nhưng không thể bắt đầu. Hãy thử lại."
+            "value": "%@ đã cho phép phiên nhưng không thể bắt đầu."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 已允许会话，但会话无法开始。请重试。"
+            "value": "%@ 已允许会话，但会话无法开始。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 已允許工作階段，但無法開始。請再試一次。"
+            "value": "%@ 已允許工作階段，但無法開始。"
           }
         }
       }

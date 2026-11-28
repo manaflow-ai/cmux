@@ -108,12 +108,12 @@ impl Kind {
             "daemon" => Kind::Terminal,
             "chief" | "acpmux" => Kind::Chat,
             "cloud-acpmux" | "cloud-directory" => Kind::CloudChat,
-            "browser" => Kind::Browser,
+            "browser" | "site-data" => Kind::Browser,
             "surface" => {
                 let tab = args.get("tab").and_then(Value::as_str).unwrap_or_default();
                 if crate::surface::cloud_desktop_of(tab).is_some() { Kind::Desktop } else { Kind::Simulator }
             }
-            "file" | "file-preview" | "upload" => Kind::File,
+            "file" | "file-preview" | "upload" | "bundle" => Kind::File,
             "localhost" => Kind::Localhost,
             "appearance" | "appearance-wallpaper" => Kind::Appearance,
             "tabs" => Kind::Tabs,

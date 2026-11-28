@@ -6,6 +6,22 @@ import Testing
 /// Which launches post through the system notification center: a user's launch always; an automation
 /// launch (e2e scripts, captures) only when it opts in with `CMUX_NEXT_NATIVE_NOTIFICATIONS=1`.
 struct DesktopNotifierSystemCenterTests {
+    /// A click that cold-launched the app reaches the delegate before the app sets `onOpen`: it is
+    /// parked and runs, in order, once `onOpen` is set; later clicks go straight through.
+    @MainActor @Test func clicksBeforeOnOpenRunOnceItIsSet() {
+        let notifier = DesktopNotifier()
+        notifier.open(id: "cmux-notification-1", surface: 1)
+        notifier.open(id: "cmux-notification-2", surface: nil)
+        #expect(notifier.parkedOpens.count == 2)
+        var runs: [String] = []
+        notifier.onOpen = { id, surface in runs.append("\(id)@\(surface.map(String.init) ?? "-")") }
+        #expect(runs == ["cmux-notification-1@1", "cmux-notification-2@-"])
+        #expect(notifier.parkedOpens.isEmpty)
+        notifier.open(id: "cmux-notification-3", surface: 3)
+        #expect(runs.last == "cmux-notification-3@3")
+        notifier.prepare() // outside the main app bundle: no center, no crash
+    }
+
     @Test func aUsersLaunchUsesTheSystemCenter() {
         #expect(DesktopNotifier.usesSystemCenter(in: [:]))
         #expect(DesktopNotifier.usesSystemCenter(in: ["CMUX_NEXT_NATIVE_NOTIFICATIONS": "1"]))
@@ -37,13 +53,23 @@ struct DesktopNotifierSystemCenterTests {
         #expect(DesktopNotifier.asksPermission(in: automation.merging(["CMUX_NEXT_NATIVE_NOTIFICATIONS": "1"]) { $1 }))
     }
 
-    @Test func onlyAnOptedInAutomationLaunchStartsWithoutDeliveredBanners() {
-        #expect(!DesktopNotifier.startsWithoutDeliveredBanners(in: [:]))
-        #expect(!DesktopNotifier.startsWithoutDeliveredBanners(in: ["CMUX_NEXT_SOCKET_MODE": "automation"]))
+    @Test func onlyAnOptedInAutomationLaunchReplacesReusedBannerIDs() {
+        #expect(!DesktopNotifier.replacesReusedBannerIDs(in: [:]))
+        #expect(!DesktopNotifier.replacesReusedBannerIDs(in: ["CMUX_NEXT_SOCKET_MODE": "automation"]))
         let optedIn = ["CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_NATIVE_NOTIFICATIONS": "1"]
-        #expect(DesktopNotifier.startsWithoutDeliveredBanners(in: optedIn) == WindowDrawPolicy.isAutomationLaunch(optedIn))
+        #expect(DesktopNotifier.replacesReusedBannerIDs(in: optedIn) == WindowDrawPolicy.isAutomationLaunch(optedIn))
         // A user's launch that happens to set the variable keeps its Notification Center history.
-        #expect(!DesktopNotifier.startsWithoutDeliveredBanners(in: ["CMUX_NEXT_NATIVE_NOTIFICATIONS": "1"]))
+        #expect(!DesktopNotifier.replacesReusedBannerIDs(in: ["CMUX_NEXT_NATIVE_NOTIFICATIONS": "1"]))
+    }
+
+    /// 2026-11-28 notify-banner-click relaunch-click: the relaunch's first click opened the center, its blanket clear
+    /// raced the lookup, and the earlier launch's banners were gone (not_found). Only a reused id is cleared, at its
+    /// first post in a launch; never on a click, and never a user launch's.
+    @Test func onlyAReusedIDsFirstPostClearsAnEarlierBanner() {
+        #expect(DesktopNotifier.clearsEarlierBanner(postedThisLaunch: false, replacesReusedIDs: true))
+        #expect(!DesktopNotifier.clearsEarlierBanner(postedThisLaunch: true, replacesReusedIDs: true))
+        #expect(!DesktopNotifier.clearsEarlierBanner(postedThisLaunch: false, replacesReusedIDs: false))
+        #expect(!DesktopNotifier.clearsEarlierBanner(postedThisLaunch: true, replacesReusedIDs: false))
     }
 
     #if DEBUG

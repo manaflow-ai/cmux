@@ -176,3 +176,61 @@ async fn an_op_outside_the_table_never_runs() {
     .unwrap_err();
     assert_eq!(e.code, RpcError::invalid_params("x").code);
 }
+
+/// A sign-in lent to this daemon whose cmux API (loopback, nothing listening) would mint nothing.
+#[cfg(unix)]
+fn lent() -> AppLease {
+    let lease = AppLease::default();
+    let expires = crate::store::now_ms() + 3_600_000;
+    lease
+        .set(&json!({"seq": 1, "origin": "http://127.0.0.1:9", "bearer": "b.e.r", "team": "t",
+            "expiresAtMs": expires}))
+        .unwrap();
+    lease
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_review_is_said_by_the_persons_gh_even_with_the_app_lent() {
+    let dir = tempfile::tempdir().unwrap();
+    let seen = dir.path().join("seen");
+    let gh = fake_gh(
+        dir.path(),
+        &format!("printf '%s\\n' \"$@\" > '{}'; printf '{{\"id\":9}}'", seen.display()),
+    );
+    let params = json!({"op": "review.submit", "repo": "o/r", "number": 3, "event": "COMMENT",
+        "body": "looks right"});
+    let reply = serve_at(params, &lent(), "http://127.0.0.1:9", &gh).await.unwrap();
+    assert_eq!((reply["ok"].clone(), reply["source"].clone()), (json!(true), json!("keyring")));
+    let seen = std::fs::read_to_string(seen).unwrap();
+    assert!(
+        seen.contains("--method\nPOST\n") && seen.contains("repos/o/r/pulls/3/reviews\n"),
+        "{seen}"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_approval_with_no_gh_login_is_never_the_apps() {
+    let dir = tempfile::tempdir().unwrap();
+    let logged_out = fake_gh(dir.path(), "echo 'please run:  gh auth login' >&2; exit 4");
+    for event in ["APPROVE", "REQUEST_CHANGES"] {
+        let params = json!({"op": "review.submit", "repo": "o/r", "number": 3, "event": event,
+            "body": "words"});
+        let e = serve_at(params, &lent(), "http://127.0.0.1:9", &logged_out).await.unwrap_err();
+        assert_eq!(e.data.as_ref().map(|d| d["reason"].clone()), Some(json!("github.person_only")));
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_thread_resolve_with_no_login_at_all_is_not_connected() {
+    let dir = tempfile::tempdir().unwrap();
+    let logged_out = fake_gh(dir.path(), "echo 'please run:  gh auth login' >&2; exit 4");
+    let params =
+        json!({"op": "thread.resolve", "repo": "o/r", "thread": "PRRT_kwDOabc", "resolved": true});
+    let e = serve_at(params, &AppLease::default(), "http://127.0.0.1:9", &logged_out)
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, crate::github_app_token::not_connected().code);
+}

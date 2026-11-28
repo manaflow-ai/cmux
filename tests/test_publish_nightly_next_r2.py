@@ -162,6 +162,69 @@ class FeedWriteCase(unittest.TestCase):
 
 
 class WriteFeedTests(FeedWriteCase):
+    def test_changed_snapshot_returns_the_winner_without_uploading(self) -> None:
+        original = feed((200, "original", 1), source={200: "a" * 40}).encode()
+        winner = feed((200, "winner", 1), source={200: "b" * 40}).encode()
+        snapshot = Path(self.dir.name) / "snapshot.xml"
+        snapshot.write_bytes(original)
+        with mock.patch.object(r2, "read_live", return_value=winner), mock.patch.object(r2.subprocess, "run") as put:
+            self.assertEqual(r2.main(["write-feed", "--feed", str(self.path), "--same-build",
+                                      "--expected-feed", str(snapshot)]), r2.CONFLICT)
+        put.assert_not_called()
+        self.assertEqual(snapshot.read_bytes(), winner)
+
+    def test_republish_rebuilds_a_lost_cas_from_the_winners_snapshot(self) -> None:
+        root = Path(self.dir.name)
+        tools = root / ".publish-tooling/scripts/ci"
+        tools.mkdir(parents=True)
+        inputs = root / "nightly-deltas"
+        inputs.mkdir()
+        build = 200
+        def fixture(previous: int, url: str, old_url: str) -> str:
+            text = feed((300, "newest", 1), (build, old_url, 1), source={300: "a" * 40, build: "b" * 40})
+            close = text.rindex("</item>")
+            delta = (f'<sparkle:deltas><enclosure url="{url}" sparkle:deltaFrom="{previous}"'
+                     ' length="1"/></sparkle:deltas>')
+            return text[:close] + delta + text[close:]
+
+        (root / "before").write_text(fixture(198, GH + "unserved.delta", "first-full"))
+        (root / "winner").write_text(fixture(199, BASE + "/winner.delta", "winner-full"))
+        (inputs / "appcast-arm64.xml").write_text(fixture(100, BASE + "/generated.delta", "candidate-full"))
+        (inputs / "generated.delta").touch()
+        # Feed reads and object uploads use local files. Run the real shell
+        # step, merge, rewrite, prune and write-feed on every attempt.
+        curl = root / "curl"
+        curl.write_text('#!/bin/sh\nwhile [ "$1" != "-o" ]; do shift; done\ncp before "$2"\n')
+        curl.chmod(0o755)
+        (tools / "nightly-next-guard.py").touch()
+        (tools / "nightly_next_delta_check.py").write_text(
+            "import runpy, sys\nfrom pathlib import Path\n"
+            "if sys.argv[1] == 'check': sys.exit(0)\n"
+            f"runpy.run_path({str(ROOT / 'scripts/ci/nightly_next_delta_check.py')!r}, run_name='__main__')\n")
+        (tools / SCRIPT.name).write_text(
+            "import hashlib, runpy, subprocess, sys\nfrom pathlib import Path\n"
+            f"r2 = runpy.run_path({str(SCRIPT)!r})['main']\ng = r2.__globals__\n"
+            "g.update(guard_key=lambda key: None, public_length=lambda *a, **kw: None, upload=lambda files: 0)\n"
+            "def read(key): return Path('winner' if Path('put1').exists() else 'before').read_bytes()\n"
+            "def put(args):\n"
+            "    first = not Path('put1').exists()\n"
+            "    assert args[args.index('--replace-sha256')+1] == hashlib.sha256(read(None)).hexdigest()\n"
+            "    Path('put1' if first else 'put2').write_bytes(Path(args[args.index('--file')+1]).read_bytes())\n"
+            "    return subprocess.CompletedProcess(args, 3 if first else 0)\n"
+            "g['read_live'] = read\ng['subprocess'].run = put\nsys.exit(r2(sys.argv[1:]))\n")
+        env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+               "CHANNEL_FEED_BASE": BASE, "NIGHTLY_BUILD": str(build), "DELTAS_ONLY_WHILE_NEWEST": ""}
+        step = ROOT / "scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh"
+        subprocess.run(["bash", str(step)], cwd=root, env=env, check=True, capture_output=True)
+        for attempt in ("put1", "put2"):
+            payload = (root / attempt).read_bytes()
+            self.assertIn(b'generated.delta', payload)
+            self.assertNotIn(b'unserved.delta', payload)
+            self.assertEqual(r2.item_source(payload, 300), "a" * 40)
+            self.assertEqual(r2.item_source(payload, build), "b" * 40)
+        self.assertIn(b'winner.delta', payload)
+        self.assertIn(b'winner-full', payload)
+
     def test_a_newer_live_feed_is_left_alone(self) -> None:
         live = feed((300, "x", 1)).encode()
         self.assertEqual(self.run_with([live], []), 0)
@@ -353,8 +416,39 @@ class WriteFeedTests(FeedWriteCase):
         self.assertEqual(self.run_with([feed((300, "x", 1)).encode()], [], same_build=True), 0)
         self.assertEqual(self.run_with([feed((100, "x", 1)).encode()], [], same_build=True), 0)
         self.assertEqual(self.calls, [])
-        self.assertEqual(self.run_with([feed((200, "x", 1)).encode()], [0], same_build=True), 0)
+        live = feed((200, "x", 1), source={200: "a" * 40}).encode()
+        self.assertEqual(self.run_with([live], [0], same_build=True), 0)
         self.assertIn("--replace-sha256", self.calls[0])
+
+    # Detector require_newest_source: every write keeps or carries the newest item's
+    # cmux:sourceCommit (install-static.sh nightly_commit, hot-verify, bench, the bisect
+    # and the release notes read the commit off it).
+    def test_require_newest_source_refuses_a_revision_that_would_drop_the_source(self) -> None:
+        markerless = feed((200, "x", 1)).encode()
+        with self.assertRaisesRegex(RuntimeError, "without a full cmux:sourceCommit"):
+            self.run_with([markerless], [0], same_build=True)
+        self.assertEqual(self.calls, [])
+
+    def test_require_newest_source_passes_a_carried_and_a_stamped_source(self) -> None:
+        live = feed((200, "x", 1), (100, "y", 1), source={200: "c" * 40, 100: "b" * 40}).encode()
+        self.assertEqual(self.run_with([live], [0], same_build=True), 0)
+        r2.require_newest_source(self.path.read_bytes(), "carried")
+        self.assertEqual(r2.item_source(self.path.read_bytes(), 200), "c" * 40)
+        r2.require_newest_source(r2.add_source(feed((300, "x", 1)).encode(), "d" * 40), "stamped")
+        for bad in (feed((300, "x", 1)), feed((300, "x", 1), source={300: "abcdef1"}),
+                    feed((300, "x", 1), (200, "y", 1), source={200: "c" * 40})):
+            with self.subTest(bad=bad), self.assertRaises(RuntimeError):
+                r2.require_newest_source(bad.encode(), "bad")
+
+    def test_require_newest_source_matches_the_inline_namespace_form(self) -> None:
+        stamped = r2.add_source(feed((300, "x", 1)).encode(), "e" * 40)
+        self.assertIn(b'<cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">', stamped)
+        r2.require_newest_source(stamped, "inline")
+
+    def test_the_cli_refuses_a_write_with_neither_source_nor_same_build(self) -> None:
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
+            r2.main(["write-feed", "--feed", str(self.path)])
+        self.assertEqual(self.calls, [])
 
     def test_same_build_delta_preserves_live_source_metadata_on_each_cas_read(self) -> None:
         first, second = "a" * 40, "b" * 40
@@ -575,6 +669,96 @@ class PublicationBoundaryTests(unittest.TestCase):
                     self.assertEqual(mutable.returncode, 0 if live_build == 300 else 1)
 
 
+class PublicationHistoryTests(FeedWriteCase):
+    DATE = "Fri, 27 Nov 2026 15:00:00 +0000"
+
+    def published(self, *builds: int, source: str = "a" * 40) -> bytes:
+        xml = feed(*[(build, f"{BASE}/{build}.dmg", 1) for build in builds],
+                   source={build: source for build in builds})
+        return xml.replace("</item>", f"<pubDate>{self.DATE}</pubDate></item>").encode()
+
+    def receipts(self, xml: bytes | None = None) -> list[dict]:
+        root = ET.fromstring(xml if xml is not None else self.path.read_bytes())
+        return [dict(entry.attrib) for entry in
+                root.findall(f"channel/{{{r2.CMUX_NS}}}publicationHistory/{{{r2.CMUX_NS}}}publication")]
+
+    def test_two_live_items_bootstrap_three_receipts_without_expanding_feed(self) -> None:
+        self.path.write_bytes(self.published(200))
+        live = self.published(150, 100)
+        with mock.patch.object(r2, "source_order", return_value=True):
+            self.assertEqual(self.run_with([live], [0], source_sha="a" * 40), 0)
+        self.assertEqual([entry["build"] for entry in self.receipts()], ["200", "150", "100"])
+        self.assertEqual([build for _, build in r2.item_builds(self.path.read_bytes())], [200, 150])
+        self.assertEqual(self.receipts()[2], {"build": "100", "sourceCommit": "a" * 40,
+                                            "pubDate": self.DATE, "enclosure": f"{BASE}/100.dmg"})
+        self.assertEqual(r2.newest_build(self.path.read_bytes()), 200)
+
+    def test_repeated_source_releases_remain_distinct_and_window_is_bounded(self) -> None:
+        live = r2.add_publication_history(self.published(200), self.published(150, 100), False)
+        self.path.write_bytes(self.published(250))
+        with mock.patch.object(r2, "source_order", return_value=True):
+            self.assertEqual(self.run_with([live], [0], source_sha="a" * 40), 0)
+        self.assertEqual([entry["build"] for entry in self.receipts()], ["250", "200", "150"])
+        self.assertEqual({entry["sourceCommit"] for entry in self.receipts()}, {"a" * 40})
+
+    def test_same_build_revision_preserves_original_receipts(self) -> None:
+        live = r2.add_publication_history(self.published(200), self.published(150, 100), False)
+        candidate = live.replace(self.DATE.encode(), b"Sat, 28 Nov 2026 15:00:00 +0000")
+        candidate = candidate.replace(b"200.dmg", b"200-revised.dmg")
+        self.path.write_bytes(candidate)
+        self.assertEqual(self.run_with([live], [0], same_build=True), 0)
+        self.assertEqual(self.receipts(), self.receipts(live))
+
+    def test_lost_cas_uses_winners_history_and_never_candidate_predecessors(self) -> None:
+        first = self.published(150, 100)
+        winner = r2.add_publication_history(self.published(180), first, False)
+        # The producer's local feed claims 190, but that build never published.
+        self.path.write_bytes(r2.add_publication_history(self.published(200, 190), self.published(190, 170), False))
+        with mock.patch.object(r2, "source_order", return_value=True):
+            self.assertEqual(self.run_with([first, winner], [r2.CONFLICT, 0], source_sha="a" * 40), 0)
+        self.assertEqual([entry["build"] for entry in self.receipts()], ["200", "180", "150"])
+        digest = self.calls[-1][self.calls[-1].index("--replace-sha256") + 1]
+        self.assertEqual(digest, hashlib.sha256(winner).hexdigest())
+
+    def test_missing_or_invalid_provenance_stops_the_window(self) -> None:
+        for field, invalid in [(b"<cmux:sourceCommit>" + b"a" * 40 + b"</cmux:sourceCommit>", b""),
+                               (self.DATE.encode(), b"not a date"),
+                               (f"{BASE}/150.dmg".encode(), b"missing")]:
+            with self.subTest(field=field):
+                broken = self.published(150).replace(field, invalid)
+                older_item = r2.ITEM.search(self.published(100)).group(0)
+                live = broken.replace(b"</channel>", older_item + b"</channel>")
+                result = r2.add_publication_history(self.published(200), live, False)
+                self.assertEqual([entry["build"] for entry in self.receipts(result)], ["200"])
+
+    def test_short_same_build_feed_remains_short(self) -> None:
+        live = self.published(200, 150)
+        self.path.write_bytes(self.published(200, 150, 100))
+        self.assertEqual(self.run_with([live], [0], same_build=True), 0)
+        self.assertEqual([entry["build"] for entry in self.receipts()], ["200", "150"])
+
+    def test_first_publication_ignores_local_older_items_and_history(self) -> None:
+        self.path.write_bytes(r2.add_publication_history(self.published(200), self.published(150, 100), False))
+        self.assertEqual(self.run_with([None], [0], source_sha="a" * 40), 0)
+        self.assertEqual([entry["build"] for entry in self.receipts()], ["200"])
+
+    def test_new_dev_publication_preserves_live_nightly_history(self) -> None:
+        live = r2.add_publication_history(self.published(150), self.published(100, 50), False)
+        dev = self.published(200).replace(b"</item>", b"<sparkle:channel>cmux-next-dev</sparkle:channel></item>")
+        self.path.write_bytes(dev)
+        with mock.patch.object(r2, "source_order", return_value=True):
+            self.assertEqual(self.run_with([live], [0], source_sha="a" * 40), 0)
+        self.assertEqual(self.receipts(), self.receipts(live))
+
+    def test_same_build_promotion_records_the_actual_live_dev_item(self) -> None:
+        dev = self.published(200).replace(b"</item>", b"<sparkle:channel>cmux-next-dev</sparkle:channel></item>")
+        live = r2.add_publication_history(dev, self.published(150, 100), False)
+        self.path.write_bytes(self.published(200).replace(self.DATE.encode(), b"Sat, 28 Nov 2026 15:00:00 +0000"))
+        self.assertEqual(self.run_with([live], [0], same_build=True), 0)
+        self.assertEqual([entry["build"] for entry in self.receipts()], ["200", "150", "100"])
+        self.assertEqual(self.receipts()[0]["pubDate"], self.DATE)
+
+
 class KeepEarlierBuildsTests(FeedWriteCase):
     """The feed keeps two builds, so nightly-next-rollback.yml always has a published build to serve."""
 
@@ -612,7 +796,8 @@ class KeepEarlierBuildsTests(FeedWriteCase):
         # 190 to Nightly apps, so a rollback of 200 has a build to serve.
         self.path.write_text(feed((200, "a", 5), (190, "b", 5), channel={200: "cmux-next", 190: "cmux-next-dev"}),
                              encoding="utf-8")
-        live = feed((200, "a", 5), (190, "b", 5), channel={200: "cmux-next", 190: "cmux-next"}).encode()
+        live = feed((200, "a", 5), (190, "b", 5), channel={200: "cmux-next", 190: "cmux-next"},
+                    source={200: "a" * 40}).encode()
         self.assertEqual(self.run_with([live], [0], same_build=True), 0)
         text = self.path.read_bytes()
         self.assertEqual(self.builds(), [200, 190])
@@ -636,7 +821,8 @@ class KeepEarlierBuildsTests(FeedWriteCase):
         self.assertEqual(self.builds(), [200])
 
     def test_the_delta_republish_keeps_the_earlier_build_too(self) -> None:
-        live = feed((200, "x", 1), (150, f"{BASE}/cmux-nightly-next-macos-arm64-150.dmg", 4)).encode()
+        live = feed((200, "x", 1), (150, f"{BASE}/cmux-nightly-next-macos-arm64-150.dmg", 4),
+                    source={200: "a" * 40}).encode()
         self.assertEqual(self.run_with([live], [0], same_build=True), 0)
         self.assertEqual(self.builds(), [200, 150])
 

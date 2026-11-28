@@ -42,6 +42,7 @@ enum AgentHandlers {
         registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom("agentPaneZoomIn", by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom("agentPaneZoomOut", by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
+        registry.bindEffect("agentPaneReload", effect: { focusedAgentView("agentPaneReload", context, $0)?.reloadForPerson(); return .done })
         // The Chief chat follows the same setting (HomeNativeTranscriptView.followZoom): no view to look up.
         registry.bindEffect("home.zoomIn", requires: nil, effect: { _ in
             try stepAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context)
@@ -82,10 +83,11 @@ enum AgentHandlers {
                              }
                              return context.services.pages.storeKey(of: id) ?? id
                          }, open: { record, invocation, byPerson in
+                             if let parked = context.parkedPane(invocation) { return context.services.macScreenTabs.open(try record(), parkedIn: parked, byPerson: byPerson) }
                              let pane: PaneController?
                              if let target = context.explicitTarget(invocation, kinds: [.tab]), LocalPageTab.page(of: target.id) != nil {
                                  pane = context.paneController(invocation)
-                             } else { pane = try context.pane(invocation) }
+                             } else { let focused = try context.pane(invocation); pane = context.explicitTarget(invocation, kinds: [.pane]) != nil ? focused : context.services.windowController(showing: focused)?.content?.pageTabPane(from: focused) ?? focused }  // beside Home's dock, as the sidebar's open
                              guard let pane else { return }
                              context.services.macScreenTabs.open(try record(), in: pane, focus: ActionRunScope.viewChangeAllowed(), byPerson: byPerson)
                          }, refusal: { registry.refuse(thrown: $0) }, listedDevices: { [weak services = context.services] in (await services?.devices.readDevices()?.devices ?? []).compactMap { MacScreenListedDevice(name: $0.name, screenAction: $0.screen?.action, reason: $0.screen?.reason) } }, worker: context.services.cmuxRemote.screenSessionWorker).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
@@ -109,6 +111,9 @@ enum AgentHandlers {
                 context.services.quickComposer.toggle()
             })
         }
+        // Capture Screenshot to Chat: its key, the palette, and the same key from any app while
+        // `app.captureScreenshotGlobalHotKey` is on, into the chat route from other apps.
+        context.services.externalOpen.captureToChat.bind(into: registry)
         // A chat tab's Move to Floating Chat (cx-b9qi): the same panel holds its session.
         context.services.agentTabs.moveToFloatingChat = { [weak services = context.services] in services?.quickComposer.moveToFloatingChat(session: $0) ?? false }
         // Computer Use Setup: one model (`ComputerUseSetup`) behind the palette, the CLI, the
@@ -201,6 +206,20 @@ enum AgentHandlers {
         })
         gatePointerInspectorMenuRows(in: registry)
         registry.bindEffect(.fileOpen, effect: { invocation in
+            // `--machine`: that machine's file in a page here, read there (`MachineFileOpener`).
+            if let machine = invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue {
+                // The page refuses a relative path or a preview-only kind (`FilePageOpener`); a place but a tab is refused here.
+                let path = invocation["path"]?.stringValue ?? "", place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
+                guard place == AgentPaneFileTarget.tab.rawValue else { return .refused(MiscHandlerStrings.invalidPlace(place)) }
+                let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true"), services = context.services
+                // action-wait-allow: the page needs that machine's session, which a joined Mac's dial opens over the network first.
+                return .waiting(.network) {
+                    switch await MachineRowActions.fileOpener(services).pane(machine: machine) {
+                    case .failure(let refusal): ActionWorkFailure(refusal.message ?? MiscHandlerStrings.noPane)
+                    case .success(let pane): services.viewers.openFile(URL(fileURLWithPath: path), on: pane.daemon, from: pane, userChose: false, asText: asText).map { ActionWorkFailure($0) }
+                    }
+                }
+            }
             do {
                 try openFile(invocation, context: context)
                 return .done
@@ -323,8 +342,7 @@ enum AgentHandlers {
     private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath
 
     private static func focusedAgentView(_ id: ActionID, _ context: AppActionContext, _ invocation: ActionInvocation) -> AgentPaneView? {
-        guard let view = chatView(context, invocation) else { return context.registry.refuse(.noChat, id) }
-        return view
+        chatView(context, invocation) ?? context.registry.refuse(.noChat, id)
     }
 
     /// The agent chat of the invocation's tab, else its pane's selected tab; nil (no refusal) when it is none.

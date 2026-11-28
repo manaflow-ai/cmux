@@ -100,7 +100,7 @@ async function installDriver({ size, rate }: { size: number; rate: number }) {
 }
 
 type Profile = {
-  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number } }[];
+  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; children?: number[] }[];
   samples?: number[];
   timeDeltas?: number[];
 };
@@ -112,6 +112,11 @@ async function profiled<T>(cdp: CDPSession, label: string, run: () => Promise<T>
   await cdp.send("Profiler.start");
   const result = await run();
   const { profile } = (await cdp.send("Profiler.stop")) as { profile: Profile };
+  if (process.env.PROFILE_DIR)
+    await Bun.write(
+      path.join(process.env.PROFILE_DIR, `${label.replace(/\W+/g, "-")}-${Date.now()}.cpuprofile`),
+      JSON.stringify(profile),
+    );
   const byId = new Map(profile.nodes.map((node) => [node.id, node]));
   const self = new Map<string, number>();
   let total = 0;
@@ -123,10 +128,30 @@ async function profiled<T>(cdp: CDPSession, label: string, run: () => Promise<T>
     const key = `${frame.functionName || "(anon)"} ${frame.url.split("/").slice(-2).join("/").split("?")[0]}:${frame.lineNumber + 1}`;
     self.set(key, (self.get(key) ?? 0) + ms);
   });
+  // A native frame (a layout read, a DOM removal) by the script frames that called it: the cost is the caller's.
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  const callers = new Map<string, number>();
+  (profile.samples ?? []).forEach((id, index) => {
+    const frame = byId.get(id)?.callFrame;
+    if (!frame || frame.url || frame.functionName.startsWith("(")) return;
+    const ms = (profile.timeDeltas?.[index + 1] ?? 0) / 1000;
+    const chain: string[] = [];
+    for (let at = parent.get(id); at !== undefined && chain.length < 3; at = parent.get(at)) {
+      const up = byId.get(at)?.callFrame;
+      if (up?.url)
+        chain.push(`${up.functionName || "(anon)"}@${up.url.split("/").pop()!.split("?")[0]}:${up.lineNumber + 1}`);
+    }
+    const key = `${frame.functionName} < ${chain.join(" < ")}`;
+    callers.set(key, (callers.get(key) ?? 0) + ms);
+  });
   const top = [...self].sort((a, b) => b[1] - a[1]).slice(0, 40);
+  const natives = [...callers].sort((a, b) => b[1] - a[1]).slice(0, 15);
   console.log(
     `PROFILE ${label} total ${Math.round(total)} ms self:\n` +
-      top.map(([k, ms]) => `  ${ms.toFixed(1).padStart(8)} ms  ${k}`).join("\n"),
+      top.map(([k, ms]) => `  ${ms.toFixed(1).padStart(8)} ms  ${k}`).join("\n") +
+      "\n native by caller:\n" +
+      natives.map(([k, ms]) => `  ${ms.toFixed(1).padStart(8)} ms  ${k}`).join("\n"),
   );
   return result;
 }
@@ -182,7 +207,10 @@ async function traced<T>(page: Page, label: string, run: () => Promise<T>): Prom
 
 async function openChat(page: Page, port: number, size: number, turns: number) {
   await page.addInitScript((count) => {
-    (globalThis as { cmuxAcpmuxMockListSize?: number }).cmuxAcpmuxMockListSize = count;
+    const mock = globalThis as { cmuxAcpmuxMockListSize?: number; cmuxAcpmuxMockPaged?: boolean };
+    mock.cmuxAcpmuxMockListSize = count;
+    // The list in pages of the client's `limit`, as acpmux sends it (mock.ts `listPage`).
+    mock.cmuxAcpmuxMockPaged = true;
   }, size);
   await installPaintedFrames(page);
   await installReactWatch(page);

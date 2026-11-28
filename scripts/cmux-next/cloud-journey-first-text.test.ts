@@ -4,7 +4,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FirstTextTiming, firstTextCommand, observeFirstText, probeRow, resolveBackend, type Step } from "./cloud-journey";
+import { CAPTURED_FIRST_TOKEN_TRACE, FirstTextTiming, JOURNEY_STUB_SCRIPT, journeyStubScript, parseStubReplay, firstTextCommand, noReplyError, observeFirstText, tailFacts, probeRow, resolveBackend, transientMachineError, type Step } from "./cloud-journey";
 
 const chunk = (kind = "agent_message_chunk", text = "hello") => ({
   kind,
@@ -12,6 +12,20 @@ const chunk = (kind = "agent_message_chunk", text = "hello") => ({
 });
 
 describe("create to streamed first text", () => {
+  test("reset starts the clock again at the create that got room: a capacity refusal's wait is not in create_to_first_text_ms", () => {
+    let now = 0;
+    const t = new FirstTextTiming(() => now);
+    t.mark("create");
+    now = 45_000;
+    t.reset();
+    t.mark("create");
+    now = 46_000;
+    t.mark("created");
+    now = 50_000;
+    t.mark("first_text");
+    expect(t.fields()).toEqual({ create_marks_ms: { create: 0, created: 1_000, first_text: 5_000 }, create_to_first_text_ms: 5_000 });
+  });
+
   test("one monotonic clock, snapshots, and no create time for a reused machine", () => {
     let now = 100;
     const timing = new FirstTextTiming(() => now);
@@ -46,6 +60,130 @@ describe("create to streamed first text", () => {
     expect(steps[1].fields).not.toHaveProperty("create_to_first_text_ms");
   });
 
+  test("a 503 vm_unavailable observer exec is retried; the text it then sees records no late time", async () => {
+    const timing = new FirstTextTiming(() => 0);
+    timing.mark("create");
+    const steps: Step[] = [];
+    const refused = { code: 1, stdout: "", stderr: '{"code":"cloud_client_session.failed","message":"the cmux API refused the command: 503 Service Unavailable vm_unavailable","retryable":false}' };
+    const answers = [refused, refused, { code: 0, stdout: "@@first-text 2400 -1\n", stderr: "" }];
+    let calls = 0;
+    await observeFirstText(async () => answers[calls++], "s", 60_000, timing, (s) => steps.push(s), 1);
+    expect(calls).toBe(3);
+    expect(steps).toHaveLength(1);
+    expect(steps[0].detail).toContain("seen after 2 retried observer exec(s)");
+    expect(steps[0].fields).not.toHaveProperty("create_to_first_text_ms");
+  });
+
+  test("a non-transient observer error is not retried, and a transient one stops at the budget", async () => {
+    const steps: Step[] = [];
+    let calls = 0;
+    await observeFirstText(async () => { calls++; return { code: 1, stdout: "", stderr: "first turn ended without assistant text" }; }, "s", 60_000, new FirstTextTiming(() => 0), (s) => steps.push(s), 1);
+    expect(calls).toBe(1);
+    expect(steps[0].detail).toBe("measurement unavailable: first-text observer: exit 1; first turn ended without assistant text");
+    let clock = 0;
+    calls = 0;
+    await observeFirstText(async () => { calls++; clock += 1000; return { code: 1, stdout: "", stderr: "HTTP 502 vm_unavailable" }; }, "s", 3000, new FirstTextTiming(() => 0), (s) => steps.push(s), 1, () => clock);
+    expect(calls).toBe(3);
+    expect(steps[1].detail).toContain("(after 2 retried exec(s))");
+    expect(transientMachineError("503 Service Unavailable")).toBe(true);
+    expect(transientMachineError("exit 2 permission")).toBe(false);
+  });
+
+  test("the reply timeout names the last refused exec and the stub's request count", () => {
+    expect(noReplyError(300_000, "")).toBe("no reply within 300 s; last: ");
+    const refused = { code: 1, stdout: "", stderr: "the cmux API refused the command: 503 Service Unavailable vm_unavailable" };
+    expect(noReplyError(300_000, "", refused, 0)).toBe("no reply within 300 s; last: ; last exec without an acp wait answer: exit 1 the cmux API refused the command: 503 Service Unavailable vm_unavailable; the model stub logged 0 model request(s): the model was never asked");
+    expect(noReplyError(300_000, "", undefined, 2)).toBe("no reply within 300 s; last: ; the model stub logged 2 model request(s)");
+    expect(noReplyError(300_000, "", undefined, null)).toContain("the stub's request log could not be read");
+  });
+
+  test("the reply timeout names the session's records and why its turn made no text", () => {
+    const tail = [
+      JSON.stringify({ kind: "session_start", msg: {} }),
+      JSON.stringify({ kind: "claude.system.api_retry", msg: { attempt: 1, max_retries: 10, error: "rate_limit" } }),
+      JSON.stringify({ kind: "claude.system.api_retry", msg: { attempt: 2, max_retries: 10, error: "authentication_failed" } }),
+      "not json",
+      JSON.stringify({ kind: "stderr", msg: { text: "401 invalid x-api-key" } }),
+    ].join("\n");
+    expect(tailFacts(tail)).toBe("session records session_start=1 claude.system.api_retry=2 stderr=1; claude.system.api_retry: attempt 2/10 authentication_failed; stderr: 401 invalid x-api-key");
+    expect(tailFacts("")).toBe("the session's records could not be read");
+    expect(noReplyError(300_000, "", undefined, undefined, "session records turn_start=1")).toBe("no reply within 300 s; last: ; session records turn_start=1");
+  });
+
+  test("the guest's own times ride the marker into guest_ms; the old bare marker still counts", async () => {
+    let now = 0;
+    const timing = new FirstTextTiming(() => now);
+    timing.mark("create");
+    const steps: Step[] = [];
+    now = 5000;
+    await observeFirstText(async () => ({ code: 0, stdout: "@@first-text 2400 900\n", stderr: "" }), "s", 5000, timing, (s) => steps.push(s));
+    expect(steps[0].fields?.guest_ms).toEqual({ first_token: 2400, first_thought: 900 });
+    const bare = new FirstTextTiming(() => now);
+    bare.mark("create");
+    await observeFirstText(async () => ({ code: 0, stdout: "@@first-text 2400 -1\n", stderr: "" }), "s", 5000, bare, (s) => steps.push(s));
+    expect(steps[1].fields?.guest_ms).toEqual({ first_token: 2400 });
+    bare.guest("harness_spawn", null);
+    bare.guest("first_token", 1); // first write wins
+    expect(bare.fields().guest_ms).toEqual({ first_token: 2400 });
+  });
+
+  test("first text splits into our path and the guest's model term; the stub's replayed ttft rides beside it", async () => {
+    let now = 0;
+    const timing = new FirstTextTiming(() => now);
+    timing.stubReplay(CAPTURED_FIRST_TOKEN_TRACE.ttft_ms);
+    timing.mark("create");
+    now = 13629;
+    const steps: Step[] = [];
+    await observeFirstText(async () => ({ code: 0, stdout: "@@first-text 6139 -1\n", stderr: "" }), "s", 5000, timing, (s) => steps.push(s));
+    expect(steps[0].fields).toMatchObject({ create_to_first_text_ms: 13629, our_path_ms: 7490, model_ms: 6139, stub_replay_ttft_ms: 6139 });
+    // No guest time (an old observer), or a guest time past the runner's (clocks disagree): no split, never a negative.
+    const bare = new FirstTextTiming(() => now);
+    bare.mark("create");
+    now = 20000;
+    bare.mark("first_text");
+    expect(bare.fields()).not.toHaveProperty("our_path_ms");
+    bare.guest("first_token", 30000);
+    expect(bare.fields()).not.toHaveProperty("our_path_ms");
+    expect(bare.fields()).not.toHaveProperty("stub_replay_ttft_ms");
+  });
+
+  test("the stub replay: none keeps the script, captured delays the journey's own turns' first answer only", () => {
+    expect(parseStubReplay(undefined)).toBeNull();
+    expect(parseStubReplay(" none ")).toBeNull();
+    expect(journeyStubScript(null)).toBe(JOURNEY_STUB_SCRIPT);
+    expect(parseStubReplay("captured")).toEqual({ ...CAPTURED_FIRST_TOKEN_TRACE });
+    expect(parseStubReplay('{"ttft_ms": 4200}')).toEqual({ ttft_ms: 4200 });
+    expect(parseStubReplay("/trace.json", () => '{"ttft_ms": 10, "run": "r"}')).toEqual({ ttft_ms: 10, run: "r" });
+    expect(() => parseStubReplay('{"ttft_ms": -1}')).toThrow(/whole number/);
+    expect(() => parseStubReplay('{"ttft_ms": 1.5}')).toThrow(/whole number/);
+    const s = journeyStubScript({ ttft_ms: 6139 }) as unknown as { steps: Array<Record<string, unknown>>; turns: Array<{ match: string; steps: Array<Record<string, unknown>> }> };
+    expect(s.steps[0].delay_ms).toBe(6139);
+    expect(s.steps[1].delay_ms).toBeUndefined();
+    const plain = JOURNEY_STUB_SCRIPT as unknown as typeof s;
+    for (const [i, t] of s.turns.entries()) {
+      const own = /journey-(read|text)/.test(t.match);
+      expect(t.steps[0].delay_ms).toBe(own ? 6139 : plain.turns[i].steps[0].delay_ms);
+      expect(t.steps.slice(1).every((x, j) => x.delay_ms === plain.turns[i].steps[j + 1].delay_ms)).toBe(true);
+    }
+    expect(s.turns.filter((t) => /journey-(read|text)/.test(t.match))).toHaveLength(2);
+    // The shared script itself is never changed (zero-to-going and the idle-stub test play it as is).
+    expect(plain.steps[0].delay_ms).toBeUndefined();
+  });
+
+  test("the model stub accepts the replayed script", () => {
+    const dir = mkdtempSync(join(tmpdir(), "stub-replay-"));
+    try {
+      const file = join(dir, "s.json");
+      writeFileSync(file, JSON.stringify(journeyStubScript({ ttft_ms: 6139 })));
+      const stub = new URL("../../tests/fixtures/model-stub/model_stub.py", import.meta.url).pathname;
+      const r = spawnSync("python3", ["-I", "-c", "import importlib.util,json,sys; s=importlib.util.spec_from_file_location('m', sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.load_script(sys.argv[2]); print('ok')", stub, file], { encoding: "utf8" });
+      expect(r.stderr).toBe("");
+      expect(r.stdout.trim()).toBe("ok");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   function runTail(program: string, budget = 2000) {
     const dir = mkdtempSync(join(tmpdir(), "journey-first-text-"));
     try {
@@ -67,13 +205,26 @@ data = ${JSON.stringify(text)}.encode()
 for b in data: os.write(1, bytes([b]))
 time.sleep(10) # a turn whose end must never be awaited`);
     expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe("@@first-text");
+    expect(result.stdout.trim()).toMatch(/^@@first-text \d+ -?\d+$/);
     expect(result.stdout).not.toContain("héllo");
+  });
+
+  test("follows a session that appears after the observer started (acp tail exits 4 until it exists)", () => {
+    const text = JSON.stringify(chunk("agent_message_chunk", "hi"));
+    const result = runTail(`n = os.path.join(os.path.dirname(sys.argv[0]), 'n')
+k = int(open(n).read()) if os.path.exists(n) else 0
+open(n, 'w').write(str(k + 1))
+if k < 2: sys.exit(4)
+print('{"kind":"turn_started"}', flush=True)
+print(${JSON.stringify(text)}, flush=True)
+time.sleep(10)`);
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toMatch(/^@@first-text \d+ -?\d+$/);
   });
 
   test("accepts the live session/update shape", () => {
     const live = { method: "session/update", params: chunk().msg.params };
-    expect(runTail(`print('{"kind":"turn_started"}', flush=True)\nprint(${JSON.stringify(JSON.stringify(live))}, flush=True)`).stdout.trim()).toBe("@@first-text");
+    expect(runTail(`print('{"kind":"turn_started"}', flush=True)\nprint(${JSON.stringify(JSON.stringify(live))}, flush=True)`).stdout.trim()).toMatch(/^@@first-text \d+ -?\d+$/);
   });
 
   test.each([
@@ -282,7 +433,7 @@ await done;
   test("skips an oversized line and resumes on the next assistant chunk", () => {
     const result = runTail(`print('{"kind":"turn_started"}', flush=True)\nos.write(1, b'x' * 1100000 + b'\\n')\nprint(${JSON.stringify(JSON.stringify(chunk()))}, flush=True)`);
     expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe("@@first-text");
+    expect(result.stdout.trim()).toMatch(/^@@first-text \d+ -?\d+$/);
   });
 
   test("preserves completion ms; either leg exports first-text fields under its model", () => {
@@ -297,5 +448,22 @@ await done;
     expect(stub.ms).toBe(5000);
     expect(stub).toMatchObject({ create_to_first_text_ms: 10000, model: "stub", backend: "prod" });
     expect(probeRow("p", steps.slice(0, 1))).not.toHaveProperty("create_to_first_text_ms");
+  });
+});
+
+describe("every chat start waits for an owner machine before session_start", () => {
+  // Run 45791887919 (prod, claude stub, --home-chat reserved): the reserved start skipped the wait, the machine's
+  // vm-kind still read the image's team, and agent-auth.sh sent the stub's turn to CodeRouter instead of the stub.
+  test("the reserved home start and the acp start both run ownerKindStep, then mark session_start", () => {
+    const src = readFileSync(join(import.meta.dir, "cloud-journey.ts"), "utf8");
+    const reserved = src.indexOf('} else if (homeChat === "reserved") {');
+    const acp = src.indexOf("let promptedWithStart = false;");
+    expect(reserved).toBeGreaterThan(-1);
+    expect(acp).toBeGreaterThan(reserved);
+    for (const branch of [src.slice(reserved, src.indexOf("let reservedChat", reserved)), src.slice(src.lastIndexOf("} else {", acp), acp)]) {
+      const wait = branch.indexOf("await ownerKindStep();");
+      expect(wait).toBeGreaterThan(-1);
+      expect(branch.indexOf('J.firstText.mark("session_start")')).toBeGreaterThan(wait);
+    }
   });
 });

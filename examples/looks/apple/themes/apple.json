@@ -5,7 +5,7 @@
 // Light terminal theme, and spring motion at the standard speed.
 {
   "name": "Apple",
-  "description": "macOS Tahoe, Light: a vibrant source-list sidebar, a white content card, systemBlue.",
+  "description": "Light: a bright sidebar, a white page, a blue accent.",
 
   // The terminal theme Apple ships with Terminal.app, and the window, sidebar and pages follow it.
   "appearance.theme": "Apple System Colors Light",

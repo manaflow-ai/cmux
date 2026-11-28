@@ -1,5 +1,10 @@
 // In every build: DEBUG mock mode and the App Review demo account (server-flagged,
 // AppStore.loadReviewDemo) use it. A live account never does (TerminalSessionChoice).
+#if os(iOS)
+import CmuxMobileLinkFFI
+#endif
+// The host-load model (`HostLoadSim`) is DEBUG only.
+import CmuxMobileDesign
 import CmuxMobileTransport
 import Foundation
 
@@ -13,6 +18,8 @@ public final class MockTerminalSession: TerminalSession {
     public private(set) var isAlternateScreen = false
 
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
+    /// `HostLoadSim`'s observers (DEBUG host load: a busy Mac's output, a dropped link).
+    private var hostLoad: [NSObjectProtocol] = []
     private let clock: any Clock<Duration>
     private let playsIntro: Bool
     /// The intro is written at once (the review demo): the terminal opens on its
@@ -47,6 +54,18 @@ public final class MockTerminalSession: TerminalSession {
     private var transcriptBytes = 0
     private var resizeAnswer: Task<Void, Never>?
     private var answers: [(due: ContinuousClock.Instant, columns: Int, rows: Int)] = []
+    /// `htop` already running on a Mac pane of this grid when the phone
+    /// attaches (the terminal demo's `attach` phase): the attach answers
+    /// the app's round trips (`macResize` each, TerminalAttachPlan) after the start, at the grid the phone sent
+    /// before it (`attach-surface {cols, rows}`), or the pane's.
+    private let attachesTo: (columns: Int, rows: Int)?
+    /// The demo's before arm: the mock answers the attach two round trips
+    /// later even with the phone's grid (`-CmuxMobileTerminalDemoAttachSerial`).
+    private let attachesInSeries: Bool
+    /// The grid the phone gave before the attach went out.
+    private var attachSize: (columns: Int, rows: Int)?
+    /// The attach went out and its answer has not come yet.
+    private var attachInFlight = false
     /// `historywindow`: the older rows the "Mac" holds back until the reader
     /// scrolls near the top of the rows shown, the rows shown, and how long
     /// the older rows' replay takes to come.
@@ -62,11 +81,24 @@ public final class MockTerminalSession: TerminalSession {
     /// when it painted it (``reportPaint(_:)``): the simulator's receive-to-paint.
     public var stampsRedraws = false
     private var paintSeq = 0
+    /// When the phone's first unanswered input was sent (gesture-to-paint stamps, negative seq).
+    private var firstInputMs: Double?
+    private var gestureSeq = 0
     /// What the screen reported painted (`[seq, received, painted]`, epoch ms).
     public var paintSamples: [TerminalPaintTally.Sample] = []
 
     public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {
         paintSamples += samples
+        // The DEBUG overlay in the simulator: the "Mac" is in the app, one clock and no wire,
+        // so the whole delta is receive to paint (a real Mac's join comes from hostd).
+        guard TerminalPaintOverlay.enabled, let paint = TerminalPaintTally.receiveToPaint(samples),
+              let last = samples.last, last.count == 3 else { return }
+        let part = TerminalPaintSummary.Part(n: samples.count, p50: paint.p50, p95: paint.p95,
+                                             max: samples.map { $0[2] - $0[1] }.max() ?? paint.p95)
+        let summary = TerminalPaintSummary(lastTotalMs: last[2] - last[1], total: part, phonePaint: part,
+                                           offsetMs: 0, offsetErrorMs: 0)
+        NotificationCenter.default.post(name: TerminalPaintSummary.didArrive, object: self,
+                                        userInfo: ["summary": summary])
     }
     /// DEBUG bench (`tuipan`): input goes the way `DaemonTerminalSession`
     /// sends it, one `send` per main-queue turn with everything Ghostty
@@ -110,27 +142,75 @@ public final class MockTerminalSession: TerminalSession {
     private var fullTick = 0
 
     /// `playsIntro`: run `ls -la`, `git log` and a build when the session starts.
+    /// `offline`: the Mac is out of reach (`CMUX_MOBILE_MOCK_LINK=down`). The
+    /// shell's screen is there, the session says it is offline, and nothing
+    /// typed arrives.
+    private let offline: Bool
+
     public init(clock: any Clock<Duration> = ContinuousClock(), playsIntro: Bool = true, instantIntro: Bool = false,
-                roundTrip: Duration = .zero, macResize: Duration? = nil) {
+                roundTrip: Duration = .zero, macResize: Duration? = nil, offline: Bool = false,
+                attachesTo: (columns: Int, rows: Int)? = nil, attachesInSeries: Bool = false) {
         self.clock = clock
         self.playsIntro = playsIntro
         self.instantIntro = instantIntro
         self.roundTrip = roundTrip
         self.macResize = macResize
+        self.offline = offline
+        self.attachesTo = attachesTo
+        self.attachesInSeries = attachesInSeries
+    }
+
+    /// The Mac's grid now, and whether an attach or a resize answer is still
+    /// on its way (the demo's `attach` phase: the grid the page must end at).
+    public var macState: (columns: Int, rows: Int, inFlight: Bool) {
+        let grid = macGrid ?? attachSize ?? attachesTo ?? (columns, rows)
+        return (grid.columns, grid.rows, attachInFlight || !answers.isEmpty)
     }
 
     public var remoteRows: Int? { macGrid?.rows }
     public var remoteColumns: Int? { macGrid?.columns }
 
+    #if os(iOS)
+    /// The rows a full-screen app scrolled away, kept from its output as a
+    /// projecting session keeps them (``TerminalTUIReader``'s demo and bench).
+    private lazy var transcriptKeeper = TerminalProjection(hostCols: UInt32(clamping: columns), hostRows: UInt32(clamping: rows))
+
+    public var tuiTranscriptRowsAbove: Int { Int(transcriptKeeper.transcriptRowsAbove()) }
+
+    public func tuiTranscript() -> TerminalTUITranscript? {
+        transcriptKeeper.transcriptPaint().map {
+            TerminalTUITranscript(bytes: $0.bytes, rows: Int($0.rows), screenTop: Int($0.screenTop))
+        }
+    }
+
+    #endif
+
     public func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
+        #if os(iOS)
+        self.handler = { [weak self] event in
+            if let self {
+                switch event {
+                case .output(let data): _ = self.transcriptKeeper.feed(bytes: data, paint: false)
+                case .hostGrid(let columns, let rows):
+                    self.transcriptKeeper.setHostGrid(cols: UInt32(clamping: columns), rows: UInt32(clamping: rows))
+                default: break
+                }
+            }
+            handler(event)
+        }
+        #else
         self.handler = handler
+        #endif
+        if let pane = attachesTo { return attach(pane: pane) }
         handler(.title("zsh — cmux-next"))
+        observeHostLoad()
         let intro = playsIntro
         if instantIntro { paced = false }
         run { session in
             defer { session.paced = true }
             session.write("Last login: Mon Oct 12 09:41:07 on ttys004\r\n")
             session.prompt()
+            if session.offline { session.handler?(.connection(.offline(mac: "Mock Mac"))) }
             guard intro else { return }
             for command in ["ls -la", "git log --oneline --graph -n 18", "cargo build --release -p cmux-mobile-host"] {
                 try await session.typeCommand(command)
@@ -139,7 +219,9 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     public func send(_ bytes: Data) {
+        guard !offline else { return }
         bytesFromPhone += bytes.count
+        if stampsRedraws, firstInputMs == nil { firstInputMs = TerminalPaintReport.nowMs }
         guard batchesInputPerTurn else {
             sends += 1
             return forward(bytes)
@@ -179,8 +261,15 @@ public final class MockTerminalSession: TerminalSession {
             appScrolls += full.scrolls - before
             program = .agentFull(full)
             write(full.render(columns: columns, rows: rows))
+            if stampsRedraws, let sentMs = firstInputMs {
+                // Gesture to paint: the app's redraw for the wheel the phone sent.
+                gestureSeq += 1
+                handler?(.paintMark(seq: -gestureSeq, receivedMs: sentMs))
+            }
+            firstInputMs = nil
             return
         }
+        firstInputMs = nil
         for byte in bytes { receive(byte) }
         // A lone ESC at the end of a write is the Escape key, not a sequence start.
         if escapeBuffer == [0x1B] {
@@ -190,6 +279,11 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     public func resize(columns: Int, rows: Int) {
+        if attachesTo != nil, handler == nil || attachInFlight {
+            // Before the attach answered: the attach carries it.
+            if columns > 0, rows > 0 { attachSize = (columns, rows) }
+            return
+        }
         if let macResize {
             answerResize(columns: columns, rows: rows, after: macResize)
             return
@@ -197,6 +291,9 @@ public final class MockTerminalSession: TerminalSession {
         guard columns > 0, rows > 0, columns != self.columns || rows != self.rows else { return }
         self.columns = columns
         self.rows = rows
+        #if os(iOS)
+        transcriptKeeper.setHostGrid(cols: UInt32(clamping: columns), rows: UInt32(clamping: rows))
+        #endif
         switch program {
         case .shell: break
         case .htop(let tick): drawHtop(tick: tick)
@@ -229,6 +326,48 @@ public final class MockTerminalSession: TerminalSession {
             }
             self?.resizeAnswer = nil
         }
+    }
+
+    /// The attach into `htop` on a pane of `pane`: the app's round trips later, the
+    /// Mac's grid (the phone's, when it sent one), a mirror reset and one
+    /// replay (the shell's history, then htop's screen), as
+    /// `DaemonTerminalSession` delivers an attach, then `.attached`.
+    private func attach(pane: (columns: Int, rows: Int)) {
+        attachInFlight = true
+        handler?(.connection(.connecting(mac: "Mac")))
+        // The round trips `DaemonTerminalSession.attach()` makes before the
+        // Mac's answer (TerminalAttachPlan): one when the phone gave its grid
+        // before the attach (it rides `set-client-info` + `identify`), two
+        // without one (`identify` first, then `attach-surface`).
+        // `attachesInSeries`: the attach as it was before the plan (identify
+        // first, then attach-surface): the before arm of the same build.
+        let plan = TerminalAttachPlan.plan(firstAttach: true, claimsSize: true, size: attachesInSeries ? nil : attachSize)
+        let delay = (macResize ?? .zero) * plan.roundTrips
+        let task = Task { [weak self] in
+            try? await ContinuousClock().sleep(for: delay)
+            guard let self, !Task.isCancelled else { return }
+            let grid = self.attachSize ?? pane
+            self.columns = grid.columns
+            self.rows = grid.rows
+            self.macGrid = grid
+            var history = "Last login: Mon Oct 12 09:41:07 on ttys004\r\n"
+            for line in 1...60 { history += "history \(line): \(String(repeating: "=", count: 40))\r\n" }
+            history += "\u{1B}[32m❯\u{1B}[0m htop\r\n"
+            self.transcript = [history]
+            self.transcriptBytes = history.utf8.count
+            self.program = .htop(tick: 0)
+            self.isAlternateScreen = true
+            self.programName = "htop"
+            self.attachInFlight = false
+            self.handler?(.hostGrid(columns: grid.columns, rows: grid.rows))
+            self.handler?(.output(Data("\u{1B}c".utf8)))
+            self.handler?(.alternateScreen(true))
+            self.handler?(.output(Data((history + "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + Self.htopMouse
+                + MockHtop.render(columns: grid.columns, rows: grid.rows, tick: 0)).utf8)))
+            self.handler?(.title("htop — cmux-next"))
+            self.handler?(.connection(.attached))
+        }
+        tasks.append(task)
     }
 
     /// The mouse reporting htop turns on (and the Mac's replay keeps).
@@ -280,6 +419,8 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     public func stop() {
+        hostLoad.forEach(NotificationCenter.default.removeObserver)
+        hostLoad.removeAll()
         resizeAnswer?.cancel()
         resizeAnswer = nil
         answers.removeAll()
@@ -290,6 +431,33 @@ public final class MockTerminalSession: TerminalSession {
         inFlight.removeAll()
         handler = nil
     }
+
+    // MARK: Host load
+
+    /// `HostLoadSim`: a heavy tick writes a build's status line over the top
+    /// row (cursor saved and restored), as a streaming Mac does; a cut takes
+    /// the link offline.
+    private func observeHostLoad() {
+        #if DEBUG
+        guard hostLoad.isEmpty else { return }
+        let center = NotificationCenter.default
+        if HostLoadSim.mode == .cut { handler?(.connection(.offline(mac: nil))) }
+        hostLoad.append(center.addObserver(forName: HostLoadSim.tick, object: nil, queue: .main) { [weak self] note in
+            let tick = note.object as? Int ?? 0
+            MainActor.assumeIsolated { self?.hostLoadTick(tick) }
+        })
+        hostLoad.append(center.addObserver(forName: HostLoadSim.cut, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handler?(.connection(.offline(mac: nil))) }
+        })
+        #endif
+    }
+
+    #if DEBUG
+    private func hostLoadTick(_ tick: Int) {
+        guard case .shell = program else { return }
+        write("\u{1B}7\u{1B}[1;1H\u{1B}[2K   Compiling cmux-mobile-host step \(tick) of 4000\u{1B}8")
+    }
+    #endif
 
     // MARK: Output
 
@@ -516,6 +684,14 @@ public final class MockTerminalSession: TerminalSession {
             let rows = (older + 1...older + shown).map(row)
             heldBack = ((1...older).map(row), rows, delay)
             write(rows.map { $0 + "\r\n" }.joined())
+        case "widetable":
+            // widetable [COLUMNS=180] [ROWS=12]: a table wider than the phone
+            // (Leo, 2026-11-23: "an extra wide table... just doesnt even work
+            // right now"), every row one line: `|` cells of 10 columns named
+            // by their first column, the last one `END`.
+            let width = parts.count > 1 ? Int(parts[1]) ?? 180 : 180
+            let count = parts.count > 2 ? Int(parts[2]) ?? 12 : 12
+            try await stream(MockOutput.wideTable(columns: width, rows: count), lineDelay: 4)
         case "clear": write("\u{1B}[H\u{1B}[2J")
         case "echo": write(parts.dropFirst().joined(separator: " ") + "\r\n")
         case "cat": try await stream(MockOutput.file(named: parts.dropFirst().first ?? ""))
@@ -606,7 +782,8 @@ public final class MockTerminalSession: TerminalSession {
             let mouse = !parts.contains("keys")
             let stream = parts.first { $0.hasPrefix("stream=") }.flatMap { Int($0.dropFirst(7)) }.map { max(5, $0) }
             busy = false
-            let full = MockClaudeFull(rows: count, mouse: mouse)
+            var full = MockClaudeFull(rows: count, mouse: mouse)
+            full.scrolling = parts.contains("scroll")
             program = .agentFull(full)
             setAlternate(true, program: "claude")
             if mouse { handler?(.output(Data(Self.htopMouse.utf8))) }
@@ -622,7 +799,13 @@ public final class MockTerminalSession: TerminalSession {
                         if full.offset > 0 { full.offset += 1 }
                     }
                     self.program = .agentFull(full)
-                    self.write(stream != nil ? full.render(columns: self.columns, rows: self.rows) : full.statusRow(rows: self.rows))
+                    if stream == nil {
+                        self.write(full.statusRow(rows: self.rows))
+                    } else if full.scrolling, full.offset == 0 {
+                        self.write(full.appendRow(columns: self.columns, rows: self.rows))
+                    } else {
+                        self.write(full.render(columns: self.columns, rows: self.rows))
+                    }
                 }
             }
             tasks.append(task)
@@ -793,6 +976,10 @@ public final class MockTerminalSession: TerminalSession {
 struct MockClaudeFull: Equatable {
     var rows: Int
     let mouse: Bool
+    /// `scroll`: the transcript is written into a scroll region (rows 2 to
+    /// the status row) a line feed at a time, so its rows scroll off the
+    /// region's top as a log viewer's do, instead of a whole-screen redraw.
+    var scrolling = false
     /// Rows scrolled up from the newest.
     var offset = 0
     var tick = 0
@@ -830,6 +1017,7 @@ struct MockClaudeFull: Equatable {
     /// The whole screen: a header row, the transcript ending `offset` rows
     /// above the newest, the status row and the input box.
     func render(columns: Int, rows screen: Int) -> String {
+        if scrolling { return renderScrolling(columns: columns, rows: screen) }
         let rule = String(repeating: "\u{2500}", count: max(10, min(60, columns - 2)))
         let body = max(1, screen - 5)
         let last = max(1, rows - offset)
@@ -841,6 +1029,33 @@ struct MockClaudeFull: Equatable {
         out += statusRow(rows: screen)
         out += "\u{1B}[\(screen - 2);1H\u{256D}\(rule)\u{256E}\u{1B}[\(screen - 1);1H\u{2502} > \u{1B}[\(screen);1H\u{2570}\(rule)\u{256F}"
         return out + "\u{1B}[\(screen - 1);5H"
+    }
+
+    /// `scroll`: each row cleared in place (no erase of the display), the
+    /// header, then the transcript's last rows (at the newest: 3,000 past
+    /// the region) written down the region `2...screen-4`, scrolling it.
+    private func renderScrolling(columns: Int, rows screen: Int) -> String {
+        let rule = String(repeating: "\u{2500}", count: max(10, min(60, columns - 2)))
+        let body = max(1, screen - 5)
+        let last = max(1, rows - offset)
+        // Scrolled back by the app: its screen only (a redraw per wheel).
+        let first = max(1, last - body + 1 - (offset > 0 ? 0 : 3_000))
+        var out = "\u{1B}[r"
+        for row in 1...max(1, screen) { out += "\u{1B}[\(row);1H\u{1B}[2K" }
+        out += "\u{1B}[1;1H\u{1B}[33m\u{273B}\u{1B}[0m Claude Code (mock full screen, scrolling)"
+        out += "\u{1B}[2;\(body + 1)r\u{1B}[2;1H"
+        for index in first...last {
+            out += (index == first ? "" : "\r\n") + String(Self.transcriptRow(index).prefix(columns + 12))
+        }
+        out += statusRow(rows: screen)
+        out += "\u{1B}[\(screen - 2);1H\u{256D}\(rule)\u{256E}\u{1B}[\(screen - 1);1H\u{2502} > \u{1B}[\(screen);1H\u{2570}\(rule)\u{256F}"
+        return out + "\u{1B}[\(screen - 1);5H"
+    }
+
+    /// `scroll`: the newest row, a line feed at the region's bottom (its top row scrolls off).
+    func appendRow(columns: Int, rows screen: Int) -> String {
+        let body = max(1, screen - 5)
+        return "\u{1B}7\u{1B}[\(body + 1);1H\r\n" + String(Self.transcriptRow(rows).prefix(columns + 12)) + "\u{1B}8" + statusRow(rows: screen)
     }
 }
 

@@ -37,6 +37,10 @@ pub enum Scope {
     Merge,
     /// Re-run an Actions run's failed jobs.
     Rerun,
+    /// A pull request review, a reply in a review thread, resolving one (pull requests write).
+    Review,
+    /// The repository's issues and their comments (read).
+    Issues,
 }
 
 impl Scope {
@@ -50,6 +54,8 @@ impl Scope {
                 json!({"metadata": "read", "contents": "write", "pull_requests": "write"})
             }
             Self::Rerun => json!({"metadata": "read", "actions": "write"}),
+            Self::Review => json!({"metadata": "read", "pull_requests": "write"}),
+            Self::Issues => json!({"metadata": "read", "issues": "read"}),
         }
     }
 
@@ -59,12 +65,14 @@ impl Scope {
             Self::Checks => "checks",
             Self::Merge => "merge",
             Self::Rerun => "rerun",
+            Self::Review => "review",
+            Self::Issues => "issues",
         }
     }
 
     /// Whether the op changes something on GitHub (a click spent it; never retried).
     pub fn writes(self) -> bool {
-        matches!(self, Self::Merge | Self::Rerun)
+        matches!(self, Self::Merge | Self::Rerun | Self::Review)
     }
 }
 
@@ -83,6 +91,22 @@ pub struct Plan {
     /// Only the last this many bytes of the answer (a job's log): a `Range` header, and the end
     /// kept when the server sends the whole of it.
     pub tail: Option<u64>,
+    /// Who it is said by: [`Author::Person`] runs with the person's own `gh` first (a review or a
+    /// reply is theirs), and with the App only when that has no login.
+    pub author: Author,
+}
+
+/// Whose words or verdict a write is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Author {
+    /// Anyone's: the App first (a read, a merge, a re-run).
+    Any,
+    /// The person's, which the App may say for them as cmux when `gh` has no login (a comment
+    /// review, a thread reply, resolving a thread).
+    Person,
+    /// The person's alone: an approval or a request for changes counts toward a branch's
+    /// required reviews, so the App never gives one.
+    PersonOnly,
 }
 
 impl Plan {
@@ -181,6 +205,7 @@ fn get_scope(subpath: &str) -> Option<Scope> {
     match (parts.next(), parts.next(), parts.next(), parts.next()) {
         (Some(""), None, ..) => Some(Scope::Pulls),
         (Some("pulls"), ..) => Some(Scope::Pulls),
+        (Some("issues"), ..) => Some(Scope::Issues),
         (Some("actions"), Some("jobs"), Some(job), rest)
             if job.bytes().all(|b| b.is_ascii_digit()) && matches!(rest, None | Some("logs")) =>
         {
@@ -198,6 +223,10 @@ fn get_scope(subpath: &str) -> Option<Scope> {
 /// - `pr.merge {repo, number, head, method}`: merge, pinned to `head` (GitHub refuses when the
 ///   pull request moved on), with `merge`, `squash` or `rebase`.
 /// - `run.rerunFailed {repo, run}`: re-run an Actions run's failed jobs.
+/// - `review.submit {repo, number, event, body?, head?}`: a review (`APPROVE`, `REQUEST_CHANGES`
+///   or `COMMENT`), on `head` when given; the person's alone unless it only comments.
+/// - `thread.reply {repo, thread, body}`: a reply in a review thread (its GraphQL node id).
+/// - `thread.resolve {repo, thread, resolved}`: resolve the thread, or reopen it.
 pub fn plan(params: &Value) -> Result<Plan, String> {
     let op = params.get("op").and_then(Value::as_str).unwrap_or("");
     let repo = text(params, "repo")?;
@@ -214,6 +243,7 @@ pub fn plan(params: &Value) -> Result<Plan, String> {
         path,
         body,
         tail: None,
+        author: Author::Any,
     };
     match op {
         "graphql" => {
@@ -272,6 +302,61 @@ pub fn plan(params: &Value) -> Result<Plan, String> {
             let run = number(params, "run")?;
             let path = at(&format!("actions/runs/{run}/rerun-failed-jobs"));
             Ok(plan("run.rerunFailed", Scope::Rerun, "POST", path, None))
+        }
+        "review.submit" => {
+            let number = number(params, "number")?;
+            let event = params.get("event").and_then(Value::as_str).unwrap_or("");
+            let author = match event {
+                "COMMENT" => Author::Person,
+                "APPROVE" | "REQUEST_CHANGES" => Author::PersonOnly,
+                _ => return Err(invalid("event must be APPROVE, REQUEST_CHANGES or COMMENT")),
+            };
+            let words = match params.get("body") {
+                None | Some(Value::Null) => "",
+                Some(_) => text(params, "body")?,
+            };
+            if words.is_empty() && event != "APPROVE" {
+                return Err(invalid("a comment or a request for changes needs its words"));
+            }
+            let mut body = json!({"event": event, "body": words});
+            if params.get("head").is_some_and(|h| !h.is_null()) {
+                body["commit_id"] = Value::String(commit(params, "head")?);
+            }
+            let path = at(&format!("pulls/{number}/reviews"));
+            Ok(Plan { author, ..plan("review.submit", Scope::Review, "POST", path, Some(body)) })
+        }
+        "thread.reply" | "thread.resolve" => {
+            let thread = text(params, "thread")?;
+            if thread.len() > 200
+                || !thread
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'='))
+            {
+                return Err(invalid("thread must be a review thread's node id"));
+            }
+            let (name, query, variables) = if op == "thread.reply" {
+                (
+                    "thread.reply",
+                    "mutation($thread: ID!, $body: String!) { addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $thread, body: $body}) { comment { id url } } }",
+                    json!({"thread": thread, "body": text(params, "body")?}),
+                )
+            } else {
+                let resolved = params
+                    .get("resolved")
+                    .and_then(Value::as_bool)
+                    .ok_or_else(|| invalid("resolved must be true or false"))?;
+                let query = if resolved {
+                    "mutation($thread: ID!) { resolveReviewThread(input: {threadId: $thread}) { thread { id isResolved } } }"
+                } else {
+                    "mutation($thread: ID!) { unresolveReviewThread(input: {threadId: $thread}) { thread { id isResolved } } }"
+                };
+                ("thread.resolve", query, json!({"thread": thread}))
+            };
+            let body = json!({"query": query, "variables": variables});
+            Ok(Plan {
+                author: Author::Person,
+                ..plan(name, Scope::Review, "POST", "graphql".to_owned(), Some(body))
+            })
         }
         "" => Err(invalid("op is required")),
         _ => Err(invalid("op is not one the host op runs")),

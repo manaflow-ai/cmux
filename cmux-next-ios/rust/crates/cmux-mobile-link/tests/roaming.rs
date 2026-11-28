@@ -381,6 +381,36 @@ async fn wireguard_roam_takes_a_fresh_turn_allocation() {
     }
 }
 
+/// The phone's plain UDP reaches only TURN relayed addresses (a symmetric
+/// CGNAT in front of a port-restricted Mac: no direct path, and STUN goes
+/// unanswered). Its roam's TURN allocation comes back within a round trip;
+/// the roam installs and announces it then, not after the STUN wait
+/// (1.5 s) that the silent server runs out. Before, the allocation sat
+/// unused for that wait and the stream stalled about 2 s (netlab `move`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_roam_uses_its_turn_allocation_without_waiting_out_stun() {
+    fn only_relays(addr: &std::net::SocketAddr) -> bool {
+        !cmux_mobile_link::testing::is_test_relay(addr)
+    }
+    let turn = TestTurn::start().await;
+    // A STUN server that never answers (as when the new network's route is
+    // not up yet for the roam's one request, or the request is lost).
+    let silent = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let stun = cmux_mobile_link::api::IceServer {
+        urls: vec![format!("stun:{}", silent.local_addr().unwrap())],
+        ..turn.udp_only()
+    };
+    let phone =
+        DialOptions { ice_servers: vec![turn.udp_only(), stun], drop_udp_to: Some(only_relays), ..options() };
+    let run = stream_across_a_change(phone, options(), Some(Duration::ZERO), Duration::from_secs(4)).await;
+    eprintln!("stun-silent roam: {run:?}");
+    assert_eq!(run.after, LinkPath::Turn);
+    let at = |name: &str| run.marks.iter().find(|(mark, _)| mark == name).map(|(_, at)| *at);
+    let allocated = at("roam_turn_allocated").unwrap_or_else(|| panic!("no allocation: {:?}", run.marks));
+    assert!(allocated < Duration::from_millis(700), "allocation installed at {allocated:?}: {:?}", run.marks);
+    assert!(run.stall < Duration::from_millis(1000), "stalled {:?}", run.stall);
+}
+
 /// The OS reports the new path 300 ms after the old network died: what
 /// was sent into the dead network meanwhile is sent again, so the stall is
 /// that delay plus a round trip, not TCP's 1 s retransmission timeout.
@@ -417,6 +447,138 @@ async fn wireguard_session_follows_a_new_signaling_socket() {
     eprintln!("rehome: {run:?}");
     assert_eq!(run.after, LinkPath::Direct);
     assert!(run.stall < Duration::from_millis(500), "stalled {:?}", run.stall);
+}
+
+/// A TCP relay between a signaling client and the fake backend that can go dark: every byte
+/// either way is then read and dropped, and the connection stays open (a phone's socket on a
+/// network it left: half open, never answering).
+struct DarkableRelay {
+    base_url: String,
+    dark: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl DarkableRelay {
+    async fn start(upstream_base_url: &str) -> Self {
+        let upstream = upstream_base_url.trim_start_matches("http://").to_owned();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let dark = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let relay_dark = std::sync::Arc::clone(&dark);
+        tokio::spawn(async move {
+            while let Ok((client, _)) = listener.accept().await {
+                let Ok(server) = tokio::net::TcpStream::connect(&upstream).await else { continue };
+                let (client_read, client_write) = client.into_split();
+                let (server_read, server_write) = server.into_split();
+                for (mut from, mut to) in [(client_read, server_write), (server_read, client_write)] {
+                    let dark = std::sync::Arc::clone(&relay_dark);
+                    tokio::spawn(async move {
+                        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                        let mut buffer = vec![0u8; 16 * 1024];
+                        loop {
+                            let read = match from.read(&mut buffer).await {
+                                Ok(0) | Err(_) => break,
+                                Ok(read) => read,
+                            };
+                            if !dark.load(std::sync::atomic::Ordering::Relaxed)
+                                && to.write_all(&buffer[..read]).await.is_err()
+                            {
+                                break;
+                            }
+                        }
+                        // Keep the other half open: a dead path never says it is closed.
+                        std::future::pending::<()>().await;
+                        drop(to);
+                    });
+                }
+            }
+        });
+        Self { base_url, dark }
+    }
+
+    fn go_dark(&self) {
+        self.dark.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// A network change with the phone's signaling socket half open on the network it left: the new
+/// socket opens at once and the session moves onto it, without first waiting out a probe of the
+/// old one. Probing first put the probe's whole window (`network_probe`, 300 ms to 1 s) before
+/// the new socket, and only the new socket carries the phone's new address to a port-restricted
+/// Mac (netlab `move`: the rehome landed about 1.2 s after the change).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_network_change_opens_new_signaling_without_waiting_for_the_old_ones_probe() {
+    use cmux_mobile_link::signaling::{AfterNetworkChange, after_network_change, network_probe};
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let relay = DarkableRelay::start(&server.base_url).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    tokio::spawn(async move {
+        while let Some(session) = mac.next_session().await {
+            let events = SessionEvents {
+                backend: mac.events(),
+                session_id: session.first.session_id.clone(),
+                session: session.events,
+            };
+            let mac = mac.clone();
+            tokio::spawn(async move {
+                let connected = dial::answer(&mac, session.first, events, &options(), LinkConfig::default())
+                    .await
+                    .unwrap();
+                while let Some(mut incoming) = connected.link.accept().await {
+                    tokio::spawn(async move {
+                        while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                            let _ = incoming.channel.send(bytes).await;
+                        }
+                    });
+                }
+            });
+        }
+    });
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let old = SignalingClient::connect(&relay.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let connected = dial::connect(&old, &mac_id, TransportKind::WireGuard, &options(), LinkConfig::default())
+        .await
+        .expect("dial");
+    let session_id = connected.session_id.clone();
+    // The old socket has timed a pong: the window its probe would get.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while old.rtt().is_none() && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let probe_window = network_probe(old.rtt());
+
+    relay.go_dark();
+    let changed_at = Instant::now();
+    // This session's roam only: the process-wide `network_changed` would roam the sessions of the
+    // tests running beside this one.
+    let roam = {
+        let session_id = session_id.clone();
+        tokio::spawn(async move { wireguard::roam_session(&session_id, true).await })
+    };
+    let (base_url, phone) = (server.base_url.clone(), phone_id.clone());
+    let open = async move { SignalingClient::connect(&base_url, "user:alice", "team", &phone).await };
+    let fresh = match after_network_change(Some(&old), open).await {
+        AfterNetworkChange::Opened(fresh) => fresh,
+        other => panic!("no new signaling socket after the change: {other:?}"),
+    };
+    assert!(wireguard::rehome(&fresh) >= 1, "the session did not move onto the new socket");
+    let rehomed = changed_at.elapsed();
+    eprintln!("rehomed {rehomed:?} after the change (the old socket's probe window: {probe_window:?})");
+    assert!(
+        rehomed < probe_window,
+        "the new signaling socket waited for the old one's probe: rehomed {rehomed:?}, probe window {probe_window:?}"
+    );
+    let _ = roam.await;
+    assert!(wireguard::session_endpoints(&session_id, true).is_some());
+
+    // The link still carries data after the change.
+    let channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
+    let (sender, mut receiver) = channel.split();
+    sender.send(Bytes::from_static(b"after the change")).await.unwrap();
+    let echoed = tokio::time::timeout(Duration::from_secs(10), receiver.recv()).await;
+    assert!(matches!(echoed, Ok(Some(ChannelEvent::Data(_)))), "no echo after the change: {echoed:?}");
+    connected.link.close("done");
+    fresh.close();
 }
 
 /// UDP blocked: the roam takes a fresh TURN allocation over TLS, and the
@@ -494,6 +656,185 @@ async fn wireguard_takes_the_turn_allocation_its_roam_missed() {
     // The old network's relayed address is dead: the phone no longer offers it.
     assert!(!run.endpoints_before.is_empty() && !run.endpoints_after.is_empty(), "{run:?}");
     assert!(run.endpoints_before.iter().all(|old| !run.endpoints_after.contains(old)), "{run:?}");
+}
+
+/// One relay-only roam whose TURN server is slow to answer: what the server
+/// granted after the roam began (ms from `network_changed`, relayed
+/// address), when the roam returned, and when and which of those grants the
+/// phone first offered the Mac.
+#[derive(Debug)]
+struct LateRoam {
+    grants: Vec<(u128, std::net::SocketAddr)>,
+    roam_ms: u128,
+    roam_took_turn: bool,
+    adopted: Option<(u128, std::net::SocketAddr)>,
+}
+
+impl LateRoam {
+    /// Which grant (0: the first after the roam began) the phone took.
+    fn adopted_grant(&self) -> Option<usize> {
+        let (_, adopted) = self.adopted?;
+        self.grants.iter().position(|(_, relayed)| *relayed == adopted)
+    }
+}
+
+/// A relay-only phone (UDP TURN only, so the roam's allocation is bounded
+/// by `NO_STREAM_UDP_WAIT`, 3 s) roams while `slow` makes its TURN server
+/// slow; returns the grants, the roam and the adoption, waiting up to
+/// `within` for the phone to offer a relayed address again.
+async fn late_roam(slow: impl FnOnce(&TestTurn), within: Duration) -> LateRoam {
+    let turn = TestTurn::start().await;
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    let mac_task = tokio::spawn(async move {
+        let mut links = Vec::new();
+        while let Some(session) = mac.next_session().await {
+            let events = SessionEvents {
+                backend: mac.events(),
+                session_id: session.first.session_id.clone(),
+                session: session.events,
+            };
+            if let Ok(connected) =
+                dial::answer(&mac, session.first, events, &options(), LinkConfig::default()).await
+            {
+                links.push(connected);
+            }
+        }
+    });
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let phone_options = DialOptions { relay_only: true, ice_servers: vec![turn.udp_only()], ..options() };
+    let connected =
+        dial::connect(&phone, &mac_id, TransportKind::WireGuard, &phone_options, LinkConfig::default())
+            .await
+            .expect("dial");
+    let session_id = connected.session_id.clone();
+    let before = wireguard::session_endpoints(&session_id, true).unwrap_or_default();
+    slow(&turn);
+    let started = Instant::now();
+    let mut roam = {
+        let session_id = session_id.clone();
+        tokio::spawn(async move { wireguard::roam_session(&session_id, true).await })
+    };
+    let mut roam_done: Option<(u128, bool)> = None;
+    let mut adopted = None;
+    // The server may hand a released port out again: an address the session
+    // offered before the roam counts once the roam dropped it.
+    let mut dropped: Vec<String> = Vec::new();
+    let deadline = started + within;
+    while Instant::now() < deadline && (adopted.is_none() || roam_done.is_none()) {
+        if adopted.is_none() {
+            let endpoints = wireguard::session_endpoints(&session_id, true).unwrap_or_default();
+            dropped.extend(before.iter().filter(|old| !endpoints.contains(old)).cloned());
+            let fresh =
+                turn.grants().into_iter().filter(|(at, _)| *at >= started).map(|(_, relayed)| relayed);
+            let fresh: Vec<_> = fresh.collect();
+            if let Some(relayed) = endpoints
+                .iter()
+                .filter(|endpoint| !before.contains(endpoint) || dropped.contains(endpoint))
+                .filter_map(|endpoint| endpoint.parse::<std::net::SocketAddr>().ok())
+                .find(|addr| fresh.contains(addr))
+            {
+                adopted = Some((started.elapsed().as_millis(), relayed));
+            }
+        }
+        if roam_done.is_none() && roam.is_finished() {
+            let marks = (&mut roam).await.ok().flatten().map(|timeline| timeline.marks()).unwrap_or_default();
+            let took = marks.iter().any(|(name, _)| name.starts_with("roam_turn"));
+            roam_done = Some((started.elapsed().as_millis(), took));
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let grants = turn
+        .grants()
+        .into_iter()
+        .filter(|(at, _)| *at >= started)
+        .map(|(at, relayed)| (at.duration_since(started).as_millis(), relayed))
+        .collect();
+    connected.link.close("done");
+    mac_task.abort();
+    let (roam_ms, roam_took_turn) = roam_done.unwrap_or((u128::MAX, false));
+    LateRoam { grants, roam_ms, roam_took_turn, adopted }
+}
+
+/// The new network answers TURN slowly at first: for 4 s every datagram
+/// from the server is 1.6 s late, so the roam's allocation is granted at
+/// about 1.6 s and its answer reaches the phone at about 3.2 s, after the
+/// roam stopped waiting (3 s). The phone takes that grant when its answer
+/// lands, instead of releasing it and asking the server again (a new
+/// allocation whose first answer is late too, about 4.6 s).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_roam_takes_a_turn_grant_that_lands_after_its_wait() {
+    let run = late_roam(
+        |turn| turn.delay_udp_replies(Duration::from_millis(1600), Duration::from_secs(4)),
+        Duration::from_secs(12),
+    )
+    .await;
+    eprintln!("late roam grant: {run:?}");
+    assert!(!run.roam_took_turn, "the roam was meant to miss its allocation: {run:?}");
+    assert!(run.adopted.is_some(), "the phone never offered a new relayed address: {run:?}");
+    assert_eq!(run.adopted_grant(), Some(0), "the phone took a later grant, not the first: {run:?}");
+}
+
+/// The timeline of a roam whose TURN grant lands late, n runs: the grants,
+/// the roam's end and the adoption (ms from `network_changed`). The TURN
+/// server's control messages ride `ROAM_LATE_PROFILE` (cmux-fault's
+/// link profiles, `none` for loopback) and, for its first
+/// `ROAM_LATE_WINDOW_MS`, are `ROAM_LATE_SPIKE_MS` late.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "measurement: run by hand for the PR's numbers"]
+async fn roam_late_turn_grant_timeline() {
+    let env =
+        |name: &str, default: u64| std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default);
+    let runs = env("ROAM_LATE_RUNS", 20);
+    let spike = Duration::from_millis(env("ROAM_LATE_SPIKE_MS", 1600));
+    let window = Duration::from_millis(env("ROAM_LATE_WINDOW_MS", 4000));
+    let profile = std::env::var("ROAM_LATE_PROFILE").unwrap_or_else(|_| "none".into());
+    let first = env("ROAM_LATE_FIRST", 0);
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+    let mut adopted = Vec::new();
+    for run in first..first + runs {
+        set_link_profile((profile != "none").then(|| LinkProfile::named(&profile)), 0x5241_4d00 + run);
+        let shaped = profile != "none";
+        let result = late_roam(
+            |turn| {
+                turn.shape_udp_control(shaped);
+                if !spike.is_zero() {
+                    turn.delay_udp_replies(spike, window);
+                }
+            },
+            Duration::from_secs(20),
+        )
+        .await;
+        eprintln!(
+            "ROAMLATE profile={profile} spike_ms={} window_ms={} run={run} grants_ms={:?} roam_ms={} roam_took_turn={} adopted_ms={:?} adopted_grant={:?}",
+            spike.as_millis(),
+            window.as_millis(),
+            result.grants.iter().map(|(at, _)| *at).collect::<Vec<_>>(),
+            result.roam_ms,
+            result.roam_took_turn,
+            result.adopted.map(|(at, _)| at),
+            result.adopted_grant(),
+        );
+        adopted.push(result.adopted.map(|(at, _)| at));
+    }
+    set_link_profile(None, 0);
+    let mut got: Vec<u128> = adopted.iter().flatten().copied().collect();
+    got.sort_unstable();
+    let pick = |p: f64| got.get(((got.len() as f64 - 1.0) * p).round() as usize).copied();
+    eprintln!(
+        "ROAMLATE-SUMMARY profile={profile} spike_ms={} n={} adopted={} p50={:?} p95={:?} max={:?}",
+        spike.as_millis(),
+        adopted.len(),
+        got.len(),
+        pick(0.5),
+        pick(0.95),
+        got.last()
+    );
 }
 
 /// The Mac answered on a network whose STUN server answers (so it took no
@@ -825,7 +1166,17 @@ async fn wireguard_link_closes_after_a_60s_blackout() {
     let run = blackout(Duration::from_secs(60), false).await;
     eprintln!("BLACKOUT 60s: {run:?}");
     assert!(cmux_mobile_link::KEEPALIVE_TIMEOUT < Duration::from_secs(60));
-    assert_eq!(run.phone_closed.as_deref(), Some("keepalive timed out"), "{run:?}");
+    // Both keepalives run out about together, and the signaling socket is not
+    // dark: when the Mac's fires first, its `bye` reaches the phone over
+    // signaling, the phone drops the tunnel, and its link reads "peer closed
+    // the link". Either way one side's keepalive ended it.
+    match run.phone_closed.as_deref() {
+        Some("keepalive timed out") => {}
+        Some("peer closed the link") => {
+            assert_eq!(run.mac_closed.as_deref(), Some("keepalive timed out"), "{run:?}");
+        }
+        other => panic!("the phone's link closed with {other:?}: {run:?}"),
+    }
 }
 
 static PHONE_SENDS: std::sync::Mutex<Vec<std::time::Instant>> = std::sync::Mutex::new(Vec::new());
@@ -926,8 +1277,18 @@ async fn blackout_cost_of_an_idle_minute() {
         "BLACKOUT idle minute: before phone={:?} mac={:?} | after phone={:?} mac={:?} (datagrams, wakeups)",
         before.0, before.1, after.0, after.1
     );
-    // One keepalive exchange of slack for where the minute's edges fall.
-    assert!(after.0.0 <= before.0.0 + 2 && after.1.0 <= before.1.0 + 2, "before {before:?} after {after:?}");
+    // Slack for two minutes of real time on a loaded machine: counted per
+    // message type, only the path probes and their answers on the chosen
+    // path (75 and 74 bytes) differ between minutes of the same config, 24
+    // to 32 a minute each (probes follow the link's own traffic and the
+    // quiet-path watch, so scheduling moves them). Over 66 measured pairs
+    // with no repair on, the difference ran from -11 to +7. A link whose
+    // repair turned on sends about 110 more.
+    const SLACK: usize = 12;
+    assert!(
+        after.0.0 <= before.0.0 + SLACK && after.1.0 <= before.1.0 + SLACK,
+        "before {before:?} after {after:?}"
+    );
 }
 
 /// What Align Keepalives (Settings, off by default) would cost if the
@@ -1484,5 +1845,308 @@ async fn foreground_probe_cost() {
             d(5),
             d(6)
         );
+    }
+}
+
+/// What a [`failover_run`] does to the phone's network, after the link has
+/// settled on the profile's link (cmux-fault's `link-profiles.json`, the
+/// `disruption` of the row it names).
+#[derive(Clone, Copy, Debug)]
+enum Disrupt {
+    /// `blackout-*`, `elevator-30s`: nothing through either way for this long,
+    /// then the same socket and addresses, with no OS event.
+    Blackout(Duration),
+    /// `wifi-to-cell`, `5g-lte-handoff`, `nat-rebind`: the old socket goes
+    /// silent for good; after `stall` the OS reports the new path and the
+    /// app roams to a new socket (a new port), and the link steps to `then`.
+    AddressChange { stall: Duration, then: Option<&'static str> },
+    /// `internet-down-lan-up`: the phone's relay socket and TURN allocation
+    /// die; its direct (LAN) route stays.
+    InternetDown,
+}
+
+/// One cell of the failover matrix: a profile, its disruption, and the two
+/// flags the dictator asked to see on and off (no defaults change here).
+#[derive(Clone, Copy, Debug)]
+struct FailoverCell {
+    profile: &'static str,
+    disrupt: Disrupt,
+    /// Both ends on the reliable link (`LinkConfig::reliable`, #49514).
+    reliable: bool,
+    /// The fake backend answers relay holds (`FakeOptions::relay_hold`, the
+    /// Worker's `LINK_RELAY_HOLD=on`). Both arms give both ends a relay
+    /// endpoint, so the flag is the only difference.
+    relay_hold: bool,
+}
+
+#[derive(Debug)]
+struct FailoverRun {
+    /// Cut to the first phone-ready moment: from the disruption's end (a
+    /// blackout's light, an address change's call returning) to the first
+    /// app frame each way, and to the first streamed row.
+    first_frame_up: Option<Duration>,
+    first_frame_down: Option<Duration>,
+    first_row_down: Option<Duration>,
+    /// The longest gap between echoes the phone read, from the cut on.
+    longest_gap_down: Duration,
+    phone_suspect: Option<Duration>,
+    phone_closed: Option<String>,
+    mac_closed: Option<String>,
+    sessions: usize,
+    sent: usize,
+    echoed: usize,
+    rows: u64,
+}
+
+/// [`blackout_with`]'s harness for every failover profile: the profile's
+/// link on every received datagram, the Mac streaming rows the whole run,
+/// a 100 ms echo frame each way, the cut just before a keepalive ping.
+async fn failover_run(cell: FailoverCell) -> FailoverRun {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+    set_link_profile(Some(LinkProfile::named(cell.profile)), 0x5eed);
+    let duress = Duress { shaped: true, stream: true };
+    let config = LinkConfig {
+        reliable: cell.reliable.then(cmux_mobile_link::ReliableConfig::default),
+        ..LinkConfig::default()
+    };
+    let server =
+        FakeSignaling::start(FakeOptions { relay_hold: cell.relay_hold, ..FakeOptions::default() }).await;
+    let relay = |device: &str| {
+        Some(cmux_mobile_link::dial::relay::RelayEndpoint::with_token(
+            server.base_url.clone(),
+            None,
+            device,
+            "user:alice",
+        ))
+    };
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    let sessions = Arc::new(AtomicUsize::new(0));
+    let mac_arrivals = Arc::new(Mutex::new(Vec::<Instant>::new()));
+    let mac_link = Arc::new(Mutex::new(None::<cmux_mobile_link::Link>));
+    {
+        let (sessions, mac_arrivals, mac_link) =
+            (Arc::clone(&sessions), Arc::clone(&mac_arrivals), Arc::clone(&mac_link));
+        let config = LinkConfig { foreground_probe: false, ..config.clone() };
+        let mac_options = DialOptions { relay: relay(&mac_id), ..duress_options(duress) };
+        tokio::spawn(async move {
+            while let Some(session) = mac.next_session().await {
+                sessions.fetch_add(1, Ordering::SeqCst);
+                let events = SessionEvents {
+                    backend: mac.events(),
+                    session_id: session.first.session_id.clone(),
+                    session: session.events,
+                };
+                let mac = mac.clone();
+                let (mac_arrivals, mac_link) = (Arc::clone(&mac_arrivals), Arc::clone(&mac_link));
+                let (config, options) = (config.clone(), mac_options.clone());
+                tokio::spawn(async move {
+                    let connected =
+                        dial::answer(&mac, session.first, events, &options, config).await.unwrap();
+                    *mac_link.lock().unwrap() = Some(connected.link.clone());
+                    while let Some(mut incoming) = connected.link.accept().await {
+                        if incoming.service == "stream" {
+                            tokio::spawn(stream_rows(incoming.channel));
+                            continue;
+                        }
+                        let mac_arrivals = Arc::clone(&mac_arrivals);
+                        tokio::spawn(async move {
+                            while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                                mac_arrivals.lock().unwrap().push(Instant::now());
+                                let _ = incoming.channel.send(bytes).await;
+                            }
+                        });
+                    }
+                });
+            }
+        });
+    }
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let phone_options = DialOptions { relay: relay(&phone_id), ..duress_options(duress) };
+    let connected = dial::connect(&phone, &mac_id, TransportKind::WireGuard, &phone_options, config.clone())
+        .await
+        .expect("dial");
+    let session_id = connected.session_id.clone();
+    let rows = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let row_arrivals = Arc::new(Mutex::new(Vec::<Instant>::new()));
+    let stream = connected.link.open("stream", serde_json::json!({})).await.unwrap();
+    let row_reader = read_rows(stream, Arc::clone(&rows), Some(Arc::clone(&row_arrivals)));
+    let channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
+    let (sender, mut receiver) = channel.split();
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let sent = Arc::new(AtomicUsize::new(0));
+    let writer = {
+        let (stop, sent) = (Arc::clone(&stop), Arc::clone(&sent));
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_millis(100));
+            while !stop.load(Ordering::Relaxed) {
+                tick.tick().await;
+                let n = sent.load(Ordering::Relaxed);
+                if sender.send(Bytes::from(format!("frame {n:08}"))).await.is_err() {
+                    break;
+                }
+                sent.fetch_add(1, Ordering::Relaxed);
+            }
+            sender
+        })
+    };
+    let phone_arrivals = Arc::new(Mutex::new(Vec::<Instant>::new()));
+    let reader = {
+        let phone_arrivals = Arc::clone(&phone_arrivals);
+        tokio::spawn(async move {
+            while let Some(ChannelEvent::Data(_)) = receiver.recv().await {
+                phone_arrivals.lock().unwrap().push(Instant::now());
+            }
+        })
+    };
+    // The worst moment, as in `blackout_with`: just before the next ping.
+    let mut rtt = connected.link.rtt();
+    rtt.borrow_and_update();
+    let interval = config.keepalive.unwrap();
+    tokio::time::timeout(interval + Duration::from_secs(5), rtt.changed()).await.unwrap().unwrap();
+    tokio::time::sleep(interval.saturating_sub(Duration::from_millis(100))).await;
+    let cut = Instant::now();
+    let suspect_watch = {
+        let mut suspect = connected.link.suspect_state();
+        tokio::spawn(async move {
+            suspect.wait_for(|suspect| *suspect).await.ok()?;
+            Some(cut.elapsed())
+        })
+    };
+    match cell.disrupt {
+        Disrupt::Blackout(dark) => {
+            assert_eq!(wireguard::simulate_blackout(Some(&session_id), true, true), 1);
+            tokio::time::sleep(dark).await;
+            // 0 once the session is gone (the link closed in the dark).
+            wireguard::simulate_blackout(Some(&session_id), true, false);
+        }
+        Disrupt::AddressChange { stall, then } => {
+            assert_eq!(wireguard::simulate_network_loss(Some(&session_id), true), 1);
+            tokio::time::sleep(stall).await;
+            if let Some(then) = then {
+                set_link_profile(Some(LinkProfile::named(then)), 0x5eed + 1);
+            }
+            let _ = wireguard::roam_session(&session_id, true).await;
+        }
+        Disrupt::InternetDown => {
+            wireguard::simulate_relay_loss(Some(&session_id), true);
+            wireguard::simulate_turn_loss(Some(&session_id), true);
+        }
+    }
+    let back = Instant::now();
+    let first_after = |arrivals: &Mutex<Vec<Instant>>| {
+        arrivals.lock().unwrap().iter().find(|at| **at >= back).map(|at| at.duration_since(back))
+    };
+    let deadline = back + Duration::from_secs(15);
+    while Instant::now() < deadline
+        && (first_after(&mac_arrivals).is_none()
+            || first_after(&phone_arrivals).is_none()
+            || first_after(&row_arrivals).is_none())
+    {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let (first_frame_up, first_frame_down, first_row_down) =
+        (first_after(&mac_arrivals), first_after(&phone_arrivals), first_after(&row_arrivals));
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    stop.store(true, Ordering::Relaxed);
+    let _sender = tokio::time::timeout(Duration::from_secs(5), writer).await;
+    let sent = sent.load(Ordering::Relaxed);
+    let _ = tokio::time::timeout(Duration::from_secs(10), async {
+        while phone_arrivals.lock().unwrap().len() < sent {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    let echoes = phone_arrivals.lock().unwrap().clone();
+    let mut last = cut;
+    let mut longest_gap_down = Duration::ZERO;
+    for at in echoes.iter().filter(|at| **at >= cut) {
+        longest_gap_down = longest_gap_down.max(at.duration_since(last));
+        last = *at;
+    }
+    if last == cut {
+        longest_gap_down = cut.elapsed();
+    }
+    let phone_closed = connected.link.closed_state().borrow().clone();
+    let mac_closed = mac_link.lock().unwrap().as_ref().and_then(|link| link.closed_state().borrow().clone());
+    connected.link.close("done");
+    reader.abort();
+    row_reader.abort();
+    suspect_watch.abort();
+    let phone_suspect = suspect_watch.await.ok().flatten();
+    set_link_profile(None, 0);
+    FailoverRun {
+        first_frame_up,
+        first_frame_down,
+        first_row_down,
+        longest_gap_down,
+        phone_suspect,
+        phone_closed,
+        mac_closed,
+        sessions: sessions.load(Ordering::SeqCst),
+        sent,
+        echoed: echoes.len(),
+        rows: rows.load(std::sync::atomic::Ordering::Relaxed),
+    }
+}
+
+/// The failover matrix (mobile-failover-relay lane): every failover profile
+/// of cmux-fault's `link-profiles.json` (cmux#60831) with the reliable link
+/// and relay hold each on and off, one `FAILOVER` line per cell. Filter
+/// profiles with `FAILOVER_PROFILES=a,b`; `FAILOVER_ARMS=off` runs only the
+/// arm with both off (detection does not depend on either). Measurement only: no assertion
+/// beyond the run finishing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "measurement: run by hand for the PR's numbers (about 20 minutes)"]
+async fn failover_matrix() {
+    let s = Duration::from_secs;
+    let profiles: [(&str, Disrupt); 10] = [
+        ("blackout-2s", Disrupt::Blackout(s(2))),
+        ("blackout-5s", Disrupt::Blackout(s(5))),
+        ("blackout-8s", Disrupt::Blackout(s(8))),
+        ("blackout-10s", Disrupt::Blackout(s(10))),
+        ("elevator-30s", Disrupt::Blackout(s(30))),
+        ("blackout-60s", Disrupt::Blackout(s(60))),
+        // `stall_ms: [1000, 3000]`: its midpoint.
+        ("5g-lte-handoff", Disrupt::AddressChange { stall: Duration::from_millis(2000), then: None }),
+        ("wifi-to-cell", Disrupt::AddressChange { stall: Duration::ZERO, then: Some("cell-after-wifi") }),
+        ("nat-rebind", Disrupt::AddressChange { stall: Duration::ZERO, then: None }),
+        ("internet-down-lan-up", Disrupt::InternetDown),
+    ];
+    let only: Option<Vec<String>> =
+        std::env::var("FAILOVER_PROFILES").ok().map(|v| v.split(',').map(str::to_owned).collect());
+    let arms: &[(bool, bool)] = if std::env::var("FAILOVER_ARMS").is_ok_and(|v| v == "off") {
+        &[(false, false)]
+    } else {
+        &[(false, false), (true, false), (false, true), (true, true)]
+    };
+    let ms = |d: Option<Duration>| d.map(|d| d.as_millis() as i64).unwrap_or(-1);
+    for (profile, disrupt) in profiles {
+        if only.as_ref().is_some_and(|only| !only.iter().any(|p| p == profile)) {
+            continue;
+        }
+        for &(reliable, relay_hold) in arms {
+            let run = failover_run(FailoverCell { profile, disrupt, reliable, relay_hold }).await;
+            eprintln!(
+                "FAILOVER profile={profile} reliable={reliable} relay_hold={relay_hold}: suspect_ms={} first_frame_up_ms={} first_frame_down_ms={} first_row_ms={} longest_gap_down_ms={} rows={} frames={}/{} phone_closed={:?} mac_closed={:?} sessions={}",
+                ms(run.phone_suspect),
+                ms(run.first_frame_up),
+                ms(run.first_frame_down),
+                ms(run.first_row_down),
+                run.longest_gap_down.as_millis(),
+                run.rows,
+                run.echoed,
+                run.sent,
+                run.phone_closed,
+                run.mac_closed,
+                run.sessions,
+            );
+        }
     }
 }

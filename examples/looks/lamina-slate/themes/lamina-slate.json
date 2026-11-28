@@ -2,11 +2,11 @@
 // one-point strokes, no reveal effects, an accent mark on the selected row. Every key is a look key.
 {
   "name": "Lamina Slate",
-  "description": "A layered, translucent desktop look: neutral, flatter and denser, dark.",
+  "description": "Dark: solid and flat, the most compact.",
 
   // Palette: layer color, ink, selection, accent.
   "appearance.theme": "Builtin Dark",
-  "colors": {"background": "#1e1f22", "foreground": "#e6e7ea", "selection": "#2f4560", "accent": "#7aa2d6"},
+  "colors": {"background": "#1e1f22", "foreground": "#e6e7ea", "selection": "#547bab", "accent": "#7aa2d6"},
   "appearance.appTheme": "followTerminal",
   "appearance.accent": "theme",
   "appearance.highlightColor": "#2f4560",

@@ -21,6 +21,7 @@ use tokio::task::JoinHandle;
 
 use crate::dial::{LinkPath, TransportKind};
 use crate::hybrid::SignalingSource;
+use crate::key_echo;
 use crate::link::{Link, PingStats};
 use crate::timing::Timeline;
 
@@ -92,6 +93,28 @@ impl RttSummary {
     }
 }
 
+/// Counters from the hop/1 leg, included only while the selected path is hop.
+/// Values are bounded before they enter a link-stat frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HopStats {
+    pub srtt_ms: u64,
+    pub loss_permille: u16,
+    pub resent: u64,
+    pub repaired: u64,
+}
+
+impl HopStats {
+    fn bounded(self) -> Self {
+        Self {
+            srtt_ms: self.srtt_ms.min(u64::from(MAX_MS)),
+            loss_permille: self.loss_permille.min(1_000),
+            resent: self.resent.min(100_000),
+            repaired: self.repaired.min(100_000),
+        }
+    }
+}
+
 /// One `link_stat` frame.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -110,6 +133,8 @@ pub struct LinkStat {
     pub marks: BTreeMap<&'static str, u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rtt: Option<RttSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hop: Option<HopStats>,
     /// Pings sent since the last stat.
     pub pings: u32,
     /// Pings lost since the last stat (sent, never answered, no longer waiting).
@@ -125,11 +150,67 @@ pub struct LinkStat {
     pub end: Option<&'static str>,
     /// The link library's version.
     pub lib: &'static str,
+    /// `proxy` or `inspected` when this network's link connections leave
+    /// through a proxy (one that inspects TLS); absent when direct.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub egress: Option<&'static str>,
+    /// The Mac offered a NAT-mapped endpoint (PROTOCOL.md "Mapped
+    /// endpoints"): which protocol mapped it and whether the route uses it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub portmap: Option<PortmapStat>,
+    /// Keys typed since the last stat: tap to first echo ([`crate::key_echo`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub echo: Option<key_echo::Summary>,
+    /// Keys typed since the last stat: tap to the Mac's answer to their `send`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ack: Option<key_echo::Summary>,
+    /// Keys slower than [`key_echo::SPIKE_MS`] since the last stat (all, kept or not).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub spike_count: u32,
+    /// The slowest of them: `[seconds since the link came up, ack ms (-1: none yet), echo ms]`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub spikes: Vec<[i64; 3]>,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+/// `link_stat` `portmap`: `{"by":"pcp","used":true}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PortmapStat {
+    /// `pcp`, `nat-pmp`, `upnp` or `unknown`.
+    pub by: &'static str,
+    /// The link's direct route goes to the mapped endpoint.
+    pub used: bool,
+}
+
+impl From<crate::dial::portmap::PortmapUse> for PortmapStat {
+    fn from(use_: crate::dial::portmap::PortmapUse) -> Self {
+        Self { by: use_.protocol, used: use_.used }
+    }
 }
 
 impl LinkStat {
     pub fn to_text(&self) -> String {
         serde_json::to_string(self).expect("link_stat serializes")
+    }
+
+    /// Carry the keys typed since the last stat, their spikes timed from `up_at`.
+    #[must_use]
+    pub fn with_keys(mut self, keys: &key_echo::Window, up_at: Instant) -> Self {
+        self.echo = key_echo::Summary::of(&keys.echo);
+        self.ack = key_echo::Summary::of(&keys.ack);
+        self.spike_count = keys.spike_count.min(100_000);
+        self.spikes = keys
+            .spikes
+            .iter()
+            .map(|s| {
+                let at = i64::try_from(s.at.saturating_duration_since(up_at).as_secs()).unwrap_or(i64::MAX);
+                [at.min(30 * 86_400), s.ack_ms.map_or(-1, i64::from), i64::from(s.echo_ms)]
+            })
+            .collect();
+        self
     }
 }
 
@@ -238,6 +319,7 @@ impl Reporter {
             setup_ms,
             marks,
             rtt: RttSummary::of(&pings.samples),
+            hop: None,
             pings: clamp(sent),
             lost: clamp(lost),
             switches: self.switches.min(10_000),
@@ -247,14 +329,25 @@ impl Reporter {
                 .min(30 * 86_400),
             end: end.map(end_kind),
             lib: env!("CARGO_PKG_VERSION"),
+            egress: crate::egress::seen().map(crate::egress::PathKind::as_str),
+            portmap: None,
+            echo: None,
+            ack: None,
+            spike_count: 0,
+            spikes: Vec::new(),
         })
     }
 }
 
 /// Send `stat` on the current signaling socket. `false` when that socket's Worker refused stats
 /// (no more go out), or there is none.
-async fn send(signaling: &SignalingSource, stat: &LinkStat) -> bool {
-    let Some(client) = signaling().await else { return true };
+async fn send(signaling: &SignalingSource, session_id: &str, mut stat: LinkStat) -> bool {
+    if stat.path == LinkPath::Hop.as_str() {
+        stat.hop = crate::dial::wireguard::hop_stats(session_id, true).map(HopStats::bounded);
+    }
+    let Some(client) = signaling().await else {
+        return true;
+    };
     if !client.sends_link_stats() {
         return false;
     }
@@ -271,9 +364,15 @@ pub fn spawn(
     mut path: watch::Receiver<LinkPath>,
     timeline: Timeline,
     signaling: SignalingSource,
+    session_id: String,
 ) -> JoinHandle<()> {
+    // The Mac's mapped endpoint and whether the route uses it, read at each stat.
+    let hop_session = session_id.clone();
+    let portmap = move || crate::dial::wireguard::portmap_use(&session_id).map(PortmapStat::from);
     tokio::spawn(async move {
-        let mut reporter = Reporter::new(transport, *path.borrow_and_update(), Instant::now());
+        let first_path = *path.borrow_and_update();
+        crate::key_paint::set_route(first_path.as_str());
+        let mut reporter = Reporter::new(transport, first_path, Instant::now());
         let mut closed = link.closed_state();
         let cellular = crate::dial::wireguard::cellular_path;
         // The first stat waits for the first pong (its setup time), at most FIRST_WAIT.
@@ -283,18 +382,21 @@ pub fn spawn(
             _ = closed.wait_for(Option::is_some) => true,
         };
         if !first_closed {
-            let stat = reporter.build(
-                Reason::First,
-                Instant::now(),
-                &link.take_ping_stats(),
-                Some(&timeline),
-                None,
-                cellular(),
-            );
-            if let Some(stat) = stat
-                && !send(&signaling, &stat).await
-            {
-                return;
+            let stat = reporter
+                .build(
+                    Reason::First,
+                    Instant::now(),
+                    &link.take_ping_stats(),
+                    Some(&timeline),
+                    None,
+                    cellular(),
+                )
+                .map(|stat| stat.with_keys(&key_echo::take(), reporter.up_at));
+            if let Some(mut stat) = stat {
+                stat.portmap = portmap();
+                if !send(&signaling, &hop_session, stat).await {
+                    return;
+                }
             }
         }
         // The dialer's path watch can end before the link (then the link's close ends the report).
@@ -307,7 +409,10 @@ pub fn spawn(
                     if changed.is_err() {
                         path_open = false;
                         continue;
-                    } else if reporter.path_changed(*path.borrow_and_update(), Instant::now()) {
+                    } else if reporter.path_changed(
+                        crate::key_paint::route_changed(*path.borrow_and_update()),
+                        Instant::now(),
+                    ) {
                         Reason::Path
                     } else {
                         continue;
@@ -327,7 +432,9 @@ pub fn spawn(
                 cellular(),
             );
             let Some(stat) = stat else { return };
-            if !send(&signaling, &stat).await || reason == Reason::End {
+            let mut stat = stat.with_keys(&key_echo::take(), reporter.up_at);
+            stat.portmap = portmap();
+            if !send(&signaling, &hop_session, stat).await || reason == Reason::End {
                 return;
             }
         }
@@ -340,6 +447,36 @@ mod tests {
 
     fn pings(sent: u64, answered: u64, waiting: u64, samples: &[u32]) -> PingStats {
         PingStats { sent, answered, waiting, samples: samples.to_vec() }
+    }
+
+    #[test]
+    fn keys_ride_the_stat_with_their_spikes_and_stay_under_the_frame_cap() {
+        let up = Instant::now();
+        let mut reporter = Reporter::new(TransportKind::WireGuard, LinkPath::Turn, up);
+        let stat = reporter
+            .build(Reason::Periodic, up + PERIOD, &pings(6, 6, 0, &[40; 6]), None, None, true)
+            .unwrap();
+        let none = stat.clone().with_keys(&key_echo::Window::default(), up);
+        let json: serde_json::Value = serde_json::from_str(&none.to_text()).unwrap();
+        assert!(
+            json.get("echo").is_none() && json.get("spikes").is_none() && json.get("spikeCount").is_none()
+        );
+        let mut keys = key_echo::Window::default();
+        for i in 0..2000u32 {
+            keys.ack(30 + i % 50);
+            keys.echo(
+                if i % 97 == 0 { 590_000 + i } else { 45 },
+                (i % 2 == 0).then_some(599_999),
+                up + Duration::from_secs(u64::from(i)),
+            );
+        }
+        let text = stat.with_keys(&keys, up).to_text();
+        assert!(text.len() <= MAX_FRAME_BYTES, "{} bytes: {text}", text.len());
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(json["echo"]["p50"], 45);
+        assert_eq!(json["spikeCount"], 21);
+        assert_eq!(json["spikes"].as_array().unwrap().len(), key_echo::MAX_SPIKES);
+        assert_eq!(json["spikes"][0][0], 1940, "seconds since up of the slowest");
     }
 
     #[test]
@@ -424,7 +561,8 @@ mod tests {
             reporter.path_changed(LinkPath::TurnTls, up);
         }
         let huge = pings(u64::MAX, 0, 0, &vec![u32::MAX; PingStats::MAX_SAMPLES]);
-        let stat = reporter
+        reporter.path_changed(LinkPath::Hop, up);
+        let mut stat = reporter
             .build(
                 Reason::End,
                 up + Duration::from_secs(10 * 365 * 86_400),
@@ -434,8 +572,14 @@ mod tests {
                 true,
             )
             .unwrap();
+        stat.hop = Some(
+            HopStats { srtt_ms: u64::MAX, loss_permille: u16::MAX, resent: u64::MAX, repaired: u64::MAX }
+                .bounded(),
+        );
+        stat.portmap = Some(PortmapStat { by: "nat-pmp", used: false });
         let text = stat.to_text();
         assert!(text.len() <= MAX_FRAME_BYTES, "{} bytes: {text}", text.len());
+        assert!(text.contains(r#""portmap":{"by":"nat-pmp","used":false}"#), "{text}");
         assert_eq!(stat.marks.len(), MARKS.len());
         assert_eq!(stat.end, Some("keepalive"));
         assert!(stat.lost <= stat.pings);

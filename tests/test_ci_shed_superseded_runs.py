@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
+import io
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -90,6 +93,32 @@ class VerdictTests(unittest.TestCase):
             self.assertEqual(why(run(event="push", path=path)), "superseded", path)
         for name in ("Nightly NEXT", "Dev build", "Promote", "Release", "Publish"):
             self.assertEqual(why(run(**base, name=name)), "keep:protected-workflow", name)
+
+
+class RetiredRouteTests(unittest.TestCase):
+    NEXT = ".github/workflows/cmux-next.yml"
+
+    def test_tip_pr_run_of_a_retired_route_created_before_the_move_is_shed(self):
+        r = run(head_sha="tip", path=self.NEXT, name="cmux-next \u00b7 abc", created_at="2026-11-25T00:17:22Z")
+        self.assertEqual(why(r), "retired-route")
+        self.assertEqual([w for _, w in shed.plan([r], REPO, TIPS, 10)[0]], ["retired-route"])
+
+    def test_runs_after_the_move_other_workflows_events_and_retries_are_kept(self):
+        self.assertEqual(why(run(head_sha="tip", path=self.NEXT, created_at="2026-11-25T01:00:00Z")),
+                         "keep:current-pull_request")
+        self.assertEqual(why(run(head_sha="tip", created_at="2026-11-25T00:17:22Z")), "keep:current-pull_request")
+        self.assertEqual(why(run(head_sha="tip", path=self.NEXT, event="push", created_at="2026-11-25T00:17:22Z")),
+                         "keep:current-push")
+        self.assertEqual(why(run(head_branch="feat-cmux-next", head_sha="base", event="push", path=self.NEXT,
+                                 created_at="2026-11-25T00:17:22Z")), "keep:current-push")
+        self.assertEqual(why(run(head_sha="tip", path=self.NEXT, run_attempt=2, created_at="2026-11-25T00:17:22Z")),
+                         "keep:attempt")
+
+    def test_in_progress_retired_run_is_shed_only_when_unstarted(self):
+        r = run(status="in_progress", head_sha="tip", path=self.NEXT, created_at="2026-11-25T00:17:22Z")
+        self.assertEqual([x["id"] for x in shed.needs_jobs([r], REPO, TIPS, 5)], [r["id"]])
+        self.assertEqual(shed.verdict(r, REPO, TIPS, {r["id"]: [job(), job(status="completed")]}), "retired-route")
+        self.assertEqual(shed.verdict(r, REPO, TIPS, {r["id"]: [job(status="in_progress")]}), "keep:running")
 
 
 def job(status="queued", **over):
@@ -247,14 +276,75 @@ class WorkflowTests(unittest.TestCase):
 
     def test_runs_on_owned_label_never_blacksmith_or_hosted(self):
         runs_on = self.job["runs-on"]
-        self.assertEqual(runs_on, "${{ vars.CI_CONTROL_RUNNER || 'cmux-gcp-nightly-x64' }}")
+        self.assertEqual(runs_on, "cmux-gcp-pr-control-jit-x64")  # CI_CONTROL_RUNNER's label, as a literal (cmux#53974)
+        self.assertNotIn("vars.", runs_on)
         for bad in ("blacksmith", "ubuntu-", "RUNNER_POOLS", "LINUX_RUNNER", "cmux-fleet-linux"):
             self.assertNotIn(bad, runs_on)
 
     def test_token_scope_and_serialized_sweeps(self):
         self.assertEqual(self.doc["permissions"], {})
         self.assertEqual(self.job["permissions"], {"actions": "write", "contents": "read"})
+        self.assertEqual(self.job["environment"], {"name": "ci-bot", "deployment": False})
         self.assertEqual(self.doc["concurrency"]["cancel-in-progress"], False)
+
+    def test_shed_uses_app_token_with_workflow_fallback(self):
+        mint = next(step for step in self.job["steps"] if step.get("id") == "cmux-bot-token")
+        self.assertEqual(mint["if"], "vars.CMUX_BOT_APP_ID != ''")
+        self.assertTrue(mint["continue-on-error"])
+        self.assertEqual(mint["with"]["permission-actions"], "write")
+        self.assertEqual(mint["with"]["permission-contents"], "read")
+        cancel = next(step for step in self.job["steps"] if step.get("name") == "Cancel queued runs nobody will read")
+        self.assertEqual(cancel["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+
+
+class SweepTests(unittest.TestCase):
+    """main() over a fake GitHub: what the sweep cancels after its read right before each cancel."""
+
+    def sweep(self, queued, jobs):
+        cancelled: list[int] = []
+
+        class FakeGitHub:
+            calls = 0
+
+            def __init__(self, repo, token):
+                pass
+
+            def branch_tips(self):
+                return dict(TIPS)
+
+            def queued_runs(self, since, until, status="queued"):
+                return ([r for r in queued if r["status"] == status], 0)
+
+            def run_jobs(self, run_id):
+                return jobs.get(run_id)
+
+            def cancel(self, run_id):
+                cancelled.append(run_id)
+
+        real, env = shed.GitHub, dict(os.environ)
+        shed.GitHub = FakeGitHub
+        os.environ.update({"GH_REPO": REPO, "GH_TOKEN": "x"})
+        os.environ.pop("GITHUB_STEP_SUMMARY", None)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                shed.main(["--spacing", "0"])
+        finally:
+            shed.GitHub = real
+            os.environ.clear()
+            os.environ.update(env)
+        return cancelled, out.getvalue()
+
+    def test_a_run_listed_queued_with_a_job_running_is_never_cancelled(self):
+        # cmux run 45904512885 (cloud-move-kill.yml, PR #51760), 2026-11-26 22:58Z: listed queued on a superseded
+        # head while its cut and pause-src drills ran mid-move on runners; the sweep cancelled it.
+        drill, idle, unread = run(), run(), run()
+        jobs = {drill["id"]: [{"name": "build", "status": "completed", "runner_name": "pool-1"},
+                              {"name": "drill (cut)", "status": "in_progress", "runner_name": "pool-2"}],
+                idle["id"]: [{"name": "build", "status": "queued", "runner_id": 0, "runner_name": None, "steps": []}],
+                unread["id"]: None}
+        cancelled, out = self.sweep([drill, idle, unread], jobs)
+        self.assertEqual(cancelled, [idle["id"]])
+        self.assertEqual(out.count("kept: a job started since the first read"), 2)
 
 
 if __name__ == "__main__":

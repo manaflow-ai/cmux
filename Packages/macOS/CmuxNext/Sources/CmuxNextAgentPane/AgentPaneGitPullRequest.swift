@@ -180,8 +180,15 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
     /// Why a gh step failed: its last line that is not a warning or an address (gh names the
     /// reason last, after warnings such as uncommitted changes).
     static func message(_ outcome: AgentPaneGitProcess.Outcome) -> String {
+        // gh is installed but signed out: say so, instead of gh's own "To get started with GitHub CLI" text.
+        if isSignedOut(outcome.text) { return gitHubSignedOutMessage }
         let lines = outcome.text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
         return lines.last { !$0.isEmpty && !$0.hasPrefix("Warning:") && !isPullRequestURL($0) } ?? outcome.message
+    }
+
+    /// gh's answer when it has no GitHub login ("gh auth login" is the step it names).
+    static func isSignedOut(_ text: String) -> Bool {
+        text.contains("gh auth login") || text.contains("not logged into any GitHub hosts")
     }
 
     /// An https address, the only kind the page links.
@@ -202,6 +209,12 @@ extension AgentPaneGitPullRequest {
                bundle: .localizedModule)
     }
 
+    /// `gh` is installed but has no GitHub login.
+    nonisolated static var gitHubSignedOutMessage: String {
+        String(localized: "agentPane.error.gitGitHubSignedOut",
+               defaultValue: "Sign in to GitHub: run gh auth login in a terminal, then try again.", bundle: .localizedModule)
+    }
+
     /// The repository has no branch checked out.
     nonisolated static var detachedMessage: String {
         String(localized: "agentPane.error.gitDetached", defaultValue: "Check out a branch to open a pull request.", bundle: .localizedModule)
@@ -216,6 +229,7 @@ extension AgentPaneGitPullRequest {
 
     /// The Create PR caller did not provide the session-host push wire.
     nonisolated static var pushUnavailableMessage: String {
+        // retry-prompt-ok: pushing a branch is a side effect the person started
         String(localized: "agentPane.error.gitPushUnavailable",
                defaultValue: "The branch could not be pushed; reconnect the chat and try again.", bundle: .localizedModule)
     }
@@ -234,6 +248,7 @@ extension AgentPaneGitPullRequest {
     }
 
     nonisolated static var sessionRepositoryMessage: String {
+        // retry-prompt-ok: opening a pull request is a side effect the person started
         "The pull request folder is not this chat's repository. Refresh the chat and try again."
     }
 

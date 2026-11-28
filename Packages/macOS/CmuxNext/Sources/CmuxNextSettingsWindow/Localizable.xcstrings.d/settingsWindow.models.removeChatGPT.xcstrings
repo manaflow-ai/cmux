@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.removeChatGPT" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيؤدي هذا إلى إزالة تسجيل الدخول المحفوظ إلى ChatGPT. ستفقد محادثات Codex المحلية ومحادثات Cloud التي تستخدمه إمكانية الوصول إلى هذا الاتصال."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ovo uklanja sačuvanu prijavu na ChatGPT. Lokalni Codex i Cloud razgovori koji je koriste izgubit će pristup ovoj vezi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dette fjerner det gemte ChatGPT-login. Lokale Codex-chats og Cloud-chats, der bruger det, mister adgangen til denne forbindelse."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dadurch wird die gespeicherte ChatGPT-Anmeldung entfernt. Lokale Codex-Chats und Cloud-Chats, die sie nutzen, verlieren den Zugriff auf diese Verbindung."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This removes the saved ChatGPT sign-in. Local Codex and Cloud chats using it will lose access to this connection."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esto elimina el inicio de sesión de ChatGPT guardado. Los chats locales de Codex y los de Cloud que lo usen perderán el acceso a esta conexión."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette action supprime la connexion enregistrée à ChatGPT. Les conversations Codex locales et les conversations Cloud qui l’utilisent perdront l’accès à cette connexion."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’accesso a ChatGPT salvato verrà rimosso. Le chat locali di Codex e le chat Cloud che lo usano perderanno l’accesso a questa connessione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存済みのChatGPTサインイン情報を削除します。この情報を使っているローカルのCodexチャットとCloudチャットは、この接続を利用できなくなります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "វានឹងលុបព័ត៌មានចូល ChatGPT ដែលបានរក្សាទុក។ ការជជែក Codex នៅលើឧបករណ៍នេះ និងការជជែក Cloud ដែលប្រើព័ត៌មាននេះ នឹងលែងអាចប្រើការតភ្ជាប់នេះបាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "저장된 ChatGPT 로그인 정보가 삭제됩니다. 이 정보를 사용하는 로컬 Codex 채팅과 Cloud 채팅은 이 연결을 더 이상 사용할 수 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dette fjerner den lagrede ChatGPT-påloggingen. Lokale Codex-samtaler og Cloud-samtaler som bruker den, mister tilgangen til denne tilkoblingen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spowoduje to usunięcie zapisanych danych logowania do ChatGPT. Lokalne czaty Codex i czaty Cloud, które ich używają, utracą dostęp do tego połączenia."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Isso remove o login salvo do ChatGPT. Os chats locais do Codex e os chats no Cloud que o utilizam perderão acesso a essa conexão."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранённые данные входа в ChatGPT будут удалены. Локальные чаты Codex и чаты Cloud, которые их используют, потеряют доступ к этому подключению."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "การดำเนินการนี้จะลบข้อมูลการลงชื่อเข้าใช้ ChatGPT ที่บันทึกไว้ แชท Codex ในเครื่องและแชท Cloud ที่ใช้ข้อมูลนี้จะเข้าถึงการเชื่อมต่อนี้ไม่ได้อีก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kayıtlı ChatGPT oturumu kaldırılır. Bu oturumu kullanan yerel Codex ve Cloud sohbetleri bu bağlantıya erişimini kaybeder."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Збережені дані входу в ChatGPT буде видалено. Локальні чати Codex і чати Cloud, які їх використовують, утратять доступ до цього підключення."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thông tin đăng nhập ChatGPT đã lưu sẽ bị xóa. Các cuộc trò chuyện Codex cục bộ và cuộc trò chuyện Cloud dùng thông tin này sẽ mất quyền truy cập vào kết nối này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这会移除已保存的 ChatGPT 登录信息。使用此登录信息的本地 Codex 聊天和 Cloud 聊天将无法再使用此连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這會移除已儲存的 ChatGPT 登入資訊。使用此登入資訊的本機 Codex 聊天和 Cloud 聊天將無法再使用此連線。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

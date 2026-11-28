@@ -716,6 +716,9 @@ impl Mux {
             &workspace_mutation,
             crate::state::home_store::EmptyWorkspaceMark::ephemeral(ephemeral),
             focus,
+            // Only `workspace.create` names the workspace it makes here: the
+            // caller's own name (CLI and MCP `--name`), pinned (#56422).
+            true,
         )?;
         crate::debug_spans::mark("effect.workspace_created");
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)
@@ -1016,7 +1019,7 @@ impl Mux {
                 stamp_pane_focus(self, &mut state, pane_id);
             }
             Self::reindex_screen_after_growth(&mut state, workspace, screen_index, &old_splits);
-            let entity = crate::server::tree_entity_json(
+            let entity = crate::tree_wire::tree_entity_json(
                 &state,
                 &notifications,
                 TreeDeltaKind::PaneAdded,

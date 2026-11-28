@@ -2,6 +2,7 @@ public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
 public import Observation
+import CmuxNextCompat
 
 /// Settings > MCP Servers: the services the person connected for their agents (on a connect card
 /// in a chat, or by a Chief), from the machine's one store of connections. The rows are the bundled
@@ -119,7 +120,8 @@ public final class SettingsMcpServers: PageProvider {
                 signIns.removeValue(forKey: name)?.cancel()
                 // No answer at all is a refusal with no words of its own.
                 let refusal: String?
-                if let reply = try? await runCLI(chief, ["integrations", "--json", "remove", name], await environment()) {
+                let env = await environment()
+                if let reply = try? await awaitConcurrently({ try await runCLI(chief, ["integrations", "--json", "remove", name], env) }) {
                     refusal = await Self.refusal(reply)
                 } else {
                     refusal = ""
@@ -152,7 +154,7 @@ public final class SettingsMcpServers: PageProvider {
             // A sign-in prints two or three lines; the newest few are all that matter.
             let lines = AsyncStream<JSONValue>(bufferingPolicy: .bufferingNewest(16)) { continuation in
                 Task {
-                    _ = await stream(chief, ["integrations", "--json", "signin", name], environment) { continuation.yield($0) }
+                    _ = await awaitConcurrently({ await stream(chief, ["integrations", "--json", "signin", name], environment) { continuation.yield($0) } })
                     continuation.finish()
                 }
             }
@@ -206,7 +208,8 @@ public final class SettingsMcpServers: PageProvider {
         generation += 1
         let mine = generation
         loading = true
-        let reply = try? await runCLI(chief, ["integrations", "--json", "list"], await environment())
+        let env = await environment()
+        let reply = try? await awaitConcurrently({ try await runCLI(chief, ["integrations", "--json", "list"], env) })
         guard mine == generation else { return }
         loading = false
         guard let reply, reply.0 == 0, var read = await Self.rows(reply.1) else {

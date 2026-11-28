@@ -6,9 +6,10 @@ import { ImageIcon } from "./icons";
 import { MathInline } from "./Math";
 import { codeSpans } from "../slashCommands";
 import { ForeignFileRef, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
+import { githubRefLabel } from "../chips/linkChipsModel";
 import { isBareFileName, ReplyFoldersContext } from "../chips/replyFolders";
 import { SoftBroken } from "./softBreaks";
-import { codePath, foreignFileId, isTemplatePath, linkPath, pathName, lineOf } from "../chips/paths";
+import { codePath, foreignFileId, isTemplatePath, linkPath, pathName, lineOf, relativeCodePath } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import { StartedSessionChip } from "../started/StartedSessionCard";
 import { CmuxLinkChip } from "../chips/CmuxLinkChip";
@@ -74,6 +75,9 @@ export type InlineOptions = {
    *  paragraph of images. Off, only its chip: another machine's files in another agent's message
    *  (IncomingMessageCard.tsx). Markdown image syntax (`![shot](/a.png)`) still draws in place. */
   thumbnails?: boolean;
+  /** A link's label (`linkLabel`): its paths, URLs and code paths draw as their text, never as
+   *  chips of their own inside the link's chip (`[file:///a.html](file:///a.html)` drew two icons). */
+  insideLink?: boolean;
 };
 
 export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: string) => string };
@@ -113,11 +117,25 @@ function keptCode(raw: string, opts: InlineOptions): string {
 }
 
 const NO_FOLDERS: readonly string[] = [];
+/// The one folder a relative code path is looked up in: the session's own (the host resolves it).
+const SESSION_FOLDER: readonly string[] = [""];
 
-/// A link's label: inline Markdown, whose file names are its text, never chips of their own inside
-/// the link's chip.
+/// A link label that only repeats the link's own path (`[file:///a/b.html](file:///a/b.html)`,
+/// also in code): the chip names the file, as a bare path's chip does.
+/// A label with another line (`[a.ts:8](a.ts:9)`) keeps its own words.
+function repeatsPath(label: string, href: string, path: string): boolean {
+  const text = label.trim().replace(/^`([^`]+)`$/, "$1");
+  return linkPath(text) === path && lineOf(text) === lineOf(href);
+}
+
+/// A link's label: inline Markdown, whose file names, paths and URLs are its text, never chips of
+/// their own inside the link's chip (`insideLink`).
 function linkLabel(source: string, opts: InlineOptions): ReactNode {
-  return <ReplyFoldersContext.Provider value={NO_FOLDERS}>{renderInline(source, opts)}</ReplyFoldersContext.Provider>;
+  return (
+    <ReplyFoldersContext.Provider value={NO_FOLDERS}>
+      {renderInline(source, { ...opts, insideLink: true })}
+    </ReplyFoldersContext.Provider>
+  );
 }
 
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
@@ -148,13 +166,20 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       const ref = path ? undefined : agentRef(inner);
       // A provider's file id in code is still one nobody here can open (chips/paths.ts).
       const foreign = path || ref ? undefined : foreignFileId(inner);
+      const relative = path || ref || foreign ? undefined : relativeCodePath(inner);
       out.push(
-        foreign ? (
+        // Inside a link's label a code span stays code: the link's chip is the only chip.
+        opts.insideLink ? (
+          code
+        ) : foreign ? (
           <ForeignFileRef key={k++} id={foreign} />
         ) : ref ? (
           <SessionRefCode key={k++} text={inner} agentRef={ref} fallback={code} />
         ) : path ? (
           <PathChip key={k++} path={path} line={lineOf(inner)} written={inner} label={lineLabel(path, inner)} />
+        ) : relative ? (
+          // A path from the session's folder (`outputs/lab/a.html`): its chip when the host finds it.
+          <SiblingFileChip key={k++} name={relative} folders={SESSION_FOLDER} fallback={code} />
         ) : isBareFileName(inner) ? (
           // A file name with no folder: its chip when it is in a folder the reply names.
           <SiblingFileChip key={k++} name={inner} fallback={code} />
@@ -198,7 +223,14 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       else if (named)
         out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
       else if (path)
-        out.push(<PathChip key={k++} path={path} line={lineOf(lm[2])} label={linkLabel(lm[1], labelOpts)} />);
+        out.push(
+          <PathChip
+            key={k++}
+            path={path}
+            line={lineOf(lm[2])}
+            label={repeatsPath(lm[1], lm[2], path) ? lineLabel(path, lm[2]) : linkLabel(lm[1], labelOpts)}
+          />,
+        );
       else if (app) {
         // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
         // One that names a chat or a place the page knows draws as its chip, with the author's label
@@ -228,7 +260,8 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         );
       else if (!href) out.push(<Fragment key={k++}>{linkLabel(lm[1], labelOpts)}</Fragment>);
       else {
-        const label = linkLabel(lm[1], labelOpts);
+        // A label that is the address itself draws as a bare address does (`owner/repo#12`).
+        const label = lm[1].trim() === lm[2] ? (githubRefLabel(href) ?? lm[1].trim()) : linkLabel(lm[1], labelOpts);
         const chip = (
           <UrlChip href={href} icon={linkKind(href) === "web" ? undefined : (opts.linkIcon ?? linkIcon)(href)}>
             {label}

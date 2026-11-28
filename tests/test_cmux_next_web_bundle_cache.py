@@ -11,6 +11,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
+SIZE_WORKFLOW = ROOT / ".github/workflows/cmux-next-size-budget.yml"
 WEB_CACHE_KEY = "cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}"
 CONSUMERS = ("swift-test", "daemon-test", "generated-files")
 
@@ -41,6 +42,35 @@ def step_if(step: str) -> str:
     return match.group(1)
 
 
+def builder_count(event: str, producer_result: str, *, r2_hit: bool = False,
+                  cache_hit: bool = False, artifact_success: bool = False,
+                  reuse_hit: bool = False) -> int:
+    """Model the PR duplicate-build guard, including the non-PR fallback."""
+    if reuse_hit or r2_hit or cache_hit or artifact_success:
+        return 0
+    if event == "pull_request" and producer_result == "success":
+        return 0  # the consumer fails closed instead of compiling again
+    return int(event != "pull_request" or producer_result == "skipped")
+
+
+def old_builder_count(*, r2_hit: bool = False, cache_hit: bool = False,
+                      artifact_success: bool = False, reuse_hit: bool = False) -> int:
+    """The pre-fix predicate, retained to make the modeled delta explicit."""
+    return int(not (r2_hit or cache_hit or artifact_success) and not reuse_hit)
+
+
+def check_delivery_builder_counts() -> None:
+    cases = (
+        ("pr-failed-download", "pull_request", "success", {}, 1, 0),
+        ("pr-valid-artifact", "pull_request", "success", {"artifact_success": True}, 0, 0),
+        ("pr-skipped-producer", "pull_request", "skipped", {}, 1, 1),
+        ("push-failed-download-fallback", "push", "success", {}, 1, 1),
+    )
+    for name, event, producer, kwargs, before, after in cases:
+        assert old_builder_count(**kwargs) == before, name
+        assert builder_count(event, producer, **kwargs) == after, name
+
+
 def main() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
@@ -62,6 +92,8 @@ def main() -> None:
         source_key = step_block(job, "Source key of the web bundles")
         r2 = step_block(job, "Restore the web bundles from R2")
         restore = step_block(job, "Restore the web bundles built for this source key")
+        artifact = step_block(job, "Download the web bundles this run's bundle job built")
+        fail_delivery = step_block(job, "Fail when the built web bundles could not be delivered")
         install = step_block(job, "Install the restored web bundles")
         build = step_block(job, "Build the web bundles")
         setup_node = step_block(job, "Setup Node")
@@ -73,12 +105,44 @@ def main() -> None:
         assert r2_miss in step_if(restore), job_name
         assert f"{r2_hit} || {gh_hit}" in step_if(install), job_name
         assert f"{r2_miss} && {gh_miss}" in step_if(build), job_name
+        assert "github.event_name != 'pull_request' || needs.web-bundles.result == 'skipped'" in step_if(build), job_name
+        assert "github.event_name == 'pull_request'" in step_if(fail_delivery), job_name
+        assert "steps.web-bundle-artifact.outcome != 'success'" in step_if(fail_delivery), job_name
+        assert "refusing a duplicate local build" in fail_delivery, job_name
+        assert "continue-on-error: true" in artifact, job_name
 
-        order = [job.index(step) for step in (setup_node, source_key, r2, restore, install, build)]
+        order = [job.index(step) for step in (setup_node, source_key, r2, restore, artifact, fail_delivery, install, build)]
         assert order == sorted(order), f"{job_name}: web-bundle steps out of order"
 
+    check_delivery_builder_counts()
     check_dev_release_compile(workflow)
+    check_size_budget_head_cache()
     print("cmux-next web-bundle cache workflow contract passed")
+
+
+def check_size_budget_head_cache() -> None:
+    """The size-budget head measurement reuses the producer's exact source key."""
+    workflow = SIZE_WORKFLOW.read_text(encoding="utf-8")
+    job = job_block(workflow, "web-head")
+    source_key = step_block(job, "Source key of the web bundles")
+    r2 = step_block(job, "Restore the published web bundles")
+    cache = step_block(job, "Restore the web bundles from the source-keyed cache")
+    setup_bun = step_block(job, "Setup Bun")
+    setup_node = step_block(job, "Setup Node")
+    measure = step_block(job, "Build and measure")
+
+    assert "web-bundle-key.py . --source" in source_key
+    assert cache_value(r2, "key") == WEB_CACHE_KEY
+    assert cache_value(cache, "key") == WEB_CACHE_KEY
+    assert cache_value(cache, "enableCrossOsArchive") == "true"
+    assert "steps.web-bundle-r2.outputs.cache-hit != 'true'" in step_if(cache)
+    miss = "steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'"
+    assert miss in step_if(setup_bun)
+    assert miss in step_if(setup_node)
+    assert 'WEB_BUNDLE_HIT' in measure
+    assert 'if [[ "$WEB_BUNDLE_HIT" != true ]]; then' in measure
+    order = [job.index(step) for step in (source_key, r2, cache, setup_bun, setup_node, measure)]
+    assert order == sorted(order), "web-head cache steps out of order"
 
 
 def check_dev_release_compile(workflow: str) -> None:
@@ -101,12 +165,18 @@ def check_dev_release_compile(workflow: str) -> None:
     # It takes the one Linux label (scripts/ci/one_linux_label.py), no size.
     assert "|| 'cmux-linux' }}" in producer
     assert not re.search(r"blacksmith-\d+vcpu-ubuntu-2404(?!-)|RUNNER_POOLS\)\.linux_\d", producer)
+    assert "needs.path_route.outputs.scheme" not in producer_if, \
+        "scheme-only routing must not create an extra web producer"
 
     job = job_block(workflow, "cmux-scheme-compile")
+    assert "web-bundles" in job_block(workflow, "cmux-scheme-compile")
     source_key = step_block(job, "Source key of the web bundles")
     r2 = step_block(job, "Restore the web bundles from R2")
     restore = step_block(job, "Restore the web bundles built for this source key")
+    artifact = step_block(job, "Download the web bundles this run's bundle job built")
+    fail_delivery = step_block(job, "Fail when the built web bundles could not be delivered")
     install = step_block(job, "Install the restored web bundles")
+    fail_install = step_block(job, "Fail when restored web bundles could not be installed")
     setup_bun = step_block(job, "Setup Bun")
     setup_node = step_block(job, "Setup Node")
     build = step_block(job, "Build the web bundles")
@@ -117,12 +187,18 @@ def check_dev_release_compile(workflow: str) -> None:
     assert cache_value(restore, "enableCrossOsArchive") == "true"
     assert "rm -rf web-bundles-out" in source_key, "a reused mini workspace must not install an old tree"
     assert "build-web-bundles.sh --from web-bundles-out" in install
+    assert "steps.web-bundle-artifact.outcome == 'success'" in step_if(install)
+    assert "github.event_name == 'pull_request'" in step_if(fail_delivery)
+    assert "steps.web-bundles-from.outcome != 'success'" in step_if(fail_install)
+    assert "steps.fleet-app.outputs.ok != 'true'" in step_if(fail_install)
+    assert "continue-on-error: true" in artifact
     for step in (r2, restore, install):
         assert "continue-on-error: true" in step, "a restore problem must fall back to the Mac build"
     fallback = "steps.web-bundles-from.outcome != 'success'"
     for step in (setup_bun, setup_node, build):
         assert fallback in step_if(step), "bun, node and the build run only when no tree was installed"
         assert "steps.dev-product.outputs.hit != 'true'" in step_if(step)
+    assert "github.event_name != 'pull_request' || needs.web-bundles.result == 'skipped'" in step_if(build)
     assert "--from" not in build and "--out-root" not in build
 
     order = [job.index(step) for step in (source_key, r2, restore, install, setup_bun, setup_node, build, compile_step)]

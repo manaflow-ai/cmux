@@ -65,8 +65,12 @@ export class OnboardingStore {
     this.unsubscribe = null;
   }
 
+  /** Told of each gesture before it is sent, with the state it was made on (the intro walk's Undo). */
+  onGesture: ((op: GestureOp, before: OnboardingState | null) => void) | null = null;
+
   /** One gesture; its result comes back on the stream. */
   call<Op extends GestureOp>(op: Op, params: OnboardingOps[Op][0] = {} as OnboardingOps[Op][0]): void {
+    this.onGesture?.(op, this.state);
     void this.client?.call(op, params).catch(() => {});
   }
 

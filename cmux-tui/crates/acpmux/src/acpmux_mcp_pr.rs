@@ -5,7 +5,10 @@
 //! `Review (...): SHIP at <sha>` or `BLOCK at <sha>`) and whether it is at the head, and holds
 //! (a `HOLD:` body line or a hold label). `structuredContent` carries the same with `summary`
 //! (the first line) and `status`: `ok` (open with nothing failing or pending, merged, or
-//! closed), `failed` (a failing check, or a BLOCK at the head) or `running` (checks pending).
+//! closed), `failed` (a failing check, or a BLOCK at the head), `running` (checks pending) or
+//! `cancelled` (nothing failing or pending, but a check's newest run was cancelled). Each check
+//! is judged by its newest run at the head (`newest_runs`): a cancelled run that a newer run of
+//! the same check replaced is not a verdict.
 //!
 //! Like every condensed tool it takes an optional `description`, a few words the transcript
 //! titles the row with. The data comes from the daemon's one GitHub poller for the machine
@@ -42,13 +45,21 @@ const FIELDS: &str = "number,url,state,headRefOid,baseRefName,mergeable,mergedAt
 labels,body,comments,statusCheckRollup";
 /// How long gh may take: under the shortest MCP tool timeout of the harnesses (Codex: 60 s).
 const GH_TIMEOUT: Duration = Duration::from_secs(45);
-/// Failing check names the first line lists before `+N more`.
+/// Check names the first line lists before `+N more`.
 const NAMES_SHOWN: usize = 3;
+
+fn cut(names: &[String]) -> String {
+    let mut shown = names.iter().take(NAMES_SHOWN).cloned().collect::<Vec<_>>();
+    if names.len() > NAMES_SHOWN {
+        shown.push(format!("+{} more", names.len().saturating_sub(NAMES_SHOWN)));
+    }
+    shown.join(", ")
+}
 
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "One pull request's state in one call, instead of several gh commands in a shell. The first line is the outcome (\"#1609 open at 4db9066b: mergeable, 1 failing check (ws-check), SHIP at head\" or \"#1557 merged as f0175fe0\"); then head and base, mergeability, failing checks by name and the pending count, the newest review receipt (a `Review (...): SHIP at <sha>` or `BLOCK at <sha>` comment line) and whether it is at the head, and HOLD lines or hold labels. structuredContent.status is ok, failed (a failing check, or BLOCK at head) or running (checks pending).",
+        "description": "One pull request's state in one call, instead of gh in a shell. The first line is the outcome (\"#1609 open at 4db9066b: mergeable, 1 failing check (ws-check), SHIP at head\" or \"#1557 merged as f0175fe0\"); then head and base, mergeability, failing and pending checks, the newest SHIP/BLOCK review receipt and whether it is at the head, and holds. structuredContent.status is ok, failed (a failing check or BLOCK at head), running or cancelled (a check's newest run was cancelled).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -64,7 +75,7 @@ pub(super) fn tool() -> Value {
 pub(super) fn wait_tool() -> Value {
     json!({
         "name": WAIT_NAME,
-        "description": "Wait for a pull request to settle (no check pending, or merged or closed), or with until \"change\" for its state line to change, then answer as pr_state does. The wait runs in the cmux daemon, whose one GitHub poller every chat on this machine shares, so waiting costs no GitHub calls of yours; use it instead of polling gh. It returns at timeoutSecs (default 45; call it again to keep waiting) with structuredContent.timedOut true.",
+        "description": "Wait for a pull request to settle (no check pending, or merged or closed), or with until \"change\" for its state line to change, then answer as pr_state does. The daemon's one shared GitHub poller does the waiting; use it instead of polling gh. It returns at timeoutSecs (default 45; call again to keep waiting) with structuredContent.timedOut true.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -396,34 +407,154 @@ fn newest_receipt(comments: &[Value]) -> Option<(Receipt, String)> {
     })
 }
 
-/// Failing check names and the pending count of a `statusCheckRollup`.
-fn checks(rollup: &[Value]) -> (Vec<String>, usize, usize) {
-    let (mut failing, mut pending, mut passed): (Vec<String>, usize, usize) = (Vec::new(), 0, 0);
-    for c in rollup {
+/// A check run's job id: REST's `id`, a projection's `databaseId`, or the `/job/N` of its
+/// `detailsUrl` (what `gh pr view`'s rollup gives). GitHub hands job ids out in order, so a
+/// higher one is a newer run.
+fn job_id(c: &Value) -> u64 {
+    if let Some(id) = c.get("databaseId").or(c.get("id")).and_then(Value::as_u64) {
+        return id;
+    }
+    let url = text(c, "detailsUrl").or(text(c, "details_url")).or(text(c, "html_url"));
+    url.and_then(|u| u.split("/job/").nth(1))
+        .and_then(|t| t.split(|ch: char| !ch.is_ascii_digit()).next())
+        .and_then(|d| d.parse().ok())
+        .unwrap_or(0)
+}
+
+/// Where a run sorts among the runs of its name, oldest first: its job id, then its start time
+/// (a run not finished and not started yet is the newest: it was queued after the rest), then
+/// its place in the list.
+fn run_order(c: &Value, index: usize) -> (u64, String, usize) {
+    let started = text(c, "startedAt").or(text(c, "started_at")).unwrap_or_default();
+    let finished = text_or_empty(c, "status").eq_ignore_ascii_case("completed");
+    let time = if !started.is_empty() && !started.starts_with("0001-") {
+        started.to_owned()
+    } else if finished {
+        String::new()
+    } else {
+        "~".to_owned()
+    };
+    (job_id(c), time, index)
+}
+
+/// The runs a head's checks are judged by: of the check runs that share a name (and workflow,
+/// when the rollup names it), only the newest. A run the concurrency group cancelled, or an
+/// attempt a rerun replaced, stays in GitHub's list beside the run that replaced it; it is no
+/// verdict once a newer run of the check passed or is still running. Status contexts pass
+/// through: GitHub keeps one per context already. The order of the list is kept.
+pub(crate) fn newest_runs(rollup: &[Value]) -> Vec<&Value> {
+    let mut newest: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut keep = vec![true; rollup.len()];
+    for (i, c) in rollup.iter().enumerate() {
+        if text(c, "__typename") == Some("StatusContext") || c.get("context").is_some() {
+            continue;
+        }
+        let workflow = text(c, "workflowName").or(text(c, "workflow_name")).unwrap_or_default();
+        let key = format!("{workflow}\u{0}{}", text_or_empty(c, "name"));
+        match newest.get(&key).copied() {
+            Some(j) if rollup.get(j).is_some_and(|prev| run_order(prev, j) > run_order(c, i)) => {
+                if let Some(flag) = keep.get_mut(i) {
+                    *flag = false;
+                }
+            }
+            Some(j) => {
+                if let Some(flag) = keep.get_mut(j) {
+                    *flag = false;
+                }
+                newest.insert(key, i);
+            }
+            None => {
+                newest.insert(key, i);
+            }
+        }
+    }
+    // A concurrency group shared across workflows cancels one workflow's job for another's
+    // (manaflow-ai/cmux#50693): a cancel is also replaced by a newer same-named run of another
+    // workflow that passed or is still running. A newer red replaces nothing here: it is its
+    // own check's verdict.
+    let cancelled = |c: &Value| {
+        text_or_empty(c, "status").eq_ignore_ascii_case("completed")
+            && text_or_empty(c, "conclusion").eq_ignore_ascii_case("cancelled")
+    };
+    let failed = |c: &Value| {
+        text_or_empty(c, "status").eq_ignore_ascii_case("completed")
+            && matches!(
+                text_or_empty(c, "conclusion").to_ascii_uppercase().as_str(),
+                "FAILURE" | "TIMED_OUT" | "CANCELLED" | "STARTUP_FAILURE" | "ACTION_REQUIRED"
+            )
+    };
+    let survivors: Vec<usize> = newest.values().copied().collect();
+    for &i in &survivors {
+        let Some(c) = rollup.get(i) else { continue };
+        if !cancelled(c) {
+            continue;
+        }
+        let name = text_or_empty(c, "name");
+        if survivors.iter().any(|&j| {
+            let Some(t) = rollup.get(j) else { return false };
+            j != i
+                && text_or_empty(t, "name") == name
+                && !failed(t)
+                && run_order(t, j) > run_order(c, i)
+        }) && let Some(flag) = keep.get_mut(i)
+        {
+            *flag = false;
+        }
+    }
+    rollup.iter().zip(keep).filter_map(|(c, k)| k.then_some(c)).collect()
+}
+
+/// A head's checks, each judged by its newest run (`newest_runs`).
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct Checks {
+    /// Names whose newest run failed.
+    pub failing: Vec<String>,
+    /// Names whose newest run was cancelled, with no newer run: no verdict, and none coming.
+    pub cancelled: Vec<String>,
+    /// Names whose newest run gave no verdict: skipped or cancelled.
+    pub no_verdict: Vec<String>,
+    pub pending: usize,
+    pub passed: usize,
+}
+
+/// The checks of a `statusCheckRollup`.
+fn checks(rollup: &[Value]) -> Checks {
+    let mut out = Checks::default();
+    for c in newest_runs(rollup) {
         let name = text(c, "name").or(text(c, "context")).unwrap_or("?").to_owned();
         let up = |k: &str| text_or_empty(c, k).to_ascii_uppercase();
         if text(c, "__typename") == Some("StatusContext") || c.get("context").is_some() {
             match up("state").as_str() {
-                "FAILURE" | "ERROR" => failing.push(name),
-                "PENDING" | "EXPECTED" | "" => pending = pending.saturating_add(1),
-                _ => passed = passed.saturating_add(1),
+                "FAILURE" | "ERROR" => out.failing.push(name),
+                "PENDING" | "EXPECTED" | "" => out.pending = out.pending.saturating_add(1),
+                _ => out.passed = out.passed.saturating_add(1),
             }
             continue;
         }
         if up("status") != "COMPLETED" {
-            pending = pending.saturating_add(1);
+            out.pending = out.pending.saturating_add(1);
             continue;
         }
         match up("conclusion").as_str() {
-            "FAILURE" | "TIMED_OUT" | "CANCELLED" | "STARTUP_FAILURE" | "ACTION_REQUIRED" => {
-                failing.push(name)
+            "SKIPPED" => out.no_verdict.push(name),
+            "CANCELLED" => {
+                out.cancelled.push(name.clone());
+                out.no_verdict.push(name);
             }
-            _ => passed = passed.saturating_add(1),
+            "FAILURE" | "TIMED_OUT" | "STARTUP_FAILURE" | "ACTION_REQUIRED" => {
+                out.failing.push(name)
+            }
+            _ => out.passed = out.passed.saturating_add(1),
         }
     }
-    failing.sort();
-    failing.dedup();
-    (failing, pending, passed)
+    for names in [&mut out.failing, &mut out.cancelled, &mut out.no_verdict] {
+        names.sort();
+        names.dedup();
+    }
+    // A name failing in one workflow and cancelled in another is failing.
+    let failing = out.failing.clone();
+    out.cancelled.retain(|n| !failing.contains(n));
+    out
 }
 
 /// HOLD lines of the body and hold labels.
@@ -457,7 +588,7 @@ pub(crate) fn pr_state(pr: &Value) -> (String, Value) {
     let state = s("state").to_ascii_uppercase();
     let repo = parse_url(s("url")).map(|(r, _)| r);
     let rollup = field(pr, "statusCheckRollup").as_array().map(Vec::as_slice).unwrap_or_default();
-    let (failing, pending, passed) = checks(rollup);
+    let Checks { failing, cancelled, no_verdict, pending, passed } = checks(rollup);
     let comments = field(pr, "comments").as_array().map(Vec::as_slice).unwrap_or_default();
     let review = newest_receipt(comments);
     let at_head = |r: &Receipt| !head.is_empty() && head.starts_with(&r.sha);
@@ -479,15 +610,21 @@ pub(crate) fn pr_state(pr: &Value) -> (String, Value) {
         "CLOSED" => (format!("#{number} closed unmerged at {}", short(&head)), "ok"),
         _ => {
             let checks_part = if !failing.is_empty() {
-                let mut names = failing.iter().take(NAMES_SHOWN).cloned().collect::<Vec<_>>();
-                if failing.len() > NAMES_SHOWN {
-                    names.push(format!("+{} more", failing.len().saturating_sub(NAMES_SHOWN)));
-                }
-                format!("{} ({})", plural(failing.len(), "failing check"), names.join(", "))
+                format!("{} ({})", plural(failing.len(), "failing check"), cut(&failing))
             } else if pending > 0 {
                 format!("{} pending", plural(pending, "check"))
-            } else if passed > 0 {
+            } else if !cancelled.is_empty() {
+                format!(
+                    "{} with no newer run ({})",
+                    plural(cancelled.len(), "cancelled check"),
+                    cut(&cancelled)
+                )
+            } else if passed > 0 && no_verdict.is_empty() {
                 "checks green".to_owned()
+            } else if passed > 0 {
+                format!("checks green, {} gave no verdict", no_verdict.len())
+            } else if !no_verdict.is_empty() {
+                format!("no check gave a verdict ({})", cut(&no_verdict))
             } else {
                 "no checks".to_owned()
             };
@@ -500,6 +637,8 @@ pub(crate) fn pr_state(pr: &Value) -> (String, Value) {
                 "failed"
             } else if pending > 0 {
                 "running"
+            } else if !cancelled.is_empty() {
+                "cancelled"
             } else {
                 "ok"
             };
@@ -518,7 +657,13 @@ pub(crate) fn pr_state(pr: &Value) -> (String, Value) {
     if !failing.is_empty() {
         check_line.push_str(&format!(" ({})", failing.join(", ")));
     }
-    check_line.push_str(&format!(", {pending} pending"));
+    if !cancelled.is_empty() {
+        check_line.push_str(&format!(", {} cancelled ({})", cancelled.len(), cancelled.join(", ")));
+    }
+    check_line.push_str(&format!(", {pending} pending, {} no verdict", no_verdict.len()));
+    if !no_verdict.is_empty() {
+        check_line.push_str(&format!(" ({})", cut(&no_verdict)));
+    }
     lines.push(check_line);
     lines.push(match &review {
         None => "review: none".to_owned(),
@@ -543,6 +688,8 @@ pub(crate) fn pr_state(pr: &Value) -> (String, Value) {
         "mergeable": mergeable,
         "mergeCommit": (!merge_commit.is_empty()).then_some(merge_commit),
         "failingChecks": failing,
+        "cancelledChecks": cancelled,
+        "noVerdictChecks": no_verdict,
         "pendingChecks": pending,
         "passedChecks": passed,
         "review": review.as_ref().map(|(r, by)| json!({

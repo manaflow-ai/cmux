@@ -23,7 +23,7 @@
 //! The bootstrap token lives in the login Keychain (service `cmux-key-provider`) and only this broker
 //! reads it: an agent asks for a key, never for the root credential. Values move only through stdin
 //! pipes (`gh secret set`, `security -i`) and are never printed, logged or put in argv.
-//! `~/.config/cmux/keys.json` (0600) is the audit: providers, and for each minted key its provider id,
+//! `~/.config/cmux-next/keys.json` (0600) is the audit: providers, and for each minted key its provider id,
 //! scope, expiry, where it was stored and who asked, never a value. docs/cmux-next/keys.md is the design.
 //!
 //! Keys from any other provider (one an agent got from an API or CLI, one the person pastes once, a
@@ -344,7 +344,7 @@ impl Live {
             .enable_all()
             .build()
             .map_err(|e| format!("cannot start the HTTP runtime: {e}"))?;
-        let client = reqwest::Client::builder()
+        let client = cmux_egress::client_builder("cmux_tui::cli::key_broker")
             .timeout(Duration::from_secs(30))
             .user_agent(concat!("cmux-keys/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -492,7 +492,8 @@ impl Paths {
         Self::from_env(|key| std::env::var_os(key).filter(|v| !v.is_empty()), other_app)
     }
 
-    /// `$CMUX_NEXT_KEYS_AUDIT_FILE`, else `$HOME/.config/cmux/keys.json`. A `cmux` bundled in another
+    /// `$CMUX_NEXT_KEYS_AUDIT_FILE`, else `$HOME/.config/cmux/keys.json` (`.config/cmux-next/` on
+    /// macOS, `cmux_config::NEXT_DIR`). A `cmux` bundled in another
     /// app than the terminal's (`other_app`) ignores the variable: it is that app's audit.
     pub(super) fn from_env(
         env: impl Fn(&str) -> Option<std::ffi::OsString>,
@@ -502,7 +503,12 @@ impl Paths {
             return Ok(Self { audit: PathBuf::from(path) });
         }
         let home = env("HOME").ok_or("HOME is not set")?;
-        Ok(Self { audit: PathBuf::from(home).join(".config/cmux/keys.json") })
+        Ok(Self {
+            audit: PathBuf::from(home)
+                .join(".config")
+                .join(cmux_config::NEXT_DIR)
+                .join("keys.json"),
+        })
     }
 }
 

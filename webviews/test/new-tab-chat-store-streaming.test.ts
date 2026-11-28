@@ -159,6 +159,212 @@ test("a held-back list never replaces a newer list another page wrote in its win
   expect(store.sharedSessions([])[0]?.sessionId).toBe("s-0005");
 });
 
+// Settings > Advanced > Experiments > Prioritize Chat Input (`experiments.chatInstantUnderLoad`): with
+// the switch on, a warm store takes a changed list from the idle lane, never inside the task that
+// received it; off, the list goes when its window opens, as before.
+async function chatListArm(on: boolean) {
+  const { setExperimentSwitches } = await import("../src/experiments/switches");
+  const { pageLanes } = await import("../src/agent-session/acpmux/schedule");
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  setExperimentSwitches(on ? { chatInstantUnderLoad: true } : {});
+  const head = () => store.sharedSessions([])[0]?.updatedAt;
+  return { store, head, flushIdle: () => pageLanes().flush("new-tab-chat-list"), off: () => setExperimentSwitches({}) };
+}
+
+test("Prioritize Chat Input off: a changed list is written as its window opens", async () => {
+  jest.useFakeTimers();
+  const { store, head, flushIdle, off } = await chatListArm(false);
+  try {
+    store.publishSessions(connected([chat(0, T0)]), T0);
+    expect(head()).toBe(T0);
+    store.publishSessions(connected([chat(0, T0 + 1)]), T0 + 1);
+    expect(head()).toBe(T0);
+    jest.advanceTimersByTime(500);
+    expect(head()).toBe(T0 + 1);
+    flushIdle();
+    expect(head()).toBe(T0 + 1);
+  } finally {
+    off();
+  }
+});
+
+test("Prioritize Chat Input on: the first list goes at once, later ones from the idle lane, newest last", async () => {
+  jest.useFakeTimers();
+  const { store, head, flushIdle, off } = await chatListArm(true);
+  try {
+    // An empty store takes the first list at once, so a new tab draws it.
+    store.publishSessions(connected([chat(0, T0)]), T0);
+    expect(head()).toBe(T0);
+    store.publishSessions(connected([chat(0, T0 + 1)]), T0 + 1);
+    jest.advanceTimersByTime(500);
+    // The window ended: the held list waits for the idle lane, and a newer list replaces it there.
+    expect(head()).toBe(T0);
+    store.publishSessions(connected([chat(0, T0 + 2)]), T0 + 2);
+    expect(head()).toBe(T0);
+    flushIdle();
+    expect(head()).toBe(T0 + 2);
+    // A page that hides still writes what it holds at once.
+    jest.advanceTimersByTime(500);
+    store.publishSessions(connected([chat(0, T0 + 3)]), T0 + 3);
+    expect(head()).toBe(T0 + 2);
+    window.dispatchEvent(new window.Event("pagehide"));
+    expect(head()).toBe(T0 + 3);
+  } finally {
+    off();
+    flushIdle();
+  }
+});
+
+// The cost Prioritize Chat Input moves: the time the store takes outside the idle lane each frame
+// (inside the task that received a snapshot, or its write window's timer: tasks a key or a transcript
+// frame waits behind), 3,000 chats with 40 streaming, one snapshot every 50 ms for 10 s, both arms in
+// one run. Prints p50, p95 and max per arm, and the idle lane's own time; the gate is that with the
+// switch on no write happens outside the idle lane once the store holds a list.
+test("Prioritize Chat Input: the store's cost outside the idle lane, off against on", async () => {
+  jest.useFakeTimers();
+  const lists = streamingLists();
+  const proto = window.Storage.prototype;
+  const setItem = proto.setItem;
+  const measure = async (on: boolean) => {
+    window.localStorage.clear();
+    const { store, flushIdle, off } = await chatListArm(on);
+    store.reloadChatStoreForTests();
+    let inIdle = false;
+    let writesOutside = 0;
+    proto.setItem = function (this: Storage, key: string, value: string) {
+      if (key === store.CHAT_STORE_KEY_FOR_TESTS && !inIdle) writesOutside += 1;
+      setItem.call(this, key, value);
+    };
+    const costs: number[] = [];
+    let idleMs = 0;
+    try {
+      for (const [frame, list] of lists.entries()) {
+        const start = performance.now();
+        store.publishSessions(connected(list), T0 + (frame + 1) * FRAME_MS);
+        jest.advanceTimersByTime(FRAME_MS);
+        costs.push(performance.now() - start);
+        inIdle = true;
+        const idleStart = performance.now();
+        flushIdle();
+        idleMs += performance.now() - idleStart;
+        inIdle = false;
+      }
+    } finally {
+      proto.setItem = setItem;
+      off();
+    }
+    const sorted = costs.slice(1).sort((a, b) => a - b);
+    const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!.toFixed(3);
+    console.log(
+      `chat store outside the idle lane, ${on ? "on " : "off"}: p50=${at(0.5)} ms p95=${at(0.95)} ms max=${at(1)} ms writes=${writesOutside}; idle lane total=${idleMs.toFixed(1)} ms`,
+    );
+    store.reloadChatStoreForTests();
+    return writesOutside;
+  };
+  expect(await measure(false)).toBeGreaterThan(10);
+  // On: only the first list (an empty store) is written outside the idle lane.
+  expect(await measure(true)).toBe(1);
+});
+
+// The New Tab's folder menu flipped between a few folders and many while open (5 -> 13 -> 5
+// worktrees): a page whose client holds only the newest window of the list (`sessionsWindowed`, the
+// first page of 200) and a page that holds the whole list replaced each other's list in the store
+// twice a second. A window now says nothing about the chats older than its oldest row.
+const WHOLE = 1000;
+const WINDOW = 200;
+
+/// One chat per folder, newest first, so the store's folders are its chats.
+function folderChat(n: number, updatedAt = T0 - n * 60_000): AcpmuxSessionEntry {
+  return { ...chat(n, updatedAt), cwd: `/Users/you/src/f${String(n).padStart(4, "0")}` };
+}
+
+const wholeList = () => Array.from({ length: WHOLE }, (_, index) => folderChat(index));
+const windowed = (sessions: AcpmuxSessionEntry[]) => ({ ...connected(sessions), sessionsWindowed: true as const });
+
+async function hearOtherPage(text: string): Promise<void> {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  window.localStorage.setItem(store.CHAT_STORE_KEY_FOR_TESTS, text);
+  window.dispatchEvent(new window.StorageEvent("storage", { key: store.CHAT_STORE_KEY_FOR_TESTS, newValue: text }));
+}
+
+async function storedFolders(): Promise<Set<string>> {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  return new Set(store.sharedSessions([]).map((session) => session.cwd ?? ""));
+}
+
+test("a page that holds only the newest window never takes the older chats' folders out of the store", async () => {
+  jest.useFakeTimers();
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  let whole = wholeList();
+  let at = T0;
+  await hearOtherPage(store.encodeChatStoreForTests(whole, (at += 10)));
+  expect((await storedFolders()).size).toBe(WHOLE);
+  for (let round = 0; round < 6; round += 1) {
+    // This page's window: its newest 200 chats, one of them just moved.
+    const moved = round % WINDOW;
+    const window_ = whole
+      .slice(0, WINDOW)
+      .map((entry, index) => (index === moved ? folderChat(index, T0 + round + 1) : entry));
+    store.publishSessions(windowed(window_), (at += 10));
+    jest.advanceTimersByTime(1_000);
+    expect((await storedFolders()).size).toBe(WHOLE);
+    expect(JSON.parse(window.localStorage.getItem(store.CHAT_STORE_KEY_FOR_TESTS)!).sessions).toHaveLength(WHOLE);
+    // The page that holds every chat writes its whole list again.
+    whole = whole.map((entry, index) =>
+      index === WINDOW + round ? folderChat(index, T0 - index * 60_000 + 1) : entry,
+    );
+    await hearOtherPage(store.encodeChatStoreForTests(whole, (at += 10)));
+    expect((await storedFolders()).size).toBe(WHOLE);
+    // Another windowed page writes its window over the same store.
+    await hearOtherPage(store.encodeChatStoreForTests(whole.slice(0, WINDOW), (at += 10), true));
+    expect((await storedFolders()).size).toBe(WHOLE);
+  }
+});
+
+test("a window drops a chat gone from its range and keeps the chats older than it", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const whole = wholeList();
+  await hearOtherPage(store.encodeChatStoreForTests(whole, T0 + 10));
+  const window_ = whole.slice(0, WINDOW).filter((session) => session.sessionId !== "s-0050");
+  store.publishSessions(windowed(window_), T0 + 20);
+  const ids = new Set(store.sharedSessions([]).map((session) => session.sessionId));
+  expect(ids.has("s-0050")).toBe(false);
+  expect(ids.has("s-0049")).toBe(true);
+  expect(ids.has("s-0500")).toBe(true);
+  expect(ids.size).toBe(WHOLE - 1);
+});
+
+test("a whole list still replaces the store: a chat gone from it goes", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const whole = wholeList();
+  await hearOtherPage(store.encodeChatStoreForTests(whole, T0 + 10));
+  store.publishSessions(connected(whole.slice(0, 300)), T0 + 20);
+  const ids = store.sharedSessions([]).map((session) => session.sessionId);
+  expect(ids).toHaveLength(300);
+  expect(ids.includes("s-0500")).toBe(false);
+});
+
+test("a window that changes nothing in the store writes nothing and wakes nobody", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const whole = wholeList();
+  await hearOtherPage(store.encodeChatStoreForTests(whole, T0 + 10));
+  const before = store.sharedSessions([]);
+  const proto = window.Storage.prototype;
+  const setItem = proto.setItem;
+  let writes = 0;
+  proto.setItem = function (this: Storage, key: string, value: string) {
+    if (key === store.CHAT_STORE_KEY_FOR_TESTS) writes += 1;
+    setItem.call(this, key, value);
+  };
+  try {
+    store.publishSessions(windowed(whole.slice(0, WINDOW)), T0 + 20);
+  } finally {
+    proto.setItem = setItem;
+  }
+  expect(writes).toBe(0);
+  expect(store.sharedSessions([])).toBe(before);
+});
+
 // Leo 2026-11-22: "i feel likesometimes there's like... lags every few frames or something. like a regular
 // stutter". A V8 profile of his NIGHTLY's agent pages showed each 500 ms write re-encoding every chat and parsing
 // the text back, 20 to 47 ms on the page's main thread each time. A write now encodes only the entries that changed
@@ -223,4 +429,72 @@ test("the stored text is what JSON.stringify of the kept list makes", async () =
   expect(value.sessions[100]?.archived).toBe(true);
   // Encoding the same list again, from the cache, makes the same text.
   expect(store.encodeChatStoreForTests(sessions, T0 + 7)).toBe(text);
+});
+
+// Leo 2026-11-22, the same stutter: every agent page shares one renderer thread, and each page that
+// heard another page's 500 ms write parsed the whole list of thousands of chats, hidden pages and
+// chat pages (which never draw it) too. A page with no shown reader now keeps the text and parses it
+// when a reader asks or the page shows.
+test("a page with no shown reader parses no other page's write, and a reader still gets the newest", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const lists = streamingLists();
+  // A chat page: it publishes its own list and has no New Tab reader.
+  store.publishSessions(connected(lists[0]), T0 + 1);
+  const writes = 10;
+  const texts = Array.from({ length: writes }, (_, n) => store.encodeChatStoreForTests(lists[n + 1], T0 + 10 + n));
+  const parse = JSON.parse;
+  let parsedChars = 0;
+  JSON.parse = ((text: string, ...rest: unknown[]) => {
+    parsedChars += text.length;
+    return (parse as (...args: unknown[]) => unknown)(text, ...rest);
+  }) as typeof JSON.parse;
+  const started = performance.now();
+  try {
+    for (const newValue of texts)
+      window.dispatchEvent(new window.StorageEvent("storage", { key: store.CHAT_STORE_KEY_FOR_TESTS, newValue }));
+  } finally {
+    JSON.parse = parse;
+  }
+  const perWrite = (performance.now() - started) / writes;
+  console.log(`chat store, another page's write heard at ${CHATS} chats with no reader: ${perWrite.toFixed(2)} ms`);
+  expect(parsedChars).toBe(0);
+  // A held-back list never loses to an older one, and this page's own older list does not overwrite it.
+  window.dispatchEvent(new window.StorageEvent("storage", { key: store.CHAT_STORE_KEY_FOR_TESTS, newValue: texts[0] }));
+  // A reader asks: it gets the newest write, parsed once.
+  expect(store.sharedSessions([])[0]?.sessionId).toBe("s-0010");
+  expect(store.sharedSessions([]).length).toBe(CHATS);
+});
+
+test("a hidden New Tab page parses another page's write when it shows", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const lists = streamingLists();
+  store.publishSessions(connected(lists[0]), T0 + 1);
+  const hidden = Object.getOwnPropertyDescriptor(window.document, "visibilityState");
+  Object.defineProperty(window.document, "visibilityState", { configurable: true, get: () => "hidden" });
+  let notified = 0;
+  const parse = JSON.parse;
+  let parsedChars = 0;
+  try {
+    // A New Tab reader, as `useSharedSessions` subscribes.
+    const unsubscribe = store.subscribeChatStoreForTests(() => (notified += 1));
+    JSON.parse = ((text: string, ...rest: unknown[]) => {
+      parsedChars += text.length;
+      return (parse as (...args: unknown[]) => unknown)(text, ...rest);
+    }) as typeof JSON.parse;
+    const newer = store.encodeChatStoreForTests(lists[3], T0 + 50);
+    window.dispatchEvent(new window.StorageEvent("storage", { key: store.CHAT_STORE_KEY_FOR_TESTS, newValue: newer }));
+    expect(parsedChars).toBe(0);
+    expect(notified).toBe(0);
+    Object.defineProperty(window.document, "visibilityState", { configurable: true, get: () => "visible" });
+    window.document.dispatchEvent(new window.Event("visibilitychange"));
+    expect(notified).toBe(1);
+    expect(parsedChars).toBeGreaterThan(0);
+    JSON.parse = parse;
+    expect(store.sharedSessions([])[0]?.sessionId).toBe("s-0003");
+    unsubscribe();
+  } finally {
+    JSON.parse = parse;
+    if (hidden) Object.defineProperty(window.document, "visibilityState", hidden);
+    else delete (window.document as unknown as Record<string, unknown>).visibilityState;
+  }
 });

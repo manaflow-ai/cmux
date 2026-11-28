@@ -11,6 +11,8 @@
 //! The replica also stops answering once the daemon itself saw a resume gap since the seed
 //! (`Hub::resume_count`, the count `Hub::subscribe_resumes` watches): anything may have run.
 
+use super::browse::{ListOutcome, SearchOutcome, list_dir, search};
+use super::diff::{DiffOutcome, PauseDiff, capture};
 use super::flush::{DirMachineFs, FlushReport, flush};
 use super::replica::{JournalError, ReadOutcome, WriteOutcome, read_text, write_text};
 use super::seed::{SeedBounds, SeedReport, SeededReplica, seed};
@@ -47,6 +49,8 @@ struct Paused {
     resumer: Arc<dyn MachineResume>,
     /// The daemon's resume count at the seed.
     hub_resumes: u64,
+    /// The folder's `git diff HEAD` at the seed ([`super::diff`]).
+    at_pause: PauseDiff,
 }
 
 struct Machine {
@@ -76,6 +80,8 @@ pub struct PausedFs {
     replicas: PathBuf,
     bounds: SeedBounds,
     machines: Mutex<BTreeMap<String, Machine>>,
+    /// `writeJournal.serveReads`: the app's tree and search are answered here too.
+    serve_reads: bool,
 }
 
 impl PausedFs {
@@ -85,7 +91,21 @@ impl PausedFs {
         replicas: impl Into<PathBuf>,
         bounds: SeedBounds,
     ) -> Self {
-        Self { store, replicas: replicas.into(), bounds, machines: Mutex::new(BTreeMap::new()) }
+        Self {
+            store,
+            replicas: replicas.into(),
+            bounds,
+            machines: Mutex::new(BTreeMap::new()),
+            serve_reads: false,
+        }
+    }
+
+    /// Answer the app's folder listings and searches of a paused machine ([`Self::list_dir`],
+    /// [`Self::search`]); off, they say [`Routed::NotPaused`] and the machine is asked.
+    #[must_use]
+    pub fn with_serve_reads(mut self, on: bool) -> Self {
+        self.serve_reads = on;
+        self
     }
 
     fn guard(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Machine>> {
@@ -126,6 +146,9 @@ impl PausedFs {
         };
         let (replica, report) =
             seed(&canonical, &self.replica_dir(machine, generation), self.bounds, generation)?;
+        // Only while reads are served: a pause the app cannot ask about runs no git.
+        let at_pause =
+            if self.serve_reads { capture(&canonical) } else { PauseDiff::Missing("off") };
         let mut all = self.guard();
         let Some(m) = all.get_mut(machine).filter(|m| m.generation == generation) else {
             // Paused again meanwhile: that seed is the one that answers.
@@ -135,7 +158,8 @@ impl PausedFs {
         };
         m.root = root.to_path_buf();
         m.canonical = canonical;
-        let old = m.paused.replace(Paused { replica: Arc::new(replica), resumer, hub_resumes });
+        let old =
+            m.paused.replace(Paused { replica: Arc::new(replica), resumer, hub_resumes, at_pause });
         drop(all);
         if let Some(old) = old {
             old.replica.invalidate();
@@ -214,6 +238,92 @@ impl PausedFs {
                 WriteOutcome::NeedsMachine(why) => Routed::NeedsMachine(why),
             })
         })
+    }
+
+    /// The names under `dir` (absolute) on paused `machine`, with the journal laid over the
+    /// replica. Blocking.
+    pub fn list_dir(
+        &self,
+        machine: &str,
+        dir: &Path,
+        hub_resumes: u64,
+    ) -> io::Result<Routed<ListOutcome>> {
+        if !self.serve_reads {
+            return Ok(Routed::NotPaused);
+        }
+        self.browse(machine, dir, hub_resumes, list_dir)
+    }
+
+    /// Lines matching `query` in the files of paused `machine` (`root` is its folder). Blocking.
+    pub fn search(
+        &self,
+        machine: &str,
+        root: &Path,
+        query: &str,
+        max_hits: usize,
+        hub_resumes: u64,
+    ) -> io::Result<Routed<SearchOutcome>> {
+        if !self.serve_reads {
+            return Ok(Routed::NotPaused);
+        }
+        self.browse(machine, root, hub_resumes, |j, r, _| search(j, r, query, max_hits))
+    }
+
+    /// The text of the file at `path` (absolute) on paused `machine` for the app's file open:
+    /// the journal over the replica, as the agent's own read sees it. Blocking.
+    pub fn open(
+        &self,
+        machine: &str,
+        path: &Path,
+        hub_resumes: u64,
+    ) -> Result<Routed<ReadOutcome>, JournalError> {
+        if !self.serve_reads {
+            return Ok(Routed::NotPaused);
+        }
+        self.read(machine, path, hub_resumes)
+    }
+
+    /// Paused `machine`'s diff: its `git diff HEAD` at pause and the journal's changes since
+    /// ([`super::diff`]). `root` is its folder, the same check as [`Self::search`]. Blocking.
+    pub fn diff(
+        &self,
+        machine: &str,
+        root: &Path,
+        hub_resumes: u64,
+    ) -> io::Result<Routed<DiffOutcome>> {
+        if !self.serve_reads {
+            return Ok(Routed::NotPaused);
+        }
+        let all = self.guard();
+        let Some(m) = all.get(machine) else { return Ok(Routed::NotPaused) };
+        let Some(paused) = &m.paused else { return Ok(Routed::NotPaused) };
+        if paused.hub_resumes != hub_resumes {
+            paused.replica.invalidate();
+        }
+        // The diff is of the whole folder: a root under it would be a different question.
+        if m.rel(root).is_none_or(|rel| !rel.is_empty()) {
+            return Ok(Routed::NeedsMachine(NeedsMachine::MachineOnly));
+        }
+        super::diff::diff(&m.journal, &paused.replica, &paused.at_pause).map(Routed::Answered)
+    }
+
+    fn browse<T>(
+        &self,
+        machine: &str,
+        path: &Path,
+        hub_resumes: u64,
+        f: impl FnOnce(&WriteJournal, &SeededReplica, &str) -> io::Result<T>,
+    ) -> io::Result<Routed<T>> {
+        let all = self.guard();
+        let Some(m) = all.get(machine) else { return Ok(Routed::NotPaused) };
+        let Some(paused) = &m.paused else { return Ok(Routed::NotPaused) };
+        if paused.hub_resumes != hub_resumes {
+            paused.replica.invalidate();
+        }
+        let Some(rel) = m.rel(path) else {
+            return Ok(Routed::NeedsMachine(NeedsMachine::MachineOnly));
+        };
+        f(&m.journal, &paused.replica, &rel).map(Routed::Answered)
     }
 
     /// `machine` runs again (resumed, or about to run a command): the replica stops answering and

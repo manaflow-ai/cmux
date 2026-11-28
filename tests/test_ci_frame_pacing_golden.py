@@ -375,6 +375,127 @@ def test_dark_load_flash_unstyled_pass_may_be_missing() -> None:
         assert "not measured" in found["unstyled"]["note"], found["unstyled"]
 
 
+
+def strip_rows(*, blank_at: tuple[int, ...] = (), land: int = 1, frames: int = 30) -> list[dict]:
+    """A frame_strip report's rows: frames before the key, then `frames` after it; the change shows at
+    frame 1 after the key and the window reaches its last frame at frame `land` (land 1: one step)."""
+    rows = [{"ms": -REFRESH * k, "outside_vs_before": 0, "outside_vs_final": 0.2, "content_vs_before": 0,
+             "content_vs_final": 0.2, "blank": False, "blank_panes": 0} for k in (2, 1, 0)]
+    for index in range(1, frames + 1):
+        changed = index >= 1
+        final = index >= land
+        rows.append({"ms": round(index * REFRESH, 1), "outside_vs_before": 0.2 if changed else 0,
+                     "outside_vs_final": 0 if final else 0.1, "content_vs_before": 0.2 if changed else 0,
+                     "content_vs_final": 0 if final else 0.1, "blank": index in blank_at,
+                     "blank_panes": 1 if index in blank_at else 0})
+    return rows
+
+
+def motion_run(**override) -> dict:
+    """What motion_frames.drive saves: every gesture at the default motion and under Reduce Motion."""
+    def gesture(**kw) -> dict:
+        return {"frame_count": 33, "blank": len(kw.get("blank_at", ())), "frames": strip_rows(**kw)}
+    runs = {}
+    for mode in ("default", "reduce"):
+        runs[mode] = {"reduce_motion": mode == "reduce"}
+        for name in ("zoom", "unzoom", "palette", "palette_close", "close"):
+            # The default motion may animate: land over 12 frames there.
+            runs[mode][name] = gesture(**override.get(f"{mode}/{name}", {"land": 12 if mode == "default" else 1}))
+    return {"setup": {}, "runs": runs}
+
+
+def test_motion_frames_without_a_result_is_not_measured() -> None:
+    """No GUI Mac (or a build without the probes): it reports and passes, fail open."""
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out)
+        result = judge(out)
+        assert result.returncode == 0, result.stdout + result.stderr
+        found = verdicts(out)["motion_frames"]
+        assert found["ok"] and not found["measured"], found
+        assert "| motion_frames | report |" in result.stdout
+
+
+def test_motion_frames_as_designed_passes() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out)
+        (out / "motion_frames.json").write_text(json.dumps(motion_run()))
+        result = judge(out)
+        assert result.returncode == 0, result.stdout + result.stderr
+        found = verdicts(out)["motion_frames"]
+        assert found["ok"] and found["measured"], found
+        assert found["gestures"]["reduce/zoom"] == {"frames": 30, "blank": 0, "late": 0}, found
+        assert found["gestures"]["default/zoom"]["late"] == 11, found
+        assert "| motion_frames | ok |" in result.stdout
+
+
+def test_motion_frames_fails_a_zoom_that_blanks_the_pane_it_covers() -> None:
+    """cmux#58266: a zoom hid its covered pane from the first frame, so its page showed the backdrop."""
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out)
+        (out / "motion_frames.json").write_text(json.dumps(motion_run(**{"default/zoom": {"land": 12, "blank_at": tuple(range(1, 11))}})))
+        result = judge(out)
+        assert result.returncode == 1, result.stdout + result.stderr
+        found = verdicts(out)["motion_frames"]
+        assert not found["ok"] and found["measured"], found
+        assert any(problem.startswith("default/zoom: 10 blank frame(s)") for problem in found["problems"]), found
+        assert "| motion_frames | FAIL |" in result.stdout
+
+
+def test_motion_frames_fails_a_palette_whose_content_lands_a_frame_late() -> None:
+    """Cmd-P's panel shows a frame before its content (the pill): under Reduce Motion that is one late frame."""
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out)
+        (out / "motion_frames.json").write_text(json.dumps(motion_run(**{"reduce/palette": {"land": 2}})))
+        result = judge(out)
+        assert result.returncode == 1, result.stdout + result.stderr
+        found = verdicts(out)["motion_frames"]
+        assert found["problems"] == ["reduce/palette: content landed 1 frame(s) late under Reduce Motion (at most 0)"], found
+
+
+def test_motion_frames_reports_a_late_close_without_failing() -> None:
+    """Cmd-W is judged for blank frames only; its neighbor's page resize is reported."""
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out)
+        (out / "motion_frames.json").write_text(json.dumps(motion_run(**{"reduce/close": {"land": 4}})))
+        result = judge(out)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert verdicts(out)["motion_frames"]["gestures"]["reduce/close"]["late"] == 3
+
+
+def test_motion_frames_a_dropped_capture_is_not_measured() -> None:
+    """Too few frames after the key (a capture that dropped) never fails: fail open."""
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out)
+        run = motion_run()
+        for mode in run["runs"].values():
+            for name, gesture in mode.items():
+                if isinstance(gesture, dict):
+                    mode[name] = {**gesture, "frames": strip_rows(frames=4, blank_at=(1,))}
+        (out / "motion_frames.json").write_text(json.dumps(run))
+        result = judge(out)
+        assert result.returncode == 0, result.stdout + result.stderr
+        found = verdicts(out)["motion_frames"]
+        assert found["ok"] and not found["measured"], found
+
+
+def test_motion_frames_alone_judges_only_its_scenario() -> None:
+    """The `frames` suite (GOLDEN_ONLY=motion_frames) drives one step; the others are not judged as missing."""
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        out.mkdir(exist_ok=True)
+        (out / "drive_log.json").write_text(json.dumps({"log": [], "only": ["motion_frames"]}))
+        (out / "motion_frames.json").write_text(json.dumps(motion_run()))
+        result = judge(out)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert list(verdicts(out)) == ["motion_frames"], verdicts(out)
+
+
 if __name__ == "__main__":
     failures = 0
     for name, test in list(globals().items()):

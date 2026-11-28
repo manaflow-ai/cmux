@@ -21,9 +21,9 @@
 //! repair that loads a page again) passes without the part's signal
 //! coming back (a `repairResult` with `ok: false` makes it due at once).
 //! Past [`policy::MAX_REPAIRS`] attempts in [`policy::REPAIR_WINDOW_MS`] the
-//! part is `failed`: it tries again by itself from step 1 once its oldest
-//! attempt leaves the window, and the user's click clears the cap and starts
-//! again at step 1 at once. The episode ends only when the signal comes back
+//! part is `failed` once its episode has lasted [`policy::FAILURE_MIN_MS`]: it tries again by
+//! itself from step 1 once its oldest attempt leaves the window, and the user's click clears the
+//! cap and starts again at step 1 at once. The episode ends only when the signal comes back
 //! (a beat, `responsive`, `connected`, `loaded`), never on a result alone.
 //!
 //! Pages silent together are one stall ([`policy::PAGE_SHARED_STALL_MS`]): the model keeps the
@@ -127,6 +127,8 @@ struct Signals {
 /// The repair episode of a part.
 #[derive(Debug, Default)]
 struct Repair {
+    /// When this stuck episode began, including time before its first repair tick.
+    started_at: Option<u64>,
     /// Attempts in this episode (0: none yet).
     attempt: u32,
     /// Attempt times inside the cap's window.
@@ -137,6 +139,7 @@ struct Repair {
     action: RepairAction,
     /// Actions sent to this part, never reset (each [`Action::token`]).
     sent: u64,
+    /// The ladder is exhausted; its visible failure still waits for FAILURE_MIN_MS.
     failed: bool,
     /// `holdReplace` was sent for the current daemon process.
     held: bool,
@@ -197,6 +200,8 @@ pub struct Health {
     receipts: VecDeque<Receipt>,
     /// Newest first.
     pending: VecDeque<PendingView>,
+    /// Ticks that came [`policy::OBSERVER_LATE_MS`] or more past their deadline ([`Self::forgive`]).
+    observer_stalls: u64,
     /// Heap entries popped by `tick` (the scale test's counter).
     #[cfg(test)]
     pub(crate) visited: u64,
@@ -692,6 +697,13 @@ impl Health {
 
     /// Runs every expired deadline; the actions for the host.
     pub fn tick(&mut self, now: u64) -> Vec<Action> {
+        // The host's timer came late: the host itself (its main thread, the Mac) ran nothing for that
+        // long, so no beat could reach the model either. That time is the observer's, not the pages'.
+        if let Some(late) = self.next_tick_ms().map(|due| now.saturating_sub(due))
+            && late >= policy::OBSERVER_LATE_MS
+        {
+            self.forgive(late, now);
+        }
         let mut due = Vec::new();
         while let Some(&Reverse((deadline, generation, slot))) = self.heap.peek() {
             if deadline > now {
@@ -719,6 +731,45 @@ impl Health {
         actions
     }
 
+    /// Moves every silence clock forward by `late` (never past `now`): the time the observer stalled
+    /// is not charged to the parts it watches. Leo's Mac, 2026-11-27 13:30:57 and 13:31:32 (load 187
+    /// on 15 cores): two agent chats were reloaded for "Not answering for 65 s" and "Has not handled
+    /// your clicks or typing for 10 s" while the app's own main thread, which delivers their beats and
+    /// runs this timer, was stalled (the app relaunched 37 s later). Leo, 2026-11-22: "we need to make
+    /// sure any solutions that reloading would help with, we never encounter those classes of bugs in
+    /// the first place." A page that really hangs stays silent after the stall and is judged from
+    /// there, at most [`policy::PAGE_STUCK_MS`] later. The same shape as the daemon's admission lease
+    /// (cmux#62394): wall time the runtime gave no task is not the task's fault.
+    fn forgive(&mut self, late: u64, now: u64) {
+        let shift = |t: &mut Option<u64>| {
+            if let Some(at) = t {
+                *at = at.saturating_add(late).min(now);
+            }
+        };
+        self.observer_stalls = self.observer_stalls.saturating_add(1);
+        self.timed.clear();
+        for (slot, part) in self.slots.iter_mut().enumerate() {
+            let Some(part) = part.as_mut() else { continue };
+            let s = &mut part.signals;
+            shift(&mut s.last_beat);
+            shift(&mut s.input_since);
+            shift(&mut s.loading_since);
+            shift(&mut s.unresponsive_since);
+            shift(&mut s.roster_since);
+            s.last_progress = s.last_progress.saturating_add(late).min(now);
+            shift(&mut part.timed_beat);
+            if let Some(beat) = part.timed_beat {
+                self.timed.insert((beat, slot));
+            }
+        }
+    }
+
+    /// How many times the host's timer came at least [`policy::OBSERVER_LATE_MS`] late (each one's
+    /// stall was not charged to the parts): the detector of this class.
+    pub fn observer_stalls(&self) -> u64 {
+        self.observer_stalls
+    }
+
     /// The earliest live deadline: the host's one timer. `None`: no timer.
     pub fn next_tick_ms(&mut self) -> Option<u64> {
         while let Some(&Reverse((deadline, generation, slot))) = self.heap.peek() {
@@ -728,6 +779,13 @@ impl Health {
             self.heap.pop();
         }
         None
+    }
+
+    /// The part [`Self::next_tick_ms`] is for (the host's wakeup ledger names it).
+    pub fn next_tick_id(&mut self) -> Option<&str> {
+        self.next_tick_ms()?;
+        let &Reverse((_, _, slot)) = self.heap.peek()?;
+        self.slots.get(slot)?.as_ref().map(|p| p.id.as_str())
     }
 
     /// A user action the host queued (newest first).
@@ -797,8 +855,9 @@ impl Health {
         // What the host logs with each action: which part, and why.
         let (label, cause) = (part.label.clone(), detail::cause(cond.cause));
         let r = &mut part.repair;
-        let state = match (cond.level, cond.mode) {
+        let mut state = match (cond.level, cond.mode) {
             (State::Stuck, Mode::Ladder(ladder)) => {
+                r.started_at.get_or_insert(now);
                 if r.failed {
                     // The cap is MAX_REPAIRS in the window, not for good: once the oldest attempt leaves
                     // it, the part tries again by itself from step 1, with no click (David Beyer,
@@ -889,6 +948,7 @@ impl Health {
             }
             (level, _) => {
                 // Not a stuck the model repairs: any episode is over.
+                r.started_at = None;
                 if r.attempt > 0 || r.failed {
                     if level == State::Healthy {
                         receipts.push((r.action, Outcome::Ok, detail::receipt_recovered(kind)));
@@ -899,6 +959,15 @@ impl Health {
                 level
             }
         };
+        if state == State::Failed
+            && let Some(at) = r.started_at.map(|at| at.saturating_add(policy::FAILURE_MIN_MS))
+            && now < at
+        {
+            // Exhausted attempts cannot turn a brief reconnect into an alert.
+            // Reuse this part's one deadline; recovery invalidates it normally.
+            state = State::Repairing;
+            deadline = earliest(deadline, Some(at));
+        }
         if state == State::Repairing {
             deadline = earliest(deadline, r.next_at);
         }

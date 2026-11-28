@@ -38,24 +38,32 @@ public nonisolated struct HomeChiefSnapshot: Sendable {
     /// (`machine:<id>`, cmux issue 36047); nil: this Mac.
     var computer: String?
 
-    /// This snapshot with `report`'s offered models and efforts and its effective engine.
+    /// This snapshot with `report`'s offered models and efforts and its effective engine, and the
+    /// brain's own classifier fields and computer when it answered. Rust's `chief_settings.snapshotOffering`.
     func offering(_ report: ChiefEngineReport) -> HomeChiefSnapshot {
-        var snapshot = self
-        snapshot.models = report.offered.models
-        snapshot.efforts = report.offered.efforts
-        snapshot.speeds = report.offered.speeds
-        snapshot.effective = report.engine
-        // The brain's own engine.json, when it answered (a paired server's file is not this Mac's).
-        if report.choice.classifierHarness != nil || report.choice.classifierModel != nil
-            || report.choice.classifierPrompt != nil || report.choice.reactionsCanWake != nil {
-            snapshot.classifierHarness = report.choice.classifierHarness
-            snapshot.classifierModel = report.choice.classifierModel
-            snapshot.classifierPrompt = report.choice.classifierPrompt
-            snapshot.reactionsCanWake = report.choice.reactionsCanWake.map { $0 ? "true" : "false" }
+        let request = OfferingRequest(snapshot: HomeChiefSnapshotWire(self),
+                                      report: .init(engine: report.engine, choice: report.choice,
+                                                    offered: .init(models: report.offered.models, efforts: report.offered.efforts,
+                                                                   speeds: report.offered.speeds)))
+        let wire: HomeChiefSnapshotWire? = try? HomeRules.call("chief_settings.snapshotOffering", request)
+        return wire?.snapshot(turns: turns) ?? self
+    }
+
+    private nonisolated struct OfferingRequest: Encodable {
+        var snapshot: HomeChiefSnapshotWire
+        var report: Report
+
+        nonisolated struct Report: Encodable {
+            var engine: ChiefEngineReport.Engine
+            var choice: ChiefEngineReport.Engine
+            var offered: Offered
         }
-        // The brain owns engine.json: its answer is the Chief's computer now.
-        snapshot.computer = report.choice.computer
-        return snapshot
+
+        nonisolated struct Offered: Encodable {
+            var models: [ChiefEngineReport.Model]
+            var efforts: [String]
+            var speeds: [String]
+        }
     }
 }
 
@@ -83,20 +91,28 @@ public nonisolated struct HomeChiefFiles: Sendable {
         return object
     }
 
+    /// engine.json and profile.json as the card shows them (Rust's `chief_settings.engineChoice`), with
+    /// the trace's last turns.
     func snapshot() -> HomeChiefSnapshot {
-        let choice = object(engineFile)
-        let avatar = (object(profileFile)["avatar"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        var snapshot = HomeChiefSnapshot(harness: choice["harness"] as? String, model: choice["model"] as? String,
-                                         effort: choice["effort"] as? String, avatar: avatar,
-                                         routeConfigured: coderouterRouteConfigured(environment: ProcessInfo.processInfo.environment),
-                                         turns: recentTurns(limit: 5))
-        snapshot.speed = choice["speed"] as? String
-        snapshot.classifierHarness = choice["classifier_harness"] as? String
-        snapshot.classifierModel = choice["classifier_model"] as? String
-        snapshot.classifierPrompt = choice["classifier_prompt"] as? String
-        snapshot.reactionsCanWake = (choice["reactions_can_wake"] as? Bool).map { $0 ? "true" : "false" } ?? choice["reactions_can_wake"] as? String
-        snapshot.computer = (choice["computer"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        return snapshot
+        let request = ChoiceRequest(choice: json(engineFile), profile: json(profileFile),
+                                    routeConfigured: coderouterRouteConfigured(environment: ProcessInfo.processInfo.environment))
+        let wire: HomeChiefSnapshotWire? = try? HomeRules.call("chief_settings.engineChoice", request)
+        let turns = recentTurns(limit: 5)
+        return wire?.snapshot(turns: turns)
+            ?? HomeChiefSnapshot(harness: nil, model: nil, effort: nil, avatar: nil, routeConfigured: request.routeConfigured, turns: turns)
+    }
+
+    /// A file's JSON as it is, for the rules (`.null` when it cannot be read).
+    private func json(_ file: URL) -> JSONValue {
+        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        guard let data = try? Data(blockingContentsOf: file) else { return .null }
+        return (try? JSONDecoder().decode(JSONValue.self, from: data)) ?? .null
+    }
+
+    private nonisolated struct ChoiceRequest: Encodable {
+        var choice: JSONValue
+        var profile: JSONValue
+        var routeConfigured: Bool
     }
 
     /// Whether this Chief's acpmux has a CodeRouter Claude route configured:
@@ -119,12 +135,15 @@ public nonisolated struct HomeChiefFiles: Sendable {
 
     /// Whether an avatar value names a picture rather than text: a file
     /// name (no path) with an image extension, e.g. `"avatar": "cat.png"`.
+    /// The picture files a profile may name are the Chief sheet's PNG, JPEG, GIF and WebP, and HEIC.
+    /// Rust's `chief_settings.namesPicture`.
     static func namesPicture(_ avatar: String) -> Bool {
-        !avatar.contains("/") && pictureExtensions.contains((avatar as NSString).pathExtension.lowercased())
+        (try? HomeRules.call("chief_settings.namesPicture", AvatarRequest(avatar: avatar))) ?? false
     }
 
-    /// The picture files a profile may name (the Chief sheet's PNG, JPEG, GIF and WebP, and HEIC).
-    static let pictureExtensions: Set<String> = ["png", "jpg", "jpeg", "heic", "gif", "webp"]
+    private nonisolated struct AvatarRequest: Encodable {
+        var avatar: String
+    }
     /// What Choose Picture… offers.
     static let pictureTypes: [UTType] = [.png, .jpeg, .heic, .gif, .webP]
     /// The largest GIF kept as it is (a still is drawn down instead): the daemon's own picture cap,
@@ -167,7 +186,8 @@ public nonisolated struct HomeChiefFiles: Sendable {
     public func writePicture(_ picture: ChiefAvatarPicture) throws {
         let folder = profileFile.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let name = picture.mediaType == "image/gif" ? "avatar.gif" : "avatar.png"
+        let name = (try? HomeRules.call("chief_settings.pictureFileName", MediaRequest(mediaType: picture.mediaType)))
+            ?? (picture.mediaType == "image/gif" ? "avatar.gif" : "avatar.png")
         let partial = folder.appendingPathComponent(name + ".app.tmp")
         try? FileManager.default.removeItem(at: partial)
         try picture.data.write(to: partial)
@@ -215,14 +235,34 @@ public nonisolated struct HomeChiefFiles: Sendable {
         return .picture(Self.squared(file) ?? file)
     }
 
-    /// A stable short key of `path` (FNV-1a, as `ChiefHome.host` keys a mux home).
-    private static func pathKey(_ path: String) -> String {
-        var hash: UInt32 = 0x811c_9dc5
-        for byte in path.utf8 {
-            hash ^= UInt32(byte)
-            hash = hash &* 0x0100_0193
+    private nonisolated struct MediaRequest: Encodable {
+        var mediaType: String
+    }
+
+    private nonisolated struct SquareRequest: Encodable {
+        var width: Int
+        var height: Int
+    }
+
+    private nonisolated struct CacheNameRequest: Encodable {
+        var path: String
+        var stamp: Int
+    }
+
+    private static func squareCrop(width: Int, height: Int) -> Square? {
+        do {
+            let crop: Square? = try HomeRules.call("chief_settings.squareCrop", SquareRequest(width: width, height: height))
+            return crop
+        } catch {
+            return nil
         }
-        return String(format: "%08x", hash)
+    }
+
+    private nonisolated struct Square: Decodable {
+        var x: Double
+        var y: Double
+        var width: Double
+        var height: Double
     }
 
     /// A copy of a non-square picture cropped to its centred square, as the
@@ -232,10 +272,10 @@ public nonisolated struct HomeChiefFiles: Sendable {
     static func squared(_ file: URL) -> URL? {
         // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
         guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil), image.width != image.height else { return nil }
-        let side = min(image.width, image.height)
-        guard let square = image.cropping(to: CGRect(x: (image.width - side) / 2, y: (image.height - side) / 2,
-                                                     width: side, height: side)) else { return nil }
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              // Rust's `chief_settings.squareCrop`: the centred square, nil when it is square already.
+              let crop = squareCrop(width: image.width, height: image.height),
+              let square = image.cropping(to: CGRect(x: crop.x, y: crop.y, width: crop.width, height: crop.height)) else { return nil }
         let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         let caches = NextSupport.cachesDirectory()
         let directory = caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
@@ -243,7 +283,10 @@ public nonisolated struct HomeChiefFiles: Sendable {
         let stamp = Int(modified?.timeIntervalSince1970 ?? 0)
         // Keyed by the picture's full path too: every Chief's file is `avatar.png`, so name and
         // time alone gave two Chiefs saved in the same second one tile.
-        let copy = directory.appendingPathComponent("\(pathKey(file.path))-\(file.deletingPathExtension().lastPathComponent)-\(stamp).png")
+        // Rust's `chief_settings.squaredCacheName`.
+        guard let name: String = try? HomeRules.call("chief_settings.squaredCacheName", CacheNameRequest(path: file.path, stamp: stamp))
+        else { return nil }
+        let copy = directory.appendingPathComponent(name)
         if FileManager.default.fileExists(atPath: copy.path) { return copy }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         guard let destination = CGImageDestinationCreateWithURL(copy as CFURL, UTType.png.identifier as CFString, 1, nil) else { return nil }

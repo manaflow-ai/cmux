@@ -39,7 +39,9 @@ fn item(
         class,
         report: false,
         waited: false,
+        gather: false,
         at,
+        within: None,
         text: text.to_owned(),
         details: None,
         tool_notice: None,
@@ -518,6 +520,44 @@ fn hub_with_chat(id: &str) -> (Arc<Hub>, Arc<Session>) {
     (hub, session)
 }
 
+/// The sender gets its acceptance while a configuration writer is still active.
+#[tokio::test]
+async fn inbox_accepts_a_new_notice_while_configuration_is_being_written() {
+    let (hub, session) = hub_with_chat("inbox-writer");
+    let _writer = hub.config.write().await;
+    let blocks = [json!({"type": "text", "text": "command finished"})];
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut accept = |notice| tx.send(notice).unwrap();
+    // A caller that reads the reply and stays connected: its send waits past the acceptance
+    // (one that reads nothing ends once delivered, `inbox.rs`).
+    let (_connected, reader) = tokio::sync::watch::channel(false);
+    let prompt = hub.inbox_accept(
+        &session,
+        &blocks,
+        "test",
+        "after-restore",
+        "acpmux",
+        PromptClass::Result,
+        None,
+        None,
+        false,
+        false,
+        Some(reader),
+        &mut accept,
+    );
+    tokio::pin!(prompt);
+    let answer = tokio::select! {
+        result = &mut prompt => panic!("prompt finished before acceptance: {result:?}"),
+        ack = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()) => ack
+            .expect("an inbox delivery is accepted while configuration is being written")
+            .expect("acceptance"),
+    };
+    assert_eq!(answer["promptId"], "after-restore");
+    assert_eq!(answer["inbox"], true);
+    assert_eq!(answer["queued"], true);
+    assert!(session.inbox().items.iter().any(|item| item.prompt_id == "after-restore"));
+}
+
 /// Surge admission is a preview (`labs.previewFeatures`): off, the burst that would be held
 /// takes the path it took before the surge inbox, with nothing held or counted.
 #[tokio::test]
@@ -816,6 +856,32 @@ async fn results_to_a_running_turn_coalesce_into_one_steer_and_a_blocker_brings_
     }
 }
 
+/// No notice steers into a Codex turn whose model has not answered its prompt yet: codex-acp
+/// takes that steer as a new prompt and cancels the running one, so the chat's task was lost
+/// to an "expired undelivered" FYI three times in one chat (acp-chief-issues 2026-11-27). No
+/// timer polls it: the model's first sign looks again (`model_answered`), and the notice steers
+/// in as before. A Claude chat's turn takes it at once.
+#[tokio::test]
+async fn no_notice_steers_into_a_codex_turn_before_its_model_answers() {
+    let (hub, session) = hub_with_chat("codex-steer");
+    session.meta.lock().unwrap().family = Some("codex".to_owned());
+    running(&session);
+    session.inbox().items.push(item("b1", "t", "lane-b", PromptClass::Block, now_ms(), "stuck"));
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), None, "held while the model has not answered");
+    assert!(session.inbox().timer.is_none(), "no timer: the model's first sign looks again");
+
+    session.heard.fetch_add(1, Ordering::SeqCst);
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), Some(vec!["b1".to_owned()]), "steered in once it answered");
+
+    let (hub, claude) = hub_with_chat("claude-steer");
+    running(&claude);
+    claude.inbox().items.push(item("b1", "t", "lane-b", PromptClass::Block, now_ms(), "stuck"));
+    hub.inbox_review(&claude);
+    assert_eq!(carried(&claude), Some(vec!["b1".to_owned()]), "a Claude turn takes it at once");
+}
+
 /// What steers into a running turn at once: blockers, and a result from the chat's parent or
 /// delegator. Other results (reports included) and FYIs wait.
 #[test]
@@ -841,11 +907,11 @@ fn blockers_and_the_chats_parent_or_delegator_steer_at_once() {
     assert!(steers_at_once(&meta, &from(PromptClass::Result, Some("coord"))), "its delegator");
 }
 
-/// FYIs alone that the person's own turn held back start no turn of their own when it ends:
-/// they wait for the flush, as they would have in any turn. Anything else it held back is due at
-/// once, as before.
+/// FYIs alone that the person's own turn held back start no turn of their own when it ends, not
+/// even past the 15-minute flush: in an idle chat they wait for its next real turn or their
+/// 60-minute deadline. Anything else it held back is due at once, as before.
 #[tokio::test]
-async fn fyis_alone_the_persons_turn_held_back_wait_for_their_flush() {
+async fn fyis_alone_the_persons_turn_held_back_wait_for_the_next_turn() {
     let (hub, session) = hub_with_chat("fyi-held");
     {
         let mut inbox = session.inbox();
@@ -856,13 +922,13 @@ async fn fyis_alone_the_persons_turn_held_back_wait_for_their_flush() {
     assert_eq!(carried(&session), None, "no turn of its own before the flush");
     {
         let inbox = session.inbox();
-        assert!(inbox.timer.is_some(), "the flush is timed");
+        assert!(inbox.timer.is_some(), "only its 60-minute deadline is timed");
         assert!(!inbox.held_by_person, "the hold lets go of FYIs alone");
     }
     assert!(!turn_coming(&session), "no turn comes for FYIs alone");
     session.inbox().items[0].at = now_ms().saturating_sub(FLUSH_MS + 1);
     hub.inbox_review(&session);
-    assert_eq!(carried(&session), Some(vec!["f1".to_owned()]), "a turn at its flush");
+    assert_eq!(carried(&session), None, "no cold turn past the flush either");
 
     // A result the person's turn held back (it wakes no one here) is due at once, as before.
     let (hub, session) = hub_with_chat("result-held");
@@ -1094,12 +1160,22 @@ mod agent_messaging {
         assert!(controls(&meta, Some("s-coord")));
         assert!(!controls(&meta, Some("s-other")));
         assert!(!controls(&meta, None), "a sender with no session controls nothing");
-        assert!(wakes_as(&meta, PromptClass::Result, false, Some("s-coord")));
-        assert!(!wakes_as(&meta, PromptClass::Result, false, Some("s-other")));
-        assert!(wakes_as(&meta, PromptClass::Question, false, Some("s-other")), "a question wakes");
-        assert!(!wakes_as(&meta, PromptClass::Fyi, false, Some("s-coord")), "an fyi never does");
+        assert!(wakes_as(&meta, PromptClass::Result, false, false, Some("s-coord")));
+        assert!(!wakes_as(&meta, PromptClass::Result, false, false, Some("s-other")));
         assert!(
-            wakes_as(&meta, PromptClass::Result, true, Some("s-other")),
+            wakes_as(&meta, PromptClass::Question, false, false, Some("s-other")),
+            "a question wakes"
+        );
+        assert!(
+            !wakes_as(&meta, PromptClass::Fyi, false, false, Some("s-coord")),
+            "an fyi does not"
+        );
+        assert!(
+            wakes_as(&meta, PromptClass::Fyi, false, true, Some("s-other")),
+            "an fyi that waited for this machine does"
+        );
+        assert!(
+            wakes_as(&meta, PromptClass::Result, true, false, Some("s-other")),
             "a report of its work"
         );
     }
@@ -1242,10 +1318,13 @@ fn a_peers_forward_of_an_unclassified_relay_message_goes_to_the_inbox_and_wakes_
     meta.delegator = Some("s-leo".into());
     let class = default_notice_class(None);
     assert_eq!(class, PromptClass::Fyi);
-    assert!(!wakes_as(&meta, class, is_report(Some(&provenance)), None), "an idle chat sleeps on");
+    assert!(
+        !wakes_as(&meta, class, is_report(Some(&provenance)), false, None),
+        "an idle chat sleeps on"
+    );
     // A block or a question from the same relay still wakes it at once.
     for urgent in [PromptClass::Block, PromptClass::Question] {
-        assert!(wakes_as(&meta, urgent, false, None), "{urgent:?}");
+        assert!(wakes_as(&meta, urgent, false, false, None), "{urgent:?}");
     }
 }
 
@@ -1362,7 +1441,7 @@ async fn the_held_count_is_the_journals_undecided_messages_not_a_drifted_counter
 }
 
 /// With the surge preview on, a FYI tool notice of severity `fire` wakes an idle chat outside any surge once the wake
-/// debounce has passed, while an ordinary FYI of the same age waits for its flush.
+/// debounce has passed, while an ordinary FYI of the same age waits for the chat's next turn.
 #[tokio::test]
 async fn a_fire_notice_wakes_an_idle_chat_outside_a_surge_and_an_ordinary_fyi_does_not() {
     for (severity, wakes_now) in [("fire", true), ("warn", false)] {
@@ -1387,7 +1466,7 @@ async fn a_fire_notice_wakes_an_idle_chat_outside_a_surge_and_an_ordinary_fyi_do
             || inbox.items.iter().any(|i| i.noticed || i.answered.is_some());
         assert_eq!(tried, wakes_now, "{severity}");
         if !wakes_now {
-            assert!(inbox.timer.is_some(), "an ordinary FYI waits for its flush");
+            assert!(inbox.timer.is_some(), "an ordinary FYI waits for its 60-minute deadline");
         }
     }
 }
@@ -1496,6 +1575,13 @@ async fn a_restore_drops_withdrawn_messages_as_it_reads_and_restores_the_rest_in
 /// a question still wake after the burst window.
 #[tokio::test]
 async fn fifty_messages_to_a_cold_large_idle_chat_go_in_as_one_notice_at_its_batch() {
+    // Batching is off by default; this chat's person turned it on (compacting first stays off).
+    let knobs = super::cold_wake::Knobs {
+        enabled: true,
+        compact: false,
+        compact_above: super::cold_wake::DEFAULT_COMPACT_ABOVE_TOKENS,
+    };
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(Some(knobs)));
     let now = now_ms();
     let cold = |session: &Session, expires: u64| {
         let mut m = session.meta.lock().unwrap();
@@ -1526,14 +1612,17 @@ async fn fifty_messages_to_a_cold_large_idle_chat_go_in_as_one_notice_at_its_bat
     hub.inbox_review(&session);
     assert_eq!(carried(&session).map(|ids| ids.len()), Some(50), "one notice carries all 50");
 
-    // Warm: the burst window, as before.
+    // Warm: no cold batch; a report waits its warm hold (`WARM_HOLD_MS`), then wakes the chat.
     let (hub, session) = hub_with_chat("warm-1");
-    cold(&session, now + 60_000);
+    cold(&session, now + 60 * 60_000);
     let mut it = item("w1", "t", "lane", PromptClass::Result, at, "done");
     it.report = true;
     session.inbox().items.push(it);
     hub.inbox_review(&session);
-    assert!(tried(&session), "a warm chat wakes after the burst window");
+    assert!(!tried(&session), "a warm chat holds a report for company");
+    session.inbox().items[0].at = now_ms().saturating_sub(WARM_HOLD_MS + 1);
+    hub.inbox_review(&session);
+    assert!(tried(&session), "a warm chat wakes once the hold is over");
     assert!(session.cold_batch.lock().unwrap().is_none());
 
     // A question to a cold chat: at once.
@@ -1580,15 +1669,20 @@ fn judged(mut item: Item, folds: &page_rule::Folds, session: bool) -> Item {
 
 #[test]
 fn the_coordinator_list_is_the_page_rule_config_by_name_or_host_slash_name() {
-    let mut cfg = crate::config::Config::default();
-    assert!(!page_rule::listed(&cfg, "claude-sr2-coord"), "unset: no chat is listed");
-    cfg.page_rule = Some(crate::config::PageRuleConfig {
-        sessions: vec!["cosmic-gray/claude-sr2-coord".into(), "interim-coord-2".into()],
-    });
-    assert!(page_rule::listed(&cfg, "claude-sr2-coord"));
-    assert!(page_rule::listed(&cfg, "interim-coord-2"));
-    assert!(!page_rule::listed(&cfg, "claude-sr2-coord-old"));
-    assert!(!page_rule::listed(&cfg, ""));
+    assert!(page_rule::session_names(None).is_empty());
+    let rule = crate::config::PageRuleConfig {
+        sessions: vec![
+            " cosmic-gray/claude-sr2-coord ".into(),
+            "interim-coord-2".into(),
+            " ".into(),
+        ],
+    };
+    let names = page_rule::session_names(Some(&rule));
+    assert!(names.contains("cosmic-gray/claude-sr2-coord"));
+    assert!(names.contains("claude-sr2-coord"));
+    assert!(names.contains("interim-coord-2"));
+    assert!(!names.contains("claude-sr2-coord-old"));
+    assert!(!names.contains(""));
 }
 
 #[test]
@@ -1743,4 +1837,613 @@ async fn an_unreadable_message_fails_open() {
     session.inbox().items.push(block);
     hub.inbox_review(&session);
     assert!(tried(&session), "delivered as today");
+}
+
+/// Deadlines (`hub/inbox.rs` module docs): an idle chat is not woken before a held message's
+/// deadline, only by it. A result from a session that neither started it nor gave it work, and
+/// an FYI, both 10 minutes old, wait (a timer armed, no turn); once the result is 15 minutes old
+/// one notice brings both. Leo, 2026-11-25: "is there a timeout where it can always check again
+/// at some point".
+#[tokio::test]
+async fn an_idle_chat_is_woken_by_a_held_messages_deadline_and_not_before() {
+    use crate::prompt_class::{FYI_DEADLINE_MS, RESULT_DEADLINE_MS};
+    let (hub, session) = hub_with_chat("lane-deadline");
+    let ten = now_ms().saturating_sub(10 * 60 * 1000);
+    session.inbox().items.push(item("f1", "t", "tool", PromptClass::Fyi, ten, "fyi"));
+    session.inbox().items.push(item("r1", "t", "other", PromptClass::Result, ten, "done"));
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "before the deadline: no turn");
+    assert!(session.inbox().timer.is_some(), "the deadline is timed");
+    session.inbox().items[1].at = now_ms().saturating_sub(RESULT_DEADLINE_MS + 1);
+    hub.inbox_review(&session);
+    assert_eq!(
+        carried(&session),
+        Some(vec!["f1".to_owned(), "r1".to_owned()]),
+        "the result's deadline wakes it, and one notice brings both"
+    );
+
+    // An FYI alone waits its 60 minutes, and `--within` tightens that.
+    let (hub, session) = hub_with_chat("lane-deadline-fyi");
+    let mut fyi =
+        item("f2", "t", "tool", PromptClass::Fyi, now_ms().saturating_sub(FLUSH_MS + 1), "fyi");
+    session.inbox().items.push(item(
+        "f3",
+        "t",
+        "tool",
+        PromptClass::Fyi,
+        now_ms().saturating_sub(FYI_DEADLINE_MS - 60_000),
+        "fyi",
+    ));
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "59 minutes is inside an FYI's deadline");
+    fyi.within = Some(5 * 60 * 1000);
+    session.inbox().items.push(fyi);
+    hub.inbox_review(&session);
+    assert!(tried(&session), "a --within 5m FYI 15 minutes old is past its deadline");
+}
+
+/// The receiver sits idle on a background wait that never ends (a hung CI wait, nothing to end
+/// its turn or start one): the held result is still delivered by the timer the inbox armed for
+/// its deadline, with no review, send or turn to prompt it.
+#[tokio::test]
+async fn a_held_result_is_delivered_at_its_deadline_while_the_receivers_wait_hangs() {
+    use crate::prompt_class::RESULT_DEADLINE_MS;
+    let (hub, session) = hub_with_chat("lane-hung-wait");
+    // Due 300 ms from now.
+    let at = now_ms().saturating_sub(RESULT_DEADLINE_MS - 300);
+    session.inbox().items.push(item("r1", "t", "other", PromptClass::Result, at, "PR #1 green"));
+    session.inbox().items.push(item("f1", "t", "tool", PromptClass::Fyi, now_ms(), "fyi"));
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "not yet due");
+    let hung_wait = std::future::pending::<()>();
+    let delivered = async {
+        loop {
+            if let Some(ids) = carried(&session) {
+                assert_eq!(ids, ["f1", "r1"], "one notice carries both");
+                break;
+            }
+            if tried(&session) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    };
+    tokio::select! {
+        () = hung_wait => unreachable!(),
+        () = delivered => {}
+        () = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+            panic!("the deadline timer never delivered the held result")
+        }
+    }
+}
+
+// ---- inbox_fold.rs: the fold, the archive, and a thread read at 10k threads ----
+
+fn notice_text(src: &str, level: &str, body: &str) -> String {
+    format!("[notice from {src} on cmux16 \u{b7} {level}] {body}")
+}
+
+/// One `ws-check-coverage` FIRE names eight PRs; it opened a thread per first PR it named.
+/// Same source and kind is one thread now, whichever PR leads its first line.
+#[test]
+fn a_notice_of_one_source_and_kind_is_one_thread_whatever_pull_request_it_names() {
+    let a =
+        notice_text("ws-check-coverage", "FIRE", "8 open PR head(s): #9423 7ace (62 min), #10349");
+    let b = notice_text("ws-check-coverage", "FIRE", "8 open PR head(s): #9898 ca09 (60 min)");
+    let warn = notice_text("ws-check-coverage", "WARN", "#9898 slow");
+    let key = |t: &str| thread_key(None, "cmux16/ws-check-coverage", t);
+    assert_eq!(key(&a), "from:cmux16/ws-check-coverage/fire");
+    assert_eq!(key(&a), key(&b));
+    assert_ne!(key(&a), key(&warn), "another kind is another thread");
+    // A message that is no notice keeps its pull request thread.
+    assert_eq!(key("merged #27133"), "from:cmux16/ws-check-coverage/pr:27133");
+    // A thread journaled before the fold reads as the new one.
+    assert_eq!(
+        fold::refolded("from:cmux16/ws-check-coverage/pr:9423".into(), &a),
+        "from:cmux16/ws-check-coverage/fire"
+    );
+    assert_eq!(fold::refolded("pr:7".into(), &a), "pr:7");
+    assert_eq!(fold::refolded("from:lane-a/pr:7".into(), "plain words #7"), "from:lane-a/pr:7");
+}
+
+#[test]
+fn a_new_notice_folds_the_older_ones_of_its_thread_and_the_thread_counts_them() {
+    let thread = "from:src/fire";
+    let mut inbox = Inbox::default();
+    for n in 0..6u64 {
+        inbox.items.push(item(
+            &format!("n-{n}"),
+            thread,
+            "src",
+            PromptClass::Fyi,
+            100 + n,
+            &notice_text("src", "FIRE", &format!("state {n}")),
+        ));
+    }
+    // A person's message, a carried notice and a waited-on notice in the same thread stay.
+    inbox.items.push(item("person", thread, "leo", PromptClass::Result, 50, "do this"));
+    inbox.items[1].asker = Some("someone".into());
+    inbox.in_flight = Some(("notice".into(), vec!["n-2".into()]));
+    inbox.items.push(item("other", "from:x", "x", PromptClass::Fyi, 1, "keep"));
+    let gone = fold::fold_thread(&mut inbox, thread);
+    let left: Vec<&str> = inbox.items.iter().map(|i| i.prompt_id.as_str()).collect();
+    assert_eq!(left, ["n-1", "n-2", "n-5", "person", "other"]);
+    assert_eq!(gone, 3);
+    assert_eq!(inbox.folded.get(thread), Some(&3));
+    assert!(inbox.trimmed.contains("n-0"), "a resend of a folded one answers from the log");
+    // The restore's pass folds the same.
+    let mut again = Inbox::default();
+    for n in 0..6u64 {
+        again.items.push(item(
+            &format!("n-{n}"),
+            thread,
+            "src",
+            PromptClass::Fyi,
+            100 + n,
+            &notice_text("src", "FIRE", "s"),
+        ));
+    }
+    assert_eq!(fold::fold_all(&mut again), 5);
+    assert_eq!(again.items.len(), 1);
+    assert_eq!(again.items[0].prompt_id, "n-5");
+}
+
+#[test]
+fn a_read_message_past_the_cutoff_goes_to_the_archive_and_a_thread_read_finds_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let day = 24 * 60 * 60 * 1000u64;
+    let now = 100 * day;
+    let mut inbox = Inbox::default();
+    let mut old_read = item("old-read", "t-old", "a", PromptClass::Fyi, now - 10 * day, "old");
+    (old_read.read, old_read.noticed) = (true, true);
+    let mut old_unread =
+        item("old-unread", "t-old", "a", PromptClass::Fyi, now - 10 * day, "unread");
+    old_unread.noticed = true;
+    let mut old_person =
+        item("old-fire", "t-fire", "a", PromptClass::Block, now - 10 * day, "FIRE: pick");
+    (old_person.read, old_person.noticed) = (true, true);
+    let mut young = item("young", "t-old", "a", PromptClass::Fyi, now - day, "young");
+    (young.read, young.noticed) = (true, true);
+    inbox.items = vec![old_read, old_unread, old_person, young];
+    let n = fold::age_out(&mut inbox, now, fold::ARCHIVE_AGE_MS);
+    let left: Vec<&str> = inbox.items.iter().map(|i| i.prompt_id.as_str()).collect();
+    assert_eq!(n, 1, "only the read, aged one with no person behind it");
+    assert!(left.contains(&"old-unread") && left.contains(&"young") && left.contains(&"old-fire"));
+    assert!(inbox.archived_threads.contains("t-old"));
+    let lines = std::mem::take(&mut inbox.archive_pending);
+    fold::append_archive(dir.path(), &lines).unwrap();
+    fold::append_archive(dir.path(), &lines).unwrap(); // idempotent by prompt id
+    let read = fold::archived_thread(dir.path(), "t-old");
+    assert_eq!(read.len(), 1);
+    assert_eq!(read[0]["promptId"], "old-read");
+    assert_eq!(read[0]["text"], "old");
+    assert!(fold::archived_thread(dir.path(), "t-none").is_empty());
+}
+
+/// A coordinator's inbox at 10k threads: the list and one thread read stay under 200 ms.
+#[tokio::test]
+async fn a_thread_read_at_ten_thousand_threads_takes_under_200_ms() {
+    let (hub, session) = hub_with_chat("ten-k");
+    {
+        let mut inbox = session.inbox();
+        for n in 0..10_000u64 {
+            for m in 0..2u64 {
+                let mut i = item(
+                    &format!("m-{n}-{m}"),
+                    &format!("from:src-{n}/pr:{n}"),
+                    "src",
+                    PromptClass::Fyi,
+                    1_000 + n * 2 + m,
+                    &format!("message {n} {m}"),
+                );
+                (i.noticed, i.read) = (true, m == 0);
+                inbox.items.push(i);
+            }
+        }
+    }
+    let t = std::time::Instant::now();
+    let thread = hub.inbox_thread_whole(&session, "from:src-777/pr:777", false).unwrap();
+    let read_ms = t.elapsed().as_millis();
+    assert_eq!(thread["messages"].as_array().unwrap().len(), 2);
+    let t = std::time::Instant::now();
+    let whole = hub.inbox_threads(&session);
+    let whole_ms = t.elapsed().as_millis();
+    assert_eq!(whole["threads"].as_array().unwrap().len(), 10_000);
+    let t = std::time::Instant::now();
+    let list = hub.inbox_threads_page(&session, Some(50), None);
+    let list_ms = t.elapsed().as_millis();
+    assert_eq!(list["threads"].as_array().unwrap().len(), 50);
+    assert_eq!(list["total"], 10_000);
+    let cursor = list["more"].as_u64().expect("a full page names the next");
+    let next = hub.inbox_threads_page(&session, Some(50), Some(cursor));
+    assert_eq!(next["threads"].as_array().unwrap().len(), 50);
+    assert!(next["threads"][0]["newestAt"].as_u64().unwrap() < cursor);
+    eprintln!(
+        "INBOX10K after: thread read {read_ms} ms, whole list {whole_ms} ms, list page {list_ms} ms"
+    );
+    assert!(read_ms < 200, "thread read {read_ms} ms");
+    assert!(list_ms < 200, "list page {list_ms} ms");
+}
+
+/// A notice relayed as text (the lane-gh broker, no notice provenance) is read in Rust
+/// (`notice_read.rs`): its thread part names the detector, its severity and its title, and
+/// counts the repeats of its condition, "×2, last …" (Leo, 2026-11-25: "how can we improve this?").
+#[test]
+fn a_relayed_notice_reads_as_its_detector_and_counts_its_condition() {
+    let relayed = |n: &str, queued: u32| {
+        format!(
+            "[message {n}x from cmux-cp-1/now (an agent, not Leo), relayed by the lane-gh broker; its text ends at \"[end of message {n}x]\"]\n\
+             [notice from now on cmux-cp-1 · FIRE] Runner label stalled: trusted xcode-26.6, {queued} queued\n\
+             [end of message {n}x]"
+        )
+    };
+    let notice = |id: &str, at: u64, text: &str| {
+        let mut i = item(id, "topic:host/cmux-cp-1", "cmux-cp-1", PromptClass::Result, at, text);
+        i.tool_notice = notice_of(None, text);
+        i
+    };
+    let other = "[notice from now on cmux-cp-1 · WARN] Disk 91% on vm-3";
+    let items = [
+        notice("a", 1_000, &relayed("aaaa", 9)),
+        notice("b", 2_000, other),
+        notice("c", 3_000, &relayed("cccc", 12)),
+    ];
+    assert_eq!(items[0].tool_notice.as_ref().unwrap()["severity"], "fire");
+    let refs: Vec<&Item> = items.iter().collect();
+    let (_, parts) = render(&refs);
+    let part = &parts[0];
+    assert_eq!(part["notice"]["sender"], "now", "{part}");
+    assert_eq!(part["notice"]["severity"], "fire");
+    assert_eq!(part["notice"]["title"], "Runner label stalled: trusted xcode-26.6, 12 queued");
+    assert_eq!(part["notice"]["host"], "cmux-cp-1");
+    assert_eq!(part["notice"]["repeats"], 2, "the disk notice is another condition");
+    assert_eq!(part["notice"]["lastAt"], 3_000);
+    // A plain message reads no notice.
+    assert_eq!(notice_of(None, "merged #12"), None);
+    let plain = item("m", "from:lane-a", "lane-a", PromptClass::Result, 1, "merged");
+    let (_, parts) = render(&[&plain]);
+    assert!(parts[0].get("notice").is_none());
+}
+
+/// A repeat of one condition folds whatever its counts say now; another condition pages.
+#[test]
+fn a_notice_repeat_folds_by_its_condition() {
+    use page_rule::Verdict::*;
+    let mut folds = page_rule::Folds::default();
+    let msg = |title: &'static str| {
+        let mut m = page_msg(PromptClass::Result, "cmux-cp-1", false, title);
+        m.fire = true;
+        m.title = Some(title);
+        m
+    };
+    let t0 = 10_000_000;
+    let mut at = |t: u64, m: &page_rule::Message<'_>| {
+        let v = page_rule::judge(&folds, m, t).unwrap();
+        page_rule::record(&mut folds, m, v, t);
+        v
+    };
+    assert_eq!(at(t0, &msg("Runner label stalled: trusted xcode-26.6, 9 queued")), Page);
+    assert_eq!(at(t0 + 60_000, &msg("Runner label stalled: trusted xcode-26.6, 12 queued")), Fold);
+    assert_eq!(at(t0 + 120_000, &msg("Runner label stalled: trusted linux-x64, 3 queued")), Page);
+}
+
+#[test]
+fn the_ls_row_counts_new_messages_past_their_deadline_and_names_the_soonest() {
+    let min = 60 * 1000;
+    let fyi = item("p1", "t", "a", PromptClass::Fyi, 0, "x");
+    let mut seen = item("p2", "t", "a", PromptClass::Result, 0, "x");
+    seen.noticed = true;
+    let result = item("p3", "t", "a", PromptClass::Result, 50 * min, "x");
+    let soonest = fyi.due().min(result.due());
+    let items = vec![fyi, seen, result];
+    // At 61 min: the fyi (60 min) is past due, the result sent at 50 min (15 min) is not, and
+    // the noticed one counts for neither.
+    let (overdue, due_at) = deadline_counts(&items, 61 * min, |_| false);
+    assert_eq!(overdue, 1);
+    assert_eq!(due_at, Some(soonest));
+    assert_eq!(deadline_counts(&[], 61 * min, |_| false), (0, None));
+}
+
+/// A warm idle chat holds a report for [`WARM_HOLD_MS`] so what else comes goes in with it as one
+/// turn; a blocker, a fire notice and a message from its delegator still wake after the 2 s
+/// burst window, and a held report wakes the chat once it is [`WARM_HOLD_MS`] old. Leo,
+/// 2026-11-26: "us not getting fucking swamped by our own fucking wake-ups, our own tool calls".
+#[tokio::test]
+async fn a_warm_idle_chat_holds_a_report_for_company_and_blockers_still_wake() {
+    let burst = now_ms().saturating_sub(WAKE_DEBOUNCE_MS + 1);
+    let (hub, session) = hub_with_chat("lane-warm-hold");
+    let mut report = item("r1", "pr:9", "lane-a", PromptClass::Result, burst, "PR #9 merged");
+    report.report = true;
+    report.from_session = Some("lane-a".into());
+    assert!(wakes(&session.meta(), &report) && holds_wake(&session.meta(), &report));
+    session.inbox().items.push(report);
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "a report past the burst window waits for company");
+    assert!(session.inbox().timer.is_some(), "its hold is timed");
+    // A second report meanwhile joins it; once the oldest is WARM_HOLD_MS old one notice brings both.
+    let mut second = item("r2", "pr:10", "lane-b", PromptClass::Result, now_ms(), "PR #10 merged");
+    second.report = true;
+    session.inbox().items.push(second);
+    session.inbox().items[0].at = now_ms().saturating_sub(WARM_HOLD_MS + 1);
+    hub.inbox_review(&session);
+    assert_eq!(
+        carried(&session),
+        Some(vec!["r1".to_owned(), "r2".to_owned()]),
+        "one turn for both"
+    );
+
+    // A blocker beside a held report brings it after the burst window.
+    let (hub, session) = hub_with_chat("lane-warm-hold-blocker");
+    let mut report = item("r3", "pr:11", "lane-a", PromptClass::Result, burst, "PR #11 merged");
+    report.report = true;
+    session.inbox().items.push(report);
+    session.inbox().items.push(item("b1", "t", "lane-c", PromptClass::Block, burst, "blocked"));
+    hub.inbox_review(&session);
+    assert!(tried(&session), "a blocker wakes at once, the report with it");
+
+    // The hold ends by the prompt cache's expiry: a small chat whose cache already lapsed (no
+    // cold batch under `MIN_BATCH_TOKENS`) wakes after the burst window, as before.
+    let (hub, session) = hub_with_chat("lane-warm-hold-expired");
+    session.meta.lock().unwrap().usage = Some(
+        json!({"sessionUpdate": "usage_update", "used": 1_000,
+        "size": 1_000_000, "_meta": {"acpmux": {"cacheExpiresAt": now_ms().saturating_sub(1_000)}}}),
+    );
+    let mut report = item("r4", "pr:12", "lane-a", PromptClass::Result, burst, "PR #12 merged");
+    report.report = true;
+    session.inbox().items.push(report);
+    hub.inbox_review(&session);
+    assert!(tried(&session), "no hold past the cache's expiry");
+
+    // The delegator's message is the chat's next step: no hold.
+    let (hub, session) = hub_with_chat("lane-warm-hold-delegator");
+    session.meta.lock().unwrap().delegator = Some("coord".into());
+    let mut next = item("d1", "t", "coord", PromptClass::Result, burst, "do this next");
+    next.from_session = Some("coord".into());
+    assert!(!holds_wake(&session.meta(), &next));
+    session.inbox().items.push(next);
+    hub.inbox_review(&session);
+    assert!(tried(&session), "the delegator's message wakes after the burst window");
+}
+
+#[test]
+fn only_a_result_that_is_no_next_step_holds() {
+    let mut meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "s", "name": "lane", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+    }))
+    .unwrap();
+    meta.turn_count = 3;
+    let report_item = || {
+        let mut r = item("p", "t", "x", PromptClass::Result, 0, "");
+        r.report = true;
+        r
+    };
+    let report = report_item();
+    assert!(holds_wake(&meta, &report), "a report");
+    let mut fire = report_item();
+    fire.fire = true;
+    assert!(!holds_wake(&meta, &fire), "a fire notice");
+    let mut waited = report_item();
+    waited.waited = true;
+    assert!(!holds_wake(&meta, &waited), "a message that waited for this machine");
+    let mut paged = report_item();
+    paged.verdict = Some(page_rule::Verdict::Page);
+    assert!(!holds_wake(&meta, &paged), "a coordinator's page");
+    for class in [PromptClass::Block, PromptClass::Question, PromptClass::Fyi] {
+        let mut other = report_item();
+        other.class = class;
+        assert!(!holds_wake(&meta, &other), "{class:?}");
+    }
+    meta.turn_count = 0;
+    assert!(!holds_wake(&meta, &report), "a chat's first work");
+}
+
+/// Validation alone missed the bridge's explicit gather bit being lost before admission.
+/// Exercise admission and the journal replay used after restart, without an urgent flush.
+#[tokio::test]
+async fn explicit_gather_fyi_survives_restart_and_delivers_at_the_cold_deadline() {
+    let knobs = super::cold_wake::Knobs {
+        enabled: true,
+        compact: false,
+        compact_above: super::cold_wake::DEFAULT_COMPACT_ABOVE_TOKENS,
+    };
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(Some(knobs)));
+    let (hub, session) = hub_with_chat("gather-fyi-restart");
+    let now = now_ms();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.usage = Some(json!({"used": 200_000, "size": 1_000_000,
+            "_meta": {"acpmux": {"cacheExpiresAt": now - 40 * 60_000}}}));
+        meta.last_turn = Some(json!({"turnId": "previous", "endedAt": now - 45 * 60_000}));
+    }
+    for (id, sender) in [("gather-slack", "slack-listen"), ("gather-forum", "agent-forum")] {
+        let blocks = [json!({"type": "text", "text": id})];
+        let mut provenance = crate::prompt_provenance::named_sender(sender, &session.id);
+        provenance.set(super::cold_wake::GATHER_META, json!(true));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut accept = |notice| tx.send(notice).unwrap();
+        let prompt = hub.inbox_accept(
+            &session,
+            &blocks,
+            "test",
+            id,
+            sender,
+            PromptClass::Fyi,
+            None,
+            Some(&provenance),
+            false,
+            false,
+            None,
+            &mut accept,
+        );
+        tokio::pin!(prompt);
+        tokio::select! {
+            result = &mut prompt => panic!("finished before acceptance: {result:?}"),
+            ack = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()) => {
+                assert_eq!(ack.expect("bounded acceptance").expect("accepted")["promptId"], id);
+            }
+        }
+    }
+    assert_eq!(session.inbox().items.len(), 2);
+    assert!(session.inbox().items.iter().all(|i| i.gather));
+    assert!(!tried(&session));
+    // Discard volatile state, including the old timer, as a daemon restart does.
+    if let Some(timer) = session.inbox().timer.take() {
+        timer.abort();
+    }
+    *session.inbox() = Default::default();
+    *session.cold_batch.lock().unwrap() = None;
+    hub.restore_inbox(&session);
+    assert_eq!(session.inbox().items.len(), 2);
+    assert!(session.inbox().items.iter().all(|i| i.gather), "journal keeps gather");
+    hub.inbox_review(&session);
+    let due = session.cold_batch.lock().unwrap().expect("restored FYIs open a batch").due;
+    assert!(due >= now + super::cold_wake::MAX_WINDOW_MS);
+    assert!(session.inbox().timer.is_some());
+    assert!(!tried(&session), "nothing wakes inside the batch");
+    // The timer invokes inbox_review; move its deadline, without sleeping or an urgent input.
+    session.cold_batch.lock().unwrap().as_mut().unwrap().due = now_ms().saturating_sub(1);
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), Some(vec!["gather-forum".into(), "gather-slack".into()]));
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session).map(|ids| ids.len()), Some(2), "one notice owns both");
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(None));
+}
+
+#[tokio::test]
+async fn explicit_gather_fyi_preserves_off_warm_ordinary_and_urgent_handling() {
+    let now = now_ms();
+    for (name, enabled, warm, gather) in [
+        ("gather-off", false, false, true),
+        ("gather-warm", true, true, true),
+        ("ordinary-fyi", true, false, false),
+        ("gather-urgent", true, false, true),
+    ] {
+        super::cold_wake::KNOBS_FOR_TEST.with(|k| {
+            k.set(Some(super::cold_wake::Knobs {
+                enabled,
+                compact: false,
+                compact_above: super::cold_wake::DEFAULT_COMPACT_ABOVE_TOKENS,
+            }))
+        });
+        let (hub, session) = hub_with_chat(name);
+        {
+            let mut meta = session.meta.lock().unwrap();
+            let expires = if warm { now + 60 * 60_000 } else { now - 40 * 60_000 };
+            meta.usage = Some(json!({"used": 200_000,
+                "_meta": {"acpmux": {"cacheExpiresAt": expires}}}));
+            meta.last_turn = Some(json!({"turnId": "previous", "endedAt": expires - 300_000}));
+        }
+        let mut fyi = item("fyi", "bridge", "slack-listen", PromptClass::Fyi, now, "update");
+        fyi.gather = gather;
+        session.inbox().items.push(fyi);
+        hub.inbox_review(&session);
+        assert!(!tried(&session));
+        if name == "gather-urgent" {
+            assert!(session.cold_batch.lock().unwrap().is_some());
+            session.inbox().items.push(item(
+                "urgent",
+                "bridge",
+                "agent-forum",
+                PromptClass::Question,
+                now.saturating_sub(WAKE_DEBOUNCE_MS + 1),
+                "which?",
+            ));
+            hub.inbox_review(&session);
+            assert_eq!(carried(&session), Some(vec!["fyi".into(), "urgent".into()]));
+        } else {
+            assert!(session.cold_batch.lock().unwrap().is_none(), "{name}");
+            assert!(session.inbox().timer.is_some(), "ordinary deadline remains armed: {name}");
+        }
+    }
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(None));
+}
+
+#[tokio::test]
+async fn gathered_fyi_keeps_open_deadline_after_compaction_warms_metadata() {
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| {
+        k.set(Some(super::cold_wake::Knobs {
+            enabled: true,
+            compact: false,
+            compact_above: super::cold_wake::DEFAULT_COMPACT_ABOVE_TOKENS,
+        }))
+    });
+    let (hub, session) = hub_with_chat("gather-compacted");
+    let now = now_ms();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.usage = Some(json!({"used": 200_000,
+            "_meta": {"acpmux": {"cacheExpiresAt": now - 40 * 60_000}}}));
+        meta.last_turn = Some(json!({"endedAt": now - 45 * 60_000}));
+    }
+    let mut fyi = item("gather", "bridge", "slack-listen", PromptClass::Fyi, now, "update");
+    fyi.gather = true;
+    session.inbox().items.push(fyi);
+    hub.inbox_review(&session);
+    let due = session.cold_batch.lock().unwrap().expect("open batch").due;
+    // Even at the deadline, no notice may steer into the batch's own compaction.
+    let compact_prompt = format!("{}test", super::cold_wake::COMPACT_ID_PREFIX);
+    *session.turn.lock().unwrap() = Some(TurnInfo::prompted(
+        "test",
+        "/compact",
+        "compact-turn",
+        &compact_prompt,
+        Control::Local,
+    ));
+    session.steering.store(true, Ordering::SeqCst);
+    hub.cold_batch_turn_started(&session);
+    session.cold_batch.lock().unwrap().as_mut().unwrap().due = now_ms().saturating_sub(1);
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "the compaction must complete before gathered delivery");
+    assert!(session.cold_batch.lock().unwrap().is_some(), "compaction retains the batch");
+    *session.turn.lock().unwrap() = None;
+    session.cold_batch.lock().unwrap().as_mut().unwrap().due = due;
+    // Completing compaction updates last_turn and makes cache_expires_at warm.
+    session.meta.lock().unwrap().last_turn = Some(json!({"endedAt": now_ms()}));
+    assert!(super::cold_wake::coldness(&session.meta(), now_ms()).is_none());
+    hub.inbox_review(&session);
+    assert_eq!(session.cold_batch.lock().unwrap().unwrap().due, due);
+    assert!(!tried(&session), "compaction cannot flush the pending FYI early");
+    session.cold_batch.lock().unwrap().as_mut().unwrap().due = now_ms().saturating_sub(1);
+    hub.inbox_review(&session);
+    assert_eq!(
+        carried(&session),
+        Some(vec!["gather".into()]),
+        "newly warm metadata cannot strand an open batch at the ordinary FYI deadline"
+    );
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(None));
+}
+
+#[tokio::test]
+async fn gathered_fyi_keeps_page_and_surge_holds() {
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| {
+        k.set(Some(super::cold_wake::Knobs {
+            enabled: true,
+            compact: false,
+            compact_above: super::cold_wake::DEFAULT_COMPACT_ABOVE_TOKENS,
+        }))
+    });
+    for (name, verdict, surge) in [
+        ("gather-page-hold", Some(page_rule::Verdict::Hold), false),
+        ("gather-page-fold", Some(page_rule::Verdict::Fold), false),
+        ("gather-surge-hold", None, true),
+    ] {
+        let (hub, session) = hub_with_chat(name);
+        let now = now_ms();
+        {
+            let mut meta = session.meta.lock().unwrap();
+            meta.usage = Some(json!({"used": 200_000,
+                "_meta": {"acpmux": {"cacheExpiresAt": now - 40 * 60_000}}}));
+            meta.last_turn = Some(json!({"endedAt": now - 45 * 60_000}));
+        }
+        let mut fyi = item("held", "bridge", "agent-forum", PromptClass::Fyi, now, "update");
+        fyi.gather = true;
+        fyi.verdict = verdict;
+        fyi.surge_held = surge;
+        session.inbox().items.push(fyi);
+        hub.inbox_review(&session);
+        assert!(session.cold_batch.lock().unwrap().is_none(), "{name}");
+        assert!(!tried(&session), "{name}");
+    }
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(None));
 }

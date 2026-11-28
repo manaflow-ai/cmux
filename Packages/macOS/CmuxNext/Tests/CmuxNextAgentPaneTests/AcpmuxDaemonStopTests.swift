@@ -133,3 +133,20 @@ struct AcpmuxDaemonStopIdentityTests {
         #expect(agentPaneProcessIsRunning(child.processIdentifier))
     }
 }
+
+/// A pane whose handshake loop stopped (hostRetry.ts `hostRetryStep`) asks again when this app's
+/// acpmux answers a lookup, by an event, never a tick: every listening pane hears each answer.
+@Suite
+struct AcpmuxAnswersTests {
+    @Test func everyListeningPaneHearsThatAcpmuxAnswered() async {
+        let daemons = AcpmuxLocalDaemons()
+        let first = daemons.answers()
+        let second = daemons.answers()
+        daemons.noteAnswered()
+        var heardFirst = false
+        for await _ in first { heardFirst = true; break }
+        var heardSecond = false
+        for await _ in second { heardSecond = true; break }
+        #expect(heardFirst && heardSecond)
+    }
+}

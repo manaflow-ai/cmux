@@ -5,15 +5,15 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  discoverLooks,
-  drawnSchemes,
   lookFromSetup,
   parseJsonc,
-  previewPath,
   readGoldenLooks,
   schemeFromThemeFile,
+  discoverLooks,
+  drawnSchemes,
+  previewPath,
 } from "../dev-server/goldenLooks";
-import { lookDisplay, lookTheme } from "../src/gallery/golden/look";
+import { lookDisplay, lookSettingsValues, lookTheme } from "../src/gallery/golden/look";
 
 test("theme files read with comments, a URL in a string and trailing commas", () => {
   expect(parseJsonc('// head\n{ "a": "https://x.test/y", /* b */ "c": [1, 2,], }')).toEqual({
@@ -68,6 +68,31 @@ test("a setup folder is a look: its theme file for the scheme it draws, its styl
   expect(look.setupDir).toBe(path.resolve(dir));
 });
 
+test("a setting a look keeps in a file of its folder is that file's document, as install puts it", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "golden-look-"));
+  mkdirSync(path.join(dir, "agent-pane"));
+  writeFileSync(
+    path.join(dir, "cmux-setup.json"),
+    JSON.stringify({
+      settings: {
+        "agentPane.display.thinking.glyph": { $file: "agent-pane/thinking-glyph.json" },
+        "agentPane.display.font.size": { $file: "../outside.json" },
+      },
+    }),
+  );
+  writeFileSync(
+    path.join(dir, "agent-pane/thinking-glyph.json"),
+    '// dots\n{ "$schema": "cmux.particles/1", "particle": { "size": 3 } }',
+  );
+  const look = lookFromSetup(dir);
+  expect(lookDisplay(look)["agentPane.display.thinking.glyph"]).toEqual({
+    $schema: "cmux.particles/1",
+    particle: { size: 3 },
+  });
+  // A path out of the folder stays the reference it was, as install refuses it.
+  expect(look.settings["agentPane.display.font.size"]).toEqual({ $file: "../outside.json" });
+});
+
 test("a look repo's preview stills go where the looks gallery reads them", () => {
   expect(previewPath("/src/my-look", "light")).toBe("/src/my-look/preview/golden-light.png");
   expect(previewPath("/src/my-look", "dark")).toBe("/src/my-look/preview/golden-dark.png");
@@ -85,6 +110,31 @@ test("a scheme's colors go over its terminal theme; an unknown theme name keeps 
     foreground: "#ffffff",
     accent: "#3366ff",
   });
+});
+
+test("Settings under a look lists its settings, composer look and the scheme's theme file keys", () => {
+  const claude = readGoldenLooks([]).looks.find((look) => look.id === "claude")!;
+  const light = lookSettingsValues(claude, "light");
+  expect(light).toMatchObject({
+    "agentPane.display.transcriptLook": "claude",
+    "sidebar.density": "compact",
+    "agentPane.composerLook": "claude",
+    "appearance.theme": "Claude Light",
+    "appearance.surfaces.sidebar.color": "#f0eee6",
+  });
+  expect(lookSettingsValues(claude, "dark")).toMatchObject({
+    "appearance.theme": "Claude Dark",
+    "appearance.accent": "theme",
+    "appearance.density": "comfortable",
+    "appearance.surfaces.sidebar.color": "#121211",
+  });
+  // The default look puts nothing in effect: Settings shows the app's defaults.
+  expect(
+    lookSettingsValues(
+      readGoldenLooks([]).looks.find((look) => look.id === "cmux")!,
+      "dark",
+    ),
+  ).toEqual({});
 });
 
 test("every look in a checkout is found: shipped theme files, examples/ setup folders and theme files", () => {

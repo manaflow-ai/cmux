@@ -37,6 +37,24 @@ fn agent_hooks_flag_collects_providers() {
     assert!(direct_ssh_flags(&plain).unwrap().agent_hooks.is_empty());
 }
 
+/// `cmux ssh --repo LOCAL[:REMOTE]`: REMOTE starts at the first `:` that opens an absolute
+/// or `~` path, and defaults to `~/<LOCAL's folder name>`.
+#[test]
+fn repo_flag_splits_local_and_remote() {
+    let args = ["host", "--repo", "/work/cmux:/srv/cmux"].map(str::to_string);
+    assert_eq!(direct_ssh_flags(&args).unwrap().repo.as_deref(), Some("/work/cmux:/srv/cmux"));
+    assert!(direct_ssh_flags(&["host".to_string()]).unwrap().repo.is_none());
+    let twice = ["host", "--repo", "/a", "--repo", "/b"].map(str::to_string);
+    assert!(direct_ssh_flags(&twice).is_err());
+
+    let split = |spec: &str| split_repo_spec(spec).unwrap();
+    assert_eq!(split("/work/cmux:/srv/cmux"), (PathBuf::from("/work/cmux"), "/srv/cmux".into()));
+    assert_eq!(split("/work/cmux:~/src/cmux"), (PathBuf::from("/work/cmux"), "~/src/cmux".into()));
+    assert_eq!(split("/work/cmux"), (PathBuf::from("/work/cmux"), "~/cmux".into()));
+    assert_eq!(split("/work/a:b"), (PathBuf::from("/work/a:b"), "~/a:b".into()));
+    assert!(split_repo_spec(":/srv/cmux").is_err());
+}
+
 /// `--via-machine M` reaches a loopback daemon on another of the person's machines through
 /// acpmux's carrier; it owns the route's dial, so no tunnel flag may come with it.
 #[test]
@@ -1094,6 +1112,22 @@ fn relay_credentials_support_exact_route_scoped_forms() {
 }
 
 #[test]
+fn relay_credentials_take_more_routes_than_the_old_cap() {
+    // A client once refused more than 4 relay credential routes.
+    let count = 6;
+    let routes = client_relay_options(
+        None,
+        (0..count).map(|index| format!("relay+wss://relay-{index}.example")).collect(),
+        (0..count).map(|index| format!("slot-{index}")).collect(),
+        (0..count)
+            .map(|index| ClientRelayCredentialArg::File(format!("ticket-{index}").into()))
+            .collect(),
+    )
+    .unwrap();
+    assert_eq!(routes.len(), count);
+}
+
+#[test]
 fn connect_rejects_inline_invitation_and_ticket_arguments() {
     let marker = "inline-secret-marker";
     for args in [
@@ -1436,14 +1470,6 @@ fn remote_client_locale_fixture() {
             ],
         ),
         client_relay_options(None, vec!["relay+wss://one.example".into()], vec![], vec![]),
-        client_relay_options(
-            None,
-            (0..5).map(|index| format!("relay+wss://relay-{index}.example")).collect(),
-            (0..5).map(|index| format!("slot-{index}")).collect(),
-            (0..5)
-                .map(|index| ClientRelayCredentialArg::File(format!("ticket-{index}").into()))
-                .collect(),
-        ),
         client_relay_options(
             None,
             vec!["wss://not-a-relay.example".into()],
@@ -2817,6 +2843,51 @@ fn cp_needs_exactly_one_absolute_remote_path() {
     assert!(exec_cp::parse_remote_path("./local").is_none());
     assert_eq!(exec_cp::parse_remote_path("remote:/x/y").unwrap().unwrap(), "/x/y");
     assert!(exec_cp::parse_remote_path("remote:~/x").unwrap().is_err());
+}
+
+#[test]
+fn cp_one_remote_error_shows_a_runnable_example() {
+    let error = exec_cp::parse_cp_args(&words(&["box", "./a", "./b"])).unwrap_err().to_string();
+    assert_eq!(error, catalog().remote_client.cp_one_remote);
+    // The examples use the parser's real shape: ROUTE, then SRC and DST with one remote:PATH.
+    assert!(
+        error.contains("`cmux remote cp box ./build.tar remote:/srv/app/build.tar`"),
+        "{error}"
+    );
+    assert!(error.contains("`cmux remote cp box remote:/var/log/app.log ./`"), "{error}");
+    for example in ["box ./build.tar remote:/srv/app/build.tar", "box remote:/var/log/app.log ./"] {
+        let parsed = exec_cp::parse_cp_args(&words(&example.split(' ').collect::<Vec<_>>()));
+        assert!(parsed.is_ok(), "{example}");
+    }
+}
+
+#[test]
+fn cp_missing_file_says_which_side_and_path() {
+    let missing = cmux_remote_protocol::RpcError::new(
+        "not-found",
+        "resolve tmp/erg/nope.txt: No such file or directory (os error 2)",
+    );
+    let host = exec_cp::route_host("ssh://leo@box:22");
+    assert_eq!(host, "box");
+    let said = exec_cp::remote_path_error(missing, &host, "/tmp/erg/nope.txt").to_string();
+    assert_eq!(said, catalog().remote_client.cp_remote_not_found("box", "/tmp/erg/nope.txt"));
+    assert!(said.contains("box") && said.contains("/tmp/erg/nope.txt"), "{said}");
+    assert!(!said.contains("os error"), "{said}");
+
+    // Other refusals keep the daemon's own words.
+    let denied = cmux_remote_protocol::RpcError::new("permission-denied", "open x: denied");
+    let said = exec_cp::remote_path_error(denied, &host, "/x").to_string();
+    assert!(said.contains("open x: denied"), "{said}");
+
+    // A route without a host names the route, never its credentials.
+    assert_eq!(exec_cp::route_host("unix:///run/cmux.sock"), "unix:///run/cmux.sock");
+
+    let scratch = tempfile::tempdir().unwrap();
+    let local = scratch.path().join("nope.txt");
+    let said = exec_cp::local_source_metadata(&local).unwrap_err().to_string();
+    let local_name = local.display().to_string();
+    assert_eq!(said, catalog().remote_client.cp_local_not_found(&local_name));
+    assert!(said.contains(&local_name) && !said.contains("os error"), "{said}");
 }
 
 #[test]

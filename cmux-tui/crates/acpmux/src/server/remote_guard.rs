@@ -15,7 +15,9 @@
 //!   must be an absolute path to an existing directory; the request goes on
 //!   with the canonical path (symlinks resolved, no `..`). A Web `session/new` folder must
 //!   also sit in a root; the owner's own daemon asking for itself may also use an existing
-//!   git checkout whose top is neither home nor above it (`peer_folder::owner_checkout`).
+//!   git checkout whose top is neither home nor above it (`peer_folder::owner_checkout`),
+//!   or an existing folder of its home that is not home, hidden or in `~/Library`
+//!   (`peer_folder::owner_home_folder`).
 //!   An `acp.trust.set`
 //!   for a peer's session names the peer's folder: it goes on to that peer
 //!   unchanged, and the peer's own guard checks the folder there.
@@ -90,6 +92,9 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 mod cancel_owner;
+mod chat_folder;
+pub(crate) use chat_folder::CHAT_FOLDER_REASON;
+use chat_folder::{ChatFolderFault, chat_folder_fault, repair_writable};
 pub(super) mod hint;
 mod peer_folder;
 pub(super) use hint::POLICY_REFUSED;
@@ -97,7 +102,7 @@ pub(super) use hint::check;
 use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED};
 use peer_folder::{
     configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told,
-    owner_checkout,
+    owner_checkout, owner_home_folder,
 };
 
 /// Whether a session method acpmux does not handle itself goes on to the
@@ -166,7 +171,9 @@ pub(super) fn control_of(
 /// over and click allow on a headless mac mini, or a remote macbook??? stop having that shit.").
 /// Anyone holding the peer token reads it from this user's own `ACPMUX_HOME` and could do the
 /// same over the unix socket. A Web client, a paired machine's own credential (`Device`, a
-/// phone, read-only) and a peer forwarding for either are not the owner: their rules stand.
+/// phone, read-only) and a peer forwarding for either are not the owner: their rules stand. Nor
+/// is a control the mesh hub relayed under a grant below approve-all (`ConnAuth::MeshControl`,
+/// `meshRelay.controlFrom[].maxPolicy`): the hub's stamp is its only proof.
 pub(super) fn owner_control(origin: super::Origin, auth: super::ConnAuth, params: &Value) -> bool {
     cancel_owner::owner(origin, auth, params)
 }
@@ -201,8 +208,9 @@ pub(super) fn full_access_device(
 /// daemon read, and which that daemon's change notice or this link's end takes back
 /// ([`owner_phone_changed`]). That link already controls every chat here as the owner's daemon
 /// (`Control::Peer` when it asks for itself), so its word gives the phone nothing the link
-/// lacks, as its `personVerified` does not (`requests::person_admitted`). The claim from any
-/// other connection (a Web client, a paired machine, the unix socket) is ignored.
+/// lacks, as its `personVerified` does not (`requests::person_admitted`). The unix socket's claim
+/// counts only on a Cloud mobile prompt, without Full access ([`local_cloud_phone`]); from any
+/// other connection (a Web client, a paired machine) it is ignored.
 pub(super) fn sending_device(conn: &super::Conn, params: &Value) -> Option<String> {
     if control_of(conn.origin, conn.auth, params) != crate::hub::Control::Web {
         return None;
@@ -210,14 +218,21 @@ pub(super) fn sending_device(conn: &super::Conn, params: &Value) -> Option<Strin
     if conn.auth == super::ConnAuth::Device {
         return conn.device.clone();
     }
+    // The owner's own phone through this machine's cmux-tui (Cloud mobile or the Mac relay):
+    // only the unix socket, which controls every chat here already (`pairing::CLOUD_MOBILE_OWNER`).
+    if conn.origin == super::Origin::Local && conn.auth.authenticated() && cloud_mobile(params) {
+        return Some(crate::pairing::CLOUD_MOBILE_OWNER.to_owned());
+    }
     let (device, ..) = vouched_claim(conn, params)?;
     Some(crate::pairing::vouched_phone_id(&conn.id, device))
 }
 
 /// The owner's peer daemon's claim on this request (`ownerPhone {device, fullAccess}`), read only
-/// from a link that presented this daemon's peer token, forwarding for its Web client.
+/// from a link that presented this daemon's peer token, forwarding for its Web client; or the
+/// Cloud phone's claim ([`local_cloud_phone`]), never with Full access.
 fn vouched_claim<'a>(conn: &super::Conn, params: &'a Value) -> Option<(&'a str, bool, u64)> {
-    if conn.origin != super::Origin::Peer || !conn.auth.peer_daemon() {
+    let peer = conn.origin == super::Origin::Peer && conn.auth.peer_daemon();
+    if !peer && !local_cloud_phone(conn, params) {
         return None;
     }
     if control_of(conn.origin, conn.auth, params) != crate::hub::Control::Web {
@@ -226,7 +241,26 @@ fn vouched_claim<'a>(conn: &super::Conn, params: &'a Value) -> Option<(&'a str, 
     let claim = params.pointer("/_meta/acpmux/ownerPhone")?;
     let device = claim.get("device")?.as_str().filter(|d| !d.is_empty() && d.len() <= 128)?;
     let epoch = claim.get("epoch").and_then(Value::as_u64).unwrap_or(0);
-    Some((device, claim.get("fullAccess")?.as_bool()?, epoch))
+    let full = claim.get("fullAccess")?.as_bool()?;
+    // The local socket's claim never carries Full access, whatever it says.
+    Some((device, peer && full, epoch))
+}
+
+/// RFD 0135 gate 4: the owner's phone chatting with their Cloud machine directly, the Mac off.
+/// The machine's own cmux link admits the phone only after the owner check (`cmux-tui`
+/// `link/phone_chat.rs`, `OwnerSession::authorize`) and stamps its daemon connection with it
+/// (`cmux-tui-core` `server/owner_phone.rs`); that daemon names the phone on each of its Cloud
+/// mobile prompts (`via: cloud-mobile`, `ownerPhone`) over this daemon's own socket. The phone
+/// is then the owner's own phone for D13 (`Hub::local_claude_refusal`), as a phone the Mac
+/// pairs is, and nothing more: no Full access (`vouched_claim`), every other Web rule and the
+/// Cloud mobile floor stay. The socket is owner-only and same-user (`ConnAuth::LocalSocket`):
+/// any process there already controls every chat as `Control::Local`, so the claim, which
+/// comes only with the marker that holds the prompt to the Web's rules, gives it nothing it
+/// lacks. Leo, 2026-11-14: "chat writable in both directions".
+fn local_cloud_phone(conn: &super::Conn, params: &Value) -> bool {
+    conn.origin == super::Origin::Local
+        && conn.auth == super::ConnAuth::LocalSocket
+        && cloud_mobile(params)
 }
 
 /// Records, before any rule reads it, the phone the owner's peer daemon vouches for on this
@@ -644,6 +678,19 @@ async fn check_inner(
     }
     // A new session's folder is judged first, so one refusal names every field the caller
     // must change; nothing is made for a start the policy or mode check refuses anyway.
+    // A hub-relayed control below the owner's grant (`ConnAuth::MeshControl`): `mesh_relay.rs`
+    // held its start to the entry's `maxPolicy`, which is never approve-all on this proof.
+    if auth == super::ConnAuth::MeshControl
+        && m == method::SESSION_NEW
+        && [params.get("policy"), params.pointer("/_meta/acpmux/policy")].into_iter().any(|p| {
+            // Parsed, so an alias (`yolo`) is caught as well as `approve-all`.
+            p.and_then(Value::as_str)
+                .and_then(|s| s.parse::<crate::config::PermissionPolicy>().ok())
+                == Some(crate::config::PermissionPolicy::ApproveAll)
+        })
+    {
+        return Err(refused("an approve-all start relayed through the mesh hub"));
+    }
     let mut deferred = None;
     if web {
         let peer = control_of(origin, auth, params) == crate::hub::Control::Peer;
@@ -716,10 +763,12 @@ async fn check_inner(
             };
             if let Some(canonical) = canonical {
                 // The owner's own daemon asking for itself (no Web client or paired device
-                // behind it) may also start in a git checkout outside the roots.
+                // behind it) may also start in a git checkout outside the roots, or in a
+                // folder of its home its chooser picked (`owner_home_folder`).
                 let owners_checkout = peer_new
                     && cancel_owner::owner(origin, auth, params)
-                    && owner_checkout(Path::new(&canonical)).await;
+                    && (owner_checkout(Path::new(&canonical)).await
+                        || owner_home_folder(Path::new(&canonical)).await);
                 if !inside(&canonical) && !owners_checkout {
                     return Err(outside_told(cwd, &told).await);
                 }
@@ -1441,11 +1490,7 @@ async fn peer_scratch(params: &Value, cloud_peer: bool) -> Result<String, RpcErr
     if !cloud_peer {
         let dir = dir.clone();
         let made = tokio::task::spawn_blocking(move || {
-            let mut builder = std::fs::DirBuilder::new();
-            builder.recursive(true);
-            #[cfg(unix)]
-            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-            builder.create(&dir)?;
+            crate::home_fs::create_dir_all(&dir, 0o700)?;
             mark_made_by_acpmux(&dir)
         })
         .await;
@@ -1466,29 +1511,25 @@ async fn cloud_chat_folder(name: &str) -> Result<PathBuf, RpcError> {
     )?
 }
 
-fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf, RpcError> {
+pub(crate) fn cloud_chat_folder_under(
+    home: &std::path::Path,
+    name: &str,
+) -> Result<PathBuf, RpcError> {
     let chats = home.join("chats");
     let dir = chats.join(name);
+    // A host-side fault, named as such (`CHAT_FOLDER_REASON`), so the machine that placed the
+    // start passes this host over for a while (`placement/reach.rs` `refused_start`).
     let failed = |why: String| {
         RpcError::invalid_params(format!("the Cloud chat folder could not be made: {why}"))
-    };
-    let safe_dir = |metadata: &std::fs::Metadata| {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt as _;
-            metadata.is_dir()
-                && metadata.uid() == unsafe { libc::geteuid() }
-                && metadata.mode() & 0o022 == 0
-        }
-        #[cfg(not(unix))]
-        {
-            metadata.is_dir()
-        }
+            .with_data(serde_json::json!({"reason": CHAT_FOLDER_REASON}))
     };
     for path in [&chats, &dir] {
         match std::fs::symlink_metadata(path) {
-            Ok(metadata) if safe_dir(&metadata) => {}
-            Ok(_) => return Err(failed(format!("{} is not a directory", path.display()))),
+            Ok(metadata) => match chat_folder_fault(&metadata) {
+                None => {}
+                Some(ChatFolderFault::Writable(_)) if repair_writable(path) => {}
+                Some(fault) => return Err(failed(fault.describe(path))),
+            },
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 let mut builder = std::fs::DirBuilder::new();
                 #[cfg(unix)]
@@ -1498,6 +1539,9 @@ fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf
             Err(error) => return Err(failed(error.to_string())),
         }
     }
+    // Marked as made by acpmux for this chat, so a remote Claude session may start in it
+    // (`hub/remote_cwd.rs` `chat_folder`); a folder from before the marker gets it here too.
+    mark_made_by_acpmux(&dir).map_err(|e| failed(e.to_string()))?;
     Ok(dir)
 }
 
@@ -1524,7 +1568,7 @@ fn peer_scratch_root() -> Result<PathBuf, RpcError> {
 /// agent-home is. A marker already there is kept; anything else in its place (a link, a folder)
 /// is no marker, so the folder is asked about as any other.
 fn mark_made_by_acpmux(dir: &std::path::Path) -> std::io::Result<()> {
-    match std::fs::OpenOptions::new()
+    match crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(dir.join(crate::trust::AGENT_HOME_MARKER))
@@ -1615,28 +1659,5 @@ async fn canonical_dir(path: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod cloud_chat_tests {
-    use super::*;
-
-    #[test]
-    fn cloud_peer_uses_a_durable_chat_folder() {
-        let home = std::env::temp_dir().join(format!("cmux-cloud-peer-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
-        // A Cloud machine's home folder exists; only `chats` and the chat's
-        // folder are made here.
-        std::fs::create_dir_all(&home).unwrap();
-        let dir = cloud_chat_folder_under(&home, "chat-1").unwrap();
-        assert_eq!(dir, home.join("chats/chat-1"));
-        assert!(dir.is_dir());
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                std::fs::metadata(home.join("chats")).unwrap().permissions().mode() & 0o777,
-                0o700
-            );
-            assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
-        }
-        let _ = std::fs::remove_dir_all(home);
-    }
-}
+#[path = "remote_guard_cloud_chat_tests.rs"]
+mod cloud_chat_tests;

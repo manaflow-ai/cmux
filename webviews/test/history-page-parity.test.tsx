@@ -7,6 +7,8 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+import { historySizes, installVirtualSizes } from "./support/virtualSizes";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -42,6 +44,8 @@ beforeAll(() => {
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   scope.cancelAnimationFrame = (handle: number) => clearTimeout(handle);
   dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
+  // The list is windowed: give it a viewport and its rows a height, as a browser would.
+  installVirtualSizes(dom.window, historySizes);
   // jsdom has no modal dialogs: record the calls and keep `open` as the browser would.
   const dialog = dom.window.HTMLDialogElement.prototype as HTMLDialogElement & { modalCalls?: number };
   dialog.showModal = function (this: HTMLDialogElement) {
@@ -69,16 +73,16 @@ afterAll(async () => {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { HistoryPage } = await import("../src/pages/history/HistoryPage");
-const { UiProvider, languageDirection } = await import("../src/ui/UiProvider");
-const { createStrings } = await import("../src/pages/shared/i18n");
+const { HistoryPage } = await importWithDom(() => import("../src/pages/history/HistoryPage"));
+const { UiProvider, languageDirection } = await importWithDom(() => import("../src/ui/UiProvider"));
+const { createStrings } = await importWithDom(() => import("../src/pages/shared/i18n"));
 const table = (await import("../src/pages/history/generated/strings.json")).default as Record<
   string,
   Record<string, string>
 >;
-const { MockHistoryProvider } = await import("../src/pages/history/mockProvider");
-const { HistoryStore } = await import("../src/pages/history/store");
-const { HistoryOps, ACTION_RUN } = await import("../src/pages/history/types");
+const { MockHistoryProvider } = await importWithDom(() => import("../src/pages/history/mockProvider"));
+const { HistoryStore } = await importWithDom(() => import("../src/pages/history/store"));
+const { HistoryOps, ACTION_RUN } = await importWithDom(() => import("../src/pages/history/types"));
 
 /** The mock daemon, recording every call the page makes. */
 class RecordingProvider extends MockHistoryProvider {

@@ -12,12 +12,18 @@ import { backgroundRunFoldFor, backgroundRunRowId, foldBackgroundRuns } from "./
 import { BACKGROUND_TURN } from "./backgroundTurns";
 import { turnView } from "./turns";
 
-// The default look: background turns draw inline, with no line of their own.
+// The default look: background turns draw inline, with no line of their own. The folds below are the
+// composer hat's earlier headers' (the Settings switch off): with its `line` header, the default, the
+// hat says a background end and the transcript draws none (steeredHarnessEvents.test.tsx).
+// Put back exactly what was there: the key itself, when the file found none (test/support/leakDetector.ts).
+const hadExperiments = "cmuxExperiments" in globalThis;
+const previousExperiments = globalThis.cmuxExperiments;
 beforeAll(() => {
-  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
+  globalThis.cmuxExperiments = { "claude-turn-fold": "runs", "subagent-tray-fold-head": "groups" };
 });
 afterAll(() => {
-  delete globalThis.cmuxExperiments;
+  if (hadExperiments) globalThis.cmuxExperiments = previousExperiments;
+  else delete globalThis.cmuxExperiments;
 });
 
 let at = 0;

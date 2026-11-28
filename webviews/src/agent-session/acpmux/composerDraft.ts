@@ -17,11 +17,6 @@ function daemonDraft(result: unknown): string | undefined {
   return composerDraft(result);
 }
 
-/** The composer text once a draft arrives: the draft, unless the user already typed something. */
-export function seededText(current: string, draft: string | undefined): string {
-  return draft && !current ? draft : current;
-}
-
 /**
  * The prompt once a saved draft (acpmux's, the tab's kept unsent text, the page's remount cache)
  * meets text the composer already holds, typed before this page ever read the chat's draft (the
@@ -224,18 +219,25 @@ export function notifyDraftActionsChanged(): void {
   draftActionsChangedAndFlush();
 }
 
-/** Re-renders a composer when a reconnect installs the native action map. */
+/// Calls `listener` each time the native action map is installed or replaced, with no render: the
+/// composer reads its chat's draft again then (Composer.tsx), and a drop and its reconnect draw
+/// nothing in it. Returns the unsubscribe. The page's event listener stays while any subscriber does
+/// (one subscriber's unsubscribe removed it for all before).
+export function onDraftActionsChanged(listener: () => void): () => void {
+  const page = (globalThis as typeof globalThis & { window?: Window }).window;
+  if (!draftActionSubscribers.size) page?.addEventListener(DRAFT_ACTIONS_CHANGED, draftActionsChangedAndFlush);
+  const subscriber = () => listener();
+  draftActionSubscribers.add(subscriber);
+  return () => {
+    draftActionSubscribers.delete(subscriber);
+    if (!draftActionSubscribers.size) page?.removeEventListener(DRAFT_ACTIONS_CHANGED, draftActionsChangedAndFlush);
+  };
+}
+
+/** Re-renders a component when a reconnect installs the native action map. */
 export function useDraftActionsVersion(): number {
   return useSyncExternalStore(
-    (subscriber) => {
-      draftActionSubscribers.add(subscriber);
-      const page = (globalThis as typeof globalThis & { window?: Window }).window;
-      page?.addEventListener(DRAFT_ACTIONS_CHANGED, draftActionsChangedAndFlush);
-      return () => {
-        draftActionSubscribers.delete(subscriber);
-        page?.removeEventListener(DRAFT_ACTIONS_CHANGED, draftActionsChangedAndFlush);
-      };
-    },
+    onDraftActionsChanged,
     () => draftActionsVersion,
     () => 0,
   );

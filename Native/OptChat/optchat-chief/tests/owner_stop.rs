@@ -31,7 +31,7 @@ fn running(h: &mut Harness, text: &str) {
     h.connect();
     h.say("user_local", text);
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
 }
 
@@ -437,7 +437,7 @@ fn the_chiefs_stop_tool_leaves_subagents_at_work_running() {
     h.agents.hold(true);
     h.say("user_local", "start the work");
     while h.agents.inner.lock().unwrap().prompts.len() <= prompts {
-        h.step();
+        h.poll_step();
     }
     // A person's message gets words before stop (eval_replies.rs).
     let sp = spawner(&h);

@@ -35,7 +35,9 @@ Usage:
       (no key: it uses the GitHub connection you made in cmux)
   cmux hub remove <connection-id> [--json]
   cmux hub actions [--json]
-  cmux hub call <action> [--args JSON] [--connection ID] [--invocation-id ID] [--json]
+  cmux hub call <action> [--FIELD VALUE ... | --args JSON] [--connection ID] [--invocation-id ID] [--json]
+      e.g. cmux hub call stripe.refund.create --charge ch_123 --amount 4200
+      (field values use JSON when valid, or plain text; use --args for reserved flag names)
   cmux hub status <call-id> [--json]
   cmux hub approvals [--json]
       (read only: a person answers an approval in cmux Settings > Integrations, never from this CLI)
@@ -175,6 +177,7 @@ pub(super) fn parse(
     let mut token = None;
     let mut positionals: Vec<String> = Vec::new();
     let mut values: Map<String, Value> = Map::new();
+    let mut action_fields = Map::new();
     let mut args = rest.iter();
     while let Some(arg) = args.next() {
         let (flag, inline) = match arg.split_once('=') {
@@ -221,6 +224,21 @@ pub(super) fn parse(
             }
             f if verb_flags.contains(&f) => {
                 values.insert(f.trim_start_matches("--").to_owned(), Value::String(value()?));
+            }
+            f if kind == "call" && f.starts_with("--") && f.len() > 2 => {
+                let raw = match inline {
+                    Some(raw) => raw,
+                    None => args
+                        .next()
+                        .filter(|v| !v.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| format!("{f} needs a value"))?,
+                };
+                let field = f.strip_prefix("--").unwrap_or(f);
+                let parsed = serde_json::from_str(&raw).unwrap_or(Value::String(raw));
+                if action_fields.insert(field.to_owned(), parsed).is_some() {
+                    return Err(format!("duplicate action field {f}"));
+                }
             }
             f if f.starts_with("--") => return Err(format!("unexpected argument {f}")),
             _ => positionals.push(arg.clone()),
@@ -280,10 +298,14 @@ pub(super) fn parse(
                 [_, extra, ..] => return Err(format!("unexpected argument {extra}")),
             };
             let args = match text("args") {
+                Some(_) if !action_fields.is_empty() => {
+                    return Err("pass action fields individually or in --args".into());
+                }
                 Some(raw) => match serde_json::from_str::<Value>(&raw) {
                     Ok(v @ Value::Object(_)) => Some(v),
                     _ => return Err("--args takes a JSON object".into()),
                 },
+                None if !action_fields.is_empty() => Some(Value::Object(action_fields)),
                 None => None,
             };
             let connection = text("connection");
@@ -322,7 +344,11 @@ pub(super) fn parse(
         other => return Err(format!("unknown verb {other} (cmux hub --help)")),
     };
     let token = token.unwrap_or_else(|| {
-        if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
+        if super::api_tokens::env_credential(env).is_some() {
+            TokenSource::Env
+        } else {
+            TokenSource::App
+        }
     });
     let platform = match platform.or_else(|| env("CMUX_PLATFORM_URL")) {
         Some(p) => Some(
@@ -760,12 +786,13 @@ pub(super) fn format_money(minor: i64, currency: &str) -> String {
     let exponent = currency_exponent(currency);
     let sign = if minor < 0 { "-" } else { "" };
     let abs = minor.unsigned_abs();
-    let scale = 10u64.pow(exponent);
-    let whole = abs / scale;
+    let scale = 10u64.checked_pow(exponent).unwrap_or(1);
+    let whole = abs.checked_div(scale).unwrap_or(abs);
     let digits = whole.to_string();
     let mut grouped = String::new();
     for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        let left = digits.len().saturating_sub(i);
+        if i > 0 && left.is_multiple_of(3) {
             grouped.push(',');
         }
         grouped.push(ch);
@@ -774,8 +801,11 @@ pub(super) fn format_money(minor: i64, currency: &str) -> String {
     if exponent == 0 {
         format!("{sign}{grouped} {code}")
     } else {
-        let frac = abs % scale;
-        format!("{sign}{grouped}.{frac:0width$} {code}", width = exponent as usize)
+        let frac = abs.checked_rem(scale).unwrap_or(0);
+        format!(
+            "{sign}{grouped}.{frac:0width$} {code}",
+            width = usize::try_from(exponent).unwrap_or(2)
+        )
     }
 }
 
@@ -854,13 +884,25 @@ pub(super) fn connection_view(c: &Value) -> Value {
     put(
         &mut out,
         "statusLabel",
-        json!(match status {
-            "active" => "Connected",
-            "needs_reauth" => "Needs a new key",
-            other => other,
+        json!(match (status, provider) {
+            ("active", _) => "Connected",
+            ("needs_reauth", "stripe") => "Needs a new key",
+            ("needs_reauth", _) => "Needs to be linked again",
+            (other, _) => other,
         }),
     );
     put(&mut out, "healthy", json!(status == "active"));
+    // A connection the provider stopped honouring (RFD 0055 "Revoke": `needs_reauth`) offers Reconnect: a key
+    // provider takes a new pasted key, an OAuth provider goes through its link again. Null while it works.
+    put(
+        &mut out,
+        "reconnect",
+        match (status, provider) {
+            ("needs_reauth", "stripe") => json!("key"),
+            ("needs_reauth", _) => json!("link"),
+            _ => Value::Null,
+        },
+    );
     put(&mut out, "canRemove", json!(c.get("canRemove").and_then(Value::as_bool).unwrap_or(false)));
     out
 }
@@ -1269,7 +1311,7 @@ async fn run(common: &Common, verb: &Verb, key: Option<Zeroizing<String>>) -> Va
         Ok(p) => p,
         Err(e) => return error_json("cli.invalid_args", &e),
     };
-    let http = match reqwest::Client::builder()
+    let http = match cmux_egress::client_builder("cmux_tui::cli::hub")
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(45))

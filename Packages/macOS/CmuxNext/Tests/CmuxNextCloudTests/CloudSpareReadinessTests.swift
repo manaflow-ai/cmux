@@ -81,6 +81,15 @@ import Testing
         }
     }
 
+    @Test func aSignInWarmsTheSpareOnceAndSigningOutDoesNot() {
+        #expect(CloudSpareReadiness.warmsAtSignIn(previous: .none, now: "u1\u{0}t1")) // the first scope after the restore (a launch's sign-in)
+        #expect(CloudSpareReadiness.warmsAtSignIn(previous: .some(nil), now: "u1\u{0}t1")) // signed out, then in
+        #expect(CloudSpareReadiness.warmsAtSignIn(previous: "u1\u{0}t1", now: "u1\u{0}t2")) // another team: its own spare
+        #expect(!CloudSpareReadiness.warmsAtSignIn(previous: "u1\u{0}t1", now: "u1\u{0}t1"))
+        #expect(!CloudSpareReadiness.warmsAtSignIn(previous: "u1\u{0}t1", now: nil))
+        #expect(!CloudSpareReadiness.warmsAtSignIn(previous: .none, now: nil))
+    }
+
     @Test func aPrimedSpareIsKeyedOnceForItsScopeAndRun() async {
         let world = World(), readiness = CloudSpareReadiness(world.dependencies())
         readiness.prime("vm_spare", team: "team_a")
@@ -354,6 +363,68 @@ import Testing
     }
 
     /// With no route read supplied (an app that reads none ahead), a prime keys and links as before.
+    /// The first home chat of a keyed spare is warmed once per daemon run, never on a spare that is not keyed, and a warm
+    /// that left no agent ready waits before the next.
+    @Test func aKeyedSparesFirstHomeChatIsWarmedOncePerRun() async {
+        let world = World()
+        var dependencies = world.dependencies(), warms: [String] = []
+        dependencies.warm = { machine in warms.append(machine); return true }
+        let readiness = CloudSpareReadiness(dependencies)
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == ["vm_spare"])
+        #expect(readiness.holdsHomeWarm("vm_spare", instance: "run-1"))
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == ["vm_spare"], "one warm per run")
+        // A new daemon run is warmed again (the old run's agent is gone with it).
+        world.answer = "run-2"
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == ["vm_spare", "vm_spare"])
+        #expect(readiness.holdsHomeWarm("vm_spare", instance: "run-2"))
+    }
+
+    @Test func aWarmThatLeftNoAgentReadyWaitsBeforeTheNext() async {
+        let world = World()
+        var dependencies = world.dependencies(), warms = 0, ready = false
+        dependencies.warm = { _ in warms += 1; return ready }
+        let readiness = CloudSpareReadiness(dependencies)
+        var clock = ContinuousClock.now
+        readiness.now = { clock }
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == 1)
+        #expect(!readiness.holdsHomeWarm("vm_spare", instance: "run-1"))
+        ready = true
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == 1)
+        clock = clock.advanced(by: CloudSpareReadiness.keyRetry + .seconds(1))
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == 2)
+        #expect(readiness.holdsHomeWarm("vm_spare", instance: "run-1"))
+    }
+
+    @Test func aSpareThatIsNotKeyedOrAResetWarmsNothing() async {
+        let world = World()
+        world.answer = nil
+        var dependencies = world.dependencies(), warms = 0
+        dependencies.warm = { _ in warms += 1; return true }
+        let readiness = CloudSpareReadiness(dependencies)
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == 0)
+        world.answer = "run-1"
+        readiness.reset()
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == 1)
+        readiness.reset()
+        #expect(!readiness.holdsHomeWarm("vm_spare", instance: "run-1"), "a reset forgets the warm")
+    }
+
     @Test func noRouteReadSuppliedReadsNothing() async {
         let world = World(), readiness = CloudSpareReadiness(world.dependencies())
         readiness.prime("vm_spare", team: "team_a")
@@ -590,10 +661,32 @@ import Testing
         await readiness.settled("vm_spare")
         #expect(world.links == ["vm_spare"], "no second link after the claim took the first")
         #expect(world.dials.isEmpty)
-        // The next prime (another spare's warm, or this machine's next one) links again.
+        // The machine is its session's now: a later warm naming it links nothing beside the session's.
         readiness.prime("vm_spare", dials: true)
         await readiness.settled("vm_spare")
-        #expect(world.links == ["vm_spare", "vm_spare"])
+        #expect(world.links == ["vm_spare"])
+        // Another machine still primes.
+        readiness.prime("vm_next", dials: true)
+        await readiness.settled("vm_next")
+        #expect(world.links == ["vm_spare", "vm_next"])
+    }
+
+    /// A warm that names the machine a session already linked (its answer lagged the claim) primes nothing: a second
+    /// link made ahead is a second carrier supervisor beside the session's, and their fight for the connection
+    /// socket ends the session's desktop stream after 0 bytes. A reset (another account) forgets it.
+    @Test func aMachineItsSessionLinkedIsNeverPrimedAgain() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        world.dialed = true
+        #expect(readiness.link(for: "vm_session", team: "team_a") == nil)
+        readiness.prime("vm_session", team: "team_a", dials: true)
+        await readiness.settled("vm_session")
+        #expect(world.links.isEmpty)
+        #expect(world.dials.isEmpty)
+        #expect(!readiness.holdsLink("vm_session"))
+        readiness.reset()
+        readiness.prime("vm_session", team: "team_a")
+        await readiness.settled("vm_session")
+        #expect(world.links == ["vm_session"])
     }
 
     /// A dialing prime whose team could not be read keeps the link held for the spare's team.

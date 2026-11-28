@@ -116,7 +116,7 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         let running = process
         process = nil
         running?.terminationHandler = nil
-        (running?.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
+        if let reader = (running?.standardOutput as? Pipe)?.fileHandleForReading { ChildOutputEnds.closeNow(reading: [reader]) }
         if let running { launcher.terminate(running) }
         try? lifeline?.fileHandleForWriting.close()
         lifeline = nil
@@ -158,6 +158,7 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
             case .retry: return
             case .end:
                 handle.readabilityHandler = nil
+                try? handle.close()
                 return
             }
             // Decoded here, on the pipe's queue: an artwork line is megabytes of JSON.
@@ -169,7 +170,10 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
             }
         }
         let started = Date()
+        let reader = stdout.fileHandleForReading
         stream.terminationHandler = { [weak self] _ in
+            // An orphaned perl that kept stdout would hold this pipe open across every restart.
+            ChildOutputEnds.closeAfterExit(reading: [reader])
             Task { @MainActor [weak self] in self?.exited(run: current, after: Date().timeIntervalSince(started)) }
         }
         process = stream

@@ -21,7 +21,7 @@
 
 use crate::github_app_token::{AppLease, Source};
 use crate::rpc::RpcError;
-use cmux_host::github_rest::{self as rest, Plan};
+use cmux_host::github_rest::{self as rest, Author, Plan};
 use serde_json::{Value, json};
 
 const API: &str = "https://api.github.com";
@@ -54,6 +54,17 @@ pub async fn serve(params: Value, app: &AppLease) -> Result<Value, RpcError> {
 async fn serve_at(params: Value, app: &AppLease, api: &str, gh: &str) -> Result<Value, RpcError> {
     let plan = rest::plan(&params).map_err(invalid)?;
     let started = std::time::Instant::now();
+    // A review or a reply is the person's: their own gh says it when it has a login.
+    if plan.author != Author::Any {
+        match run_gh(&plan, gh).await {
+            Gh::Ran(answer) => return Ok(done(&plan, Source::Keyring, answer, started)),
+            Gh::Failed(e) => return Err(logged(&plan, "keyring", Err(e))),
+            Gh::Unusable if plan.author == Author::PersonOnly => {
+                return Err(logged(&plan, "none", Err(person_only())));
+            }
+            Gh::Unusable => {}
+        }
+    }
     let (source, answer) =
         match crate::github_app_token::mint_for(app, &plan.repo, &plan.scope.permissions()).await {
             Some(Ok(source)) => {
@@ -61,6 +72,13 @@ async fn serve_at(params: Value, app: &AppLease, api: &str, gh: &str) -> Result<
                 let token = source.token().unwrap_or_default();
                 let answer = http(&plan, api, token).await?;
                 (source, answer)
+            }
+            // Asked already (above) for the person's own words.
+            Some(Err(mint_error)) if plan.author != Author::Any => {
+                return Err(logged(&plan, "app", Err(mint_error)));
+            }
+            None if plan.author != Author::Any => {
+                return Err(logged(&plan, "none", Err(crate::github_app_token::not_connected())));
             }
             // The App cannot cover it: the person's own gh, if it works; else the App's reason.
             Some(Err(mint_error)) => match run_gh(&plan, gh).await {
@@ -80,9 +98,23 @@ async fn serve_at(params: Value, app: &AppLease, api: &str, gh: &str) -> Result<
                 Gh::Failed(e) => return Err(logged(&plan, "keyring", Err(e))),
             },
         };
+    Ok(done(&plan, source, answer, started))
+}
+
+/// Logs a call GitHub answered (op, repository, login, status; never its params) and replies.
+fn done(plan: &Plan, source: Source, answer: Answer, started: std::time::Instant) -> Value {
     tracing::info!(op = plan.op, repo = %plan.repo, scope = plan.scope.name(), source = source.name(),
         status = ?answer.status, ms = started.elapsed().as_millis() as u64, "github rest");
-    Ok(answer.reply(&source))
+    answer.reply(&source)
+}
+
+/// An approval or a request for changes with no `gh` login: the App never gives one for the person.
+fn person_only() -> RpcError {
+    RpcError::new(
+        -32044,
+        "approving or requesting changes is yours alone: sign in with `gh auth login` on this Mac, or open the pull request on GitHub",
+    )
+    .with_data(json!({"reason": "github.person_only"}))
 }
 
 /// Logs a call that got no answer (no title, body or token), and passes its error on.

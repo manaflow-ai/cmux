@@ -346,3 +346,68 @@ fn a_link_closed_under_the_call_fails_it_as_closed() {
     let err = alive_call(&link, MS).unwrap_err();
     assert_eq!(err, LinkError::Closed);
 }
+
+/// More calls than the old cap of 16 wait for a reply on one link at once, and each gets its
+/// own answer: acpmux reads every request before it answers any.
+#[test]
+fn more_calls_than_the_old_cap_wait_on_one_link_and_each_is_answered() {
+    const CALLS: usize = 24;
+    let dir = cmux_unix_socket::short_test_dir("asmany");
+    let socket = dir.path().join("acpmux.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut writer = stream.try_clone().unwrap();
+        let mut lines = BufReader::new(stream).lines();
+        let mut ids = Vec::new();
+        while ids.len() < CALLS {
+            let Some(Ok(line)) = lines.next() else { return };
+            let request: Value = serde_json::from_str(&line).unwrap();
+            ids.push(request["id"].clone());
+        }
+        for id in ids {
+            let reply = json!({"jsonrpc": "2.0", "id": id, "result": {"id": id}});
+            if writeln!(writer, "{reply}").is_err() {
+                return;
+            }
+        }
+    });
+    let link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let callers: Vec<_> = (0..CALLS)
+        .map(|_| {
+            let link = link.clone();
+            std::thread::spawn(move || link.call("session/list", json!({}), WAIT))
+        })
+        .collect();
+    let answered = callers.into_iter().map(|caller| caller.join().unwrap().unwrap()).count();
+    assert_eq!(answered, CALLS);
+    link.close();
+}
+
+/// `begin` puts a request on the wire before its answer is read, so a second call overlaps it: this
+/// acpmux answers nothing until it read both, then the later one first (a Cloud start's Auto move
+/// and its family read pay one round trip, not two).
+#[test]
+fn a_begun_request_overlaps_the_next_call() {
+    let dir = cmux_unix_socket::short_test_dir("aslink");
+    let socket = dir.path().join("acpmux.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut writer = stream.try_clone().unwrap();
+        let mut lines = BufReader::new(stream).lines();
+        let mut read =
+            || -> Value { serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap() };
+        let (first, second) = (read(), read());
+        for request in [second, first] {
+            let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": {"method": request["method"]}});
+            writeln!(writer, "{reply}").unwrap();
+        }
+    });
+    let link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let pending = link.begin("session/set_mode", json!({"modeId": "auto"})).unwrap();
+    let read = link.call("_acpmux/web_modes", json!({}), WAIT).unwrap();
+    assert_eq!(read["method"], "_acpmux/web_modes");
+    assert_eq!(pending.wait(WAIT).unwrap()["method"], "session/set_mode");
+    assert!(link.pending.lock().unwrap().is_empty(), "both slots forgotten");
+}

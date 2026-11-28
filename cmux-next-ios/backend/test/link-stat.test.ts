@@ -51,6 +51,23 @@ describe("link_stat log line", () => {
     })
   })
 
+  it("accepts hop paths and bounds hop repair counters", () => {
+    const line = linkStatLine(
+      stat({ path: "hop", hop: { srttMs: 712, lossPermille: 12, resent: 8, repaired: 3 } }),
+      "phone",
+      ingress,
+      "LAX"
+    )!
+    expect(line).toMatchObject({ path: "hop", hopSrttMs: 712, hopLossPermille: 12, hopResent: 8, hopRepaired: 3 })
+    const bounded = linkStatLine(
+      stat({ path: "hop", hop: { srttMs: 1e12, lossPermille: 1e12, resent: 1e12, repaired: 1e12 } }),
+      "phone",
+      undefined,
+      null
+    )!
+    expect(bounded).toMatchObject({ hopSrttMs: 600_000, hopLossPermille: 1_000, hopResent: 100_000, hopRepaired: 100_000 })
+  })
+
   it("clamps numbers, drops unknown marks, words and free text, and never copies an id", () => {
     const line = linkStatLine(
       stat({
@@ -79,6 +96,41 @@ describe("link_stat log line", () => {
     expect(JSON.stringify(line)).not.toMatch(/alice|6f1c7a6e|10\.0\.0\.1|192\.168/)
     expect(line).toMatchObject({ ingressColo: null, country: null, continent: null, hubColo: null })
     expect(linkStatLine(stat({ reason: "end", end: "keepalive" }), "phone", ingress, null)!.end).toBe("keepalive")
+  })
+
+  it("keeps how the link left the device (proxy, inspected) and drops any other word", () => {
+    expect(linkStatLine(stat({ egress: "inspected" }), "phone", ingress, null)!.egress).toBe("inspected")
+    expect(linkStatLine(stat({ egress: "proxy" }), "phone", ingress, null)!.egress).toBe("proxy")
+    expect(linkStatLine(stat({ egress: "proxy.corp:3128" }), "phone", ingress, null)!.egress).toBeUndefined()
+    expect(linkStatLine(stat(), "phone", ingress, null)!.egress).toBeUndefined()
+  })
+
+  it("logs which protocol mapped the Mac's endpoint and whether the route uses it, fixed words only", () => {
+    expect(linkStatLine(stat({ path: "direct", portmap: { by: "pcp", used: true } }), "phone", ingress, null)).toMatchObject({ path: "direct", portmapBy: "pcp", portmapUsed: true })
+    expect(linkStatLine(stat({ portmap: { by: "upnp", used: false } }), "phone", ingress, null)).toMatchObject({ portmapBy: "upnp", portmapUsed: false })
+    for (const bad of [{ by: "203.0.113.7", used: true }, { by: "pcp", used: "yes" }, "pcp", null]) {
+      const line = linkStatLine(stat({ portmap: bad }), "phone", ingress, null)!
+      expect(line.portmapBy).toBeUndefined()
+      expect(line.portmapUsed).toBeUndefined()
+    }
+  })
+
+  it("flattens keystroke round trips and keeps at most six clamped spikes", () => {
+    const line = linkStatLine(
+      stat({
+        echo: { n: 40, p50: 45, p95: 140, p99: 1900, max: 1900 },
+        ack: { n: 40, p50: 38, p95: 120, p99: 1e9, max: 1e9 },
+        spikeCount: 9,
+        spikes: [[1940, 1880, 1900], [62, -1, 400], [5, 30, "slow"], [1, 2], [3, 4, 5], [6, 7, 8], [9, 10, 11], [12, 13, 14], [15, 16, 17]]
+      }),
+      "phone",
+      ingress,
+      null
+    )!
+    expect(line).toMatchObject({ echoN: 40, echoP50: 45, echoP95: 140, echoP99: 1900, echoMax: 1900, ackP99: 600_000, spikeCount: 9 })
+    // The first six entries are read, malformed ones dropped; -1 is "no answer yet".
+    expect(line.spikes).toEqual([[1940, 1880, 1900], [62, -1, 400], [3, 4, 5], [6, 7, 8]])
+    expect(linkStatLine(stat({ echo: "fast", spikes: "none" }), "phone", ingress, null)).not.toHaveProperty("echoN")
   })
 
   it("rejects a malformed stat", () => {

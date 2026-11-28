@@ -20,6 +20,7 @@ async fn a_reload_lends_only_to_the_machine_and_the_add_it_read() {
         peer_token: None,
         vm_boundary: true,
         github_broker: true,
+        group: None,
     };
     let file = |pc: PeerConfig| std::collections::BTreeMap::from([("m".to_owned(), pc)]);
     let peer = || hub.peers.lock().unwrap().get("m").cloned().unwrap();
@@ -386,8 +387,9 @@ async fn an_old_grace_timer_cannot_mark_replacement_rows_unreachable() {
         peer_token: None,
         vm_boundary: false,
         github_broker: false,
+        group: None,
     };
-    let (_generation, _settled) = hub.spawn_peer("builder", &pc, false);
+    let (_generation, _settled) = hub.spawn_peer("builder", &pc, false, false);
 
     hub.mark_peer_unreachable_at_fence(&old, "builder", old.generation, fence);
     let rows = hub.remote_sessions();
@@ -475,8 +477,9 @@ async fn a_removed_peer_cannot_be_reinserted_by_a_paused_notice() {
     cfg.store.mode = crate::config::StoreMode::Memory;
     let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg.clone(), store);
-    let (lease, _settled) =
-        hub.lease_peer("builder", "ws://127.0.0.1:9", "token".into(), None, false, &cfg).unwrap();
+    let (lease, _settled) = hub
+        .lease_peer("builder", "ws://127.0.0.1:9", "token".into(), None, false, None, &cfg)
+        .unwrap();
     let peer = hub.peer("builder").unwrap();
     hub.apply_peer_notice(
         "builder",
@@ -710,4 +713,23 @@ fn a_full_ring_of_a_peers_row_changes_holds_no_copy_of_the_rows() {
         per_event < row_text / 2,
         "each held event costs {per_event} bytes, a row's text is {row_text}: the ring holds copies"
     );
+}
+
+/// Every peer row says which picker group lists it: `own` by default, `agent` for a machine held at
+/// the VM boundary, and the person's own `group` in config.json wins over both.
+#[tokio::test]
+async fn every_peer_row_carries_its_group() {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.add_peer_lending("m", "ws://127.0.0.1:9/m", None, None, Some(false), false).await.unwrap();
+    let group =
+        |hub: &Hub| hub.peers().into_iter().find(|p| p["name"] == "m").unwrap()["group"].clone();
+    assert_eq!(group(&hub), "own");
+    hub.peer_by_name("m").unwrap().set_vm_boundary(true);
+    assert_eq!(group(&hub), "agent");
+    hub.peer_by_name("m").unwrap().set_group_override(Some("own".into()));
+    assert_eq!(group(&hub), "own", "the person's placing wins");
+    hub.peer_by_name("m").unwrap().stop();
 }

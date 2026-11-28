@@ -9,7 +9,7 @@ import CCmuxLayoutCacheFFI
 
 /// `Rect` (cmux-layout-cache src/model.rs): AppKit global points for window frames, top-left
 /// origin content points inside a window.
-public struct LayoutCacheRect: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheRect: Codable, Hashable, Sendable {
     public var x: Double
     public var y: Double
     public var width: Double
@@ -26,7 +26,7 @@ public struct LayoutCacheRect: Codable, Hashable, Sendable {
     public var cgRect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
 }
 
-public struct LayoutCacheDisplay: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheDisplay: Codable, Hashable, Sendable {
     public var id: UInt32
     public var frame: LayoutCacheRect
     public var backingScale: Double
@@ -49,11 +49,11 @@ public struct LayoutCacheDisplay: Codable, Hashable, Sendable {
     }
 }
 
-public enum LayoutCacheAppearance: String, Codable, Sendable {
+public nonisolated enum LayoutCacheAppearance: String, Codable, Sendable {
     case light, dark
 }
 
-public struct LayoutCacheTheme: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheTheme: Codable, Hashable, Sendable {
     /// The window backdrop's colour; its alpha is the backdrop opacity.
     public var backgroundRgba: [UInt8]
     public var barRgba: [UInt8]
@@ -73,14 +73,14 @@ public struct LayoutCacheTheme: Codable, Hashable, Sendable {
     public var backdropOpacity: Double? { backgroundRgba.count == 4 ? Double(backgroundRgba[3]) / 255 : nil }
 }
 
-public struct LayoutCacheRowHeight: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheRowHeight: Codable, Hashable, Sendable {
     public var id: String
     public var height: Double
 
     public init(id: String, height: Double) { self.id = id; self.height = height }
 }
 
-public struct LayoutCacheSidebar: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheSidebar: Codable, Hashable, Sendable {
     public var width: Double
     public var collapsed: Bool
     public var scrollY: Double
@@ -91,7 +91,7 @@ public struct LayoutCacheSidebar: Codable, Hashable, Sendable {
     }
 }
 
-public struct LayoutCacheTabSlot: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheTabSlot: Codable, Hashable, Sendable {
     public var id: String
     public var x: Double
     public var width: Double
@@ -99,7 +99,7 @@ public struct LayoutCacheTabSlot: Codable, Hashable, Sendable {
     public init(id: String, x: Double, width: Double) { self.id = id; self.x = x; self.width = width }
 }
 
-public struct LayoutCacheScroll: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheScroll: Codable, Hashable, Sendable {
     public var offsetY: Double
     public var contentHeight: Double
 
@@ -107,7 +107,7 @@ public struct LayoutCacheScroll: Codable, Hashable, Sendable {
 }
 
 /// `PaneKind`; a kind this app does not know reads as `other` (as in Rust).
-public enum LayoutCachePaneKind: String, Codable, Sendable {
+public nonisolated enum LayoutCachePaneKind: String, Codable, Sendable {
     case terminal, chat, browser, home, other
 
     public init(from decoder: any Decoder) throws {
@@ -115,7 +115,7 @@ public enum LayoutCachePaneKind: String, Codable, Sendable {
     }
 }
 
-public struct LayoutCacheLeaf: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheLeaf: Codable, Hashable, Sendable {
     public var paneId: String
     public var kind: LayoutCachePaneKind
     /// Content points, top-left origin, in the window's content view.
@@ -128,7 +128,7 @@ public struct LayoutCacheLeaf: Codable, Hashable, Sendable {
 }
 
 /// `PaneNode`: `{"type": "split", axis, fractions, children}` or `{"type": "leaf", pane_id, ...}`.
-public indirect enum LayoutCachePaneNode: Codable, Hashable, Sendable {
+public nonisolated indirect enum LayoutCachePaneNode: Codable, Hashable, Sendable {
     /// `horizontal`: children side by side ("h"); else stacked ("v"). `fractions` sum to 1.
     case split(horizontal: Bool, fractions: [Double], children: [LayoutCachePaneNode])
     case leaf(LayoutCacheLeaf)
@@ -170,7 +170,7 @@ public indirect enum LayoutCachePaneNode: Codable, Hashable, Sendable {
     }
 }
 
-public struct LayoutCacheWindow: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheWindow: Codable, Hashable, Sendable {
     public var id: String
     /// AppKit global points.
     public var frame: LayoutCacheRect
@@ -229,7 +229,7 @@ extension LayoutCacheWindow {
     }
 }
 
-public struct LayoutCacheDocument: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheDocument: Codable, Hashable, Sendable {
     /// cmux-layout-cache `FORMAT_VERSION`; Rust drops any other.
     public static let formatVersion: UInt32 = 1
     public var version: UInt32
@@ -244,15 +244,15 @@ public struct LayoutCacheDocument: Codable, Hashable, Sendable {
         self.displays = displays; self.windows = windows
     }
 
-    /// `windows` (front first) on this build and the displays now, as JSON for `LayoutCacheWriter`.
-    @MainActor public static func json(_ windows: [LayoutCacheWindow]) -> String? {
-        LayoutCacheFFI.json(LayoutCacheDocument(buildKey: LaunchShellPaths.build(info: Bundle.main.infoDictionary ?? [:]),
-                                                displays: LayoutCacheDisplay.current(), windows: windows))
+    /// `windows` (front first) on this build and the displays now, for `LayoutCacheWriter` to encode off the main actor.
+    @MainActor public static func current(_ windows: [LayoutCacheWindow]) -> LayoutCacheDocument {
+        LayoutCacheDocument(buildKey: LaunchShellPaths.build(info: Bundle.main.infoDictionary ?? [:]),
+                            displays: LayoutCacheDisplay.current(), windows: windows)
     }
 }
 
 /// `Usable`: which windows' geometry applies this launch, and where each goes.
-public struct LayoutCacheUsable: Codable, Sendable {
+public nonisolated struct LayoutCacheUsable: Codable, Sendable {
     public struct Placement: Codable, Sendable {
         public var id: String
         public var frame: LayoutCacheRect
@@ -272,7 +272,7 @@ public struct LayoutCacheUsable: Codable, Sendable {
 }
 
 /// `Applied` (reconcile): the cached tree fitted to the live one.
-public struct LayoutCacheApplied: Codable, Sendable {
+public nonisolated struct LayoutCacheApplied: Codable, Sendable {
     public struct Transition: Codable, Sendable {
         public var kind: String
         public var panes: [String]
@@ -312,7 +312,7 @@ public indirect enum LayoutCacheLiveNode: Encodable, Sendable {
     }
 }
 
-public struct LayoutCacheLiveTree: Encodable, Sendable {
+public nonisolated struct LayoutCacheLiveTree: Encodable, Sendable {
     public var panes: [String]
     public var root: LayoutCacheLiveNode?
     public var bounds: LayoutCacheRect?
@@ -324,12 +324,14 @@ public struct LayoutCacheLiveTree: Encodable, Sendable {
 }
 
 /// `StripApplied` (reconcile_strip).
-public struct LayoutCacheStripApplied: Codable, Sendable {
+public nonisolated struct LayoutCacheStripApplied: Codable, Sendable {
     public var tabs: [LayoutCacheTabSlot]
 }
 
 /// The C ABI's calls (include/cmux_layout_cache.h), JSON in and out, snake_case on the wire.
-public struct LayoutCacheFFI {
+/// Nonisolated: `LayoutCacheWriter` encodes on its files lane; the launch read (`LayoutCacheLaunch`)
+/// and the drift mark run where their caller does, the main actor before the first window commits.
+public nonisolated struct LayoutCacheFFI {
     public init() {}
     public static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder()
@@ -365,12 +367,22 @@ public struct LayoutCacheFFI {
 
     /// The cache at `path`, or nil (missing, too large, another version, garbage).
     public static func read(path: String) -> LayoutCacheDocument? {
-        decode(LayoutCacheDocument.self, cmux_layout_cache_read(path))
+        readJSON(path: path).flatMap { try? decoder().decode(LayoutCacheDocument.self, from: Data($0.utf8)) }
+    }
+
+    /// The cache at `path` as Rust's JSON, or nil (`read`).
+    public static func readJSON(path: String) -> String? {
+        take(cmux_layout_cache_read(path))
     }
 
     public static func usable(_ cache: LayoutCacheDocument, build: String, displays: [LayoutCacheDisplay], nowMs: UInt64) -> LayoutCacheUsable? {
+        json(cache).flatMap { usable(json: $0, build: build, displays: displays, nowMs: nowMs) }
+    }
+
+    /// `usable` of the cache as Rust gave it (`readJSON`): no encode of it again.
+    public static func usable(json cacheJSON: String, build: String, displays: [LayoutCacheDisplay], nowMs: UInt64) -> LayoutCacheUsable? {
         struct Now: Encodable { var buildKey: String; var displays: [LayoutCacheDisplay]; var nowMs: UInt64 }
-        guard let cacheJSON = json(cache), let nowJSON = json(Now(buildKey: build, displays: displays, nowMs: nowMs)) else { return nil }
+        guard let nowJSON = json(Now(buildKey: build, displays: displays, nowMs: nowMs)) else { return nil }
         return decode(LayoutCacheUsable.self, cmux_layout_cache_usable(cacheJSON, nowJSON))
     }
 
@@ -397,8 +409,11 @@ public struct LayoutCacheLaunch: Sendable {
     /// Reads and gates the cache in the app's support folder; nil when there is none or nothing applies.
     /// One ≤512 KiB file, before the first commit (`LaunchShell.prepare`).
     @MainActor public static func read(support: URL, build: String) -> LayoutCacheLaunch? {
-        guard let path = LayoutCacheFFI.path(support: support), let document = LayoutCacheFFI.read(path: path),
-              let usable = LayoutCacheFFI.usable(document, build: build, displays: LayoutCacheDisplay.current(),
+        // main-actor-ok: launch-critical: the first frame is placed from it, so the main thread waits for it on
+        // any thread; one file Rust caps at 512 KiB, read once, decoded once (Rust's JSON goes to `usable` as is).
+        guard let path = LayoutCacheFFI.path(support: support), let json = LayoutCacheFFI.readJSON(path: path),
+              let document = try? LayoutCacheFFI.decoder().decode(LayoutCacheDocument.self, from: Data(json.utf8)),
+              let usable = LayoutCacheFFI.usable(json: json, build: build, displays: LayoutCacheDisplay.current(),
                                                  nowMs: LayoutCacheFFI.wallClockMs()),
               !usable.windows.isEmpty else { return nil }
         return LayoutCacheLaunch(document: document, usable: usable)

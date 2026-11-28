@@ -72,6 +72,10 @@ sys.path.insert(0, str(HERE))
 SCROLLBACK_LINES = 2000
 POLL_S = 0.05
 HARNESS = "l5fake"
+# The folders under ~/.config a Mac build reads harness profiles from: NEXT's own `cmux-next` (cmux_config::NEXT_DIR
+# since #56195) and `cmux` (builds before it, which a base= bench can be). With only `cmux` every chat round
+# answered "unknown harness l5fake" and the restart-to-chat bench reported no row.
+HARNESS_DIRS = ("cmux-next", "cmux")
 KEYS = ("workspaces", "terminal_pid", "scrollback_sha256", "chat")
 PROMPT = "l5 hello"
 DEFAULT_FAKE_AGENT = HERE.parent.parent / "cmux-tui" / "crates" / "acpmux" / "tests" / "fake_agent.py"
@@ -184,12 +188,13 @@ def wait(probe, seconds: float, every: float = 0.25):
 
 def write_harness(home: str, fake_agent: str) -> None:
     """The acpmux test agent as harness `l5fake`, a profile in the instance's own HOME (cmux reads it live)."""
-    folder = Path(home) / ".config" / "cmux" / "harnesses"
-    folder.mkdir(parents=True, exist_ok=True)
-    profile = folder / f"{HARNESS}.toml"
-    profile.write_text(f'schema = 1\nid = "{HARNESS}"\nname = "L5 test agent"\nprotocol = "acp"\n'
-                       f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(fake_agent))}]\n')
-    profile.chmod(0o600)
+    for name in HARNESS_DIRS:
+        folder = Path(home) / ".config" / name / "harnesses"
+        folder.mkdir(parents=True, exist_ok=True)
+        profile = folder / f"{HARNESS}.toml"
+        profile.write_text(f'schema = 1\nid = "{HARNESS}"\nname = "L5 test agent"\nprotocol = "acp"\n'
+                           f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(fake_agent))}]\n')
+        profile.chmod(0o600)
 
 
 def seed(inst: Instance, fake_agent: str, work: str, front_terminal: bool = True) -> dict:
@@ -349,6 +354,51 @@ def state(inst: Instance, topo: dict | None = None) -> dict:
         "chat": f"{chat}:{messages}:{chat_tab(topo, chat) or 'no-tab'}" if chat and messages >= 0 else None,
     }
     return {k: v for k, v in found.items() if v is not None}
+
+
+
+# ---- why a round's daemon did not survive (printed on failure only) -------------------------
+
+DIAG_LOG_LINES = 40
+DIAG_APP_WORDS = ("daemon", "end sessions", "quit", "owner", "ensure", "terminal", "kept layout")
+
+
+def app_processes(app: Path) -> list[str]:
+    """This run's own processes (their command line names the app bundle): pid, ppid, pgid, age and command."""
+    try:
+        done = subprocess.run(["ps", "-axww", "-o", "pid=,ppid=,pgid=,etime=,command="], capture_output=True,
+                              text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as error:
+        return [f"ps: {error}"]
+    return [line.strip()[:300] for line in done.stdout.splitlines() if str(app) in line]
+
+
+def tail(path: Path, lines: int, words: tuple[str, ...] = ()) -> list[str]:
+    """The last LINES lines of PATH (with WORDS: only lines naming one of them, any case)."""
+    try:
+        text = path.read_text(errors="replace").splitlines()
+    except OSError as error:
+        return [f"{path.name}: {error}"]
+    if words:
+        text = [line for line in text if any(word in line.lower() for word in words)]
+    return [line[:400] for line in text[-lines:]]
+
+
+def daemon_diagnosis(home: str, out: Path, ps_before: list[str], ps_after: list[str]) -> dict:
+    """What a round that lost its daemon leaves to read: the app's processes either side of the quit, the
+    daemon-related lines of both app logs, and the end of every log under the run's Library (the terminal owner's
+    bounded client log sits at its state root there). A failed CI job uploads no artifact, so this goes to stdout."""
+    logs = {}
+    library = Path(home) / "Library"
+    found = sorted(library.rglob("*.log"), key=lambda p: p.stat().st_mtime if p.exists() else 0)[-8:] if library.exists() else []
+    for path in found:
+        logs[str(path.relative_to(home))] = tail(path, DIAG_LOG_LINES)
+    for name in ("app.log", "app-relaunched.log"):
+        for base in (out, Path(home).parent):
+            if (base / name).exists():
+                logs[name] = tail(base / name, DIAG_LOG_LINES, DIAG_APP_WORDS)
+                break
+    return {"ps_before_quit": ps_before, "ps_after_quit": ps_after, "logs": logs}
 
 
 # ---- the check ------------------------------------------------------------------------------
@@ -569,6 +619,7 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
         row["failures"] = [failed]
         safe_print("L5-ROUND " + json.dumps(row, default=str), flush=True)
         return row, process
+    ps_before = app_processes(app)
     asked = time.monotonic()
     reply = call(inst.sock, "action.run", {"action": "quitKeepSessions"}, timeout=10)
     row["quit_reply"] = reply.get("error") or "ok"
@@ -581,6 +632,7 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
         process.wait(timeout=10)
     gone = time.monotonic()
     row.setdefault("quit_ms", round((gone - asked) * 1000))
+    ps_after = app_processes(app)
     # The daemon must have kept the terminal's process through the quit.
     try:
         os.kill(made["terminal_pid"], 0)
@@ -674,6 +726,9 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
                                 f"{film['settled_ms']} ms")
     if not row["terminal_alive_while_quit"]:
         failures.append(f"the terminal's process {made['terminal_pid']} ended with the app")
+    if not ok or not row["terminal_alive_while_quit"]:
+        diagnosis = daemon_diagnosis(inst.home, out, ps_before, ps_after)
+        safe_print("L5-DAEMON-DIAG " + json.dumps({"round": n, **diagnosis}, default=str), flush=True)
     if ok and which == "chat":
         # After the budgeted time: the chat answers through the relaunched app's reattached session.
         row["live_ms"], why_not = live_turn(inst, made["chat"], n)

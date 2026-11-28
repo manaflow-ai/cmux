@@ -121,7 +121,15 @@ def load_members(meta: dict, ws: str) -> list[Crate]:
             # file under cmux-tui/ (docs, scripts, other crates).
             owned = sorted({f"{ws}/{_rel(os.path.dirname(t['src_path']), host_root)}" for t in pkg["targets"]})
         else:
-            owned = [repo_dir]
+            # Its directory, plus each target's source directory: a package can build
+            # sources from a sibling directory (cmux-tui-lib's library is
+            # crates/cmux-tui/src/main.rs). The longest owned directory wins a file, so
+            # crates/cmux-tui/src is cmux-tui-lib's and crates/cmux-tui/src/bin cmux-tui's.
+            owned = sorted(
+                {repo_dir}
+                | {f"{ws}/{_rel(os.path.dirname(t['src_path']), host_root)}"
+                   for t in pkg["targets"] if "custom-build" not in t["kind"]}
+            )
         deps = set()
         for dep in pkg["dependencies"]:
             if dep.get("path"):
@@ -170,7 +178,9 @@ def crate_references(root: Path, crates: list[Crate]) -> dict[str, set[str]]:
     refs: dict[str, set[str]] = collections.defaultdict(set)
     top = os.path.abspath(root)
     for crate in crates:
-        for owned in crate.owned:
+        # A directory inside another of the crate's owned directories is walked with it.
+        walk = [d for d in crate.owned if not any(o != d and _under(d, o) for o in crate.owned)]
+        for owned in walk:
             base = os.path.join(top, owned)
             for cur, dirs, files in os.walk(base):
                 dirs[:] = [d for d in dirs if d not in ("target", "node_modules", ".git")]
@@ -191,6 +201,18 @@ def crate_references(root: Path, crates: list[Crate]) -> dict[str, set[str]]:
                             for ref in root_reads(top, text) if repo_rel == "." else [repo_rel]:
                                 refs[ref].add(crate.name)
     return refs
+
+
+def outside_reads(root: Path, ws: str = WORKSPACE) -> dict[str, set[str]]:
+    """crate_references without cargo metadata, for a planner on a host with no cargo
+    (focused_tests.py): each folder under WS/crates/ with a Cargo.toml is a crate owning that folder.
+    Whole-tree references (".") are left out: a source that names the repository root and lists no
+    `// affected-reads:` paths would select cargo for every change."""
+    crates = []
+    for manifest in sorted((Path(root) / ws).glob("crates/*/Cargo.toml")) + sorted((Path(root) / ws).glob("crates/*/*/Cargo.toml")):
+        rel = PurePosixPath(os.path.relpath(manifest.parent, root)).as_posix()
+        crates.append(Crate(manifest.parent.name, rel, [rel], set(), set()))
+    return {ref: names for ref, names in crate_references(root, crates).items() if ref != "."}
 
 
 AFFECTED_READS = re.compile(r"//\s*affected-reads:([^\n]*)")

@@ -289,6 +289,10 @@ fn each_verb_carries_its_arguments() {
     let today = call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b",
         "cwd": "/w", "vmKind": "owner"}));
     assert_eq!(today.args[11..], ["--interrupt", "--vm-kind", "owner"]);
+    // The owner's login: a flag that says it is on stdin, never the value in argv.
+    let login = call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b",
+        "cwd": "/w", "vmKind": "owner", "login": true}));
+    assert_eq!(login.args[11..], ["--interrupt", "--vm-kind", "owner", "--login-stdin"]);
     // Move to Another Machine: a pull from the old machine, then a seed of the new one, in that order.
     let relay =
         call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b", "cwd": "/w",
@@ -369,6 +373,11 @@ fn each_verb_carries_its_arguments() {
     assert_eq!(
         call(json!({"verb": "inference-gateway-status", "team": "team_0123456789abcdef0123"})).args,
         ["inference", "gateway", "status", "--json", "--team", "team_0123456789abcdef0123"]
+    );
+    // The gate hands over the install token it holds (hq#19758): no nested mint inside the 10 s read.
+    assert_eq!(
+        call(json!({"verb": "inference-gateway-status", "team": "team_0123456789abcdef0123", "held": true})).args,
+        ["inference", "gateway", "status", "--json", "--team", "team_0123456789abcdef0123", "--token-stdin"]
     );
     let release = call(json!({"verb": "start-chat-reservation", "release": true, "request": "{}"}));
     assert_eq!((release.args[2].as_str(), release.timeout_seconds), ("release", Some(15)));
@@ -619,4 +628,29 @@ fn a_copy_answer_carries_its_bytes_and_what_it_left_on_this_mac() {
         (&small["fallbackCode"], &small["copyBytes"], &small["machineTitle"]),
         (&json!("machine.too_small"), &json!(5), &json!("cloud-chats"))
     );
+}
+
+#[test]
+fn an_answers_phases_and_its_sync_spans_read_flat() {
+    let line = r#"{"ok":true,"session_id":"s","phases":{"state":3,"begin":40,"frozen_sync":900,"bad":"x"},"frozen_sync_phases":{"spans":{"pull.read_here":{"ms":350,"n":1},"git cat-file":{"ms":12,"n":1}},"remote":[]},"total_ms":1000}"#;
+    let (answer, _) = parse(&output(line, "", 0));
+    let want: BTreeMap<String, u64> = [
+        ("state", 3),
+        ("begin", 40),
+        ("frozen_sync", 900),
+        ("pull.read_here", 350),
+        ("git cat-file", 12),
+    ]
+    .into_iter()
+    .map(|(name, ms)| (name.to_owned(), ms))
+    .collect();
+    assert_eq!(answer.phases, want);
+    let (pull, _) = parse(&output(
+        r#"{"ok":true,"sync_phases":{"spans":{"pull.export":{"ms":60,"n":2}}}}"#,
+        "",
+        0,
+    ));
+    assert_eq!(pull.phases.get("pull.export"), Some(&60));
+    let (none, _) = parse(&output(r#"{"ok":true}"#, "", 0));
+    assert!(none.phases.is_empty());
 }

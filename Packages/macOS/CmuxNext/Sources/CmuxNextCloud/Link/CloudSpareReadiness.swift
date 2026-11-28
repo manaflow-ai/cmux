@@ -41,11 +41,17 @@ public final class CloudSpareReadiness {
         /// `machine`'s model-route report as its start's check would read it now (the App's `CloudMachineRoute.report()`:
         /// one command on the machine), nil when it has none worth keeping. Nil here: no report is read ahead.
         public var route: (@MainActor (_ machine: String) async -> String?)?
+        /// Makes the reserved folder of `machine`'s first home chat and warms its agent there (acpmux `warm-home`), after
+        /// the machine is keyed (the keyed start restarts the agent service, which would end an earlier warm): whether the
+        /// agent is ready. The chat that claims the machine takes that folder and that agent, so its start has no agent
+        /// boot left (about 3.5 s, 2026-11-24). Nil here: nothing is warmed ahead.
+        public var warm: (@MainActor (_ machine: String) async -> Bool)?
 
         public init(scope: @escaping @MainActor () -> Scope, key: @escaping @MainActor (String, Scope) async -> String?,
                     keyedInstance: @escaping @MainActor (String) -> String?, link: @escaping @MainActor (String, String?) -> SpareLink?,
-                    team: @escaping @MainActor () async -> String?, route: (@MainActor (String) async -> String?)? = nil) {
-            (self.scope, self.key, self.keyedInstance, self.link, self.team, self.route) = (scope, key, keyedInstance, link, team, route)
+                    team: @escaping @MainActor () async -> String?, route: (@MainActor (String) async -> String?)? = nil,
+                    warm: (@MainActor (String) async -> Bool)? = nil) {
+            (self.scope, self.key, self.keyedInstance, self.link, self.team, self.route, self.warm) = (scope, key, keyedInstance, link, team, route, warm)
         }
     }
 
@@ -98,10 +104,16 @@ public final class CloudSpareReadiness {
     }
 
     private let dependencies: Dependencies
+    /// The account's one spare-warm gate: a Cmd-Tab burst spawns one CLI process (hq#8747).
+    public let warmGate = CloudSpareWarmGate()
     private var keyed: [String: Keyed] = [:]
     private var routes: [String: Routed] = [:]
     /// When a route read ahead of `machine` last gave no report: not read again for ``keyRetry``.
     private var routeMissed: [String: ContinuousClock.Instant] = [:]
+    /// The daemon run each machine's first home chat was warmed under (``Dependencies/warm``): one warm per run.
+    private var warmed: [String: String] = [:]
+    /// When a warm ahead of `machine` last did not leave its agent ready: not tried again for ``keyRetry``.
+    private var warmMissed: [String: ContinuousClock.Instant] = [:]
     private var links: [String: Held] = [:]
     /// The prime running for each machine, with the ``resets`` it started under: one from before a reset writes
     /// nothing, so a prime after that reset starts its own. `dials`: it dials its link; `id` tells it from a later one.
@@ -110,6 +122,12 @@ public final class CloudSpareReadiness {
     /// Machines whose session asked for its link while a prime still ran for them: the primes running for it make no
     /// link after that.
     private var asked: Set<String> = []
+    /// Machines a session linked in this app run (``link(for:team:)``): a session's machine, never a spare again. A
+    /// warm that names one anyway (the platform's answer can lag a claim by seconds) primes nothing: a second link
+    /// made ahead starts a second carrier supervisor for the machine beside its session's, and their fight for the
+    /// machine's connection socket ends the session's streams (the desktop's rd stream ended after 0 bytes on
+    /// 2026-11-28, desktop-agent-production first-pixel).
+    private var sessioned: Set<String> = []
     /// When a key ahead of `machine` last did not key it: not tried again for ``keyRetry``, so a spare whose daemon is
     /// busy or too old is not read (or restarted) on every app activation.
     private var keyMissed: [String: ContinuousClock.Instant] = [:]
@@ -144,6 +162,10 @@ public final class CloudSpareReadiness {
         sweep()
         let resets = resets
         guard Self.signedIn(scope), !machine.isEmpty else { return }
+        guard !sessioned.contains(machine) else {
+            Self.log.notice("cloud spare \(machine, privacy: .public): not primed: a session already linked it, so it is no spare")
+            return
+        }
         let running = primes[machine].flatMap { $0.resets == resets ? $0 : nil }
         if let running, running.dials || !dials { return }
         lastPrime += 1
@@ -173,6 +195,7 @@ public final class CloudSpareReadiness {
         // Its session links now, with this link or its own: a prime still running for it (one that joined may still
         // read the team) makes no other.
         if primes[machine] != nil { asked.insert(machine) }
+        sessioned.insert(machine)
         guard let held = links.removeValue(forKey: machine) else { return nil }
         let scope = dependencies.scope()
         guard fits(held, scope: scope), held.team == team else {
@@ -199,7 +222,10 @@ public final class CloudSpareReadiness {
         keyMissed = [:]
         routes = [:]
         routeMissed = [:]
+        warmed = [:]
+        warmMissed = [:]
         asked = []
+        sessioned = []
         resets += 1
     }
 
@@ -226,9 +252,34 @@ public final class CloudSpareReadiness {
     private func primed(_ machine: String, team: String?, scope: Scope, resets: Int, dials: Bool) async {
         async let linked: Void = linkAhead(machine, team: team, scope: scope, resets: resets, dials: dials)
         await keyAhead(machine, scope: scope, resets: resets)
+        async let warm: Void = warmAhead(machine, scope: scope, resets: resets)
         await routeAhead(machine, scope: scope, resets: resets)
+        await warm
         await linked
     }
+
+    /// Warms the first home chat of a keyed spare (``Dependencies/warm``), under the daemon run that holds the key: once per
+    /// run; one that did not leave its agent ready waits ``keyRetry``. `resets`: as ``keyAhead(_:scope:resets:)``.
+    private func warmAhead(_ machine: String, scope: Scope, resets: Int) async {
+        guard resets == self.resets, let warm = dependencies.warm, let instance = dependencies.keyedInstance(machine),
+              isKeyed(machine, scope: scope, instance: instance), warmed[machine] != instance else { return }
+        if let missed = warmMissed[machine], now() < missed.advanced(by: Self.keyRetry) { return }
+        warmMissed[machine] = nil
+        // Marked before the command runs: a second prime meanwhile warms nothing again.
+        warmed[machine] = instance
+        let ready = await warm(machine)
+        guard resets == self.resets else { return }
+        guard ready, dependencies.scope() == scope, dependencies.keyedInstance(machine) == instance else {
+            if warmed[machine] == instance { warmed[machine] = nil }
+            warmMissed[machine] = now()
+            Self.log.info("cloud spare \(machine, privacy: .public): no home chat warmed ahead (not ready, or its agent service or the account changed); the start starts its agent")
+            return
+        }
+        Self.log.info("cloud spare \(machine, privacy: .public): home chat warmed ahead")
+    }
+
+    /// Whether `machine`'s first home chat was warmed under daemon run `instance` (tests and diagnostics).
+    public func holdsHomeWarm(_ machine: String, instance: String) -> Bool { warmed[machine] == instance }
 
     /// Reads the spare's model-route report once it is keyed, under the daemon run that holds the key: the keyed start
     /// restarts the machine's agent service, so a report from before it is not that run's. One read per run; a read
@@ -279,7 +330,7 @@ public final class CloudSpareReadiness {
         // Forgotten since its prime (the scope may still be the same one: Cloud turned off): no link is made or held.
         // Or its session asked for the link while the team was read, and links its own: a second serve nobody takes
         // is not made.
-        guard resets == self.resets, !asked.contains(machine), dependencies.scope() == scope else { return }
+        guard resets == self.resets, !asked.contains(machine), !sessioned.contains(machine), dependencies.scope() == scope else { return }
         // Held and fit: kept. A prime that dials replaces a link made for another team than the one it names; any
         // other prime, and one whose team could not be read, keeps what is held.
         let kept = links[machine].map { fits($0, scope: scope) && ($0.team == team || !dials || team == nil) } ?? false
@@ -336,6 +387,17 @@ public final class CloudSpareReadiness {
     private func end(_ link: SpareLink) {
         // task-owner: none; one stop line to the serve's supervisor, which ends its child
         Task { await link.end() }
+    }
+
+    /// Whether the account scope `now` (the App's `"user\0team"`, nil signed out) is a sign-in after `previous` (the scope
+    /// before it, `.none` before the first): the person's spare is warmed then, as an activation signed in warms it, so
+    /// it is keyed and linked from the sign-in on. An activation that came while signed out (a launch whose sign-in
+    /// lands a few seconds later) warmed nothing, and the first start's own warm was the first: its key ahead (a status
+    /// read, the keyed restart and its proof, 3 to 4.5 s from the warm's answer) then ended 1 to 2 s after the claim
+    /// connected, and the start's approvals step waited it out.
+    public nonisolated static func warmsAtSignIn(previous: String??, now: String?) -> Bool {
+        guard let now else { return false }
+        return (previous ?? nil) != now
     }
 
     /// A scope with a user: signed in (the team may be unset).

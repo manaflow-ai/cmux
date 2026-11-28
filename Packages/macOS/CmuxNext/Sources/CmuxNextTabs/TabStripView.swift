@@ -65,7 +65,7 @@ public final class TabStripView: NSView {
         }
     }
     /// The trailing controls' look (`TabTunables.trailingButtons`), applied with the design tokens.
-    public internal(set) var trailingButtons = TabTunables.trailingButtons.value
+    public internal(set) var trailingButtons = TabTunables.effectiveTrailingButtons
     /// The Debug looks the cells last drew (`CellLooks`), for change detection.
     var cellLooks = CellLooks()
     /// The pane-type ⌄ shows: the pane asks for it and the trailing look keeps it.
@@ -106,16 +106,16 @@ public final class TabStripView: NSView {
     /// The selected folder tab's bounds (in the strip) the flush chrome last read, so a selection or a
     /// reflow that moves the folder reports again and the shade's hole under it follows.
     var reportedFolderFrame: CGRect?
-    /// The strip is on the card's top row (the flush chrome's ``setRunsIntoCard(_:)``), so its selected
-    /// tab may run into the card; true until the chrome first says otherwise.
+    /// On the card's top row (``setRunsIntoCard(_:)``): its selected tab may run into the card; true until the chrome says not.
     var runsIntoCard = true
-    /// The strip is inside the card while the top row's tabs are folders (``setTonedInCard(_:)``): it tones its own
-    /// row (``inCardTone``) and its selected tab is a folder into the content below it.
+    /// Inside the card while the top row's tabs are folders (``setTonedInCard(_:)``): tones its row, its selected tab a folder.
     var tonedInCard = false
     /// The toned strip's shade and tab-row divider, made on first use (`TabStripView+CornerFlush`).
     var inCardTone: (shade: CAShapeLayer, divider: CAShapeLayer)?
     /// What ``inCardTone`` was last drawn from: a chrome redraw that changes none of it redraws nothing.
     var inCardToneDrawn: InCardToneKey?
+    /// The gooey tabs' selection blob (`appearance.gooeyTabs`), made when on; nil under off.
+    var goo: TabStripGoo?
     /// The pane's content starts with a toolbar row right under this strip (a browser's omnibar; the pane sets it):
     /// the tab row's divider leaves this pane out, the window's (`CornerFlushChrome`) and this strip's own in-card one,
     /// so the tabs and the omnibar read as one surface (Lawrence, 2026-11-13). A change reports to the window root.
@@ -564,7 +564,7 @@ public final class TabStripView: NSView {
     func applyTokens(animated: Bool) {
         metrics = customMetrics ?? TabStripMetrics()
         if opensNewTabMenuOnPress { metrics.newTabButtonWidth += Metrics.space4 }
-        trailingButtons = TabTunables.trailingButtons.value
+        trailingButtons = TabTunables.effectiveTrailingButtons
         newTabButton.hoverStyle = trailingButtons.hoverStyle
         newTabButton.splitSegment = showsTypeChooser && trailingButtons == .split
         newTabMenuButton.style = trailingButtons

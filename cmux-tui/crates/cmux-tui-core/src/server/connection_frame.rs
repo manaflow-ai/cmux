@@ -82,6 +82,12 @@ fn handle_frame(
     if let Some(keep_open) = carrier_role::try_handle(mux, client, &line, writer) {
         return keep_open;
     }
+    // The phone the Cloud link's owner check admitted, stamped before the stream declares the
+    // phone's capability (owner_phone.rs).
+    #[cfg(unix)]
+    if let Some(keep_open) = owner_phone::try_handle(mux, client, &line, writer) {
+        return keep_open;
+    }
     // A phone's channel reaches only what hostd's Cloud ACP adapter sends (phone_carrier.rs).
     #[cfg(unix)]
     if let Some(keep_open) = phone_carrier::refuse_line(mux, client, message, writer) {
@@ -364,8 +370,10 @@ fn handle_request_uncounted(
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
     let (mut reason, mut retryable, mut details) = (None, None, None);
-    let result = if matches!(cmd, Command::ListWorkspaces { known: None, limit: None, after: None })
-        && reads_the_built_tree(mux, client)
+    let result = if matches!(
+        cmd,
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None }
+    ) && reads_the_built_tree(mux, client)
     {
         // The readers of one build share its tree's text (tree_reply_text.rs). A `known` or
         // `limit` request answers from its own reply (cmd_workspaces::list_workspaces).

@@ -1,3 +1,4 @@
+public import CmuxNextAgentPanePlacement
 import CmuxNextDesign
 public import CmuxNextSettings
 public import Foundation
@@ -72,6 +73,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// The project of the chat the person last picked and started (`newTab.remember` `started`):
     /// where a page with no folder of its own starts. nil on another machine or before any start.
     public var startedProject: String?
+    /// The folder or GitHub repository the person last started a Cloud chat in (`newTab.remember` `cloudStarted`):
+    /// where a page with Cloud picked starts (cmux#53226). nil on another machine or before any Cloud start.
+    public var cloudStartedProject: String?
     /// Identifies the opening whose focused field must acknowledge readiness.
     public var inputToken: String?
     /// false: the page leaves its field unfocused (Cmd-L opened it for the omnibar, cx-e2aa);
@@ -155,9 +159,10 @@ extension AgentPaneNewTab {
     }
 
     /// The page with the project of the chat the person last picked and started, if any.
-    public func startingIn(_ startedProject: String?) -> AgentPaneNewTab {
+    public func startingIn(_ startedProject: String?, cloud cloudStartedProject: String? = nil) -> AgentPaneNewTab {
         var page = self
         page.startedProject = startedProject
+        page.cloudStartedProject = cloudStartedProject
         return page
     }
 

@@ -1,6 +1,7 @@
 // Session Info's Environment, drawn by the App (EnvironmentSection.tsx): where the chat runs,
 // its project, repository, branch, Remote Control, and active access grants.
 // It heads the panel bare: rows only, always open.
+import type { SessionInfoCloudControl } from "../../hybrid/SessionInfoCloud";
 import type { Translate } from "../../i18n";
 import type { AcpmuxSnapshot } from "../../model";
 import { homePath } from "../../sessionList";
@@ -31,6 +32,8 @@ export type EnvironmentInput = {
   /// The chat folder's GitHub repository, `owner/name`.
   repository?: string;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  /// The chat's cloud controls (RFD 0075); where present they stand in Remote Control's row.
+  cloud?: SessionInfoCloudControl;
   grants?: readonly { id: string; label: string; onRemove: () => void }[];
   cloudRepositoryAvailable?: boolean;
   attachedCloudRepos?: readonly AttachedCloudRepo[];
@@ -52,7 +55,16 @@ export function environmentSection(
   actions: NativeInfoActions,
   t: Translate,
 ): NativeInfoSection | undefined {
-  const { summary, repository, remoteControl, onOpenFolder, onOpenUrl, projectLook = "name", grants = [] } = input;
+  const {
+    summary,
+    repository,
+    remoteControl,
+    cloud,
+    onOpenFolder,
+    onOpenUrl,
+    projectLook = "name",
+    grants = [],
+  } = input;
   const openUrl = nativeExternalUrl(onOpenUrl);
   const machine = chatMachine(summary, input.machineName, input.peerKinds, input.place);
   const branch = summary?.branch;
@@ -167,7 +179,21 @@ export function environmentSection(
           }
         : {}),
     });
-  if (remoteControl) {
+  if (cloud) {
+    // The web's Runs On menu: the row shows the choice, its menu the three in the web's order.
+    const names = { auto: "composer.auto", cloud: "hybrid.pin.cloud", local: "hybrid.pin.local" } as const;
+    rows.push({
+      id: "runsOn",
+      symbol: "cloud",
+      title: t("hybrid.pin"),
+      trailing: t(names[cloud.view.pin]),
+      menu: (["local", "auto", "cloud"] as const).map((pin) => ({
+        label: t(names[pin]),
+        action: actions.add(`environment.runsOn:${pin}`, () => cloud.setPin(pin)),
+      })),
+      menuLabel: t("hybrid.pin"),
+    });
+  } else if (remoteControl) {
     const label = t("sessionInfo.environment.remoteControl");
     // The web's switch: a checkbox button that flips it.
     const toggle = actions.add("environment.remoteControl", () => remoteControl.set(!remoteControl.on));

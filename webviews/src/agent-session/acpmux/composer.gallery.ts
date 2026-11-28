@@ -163,6 +163,12 @@ async function pasteComparison(ctx: PlayContext) {
   });
   ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline img"));
+  // Inline view puts the pasted image in the text only, never also in the row over it (Leo,
+  // 2026-11-27: "did we fix that inline + top isn't the thing that gets displayed when you select
+  // inline?"). Two frames after it drew, so a late placeholder-to-chip swap is counted too.
+  await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));
+  const inStrip = ctx.document.querySelectorAll(".acpmux-attachments .acpmux-attachment").length;
+  if (inStrip !== 0) throw new Error(`inline view: the pasted image also drew in the strip (${inStrip})`);
 }
 
 // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, then Send comes in after the
@@ -1473,8 +1479,8 @@ export default agentPaneEntry({
           return Boolean(
             failed?.querySelector(".acpmux-file-chip__name")?.textContent === "build-logs.zip" &&
             failed.getAttribute("title")?.includes("build-logs.zip") &&
-            failed.querySelectorAll(".acpmux-attachment-remove").length === 1 &&
-            !failed.querySelector(".acpmux-attachment-retry"),
+            failed.querySelectorAll("button").length === 1 &&
+            failed.querySelectorAll(".acpmux-attachment-remove").length === 1,
           );
         });
       },
@@ -1627,7 +1633,11 @@ export default agentPaneEntry({
       nativeDelayMs: { "video.info": 3_600_000 },
       play: async (ctx) => {
         dropScreenshotAndVideo(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video.acpmux-attachment-video-unread"));
+        // One loading look from the drop to the poster: the loading glass, never the neutral square
+        // between (Leo, 2026-11-08: "it is bad that there are 2+ loading states").
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video.acpmux-paste-loading"));
+        if (ctx.document.querySelector(".acpmux-attachment-video-unread"))
+          throw new Error("a video whose poster is on its way shows the neutral square");
       },
     },
     "attachment-loading": {
@@ -1663,6 +1673,19 @@ export default agentPaneEntry({
       snapshot: chat(finished),
       ready: { draft: "Compare this with the previous result." },
       play: pasteComparison,
+    },
+    // Leo, 2026-11-22: "when im pasting attachments or whatever, there's a breif moment where i see the
+    // caret at the beginning of the composer after the preview for the attachment has already shown
+    // up". The stages composer-caret-frames.browser.test.ts pastes, drops and types on, reading the
+    // caret every painted frame: an empty prompt, and one with a line of text.
+    "caret-frames-empty": {
+      note: 'Leo, 2026-11-22: "we can\'t have that". An empty prompt the caret-frames test pastes and types on; the caret stands where it ends up in every frame after the edit.',
+      snapshot: chat(finished),
+    },
+    "caret-frames-draft": {
+      note: 'Leo, 2026-11-22: "idk if there are other places where our caret/typing/perciee is lagging liek that". A line of text the caret-frames test pastes into the middle and end of.',
+      snapshot: chat(finished),
+      ready: { draft: "Compare this with the previous result." },
     },
     "attachment-inline-reorder": {
       note: 'Leo, 2026-11-02: "I can\'t drag to reorder these inline attachments very easily anymore". Two screenshots in the text, the pointer away: no × shows. A press anywhere on a thumbnail and a drag moves it in the text (composer-inline-reorder.browser.test.ts).',
@@ -1816,7 +1839,7 @@ export default agentPaneEntry({
       },
     },
     "attachment-inline-image-failed": {
-      note: "Inline view: a kept draft's image whose bytes cannot be drawn says Couldn't load image in the prompt's text, as the strip's does, with Retry and its x.",
+      note: "Inline view: a kept draft's image whose bytes cannot be drawn says Couldn't load image in the prompt's text, as the strip's does, with only its x: drawing the same bytes again draws nothing more, so there is no Retry.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
@@ -1829,8 +1852,8 @@ export default agentPaneEntry({
         const chip = ctx.find({ selector: tile });
         if (chip.querySelector(".acpmux-attachment-failed-text")?.textContent !== "Couldn't load image")
           throw new Error("an inline image that cannot be drawn must say Couldn't load image");
-        if (!chip.querySelector("button.acpmux-attachment-retry"))
-          throw new Error("an inline image that cannot be drawn must offer Retry");
+        if (chip.querySelectorAll("button").length !== 1)
+          throw new Error("an inline image that cannot be drawn must offer no button but its remove");
         if (!chip.querySelector("button.acpmux-attachment-remove[aria-label]"))
           throw new Error("an inline image that cannot be drawn must keep its remove button");
         await ctx.hover({ selector: tile });
@@ -1880,7 +1903,7 @@ export default agentPaneEntry({
       },
     },
     "attachment-failed": {
-      note: "A file the composer could not attach stays in the strip saying why (here the app could not save it), with Retry and its ×, instead of a placeholder that never loads.",
+      note: 'A file whose upload failed (here the app could not save it: the disk is full) keeps loading while it is uploaded again on its own; once that has lasted (at once here) its tile says "Still trying to upload…" and why in its tooltip, with only its ×, never a Retry (Leo, 2026-11-22: "vacuous decisions like that should be just done").',
       snapshot: chat(finished),
       native: { "chat.upload.begin": { nativeError: { code: "io", userMessage: "The disk is full." } } },
       play: async (ctx) => {
@@ -1897,11 +1920,18 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-failed").length === 2);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment[data-still-trying]").length === 2);
+        for (const tile of ctx.document.querySelectorAll<HTMLElement>(".acpmux-attachment[data-still-trying]")) {
+          const title = tile.getAttribute("title") ?? "";
+          if (!title.startsWith("Still trying to upload") || !title.includes("The disk is full."))
+            throw new Error(`a still-trying tile's tooltip must say so and why, not ${JSON.stringify(title)}`);
+          if (tile.getAttribute("aria-busy") !== "true") throw new Error("a still-trying tile keeps loading");
+          if (tile.querySelectorAll("button").length !== 1) throw new Error("a still-trying tile offers only its ×");
+        }
       },
     },
     "image-original-failed": {
-      note: "A pasted screenshot whose full-size original the app could not save: its preview stays staged and still sends, with a Retry badge whose tooltip says why.",
+      note: "A pasted screenshot whose full-size original the app could not save: its preview stays staged and still sends, the original is uploaded again on its own, and once that has lasted (at once here) a small mark in its corner says so, its tooltip why; no Retry.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
@@ -1919,11 +1949,13 @@ export default agentPaneEntry({
         });
         pasteFiles(ctx, [file]);
         await ctx.waitFor(() =>
-          ctx.document.querySelector(".acpmux-attachment-image .acpmux-attachment-original-retry"),
+          ctx.document.querySelector(".acpmux-attachment-image .acpmux-attachment-original-still"),
         );
-        const badge = ctx.find({ selector: ".acpmux-attachment-original-retry" });
+        const badge = ctx.find({ selector: ".acpmux-attachment-original-still" });
         if (!badge.getAttribute("title")?.includes("The disk is full."))
-          throw new Error("the Retry badge's tooltip must say why the original failed");
+          throw new Error("the still-uploading mark's tooltip must say why the original failed");
+        if (badge.closest("button") || badge.querySelector("button"))
+          throw new Error("the still-uploading mark is no button: there is nothing to decide");
       },
     },
     draft: {
@@ -2244,7 +2276,7 @@ export default agentPaneEntry({
       },
     },
     "queued-steering": {
-      note: "A prompt sent now (its Steer button) to an agent that cannot steer waits first under Steering and runs next; the turn runs on. The queued prompts follow it, one muted line each.",
+      note: "A prompt sent now (its Steer button) to an agent that cannot steer waits first in the queue as an ordinary row (no Steering label, no Steer button) and runs next; the turn runs on. The queued prompts follow it, one muted line each.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [{ id: "q0", prompt: "Stop and fix the space thing first", next: true }, ...waiting],

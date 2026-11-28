@@ -1,7 +1,7 @@
 // Reads `wrangler tail --format json` on stdin (pretty-printed events, one after another) and prints one
 // compact line per event: time, method, path, status, outcome, a Durable Object RPC method or cron, log
 // lines and exceptions. Headers, bodies, query strings and addresses are dropped (the Actions log is public),
-// and anything shaped like an email is redacted. Used by cmux-vm.yml's tail-production action.
+// and anything shaped like an email is redacted. Used by cmux-vm.yml's tail-production and tail-staging actions.
 import { createInterface } from "node:readline";
 
 const redact = (text) => String(text).replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "<email>");

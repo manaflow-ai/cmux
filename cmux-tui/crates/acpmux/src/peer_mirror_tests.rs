@@ -317,3 +317,52 @@ async fn a_takeover_refused_at_the_origin_bound_ends_the_mirror() {
     assert!(titles(&local).is_empty());
     link.serving.abort();
 }
+
+/// A mirror's end sorts by what it means: the stream's end is a clean close, a
+/// served code goes by the code, a hub refusal by the hub's own class.
+#[test]
+fn dial_end_eof_is_clean_close() {
+    assert_eq!(DialEnd::Eof.resume_class(), ResumeErrorClass::CleanClose);
+    assert_eq!(DialEnd::Closed("cursor_gone".into()).resume_class(), ResumeErrorClass::GapTooOld);
+    assert_eq!(DialEnd::Closed("stale_edition".into()).resume_class(), ResumeErrorClass::GapTooOld);
+    assert_eq!(DialEnd::Closed("mailbox_full".into()).resume_class(), ResumeErrorClass::Transient);
+    assert_eq!(
+        DialEnd::Closed("the client closed".into()).resume_class(),
+        ResumeErrorClass::Unknown
+    );
+    assert_eq!(DialEnd::Refused(HubError::CursorGone).resume_class(), ResumeErrorClass::GapTooOld);
+    assert_eq!(DialEnd::Refused(HubError::OriginLimit).resume_class(), ResumeErrorClass::Unknown);
+}
+
+/// Restarts in a row with no unit going in end the mirror once the Transient
+/// budget is spent, after the same back-off as before; a unit going in gives
+/// the whole budget back.
+#[tokio::test(start_paused = true)]
+async fn mirror_restarts_stop_at_the_transient_bound() {
+    let local = hub();
+    let counters = DialCounters::default();
+    let mut dial = Dial::new(local, ORIGIN, &counters);
+    dial.start();
+    let bound = ResumeErrorClass::Transient.policy().attempts;
+    let began = tokio::time::Instant::now();
+    for _ in 0..bound {
+        assert!(dial.restart().await.is_ok());
+    }
+    // 100ms, 200ms, ... up to the 5s cap: the waits are unchanged.
+    let waited: Duration = (1..bound)
+        .map(|n| Duration::from_millis(50).saturating_mul(1 << n.min(7)).min(MAX_RESTART_BACKOFF))
+        .sum();
+    assert!(began.elapsed() >= waited, "{:?} < {waited:?}", began.elapsed());
+    assert_eq!(counters.restarts.load(Ordering::Relaxed), u64::from(bound));
+    let end = dial.restart().await;
+    assert!(
+        matches!(
+            end,
+            Err(DialEnd::Restarts { class: ResumeErrorClass::Transient, attempts }) if attempts == bound
+        ),
+        "{end:?}"
+    );
+    assert_eq!(counters.restarts.load(Ordering::Relaxed), u64::from(bound));
+    dial.restarts.on_success();
+    assert!(dial.restart().await.is_ok());
+}

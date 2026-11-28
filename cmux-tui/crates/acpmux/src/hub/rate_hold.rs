@@ -52,7 +52,12 @@
 //!   and a restart or a takeover reads the last one back before the queue goes on
 //!   ([`Hub::restore_rate_hold`]): a hold before its `until` holds until then, a parked chat
 //!   stays parked, and the strikes carry over. Its continuation is restored as before
-//!   (`auto_resume/restore.rs`), also behind what queued meanwhile.
+//!   (`auto_resume/restore.rs`), also behind what queued meanwhile. A hold or park another
+//!   machine wrote is not read back (each record names its `host`): the limit is that machine's
+//!   login's. A chat moved from a Mac whose login was used up to a Cloud machine, which answers
+//!   on the team's inference gateway, kept the Mac's hold to the weekly reset, and the far
+//!   prompt queued behind it with no answer (synthetic probe cloud-session-move-to-cloud,
+//!   2026-11-26 15:50Z and 21:07Z: "the turn is still running after 300s").
 //! - After `acpmux session stop`, another agent's message started a turn at once. Stop (and
 //!   `session stop`) of a chat that is held, parked or has a strike parks it now
 //!   ([`Hub::park_at_stop`], `rate_limit_parked` with `why: "stopped"`): it starts no turn by
@@ -135,6 +140,18 @@ pub(super) const PARK_AFTER: u32 = 6;
 
 /// A parked chat tells the session it reports to at most this often.
 pub(super) const NOTICE_EVERY_MS: u64 = 30 * 60_000;
+
+/// The machine a `rate_limit_held` or `rate_limit_parked` record was written on: the limit is
+/// the login's on that machine (`restore_rate_hold`).
+fn hold_host() -> String {
+    crate::hand::pair::hostname()
+}
+
+/// Whether a hold record names a machine other than this one. A record from before hosts were
+/// written names none and holds as before.
+fn held_elsewhere(msg: &Value) -> bool {
+    msg.get("host").and_then(Value::as_str).is_some_and(|host| host != hold_host())
+}
 
 /// The least a chat with `strikes` turns in a row failed on the limit waits: `base` (the
 /// continuation's minute, [`backoff_base`]), doubling with each strike, at most [`MAX_HOLD_MS`].
@@ -263,7 +280,7 @@ impl Hub {
                     session,
                     "mux",
                     "rate_limit_held",
-                    json!({"turnId": turn, "until": until, "strikes": s.strikes}),
+                    json!({"turnId": turn, "until": until, "strikes": s.strikes, "host": hold_host()}),
                 );
             }
             !std::mem::replace(&mut s.timer, true)
@@ -538,7 +555,7 @@ impl Hub {
             session,
             "mux",
             "rate_limit_parked",
-            json!({"turnId": turn, "strikes": strikes, "contextTokens": context, "noticed": notice, "why": "strikes"}),
+            json!({"turnId": turn, "strikes": strikes, "contextTokens": context, "noticed": notice, "why": "strikes", "host": hold_host()}),
         );
         if notice {
             self.tell_rate_park(session, strikes, context, now);
@@ -568,7 +585,7 @@ impl Hub {
             session,
             "mux",
             "rate_limit_parked",
-            json!({"turnId": turn, "strikes": strikes, "noticed": false, "why": "stopped"}),
+            json!({"turnId": turn, "strikes": strikes, "noticed": false, "why": "stopped", "host": hold_host()}),
         );
     }
 
@@ -648,7 +665,7 @@ impl Hub {
                 .last_turn
                 .and_then(|t| t.get("errorText").and_then(Value::as_str).map(str::to_owned))
                 .unwrap_or_else(|| "HTTP 429".into());
-            let note = super::auto_resume::continue_text(&error, "rate_limit");
+            let note = super::auto_resume::continue_text_for(session, &error, "rate_limit");
             session.rate_note.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert(note);
         }
         self.lift_rate_hold(session, why);
@@ -711,6 +728,12 @@ impl Hub {
             },
         );
         let (Ok(()), Some(last)) = (scanned, last) else { return };
+        // A hold another machine wrote is its login's limit, not this machine's: a chat moved
+        // to a Cloud machine answers on the team's gateway there, so it starts unheld.
+        if held_elsewhere(&last.msg) {
+            tracing::info!(session = %session.id, kind = %last.kind, "rate hold of another machine not restored");
+            return;
+        }
         let strikes = |default: u32| {
             last.msg
                 .get("strikes")
@@ -910,7 +933,10 @@ impl Hub {
         let delay = next_at.saturating_sub(now_ms());
         tokio::select! {
             () = tokio::time::sleep(Duration::from_millis(delay)) => {}
-            () = wake.notified() => {}
+            () = wake.notified() => return,
+        }
+        if reason == crate::protocol::session::RetryReason::Disk {
+            self.wait_disk_free(session, wake).await;
         }
     }
 }
@@ -949,34 +975,9 @@ pub(crate) fn until_line(until: u64) -> String {
 mod sleep_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+#[path = "rate_hold_moved_tests.rs"]
+mod moved_tests;
 
-    #[test]
-    fn the_backoff_doubles_from_its_base_up_to_half_an_hour() {
-        let waits: Vec<u64> = (1..=8).map(|n| backoff_ms(n, MIN_HOLD_MS) / 1000).collect();
-        assert_eq!(waits, [60, 120, 240, 480, 960, 1800, 1800, 1800]);
-        assert_eq!(backoff_ms(0, MIN_HOLD_MS), MIN_HOLD_MS);
-        assert_eq!(backoff_ms(u32::MAX, MIN_HOLD_MS), MAX_HOLD_MS);
-        assert_eq!(backoff_ms(3, 20), 80);
-    }
-
-    #[test]
-    fn the_base_is_the_continuations_minute() {
-        assert_eq!(backoff_base(&[10_000, 60_000, 300_000, 1_200_000]), 60_000);
-        assert_eq!(backoff_base(&[25]), 25);
-        assert_eq!(backoff_base(&[]), MIN_HOLD_MS);
-    }
-
-    #[test]
-    fn the_park_line_says_how_to_go_on() {
-        let line = park_line("claude-sr2-coord", 6, Some(334_751));
-        assert_eq!(
-            line,
-            "acpmux: claude-sr2-coord is waiting out the rate limit: its last 6 turns failed on \
-             it (HTTP 429), context 334K tokens. It is parked with its queue kept and tries \
-             again by itself every half hour (compacted first); `acpmux retry claude-sr2-coord` \
-             or the person's own prompt sends it on now."
-        );
-    }
-}
+#[cfg(test)]
+#[path = "rate_hold_tests.rs"]
+mod tests;

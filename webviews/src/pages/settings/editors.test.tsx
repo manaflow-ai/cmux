@@ -3,6 +3,7 @@ import { mockManagedKey } from "./mockProvider";
 import { categories, homes } from "./categories";
 import { DENSITY_ROWS } from "./density";
 import { rowsByKey, type SchemaRow } from "./schema";
+import type { LooksRun } from "./ops";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
@@ -51,6 +52,8 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has("select") && has("button.icon-button") ? null : "no menu + play button";
     case "url":
     case "text":
+      // Settings > Cloud > Default Image is a menu of Auto and the account's environments.
+      if (row.key === "cloud.defaultImage") return has("select") && has("input.text", 0) ? null : "no image menu";
       return has("input.text") ? null : "no text field";
     case "host_list":
       return has("input.token-input") ? null : "no token field";
@@ -74,8 +77,10 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       // Per-level sound maps are set from the sidebar menus, the palette and the CLI; never a row.
       return "a sound_rules row on the page";
     case "json":
-      // The sidebar row layouts are page_hidden until the row-layout editor gives them a control.
-      return "a json row on the page";
+      // The sidebar row layouts share the Row Layout editor; any other nested value is JSON text.
+      if (row.key.startsWith("sidebar.workspaceRow.lines"))
+        return has("[data-row-layout-editor]") ? null : "no row layout editor";
+      return has("textarea.json-field") ? null : "no JSON field";
   }
 }
 
@@ -197,6 +202,12 @@ describe("editors", () => {
     expect(ops(page.provider, "cmux.settings.preview.end")).toEqual([{ key: "appearance.backgroundOpacity" }]);
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "appearance.backgroundOpacity", value: 0.7 }]);
     const order = page.provider.log
+      // Appearance's looks gallery reads its packs and their previews when the page opens (#52638):
+      // reads, no write. Its other verbs (install, on, off, order) stay in the order.
+      .filter(
+        (entry) =>
+          !(entry.op === "cmux.settings.looks" && ["gallery", "preview"].includes((entry.params as LooksRun).verb)),
+      )
       .map((entry) => entry.op)
       .filter(
         (op) =>
@@ -210,7 +221,9 @@ describe("editors", () => {
           // The try-on bar reads whether something is tried on when the page opens.
           op !== "cmux.settings.customize.run" &&
           // So does its Customization Library card, its list.
-          op !== "cmux.settings.customize.library",
+          op !== "cmux.settings.customize.library" &&
+          // Undo reads the durable settings history around each step (a read, no write).
+          op !== "cmux.settings.history",
       );
     expect(order).toEqual([
       "cmux.settings.preview",

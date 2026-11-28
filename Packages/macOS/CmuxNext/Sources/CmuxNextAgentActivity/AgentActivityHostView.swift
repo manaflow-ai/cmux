@@ -111,8 +111,12 @@ public final class AgentActivityHostView: NSView {
         guard webView.url != nil else { return }
         let state = AgentActivityRequests(model: model, source: source).state()
         guard JSONSerialization.isValidJSONObject(state), let data = try? JSONSerialization.data(withJSONObject: state), let json = String(data: data, encoding: .utf8) else { return }
-        webView.evaluateJavaScript("window.cmuxActivityReceive && window.cmuxActivityReceive(\(json));", completionHandler: nil)
+        // One fixed body with the state as its argument, never a new script text per push: WebKit's
+        // web process kept each one (RFD 0062, renderer idle growth).
+        webView.callAsyncJavaScript(Self.receiveBody, arguments: ["state": json], in: nil, in: .page, completionHandler: nil)
     }
+
+    static let receiveBody = "window.cmuxActivityReceive && window.cmuxActivityReceive(JSON.parse(state));"
 }
 
 private final class AgentActivityBridge: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDelegate {

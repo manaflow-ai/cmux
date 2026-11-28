@@ -14,6 +14,7 @@ function picker(state: Partial<GitHubPickerState> = {}): GitHubPicker {
     onConnect: () => {},
     onSearch: () => {},
     onRetry: () => {},
+    onAddAccount: () => {},
   };
 }
 
@@ -136,6 +137,13 @@ export default componentEntry<Props>({
       picker({ status: { ...notConnected, pendingApproval: true } }),
     ),
     opening: entry("The GitHub page is opening.", picker({ status: notConnected, connecting: true })),
+    "waiting-step": {
+      ...entry(
+        "The GitHub step says the repositories show up once an owner approves (Leo 2026-11-25).",
+        picker({ status: { ...notConnected, pendingApproval: true } }),
+      ),
+      play: step(/^GitHub repository/),
+    },
     "unavailable-refused": {
       ...entry(
         "The install request failed and can be retried.",
@@ -147,6 +155,27 @@ export default componentEntry<Props>({
       ...entry(
         "A GitHub link that needs reauthorization shows the reason supplied by the host.",
         picker({ status: { ...notConnected, message: "Reauthorize the GitHub App to see your repositories." } }),
+      ),
+      play: step(/^GitHub repository/),
+    },
+    "on-github": {
+      ...entry(
+        "GitHub's page is open in the app's own panel: the step says to finish there, no click needed (Leo 2026-11-25).",
+        picker({ status: { ...notConnected, progress: "on_github" } }),
+      ),
+      play: step(/^GitHub repository/),
+    },
+    finishing: {
+      ...entry(
+        "The app finishes what GitHub handed back itself, no page of ours in between.",
+        picker({ status: { ...notConnected, progress: "finishing" } }),
+      ),
+      play: step(/^GitHub repository/),
+    },
+    connected: {
+      ...entry(
+        "The connect just finished: the repositories are here at once, with whose they are and Add organization.",
+        picker({ status: { ...ready, progress: "connected", account: "acme" }, repos }),
       ),
       play: step(/^GitHub repository/),
     },
@@ -163,6 +192,20 @@ export default componentEntry<Props>({
         extraFolders: { draft: { machine: "local", folders: ["/Users/you/notes"] }, onChange: () => {} },
       },
     ),
+    "not-shared": {
+      ...entry(
+        "The repository wanted when Connect started is still not shared: the step says how to add it.",
+        picker({ status: ready, repos, missing: "acme/billing" }),
+      ),
+      play: step(/^GitHub repository/),
+    },
+    "typed-not-shared": {
+      ...entry("A typed owner/name the app can't see says how to add it.", picker({ status: ready, repos })),
+      play: async (ctx) => {
+        await step(/^GitHub repository/)(ctx);
+        await ctx.type("acme/billing", { role: "combobox", name: "Search repositories" });
+      },
+    },
     "ready-picked": {
       ...entry("The GitHub step shows the selected private repository.", picker({ status: ready, repos }), {
         ...cloud,
@@ -227,13 +270,36 @@ export default componentEntry<Props>({
       },
     },
     "cloud-empty": entry(
-      "Cloud offers three sources even with no repositories or folders.",
+      "Cloud offers four sources even with no repositories or folders.",
       unavailable("not_configured"),
       cloud,
     ),
     "cloud-folder-empty": {
       ...entry("The Cloud folder step explains an empty list.", picker({ status: ready, repos }), cloud),
       play: step(/^Folder on a Cloud machine/),
+    },
+    "cloud-url-empty": {
+      ...entry(
+        "With Cloud picked, a pasted Git URL is cloned on the Cloud machine.",
+        picker({ status: ready, repos }),
+        cloud,
+      ),
+      play: gitURL(),
+    },
+    "cloud-url-github": {
+      ...entry(
+        "With Cloud picked, a GitHub URL becomes the chat's repository; the chip names it.",
+        picker({ status: ready, repos }),
+        cloud,
+      ),
+      play: async (ctx) => {
+        await gitURL("https://github.com/octocat/Hello-World")(ctx);
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-add-project-palette"));
+      },
+    },
+    "cloud-url-gitlab": {
+      ...entry("With Cloud picked, another host's URL is refused in words.", picker({ status: ready, repos }), cloud),
+      play: gitURL("https://gitlab.com/gitlab-org/gitlab-test", "Cloud starts in GitHub repositories only for now."),
     },
     "url-empty": {
       ...entry("Enter an HTTPS Git URL to clone on This Mac.", picker()),

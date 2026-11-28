@@ -30,6 +30,7 @@ pub(super) fn dev_options(dir: &Path) -> DevOptions {
         build: None,
         build_timeout: dev::BUILD_TIMEOUT,
         bun: None,
+        headless: false,
         every_size: false,
     }
 }
@@ -137,6 +138,7 @@ fn capabilities_parse_and_print_the_manifest_rows() {
     let fetch = all.lines().find(|l| l.starts_with("net.fetch ")).expect("net.fetch");
     assert!(fetch.contains("refused when sandboxed"), "{fetch}");
     assert!(all.contains("ops no app may call") && all.contains("cmux app API "), "{all}");
+    assert!(all.contains("cmux customize docs") && all.contains("cmux customize prompts"), "{all}");
     let never = table.never().next().unwrap();
     let one = super::capabilities_table(&table.manifest_json(Some(never)).unwrap());
     assert!(one.lines().nth(1).unwrap().contains("never"), "{one}");
@@ -175,6 +177,90 @@ fn the_scaffold_is_a_valid_package_with_its_export_built() {
     let files = dev::package_files(&pkg).unwrap();
     assert_eq!(files, vec![PathBuf::from("cmux-app.json"), PathBuf::from("dist/main.js")]);
     assert!(scaffold::scaffold(&dir, "my-prs", "section").is_err(), "a folder with files stays");
+}
+
+#[test]
+fn headless_loads_catalog_exports_without_invoking_commands() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("hello");
+    scaffold::scaffold(&dir, "hello", "command").unwrap();
+    std::fs::write(
+        dir.join("dist/main.js"),
+        r#"function hello() { throw new Error("command invoked"); }
+globalThis.__cmuxAppExports = Object.freeze({ hello });"#,
+    )
+    .unwrap();
+    let mut options = dev_options(&dir);
+    options.headless = true;
+    let outcome = dev::once(&global(&root.path().join("no-daemon.sock")), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(
+        outcome.next.as_deref().is_some_and(|next| next.contains("loaded catalog command exports")),
+        "{:?}",
+        outcome.next
+    );
+}
+
+#[test]
+fn headless_rejects_catalog_commands_that_cannot_load() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("hello");
+    scaffold::scaffold(&dir, "hello", "command").unwrap();
+    let mut options = dev_options(&dir);
+    options.headless = true;
+    let args = global(&root.path().join("no-daemon.sock"));
+    for (script, expected) in [
+        ("throw new Error('broken init')", "broken init"),
+        ("globalThis.__cmuxAppExports = {}", "missing catalog command function: hello"),
+        ("globalThis.__cmuxAppExports = { hello: 42 }", "missing catalog command function: hello"),
+        (
+            "globalThis.__cmuxAppExports = Object.create({ hello() {} })",
+            "missing catalog command function: hello",
+        ),
+    ] {
+        std::fs::write(dir.join("dist/main.js"), script).unwrap();
+        let outcome = dev::once(&args, &options, false);
+        assert_eq!(outcome.phase, Phase::Load, "{:?}", outcome.errors);
+        assert!(
+            outcome.errors.iter().any(|e| e.message.contains(expected)),
+            "{:?}",
+            outcome.errors
+        );
+    }
+}
+
+#[test]
+fn headless_keeps_manifest_only_composer_extensions_load_free() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("composer");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("cmux-app.json"),
+        r#"{
+          "manifestVersion": 2,
+          "id": "local/composer",
+          "name": "Composer",
+          "version": "1.0.0",
+          "description": "A manifest-only composer extension.",
+          "engines": { "cmux": "^2.0" },
+          "implements": {
+            "cmux.composer.command/1": {
+              "title": "Composer",
+              "options": {
+                "commands": [
+                  { "name": "hello", "insert": "Say hello." }
+                ]
+              }
+            }
+          }
+        }"#,
+    )
+    .unwrap();
+    let mut options = dev_options(&dir);
+    options.headless = true;
+    let outcome = dev::once(&global(&root.path().join("no-daemon.sock")), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(outcome.probe.is_none());
 }
 
 /// A folder outside a cmux checkout (a sample copied out, one a person
@@ -577,11 +663,12 @@ fn serve(
         match request["cmd"].as_str().unwrap_or("") {
             "apps-list" => {
                 let apps = if local.join(name).is_dir() {
-                    vec![
-                        json!({"id": app, "version": "0.1.0", "installed": installed, "enabled": true,
+                    vec![json!({"id": app, "version": "0.1.0", "installed": installed,
+                        // As the daemon answers: an app never installed has the absent
+                        // record (mirror.rs `absent`), which is not enabled.
+                        "enabled": installed,
                         "hidden": false, "available": true, "bundle_dir": local.join(name),
-                        "web_pages": served_web_pages(&local.join(name))}),
-                    ]
+                        "web_pages": served_web_pages(&local.join(name))})]
                 } else {
                     vec![]
                 };
@@ -607,7 +694,7 @@ fn serve(
                         context["surface"] = json!("widget");
                     }
                     out.push(
-                        match host_scene(app, &script, export, &context) {
+                        match super::headless::host_scene(app, &script, export, &context) {
                             Ok(ops) => json!({"event": "apps-scene", "mount_id": mount_id, "ops": ops}),
                             Err(reason) => json!({"event": "apps-mount-failed", "mount_id": mount_id, "reason": reason}),
                         },
@@ -688,51 +775,6 @@ fn serve(
             }
         }
     }
-}
-
-/// What the real app host renders when `export` of the script `main` mounts:
-/// QuickJS runs it as the daemon's host does, every call it makes is answered
-/// with no value, and the scene's op batches are returned in order (or the
-/// init or mount failure).
-fn host_scene(app: &str, main: &str, export: &str, context: &Value) -> Result<Value, String> {
-    use cmux_app_host::{AppInfo, AppVm, FromHost, InitParams, Limits};
-    let mut vm = AppVm::new(Limits::default())?;
-    vm.init(InitParams {
-        app: AppInfo { id: app.into(), version: "0.1.0".into() },
-        settings: json!({}),
-        api_version: cmux_app_manifest::capabilities::Capabilities::get().api_version.clone(),
-        ops: None,
-        known_ops: None,
-        locale: None,
-        strings: Value::Null,
-        main: main.into(),
-        main_name: Some("dist/main.js".into()),
-    })
-    .map_err(|e| format!("init: {e:?}"))?;
-    if let Some(refused) = vm.mount("probe", export, context).map_err(|e| format!("{e:?}"))? {
-        return Err(refused);
-    }
-    let mut ops = Vec::new();
-    for _ in 0..32 {
-        let outbox = vm.take_outbox();
-        if outbox.is_empty() {
-            break;
-        }
-        for message in outbox {
-            match message {
-                FromHost::Scene { ops: batch, .. } => {
-                    ops.extend(batch.as_array().cloned().unwrap_or_default());
-                }
-                FromHost::Call { cb, .. } => {
-                    vm.resolve(cb, true, &json!({ "value": null }))
-                        .map_err(|e| format!("{e:?}"))?;
-                }
-                FromHost::Fatal { .. } => return Err(format!("{message:?}")),
-                _ => {}
-            }
-        }
-    }
-    Ok(Value::Array(ops))
 }
 
 #[test]
@@ -1226,8 +1268,14 @@ fn parses_add_share_and_search() {
         parse(&words("add ./x --no-install")),
         Ok(Request::Add(share::AddOptions { source: "./x".into(), install: false }))
     );
-    assert_eq!(parse(&words("share")), Ok(Request::Share { dir: None }));
-    assert_eq!(parse(&words("share ext/x")), Ok(Request::Share { dir: Some("ext/x".into()) }));
+    assert_eq!(
+        parse(&words("share")),
+        Ok(Request::Share { dir: ".".into(), name: None, private: false })
+    );
+    assert_eq!(
+        parse(&words("share ext/x")),
+        Ok(Request::Share { dir: "ext/x".into(), name: None, private: false })
+    );
     assert_eq!(parse(&words("search")), Ok(Request::Search { query: None }));
     assert_eq!(
         parse(&words("search pull requests")),

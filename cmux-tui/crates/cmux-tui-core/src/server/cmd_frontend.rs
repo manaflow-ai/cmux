@@ -76,6 +76,10 @@ pub(super) fn put_frontend_projection(
         expected_projection_revision,
         &projection,
     )?;
+    // The launch snapshot carries every native projection (all but `resource-api`).
+    if frontend != "resource-api" {
+        mux.launch_snapshot_projection_writer(client);
+    }
     let mut value = serde_json::to_value(commit.projection)?;
     value.insert("replayed", json!(commit.replayed));
     Ok(value)
@@ -136,6 +140,37 @@ pub(super) fn notify(
     }
     let notification = mux.post_notification_as(&actor, title, body, level, surface, source)?;
     Ok(json!({ "notification": notification }))
+}
+
+/// The app's report of what it did with notification `notification`'s banner:
+/// `desktop` is `shown` or `suppressed`, `reason` one of [`crate::mux::DELIVERY_REASONS`].
+pub(super) fn record_notification_delivery(
+    mux: &Arc<Mux>,
+    notification: u64,
+    desktop: String,
+    reason: Option<String>,
+) -> anyhow::Result<Value> {
+    let outcome = crate::mux::NotificationDesktopOutcome::parse(&desktop)
+        .ok_or_else(|| anyhow::anyhow!("bad desktop {desktop}: shown or suppressed"))?;
+    let reason = match reason.as_deref() {
+        None => None,
+        Some(reason) => Some(
+            crate::mux::DELIVERY_REASONS
+                .iter()
+                .copied()
+                .find(|known| *known == reason)
+                .ok_or_else(|| anyhow::anyhow!("bad reason {reason}"))?,
+        ),
+    };
+    let id = mux.record_notification_delivery(
+        notification,
+        outcome,
+        reason,
+        crate::safe_mode_flag::now_ms(),
+    )?;
+    Ok(
+        json!({ "id": id, "notification": notification, "desktop": outcome.as_str(), "reason": reason }),
+    )
 }
 
 pub(super) fn list_agents(
@@ -221,6 +256,12 @@ pub(super) fn list_notifications(
                     "message": texts.as_ref().and_then(|texts| texts.message.as_deref()),
                     "prompt": texts.as_ref().and_then(|texts| texts.prompt.as_deref()),
                     "detail": texts.as_ref().map(|texts| &*texts.detail),
+                    // What the app did with the banner, once it reports (memory only).
+                    "delivery": post.as_ref().and_then(|post| post.delivery.as_ref()).map(|delivery| json!({
+                        "desktop": delivery.desktop.as_str(),
+                        "reason": delivery.reason,
+                        "at_ms": delivery.at_ms,
+                    })),
                 })
             })
             .collect::<Vec<_>>(),

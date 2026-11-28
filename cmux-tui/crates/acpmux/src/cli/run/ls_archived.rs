@@ -23,7 +23,7 @@ fn tag_text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
 
 /// Whether `row` is archived, as the app reads the tag (`AgentChatDetail.archived`): any value
 /// but empty or `false`.
-pub(super) fn archived(row: &Value) -> bool {
+pub(crate) fn archived(row: &Value) -> bool {
     match tag(row, ARCHIVED_TAG) {
         None => false,
         Some(Value::Bool(b)) => *b,
@@ -37,7 +37,11 @@ fn archived_at(row: &Value) -> Option<u64> {
 }
 
 fn archived_by(row: &Value) -> &'static str {
-    if tag_text(row, ARCHIVED_BY_TAG) == Some("auto") { "auto" } else { "person" }
+    match tag_text(row, ARCHIVED_BY_TAG) {
+        Some("auto") => "auto",
+        Some("lifecycle") => "lifecycle",
+        _ => "person",
+    }
 }
 
 fn name(row: &Value) -> &str {
@@ -115,49 +119,5 @@ pub(super) fn render(rows: &[Value], now: u64) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn row(name: &str, tags: Value) -> Value {
-        json!({"sessionId": format!("c-{name}"), "name": name, "status": "closed", "tags": tags})
-    }
-
-    #[test]
-    fn only_archived_rows_newest_archive_first() {
-        let listed = rows(vec![
-            row("live", json!({})),
-            row("old", json!({"archived": "1000"})),
-            row("auto", json!({"archived": "3000", "archivedBy": "auto"})),
-            row("legacy", json!({"archived": "1"})),
-            row("undone", json!({"archived": "false"})),
-            row("emptied", json!({"archived": ""})),
-            row("expiring", json!({"archived": {"value": "2000", "expires_at": 9}})),
-        ]);
-        let names: Vec<&str> = listed.iter().map(name).collect();
-        assert_eq!(names, ["auto", "expiring", "old", "legacy"]);
-        assert_eq!(listed[0]["archivedAt"], 3000);
-        assert_eq!(listed[0]["archivedBy"], "auto");
-        assert_eq!(listed[2]["archivedBy"], "person");
-        assert_eq!(listed[3]["archivedAt"], Value::Null);
-    }
-
-    #[test]
-    fn the_text_view_says_when_and_by_whom() {
-        let now = 10 * 86_400_000;
-        let listed = rows(vec![
-            row(
-                "docs",
-                json!({"archived": (now - 3 * 3_600_000).to_string(), "archivedBy": "auto"}),
-            ),
-            row("legacy", json!({"archived": "1"})),
-        ]);
-        assert_eq!(
-            render(&listed, now),
-            "NAME    HOST   ARCHIVED  BY      STATUS\n\
-             docs    local  3h ago    auto    closed\n\
-             legacy  local  -         person  closed\n"
-        );
-        assert_eq!(render(&[], now), "no archived chats\n");
-    }
-}
+#[path = "ls_archived_tests.rs"]
+mod tests;

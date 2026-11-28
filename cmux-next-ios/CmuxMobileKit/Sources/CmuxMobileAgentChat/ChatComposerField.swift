@@ -19,14 +19,18 @@ struct ChatComposerField: UIViewRepresentable {
     /// A copied image or file pasted into the field (edit menu Paste or
     /// Command-V): the composer attaches it.
     var onPasteAttachments: (() -> Void)?
+    /// The attachment strip's height above the field inside the card (0:
+    /// none): the field gives it that much of the cap.
+    var stripReserve: CGFloat = 0
+    /// Where the screen reads the field's strip overlap (`ComposerFieldRef`).
+    var fieldRef: ComposerFieldRef?
     /// The draft gained or lost a line (typed, or set from outside): the bottom stack's next
     /// height change moves on `ComposerLineMotion`, not the stack's slower spring.
     var onLineChange: (() -> Void)?
 
-    static let maxLines = ComposerFieldHeight.defaultMaxLines
+    static var maxLines: Int { ComposerHeightCap.lines }
     static let accessibilityIdentifier = "chat.composer.field"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.chatFaceHidden) private var faceHidden
 
     func makeUIView(context: Context) -> ChatComposerTextView {
         let view = ChatComposerTextView()
@@ -54,13 +58,17 @@ struct ChatComposerField: UIViewRepresentable {
         view.setContentHuggingPriority(.required, for: .vertical)
         view.text = text
         view.placeholder = placeholder
-        markReadyIfShown()
         return view
     }
 
     func updateUIView(_ view: ChatComposerTextView, context: Context) {
+        ComposerKeyStamp.viewUpdate(view) { update(view, context: context) }
+    }
+
+    private func update(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
-        markReadyIfShown()
+        fieldRef?.view = view
+        view.stripReserve = stripReserve
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
             coordinator?.parent.onPasteAttachments?()
         }
@@ -70,8 +78,8 @@ struct ChatComposerField: UIViewRepresentable {
             view.refreshPlaceholderFont()
             view.invalidateIntrinsicContentSize()
         }
-        if view.text != text {
-            view.text = text
+        if view.differs(from: text) {
+            view.takeDraft(text)
             if view.lineCountChangePending { onLineChange?() }
             view.invalidateIntrinsicContentSize()
         }
@@ -91,13 +99,6 @@ struct ChatComposerField: UIViewRepresentable {
                 }
             }
         }
-    }
-
-    /// Launch to chat open: the frame that first shows a composer (LaunchMarks), not one built
-    /// on a terminal's chat face parked out of sight (`chatFaceHidden`); a face swap updates it.
-    private func markReadyIfShown() {
-        guard !faceHidden else { return }
-        LaunchMarks.shared.markNextFrame("chat_composer_ready")
     }
 
     /// A field torn down while focused (the permission bar replaced it) leaves no focus behind.
@@ -129,9 +130,9 @@ struct ChatComposerField: UIViewRepresentable {
                 // A line came or went: the field grows (or shrinks) on the same short spring the
                 // stack and the transcript above it take, one motion (`ComposerLineMotion`).
                 parent.onLineChange?()
-                withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { parent.text = textView.text }
+                withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { parent.text = Self.draft(of: textView) }
             } else {
-                parent.text = textView.text
+                parent.text = Self.draft(of: textView)
             }
             (textView as? ComposerReturnTextView)?.updatePlaceholder()
             // The height is settled once per edit, and SwiftUI asked again only when it changed.
@@ -139,9 +140,46 @@ struct ChatComposerField: UIViewRepresentable {
             (textView as? ComposerReturnTextView)?.followCaret()
         }
 
+        /// A native copy, so a long draft compares as a buffer downstream (`draftText()`).
+        static func draft(of textView: UITextView) -> String {
+            (textView as? ComposerReturnTextView)?.draftText() ?? textView.text
+        }
+
         func textViewDidBeginEditing(_ textView: UITextView) { if !parent.isFocused { parent.isFocused = true } }
         func textViewDidEndEditing(_ textView: UITextView) { if parent.isFocused { parent.isFocused = false } }
     }
+}
+
+/// `chat_composer_ready`: the first frame showing the chat's answer control: the composer, collapsed
+/// or open, or the permission bar or sudo card that takes its place. Taken on the control as a whole
+/// (``ChatReadyMarkOnShow``), not on the text field: a chat with turns opens on the collapsed capsule,
+/// which builds no field, so a chat waiting on a question (`ws-s0`, a Claude tab) never took the mark
+/// and LaunchTTIUITests' chat flow timed out.
+@MainActor
+enum ChatReadyMark {
+    static func take() {
+        LaunchMarks.shared.markNextFrame("chat_composer_ready")
+        #if DEBUG
+        OpenMarks.shared?.noteNextFrame("chat_composer_ready")
+        #endif
+    }
+}
+
+/// Takes ``ChatReadyMark`` for a control in the composer's place, once it shows (not on a chat
+/// face parked behind its terminal).
+private struct ChatReadyMarkOnShow: ViewModifier {
+    @Environment(\.chatFaceHidden) private var faceHidden
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { if !faceHidden { ChatReadyMark.take() } }
+            .onChange(of: faceHidden) { _, hidden in if !hidden { ChatReadyMark.take() } }
+    }
+}
+
+extension View {
+    /// See ``ChatReadyMarkOnShow``.
+    func chatReadyMarkOnShow() -> some View { modifier(ChatReadyMarkOnShow()) }
 }
 
 /// The chat field: takes a focus asked for before it had a window once it gets one.
@@ -154,8 +192,43 @@ extension EnvironmentValues {
 final class ChatComposerTextView: ComposerReturnTextView {
     var focusWhenInWindow = false
 
+    /// A finger is on a draft taller than the field (past `maxLines`) and scrolled below its top, so
+    /// the drag is the draft's own scroll. Both swipe-down-to-dismiss paths (the bottom stack's drag and
+    /// the dock's pan) read it and leave the keyboard up (Leo, 2026-11-23: "when i try to scroll in the
+    /// composer in ios it [...] swipes the entire thing down instead of scrolling through the composer").
+    /// A draft at its top, or one that fits, leaves the swipe to lower the keyboard (`ChatDraftDragClaim`).
+    ///
+    /// Set at touch-down, not at the text's pan `.began`: the hosts' pans and the SwiftUI drag see the
+    /// same touch and can act before the text view's own pan begins, which the gesture suite caught
+    /// (`GestureConflictUITests`, 3 of 7 red with a `.began` claim).
+    @MainActor static var isScrollingDraft = false
+
+    private lazy var touchDown = ChatDraftTouchObserver(owner: self)
+
     init() {
         super.init(policy: ComposerReturnPolicy(style: .chat, maxLines: ChatComposerField.maxLines))
+        panGestureRecognizer.addTarget(self, action: #selector(draftPan(_:)))
+        addGestureRecognizer(touchDown)
+    }
+
+    fileprivate func touchLanded() {
+        Self.isScrollingDraft = ChatDraftDragClaim.textOwnsDrag(
+            contentHeight: contentSize.height, visibleHeight: bounds.height,
+            offsetFromTop: contentOffset.y + adjustedContentInset.top)
+    }
+
+    fileprivate func touchLifted() {
+        // The draft's scroll outlives the touch's other recognizers: the claim lasts until it ends.
+        if panGestureRecognizer.state != .began, panGestureRecognizer.state != .changed { Self.isScrollingDraft = false }
+    }
+
+    @objc private func draftPan(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .ended, .cancelled, .failed:
+            Self.isScrollingDraft = false
+        default:
+            break
+        }
     }
 
     @available(*, unavailable)
@@ -167,5 +240,38 @@ final class ChatComposerTextView: ComposerReturnTextView {
         focusWhenInWindow = false
         becomeFirstResponder()
     }
+}
+/// Hears every touch on the chat composer's text the moment it lands, before any host's pan moves,
+/// without recognizing, preventing or delaying anything.
+private final class ChatDraftTouchObserver: UIGestureRecognizer, UIGestureRecognizerDelegate {
+    private weak var owner: ChatComposerTextView?
+
+    init(owner: ChatComposerTextView) {
+        self.owner = owner
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+        delegate = self
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        owner?.touchLanded()
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        owner?.touchLifted()
+        state = .failed
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        owner?.touchLifted()
+        state = .failed
+    }
+
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 }
 #endif

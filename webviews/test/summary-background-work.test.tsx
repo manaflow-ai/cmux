@@ -9,16 +9,29 @@ import { afterEach, expect, jest, setSystemTime, test } from "bun:test";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { pageClocks } from "../src/ui/pageClock";
+import type { WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
-import { orderedSessions } from "../src/agent-session/acpmux/session-info/childSessionRowsModel";
-import { backgroundCommands, processesOf } from "../src/agent-session/acpmux/session-info/processes";
 import type { SessionSummary, SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
-import { SubagentStatusList } from "../src/agent-session/acpmux/summary/SubagentStatusList";
-import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
-import { SummaryTasks } from "../src/agent-session/acpmux/summary/SummaryTasks";
-import { WorkflowSummaryRow } from "../src/agent-session/acpmux/summary/WorkflowSummary";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { pageClocks } = await importWithDom(() => import("../src/ui/pageClock"));
+const { WorkingFor } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/WorkingFor"));
+const { WorkingCountsContext } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/workingForModel"),
+);
+const { orderedSessions } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/childSessionRowsModel"),
+);
+const { backgroundCommands, processesOf } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/processes"),
+);
+const { SubagentStatusList } = await importWithDom(
+  () => import("../src/agent-session/acpmux/summary/SubagentStatusList"),
+);
+const { SummaryBody } = await importWithDom(() => import("../src/agent-session/acpmux/summary/SummaryBody"));
+const { SummaryTasks } = await importWithDom(() => import("../src/agent-session/acpmux/summary/SummaryTasks"));
+const { WorkflowSummaryRow } = await importWithDom(() => import("../src/agent-session/acpmux/summary/WorkflowSummary"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -277,7 +290,9 @@ test("the chats the agent started are listed under Subagents with their state, a
   );
   const section = container.querySelector<HTMLElement>('section[aria-label="Subagents"]')!;
   // Running started chats count in the title, as running subagents do.
-  expect(section.querySelector("h3")?.textContent).toBe("Subagents · 2 running");
+  expect(section.querySelector("h3")?.textContent).toBe("Subagents · 2");
+  // The number is the subagents' mark and the count; its name keeps the word for VoiceOver.
+  expect(section.querySelector("h3 .acpmux-live-count")?.getAttribute("aria-label")).toBe("2 running");
   const rows = [...section.querySelectorAll<HTMLButtonElement>(".acpmux-summary-session")];
   expect(
     rows.map((row) => [
@@ -287,12 +302,14 @@ test("the chats the agent started are listed under Subagents with their state, a
     ]),
   ).toEqual([
     ["Rename the settings keys", "Waiting", "waiting"],
-    ["Port the history page", "Running", "running"],
-    ["Migrate the settings store", "Running", "running"],
+    ["Port the history page", "", "running"],
+    ["Migrate the settings store", "", "running"],
     ["Fix the flaky drag test", "Failed", "failed"],
     ["Draft the release notes", "Done", "done"],
   ]);
   expect(section.textContent).not.toContain("None");
+  // Running is the row's spinner, not a word (Leo: "\"running\" doesn't need text."); hover still names it.
+  expect(rows[1]!.querySelector(".acpmux-summary-agent__state")?.getAttribute("title")).toBe("Running");
   await act(async () => rows[1]!.click());
   expect(opened).toEqual(["c5"]);
 });

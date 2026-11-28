@@ -1,0 +1,4 @@
+{
+  "categories": { "correctness": "off" },
+  "rules": { "no-redeclare": "error" }
+}

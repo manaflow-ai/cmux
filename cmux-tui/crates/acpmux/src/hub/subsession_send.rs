@@ -228,7 +228,7 @@ fn waiting_cut(
 
 /// A sub-session's "currently doing" line for its parent: while it waits on
 /// the person, what for (the summary's `waitingOn`, from [`waiting_on`]);
-/// while a turn runs, its plan step and latest tool (`activity.rs`), else
+/// while a turn runs, its latest tool (`activity.rs`), else
 /// what the turn was asked; else null (its `state` and `lastReply` say the rest).
 pub(super) fn doing(summary: &Value) -> Value {
     let turn = &summary["turn"];
@@ -257,33 +257,13 @@ pub(super) fn doing(summary: &Value) -> Value {
     if turn.is_null() {
         return Value::Null;
     }
-    let line = super::activity::doing_line(turn["planStep"].as_str(), turn["activity"].as_str())
+    let line = turn["activity"]
+        .as_str()
+        .map(str::to_owned)
         .or_else(|| turn["prompt"].as_str().map(|p| format!("Working on: {}", short_text(p, 120))));
     line.map_or(Value::Null, Value::String)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_child_waiting_on_the_user_says_what_for() {
-        let waiting = |on: &str, prompt: Value| {
-            json!({"lane": {"state": "input"}, "turn": {"prompt": "fix it"},
-                   "waitingOn": on, "waitingPrompt": prompt})
-        };
-        assert_eq!(
-            doing(&waiting("question", json!("Which branch?"))),
-            "Waiting for the user to answer, in the app: Which branch?"
-        );
-        assert_eq!(
-            doing(&waiting("permission", Value::Null)),
-            "Waiting for the user to allow a tool, in the app"
-        );
-        let input = json!({"lane": {"state": "input"}, "turn": {"prompt": "fix it"}});
-        assert_eq!(doing(&input), "Waiting for the user to answer it");
-        let working = json!({"lane": {"state": "working"}, "turn": {"activity": "Run cargo test"}});
-        assert_eq!(doing(&working), "Run cargo test");
-        assert_eq!(doing(&json!({"lane": {"state": "idle"}, "turn": null})), Value::Null);
-    }
-}
+#[path = "subsession_send_tests.rs"]
+mod tests;

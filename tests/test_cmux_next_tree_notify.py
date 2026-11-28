@@ -117,6 +117,9 @@ class FakeApi:
         if path.startswith("repos/o/r/actions/runs/") and "/jobs?" in path:
             run_id = int(path.split("/")[5])
             return {"jobs": self.jobs.get(run_id, same_tree_jobs())}
+        if path.startswith("repos/o/r/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&status="):
+            # No active artifacts run of a waiting commit (the takeover's active-waiter read).
+            return {"workflow_runs": []}
         if path.startswith("repos/o/r/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha="):
             # No artifacts run of the waiter's commit: the takeover (cmux_tui_tree_takeover.py) is refused, and
             # a failed state is reported red (tests/test_cmux_tui_tree_takeover.py covers the takeover).
@@ -1171,7 +1174,7 @@ class NotifyNeverLost(unittest.TestCase):
         self.assertIn("name: cmux-next-tree-notify-pending", text)
         manifests = text.split("\n  sweep-commit-manifests:\n", 1)[1].split("\n  sweep-pending-tree-notify:", 1)[0]
         self.assertNotIn("--sweep-pending", manifests)
-        sweep = text.split("\n  sweep-pending-tree-notify:\n", 1)[1].split("\n  point-machine-channel-early:", 1)[0]
+        sweep = text.split("\n  sweep-pending-tree-notify:\n", 1)[1].split("\n  # Cloud machines keep their cmux-tui", 1)[0]
         self.assertIn("cmux_next_tree_notify.py --repo \"$GITHUB_REPOSITORY\" --sweep-pending", sweep)
         self.assertIn("pull-requests: read", sweep)
         # Overlapping sweeps claim a record by deleting it (sweep_pending), not by a concurrency group: GitHub

@@ -45,7 +45,8 @@ export function trayHead(
     items,
     finished,
     waiting,
-    working,
+    // Running work is its mark and count now, never "Running in background" (Leo, 2026-11-23).
+    working: _working,
     chatHarness,
     arm,
     separator = " · ",
@@ -76,15 +77,18 @@ export function trayHead(
       const kind = commandKind(item.command.command);
       byKind.set(kind, (byKind.get(kind) ?? 0) + 1);
     } else if (
-      item.kind === "agent" ? subagentStatus(item.agent, waiting) === "waiting" : item.session.state === "waiting"
+      item.kind === "agent"
+        ? subagentStatus(item.agent, waiting) === "waiting"
+        : item.kind === "session" && item.session.state === "waiting"
     )
       waitingOnYou += 1;
     else if (item.kind === "session" && sessionsApart) sessions += 1;
     else agents += 1;
   }
   const parts: (string | false)[] = [
-    working ? agents > 0 && t("subagents.allRunning", { n: agents }) : items.length > 0 && t("bgWork.running"),
-    !working && agents > 0 && t("subagents.count", { n: agents }),
+    // Between turns too, the work is counted, never headed "Running in background" (Leo, 2026-11-23:
+    // "there's no point in even saying it's running").
+    agents > 0 && t("subagents.count", { n: agents }),
     sessions > 0 && t("turn.working.sessions", { n: sessions }),
     waitingOnYou > 0 && t("summary.subagents.waiting", { n: waitingOnYou }),
     ...(arm === "running"
@@ -112,13 +116,16 @@ export function trayHead(
             : item.session.state === "idle"
               ? "done"
               : undefined
-          : // A finished command that stays a while (trayLinger.ts).
-            commandStatus(item.command);
+          : // A finished command that stays a while (trayLinger.ts); a silent turn is done.
+            item.kind === "command"
+            ? commandStatus(item.command)
+            : "done";
     if (status === "failed") failed += 1;
     else if (status === "stopped") stopped += 1;
     else if (status === "done") {
       done += 1;
-      if (item.kind === "command" || (item.kind === "session" && sessionsApart)) doneOthers += 1;
+      if (item.kind === "command" || item.kind === "turn" || (item.kind === "session" && sessionsApart))
+        doneOthers += 1;
     }
   }
   // All of what ended were subagents (or count as them): "1 subagent done"; a mix says "2 done".
@@ -169,7 +176,7 @@ export type TrayHeadPart = {
   key: string;
   /// The kind's mark: a command kind's (trayCommandKinds.ts), a subagent's, a session's, a state's.
   icon: string;
-  /// Its count in words ("1 wait", "2 subagents running").
+  /// Its count in words ("1 wait", "2 subagents").
   text: string;
   /// What it counts, in list order; the hover names them.
   items: readonly TrayItem[];
@@ -177,6 +184,8 @@ export type TrayHeadPart = {
   tone?: "failed" | "waiting";
   /// The tally arm: the subagents' harness, whose mark this part draws (one part per family).
   harness?: string;
+  /// Its richest words when they differ from `text` (the `groups` arm's "2 tasks in background").
+  long?: string;
 };
 
 /// The header's kinds, in the order `trayHead` counts them: what runs (subagents, sessions, what waits
@@ -188,12 +197,10 @@ export function trayHeadParts(
     items,
     finished,
     waiting,
-    working,
   }: {
     items: readonly TrayItem[];
     finished: readonly TrayItem[];
     waiting: ReadonlySet<string>;
-    working: boolean;
   },
   /// The tally arm (trayFoldHead.experiment.ts): subagents counted per harness family, and what ended
   /// counted only when it needs the person (failed); done and stopped need nothing, so they go.
@@ -211,7 +218,9 @@ export function trayHeadParts(
       if (list) list.push(item);
       else byKind.set(kind, [item]);
     } else if (
-      item.kind === "agent" ? subagentStatus(item.agent, waiting) === "waiting" : item.session.state === "waiting"
+      item.kind === "agent"
+        ? subagentStatus(item.agent, waiting) === "waiting"
+        : item.kind === "session" && item.session.state === "waiting"
     )
       waits.push(item);
     else if (item.kind === "session") sessions.push(item);
@@ -231,7 +240,9 @@ export function trayHeadParts(
             : item.session.state === "idle"
               ? "done"
               : undefined
-          : commandStatus(item.command);
+          : item.kind === "command"
+            ? commandStatus(item.command)
+            : "done";
     if (status === "failed") failed.push(item);
     else if (status === "stopped") stopped.push(item);
     else if (status === "done") {
@@ -258,7 +269,7 @@ export function trayHeadParts(
       const text = t("subagents.count", n(list));
       parts.push({ key: `agents:${family}`, icon: SUBAGENT_ICON, text, items: list, ...(harness ? { harness } : {}) });
     }
-  } else add("agents", SUBAGENT_ICON, agents, t(working ? "subagents.allRunning" : "subagents.count", n(agents)));
+  } else add("agents", SUBAGENT_ICON, agents, t("subagents.count", n(agents)));
   add("sessions", "agent.session", sessions, t("turn.working.sessions", n(sessions)));
   add("waiting", "status.needsinput", waits, t("summary.subagents.waiting", n(waits)), "waiting");
   for (const kind of COMMAND_KINDS) {
@@ -282,3 +293,188 @@ export function trayHeadParts(
 
 /// A subagent's mark when the header draws no harness logo for it (agentIdentityModel.ts).
 const SUBAGENT_ICON = "task.ai";
+
+/// One kind's words in the `summary` arm's steps (trayFoldHead.experiment.ts; Leo, 2026-11-23: "x
+/// subagents running y commands running etc with full text when you have space and it gradually
+/// shrinks when there is none"): long ("2 subagents running"), short ("2 subagents") and the number
+/// alone, drawn by its mark. A state kind (waiting, failed) is its state already, so its long form is
+/// its short one. A reader always hears the long form.
+export type TrayHeadForms = { long: string; short: string; count: string };
+
+export function trayHeadForms(t: Translate, part: TrayHeadPart): TrayHeadForms {
+  const short = part.text;
+  const n = part.items.length;
+  const long = part.long ? part.long : part.tone ? short : t("tray.summary.kindRunning", { kind: short });
+  return { long, short, count: String(n) };
+}
+
+/// The `groups` arm's two kinds (trayFoldHead.experiment.ts; Leo, 2026-11-24 00:18Z: "the background
+/// command type delineation was my doing anyways. the simplest view is just... subagents. other
+/// background things. boom. waits, etc, they're just normal tool calls that are backgrounded instead of
+/// dozesns of possible different buttons"): the subagents (and the sessions the agent started, chats
+/// that run beside it), then every other backgrounded tool call (commands, waits, monitors, servers),
+/// whatever it does. The lines under the header keep each item's own mark. Only state that needs the
+/// person follows them: what waits on them and what failed. Done and stopped need nothing, so the
+/// header drops them, as the `tally` arm does. Computed when the tray's lists change, never per tick.
+export function trayHeadGroups(
+  t: Translate,
+  {
+    items,
+    finished,
+    waiting,
+  }: {
+    items: readonly TrayItem[];
+    finished: readonly TrayItem[];
+    waiting: ReadonlySet<string>;
+  },
+  chatHarness?: string,
+): readonly TrayHeadPart[] {
+  const agents: TrayItem[] = [];
+  const background: TrayItem[] = [];
+  const waits: TrayItem[] = [];
+  for (const item of items) {
+    if (item.kind === "command" || item.kind === "turn") background.push(item);
+    else if (
+      item.kind === "agent" ? subagentStatus(item.agent, waiting) === "waiting" : item.session.state === "waiting"
+    )
+      waits.push(item);
+    else agents.push(item);
+  }
+  const failed = finished.filter(
+    (item) =>
+      (item.kind === "agent"
+        ? subagentStatus(item.agent, waiting)
+        : item.kind === "session"
+          ? item.session.state === "failed"
+            ? "failed"
+            : undefined
+          : item.kind === "command"
+            ? commandStatus(item.command)
+            : undefined) === "failed",
+  );
+  const parts: TrayHeadPart[] = [];
+  if (agents.length > 0) {
+    // The group draws the harness most of its subagents run on (the chat's own on a tie).
+    const byFamily = new Map<string, { harness: string; n: number }>();
+    for (const item of agents) {
+      const own =
+        (item.kind === "agent" ? item.agent.harness : item.kind === "session" ? item.session.harness : undefined) ??
+        chatHarness;
+      if (!own) continue;
+      const family = harnessFamily(own);
+      const entry = byFamily.get(family);
+      if (entry) entry.n += 1;
+      else byFamily.set(family, { harness: own, n: 1 });
+    }
+    const chatFamily = chatHarness ? harnessFamily(chatHarness) : undefined;
+    let harness: string | undefined;
+    let most = 0;
+    for (const [family, entry] of byFamily)
+      if (entry.n > most || (entry.n === most && family === chatFamily)) {
+        harness = entry.harness;
+        most = entry.n;
+      }
+    parts.push({
+      key: "agents",
+      icon: SUBAGENT_ICON,
+      text: t("subagents.count", { n: agents.length }),
+      // Running needs no word: the group is what runs.
+      long: t("subagents.count", { n: agents.length }),
+      items: agents,
+      ...(harness ? { harness } : {}),
+    });
+  }
+  if (background.length > 0) {
+    const tasks = t(background.length === 1 ? "backgroundTasks.tasks.one" : "backgroundTasks.tasks.other", {
+      n: background.length,
+    });
+    parts.push({
+      key: "background",
+      icon: BACKGROUND_ICON,
+      text: tasks,
+      long: t("tray.summary.inBackground", { kind: tasks }),
+      items: background,
+    });
+  }
+  if (waits.length > 0)
+    parts.push({
+      key: "waiting",
+      icon: "status.needsinput",
+      text: t("summary.subagents.waiting", { n: waits.length }),
+      items: waits,
+      tone: "waiting",
+    });
+  if (failed.length > 0)
+    parts.push({
+      key: "failed",
+      icon: "status.failure",
+      text: t("summary.subagents.failed", { n: failed.length }),
+      items: failed,
+      tone: "failed",
+    });
+  return parts;
+}
+
+/// The background group's mark: a command's, since every item it counts is a backgrounded tool call.
+const BACKGROUND_ICON = "terminal";
+
+/// The `line` header (the default; Leo, 2026-11-25: "like claude code just has this and they tuck it at
+/// the very bottom of the transcript after the latest message"): one muted sentence in plain words,
+/// "10 subagents working, 2 background commands running", as Claude Code's line reads. Each part is
+/// left out at 0; what waits on the person and what failed follow, since they need a look. With
+/// nothing running, what just ended says so ("2 background commands finished"): the hat is where a
+/// background task's completion shows, not the transcript, and it leaves with the lines (trayLinger.ts).
+/// Empty when there is nothing to say. Computed when the tray's lists change, never per tick.
+export function trayHeadLine(
+  t: Translate,
+  {
+    items,
+    finished,
+    waiting,
+  }: {
+    items: readonly TrayItem[];
+    finished: readonly TrayItem[];
+    waiting: ReadonlySet<string>;
+  },
+): string {
+  let agents = 0;
+  let commands = 0;
+  let waits = 0;
+  for (const item of items) {
+    // A silent turn is only ever a finished line (runningTray.ts), and the line names none.
+    if (item.kind === "turn") continue;
+    if (item.kind === "command") commands += 1;
+    else if (
+      item.kind === "agent" ? subagentStatus(item.agent, waiting) === "waiting" : item.session.state === "waiting"
+    )
+      waits += 1;
+    else agents += 1;
+  }
+  let failed = 0;
+  let agentsDone = 0;
+  let commandsDone = 0;
+  for (const item of finished) {
+    if (item.kind === "turn") continue;
+    const state =
+      item.kind === "agent"
+        ? subagentStatus(item.agent, waiting)
+        : item.kind === "session"
+          ? item.session.state === "failed"
+            ? "failed"
+            : "done"
+          : commandStatus(item.command);
+    if (state === "failed") failed += 1;
+    else if (item.kind === "command") commandsDone += 1;
+    else agentsDone += 1;
+  }
+  const running = agents + commands + waits > 0;
+  const parts = [
+    agents > 0 && t("tray.line.subagents", { n: agents }),
+    commands > 0 && t("tray.line.commands", { n: commands }),
+    !running && agentsDone > 0 && t("tray.line.subagentsDone", { n: agentsDone }),
+    !running && commandsDone > 0 && t("tray.line.commandsDone", { n: commandsDone }),
+    waits > 0 && t("summary.subagents.waiting", { n: waits }),
+    failed > 0 && t("summary.subagents.failed", { n: failed }),
+  ].filter((part): part is string => Boolean(part));
+  return parts.reduce((line, part) => (line ? t("tray.line.join", { first: line, rest: part }) : part), "");
+}

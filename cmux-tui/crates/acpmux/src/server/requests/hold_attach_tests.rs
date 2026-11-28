@@ -169,7 +169,8 @@ async fn hold_attach_supports_view_typing_presence_and_exact_live_kinds() {
     hub.append(&session, "mux", "tool_call", json!({"tool": "Bash"}));
     let event = first.notification_method(method::MUX_EVENT).await;
     assert_eq!(event["params"]["kind"], "named_kind");
-    assert!(tokio::time::timeout(Duration::from_millis(50), first.outgoing.recv()).await.is_err());
+    let extra = tokio::time::timeout(Duration::from_millis(50), first.outgoing.recv()).await;
+    assert!(extra.is_err(), "the first attach got more than named_kind: {extra:?}");
 
     let detached = second.call(method::MUX_DETACH, json!({"sessionId": ID})).await;
     assert!(detached.get("error").is_none(), "{detached}");
@@ -253,4 +254,33 @@ async fn hold_attach_gate() {
         god_p95.saturating_mul(100) <= small_p95.saturating_mul(120),
         "hold attach ratio exceeds 1.2: small={small_p95}, god={god_p95}"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn live_turns_the_owner_on_and_live_list_answers_the_shared_records() {
+    let (hub, _session) = hub_with_chat();
+    let mut client = Client::connect(&hub).await;
+    let attach = client.call(method::MUX_ATTACH, hold(json!(["named_kind"]))).await;
+    assert!(attach.get("error").is_none(), "{attach}");
+    client.call(method::MUX_VIEW, json!({"sessionId": ID, "visible": true})).await;
+
+    let off = client.call(method::MUX_LIVE_LIST, json!({})).await;
+    assert_eq!(off["result"], json!({"live": false, "people": []}), "{off}");
+    let read = client.call(method::MUX_LIVE, json!({})).await;
+    assert_eq!(read["result"], json!({"live": false}), "a call without live only reads");
+
+    let on = client.call(method::MUX_LIVE, json!({"live": true})).await;
+    assert_eq!(on["result"], json!({"live": true}), "{on}");
+    client.call(method::MUX_TYPING, json!({"sessionId": ID, "on": true})).await;
+    let list = client.call(method::MUX_LIVE_LIST, json!({})).await;
+    let people = list["result"]["people"].as_array().expect("people");
+    assert_eq!(list["result"]["live"], true);
+    assert_eq!(people.len(), 1, "{list}");
+    assert_eq!(people[0]["id"], "owner");
+    assert_eq!(people[0]["kind"], "person");
+    assert_eq!(people[0]["doing"], "typing");
+    assert_eq!(people[0]["where"]["chat"], ID);
+
+    let bad = client.call(method::MUX_LIVE, json!({"live": "yes"})).await;
+    assert!(bad.get("error").is_some(), "a non-boolean live is refused: {bad}");
 }

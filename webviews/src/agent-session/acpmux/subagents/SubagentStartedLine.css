@@ -20,10 +20,41 @@
    is pretty weird? it was collasped then expanded? idk"). A name already on the line keeps its width
    when another joins; when the line runs short, the later names give way first (`data-at`), and the
    first only once they are at their floor. */
+/* The floor is the name's own width up to 6em, never more: a floor of min(6em, 30%) held a short name
+   ("Foxtrot", "Golf") wider than its words, and its 30% was of a sentence sized from those same chips
+   before the floor, so two chips grew past the line and cut its end to "Foxtrot ▯ and Golf ▯ starte"
+   (Leo, 2026-11-22, on that line over his steer: it should not draw like this). The chip is a one-cell grid: its words add no width of their own (contain), a hidden copy
+   of the name capped at 6em is its min-content, and a hidden copy that can break anywhere is its
+   max-content, so the line's flex shrinks each name from its whole width down to min(name, 6em). A
+   plain name (no chat to open, so no label or `data-name`) shrinks with the line, its own ellipsis. */
 .cv-subagent-started .cv-agent-tag.cv-subagent-started__name {
   flex: 0 1 auto;
-  min-width: min(6em, 30%);
+  min-width: 0;
   max-width: 16em;
+}
+.cv-subagent-started .cv-agent-tag.cv-subagent-started__name.is-open {
+  display: inline-grid;
+  min-width: min-content;
+}
+.cv-subagent-started .cv-subagent-started__name > .cv-agent-tag__label {
+  grid-area: 1 / 1;
+  contain: inline-size;
+}
+.cv-subagent-started .cv-subagent-started__name.is-open::before,
+.cv-subagent-started .cv-subagent-started__name.is-open::after {
+  content: attr(data-name);
+  grid-area: 1 / 1;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+.cv-subagent-started .cv-subagent-started__name.is-open::before {
+  max-width: 6em;
+  white-space: nowrap;
+}
+.cv-subagent-started .cv-subagent-started__name.is-open::after {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .cv-subagent-started .cv-agent-tag.cv-subagent-started__name[data-at]:not([data-at="0"]) {
   flex-shrink: 1000;
@@ -41,7 +72,6 @@
   border: 0;
   background: none;
   color: inherit;
-  cursor: pointer;
   border-radius: 999px;
 }
 .cv-subagent-started__face:disabled {
@@ -53,6 +83,16 @@
   gap: var(--ds-space-1, 4px);
   margin-inline-end: var(--ds-space-2, 8px);
   vertical-align: middle;
+}
+/* In a narrow pane the icons that do not fit drop whole, as the composer hat's kinds do, and the
+   count's words stay whole: the strip wraps onto a line it never shows. It used to shrink with no
+   wrap, which sliced the third icon down the middle in a 280px pane (Leo, 2026-11-23: "the fuck are
+   these cutting off into ellipses so soon anyways?"). One face's height (AgentIdentity size 14). */
+.cv-subagent-started .cv-agent-activity__sentence > .cv-subagent-started__faces {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  height: var(--cmux-menu-icon-size);
+  overflow: hidden;
 }
 .cv-subagent-started__more {
   flex: none;

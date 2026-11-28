@@ -109,19 +109,19 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
     page.evaluate(() => document.activeElement?.closest(".acpmux-question") !== null);
 
   describe("agent question card", () => {
-    test("a prompt card is headed by the question under its bar; Dismiss folds it to a Needs your input pill", async () => {
-      // A Claude Code question is the Codex prompt card (#42247): a "Question" bar with Dismiss over
-      // the question, numbered options, "Type your answer" as the custom row and Send. The pill
-      // shows only while the card is folded.
+    test("a question card is headed by the question under its bar; Dismiss folds it to a Needs your input pill", async () => {
+      // Every pending ask is one card (2026-11-24): a "Needs your input" bar with Dismiss over the
+      // question, numbered options, "Type your answer" as the custom row and Send. The pill shows
+      // only while the card is folded.
       const page = await pendingQuestion();
       const pill = page.locator(".acpmux-question-status");
       expect(await pill.count()).toBe(0);
-      expect((await page.locator(".acpmux-question-bar").innerText()).trim()).toContain("Question");
+      expect((await page.locator(".acpmux-question-bar").innerText()).trim()).toContain("Needs your input");
       expect((await page.locator(".acpmux-question-prompt").innerText()).trim()).toBe(prompt);
       const labels = await page.locator(".acpmux-question-row .acpmux-question-label").allInnerTexts();
       expect(labels).toEqual(["OAuth 2.0", "API keys", "Passkeys", "Type your answer"]);
       expect(await page.locator(".acpmux-question-row[role=radio]").count()).toBe(4);
-      // The prompt card's Send draws no keycaps (its ⌘↩ hint stays in the markup, hidden).
+      // Send draws no keycaps (its ⌘↩ hint stays in the markup, hidden).
       expect((await page.locator(".acpmux-question-submit").innerText()).replace(/\s+/g, "")).toBe("Send");
 
       // Dismiss folds the card away and the pill brings it back; the ask stays pending and keeps the pick.
@@ -344,6 +344,44 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       await page.close();
     });
 
+    // Lucas, 2026-11-27: "a weird vertical layout shift on 'Type your answer', when clicking into that".
+    // The field had a 24 px least height around an 18 px line, and a textarea draws its words at the
+    // top of its box, so they rose 3 px when the button turned into the field.
+    test("clicking Type your answer keeps the words on the same line", async () => {
+      const page = await pendingQuestion();
+      const choice = page.locator(".acpmux-question-footer .acpmux-question-other-choice");
+      const label = await choice.locator(".acpmux-question-label").evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        return { top: box.top, left: box.left, height: box.height };
+      });
+      await choice.click();
+      const field = await page.locator(".acpmux-question-footer textarea").evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return {
+          top: box.top + parseFloat(style.paddingTop) + parseFloat(style.borderTopWidth),
+          left: box.left + parseFloat(style.paddingLeft) + parseFloat(style.borderLeftWidth),
+          height: box.height,
+          line: parseFloat(style.lineHeight),
+        };
+      });
+      expect(field.top).toBeCloseTo(label.top, 1);
+      expect(field.left).toBeCloseTo(label.left, 1);
+      expect(field.height).toBeCloseTo(field.line, 1);
+      await page.close();
+    });
+
+    test("option rows keep 4 px between them", async () => {
+      const page = await pendingQuestion();
+      const gaps = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll(".acpmux-question-body .acpmux-question-row")];
+        return rows.slice(1).map((row, i) => row.getBoundingClientRect().top - rows[i]!.getBoundingClientRect().bottom);
+      });
+      expect(gaps.length).toBeGreaterThan(0);
+      for (const gap of gaps) expect(gap).toBeCloseTo(4, 1);
+      await page.close();
+    });
+
     test("Other takes a typed answer, which ⌘↩ sends", async () => {
       const page = await pendingQuestion();
       await page.keyboard.press("4");
@@ -403,7 +441,7 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       expect(await page.locator(".acpmux-question-status").getAttribute("aria-expanded")).toBe("false");
       await page.locator(".acpmux-preview-controls select").selectOption("question-pending-multi");
       await page.locator(".acpmux-question-prompt", { hasText: "platforms" }).waitFor({ state: "attached" });
-      // Open, a prompt card draws no pill.
+      // Open, the card draws no pill.
       expect(await page.locator(".acpmux-question-status").count()).toBe(0);
       expect(await page.locator(".acpmux-question").isVisible()).toBe(true);
       await page.close();

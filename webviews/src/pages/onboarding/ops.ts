@@ -216,8 +216,18 @@ export interface ComputerUseState {
 /** GUI-first (recommended: chats, browsers and terminals side by side, Cmd-T the New Tab page) or
  * terminal-first (Cmd-T opens a terminal). */
 export type WorkStyle = "gui" | "terminal";
-/** Three of the five `appearance.density` levels: compact, standard (the default) and comfortable. */
-export type DensityChoice = "compact" | "standard" | "comfortable";
+/** Where a new chat runs (`agentPane.newChatsIn`): this Mac (the default) or Cloud, which needs
+ * nothing installed here. */
+export type ChatsRunIn = "local" | "cloud";
+/** A density offered: an `appearance.density` preset id (`cozy` is Settings' Default) and its name as
+ * Settings shows it. Every density Settings has (cmux#49636). */
+export interface MakeItYoursDensity {
+  id: string;
+  name: string;
+}
+
+/** The window's material under a background (`appearance.backgroundBlur`), as Settings offers it. */
+export type MakeItYoursMaterial = "none" | "frosted" | "glass" | "glass-clear";
 
 /** A background offered: Shuffle Paintings (`daily`, no name: the page names it) or a built-in work. */
 export interface MakeItYoursBackground {
@@ -229,10 +239,27 @@ export interface MakeItYoursBackground {
 
 export interface MakeItYoursState {
   workStyle: WorkStyle;
-  density: DensityChoice;
+  /** The density's preset id. */
+  density: string;
+  densities: MakeItYoursDensity[];
   /** The background's id; null: none. */
   background: string | null;
   backgrounds: MakeItYoursBackground[];
+  /** The Opacity slider's value, 0 to 1: the one set, else what the window shows; null: unknown. */
+  opacity: number | null;
+  /** The person's settings set the Opacity (else it is the theme's). */
+  opacitySet: boolean;
+  /** `appearance.backgroundBlur`; null: unset (the theme's). */
+  material: MakeItYoursMaterial | null;
+  materials: MakeItYoursMaterial[];
+  /** The intro walk's other settings now, by dotted path (walk.ts `WALK_PATHS`); absent: unset. */
+  walk?: Record<string, string | number | boolean | null>;
+  /** `experiments.introWalk`: the step is the intro walk's four screens; absent or false: today's one screen. */
+  introWalk?: boolean;
+  /** `experiments.setupShelf`: the step offers the setups shelf (setupShelf.ts); absent or false: no shelf. */
+  setupShelf?: boolean;
+  /** Where a new chat runs; an older host leaves it out, and the row is not drawn. */
+  chatsRunIn?: ChatsRunIn;
   /** The backgrounds' previews were read. */
   loaded: boolean;
 }
@@ -281,9 +308,10 @@ export interface OnboardingOps {
    * needs no click or key (the page engine keys its own child window, not the onboarding window). */
   "cmux.onboarding.focused": [Record<string, never>, unknown];
   /** The footer's filled button, or Return (cmux Tools: Turn On, then Done). */
-  "cmux.onboarding.next": [Record<string, never>, unknown];
+  "cmux.onboarding.next": [{ screen?: number }, unknown];
   /** Skip / Skip Importing / Not Now, or Escape (cmux Tools' Not Now answers no). */
-  "cmux.onboarding.skip": [Record<string, never>, unknown];
+  /** `screen`: the Make cmux Yours walk's screen index, logged with the walk's end (IntroWalkSplit). */
+  "cmux.onboarding.skip": [{ screen?: number }, unknown];
   "cmux.onboarding.back": [Record<string, never>, unknown];
   "cmux.onboarding.agents.signIn": [{ id: string }, unknown];
   "cmux.onboarding.agents.install": [{ id: string }, unknown];
@@ -304,9 +332,18 @@ export interface OnboardingOps {
   "cmux.onboarding.computerUse.restart": [Record<string, never>, unknown];
   /** Make cmux Yours: each pick is written at once, so the window behind shows it. */
   "cmux.onboarding.makeItYours.workStyle": [{ value: WorkStyle }, unknown];
-  "cmux.onboarding.makeItYours.density": [{ value: DensityChoice }, unknown];
+  "cmux.onboarding.makeItYours.density": [{ value: string }, unknown];
+  "cmux.onboarding.makeItYours.chatsRunIn": [{ value: ChatsRunIn }, unknown];
   /** `id` null: no background. */
   "cmux.onboarding.makeItYours.background": [{ id: string | null }, unknown];
+  /** The window's Opacity, 0 to 1 (Settings > Appearance's own row). */
+  "cmux.onboarding.makeItYours.opacity": [{ value: number }, unknown];
+  "cmux.onboarding.makeItYours.material": [{ value: MakeItYoursMaterial }, unknown];
+  /** The intro walk (a look bundle, the trust and noise rows, Tidy): one publish; a null value removes. */
+  "cmux.onboarding.makeItYours.walk": [
+    { writes: { path: string; value: string | number | boolean | null }[] },
+    unknown,
+  ];
 }
 
 export interface OnboardingEvents {
@@ -335,6 +372,10 @@ export const OPS = {
   restart: "cmux.onboarding.computerUse.restart",
   workStyle: "cmux.onboarding.makeItYours.workStyle",
   density: "cmux.onboarding.makeItYours.density",
+  chatsRunIn: "cmux.onboarding.makeItYours.chatsRunIn",
   background: "cmux.onboarding.makeItYours.background",
+  opacity: "cmux.onboarding.makeItYours.opacity",
+  material: "cmux.onboarding.makeItYours.material",
+  walk: "cmux.onboarding.makeItYours.walk",
   changed: "cmux.onboarding.changed",
 } as const satisfies Record<string, keyof OnboardingOps | keyof OnboardingEvents>;

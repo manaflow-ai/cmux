@@ -17,6 +17,10 @@
 //! - `system`: the root filesystem's used bytes less the two above: everything outside home.
 //!
 //! Sizes are allocated bytes (`st_blocks`), a hard-linked file once, never across a mount.
+//!
+//! The same walk counts each chat's bytes (`~/chats/<id>`, the worktrees inside it included)
+//! into `chats`, the [`CHATS`] largest, and lists the idle cargo build output `disk_evict.rs`
+//! may clear when the disk runs low; that eviction, when one ran, rides in `evicted`.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -32,6 +36,10 @@ pub const WALK_MAX_ENTRIES: u64 = 3_000_000;
 const LOCK_STALE: Duration = Duration::from_secs(10 * 60);
 /// How many of the largest home directories the split names.
 pub const TOP: usize = 3;
+/// How many of the largest chats the split names.
+pub const CHATS: usize = 50;
+/// The directory under home whose children are the chats (`~/chats/<id>`).
+pub const CHATS_DIR: &str = "chats";
 
 /// The caches under the home directory, relative to it: package stores and build caches.
 pub const CACHE_DIRS: &[&str] = &[
@@ -69,6 +77,24 @@ pub struct TopDir {
     pub bytes: u64,
 }
 
+/// One chat's bytes: `~/chats/<id>` and everything under it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatBytes {
+    pub id: String,
+    pub bytes: u64,
+}
+
+/// What the guest cleared when its disk ran low (`disk_evict.rs`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Evicted {
+    /// When, milliseconds since the epoch.
+    pub at: u64,
+    /// The root filesystem's free bytes after less before.
+    pub freed_bytes: u64,
+    pub paths: Vec<String>,
+}
+
 /// The last walk's split of the root disk's used bytes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,6 +108,12 @@ pub struct DiskSplit {
     pub complete: bool,
     /// The [`TOP`] largest directories under home, largest first.
     pub top: Vec<TopDir>,
+    /// The [`CHATS`] largest chats, largest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chats: Vec<ChatBytes>,
+    /// The last eviction, kept across walks until a newer one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evicted: Option<Evicted>,
 }
 
 /// The filesystem holding `path`.
@@ -139,7 +171,7 @@ pub fn split_for_sample() -> Option<DiskSplit> {
 
 /// Takes the walk lock: false when a live walk holds it.
 fn take_lock(lock: &Path) -> bool {
-    let open = || std::fs::OpenOptions::new().write(true).create_new(true).open(lock);
+    let open = || crate::home_fs::OpenOptions::new().write(true).create_new(true).open(lock);
     if open().is_ok() {
         return true;
     }
@@ -148,20 +180,20 @@ fn take_lock(lock: &Path) -> bool {
         .ok()
         .and_then(|t| t.elapsed().ok())
         .is_some_and(|age| age >= LOCK_STALE);
-    stale && std::fs::remove_file(lock).is_ok() && open().is_ok()
+    stale && crate::home_fs::remove_file(lock).is_ok() && open().is_ok()
 }
 
 #[cfg(unix)]
 fn start_walk() {
     let lock = lock_path();
     if let Some(dir) = lock.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        let _ = crate::home_fs::create_dirs(dir);
     }
     if !take_lock(&lock) {
         return;
     }
     let Ok(exe) = std::env::current_exe() else {
-        let _ = std::fs::remove_file(&lock);
+        let _ = crate::home_fs::remove_file(&lock);
         return;
     };
     let started = cmux_process::Command::new(exe)
@@ -177,7 +209,7 @@ fn start_walk() {
             child.detach("the disk walk outlives the one-shot `host load` that started it");
         }
         Err(_) => {
-            let _ = std::fs::remove_file(&lock);
+            let _ = crate::home_fs::remove_file(&lock);
         }
     }
 }
@@ -194,17 +226,30 @@ pub fn walk_and_store() -> anyhow::Result<()> {
     }
     let result = (|| {
         let home = home_dir().ok_or_else(|| anyhow::anyhow!("no HOME"))?;
-        let root = statvfs(Path::new("/")).ok_or_else(|| anyhow::anyhow!("statvfs / failed"))?;
         let walked = walk(&home, WALK_BUDGET, WALK_MAX_ENTRIES);
         let same_disk = same_device(Path::new("/"), &home);
-        let split = split_of(&home, root, same_disk, walked, crate::store::now_ms());
         let path = cache_path();
+        let now = crate::store::now_ms();
+        // Under the disk budget, clear caches and idle build output before the walk's numbers go
+        // out; the split then reads the disk after it.
+        let evicted = if same_disk {
+            crate::disk_evict::evict_if_low(&home, &walked.build_dirs, now)
+        } else {
+            None
+        };
+        let root = statvfs(Path::new("/")).ok_or_else(|| anyhow::anyhow!("statvfs / failed"))?;
+        let mut walked = walked;
+        if let Some(e) = &evicted {
+            walked.caches = walked.caches.saturating_sub(e.freed_bytes);
+        }
+        let mut split = split_of(&home, root, same_disk, walked, now);
+        split.evicted = evicted.or_else(|| read_cached(&path, now).0.and_then(|s| s.evicted));
         let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec(&split)?)?;
-        std::fs::rename(&tmp, &path)?;
+        crate::home_fs::write(&tmp, serde_json::to_vec(&split)?)?;
+        crate::home_fs::rename(&tmp, &path)?;
         Ok(())
     })();
-    let _ = std::fs::remove_file(lock_path());
+    let _ = crate::home_fs::remove_file(lock_path());
     result
 }
 
@@ -227,6 +272,22 @@ pub struct Walked {
     pub complete: bool,
     /// Bytes per directory at most two levels under home (a file directly in home: its own).
     pub buckets: Vec<(PathBuf, u64)>,
+    /// Bytes per chat (`~/chats/<id>`), largest first.
+    pub chats: Vec<(String, u64)>,
+    /// Cargo build directories (a `CACHEDIR.TAG` written by cargo) outside the package caches.
+    pub build_dirs: Vec<PathBuf>,
+}
+
+/// The chat a path under home belongs to: `chats/<id>/...` gives `<id>`.
+pub fn chat_of(rel: &Path) -> Option<&str> {
+    let mut parts = rel.components();
+    (parts.next()?.as_os_str() == CHATS_DIR).then_some(())?;
+    parts.next()?.as_os_str().to_str()
+}
+
+/// Whether `dir` is cargo's build output: its `CACHEDIR.TAG` says cargo made it.
+fn is_cargo_target(dir: &Path) -> bool {
+    std::fs::read(dir.join("CACHEDIR.TAG")).is_ok_and(|tag| tag.windows(5).any(|w| w == b"cargo"))
 }
 
 /// Whether `dir` (at `rel` under home) is a cache.
@@ -246,6 +307,7 @@ pub fn walk(home: &Path, budget: Duration, max_entries: u64) -> Walked {
     let dev = top.dev();
     let mut out = Walked { complete: true, ..Walked::default() };
     let mut buckets: HashMap<PathBuf, u64> = HashMap::new();
+    let mut chats: HashMap<String, u64> = HashMap::new();
     let mut linked: HashSet<u64> = HashSet::new();
     let mut entries: u64 = 0;
     // (directory, whether it is inside a cache)
@@ -254,7 +316,9 @@ pub fn walk(home: &Path, budget: Duration, max_entries: u64) -> Walked {
         let Ok(read) = std::fs::read_dir(&dir) else { continue };
         for entry in read.flatten() {
             entries += 1;
-            if entries >= max_entries || (entries % 1024 == 0 && started.elapsed() >= budget) {
+            if entries >= max_entries
+                || (entries.is_multiple_of(1024) && started.elapsed() >= budget)
+            {
                 out.complete = false;
                 break 'walk;
             }
@@ -268,7 +332,14 @@ pub fn walk(home: &Path, budget: Duration, max_entries: u64) -> Walked {
             }
             let rel = path.strip_prefix(home).unwrap_or(&path);
             let bytes = meta.blocks().saturating_mul(512);
-            let cache = in_cache || (meta.is_dir() && is_cache(&path, rel));
+            let tagged = !in_cache && meta.is_dir() && is_cache(&path, rel);
+            let cache = in_cache || tagged;
+            if tagged && is_cargo_target(&path) {
+                out.build_dirs.push(path.clone());
+            }
+            if let Some(chat) = chat_of(rel) {
+                *chats.entry(chat.to_owned()).or_default() += bytes;
+            }
             if cache {
                 out.caches += bytes;
             } else {
@@ -290,6 +361,9 @@ pub fn walk(home: &Path, budget: Duration, max_entries: u64) -> Walked {
     let mut buckets: Vec<(PathBuf, u64)> = buckets.into_iter().collect();
     buckets.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     out.buckets = buckets;
+    let mut chats: Vec<(String, u64)> = chats.into_iter().collect();
+    chats.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    out.chats = chats;
     out
 }
 
@@ -317,6 +391,12 @@ pub fn split_of(home: &Path, root: Root, same_disk: bool, walked: Walked, at: u6
             bytes: *bytes,
         })
         .collect();
+    let chats = walked
+        .chats
+        .iter()
+        .take(CHATS)
+        .map(|(id, bytes)| ChatBytes { id: id.clone(), bytes: *bytes })
+        .collect();
     DiskSplit {
         at,
         system_bytes: system,
@@ -324,97 +404,11 @@ pub fn split_of(home: &Path, root: Root, same_disk: bool, walked: Walked, at: u6
         caches_bytes: walked.caches,
         complete: walked.complete,
         top,
+        chats,
+        evicted: None,
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn the_split_is_camel_case() {
-        let split = DiskSplit {
-            at: 5,
-            system_bytes: 1,
-            project_bytes: 2,
-            caches_bytes: 3,
-            complete: true,
-            top: vec![TopDir { path: "/home/u/src/app".into(), bytes: 2 }],
-        };
-        assert_eq!(
-            serde_json::to_value(&split).unwrap(),
-            json!({"at": 5, "systemBytes": 1, "projectBytes": 2, "cachesBytes": 3,
-                   "complete": true, "top": [{"path": "/home/u/src/app", "bytes": 2}]})
-        );
-    }
-
-    #[test]
-    fn system_is_what_home_does_not_hold() {
-        let root = Root { total: 100, used: 60, free: 40 };
-        let walked = Walked {
-            project: 20,
-            caches: 10,
-            complete: true,
-            buckets: vec![
-                (PathBuf::from("src"), 20),
-                (PathBuf::from("src/app"), 19),
-                (PathBuf::from(".cache"), 10),
-                (PathBuf::from(".zshrc"), 1),
-            ],
-        };
-        let split = split_of(Path::new("/h"), root, true, walked.clone(), 9);
-        assert_eq!((split.system_bytes, split.project_bytes, split.caches_bytes), (30, 20, 10));
-        let paths: Vec<&str> = split.top.iter().map(|t| t.path.as_str()).collect();
-        assert_eq!(paths, ["/h/src/app", "/h/.cache", "/h/.zshrc"], "the deepest, largest first");
-        assert_eq!(split_of(Path::new("/h"), root, false, walked, 9).system_bytes, 60);
-    }
-
-    #[test]
-    fn a_split_is_due_when_missing_or_old() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("disk-split.json");
-        assert_eq!(read_cached(&path, 1_000), (None, true));
-        let split = split_of(
-            dir.path(),
-            Root { total: 1, used: 1, free: 0 },
-            true,
-            Walked::default(),
-            1_000,
-        );
-        std::fs::write(&path, serde_json::to_vec(&split).unwrap()).unwrap();
-        assert!(!read_cached(&path, 1_000 + 60_000).1);
-        assert!(read_cached(&path, 1_000 + WALK_EVERY.as_millis() as u64).1);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn the_walk_sorts_caches_from_the_project() {
-        let home = tempfile::tempdir().unwrap();
-        let h = home.path();
-        let write = |rel: &str, len: usize| {
-            let p = h.join(rel);
-            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-            std::fs::write(p, vec![7u8; len]).unwrap();
-        };
-        write("src/app/main.rs", 64 * 1024);
-        write("src/app/node_modules/x/index.js", 128 * 1024);
-        write("src/app/target/CACHEDIR.TAG", 10);
-        write("src/app/target/debug/big", 256 * 1024);
-        write(".cache/bun/blob", 32 * 1024);
-        let walked = walk(h, Duration::from_secs(30), 1_000_000);
-        assert!(walked.complete);
-        assert!(walked.caches >= (128 + 256 + 32) * 1024, "{walked:?}");
-        assert!(walked.project >= 64 * 1024 && walked.project < 128 * 1024, "{walked:?}");
-        let cut = walk(h, Duration::from_secs(30), 3);
-        assert!(!cut.complete, "the entry budget stops the walk");
-    }
-
-    #[test]
-    fn one_walk_holds_the_lock() {
-        let dir = tempfile::tempdir().unwrap();
-        let lock = dir.path().join("disk-split.walking");
-        assert!(take_lock(&lock));
-        assert!(!take_lock(&lock), "a live walk holds it");
-    }
-}
+#[path = "disk_usage_tests.rs"]
+mod tests;

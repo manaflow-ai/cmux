@@ -157,7 +157,8 @@ mod linux {
         let overlay = Arc::new(Overlay::open(Arc::new(manifest), Path::new(state), link, owner)?);
         let at = std::fs::canonicalize(at)?;
         let fsname = args.iter().find_map(|arg| arg.strip_prefix("--fsname=")).map(str::to_owned);
-        let options = Options { read_only: lower_only, allow_other, fsname, disk_atime };
+        let options =
+            Options { read_only: lower_only, allow_other, fsname, disk_atime, idle_exit: None };
         let mounted = cmux_projection::mount::mount_with(overlay, &at, options)?;
         std::fs::metadata(&at)?;
         println!("mounted");

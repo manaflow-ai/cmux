@@ -16,6 +16,9 @@ set -euo pipefail
 want="${1:?usage: ensure-bun.sh VERSION BIN_DIR}"
 bin="${2:?usage: ensure-bun.sh VERSION BIN_DIR}"
 mkdir -p "$bin"
+# setup-bun puts `bunx` beside `bun` (bun acts as bunx when called by that name); playwright's webServer and
+# package scripts call it, so every way out below links it too.
+trap 'ln -sf bun "$bin/bunx" 2>/dev/null || true' EXIT
 
 if have_bin="$(command -v bun 2>/dev/null)" && have="$(bun --version 2>/dev/null)" && [ "$have" = "$want" ]; then
   ln -sf "$have_bin" "$bin/bun"
@@ -34,8 +37,27 @@ if [ -n "$cache" ] && [ -x "$cache/bun" ] && [ "$("$cache/bun" --version 2>/dev/
 fi
 base="${ENSURE_BUN_DIST:-https://github.com/oven-sh/bun/releases/download}/bun-v$want"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+trap 'rm -rf "$tmp"; ln -sf bun "$bin/bunx" 2>/dev/null || true' EXIT
+# The machine's GitHub release and archive cache (cmux-git-cache, RFD 0155), when it listens:
+# it answers with GitHub's own bytes or a redirect to GitHub, and any failure here retries GitHub
+# directly. CMUX_TRANSPORT_REWRITE=0 turns it off.
+cmux_cached_url() {
+  case "$1" in https://github.com/*/releases/download/* | https://codeload.github.com/*) ;; *) return 1 ;; esac
+  [ "${CMUX_TRANSPORT_REWRITE:-1}" != 0 ] && [ -r /run/cmux/git-cache/base ] || return 1
+  local proxy
+  proxy="$(cat /run/cmux/git-cache/base)" || return 1
+  case "$proxy" in http://127.0.0.1:[0-9]*) ;; *) return 1 ;; esac
+  printf '%s/%s\n' "$proxy" "${1#https://}"
+}
 get() {
+  local via
+  if via="$(cmux_cached_url "$1")"; then
+    if curl -fsSL --connect-timeout 5 --max-time 120 --speed-limit 1024 --speed-time 30 -o "$2" "$via"; then
+      echo "ensure-bun: $1 through the machine cache" >&2
+      return 0
+    fi
+    echo "ensure-bun: machine cache failed for $1; GitHub directly" >&2
+  fi
   curl -fsSL --retry 3 --retry-all-errors --connect-timeout 20 --max-time 120 \
     --speed-limit 1024 --speed-time 30 -o "$2" "$1"
 }

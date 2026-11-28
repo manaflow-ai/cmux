@@ -8,7 +8,7 @@ A run is a list of rows. Each row is one metric of one run:
       "bench": "launch",                             # registered bench name
       "metric": "dock_to_main_ms",                   # stable within a bench
       "value": 412.0,                                # the number compare reads (the median when n > 1)
-      "unit": "ms",                                  # ms, s, MB, KB, kbps, fps, %, count, mW, bytes
+      "unit": "ms",                                  # ms, s, MB, KB, kbps, fps, %, count, mW, bytes, px
       "better": "lower",                             # lower | higher | none (how compare judges a delta)
       "p50": 412.0, "p95": 530.0, "n": 5,           # when the metric has samples; else null
       "labels": {"arm": "cmux"},                     # extra dimensions (arm, target, component, ...)

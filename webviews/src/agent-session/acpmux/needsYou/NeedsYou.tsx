@@ -16,9 +16,12 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
+  type FocusEvent,
   type RefObject,
 } from "react";
 import { useStableCallback } from "../stableCallback";
@@ -30,20 +33,24 @@ import { HeaderIcon } from "../header/HeaderIcon";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { useAnswerHoldSet } from "../answerHold";
-import { Keycap } from "../Keycap";
+import { KeyHint } from "../../../ui/KeyHint";
 import { nextShortAge, shortAge } from "../sessionList";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
+import { VirtualList } from "../../../ui/VirtualList";
 import { onOpenNeedsYou } from "./links";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./model";
 import type { AskContext } from "./context";
 import { sameItemRowProps } from "./rowProps";
+import { RowMemory, RowMemoryContext, useRowState } from "./rowMemory";
 import { reply as questionReply, selection, type AgentQuestion, type QuestionReply } from "../question/model";
 import "./needsYou.css";
 import {
+  answerButton,
   answerKey,
   askText,
-  keyedAnswer,
+  keyedLetter,
+  lettered,
   sideQuestionPrompt,
   type NeedsYouActions,
   type NeedsYouMode,
@@ -77,6 +84,26 @@ type RowActions = Pick<NeedsYouActions, "answer" | "goTo" | "ask" | "reply" | "o
 /// elsewhere), read only by an expanded row's parts (AskContextTurns, OpenPlaces): they follow the
 /// chat while no row redraws for them.
 const RowSources = createContext<Pick<NeedsYouActions, "context" | "opensElsewhere">>({});
+
+/// The list draws the rows in view and NEEDS_YOU_OVERSCAN more on each side (about one 520 px list
+/// of rows each way), each measured once drawn; ROW_ESTIMATE is a row's first guess before that.
+const NEEDS_YOU_OVERSCAN = 6;
+/// A list this short draws every row, as before the window: it is about the rows a list shows plus
+/// the overscan on both sides, so drawing them all costs no more than the window would.
+const WINDOW_FROM = 24;
+/// A row drawn outside the window takes its place in the flow: one style object for all of them.
+const IN_FLOW: CSSProperties = Object.freeze({});
+const ROW_ESTIMATE: Record<NeedsYouMode, () => number> = {
+  pinned: () => 88,
+  compact: () => 52,
+  off: () => 88,
+};
+
+type Stage = "row" | "expanded" | "context";
+/// RowMemory keys for one ask's parts (rowMemory.ts).
+const kept = (id: string, part: string) => `${id}\u0000${part}`;
+const NO_PICKS: Readonly<Record<string, readonly string[]>> = {};
+const NO_OTHER: Readonly<Record<string, string>> = {};
 
 /// The header's badge: the count of open asks; a press opens the list.
 export function NeedsYouButton({
@@ -203,22 +230,63 @@ export function NeedsYouPanel({
   const { held: sent, add: holdSent, remove: releaseSent } = useAnswerHoldSet();
   const shown = items.filter((item) => !sent.has(item.id));
   const missing = focus !== undefined && !items.some((item) => item.id === focus);
+  // Each ask's row state, kept while its row is scrolled out of the drawn window.
+  const [memory] = useState(() => new RowMemory());
+  // The ask whose row has the keyboard: kept drawn, so focus never falls out of the list.
+  const [focusWithin, setFocusWithin] = useState<string>();
+  // A y or n pressed on the list for an ask outside the drawn window: drawn, then pressed.
+  const [keyed, setKeyed] = useState<{ id: string; key: "y" | "n" }>();
+  const activeId = focusWithin ?? keyed?.id ?? focus;
+  const activeAt = activeId === undefined ? -1 : shown.findIndex((item) => item.id === activeId);
+  const onFocus = (event: FocusEvent<HTMLDivElement>) => {
+    const slot = (event.target as Element).closest?.("[data-item-id]");
+    setFocusWithin(slot?.getAttribute("data-item-id") ?? undefined);
+  };
   // y and n answer an approval as its card does: the row with focus, else the top one. The key
-  // presses the row's own button, so it answers once and says so when acpmux refuses.
+  // presses the row's own button, so it answers once and says so when acpmux refuses. The top one
+  // is the list's, drawn or not: one outside the window is drawn first, then pressed.
   const panel = useRef<HTMLDivElement | null>(null);
+  const onKey = useStableCallback((event: KeyboardEvent) => {
+    const element = panel.current;
+    const pressed = keyedLetter(event);
+    if (!element || !pressed) return;
+    let button: HTMLButtonElement | null = null;
+    if (pressed.row) button = answerButton(pressed.row, pressed.key);
+    else {
+      // A compact row shows its answers only expanded.
+      const index = shown.findIndex(
+        (item) =>
+          lettered(item) && (mode !== "compact" || (memory.read<Stage>(kept(item.id, "stage")) ?? "row") !== "row"),
+      );
+      if (index < 0) return;
+      const row = element.querySelector(`[data-index="${index}"] .acpmux-needs-you-item`);
+      if (!row) {
+        event.preventDefault();
+        event.stopPropagation();
+        setKeyed({ id: shown[index]!.id, key: pressed.key });
+        return;
+      }
+      button = answerButton(row, pressed.key);
+    }
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    button.click();
+  });
   useEffect(() => {
     const element = panel.current;
     if (!element) return;
-    const onKey = (event: KeyboardEvent) => {
-      const button = keyedAnswer(event, element);
-      if (!button) return;
-      event.preventDefault();
-      event.stopPropagation();
-      button.click();
-    };
     element.addEventListener("keydown", onKey);
     return () => element.removeEventListener("keydown", onKey);
-  }, []);
+  }, [onKey]);
+  // The keyed ask's row is drawn now (it is the active row): press its answer, once.
+  const pressedFor = useRef<typeof keyed>(undefined);
+  useLayoutEffect(() => {
+    if (!keyed || pressedFor.current === keyed) return;
+    pressedFor.current = keyed;
+    const row = panel.current?.querySelector(`[data-item-id="${CSS.escape(keyed.id)}"] .acpmux-needs-you-item`);
+    if (row) answerButton(row, keyed.key)?.click();
+  }, [keyed]);
   // One set of row actions for the panel's life, each calling what `actions` holds now.
   const answer = useStableCallback((item: NeedsYouItem, choice: NeedsYouAnswer) => actions.answer(item, choice));
   const goTo = useStableCallback((item: NeedsYouItem) => actions.goTo(item));
@@ -247,6 +315,7 @@ export function NeedsYouPanel({
       className="acpmux-needs-you-panel"
       data-mode={mode}
       tabIndex={-1}
+      onFocus={onFocus}
     >
       <header className="acpmux-needs-you-head">
         <span className="acpmux-needs-you-title">{t("needsYou.title")}</span>
@@ -259,22 +328,64 @@ export function NeedsYouPanel({
           <span>{t("needsYou.empty")}</span>
         </div>
       ) : (
-        <RowSources.Provider value={sources}>
-          <ul className="acpmux-needs-you-list">
-            {shown.map((item) => (
-              <NeedsYouRow
-                key={item.id}
-                item={item}
-                mode={mode}
-                focused={item.id === focus}
-                hasContext={actions.context !== undefined}
-                actions={rowActions}
-                onSent={holdSent}
-                onRefused={releaseSent}
+        <RowMemoryContext.Provider value={memory}>
+          <RowSources.Provider value={sources}>
+            {shown.length < WINDOW_FROM ? (
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the same list element as the windowed one below, whose rows are placed divs
+              <div className="acpmux-needs-you-list" role="list" aria-label={t("needsYou.title")}>
+                {shown.map((item, index) => (
+                  <NeedsYouRow
+                    key={item.id}
+                    item={item}
+                    index={index}
+                    count={shown.length}
+                    style={IN_FLOW}
+                    measure={undefined}
+                    mode={mode}
+                    focused={item.id === focus}
+                    hasContext={actions.context !== undefined}
+                    actions={rowActions}
+                    onSent={holdSent}
+                    onRefused={releaseSent}
+                  />
+                ))}
+              </div>
+            ) : (
+              // Only the rows in and near view are drawn, each measured, with the row that has the
+              // keyboard, a link's ask or a keyed answer's ask kept drawn.
+              <VirtualList
+                className="acpmux-needs-you-list"
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- VirtualList draws its own element and takes the role
+                role="list"
+                label={t("needsYou.title")}
+                count={shown.length}
+                estimateSize={ROW_ESTIMATE[mode]}
+                measureRows
+                overscan={NEEDS_YOU_OVERSCAN}
+                {...(activeAt >= 0 ? { activeIndex: activeAt, activeScrollKey: activeId } : {})}
+                renderRow={(index, style, measure) => {
+                  const item = shown[index]!;
+                  return (
+                    <NeedsYouRow
+                      key={item.id}
+                      item={item}
+                      index={index}
+                      count={shown.length}
+                      style={style}
+                      measure={measure}
+                      mode={mode}
+                      focused={item.id === focus}
+                      hasContext={actions.context !== undefined}
+                      actions={rowActions}
+                      onSent={holdSent}
+                      onRefused={releaseSent}
+                    />
+                  );
+                }}
               />
-            ))}
-          </ul>
-        </RowSources.Provider>
+            )}
+          </RowSources.Provider>
+        </RowMemoryContext.Provider>
       )}
     </div>
   );
@@ -284,6 +395,10 @@ export function NeedsYouPanel({
 /// by identity (rowProps.ts), so another ask's change, a focus move or a minute draws no other row.
 const NeedsYouRow = memo(function NeedsYouRow({
   item,
+  index,
+  count,
+  style,
+  measure,
   mode,
   focused,
   hasContext,
@@ -292,6 +407,12 @@ const NeedsYouRow = memo(function NeedsYouRow({
   onRefused: onRefusedId,
 }: {
   item: NeedsYouItem;
+  /// Its place in the list and the list's length, for screen readers (aria-posinset, aria-setsize).
+  index: number;
+  count: number;
+  /// Its place in the drawn window (VirtualList), the same object while the place holds.
+  style: CSSProperties;
+  measure: ((element: Element | null) => void) | undefined;
   mode: NeedsYouMode;
   focused: boolean;
   /// The list can show the turns before an ask (NeedsYouActions `context`).
@@ -301,12 +422,13 @@ const NeedsYouRow = memo(function NeedsYouRow({
   onRefused(id: string): void;
 }) {
   const t = useT();
-  const row = useRef<HTMLLIElement>(null);
-  const [failed, setFailed] = useState(false);
-  const [sending, setSending] = useState<string>();
-  const [asking, setAsking] = useState(false);
+  const row = useRef<HTMLDivElement>(null);
+  // Kept in the list's memory (rowMemory.ts), so a row scrolled away and back shows the same.
+  const [failed, setFailed] = useRowState(kept(item.id, "failed"), false);
+  const [sending, setSending] = useRowState<string | undefined>(kept(item.id, "sending"), undefined);
+  const [asking, setAsking] = useRowState(kept(item.id, "asking"), false);
   // The row's stage: the one-line card, expanded, or expanded with its context.
-  const [stage, setStage] = useState<"row" | "expanded" | "context">("row");
+  const [stage, setStage] = useRowState<Stage>(kept(item.id, "stage"), "row");
   const expanded = stage !== "row";
   const itemId = item.id;
   const onSent = useCallback(() => onSentId(itemId), [onSentId, itemId]);
@@ -337,139 +459,153 @@ const NeedsYouRow = memo(function NeedsYouRow({
   const form = expanded && item.question && item.permissionId && actions.reply ? item.question : undefined;
   const toggle = () => setStage((now) => (now === "row" ? "expanded" : "row"));
   return (
-    <li
-      ref={row}
-      className="acpmux-needs-you-item"
-      data-kind={item.kind}
-      data-focused={focused ? "" : undefined}
-      data-stage={stage === "row" ? undefined : stage}
+    // The list's item, placed and measured by the window; the row's look is on the element inside.
+    <div
+      ref={measure}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a placed, measured row inside the window's own elements, which an li cannot sit in
+      role="listitem"
+      className="acpmux-needs-you-slot"
+      style={style}
+      data-index={index}
+      data-item-id={item.id}
+      aria-posinset={index + 1}
+      aria-setsize={count}
     >
-      <div className="acpmux-needs-you-meta">
-        <Avatar item={item} />
-        <span className="acpmux-needs-you-who">{item.who.chief ? t("needsYou.chief") : item.who.name}</span>
-        {item.who.via && <span className="acpmux-needs-you-via">{t("needsYou.via", { name: item.who.via })}</span>}
-        <span className="acpmux-needs-you-kind">{t(KINDS[item.kind])}</span>
-        {/* The row's end: its age at rest; on hover or keyboard focus, its tools in the same slot,
+      <div
+        ref={row}
+        className="acpmux-needs-you-item"
+        data-kind={item.kind}
+        data-focused={focused ? "" : undefined}
+        data-stage={stage === "row" ? undefined : stage}
+      >
+        <div className="acpmux-needs-you-meta">
+          <Avatar item={item} />
+          <span className="acpmux-needs-you-who">{item.who.chief ? t("needsYou.chief") : item.who.name}</span>
+          {item.who.via && <span className="acpmux-needs-you-via">{t("needsYou.via", { name: item.who.via })}</span>}
+          <span className="acpmux-needs-you-kind">{t(KINDS[item.kind])}</span>
+          {/* The row's end: its age at rest; on hover or keyboard focus, its tools in the same slot,
             plain icons with no chrome of their own (Leo 2026-10-21). */}
-        <span className="acpmux-needs-you-end">
-          {item.at !== undefined && <NeedsYouAge at={item.at} />}
-          <span className="acpmux-needs-you-tools">
-            {/* A marked tab names no chat to ask about or open elsewhere: Go to is its one action. */}
-            {item.kind !== "tab" && (
-              <button
-                type="button"
-                className="acpmux-needs-you-expand"
-                aria-label={expanded ? t("needsYou.collapse") : t("needsYou.expand")}
-                title={expanded ? t("needsYou.collapse") : t("needsYou.expand")}
-                aria-expanded={expanded}
-                onClick={toggle}
-              >
-                <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={14} />
-              </button>
-            )}
-            {!compact && item.kind !== "tab" && (
-              <button
-                type="button"
-                className="acpmux-needs-you-ask-about"
-                aria-label={t("needsYou.askAbout")}
-                title={t("needsYou.askAbout")}
-                aria-expanded={asking}
-                onClick={() => setAsking((open) => !open)}
-              >
-                <Icon name="agent.question" size={14} />
-              </button>
-            )}
-            <button
-              type="button"
-              className="acpmux-needs-you-go"
-              aria-label={t("needsYou.goToSource")}
-              title={t("needsYou.goToSource")}
-              onClick={() => actions.goTo(item)}
-            >
-              <Icon name="action.go" size={14} />
-            </button>
-          </span>
-        </span>
-      </div>
-      {/* The ask itself expands the row too: the person reads it and wants the rest. */}
-      <p className="acpmux-needs-you-ask">
-        {/* A marked tab's reason goes to the tab: it has no chat to expand. */}
-        <button
-          type="button"
-          className="acpmux-needs-you-ask-toggle"
-          aria-expanded={item.kind === "tab" ? undefined : expanded}
-          onClick={item.kind === "tab" ? () => actions.goTo(item) : toggle}
-        >
-          {askText(item, t)}
-        </button>
-      </p>
-      {!compact && item.detail && (
-        <p className="acpmux-needs-you-detail" data-code={item.command ? "" : undefined}>
-          {item.detail}
-        </p>
-      )}
-      {form && (
-        <QuestionForm
-          question={form}
-          send={(sent) => actions.reply!(item, sent)}
-          onSent={onSent}
-          onRefused={onRefused}
-        />
-      )}
-      {!compact && !form && item.answers.length > 0 && (
-        <div className="acpmux-needs-you-actions">
-          {/* Claude's permission card: the answers as numbered rows, the first one ready. */}
-          <fieldset className="acpmux-needs-you-options" aria-label={askText(item, t)}>
-            {item.answers.map((choice) => {
-              const key = answerKey(item, choice);
-              return (
+          <span className="acpmux-needs-you-end">
+            {item.at !== undefined && <NeedsYouAge at={item.at} />}
+            <span className="acpmux-needs-you-tools">
+              {/* A marked tab names no chat to ask about or open elsewhere: Go to is its one action. */}
+              {item.kind !== "tab" && (
                 <button
-                  key={choice.id}
                   type="button"
-                  className="acpmux-needs-you-answer"
-                  data-tone={choice.tone}
-                  data-answer-key={key}
-                  aria-keyshortcuts={key}
-                  disabled={sending !== undefined}
-                  aria-busy={sending === choice.id}
-                  onClick={() => answer(choice)}
+                  className="acpmux-needs-you-expand"
+                  aria-label={expanded ? t("needsYou.collapse") : t("needsYou.expand")}
+                  title={expanded ? t("needsYou.collapse") : t("needsYou.expand")}
+                  aria-expanded={expanded}
+                  onClick={toggle}
                 >
-                  <span className="acpmux-needs-you-answer-label">
-                    {item.kind !== "held"
-                      ? choice.label
-                      : item.promptId
-                        ? t("queue.held.review")
-                        : choice.id === "resume"
-                          ? t("needsYou.resume")
-                          : choice.label}
-                  </span>
-                  {key && <Keycap>{key.toUpperCase()}</Keycap>}
+                  <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={14} />
                 </button>
-              );
-            })}
-          </fieldset>
+              )}
+              {!compact && item.kind !== "tab" && (
+                <button
+                  type="button"
+                  className="acpmux-needs-you-ask-about"
+                  aria-label={t("needsYou.askAbout")}
+                  title={t("needsYou.askAbout")}
+                  aria-expanded={asking}
+                  onClick={() => setAsking((open) => !open)}
+                >
+                  <Icon name="agent.question" size={14} />
+                </button>
+              )}
+              <button
+                type="button"
+                className="acpmux-needs-you-go"
+                aria-label={t("needsYou.goToSource")}
+                title={t("needsYou.goToSource")}
+                onClick={() => actions.goTo(item)}
+              >
+                <Icon name="action.go" size={14} />
+              </button>
+            </span>
+          </span>
         </div>
-      )}
-      {failed && <p className="acpmux-needs-you-error">{t("needsYou.answerFailed")}</p>}
-      {expanded && (
-        <div className="acpmux-needs-you-more">
-          {hasContext && (
-            <button
-              type="button"
-              className="acpmux-needs-you-more-button"
-              aria-expanded={stage === "context"}
-              onClick={() => setStage((now) => (now === "context" ? "expanded" : "context"))}
-            >
-              {stage === "context" ? t("needsYou.contextHide") : t("needsYou.context")}
-            </button>
-          )}
-          {/* Another chat opens where the person picks; this chat's ask is already on screen. */}
-          {actions.open && <OpenPlaces item={item} open={actions.open} />}
-        </div>
-      )}
-      {stage === "context" && hasContext && <AskContextTurns item={item} />}
-      {asking && !compact && <SideQuestion item={item} ask={actions.ask} onAsked={() => setAsking(false)} />}
-    </li>
+        {/* The ask itself expands the row too: the person reads it and wants the rest. */}
+        <p className="acpmux-needs-you-ask">
+          {/* A marked tab's reason goes to the tab: it has no chat to expand. */}
+          <button
+            type="button"
+            className="acpmux-needs-you-ask-toggle"
+            aria-expanded={item.kind === "tab" ? undefined : expanded}
+            onClick={item.kind === "tab" ? () => actions.goTo(item) : toggle}
+          >
+            {askText(item, t)}
+          </button>
+        </p>
+        {!compact && item.detail && (
+          <p className="acpmux-needs-you-detail" data-code={item.command ? "" : undefined}>
+            {item.detail}
+          </p>
+        )}
+        {form && (
+          <QuestionForm
+            id={item.id}
+            question={form}
+            send={(sent) => actions.reply!(item, sent)}
+            onSent={onSent}
+            onRefused={onRefused}
+          />
+        )}
+        {!compact && !form && item.answers.length > 0 && (
+          <div className="acpmux-needs-you-actions">
+            {/* Claude's permission card: the answers as numbered rows, the first one ready. */}
+            <fieldset className="acpmux-needs-you-options" aria-label={askText(item, t)}>
+              {item.answers.map((choice) => {
+                const key = answerKey(item, choice);
+                return (
+                  <button
+                    key={choice.id}
+                    type="button"
+                    className="acpmux-needs-you-answer"
+                    data-tone={choice.tone}
+                    data-answer-key={key}
+                    aria-keyshortcuts={key}
+                    disabled={sending !== undefined}
+                    aria-busy={sending === choice.id}
+                    onClick={() => answer(choice)}
+                  >
+                    <span className="acpmux-needs-you-answer-label">
+                      {item.kind !== "held"
+                        ? choice.label
+                        : item.promptId
+                          ? t("queue.held.review")
+                          : choice.id === "resume"
+                            ? t("needsYou.resume")
+                            : choice.label}
+                    </span>
+                    {key && <KeyHint keys={key.toUpperCase()} aria-hidden="true" />}
+                  </button>
+                );
+              })}
+            </fieldset>
+          </div>
+        )}
+        {failed && <p className="acpmux-needs-you-error">{t("needsYou.answerFailed")}</p>}
+        {expanded && (
+          <div className="acpmux-needs-you-more">
+            {hasContext && (
+              <button
+                type="button"
+                className="acpmux-needs-you-more-button"
+                aria-expanded={stage === "context"}
+                onClick={() => setStage((now) => (now === "context" ? "expanded" : "context"))}
+              >
+                {stage === "context" ? t("needsYou.contextHide") : t("needsYou.context")}
+              </button>
+            )}
+            {/* Another chat opens where the person picks; this chat's ask is already on screen. */}
+            {actions.open && <OpenPlaces item={item} open={actions.open} />}
+          </div>
+        )}
+        {stage === "context" && hasContext && <AskContextTurns item={item} />}
+        {asking && !compact && <SideQuestion item={item} ask={actions.ask} onAsked={() => setAsking(false)} />}
+      </div>
+    </div>
   );
 }, sameItemRowProps);
 
@@ -533,21 +669,24 @@ function AskContextTurns({ item }: { item: NeedsYouItem }) {
 /// the ask takes typed text, and Submit, which sends the whole answer in the harness's shape
 /// (question/model.ts `reply`). A click picks and never sends, as the ask's card (QuestionCard).
 function QuestionForm({
+  id,
   question,
   send,
   onSent,
   onRefused,
 }: {
+  /// The ask's id: the form's picks and text are kept under it (rowMemory.ts).
+  id: string;
   question: AgentQuestion;
   send(sent: QuestionReply): Promise<unknown>;
   onSent(): void;
   onRefused(): void;
 }) {
   const t = useT();
-  const [picks, setPicks] = useState<Readonly<Record<string, readonly string[]>>>({});
-  const [other, setOther] = useState<Readonly<Record<string, string>>>({});
-  const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [picks, setPicks] = useRowState<Readonly<Record<string, readonly string[]>>>(kept(id, "picks"), NO_PICKS);
+  const [other, setOther] = useRowState<Readonly<Record<string, string>>>(kept(id, "other"), NO_OTHER);
+  const [busy, setBusy] = useRowState(kept(id, "formBusy"), false);
+  const [failed, setFailed] = useRowState(kept(id, "formFailed"), false);
   const answered = (id: string) => (picks[id]?.length ?? 0) > 0 || Boolean(other[id]?.trim());
   const ready = question.items.every((item) => answered(item.id));
   const pick = (itemId: string, optionId: string, multi: boolean) => {
@@ -641,9 +780,9 @@ function QuestionForm({
 /// once it is asked, and says so when it could not be.
 function SideQuestion({ item, ask, onAsked }: { item: NeedsYouItem; ask: NeedsYouActions["ask"]; onAsked(): void }) {
   const t = useT();
-  const [draft, setDraft] = useState(() => t("needsYou.askSeed"));
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
+  const [draft, setDraft] = useRowState(kept(item.id, "draft"), t("needsYou.askSeed"));
+  const [busy, setBusy] = useRowState(kept(item.id, "askBusy"), false);
+  const [error, setError] = useRowState<string | undefined>(kept(item.id, "askError"), undefined);
   const send = () => {
     const question = draft.trim();
     if (!question || busy) return;

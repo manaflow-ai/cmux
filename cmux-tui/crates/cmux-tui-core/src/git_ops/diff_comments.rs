@@ -34,6 +34,7 @@ use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
 use crate::{Mux, ResourceTarget};
 
+pub(super) mod github;
 mod send;
 #[cfg(test)]
 #[path = "diff_comments/send_tests.rs"]
@@ -54,6 +55,8 @@ pub(super) const MAX_ROOT_BYTES: usize = 4096;
 /// The largest stored comment, serialized.
 pub(super) const MAX_COMMENT_BYTES: usize = 64 * 1024;
 /// The most comments one root keeps.
+/// Measured: the bytes of one save; a root's comments are one JSON file rewritten whole on each
+/// change, so 500 × MAX_COMMENT_BYTES (64 KiB) bounds that write at 32 MiB.
 pub(super) const MAX_COMMENTS: usize = 500;
 /// The most ids one delete names.
 pub(super) const MAX_DELETE_IDS: usize = 500;
@@ -427,6 +430,23 @@ impl Store {
             }
             file.review = Some(review);
             self.write(root, &file)
+        })
+    }
+
+    /// Keeps a pull request's GitHub review comments as `root`'s threads
+    /// (`github::import`), once each however often it runs.
+    pub(super) fn import_github(
+        &self,
+        root: &str,
+        comments: &[Value],
+    ) -> io::Result<github::Imported> {
+        self.exclusive(root, || {
+            let mut file = self.read(root)?;
+            let imported = github::import(&mut file, comments, &rfc3339(now_ms()));
+            if imported != github::Imported::default() {
+                self.write(root, &file)?;
+            }
+            Ok(imported)
         })
     }
 

@@ -3,7 +3,7 @@
 //! folder (the app `local/customize`, which stays theirs and on top).
 //!
 //! ```text
-//! ~/.config/cmux/setups/                 (Roots::setups_dir)
+//! ~/.config/cmux-next/setups/            (Roots::setups_dir)
 //!   layers.json                          the layers that are on, top first
 //!   setup-OWNER-NAME/cmux-app.json ...   one setup's views, as the app local/setup-OWNER-NAME
 //! ```

@@ -7,6 +7,15 @@ export function offersAcpmuxRestart(error: unknown): boolean {
   return !!details && typeof details === "object" && (details as { restartAcpmux?: unknown }).restartAcpmux === true;
 }
 
+// Catch-all host errors carry retryable=false because no layer classified them. During a relaunch
+// they are recoverable and should stay quiet until the normal error deadline.
+const UNCLASSIFIED_HOST_CODES = new Set(["cmux.page.failed", "native.failed"]);
+
+export function hostFailureUnclassified(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && UNCLASSIFIED_HOST_CODES.has(code);
+}
+
 /// A host-owned update handoff or a lost transport is still recovering. A definite host refusal
 /// (missing binary, stopped daemon, unsupported machine, untrusted folder) keeps its instructions.
 /// Older bridges may omit retryability on socket failures; only errors without an owned code fall
@@ -25,6 +34,7 @@ export function hostIsReconnecting(error: unknown): boolean {
   // acpmux marks a refusal a retry clears (`data.retryable`; direct.ts keeps `data` on the error).
   if (fields?.data?.retryable === true) return true;
   if (fields?.code === "native.not_connected" || fields?.code === "native.timed_out") return true;
+  if (hostFailureUnclassified(error)) return true;
   if (typeof fields?.retryable === "boolean") return fields.retryable;
   if (typeof fields?.code === "string") return false;
   return fields?.code === undefined;
@@ -40,25 +50,88 @@ export function hostRefusedTooLarge(error: unknown): boolean {
 
 /// Whether the failure is one the pane clears by itself by asking again, so the person has nothing
 /// to do: a lost or never-opened connection, a chat's machine that is reconnecting or rebooting, an
-/// agent service that is starting (`hostIsReconnecting`). Not a chat too large to open (asking again
-/// gets the same reply), not another build's acpmux holding this app's socket (`restartOffered`:
-/// only Restart agent service clears it), not a refusal that waits on the person (an untrusted
-/// folder, acpmux missing). Such a failure is one quiet "Reconnecting…" (HostError.tsx), however
-/// long it lasts (Leo, 2026-11-12: "it should just automatically do stuff"), up to
-/// SELF_RETRY_SAID_MS of trouble (`troubleForMs`); past it the line says why, with Details and Retry.
+/// agent service that is starting or stopped (`hostIsReconnecting`). Not a chat too large to open
+/// (asking again gets the same reply), not another build's acpmux holding this app's socket
+/// (`restartOffered`: only Restart agent service clears it), not a refusal that waits on the person
+/// (an untrusted folder, acpmux missing). Such a failure draws nothing (HostError.tsx), however long
+/// it lasts (Leo, 2026-11-12: "it should just automatically do stuff"; cmux#60478, a
+/// brief forwarded as his, unverified, on "The agent service stopped. Retry": "retry on its own").
+/// Only a chat whose machine is unreachable is said past SELF_RETRY_SAID_MS (`troubleForMs`): that
+/// machine is the person's to bring back, and its line names it (hostLine.ts).
 export function hostSelfRetrying(error: unknown, restartOffered: boolean, troubleForMs = 0): boolean {
-  return (
-    hostIsReconnecting(error) && !hostRefusedTooLarge(error) && !restartOffered && troubleForMs < SELF_RETRY_SAID_MS
-  );
+  if (!hostIsReconnecting(error) || hostRefusedTooLarge(error) || restartOffered) return false;
+  return troubleForMs < SELF_RETRY_SAID_MS || !peerLinkFailure(error);
 }
 
-/// How long the pane may get its chat back on its own, saying only "Reconnecting…", before it says
-/// why and offers Retry. A chat that never opens (an attach that never answers, a daemon that drops
-/// the pane right after every connect) spun "Reconnecting…" forever with nothing to read or press
-/// (Leo, 2026-11-23: "im getting an infinite Reconnecting... thing with claude-sr2-coord-old"). Two
-/// minutes, as a machine's link (hostLine.ts PEER_LINK_DEADLINE_MS): a restart, an update's handoff
-/// or a short drop ends well inside it, so the usual recovery still says nothing more.
+/// How long the pane asks again at its quick pace (`nextRetryDelay`) before it slows to one ask every
+/// REFUSED_RETRY_MAX_MS. Two minutes, as a machine's link (hostLine.ts PEER_LINK_DEADLINE_MS): a
+/// restart, an update's handoff or a short drop ends well inside it.
 export const SELF_RETRY_SAID_MS = 120_000;
+
+/// What the pane's handshake loop does after a failed handshake, or after a connection lost soon
+/// after it connected: ask again after `waitMs`, or stop. It never gives up on this app's own agent
+/// service (cmux#60478: "retry on its own", unverified): until SELF_RETRY_SAID_MS of trouble it asks at the
+/// quick pace; past it it keeps asking, `slow`, at most REFUSED_RETRY_MAX_MS apart, so an hour without
+/// a daemon costs about 120 asks instead of the 1 800 of cmux#49148, and a slow pane still asks at
+/// once on an event (`HOST_WAKE_EVENTS`): the window shown or focused again, the network back, or
+/// the host saying its agent service changed. Leo, 2026-11-24, "dead hang loops": the loop is
+/// bounded in rate, not in time. Only a chat too large to open stops: asking again gets the same reply.
+export type HostRetryStep = { kind: "retry"; waitMs: number; slow?: true } | { kind: "stop" };
+
+export function hostRetryStep(state: { error: unknown; troubleForMs: number; waitMs: number }): HostRetryStep {
+  const { error, troubleForMs, waitMs } = state;
+  if (hostRefusedTooLarge(error)) return { kind: "stop" };
+  if (troubleForMs < SELF_RETRY_SAID_MS) return { kind: "retry", waitMs };
+  return { kind: "retry", waitMs: Math.max(waitMs, REFUSED_RETRY_MAX_MS), slow: true };
+}
+
+/// After a connection was lost `upForMs` after it connected: reconnect after `waitMs`. A daemon that
+/// accepts the pane and drops it again every time slows, once the trouble has lasted
+/// SELF_RETRY_SAID_MS and this connection did not stay up (CONNECTION_STABLE_MS), to one ask every
+/// REFUSED_RETRY_MAX_MS, never to none. A connection that stayed up always reconnects at once.
+export function lostRetryStep(state: { troubleForMs: number; upForMs: number; waitMs: number }): HostRetryStep {
+  const { troubleForMs, upForMs, waitMs } = state;
+  if (upForMs >= CONNECTION_STABLE_MS || troubleForMs < SELF_RETRY_SAID_MS) return { kind: "retry", waitMs };
+  return { kind: "retry", waitMs: Math.max(waitMs, REFUSED_RETRY_MAX_MS), slow: true };
+}
+
+/// A definite refusal heard on a `reconnect` handshake, which only looks for a daemon and never
+/// starts one (cx-6bgzj): this app's agent service stopped (`AgentPaneHostError.daemonStopped` on a
+/// host that still calls it a refusal), or any refusal the host did not mark as recovering. The next
+/// ask is the starting `ready` handshake, the one the removed Retry button sent, so a stopped service
+/// starts again with no click; that ask's own refusal (acpmux missing, another build's daemon) is the
+/// one the pane may say. Not a chat too large, another build on the socket (Restart is the person's),
+/// or a machine's link (acpmux reconnects that itself).
+export function reconnectRefusalStarts(error: unknown, restartOffered: boolean): boolean {
+  if (hostRefusedTooLarge(error) || restartOffered || peerLinkFailure(error)) return false;
+  return !hostIsReconnecting(error) && !hostPlannedRestart(error);
+}
+
+/// The events that make a slow pane ask now (`hostRetryStep` `slow`): on `document`,
+/// `visibilitychange` (only to visible); on `window`, `focus`, `online`, `acpmux-host-status` (the
+/// host's word on a restore), and `acpmux-daemon-answered` (the host's word that this app's acpmux
+/// answered a lookup, AgentPaneView `observeAcpmuxAnswers`: the daemon is back).
+export const HOST_WAKE_EVENTS = {
+  document: ["visibilitychange"],
+  window: ["focus", "online", "acpmux-host-status", "acpmux-daemon-answered"],
+} as const;
+
+/// Whether a wake event should make a slow pane ask now: never while hidden (the next
+/// `visibilitychange` to visible asks), never while an attempt or a restart runs. The host's
+/// `acpmux-daemon-answered` asks once per slow spell (`answerSpent`): two slow panes whose daemon
+/// answers lookups but fails their connection would otherwise wake each other forever, each ask's
+/// lookup telling the other pane; their slow timer still asks. A person's event (shown, focused,
+/// online) asks again. `stopped`: the pane is in its slow spell.
+export function hostWakeAsks(state: {
+  event: string;
+  stopped: boolean;
+  connecting: boolean;
+  hidden: boolean;
+  answerSpent: boolean;
+}): boolean {
+  if (!state.stopped || state.connecting || state.hidden) return false;
+  return state.event !== "acpmux-daemon-answered" || !state.answerSpent;
+}
 
 /// When the pane's trouble began, after a connection was lost `upForMs` after it connected: a
 /// connection that stayed up CONNECTION_STABLE_MS ended the last trouble, so this one starts now; one
@@ -83,14 +156,19 @@ export const HOST_ERROR_DEADLINE_MS = 25_000;
 /// `peerLinkFailureShows`): never while the machine is slow or restarting, else after two minutes.
 ///
 /// `asleep` says whether the named machine is a Cloud machine the account says is paused or
-/// resuming; such a machine is never said to be unreachable.
+/// resuming; such a machine is never said to be unreachable. `reconnectAsk`: the failed handshake was
+/// a `reconnect`, which never starts a daemon; its definite refusal is not said, since the starting
+/// handshake that follows at once (`reconnectRefusalStarts`) clears a stopped service and says
+/// anything else.
 export function hostErrorShows(
   error: unknown,
   failingForMs: number,
   asleep: (peer: string | undefined) => boolean = () => false,
+  reconnectAsk = false,
 ): boolean {
   const peer = peerLinkFailure(error);
   if (peer) return peerLinkFailureShows(peer, failingForMs, asleep(peer.peer));
+  if (reconnectAsk && reconnectRefusalStarts(error, offersAcpmuxRestart(error))) return false;
   return !hostIsReconnecting(error) || failingForMs >= HOST_ERROR_DEADLINE_MS;
 }
 

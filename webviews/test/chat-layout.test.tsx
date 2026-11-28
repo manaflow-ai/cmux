@@ -7,7 +7,7 @@
 //   - the schema rows, the page's arms and the stylesheet's rules name the same values.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { act } from "react";
 import {
@@ -150,7 +150,6 @@ describe("one set of values everywhere", () => {
   };
   const rows = new Map(source.lists.flatMap((list) => list.rows).map((row) => [row.key, row]));
   const css = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/chatLayout.css"), "utf8");
-  const policy = readFileSync(join(root, "schemas/settings/source/agent-policy.json"), "utf8");
 
   for (const [slot, spec] of Object.entries(CHAT_LAYOUT)) {
     test(`${spec.key}: schema row, page arms, default and stylesheet agree`, () => {
@@ -158,7 +157,7 @@ describe("one set of values everywhere", () => {
       expect(row).toBeDefined();
       expect(row?.choices?.map((choice) => choice.value)).toEqual([...spec.arms]);
       expect(row?.default).toBe(DEFAULT_CHAT_LAYOUT[slot as keyof typeof DEFAULT_CHAT_LAYOUT]);
-      expect(policy).toContain(`"${spec.key}"`);
+      expect(existsSync(join(root, `schemas/settings/source/agent-policy/${spec.key}.json`))).toBe(true);
       const attr = spec.attr.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
       for (const arm of spec.arms) {
         if (arm === row?.default) continue;

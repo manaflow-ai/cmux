@@ -24,6 +24,14 @@
 //! read under half of what the call before it left (`{cause, at}`), with its likely cause: a
 //! compaction since, a model or effort change, the cache's expiry, else `unknown`. Settings names
 //! an account's newest miss (`hub/account_usage.rs`, Leo, 2026-11-23: "the last cache-miss cause").
+//!
+//! Every miss of a turn is also counted by cause (`TurnMisses`) on the prompt result's
+//! `_meta.harnessMagic.cacheAlarm`, RFD 0158 §1's per-call alarm: a turn-level share hides a
+//! break when the turn's later calls read the cache the first one wrote again (`hub/cache_alarm.rs`).
+//!
+//! Every main-loop call of a chat that caches is also classed hit, new, compulsory, capacity,
+//! conflict or churn with its refault gap, RFD 0182 B6's cache fault accounting, sent as
+//! `_meta.acpmux.cacheFaults` (`cache_faults.rs`).
 
 use super::Translator;
 use crate::no_panic::JsonExt;
@@ -55,6 +63,40 @@ pub(super) struct CacheClock {
     ran_with: StdMutex<Option<(String, String)>>,
     /// A compaction since the last call.
     compacted_since: AtomicBool,
+    /// This turn's misses, for RFD 0158 §1's alarm (`take_turn_misses`).
+    turn_misses: StdMutex<TurnMisses>,
+    /// Every main-loop call's cache fault class so far (RFD 0182 B6, `cache_faults.rs`).
+    faults: StdMutex<super::cache_faults::FaultCounts>,
+}
+
+/// One turn's main-loop calls that missed the cache, by cause (RFD 0158 §1). A miss with no
+/// cause the daemon can name (`unknown`: still warm, same model, effort and no compaction) is a
+/// prefix churn; the others are declared boundaries.
+#[derive(Default, Debug, Clone, PartialEq)]
+pub struct TurnMisses {
+    pub by_cause: std::collections::BTreeMap<&'static str, u64>,
+    /// The context those misses wrote again instead of reading.
+    pub unread_tokens: u64,
+}
+
+impl TurnMisses {
+    pub fn churn(&self) -> u64 {
+        self.by_cause.get("unknown").copied().unwrap_or(0)
+    }
+
+    /// The counters for the turn's `_meta.harnessMagic.cacheAlarm`; None with no miss.
+    pub fn to_json(&self) -> Option<Value> {
+        let total: u64 = self.by_cause.values().sum();
+        (total > 0).then(|| {
+            json!({
+                "callMisses": total,
+                "callChurn": self.churn(),
+                "callDeclared": total - self.churn(),
+                "callUnreadTokens": self.unread_tokens,
+                "cause": self.by_cause,
+            })
+        })
+    }
 }
 
 /// Why a call read under half of the context the call before it left: a compaction since
@@ -111,7 +153,7 @@ impl CacheClock {
         let before =
             self.ran_with.lock().unwrap_or_else(|e| e.into_inner()).replace(ran_with.clone());
         let compacted = self.compacted_since.swap(false, Ordering::SeqCst);
-        self.requested_at_ms.store(at_ms, Ordering::SeqCst);
+        let previous_at = self.requested_at_ms.swap(at_ms, Ordering::SeqCst);
         let Some(usage) = usage else { return };
         self.call(usage);
         let input = usage.get_u64("input_tokens").unwrap_or(0);
@@ -123,12 +165,26 @@ impl CacheClock {
         }
         // Only a chat whose calls use the cache misses it.
         let caching = self.ttl_ms.load(Ordering::SeqCst) > 0;
-        if caching && context >= MIN_MISS_CONTEXT && read.saturating_mul(2) < context {
+        if !caching {
+            return;
+        }
+        let mut cause = "";
+        if context >= MIN_MISS_CONTEXT && read.saturating_mul(2) < context {
             let (model, effort) =
                 before.map_or((false, false), |(m, e)| (m != ran_with.0, e != ran_with.1));
-            let cause = miss_cause(compacted, model, effort, expired_at, at_ms);
+            cause = miss_cause(compacted, model, effort, expired_at, at_ms);
             *self.miss.lock().unwrap_or_else(|e| e.into_inner()) = Some((cause, at_ms));
+            let mut turn = self.turn_misses.lock().unwrap_or_else(|e| e.into_inner());
+            *turn.by_cause.entry(cause).or_default() += 1;
+            turn.unread_tokens = turn.unread_tokens.saturating_add(context.saturating_sub(read));
         }
+        let fault = super::cache_faults::classify(previous_at == 0, context, read, cause);
+        let gap = if previous_at == 0 { 0 } else { at_ms.saturating_sub(previous_at) };
+        self.faults.lock().unwrap_or_else(|e| e.into_inner()).record(
+            fault,
+            context.saturating_sub(read),
+            gap,
+        );
     }
 
     /// Adds how the cache did to a main-loop `usage_update`'s `_meta.acpmux` (module docs).
@@ -138,6 +194,9 @@ impl CacheClock {
         }
         if let Some((cause, at)) = *self.miss.lock().unwrap_or_else(|e| e.into_inner()) {
             acpmux.set("cacheMiss", json!({"cause": cause, "at": at}));
+        }
+        if let Some(faults) = self.faults.lock().unwrap_or_else(|e| e.into_inner()).to_json() {
+            acpmux.set("cacheFaults", faults);
         }
     }
 
@@ -169,6 +228,11 @@ impl CacheClock {
         let expires = expires_at_ms(at, ttl, cache);
         self.expires_at_ms.store(expires.unwrap_or(0), Ordering::SeqCst);
         expires
+    }
+
+    /// This turn's misses, and the next turn counts its own.
+    pub(super) fn take_turn_misses(&self) -> TurnMisses {
+        std::mem::take(&mut *self.turn_misses.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     pub(super) fn expires_at(&self) -> Option<u64> {
@@ -218,6 +282,10 @@ impl Translator {
                 acpmux.set("cacheExpiresAt", json!(at));
             }
             self.cache.stamp(&mut acpmux);
+            // When the call went out and came back (`model_calls.rs`).
+            if let Some(timing) = self.model_clock.ended(now_ms()) {
+                acpmux.set("timing", timing);
+            }
         }
         let size = self.context_window.load(Ordering::SeqCst);
         // One model call's own usage, marked so a client can add a turn's calls up (the pane's

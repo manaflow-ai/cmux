@@ -6,7 +6,7 @@
 //! ```
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-use super::{bind_unix, peer_uid_allowed, tighten_socket_dir};
+use super::{bind_daemon_unix, bind_unix, peer_uid_allowed, tighten_socket_dir};
 
 fn mode(path: &std::path::Path) -> u32 {
     std::fs::symlink_metadata(path)
@@ -61,4 +61,48 @@ async fn the_socket_is_owner_only_and_its_existing_directory_narrowed() {
     assert_eq!(mode(&dir), 0o700);
     // This user still connects.
     tokio::net::UnixStream::connect(&socket).await.unwrap_or_else(|e| panic!("connect: {e}"));
+}
+
+/// The bind never sets the process umask (it is process-wide: a folder another thread made
+/// during the bind came out 0600, so binding a socket in it failed "Permission denied"), and the
+/// private staging folder it binds in is gone afterwards.
+#[tokio::test]
+async fn the_bind_leaves_the_umask_and_no_staging_folder() {
+    let tmp = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let socket = tmp.path().join("acpmux.sock");
+    // SAFETY: umask has no preconditions; read and put back at once.
+    let before = unsafe { libc::umask(0o022) };
+    unsafe { libc::umask(before) };
+    let _listener = bind_unix(&socket).await.unwrap_or_else(|e| panic!("bind: {e:#}"));
+    // SAFETY: as above.
+    let after = unsafe { libc::umask(before) };
+    assert_eq!(after, before, "bind_unix left the umask as it found it");
+    assert_eq!(mode(&socket), 0o600);
+    let left: Vec<_> = std::fs::read_dir(tmp.path())
+        .unwrap_or_else(|e| panic!("read_dir: {e}"))
+        .filter_map(|e| e.ok().map(|e| e.file_name()))
+        .collect();
+    assert_eq!(left, vec![std::ffi::OsString::from("acpmux.sock")], "{left:?}");
+    tokio::net::UnixStream::connect(&socket).await.unwrap_or_else(|e| panic!("connect: {e}"));
+}
+
+/// A take-over start whose socket answers from a listener this process holds (the copy the old
+/// daemon handed it), or from the daemon it took over from, replaces the socket. It used to bail
+/// "another acpmux daemon owns" and the daemon died at every update. A listener of any other live
+/// process is still refused (`tests/daemon_single_owner.rs`).
+#[tokio::test]
+async fn the_daemon_replaces_a_socket_that_answers_from_its_own_copy() {
+    let tmp = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let socket = tmp.path().join("acpmux.sock");
+    let copy = bind_unix(&socket).await.unwrap_or_else(|e| panic!("bind: {e:#}"));
+    let refused = bind_unix(&socket).await.err().map(|e| format!("{e:#}")).unwrap_or_default();
+    assert!(refused.contains("another acpmux daemon owns"), "{refused}");
+    let other = bind_daemon_unix(&socket, |_| false).await.err().map(|e| format!("{e:#}"));
+    assert!(other.unwrap_or_default().contains("another acpmux daemon owns"));
+    let ours = |pid| pid == std::process::id();
+    let listener = bind_daemon_unix(&socket, ours).await.unwrap_or_else(|e| panic!("bind: {e:#}"));
+    drop(copy);
+    let _client = tokio::net::UnixStream::connect(&socket).await.unwrap_or_else(|e| panic!("{e}"));
+    let accepted = tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept()).await;
+    assert!(matches!(accepted, Ok(Ok(_))), "the new listener serves the socket");
 }

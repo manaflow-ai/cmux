@@ -80,8 +80,12 @@ final class OnboardingPageProvider: PageProvider {
         }
         let importer = model.importer
         switch op {
-        case "cmux.onboarding.next": model.next()
-        case "cmux.onboarding.skip": model.skipStep()
+        case "cmux.onboarding.next":
+            noteWalkScreen(params)
+            model.next()
+        case "cmux.onboarding.skip":
+            noteWalkScreen(params)
+            model.skipStep()
         case "cmux.onboarding.back": model.goBack()
         case "cmux.onboarding.agents.signIn": model.agents.signIn(try Self.string(params, "id"))
         case "cmux.onboarding.agents.install": model.agents.install(try Self.string(params, "id"))
@@ -111,11 +115,27 @@ final class OnboardingPageProvider: PageProvider {
             guard let value = WorkStyle(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown work style") }
             model.makeItYours.setWorkStyle(value)
         case "cmux.onboarding.makeItYours.density":
-            guard let value = DensityChoice(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown density") }
-            model.makeItYours.setDensity(value)
+            guard model.makeItYours.setDensity(try Self.string(params, "value")) else { throw PageError.invalidParams("unknown density") }
+        case "cmux.onboarding.makeItYours.chatsRunIn":
+            guard let value = ChatsRunIn(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown chat location") }
+            model.makeItYours.setChatsRunIn(value)
         case "cmux.onboarding.makeItYours.background":
             // null: no background.
             guard model.makeItYours.setBackground(params["id"]?.stringValue) else { throw PageError.invalidParams("unknown background") }
+        case "cmux.onboarding.makeItYours.opacity":
+            guard let value = params["value"]?.doubleValue, model.makeItYours.setOpacity(value) else { throw PageError.invalidParams("opacity is 0 to 1") }
+        case "cmux.onboarding.makeItYours.material":
+            guard let value = FirstRunMaterial(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown material") }
+            model.makeItYours.setMaterial(value)
+        case "cmux.onboarding.makeItYours.walk":
+            // {writes: [{path: "a.b", value}]}: a missing or null value removes the setting.
+            guard let rows = params["writes"]?.arrayValue, !rows.isEmpty else { throw PageError.invalidParams("writes is required") }
+            let writes = try rows.map { row in
+                guard let path = row["path"]?.stringValue, !path.isEmpty else { throw PageError.invalidParams("path is required") }
+                let value = row["value"].flatMap { $0 == .null ? nil : $0 }
+                return FirstRunWalkWrite(path: path.split(separator: ".").map(String.init), value: value)
+            }
+            guard model.makeItYours.setWalk(writes) else { throw PageError.invalidParams("not a setting the intro writes") }
         default: throw PageError.unknownOp(op)
         }
     }
@@ -147,6 +167,12 @@ final class OnboardingPageProvider: PageProvider {
         let id = try Self.string(params, "id")
         guard let profile = model.importer.profiles.first(where: { $0.id == id }) else { throw PageError.invalidParams("unknown profile") }
         return profile
+    }
+
+    /// Make cmux Yours' page sends the walk's screen index with Continue and Skip, for the walk's record.
+    private func noteWalkScreen(_ params: JSONValue) {
+        guard model.step == .makeItYours, let screen = params["screen"]?.intValue, screen >= 0 else { return }
+        model.walkScreen = screen
     }
 
     private static func string(_ params: JSONValue, _ key: String) throws -> String {

@@ -8,7 +8,8 @@
 // every ask across agents and machines) and Costs (ledger/LedgerScreen.tsx, what agents spent).
 // They live here because this page is one the app already opens; they need no host of their own.
 // Team (teamAudit/TeamAuditScreen.tsx, the team's shared agent spend) joins them while the
-// `team-audit` experiment is on.
+// `team-audit` experiment is on, and People (teamDirectory/TeamDirectoryScreen.tsx, RFD 0170's team
+// navigator) while the `team-directory` one is.
 import type { ComponentProps } from "react";
 import { useEffect, useState } from "react";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
@@ -20,12 +21,14 @@ import { createQueueCache } from "../queue/useQueue";
 import { createLedgerCache } from "../ledger/LedgerScreen";
 import { teamAudit } from "../teamAudit/teamAudit.experiment";
 import { TeamAuditScreen } from "../teamAudit/TeamAuditScreen";
+import { teamDirectory } from "../teamDirectory/teamDirectory.experiment";
+import { TeamDirectoryScreen } from "../teamDirectory/TeamDirectoryScreen";
 import { AllChatsList } from "./AllChatsList";
 import { type LoadChatsPage } from "./allChatsListModel";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { useNt } from "./strings";
 
-export type HistoryTab = "history" | "queue" | "ledger" | "team";
+export type HistoryTab = "history" | "queue" | "ledger" | "team" | "people";
 
 export function HistoryScreen({
   load,
@@ -36,6 +39,7 @@ export function HistoryScreen({
   queue,
   ledger,
   team: teamProps,
+  directory: directoryProps,
   initialTab = "history",
 }: {
   load: LoadChatsPage;
@@ -49,6 +53,8 @@ export function HistoryScreen({
   ledger?: ComponentProps<typeof LedgerScreen>;
   /// Team's read; no tab without it, or while the `team-audit` experiment is off.
   team?: ComponentProps<typeof TeamAuditScreen>;
+  /// People's reads; no tab without them, or while the `team-directory` experiment is off.
+  directory?: ComponentProps<typeof TeamDirectoryScreen>;
   initialTab?: HistoryTab;
 }) {
   const nt = useNt();
@@ -66,9 +72,15 @@ export function HistoryScreen({
     if (queueKey !== undefined) queueCache.note(queueKey);
   }, [queueCache, queueKey]);
   const team = experimentArm(teamAudit) === "on" ? teamProps : undefined;
-  const tabbed = Boolean(queue || ledger || team);
+  const directory = experimentArm(teamDirectory) === "on" ? directoryProps : undefined;
+  const tabbed = Boolean(queue || ledger || team || directory);
   const shown: HistoryTab =
-    (tab === "queue" && !queue) || (tab === "ledger" && !ledger) || (tab === "team" && !team) ? "history" : tab;
+    (tab === "queue" && !queue) ||
+    (tab === "ledger" && !ledger) ||
+    (tab === "team" && !team) ||
+    (tab === "people" && !directory)
+      ? "history"
+      : tab;
   return (
     <div className="nt-history" data-tab={shown}>
       {/* The page's title stays on every tab, with the tabs under it, so switching moves nothing above. */}
@@ -85,6 +97,7 @@ export function HistoryScreen({
             {queue && <TabsTrigger value="queue">{t("waiting.title")}</TabsTrigger>}
             {ledger && <TabsTrigger value="ledger">{t("ledger.title")}</TabsTrigger>}
             {team && <TabsTrigger value="team">{t("teamAudit.title")}</TabsTrigger>}
+            {directory && <TabsTrigger value="people">{t("teamDirectory.title")}</TabsTrigger>}
           </TabsList>
         </Tabs>
       )}
@@ -94,6 +107,8 @@ export function HistoryScreen({
         <LedgerScreen {...ledger} cache={ledgerCache} {...(now !== undefined ? { now } : {})} />
       ) : shown === "team" && team ? (
         <TeamAuditScreen {...team} {...(now !== undefined ? { now } : {})} />
+      ) : shown === "people" && directory ? (
+        <TeamDirectoryScreen {...directory} />
       ) : (
         <AllChatsList
           load={load}

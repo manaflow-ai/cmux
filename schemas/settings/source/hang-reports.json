@@ -111,6 +111,47 @@
           ]
         }
       ]
+    },
+    {
+      "name": "anonymousTelemetry",
+      "section": "home",
+      "group": {
+        "key": "settings.group.anonymousTelemetry",
+        "text": "Crash Reports and Analytics"
+      },
+      "note": "Settings > Privacy and Security > Crash Reports and Analytics: the person's opt-in for crash reports and product analytics (off by default).",
+      "rows": [
+        {
+          "key": "app.sendAnonymousTelemetry",
+          "note": "Leo 2026-11-24: \"whatever we do, we need to make sure it's opt out by defautl i assume?\". Whether this Mac sends crash reports (Sentry, CmuxNextCrashReporting) and anonymous product analytics (optchat-chief analytics/consent.rs). Off: nothing is sent until the person turns it on. The person's own write is mirrored into the app's `sendAnonymousTelemetry` preference (AnonymousTelemetryConsent), which crash reporting reads at the next launch and Chief re-reads while it runs. The row's help is its consent text (webviews settings/components/ConsentPrompt.tsx). A managed `DisableTelemetry` keeps it off. Agents may not change it (privacy).",
+          "title": {
+            "key": "settings.app.sendAnonymousTelemetry",
+            "text": "Send Crash Reports and Analytics"
+          },
+          "help": {
+            "key": "settings.app.sendAnonymousTelemetry.help",
+            "text": "Sends cmux crash reports and anonymous usage events, so we can fix crashes and see which features are used. Stacks, app and macOS versions and event names only, never your prompts, files, paths, branches or text. Crash reports start at the next launch."
+          },
+          "summary": {
+            "key": "settings.app.sendAnonymousTelemetry.summary",
+            "text": "Off by default. No prompts, files or paths."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "crash",
+            "crashes",
+            "reports",
+            "analytics",
+            "telemetry",
+            "sentry",
+            "posthog",
+            "privacy",
+            "diagnostics",
+            "usage"
+          ]
+        }
+      ]
     }
   ]
 }

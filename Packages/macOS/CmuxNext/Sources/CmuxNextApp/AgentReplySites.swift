@@ -11,12 +11,13 @@ import CmuxNextSettings
 @MainActor
 struct AgentReplySites {
     let services: AppServices
+    var favicons = AgentPaneFaviconPNGs()  // this pane's favicon encodes, kept across requests
 
     func wire(_ links: AgentPaneReplyLinks) {
+        links.copyWork = services.work
         links.settings = { [weak services] in services?.settings?.snapshot.agentPaneReplies ?? .fallback }
-        links.sites = { [weak services] urls in
-            guard let services else { return [:] }
-            return AgentReplySites(services: services).sites(for: urls)
+        links.sites = { [weak services, favicons] urls in
+            services.map { AgentReplySites(services: $0, favicons: favicons).sites(for: urls) } ?? [:]
         }
         links.pullRequest = { url in AgentReplyPullRequests.shared.answer(url) }
         links.cachedPullRequest = { url in AgentReplyPullRequests.shared.answer(url, read: false) }
@@ -38,7 +39,7 @@ struct AgentReplySites {
                 if site.title == nil, Self.samePage(tab.url, url), !tab.title.isEmpty { site.title = tab.title }
                 if site.iconPNG == nil, let icon = tab.icon {
                     let profile = services.browserProfiles.engineProfile(forTab: tab.key)
-                    site.iconPNG = BrowserFaviconLoader.shared.cachedFavicon(at: icon, profile: profile).flatMap(Self.png)
+                    site.iconPNG = BrowserFaviconLoader.shared.cachedFavicon(at: icon, profile: profile).flatMap(favicons.png)
                 }
             }
             if site.iconPNG != nil || site.title != nil { out[url] = site }
@@ -53,10 +54,5 @@ struct AgentReplySites {
 
     static func samePage(_ a: URL, _ b: URL) -> Bool {
         sameSite(a, b) && a.path(percentEncoded: true) == b.path(percentEncoded: true) && a.query == b.query
-    }
-
-    static func png(_ image: NSImage) -> Data? {
-        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-        return NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
     }
 }

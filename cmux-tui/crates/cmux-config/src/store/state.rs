@@ -335,11 +335,11 @@ pub(super) fn finish(previous: &State, mut next: State, origin: Origin) -> Appli
             replayed: false,
             applied: Vec::new(),
         };
-        return Applied { state: next, changes: Vec::new(), outcome, write: None };
+        return Applied { state: next, changes: Vec::new(), outcome, write: None, undoes: None };
     }
     next.revision = previous.revision + 1;
     let keys = diff::changed_keys(&previous.effective, &next.effective);
     let change = Change { revision: next.revision, keys: keys.clone(), origin };
     let outcome = Outcome { revision: next.revision, keys, replayed: false, applied: Vec::new() };
-    Applied { state: next, changes: vec![change], outcome, write: None }
+    Applied { state: next, changes: vec![change], outcome, write: None, undoes: None }
 }

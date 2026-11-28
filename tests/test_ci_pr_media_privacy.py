@@ -626,14 +626,21 @@ class WriterInventoryTests(unittest.TestCase):
                            ".github/workflows/nightly.yml",
                            ".github/workflows/whats-new-gallery.yml", ".github/workflows/cmux-next-hot-verify.yml",
                            ".github/actions/pr-media-publish/action.yml"}
+    # Write only through the lane broker's `lane-gh call media`, which runs pr_media_privacy.check_upload on the broker
+    # host before its PUT (leo-workspace tools/pr_media_check.py); the file itself never PUTs, pushes or moves a ref.
+    THROUGH_BROKER = {"scripts/cmux-next/ui-preview-worker.py"}
+    BROKER_CALL = re.compile(r'"call", "media"')
+    # DIRECT without `.put(`: the worker's queue.put() calls are not uploads.
+    BROKER_DIRECT = re.compile(r"""\bPUT\b|(?i:-xput\b|--method[\s"',=]+put\b)|\bgit\b(?:[^\n]|\\\n){0,120}?\bpush\b|"push",|git/refs|createCommitOnBranch""")
     # Remove files or rewrite the retention index; they add no capture.
-    REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", "scripts/ci/prune_pr_media.py",
-                    ".github/workflows/pr-media-prune.yml"}
+    REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", "scripts/ci/prune_pr_media.py"}
     # Name the branch or pr-media.py's file names for links; write nothing.
     # Name pr-media URLs and push words but write nothing there (release-notes.py reads clip URLs).
     NOT_WRITERS = {"scripts/gallery-matrix/report.ts", "scripts/gallery-matrix/compare.test.ts",
                    "scripts/cmux-next/hot-verify-ci.py",
-                   "scripts/cmux-next/release-notes.py"}
+                   "scripts/cmux-next/release-notes.py",
+                   # Names pr-media.py's GIF encoder and its upload check in help text; writes local files only.
+                   "scripts/media/media_polish.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
 
     @classmethod
@@ -660,7 +667,8 @@ class WriterInventoryTests(unittest.TestCase):
         return found
 
     def test_every_writer_is_listed(self) -> None:
-        listed = self.CHECKS_ITSELF | self.THROUGH_PR_MEDIA_PY | self.REMOVES_ONLY | self.NOT_WRITERS
+        listed = (self.CHECKS_ITSELF | self.THROUGH_PR_MEDIA_PY | self.THROUGH_BROKER | self.REMOVES_ONLY
+                  | self.NOT_WRITERS)
         found = set(self.found)
         self.assertEqual(found - listed, set(), "a new pr-media writer: run pr_media_privacy.check_upload "
                                                 "before it pushes (or upload with scripts/pr-media.py), then list it here")
@@ -676,6 +684,10 @@ class WriterInventoryTests(unittest.TestCase):
             for part in self.media_parts(path, found[path]):
                 with self.subTest(path=path, part=part[:40]):
                     self.assertIsNone(self.DIRECT.search(part), f"{path} writes without scripts/pr-media.py")
+        for path in sorted(self.THROUGH_BROKER):
+            with self.subTest(path=path):
+                self.assertRegex(found[path], self.BROKER_CALL)
+                self.assertIsNone(self.BROKER_DIRECT.search(found[path]), f"{path} writes without the broker's check")
 
     def media_parts(self, path: str, text: str) -> list[str]:
         """A script whole; a workflow's jobs that name the branch or run a writer
@@ -824,6 +836,9 @@ FAKE_TESSERACT = """#!/bin/sh
 # Reads the picture on stdin; mode 3 and mode 11 each see part of it.
 picture="$(cat)"
 case "$picture" in *BROKEN*) exit 1 ;; esac
+# SLOW: each mode's first read stalls past the test's short bound; the second read answers.
+case "$picture" in *SLOW*) [ -e "$HOME/slow-$4" ] || { : > "$HOME/slow-$4"; sleep 5; } ;; esac
+case "$picture" in *STUCK*) sleep 5 ;; esac
 case "$4" in
   3) printf 'Workspace\\nshared line\\n' ;;
   11) printf 'shared line\\nlabel %s\\n' "$picture" ;;
@@ -883,6 +898,30 @@ class TesseractToolTests(unittest.TestCase):
         self.assertEqual(self.run_tool(self.root / "missing.png").returncode, 2)
         with self.assertRaises(RuntimeError):
             self.ocr_through_module(shot)
+
+    def test_a_frame_past_the_bound_is_read_again_before_the_file_is_held(self) -> None:
+        # Finish run 46154524454 (2026-11-28): one slow frame failed a whole nightly reel after 31 min of reading.
+        shot = self.root / "shot.png"
+        shot.write_text("SLOW")
+        env = {**self.env, "HOME": str(self.root), "PR_MEDIA_OCR_TIMEOUT_SECONDS": "1",
+               "PR_MEDIA_OCR_RETRY_TIMEOUT_SECONDS": "20"}
+        done = subprocess.run([sys.executable, str(TESSERACT_TOOL), str(shot)], capture_output=True, text=True,
+                              env=env, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.splitlines(), ["Workspace", "shared line", "label SLOW"])
+        self.assertIn("reading it again", done.stderr)
+
+    def test_a_frame_past_both_bounds_is_held_and_the_gate_says_why(self) -> None:
+        shot = self.root / "shot.png"
+        shot.write_text("STUCK")
+        env = {"PATH": self.env["PATH"], "HOME": str(self.root), "PR_MEDIA_OCR_TIMEOUT_SECONDS": "1",
+               "PR_MEDIA_OCR_RETRY_TIMEOUT_SECONDS": "1"}
+        stderr = io.StringIO()
+        with mock.patch.dict(os.environ, env), contextlib.redirect_stderr(stderr):
+            # The tool reads its bounds at import: run it as the gate does, a fresh process.
+            with self.assertRaises(RuntimeError):
+                privacy.ocr_file(str(TESSERACT_TOOL), shot)
+        self.assertIn("pr-media privacy: pr-media-ocr: could not read shot.png (TimeoutExpired)", stderr.getvalue())
 
     def ocr_through_module(self, local: Path) -> list[str]:
         with mock.patch.dict(os.environ, {"PATH": self.env["PATH"]}):
@@ -957,8 +996,8 @@ class FeatWorkflowTests(unittest.TestCase):
         ".github/workflows/whats-new-gallery.yml": {"publish": "scripts/cmux-next/media/whats-new-gallery.py"},
         ".github/workflows/cmux-next-hot-verify.yml": {"publish": "scripts/pr-media.py"},
     }
-    # Remove files or rewrite the retention index; they add no capture.
-    REMOVES_ONLY = {".github/workflows/pr-media-prune.yml"}
+    # Keep removal exceptions job-scoped inside the shared dispatcher.
+    REMOVES_ONLY_JOBS = {(".github/workflows/storage-maintenance.yml", "pr-media")}
     ACTION_USE = "./.github/actions/pr-media-publish"
     NEEDED = (".github/actions/pr-media-publish", "scripts/pr-media.py", "scripts/ci/pr_media_privacy.py",
               "scripts/ci/pr_media_gate.py", "scripts/ci/pr_media_ocr_tesseract.py", "scripts/ci/pr_media_ocr.swift")
@@ -1039,9 +1078,9 @@ class FeatWorkflowTests(unittest.TestCase):
     def test_every_job_that_writes_pr_media_publishes_through_the_action(self) -> None:
         found = {}
         for workflow, loaded in self.workflows():
-            if workflow in self.REMOVES_ONLY:
-                continue
             for job_id, job in (loaded.get("jobs") or {}).items():
+                if (workflow, job_id) in self.REMOVES_ONLY_JOBS:
+                    continue
                 if not self.writes_pr_media(job):
                     continue
                 found.setdefault(workflow, set()).add(job_id)
@@ -1073,7 +1112,14 @@ class FeatWorkflowTests(unittest.TestCase):
                 with self.subTest(workflow=workflow, job=job_id):
                     steps = loaded["jobs"][job_id]["steps"]
                     checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
-                    self.assertEqual(len(checkouts), 1)
+                    # One checkout, or one plus its retry after a stalled clone (#57304): the retry runs only when the
+                    # first failed and checks out exactly what the first does.
+                    first, retries = checkouts[0], checkouts[1:]
+                    self.assertLessEqual(len(retries), 1)
+                    for retry in retries:
+                        self.assertEqual(retry.get("with"), first.get("with"))
+                        self.assertEqual(str(retry.get("if", "")).replace(" ", ""),
+                                         f"${{{{steps.{first.get('id')}.outcome=='failure'}}}}")
                     sparse = checkouts[0].get("with", {}).get("sparse-checkout", "")
                     for path in (*self.NEEDED, script):
                         self.assertTrue(self.covers(sparse, path), f"{workflow} {job_id} does not check out {path}")

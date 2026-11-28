@@ -3,14 +3,15 @@
 // plain MCP lines (mcpCalls.ts `mcpPlainLine`): counts, failures, the tests' result and a PR, read
 // from the calls the fold holds.
 import { afterEach, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { readCatalog } from "../../../../scripts/pages/catalog.mjs";
 import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence } from "./workedOutcome";
 import { mcpCall, mcpLabel } from "./mcpCalls";
 
 type Unit = { stringUnit: { value: string } };
-const catalog = JSON.parse(readFileSync(new URL("../Localizable.xcstrings", import.meta.url), "utf8")) as {
+const catalog = readCatalog(fileURLToPath(new URL("../Localizable.xcstrings.d", import.meta.url))) as {
   strings: Record<string, { localizations: { en: Unit | { variations: { plural: Record<string, Unit> } } } }>;
 };
 const english = new Intl.PluralRules("en");
@@ -97,14 +98,14 @@ test("tool-row-words: plain verbs by default, Claude Code's words on its now arm
   const bare = mcp("mcp__linear__linear", {});
   const send = mcp("mcp__slack__send_message", { to: "Leo" });
   globalThis.cmuxExperiments = { "tool-row-words": "now" };
-  expect(mcpLabel(t, [grep], new Map())).toBe("Used repo: repo grep");
+  expect(mcpLabel(t, [grep], new Map())).toBe("Used repo: repo grep retry");
   globalThis.cmuxExperiments = {};
   expect(mcpLabel(t, [grep], new Map())).toBe("Searched repo for “retry”");
   expect(mcpLabel(t, [grep, grep], new Map())).toBe("Searched repo for “retry” ×2");
   expect(mcpLabel(t, [blame], new Map())).toBe("Used repo: blame src/App.tsx");
   expect(mcpLabel(t, [bare], new Map())).toBe("Used linear");
   // A call in flight keeps its words; a tool that starts with a verb keeps today's line.
-  expect(mcpLabel(t, [grep], new Map(), true)).toBe("Using repo: repo grep");
+  expect(mcpLabel(t, [grep], new Map(), true)).toBe("Using repo: repo grep retry");
   expect(mcpLabel(t, [send], new Map())).toBe(mcpLabelOff(send));
 });
 

@@ -186,115 +186,6 @@ fn refusal_caption(code: &str) -> Option<&'static str> {
     })
 }
 
-/// A question for the person.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Question {
-    pub session: String,
-    pub agent: String,
-    pub app: TargetApp,
-    /// Offer "Always allow" and "Never" (Approved apps mode).
-    pub remember: bool,
-    /// Set when the agent runs on another machine.
-    pub from_machine: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Answer {
-    AllowOnce,
-    AllowSession,
-    AlwaysAllow,
-    Deny,
-    Never,
-    /// No way to ask here, or nobody answered in time.
-    Unavailable,
-}
-
-/// Asks the person (an approval panel on the machine). Blocks.
-pub trait Approver: Send + Sync {
-    fn ask(&self, question: &Question) -> Answer;
-}
-
-pub struct NoApprover;
-
-impl Approver for NoApprover {
-    fn ask(&self, _question: &Question) -> Answer {
-        Answer::Unavailable
-    }
-}
-
-/// The person's own use of the mouse and keyboard.
-pub trait PersonActivity: Send + Sync {
-    /// Waits until the person has been idle (or `limit` passes); true when idle.
-    fn wait_idle(&self, limit: Duration) -> bool;
-    /// How many deliberate inputs (keys, clicks, scrolls, drags) the person
-    /// has made so far, counted by a detector that tells theirs from ours;
-    /// `None` when nothing watches. The focus guard compares two readings to
-    /// know whether the person moved focus during a call.
-    fn input_count(&self) -> Option<u64> {
-        None
-    }
-    /// While input_count counts the person's keys too: an epoch that rises
-    /// whenever their keys may have gone uncounted (Secure Event Input, a
-    /// blind detector, dictation). `None` while the count does not cover keys
-    /// (macOS: no Input Monitoring). Two equal readings mean every key of the
-    /// person was counted between them.
-    fn keys_epoch(&self) -> Option<u64> {
-        None
-    }
-}
-
-pub struct NoTakeover;
-
-impl PersonActivity for NoTakeover {
-    fn wait_idle(&self, _limit: Duration) -> bool {
-        true
-    }
-}
-
-/// How long an acting call waits for the person to stop.
-pub const TAKEOVER_WAIT: Duration = Duration::from_secs(15);
-
-/// How an acting call waits before it reports the window's new state: a
-/// `floor` first (most apps redraw within it; the app's accessibility signal
-/// ends it early, and a watched app that signals nothing and shows nothing
-/// new after it gets no more screenshots), then a screenshot every
-/// `step` until the pixels differ from what the agent last saw, never past
-/// `ceiling`. A fixed delay with change detection, not "until quiet": an app
-/// that keeps animating never holds the reply past the ceiling.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Settle {
-    pub floor: Duration,
-    pub step: Duration,
-    pub ceiling: Duration,
-}
-
-impl Default for Settle {
-    fn default() -> Self {
-        Self {
-            floor: Duration::from_millis(120),
-            step: Duration::from_millis(100),
-            ceiling: Duration::from_millis(1000),
-        }
-    }
-}
-
-/// Anthropic's computer-use reference tool (`BaseComputerTool`): the fixed
-/// wait before the screenshot after an action, and typing in groups of
-/// [`ANTHROPIC_TYPING_GROUP`] characters at [`ANTHROPIC_TYPING_DELAY`] per key.
-pub const ANTHROPIC_SCREENSHOT_DELAY: Duration = Duration::from_millis(2000);
-pub const ANTHROPIC_TYPING_DELAY: Duration = Duration::from_millis(12);
-pub const ANTHROPIC_TYPING_GROUP: usize = 50;
-/// Anthropic's double and triple clicks (`--repeat N --delay 10`).
-pub const ANTHROPIC_CLICK_GAP: Duration = Duration::from_millis(10);
-/// The `wait` tool: OpenAI's handlers wait 2000 ms; Anthropic's `wait` takes
-/// a duration of at most 100 s.
-pub const WAIT_DEFAULT: Duration = Duration::from_millis(2000);
-pub const WAIT_MAX: Duration = Duration::from_secs(100);
-/// The most actions one `batch` runs.
-pub const BATCH_MAX: usize = 20;
-/// The longest one `batch` runs: its waits and `wait_for` timeouts together
-/// are refused past it before anything runs, and no step starts after it.
-pub const BATCH_TIME_MAX: Duration = Duration::from_secs(120);
 /// The tools a `batch` may run (and `wait_for`, which only a batch has).
 const BATCHABLE: &[&str] =
     &["click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action", "wait"];
@@ -887,6 +778,7 @@ impl Engine {
                 }
                 self.authorize(&config, ctx, Access::Discover, None, false)?;
                 let which = need(args, "permission")?;
+                self.wait_for_person(&config, ctx, None)?;
                 self.desktop.request_permission(which).map_err(|e| ToolOutput::desktop(&e))?;
                 Ok((ToolOutput::ok(json!({"requested": which})), None))
             }
@@ -1091,6 +983,7 @@ impl Engine {
                 let primary = identities.first().cloned().unwrap_or_else(|| id.to_string());
                 let app = TargetApp { id: primary, name: id.to_string() };
                 self.authorize(&config, ctx, Access::Act, Some(&app), false)?;
+                self.wait_for_person(&config, ctx, None)?;
                 let launch = match identities.as_slice() {
                     [only] if by_identity => only.as_str(),
                     _ => id,
@@ -1292,22 +1185,53 @@ impl Engine {
             || window.focused
             || self.desktop.is_frontmost_app(window)
             || (pointer && pointer_in(window));
-        if config.pause_on_takeover && could_collide && !self.takeover.wait_idle(Duration::ZERO) {
+        if could_collide {
+            self.wait_for_person(config, ctx, Some(center(&window.frame)))?;
+        }
+        Ok(app)
+    }
+
+    /// With `pause_on_takeover`, waits up to [`TAKEOVER_WAIT`] for the
+    /// person to stop using the mouse and keyboard (the agent cursor shows
+    /// Paused meanwhile, at `at`), else refuses `person_in_control`. For
+    /// input that meets theirs ([`Self::act_on`]) and for calls that bring
+    /// an app to the front on their own whatever the delivery: `launch_app`
+    /// (most apps activate when they finish launching) and
+    /// `request_permission` (the OS prompt or System Settings opens in
+    /// front). Either one while the person types sends their next keys to
+    /// the app that came forward, which the focus guard can only undo
+    /// afterwards (Leo, 2026-11-22: agents kept interrupting his input and
+    /// foregrounding apps).
+    fn wait_for_person(
+        &self,
+        config: &PolicyConfig,
+        ctx: &CallContext,
+        at: Option<Point>,
+    ) -> Result<(), ToolOutput> {
+        if !config.pause_on_takeover {
+            return Ok(());
+        }
+        if !self.takeover.wait_idle(Duration::ZERO) {
             // The person is using the mouse or keyboard right now: show that the
             // agent waits for them before it waits.
             self.cursor.show(CursorEvent::Paused {
                 session: ctx.session.clone(),
                 label: ctx.label.clone(),
-                at: Some(center(&window.frame)),
+                at,
             });
         }
-        if config.pause_on_takeover && could_collide && !self.takeover.wait_idle(TAKEOVER_WAIT) {
+        if !self.takeover.wait_idle(TAKEOVER_WAIT) {
+            // retry-prompt-ok: a wait on the person, already waited out for
+            // TAKEOVER_WAIT inside this call; the agent's next call is the only way on.
             return Err(ToolOutput::error(
                 "person_in_control",
-                "The person is using the mouse or keyboard; the agent paused and will not act until they stop. Try again shortly.",
+                format!(
+                    "The person kept using the mouse or keyboard for the {} s this call waited, so nothing was done. Make the call again once they stop, or ask them to step away.",
+                    TAKEOVER_WAIT.as_secs()
+                ),
             ));
         }
-        Ok(app)
+        Ok(())
     }
 
     fn geometry_for(&self, ctx: &CallContext, window: &Window) -> Geometry {
@@ -2152,6 +2076,10 @@ fn rewrite_frames(e: &mut Element, g: &Geometry) {
         rewrite_frames(c, g);
     }
 }
+
+#[path = "engine_person.rs"]
+mod person;
+pub use person::*;
 
 #[path = "engine_focus.rs"]
 mod focus;

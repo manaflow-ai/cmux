@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "computer.why.mac_busy" : {
+      "comment" : "Agent chat: Why row, one sentence.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "نُقل إلى Cloud في {time}: كان الـ Mac مشغولًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Premješteno u Cloud u {time}: vaš Mac je bio zauzet."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flyttet til Cloud kl. {time}: din Mac havde travlt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um {time} in die Cloud verschoben: Dein Mac war ausgelastet."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moved to Cloud at {time}: your Mac was busy."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Movido a Cloud a las {time}: tu Mac estaba ocupado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplacé vers le Cloud à {time} : votre Mac était occupé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spostato su Cloud alle {time}: il tuo Mac era occupato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{time}に Cloud に移動: Mac がビジー状態でした。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានផ្លាស់ទីទៅ Cloud នៅ {time}៖ Mac របស់អ្នកកំពុងរវល់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{time}에 Cloud로 이동됨: Mac이 바빴습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flyttet til Cloud kl. {time}: Macen din var opptatt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przeniesiono do Cloud o {time}: Twój Mac był zajęty."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Movido para o Cloud às {time}: seu Mac estava ocupado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перенесено в Cloud в {time}: ваш Mac был занят."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ย้ายไปยัง Cloud เมื่อ {time}: Mac ของคุณไม่ว่าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{time} saatinde Cloud'a taşındı: Mac'iniz meşguldü."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перенесено в Cloud о {time}: ваш Mac був зайнятий."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã chuyển lên Cloud lúc {time}: Mac của bạn đang bận."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{time} 已移至 Cloud：你的 Mac 正忙。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{time} 已移至 Cloud：你的 Mac 正忙。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

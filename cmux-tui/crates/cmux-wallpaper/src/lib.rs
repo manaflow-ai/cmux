@@ -17,6 +17,8 @@
 //!   cap and the GPU budget.
 //! - [`first_party`]: the wallpapers under `wallpapers/`, embedded in the
 //!   binary with their build-time Metal.
+//! - [`signature`]: an agent's dot glyph, made from its session id and the
+//!   `particles` wallpaper's variants.
 //!
 //! Pure: no I/O, no globals, no threads. The caller passes every byte in.
 
@@ -42,17 +44,26 @@ pub mod grade;
 pub mod manifest;
 #[cfg(feature = "compile")]
 pub mod program;
+pub mod scene;
 pub mod schedule;
+pub mod signature;
 pub mod trail;
 
-pub use first_party::{FirstParty, first_party, first_party_at, first_party_by_id, smoke};
+pub use first_party::{
+    FirstParty, SCENE_ENGINE_GLSL, SCENE_ENGINE_MSL, SCENE_ENGINE_SOURCE, embedded_by_id,
+    first_party, first_party_at, first_party_by_id, smoke,
+};
 pub use frame::{
     ActivityState, FRAME_BYTES, FRAME_FLOATS, FrameInput, PointerState, pack_frame, srgb_to_linear,
 };
 pub use manifest::{Manifest, ManifestError, ManifestErrorKind, Param, Still, Variant};
 #[cfg(feature = "compile")]
-pub use program::{Compiled, ProgramError, ProgramErrorKind, compile, compile_bytes};
+pub use program::{
+    Compiled, ProgramError, ProgramErrorKind, compile, compile_bytes, compile_scene_engine,
+};
+pub use scene::{Player, SCENE_BYTES, SCENE_FLOATS, Scene};
 pub use schedule::{Decision, HoldReason, ScheduleInput, gpu_strikes, idle_after, schedule};
+pub use signature::{Dot, Glyph, Signer, glyph};
 pub use trail::{TRAIL_LIFE_S, TRAIL_POINTS, TRAIL_STEP_S, TrailPoint, TrailState};
 
 /// The largest program accepted (`program::MAX_SOURCE_BYTES`, also without `compile`).
@@ -91,28 +102,5 @@ pub fn check_program(source: &[u8]) -> ProgramCheck {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn check_program_says_what_this_build_did() {
-        let ok = b"fn wallpaper(px: vec2<f32>) -> vec4<f32> { return frame.paper; }\n";
-        let bad = b"var<private> n: f32;\nfn wallpaper(px: vec2<f32>) -> vec4<f32> { return frame.paper; }\n";
-        if CHECKS_PROGRAMS {
-            assert_eq!(check_program(ok), ProgramCheck::Passed);
-            assert!(matches!(
-                check_program(bad),
-                ProgramCheck::Refused { location: Some((1, _)), .. }
-            ));
-        } else {
-            assert_eq!(check_program(ok), ProgramCheck::NotChecked);
-            assert_eq!(check_program(bad), ProgramCheck::NotChecked);
-        }
-    }
-
-    #[cfg(feature = "compile")]
-    #[test]
-    fn the_source_cap_is_the_programs() {
-        assert_eq!(MAX_SOURCE_BYTES, program::MAX_SOURCE_BYTES);
-    }
-}
+#[path = "tests.rs"]
+mod tests;

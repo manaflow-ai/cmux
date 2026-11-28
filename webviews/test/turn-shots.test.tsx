@@ -3,10 +3,12 @@
 // pair belongs to the turn's ending summary, reads stay bounded, and the card draws the shared
 // before/after split with both fixture pictures.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { setCardOpen } from "../src/agent-session/acpmux/turnChanges/openStore";
 import { setEditedFilesSettings } from "../src/agent-session/acpmux/turnChanges/settings";
 import { PAGE_AFTER, PAGE_BEFORE } from "../src/agent-session/acpmux/turnChanges/turnShotFixtures";
 import {
@@ -115,6 +117,7 @@ const keys = [
   "HTMLElement",
   "Element",
   "Node",
+  "customElements",
   "MutationObserver",
   "ResizeObserver",
   "requestAnimationFrame",
@@ -122,6 +125,7 @@ const keys = [
   "IS_REACT_ACT_ENVIRONMENT",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+const domConstructors: (readonly [string, boolean, unknown])[] = [];
 let root: Root | undefined;
 let host: HTMLElement;
 setDefaultTimeout(30_000);
@@ -135,6 +139,8 @@ beforeAll(() => {
     HTMLElement: window.HTMLElement,
     Element: window.Element,
     Node: window.Node,
+    // The opened card draws each file with the diff renderer (@pierre/diffs), a custom element.
+    customElements: window.customElements,
     MutationObserver: window.MutationObserver,
     ResizeObserver: class {
       observe() {}
@@ -145,16 +151,24 @@ beforeAll(() => {
     cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  for (const key of Object.getOwnPropertyNames(window))
+    if (/^(HTML|SVG|CSS|Shadow|Document)/.test(key) && !(keys as readonly string[]).includes(key)) {
+      domConstructors.push([key, key in scope, scope[key]]);
+      scope[key] = (window as unknown as Record<string, unknown>)[key];
+    }
   host = window.document.getElementById("root")!;
 });
 
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
+  // The open store outlives a card; every test starts with the card at rest.
+  setCardOpen("edit", false);
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
+afterAll(async () => {
+  await settleReact();
+  for (const [key, had, value] of [...saved, ...domConstructors]) {
     if (had) scope[key] = value;
     else delete scope[key];
   }
@@ -173,8 +187,15 @@ async function renderCard(row: AcpmuxRow, shots: TurnShotsReader) {
   );
 }
 
+/// The pictures show with the card's stacked diffs, once one click opens it.
+async function openCard() {
+  await act(async () => host.querySelector<HTMLElement>(".acpmux-edited-head")!.click());
+}
+
 test("an ended turn's card draws the split with both pictures", async () => {
   await renderCard(edit(true), reader({ before: PAGE_BEFORE, after: PAGE_AFTER }));
+  expect(host.querySelector(".acpmux-turn-shots")).toBeNull();
+  await openCard();
   const pair = host.querySelector(".acpmux-turn-shots .ui-compare");
   expect(pair?.getAttribute("data-mode")).toBe("slider");
   const sources = [...host.querySelectorAll(".ui-compare img")].map((img) => img.getAttribute("src"));
@@ -212,6 +233,7 @@ test("a pair read while the card shows arrives and is marked to grow in", async 
     read: () => Promise.resolve(pair),
   };
   await renderCard(edit(true), arriving);
+  await openCard();
   await act(async () => {
     await Promise.resolve();
   });

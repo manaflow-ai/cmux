@@ -20,6 +20,7 @@
 import { createContext } from "react";
 import { githubReferences, isGithubOwner } from "../../../githubReferences";
 import type { AcpmuxRow } from "../model";
+import { RowMemo } from "../../shared/rowMemo";
 
 type Mention = { at: number; repo: string };
 
@@ -67,7 +68,7 @@ export function namedReferences(text: string): Named[] {
 }
 
 /** Each row's named repositories, for the row object they were read from. */
-const rowCache = new WeakMap<object, readonly Named[]>();
+const rowCache = new RowMemo<object, readonly Named[]>();
 
 function rowNamed(row: Pick<AcpmuxRow, "kind" | "text" | "items">): readonly Named[] {
   const kept = rowCache.get(row);

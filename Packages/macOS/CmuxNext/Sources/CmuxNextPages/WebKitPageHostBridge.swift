@@ -30,6 +30,19 @@ public final class WebKitPageHostBridge: PageHostBridge {
         webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
+    /// Runs the one fixed ``PageRouter/receiveBody`` with the envelope's text as its argument, never
+    /// a new script text per push (RFD 0062). It goes to the web process on the same queue as
+    /// ``evaluate(_:)``, so pushes and scripts keep their order. Nothing runs before the first load.
+    public func receive(_ envelopeText: String) {
+        evaluate(PageRouter.receiveBody, argument: "envelope", text: envelopeText)
+    }
+
+    /// `callAsyncJavaScript` of the fixed `body` with `text` as its argument (RFD 0062).
+    public func evaluate(_ body: String, argument name: String, text: String) {
+        guard let webView, webView.url != nil else { return }
+        webView.callAsyncJavaScript(body, arguments: [name: text], in: nil, in: .page, completionHandler: nil)
+    }
+
     public func uninstall() {
         guard installed else { return }
         installed = false

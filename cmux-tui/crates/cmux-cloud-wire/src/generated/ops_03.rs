@@ -4,6 +4,153 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// One Cloud machine.
+    CloudMachineGetOp {
+        name: "cloud.machine.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudMachineGetParams,
+        result: CloudMachine,
+        error: CloudMachineGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineGetParams {
+    pub machine: MachineId,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.get declares.
+    CloudMachineGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Set this machine's idle policy (ours only; Freestyle's own timer is always off). It applies only with the team policy cloud.idlePause on, from the VM's own activity reports. 0 means no early pause. The 24 h backstop pauses every machine idle for 24 h by its reports, so any value above 24 h acts as 24 h.
+    CloudMachineIdlePolicySetOp {
+        name: "cloud.machine.idle_policy.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: CloudMachineIdlePolicySetParams,
+        result: CloudMachineIdlePolicySetResult,
+        error: CloudMachineIdlePolicySetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineIdlePolicySetParams {
+    pub machine: MachineId,
+    pub idle_seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineIdlePolicySetResult {
+    pub machine: CloudMachine,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.idle_policy.set declares.
+    CloudMachineIdlePolicySetError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Keep a machine: it is never deleted automatically, whatever the plan's retention. keep: false lets the plan's retention apply again. The machine's creator or a team admin only.
+    CloudMachineKeepOp {
+        name: "cloud.machine.keep",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: CloudMachineKeepParams,
+        result: CloudMachineKeepResult,
+        error: CloudMachineKeepError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineKeepParams {
+    pub machine: MachineId,
+    pub keep: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineKeepResult {
+    pub machine: CloudMachine,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.keep declares.
+    CloudMachineKeepError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists, or `desktop`, which connect_info never lists: the machine's creator only, on a machine whose daemon advertises link-desktop-v1) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.
+    CloudMachineLinkTokenOp {
+        name: "cloud.machine.link_token",
+        class: Mutation,
+        idempotency: None,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Install],
+        params: CloudMachineLinkTokenParams,
+        result: CloudMachineLinkTokenResult,
+        error: CloudMachineLinkTokenError,
+    }
+}
+
+wire_enum! {
+    CloudMachineLinkTokenParamsServicesItem {
+        Daemon = "daemon",
+        Ssh = "ssh",
+        Desktop = "desktop",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineLinkTokenParams {
+    pub host: HostId,
+    pub services: Vec<CloudMachineLinkTokenParamsServicesItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_proof: Option<ServerNetworkProof>,
+}
+
 wire_enum! {
     CloudMachineLinkTokenResultServicesItem {
         Daemon = "daemon",
@@ -746,152 +893,4 @@ wire_op! {
 pub struct CloudSurgeCreateParams {
     pub count: i64,
     pub ttl_seconds: i64,
-}
-
-wire_errors! {
-    /// The error codes cloud.surge.create declares.
-    CloudSurgeCreateError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudSurgeCapacity = "cloud.surge.capacity",
-        CloudSurgeUnavailable = "cloud.surge.unavailable",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it.
-    CloudSurgePreviewOp {
-        name: "cloud.surge.preview",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:CloudDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: CloudSurgePreviewParams,
-        result: CloudSurgePreview,
-        error: CloudSurgePreviewError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSurgePreviewParams {
-    pub count: i64,
-    pub ttl_seconds: i64,
-}
-
-wire_errors! {
-    /// The error codes cloud.surge.preview declares.
-    CloudSurgePreviewError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        OwnerUnreachable = "owner.unreachable",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine).
-    CloudVmAttentionEmitOp {
-        name: "cloud.vm.attention.emit",
-        class: Mutation,
-        idempotency: None,
-        owner: "cloud:CloudDO",
-        risk: "execute",
-        principals: [Install],
-        params: CloudVmAttentionEmitParams,
-        result: CloudVmAttentionEmitResult,
-        error: CloudVmAttentionEmitError,
-    }
-}
-
-wire_enum! {
-    CloudVmAttentionEmitParamsKind {
-        Question = "question",
-        Permission = "permission",
-        Done = "done",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmAttentionEmitParams {
-    pub machine: MachineId,
-    pub event_id: String,
-    pub kind: CloudVmAttentionEmitParamsKind,
-    pub session: String,
-    pub title: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub body: Option<String>,
-    pub occurred_at: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmAttentionEmitResult {
-    pub delivered: bool,
-    pub replayed: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub correlation_id: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes cloud.vm.attention.emit declares.
-    CloudVmAttentionEmitError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudRateLimited = "cloud.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
-    CloudVmEventEmitOp {
-        name: "cloud.vm.event.emit",
-        class: Mutation,
-        idempotency: None,
-        owner: "cloud:CloudDO",
-        risk: "execute",
-        principals: [Install],
-        params: CloudVmEventEmitParams,
-        result: CloudVmEventEmitResult,
-        error: CloudVmEventEmitError,
-    }
-}
-
-wire_enum! {
-    CloudVmEventEmitParamsKind {
-        AgentStarted = "agent.started",
-        AgentFinished = "agent.finished",
-        AgentNeedsInput = "agent.needs_input",
-        Notification = "notification",
-        BrowserLeaseChanged = "browser.lease.changed",
-        CuaSessionStarted = "cua.session.started",
-        CuaSessionEnded = "cua.session.ended",
-        ServicePortOpened = "service.port.opened",
-        ServicePortClosed = "service.port.closed",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmEventEmitParams {
-    pub machine: MachineId,
-    pub kind: CloudVmEventEmitParamsKind,
-    pub at: i64,
-    pub data: Value,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmEventEmitResult {
-    pub delivered: bool,
 }

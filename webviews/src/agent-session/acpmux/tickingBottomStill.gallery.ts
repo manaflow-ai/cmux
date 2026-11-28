@@ -15,7 +15,7 @@ import { activity, assistant, chat, tool, user } from "../../gallery/fixtures/ac
 import type { PlayContext } from "../../gallery/play";
 import { startHeldTracker } from "../../gallery/shift";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
-import { TRANSCRIPT_ROW } from "./transcriptSelectors";
+import { JUMP_LATEST_SHOWN, TRANSCRIPT_ROW } from "./transcriptSelectors";
 
 const SUBMIT = "cmux-ci submit --kind cmux --label macos-26 --request-key kit-macos-build-43360-31";
 const BACKGROUND = "wt new cmux leo/checkout --topic build";
@@ -60,7 +60,7 @@ function tickingChat(): AcpmuxSnapshot {
   return chat(rows, {
     title: "Ticking bottom",
     isWorking: true,
-    // acpmux slow for 1:48: the quiet Reconnecting… chip over the composer (HostError.tsx).
+    // acpmux slow for 1:48; `holdStill` puts the quiet Reconnecting… chip over the composer.
     daemonWaitingSince: GALLERY_NOW - 108_000,
   });
 }
@@ -69,7 +69,19 @@ function tickingChat(): AcpmuxSnapshot {
 /// transcript row drifts or Jump to latest shows.
 async function holdStill(ctx: PlayContext, resendMs?: number) {
   const doc = ctx.document;
-  await ctx.waitFor(() => doc.querySelector("[data-host-recovering=reconnecting]"), { capMs: 10_000 });
+  // The chip shows only while a connect attempt has failed for real (App.tsx `linkDown`), which no
+  // snapshot field can set, so put ConnectionChip's markup (HostError.tsx) in the dock's host slot as
+  // agent-pane-ticking-bottom-still.test.ts does.
+  await ctx.waitFor(() => doc.querySelector(".acpmux-dock [data-host-slot]"), { capMs: 10_000 });
+  if (!doc.querySelector("[data-host-recovering=reconnecting]")) {
+    const chip = doc.createElement("output");
+    chip.className = "acpmux-host-chip";
+    chip.dataset.hostRecovering = "reconnecting";
+    chip.dataset.chip = "chip";
+    chip.innerHTML =
+      '<span class="acpmux-host-chip-dot" aria-hidden="true"></span><span class="acpmux-host-chip-words">Reconnecting…</span>';
+    doc.querySelector(".acpmux-dock [data-host-slot]")!.append(chip);
+  }
   await ctx.waitFor(() => doc.querySelectorAll(TRANSCRIPT_ROW).length > 4, { capMs: 10_000 });
   const win = doc.defaultView!;
   const bridge = (win as unknown as { cmuxAcpmuxBridge?: { receive(snapshot: AcpmuxSnapshot): void } })
@@ -82,7 +94,7 @@ async function holdStill(ctx: PlayContext, resendMs?: number) {
   try {
     await ctx.waitFor(
       () => {
-        if (doc.querySelector(".acpmux-jump-latest[data-shown]")) jump = true;
+        if (doc.querySelector(JUMP_LATEST_SHOWN)) jump = true;
         return win.performance.now() - start >= 10_000;
       },
       { capMs: 12_000 },

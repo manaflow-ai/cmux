@@ -46,6 +46,9 @@ pub struct Sync {
     /// `<marker>.filled` and `<marker>.want`, emptied when this sync began.
     filled: PathBuf,
     want: PathBuf,
+    /// `<marker>.partial` ([`partial`]): written by [`Sync::complete_partial`], removed by
+    /// [`Sync::complete`].
+    partial: PathBuf,
 }
 
 /// Shared locks stay held through the caller's write, preventing a new seed
@@ -69,7 +72,7 @@ pub enum Probe {
 pub fn wait_ready(path: &Path, timeout: Duration) -> io::Result<()> {
     let deadline = Instant::now() + timeout;
     loop {
-        match probe(path)? {
+        match probe_within(path, deadline)? {
             Probe::Ready(ready) => {
                 drop(ready);
                 return Ok(());
@@ -104,6 +107,19 @@ fn filled_ledger(folder: &Path) -> io::Result<PathBuf> {
 
 fn want_ledger(folder: &Path) -> io::Result<PathBuf> {
     sidecar(folder, ".want")
+}
+
+fn partial_note(folder: &Path) -> io::Result<PathBuf> {
+    sidecar(folder, ".partial")
+}
+
+/// Why `folder` is ready with only part of its files ([`Sync::complete_partial`]): its copy's
+/// source went away mid-fill, and the machine kept what landed so the chat plays on, as a game
+/// plays the part it downloaded. None for a whole folder, a folder with no sync, or a note
+/// that cannot be read. A later sync that completes the folder takes the note away.
+pub fn partial(folder: &Path) -> Option<String> {
+    let note = partial_note(&resolved(folder).ok()?).ok()?;
+    std::fs::read_to_string(note).ok().filter(|reason| !reason.trim().is_empty())
 }
 
 /// Whether `ledger` (the lines of a `<marker>.filled`) holds `relative`, a path below the
@@ -190,18 +206,49 @@ fn try_take(file: File, kind: Kind) -> io::Result<Result<FileLock, File>> {
 /// wait for each other's writes or startup. They live outside the repository
 /// and share a location even when daemon processes have different TMPDIRs.
 /// Never unlink these inodes, for the same reason as the repository markers.
+///
+/// One empty file per folder ever probed (every ancestor of every tool path), so /tmp keeps
+/// a few hundred of them on a busy machine. They stay: a reader must take the lease even
+/// before any marker exists, and no process can tell a file nobody will open again from one
+/// a reader is about to lock, so a sweep could split a lease. A reboot clears /tmp.
 fn creation_lock(folder: &Path) -> io::Result<File> {
+    open(&creation_lock_path(folder), true)
+}
+
+/// Where [`creation_lock`] keeps `folder`'s lease.
+pub fn creation_lock_path(folder: &Path) -> PathBuf {
     use std::os::unix::ffi::OsStrExt;
     // SAFETY: geteuid has no preconditions.
     let uid = unsafe { libc::geteuid() };
     let hash = format!("{:x}", Sha256::digest(folder.as_os_str().as_bytes()));
-    open(&PathBuf::from(format!("/tmp/cmux-repo-sync-{uid}-{hash}.lock")), true)
+    PathBuf::from(format!("/tmp/cmux-repo-sync-{uid}-{hash}.lock"))
 }
 
-fn wait_take(file: File, kind: Kind) -> io::Result<FileLock> {
-    FileLock::take_within(file, kind, Duration::from_secs(30), Duration::from_millis(10)).map_err(
+/// How long one lock wait may take when the caller names no deadline ([`probe`], [`Sync::begin`]).
+const LOCK_WAIT: Duration = Duration::from_secs(30);
+
+/// A lock wait ran out of its budget while another holder kept the lock: the wait decided
+/// nothing about the repository's sync, unlike a marker that says syncing or failed.
+#[derive(Debug)]
+pub struct LockWaitElapsed;
+
+impl std::fmt::Display for LockWaitElapsed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("repository is in use")
+    }
+}
+
+impl std::error::Error for LockWaitElapsed {}
+
+/// Whether `error` is a [`LockWaitElapsed`]: a wait that ran out, not a marker's verdict.
+pub fn lock_wait_elapsed(error: &io::Error) -> bool {
+    error.get_ref().is_some_and(|inner| inner.is::<LockWaitElapsed>())
+}
+
+fn wait_take(file: File, kind: Kind, budget: Duration) -> io::Result<FileLock> {
+    FileLock::take_within(file, kind, budget, Duration::from_millis(10)).map_err(
         |error| match error {
-            LockError::Busy(_) => io::Error::new(io::ErrorKind::TimedOut, "repository is in use"),
+            LockError::Busy(_) => io::Error::new(io::ErrorKind::TimedOut, LockWaitElapsed),
             LockError::Io(error) => error,
         },
     )
@@ -217,12 +264,12 @@ impl Sync {
         // while the owner lock is held and the head lock free, so until both are taken this
         // sync reads as short of its head. Only the marker's holder takes them, and a reader
         // holds either only for one probe, so these waits are short.
-        let head = wait_take(open(&head_marker(folder)?, true)?, Kind::Exclusive)?;
-        let owner = wait_take(open(&owner_marker(folder)?, true)?, Kind::Exclusive)?;
+        let head = wait_take(open(&head_marker(folder)?, true)?, Kind::Exclusive, LOCK_WAIT)?;
+        let owner = wait_take(open(&owner_marker(folder)?, true)?, Kind::Exclusive, LOCK_WAIT)?;
         // Take the repository lock first: a reader of an existing marker
         // refuses this sync immediately. A reader that preceded the first
         // marker instead holds the creation lease until its write completes.
-        let _creating = wait_take(creation_lock(folder)?, Kind::Exclusive)?;
+        let _creating = wait_take(creation_lock(folder)?, Kind::Exclusive, LOCK_WAIT)?;
         let file = marker.file_mut();
         file.write_all(b"0")?;
         file.set_len(1)?;
@@ -232,7 +279,8 @@ impl Sync {
         let (filled, want) = (filled_ledger(folder)?, want_ledger(folder)?);
         open(&filled, true)?.set_len(0)?;
         open(&want, true)?.set_len(0)?;
-        Ok(Self { marker, head: Some(head), owner: Some(owner), filled, want })
+        let partial = partial_note(folder)?;
+        Ok(Self { marker, head: Some(head), owner: Some(owner), filled, want, partial })
     }
 
     /// These parts of the checkout are in place ([`ledger_holds`] says what a line holds).
@@ -278,7 +326,34 @@ impl Sync {
     }
 
     /// A failed durability step leaves the barrier incomplete.
-    pub fn complete(mut self) -> io::Result<()> {
+    pub fn complete(self) -> io::Result<()> {
+        // Whole now: an earlier partial sync's note goes first, so the folder never reads
+        // ready and whole while it still says what it lacks, nor partial once whole.
+        match std::fs::remove_file(&self.partial) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        self.mark_ready()
+    }
+
+    /// Ready with only what landed: the source of the copy went away (`reason` says how), and
+    /// the folder's head is in place ([`Sync::head_ready`] was called), so the chat that opened
+    /// there plays on with what it has instead of every tool failing for good. The note
+    /// ([`partial`]) is written before the ready byte, so no reader sees the folder ready and
+    /// whole when it is not. A sync that completes the folder later removes it.
+    pub fn complete_partial(self, reason: &str) -> io::Result<()> {
+        if self.head.is_some() {
+            return Err(io::Error::other("a partial sync must have marked its head"));
+        }
+        let mut note = open(&self.partial, true)?;
+        note.set_len(0)?;
+        note.write_all(reason.as_bytes())?;
+        note.sync_data()?;
+        self.mark_ready()
+    }
+
+    fn mark_ready(mut self) -> io::Result<()> {
         let file = self.marker.file_mut();
         file.seek(SeekFrom::Start(0))?;
         file.write_all(b"1")?;
@@ -319,20 +394,29 @@ fn resolved(path: &Path) -> io::Result<PathBuf> {
 /// returns immediately, so a running sync never blocks a reader thread.
 /// No marker means an ordinary local repository, which needs no sync wait.
 pub fn probe(path: &Path) -> io::Result<Probe> {
-    probe_with(path, |_, _| Ok(false))
+    probe_within(path, Instant::now() + LOCK_WAIT)
+}
+
+/// [`probe`], whose creation-lease waits all end by `deadline`: one shared budget for every
+/// ancestor, not a full wait each, so a caller with its own deadline (a hook answered within its
+/// registered timeout) is never held past it. A wait that runs out is a [`LockWaitElapsed`].
+pub fn probe_within(path: &Path, deadline: Instant) -> io::Result<Probe> {
+    probe_with(path, deadline, |_, _| Ok(false))
 }
 
 /// [`probe`], where a folder still syncing past its head counts as ready when `held` says
 /// so, given that folder and the resolved `path` (the folder's ledger holds it).
 fn probe_with(
     path: &Path,
+    deadline: Instant,
     mut held_there: impl FnMut(&Path, &Path) -> io::Result<bool>,
 ) -> io::Result<Probe> {
     let path = resolved(path)?;
     let mut held = Vec::new();
     let mut head_only = false;
     for folder in path.ancestors().filter(|folder| folder.parent().is_some()) {
-        held.push(wait_take(creation_lock(folder)?, Kind::Shared)?);
+        let budget = deadline.saturating_duration_since(Instant::now());
+        held.push(wait_take(creation_lock(folder)?, Kind::Shared, budget)?);
         let file = match open(&marker(folder)?, false) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
@@ -374,7 +458,7 @@ pub fn wait_filled(path: &Path, timeout: Duration) -> io::Result<()> {
     let mut asked: Option<Instant> = None;
     loop {
         let ask = asked.is_none_or(|at| at.elapsed() >= Duration::from_millis(500));
-        let state = probe_with(path, |folder, path| {
+        let state = probe_with(path, deadline, |folder, path| {
             let relative = path.strip_prefix(folder).unwrap_or(Path::new(""));
             let relative = relative.to_string_lossy();
             // A path not there yet may be a folder still to come (`a/b` while only `a/`'s

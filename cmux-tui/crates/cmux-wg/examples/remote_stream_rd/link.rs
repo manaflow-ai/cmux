@@ -282,6 +282,7 @@ impl Host {
             access_unit: access_unit(self.seq, now, echo, size),
             idr: request.force_idr,
             t_capture_us: now,
+            ltr_token: None,
         };
         let Ok(out) = engine.encoded(&request, Some(encoded), now) else { return };
         if !out.datagrams.is_empty() {
@@ -431,9 +432,13 @@ pub async fn run(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<(
     // The viewer knows the host's candidate from signaling; the host learns
     // the viewer's route from its handshake.
     viewer_endpoint.add_path(Route::Udp(dial), PathKind::DirectWan, now);
-    let host_endpoint =
+    let mut host_endpoint =
         Endpoint::new(Role::Responder, SESSION, &host_keys, viewer_keys.public, now)
             .map_err(link_error)?;
+    // `CMUX_RD_BRAID_PATHS=0`: the path code before RFD 0164 B10, as `cmux rd`'s driver.
+    let braid = std::env::var("CMUX_RD_BRAID_PATHS").map_or(true, |v| v.trim() != "0");
+    viewer_endpoint.set_braid_paths(braid);
+    host_endpoint.set_braid_paths(braid);
     let in_flight = frames_in_flight(args);
     let config = EngineConfig {
         width: WIDTH,

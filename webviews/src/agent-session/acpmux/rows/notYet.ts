@@ -12,12 +12,6 @@ export type NotYet = { field: string; home: Home; builder: Builder; note: string
 
 export const NOT_YET: readonly NotYet[] = [
   {
-    field: "assistant.turnStartedAtMs",
-    home: "b",
-    builder: "2c",
-    note: "the group row's start, in ms (decision 231)",
-  },
-  {
     field: "turnSummary.turnStartedAtMs",
     home: "b",
     builder: "2c",
@@ -118,7 +112,6 @@ export const NOT_IN_CORPUS: readonly NotYet[] = [
   // The group row (home b).
   { field: "group.tasks", home: "b", builder: "2c", note: "the started chats, at most 16 (decision 241)" },
   { field: "group.tasksTotal", home: "b", builder: "2c", note: "when there are more than 16" },
-  { field: "group.planEarlier", home: "b", builder: "2c", note: "the plan's rowId" },
   { field: "group.answer", home: "b", builder: "2c", note: "for answerId and turnCopy" },
   { field: "group.ask", home: "b", builder: "2c", note: "the next step" },
   { field: "group.walkthrough", home: "b", builder: "2c", note: "the walkthrough's rowId" },
@@ -127,7 +120,6 @@ export const NOT_IN_CORPUS: readonly NotYet[] = [
   { field: "group.previous", home: "b", builder: "2c", note: "a count" },
   { field: "group.workedRuns", home: "b", builder: "2c", note: "per-kind counts, at most 8" },
   { field: "group.merged", home: "b", builder: "2c", note: "a count and at most 8 ids" },
-  { field: "group.progress", home: "b", builder: "2c", note: "the plan's rowId after the turn" },
   { field: "group.backgroundRun", home: "b", builder: "2c", note: "a count and at most 8 ids" },
   { field: "group.foldRun", home: "b", builder: "2c", note: "first rowId and count, at most 8" },
   { field: "group.messageRun", home: "b", builder: "2c", note: "first rowId and count, at most 8" },

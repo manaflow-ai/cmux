@@ -115,6 +115,20 @@ pub fn run(opts: &Opts) -> Res<()> {
     Ok(())
 }
 
+/// `--pin-kbps N`: the congestion controller's target held at N kbps (its start, floor and
+/// ceiling), so a run measures the encoder and the path at one rate instead of the rate the
+/// controller backs off to. Measurement only: a build without the `bench` feature refuses it.
+pub(crate) fn pin_kbps(opts: &Opts) -> Res<Option<u32>> {
+    let Some(raw) = opts.get("pin-kbps") else { return Ok(None) };
+    if !cfg!(feature = "bench") {
+        return Err("--pin-kbps is measurement only: it needs a bench build".into());
+    }
+    match raw.parse::<u32>() {
+        Ok(kbps) if kbps > 0 => Ok(Some(kbps)),
+        _ => Err(format!("--pin-kbps {raw}: a positive kbps").into()),
+    }
+}
+
 /// `--window ID`: a window id, decimal or `0x` hex (as `xwininfo` prints an X window id).
 pub(crate) fn parse_window_id(text: &str) -> Result<u32, String> {
     let t = text.trim();
@@ -136,6 +150,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         Some(_) => opts.num_or("max-fps", 60)?,
         None => crate::desktop::default_max_fps(&display),
     };
+    let pin = pin_kbps(opts)?;
     let encode_profile = opts.encode_profile()?;
     let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
     Ok(SessionCfg {
@@ -145,8 +160,11 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         window: opts.get("window").map(parse_window_id).transpose()?,
         max_fps: encode_profile.stream_fps(max_fps),
         encode_profile,
-        start_kbps: opts.num_or("start-kbps", 8000)?,
-        max_kbps: cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000),
+        start_kbps: pin.map_or_else(|| opts.num_or("start-kbps", 8000), Ok)?,
+        max_kbps: pin.unwrap_or_else(|| {
+            cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000)
+        }),
+        pin_kbps: pin,
         preset: opts.str_or("preset", "ultrafast"),
         // High for hardware decoders (VideoToolbox); the Linux bench decoder needs baseline.
         profile: opts.str_or("profile", "high"),
@@ -164,6 +182,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         // stream moving while that measurement is still unknown.
         frames_in_flight: 2,
         input_frame_now: opts.flag("input-frame-now"),
+        ltr: opts.flag("ltr"),
         rtt_tail_probe: opts.flag("rtt-tail-probe"),
         resolution_ladder: opts.flag("resolution-ladder"),
         max_qp: ladder_max_qp(opts)?,
@@ -179,6 +198,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
             .map(crate::capture_backend::CaptureBackend::parse)
             .transpose()?
             .unwrap_or_default(),
+        sharp_text: false,
     })
 }
 
@@ -544,6 +564,11 @@ fn serve_viewer<S: ViewerStream>(
     if crate::desktop::reports_cursor() {
         host_caps.push(caps::CURSOR);
     }
+    // LTR is only advertised when asked for (`--ltr 1`, default off) and this host uses the
+    // VideoToolbox encoder; OpenH264 and unknown viewers retain the IDR recovery path.
+    if cfg!(target_os = "macos") && cfg.ltr {
+        host_caps.push(caps::LTR);
+    }
     // Frames over one FEC block keep their parity, in interleaved blocks (design D6).
     host_caps.push(caps::FEC_BLOCKS);
     if crate::desktop::scales_pictures() {
@@ -552,6 +577,10 @@ fn serve_viewer<S: ViewerStream>(
     // An OpenH264 viewer asks for Constrained Baseline (cmux#50591).
     if crate::stream::offers_h264_baseline(&cfg.codec) {
         host_caps.push(caps::H264_BASELINE);
+    }
+    // A viewer whose person turned on sharper Linux text gets OpenH264's screen usage.
+    if crate::stream::offers_sharp_text(&cfg.codec) {
+        host_caps.push(caps::SHARP_TEXT);
     }
     // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
     host_caps.extend([caps::CLOCK, caps::LEDGER]);
@@ -715,92 +744,5 @@ fn stream_session<S: ViewerStream>(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn window_ids_read_as_decimal_or_hex() {
-        assert_eq!(parse_window_id("0x2a00007"), Ok(0x2a0_0007));
-        assert_eq!(parse_window_id(" 44040199 "), Ok(44_040_199));
-        assert!(parse_window_id("0").is_err());
-        assert!(parse_window_id("main").is_err());
-    }
-
-    /// `host::run` and `serve::run` are safe and may run with threads up (the cmux binary
-    /// calls `run_cli` too), and `set_var` races every concurrent `getenv`, a C library's
-    /// included. So the safe path must not write `XAUTHORITY`: only `main` may, before any
-    /// thread exists.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn the_safe_xauthority_path_leaves_the_environment_alone() {
-        let cookie =
-            std::env::temp_dir().join(format!("cmux-rd-xauthority-test-{}", std::process::id()));
-        std::fs::write(&cookie, b"").expect("cookie file");
-        let path = cookie.to_str().expect("utf-8 temp path").to_owned();
-        let opts = Opts::parse(&["--xauthority".to_owned(), path.clone()]).expect("parse");
-        let checked = check_xauthority(&opts);
-        let now = std::env::var_os("XAUTHORITY");
-        std::fs::remove_file(&cookie).ok();
-        assert_ne!(now.as_deref(), Some(std::ffi::OsStr::new(&path)), "a safe fn wrote XAUTHORITY");
-        // `main` did not set it in this process, so the host refuses to go on without it.
-        assert!(checked.expect_err("unset").to_string().contains("was not set at start"));
-    }
-
-    #[test]
-    fn a_real_loopback_connection_passes_the_default_check() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
-        let addr = listener.local_addr().expect("addr");
-        let _client = std::net::TcpStream::connect(addr).expect("connect");
-        let (accepted, _) = listener.accept().expect("accept");
-        assert!(peer_allowed(accepted.peer_addr().expect("peer").ip(), Reach::LoopbackOnly));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn listen_systemd_refuses_the_development_and_browser_options() {
-        for extra in [
-            &["--token-fd", "3"][..],
-            &["--port", "4103"],
-            &["--browser", "https://example.com"],
-            &["--browser-cdp-port", "9222"],
-        ] {
-            let mut args: Vec<String> =
-                ["--listen-systemd", "--peer-uid", "0"].iter().map(|s| s.to_string()).collect();
-            args.extend(extra.iter().map(|s| s.to_string()));
-            let err = run_systemd(&Opts::parse(&args).expect("parse")).expect_err("refused");
-            assert!(
-                err.to_string().contains("is not used with --listen-systemd"),
-                "{extra:?}: {err}"
-            );
-        }
-        let args: Vec<String> = ["--listen-systemd"].iter().map(|s| s.to_string()).collect();
-        let err = run_systemd(&Opts::parse(&args).expect("parse")).expect_err("no peer uid");
-        assert!(err.to_string().contains("--peer-uid"), "{err}");
-    }
-
-    #[test]
-    fn an_http_request_is_closed_before_any_reply() {
-        for prefix in [
-            "GET / HTTP/1.1\r\n",
-            "POST /x HTTP/1.1\r\n",
-            "OPTIONS * HTTP/1.1",
-            "PUT /",
-            "HEAD /",
-            "CONNECT a:1",
-        ] {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
-            let addr = listener.local_addr().expect("addr");
-            let mut client = std::net::TcpStream::connect(addr).expect("connect");
-            std::io::Write::write_all(&mut client, prefix.as_bytes()).expect("write");
-            let (mut server, _) = listener.accept().expect("accept");
-            server.set_nonblocking(true).expect("nonblocking");
-            let mut reader = FrameReader::default();
-            let err = read_control(&mut server, &mut reader).expect_err("refused");
-            assert!(err.to_string().contains("not the cmux.rd protocol"), "{prefix}: {err}");
-            // Nothing was sent back; the connection is closed.
-            client.set_read_timeout(Some(std::time::Duration::from_secs(2))).expect("timeout");
-            let mut buf = [0u8; 16];
-            assert_eq!(std::io::Read::read(&mut client, &mut buf).unwrap_or(0), 0, "{prefix}");
-        }
-    }
-}
+#[path = "host_tests.rs"]
+mod tests;

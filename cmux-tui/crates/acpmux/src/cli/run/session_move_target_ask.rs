@@ -44,6 +44,11 @@ pub(super) fn manifest(id: &str, info: &Value) -> Value {
     if let Some(epoch) = info.get("ownershipEpoch").and_then(Value::as_u64) {
         manifest.set("epoch", json!(epoch + 1));
     }
+    // The agent its harness runs, when the chat's info says: the target names its own harness
+    // for the same agent in a refusal, and checks `--as` against it.
+    if let Some(family) = info.get("family").and_then(Value::as_str).filter(|f| !f.is_empty()) {
+        manifest.set("harnessFamily", json!(family));
+    }
     manifest
 }
 
@@ -57,8 +62,18 @@ pub(super) enum Answer {
 }
 
 /// Asks the target. `Err`: its refusal, as `transfer_receive` would give it.
-pub(super) async fn ask(dst: &Client, id: &str, info: &Value) -> Result<Answer> {
-    match dst.request("_acpmux/transfer_preflight", json!({"manifest": manifest(id, info)})).await {
+/// `as_harness`: the move's `--as`, which the target checks as `transfer_receive` will.
+pub(super) async fn ask(
+    dst: &Client,
+    id: &str,
+    info: &Value,
+    as_harness: Option<&str>,
+) -> Result<Answer> {
+    let mut params = json!({"manifest": manifest(id, info)});
+    if let Some(name) = as_harness {
+        params.set("asHarness", json!(name));
+    }
+    match dst.request("_acpmux/transfer_preflight", params).await {
         Ok(_) => Ok(Answer::Takes),
         Err(e) if unasked(&e) => Ok(Answer::Unasked),
         Err(e) => Err(e),
@@ -87,37 +102,5 @@ pub(super) fn refusal_code(e: &anyhow::Error) -> Option<&'static str> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::rpc::RpcError;
-
-    fn daemon(code: i64, message: &str) -> anyhow::Error {
-        anyhow::Error::from(crate::client::DaemonError(RpcError::new(code, message)))
-    }
-
-    #[test]
-    fn the_manifest_names_the_harness_and_the_epoch_the_move_would_carry() {
-        let m = manifest("s1", &json!({"harness": "claude-sr2", "ownershipEpoch": 3}));
-        assert_eq!(m["schema"], TRANSFER_SCHEMA);
-        assert_eq!(m["sessionId"], "s1");
-        assert_eq!(m["session"]["harness"], "claude-sr2");
-        assert_eq!(m["epoch"], 4);
-        let durable = manifest("s2", &json!({"harness": "cmux-harness"}));
-        assert_eq!(durable["schema"], DURABLE_TRANSFER_SCHEMA);
-        assert!(durable.get("epoch").is_none(), "an unreported epoch is not invented");
-    }
-
-    #[test]
-    fn an_older_target_is_unasked_and_a_refusal_keeps_the_daemons_code() {
-        assert!(unasked(&daemon(-32601, "Method not found: _acpmux/transfer_preflight")));
-        let refused = daemon(-32000, "transfer.harness: agent \"x\" is not configured here");
-        assert!(!unasked(&refused));
-        assert_eq!(refusal_code(&refused), Some("transfer.harness"));
-        assert_eq!(
-            refusal_code(&daemon(-32000, "transfer.exists: chat s is here already")),
-            Some("transfer.exists")
-        );
-        assert_eq!(refusal_code(&daemon(-32000, "transfer.harnessed: no")), None);
-        assert_eq!(refusal_code(&anyhow!("ssh failed")), None);
-    }
-}
+#[path = "session_move_target_ask_tests.rs"]
+mod tests;

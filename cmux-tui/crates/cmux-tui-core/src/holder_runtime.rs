@@ -11,12 +11,12 @@
 //! (`mux::holder_adoption`); a holder crash loses no shell, because the
 //! daemon still holds every master and hands them to a new holder.
 //!
-//! Off by default on every platform: a `cmux-tui-host` per terminal stays
-//! the default until Leo's words turn the holder on (CMUX-571; Leo,
-//! 2026-11-14: "separate the health of the overall process from the
-//! falliability of crash prone bits"). `CMUX_TUI_TERMINAL_HOST_MODEL=holder`
-//! turns it on; `=hosts`, unset, empty or anything else keeps the
-//! per-terminal hosts. With the holder on, a holder that cannot start never
+//! On by default on macOS, where cmux NEXT runs: one holder instead of a
+//! `cmux-tui-host` per terminal (Leo's infinite-tabs ask: 500 tabs, 200
+//! workspaces and 100 chats within 1.2x an empty app; the per-terminal hosts
+//! cost 821 MB of it). `CMUX_TUI_TERMINAL_HOST_MODEL=hosts` keeps a host per
+//! terminal; `=holder` turns the holder on elsewhere. Every other platform
+//! keeps the hosts by default. With the holder on, a holder that cannot start never
 //! costs a terminal: the create runs it on a host of its own ([`serves`]).
 
 mod service;
@@ -47,24 +47,43 @@ pub(crate) fn serves(host_root: &std::path::Path) -> bool {
 }
 
 /// Whether `model` (the value of `CMUX_TUI_TERMINAL_HOST_MODEL`) puts new
-/// terminals on the holder: only `holder` does. `hosts` and anything else
-/// (unset, empty, unknown) keep a host per terminal, the default everywhere
-/// until Leo turns the holder on.
+/// terminals on the holder: `holder` does, `hosts` does not, and unset, empty
+/// or unknown take the platform's default ([`HOLDER_BY_DEFAULT`]).
 fn model_enabled(model: Option<&str>) -> bool {
-    matches!(model.map(str::trim), Some("holder"))
+    model_enabled_with_default(model, HOLDER_BY_DEFAULT)
+}
+
+/// The holder is the default terminal model on macOS (cmux NEXT).
+const HOLDER_BY_DEFAULT: bool = cfg!(target_os = "macos");
+
+fn model_enabled_with_default(model: Option<&str>, default: bool) -> bool {
+    match model.map(str::trim) {
+        Some("holder") => true,
+        Some("hosts") => false,
+        _ => default,
+    }
 }
 
 #[cfg(test)]
 mod model_tests {
-    use super::model_enabled;
+    use super::{HOLDER_BY_DEFAULT, model_enabled, model_enabled_with_default};
 
     #[test]
-    fn the_holder_is_off_unless_the_model_names_it() {
-        assert!(model_enabled(Some("holder")));
-        assert!(model_enabled(Some(" holder ")));
+    fn the_model_names_win_over_the_default() {
+        for default in [false, true] {
+            assert!(model_enabled_with_default(Some("holder"), default));
+            assert!(model_enabled_with_default(Some(" holder "), default));
+            assert!(!model_enabled_with_default(Some("hosts"), default));
+            assert_eq!(model_enabled_with_default(None, default), default);
+            assert_eq!(model_enabled_with_default(Some(""), default), default);
+            assert_eq!(model_enabled_with_default(Some("bogus"), default), default);
+        }
+    }
+
+    #[test]
+    fn the_holder_is_the_default_on_macos_only() {
+        assert_eq!(HOLDER_BY_DEFAULT, cfg!(target_os = "macos"));
+        assert_eq!(model_enabled(None), cfg!(target_os = "macos"));
         assert!(!model_enabled(Some("hosts")));
-        assert!(!model_enabled(None));
-        assert!(!model_enabled(Some("")));
-        assert!(!model_enabled(Some("bogus")));
     }
 }

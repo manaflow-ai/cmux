@@ -77,8 +77,13 @@ public struct LiveSnapshot: Equatable, Sendable {
 /// A launch reads only what the first screen shows: each Mac's first rows in list order live in
 /// one small head file, the rest of each Mac's rows in a tail file of its own that is read after
 /// the first frame (`loadRest`). So a Mac with 5,000 workspaces paints as fast as one with 20.
-/// The format is versioned: a head of another version, or one that does not decode, deletes the
-/// account's cache and the launch starts as with none; a tail that does not decode or belongs
+/// Each team the phone has shown keeps its own head and tails (`team-<id>/`), and `last-team` names
+/// the one the launch draws, so switching to a team seen before draws its rows at once, as a
+/// launch does (Leo, 2026-11-24: "holy shit this is a huge problem in ios... wer need to chase all
+/// these placeholders doen and prevent them"). A head saved before teams had folders (the
+/// account's own `head.json`) moves into its team's folder when read.
+/// The format is versioned: a head of another version, or one that does not decode, deletes that
+/// team's cache and the launch starts as with none; a tail that does not decode or belongs
 /// to another head is dropped and the head's rows stay. Each Mac keeps at most `maxRowsPerMac`
 /// rows, the last in list order go first.
 public final class LiveSnapshotStore: @unchecked Sendable {
@@ -122,14 +127,47 @@ public final class LiveSnapshotStore: @unchecked Sendable {
     private let lock = NSLock()
     private var firstScreenRead: FirstScreenRead?
 
-    public init(directory: URL) {
-        self.directory = directory
+    /// The shortest time between two writes (nil: every `save` writes, as before saves were
+    /// coalesced). Every one-row change on a Mac saves the whole cache, and while agents work
+    /// that is several saves a second: each one encoded and wrote every row (1,100 workspaces,
+    /// ~1 MB) on the utility queue. Now a burst writes its first save at once and its latest
+    /// one after this interval; `flush()`, a read of a team with a save waiting, and the app's
+    /// `background()` write what waits immediately, so the cache on disk is never older than
+    /// this interval while the app runs.
+    public let minimumWriteInterval: Duration?
+    /// Saves not yet written, the latest per account and team, oldest first (lock-guarded): the
+    /// last one written names the team the next launch shows (`last-team`), as before.
+    private var pending: [Pending] = []
+    /// A write of `pending` is scheduled on `queue` (lock-guarded).
+    private var writeScheduled = false
+    /// Accounts whose saves `writePending` has taken off `pending` and not finished writing
+    /// (lock-guarded): a read of one waits for that write, or it reads the files mid-write.
+    private var writing: Set<String> = []
+    /// When the last write ended (queue-confined).
+    private var lastWrite: ContinuousClock.Instant?
+    /// Snapshots encoded and written since this store was made (lock-guarded; benches and tests).
+    private var writes = 0
+
+    private struct Pending {
+        var snapshot: LiveSnapshot
+        var accountID: String
     }
+
+    /// `minimumWriteInterval` defaults to nil (write every save) so a store a test makes keeps
+    /// the old timing; the app's `standard` store spaces writes 2 s apart.
+    public init(directory: URL, minimumWriteInterval: Duration? = nil) {
+        self.directory = directory
+        self.minimumWriteInterval = minimumWriteInterval
+    }
+
+    /// How many snapshots this store has encoded and written.
+    public var writeCount: Int { lock.withLock { writes } }
 
     public static let standard: LiveSnapshotStore = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        return LiveSnapshotStore(directory: base.appending(path: "cmux-mobile-live", directoryHint: .isDirectory))
+        return LiveSnapshotStore(directory: base.appending(path: "cmux-mobile-live", directoryHint: .isDirectory),
+                                 minimumWriteInterval: .seconds(2))
     }()
 
     public var lastFirstScreenRead: FirstScreenRead? { lock.withLock { firstScreenRead } }
@@ -142,24 +180,74 @@ public final class LiveSnapshotStore: @unchecked Sendable {
         directory.appending(path: "account-\(Self.safe(accountID))", directoryHint: .isDirectory)
     }
 
-    private func headFile(_ accountID: String) -> URL { accountDirectory(accountID).appending(path: "head.json") }
+    private func teamDirectory(_ accountID: String, teamID: String) -> URL {
+        accountDirectory(accountID).appending(path: "team-\(Self.safe(teamID))", directoryHint: .isDirectory)
+    }
 
-    private func tailFile(_ accountID: String, macID: String) -> URL {
-        accountDirectory(accountID).appending(path: "tail-\(Self.safe(macID)).json")
+    private func headFile(_ accountID: String, teamID: String) -> URL {
+        teamDirectory(accountID, teamID: teamID).appending(path: "head.json")
+    }
+
+    private func tailFile(_ accountID: String, teamID: String, macID: String) -> URL {
+        teamDirectory(accountID, teamID: teamID).appending(path: "tail-\(Self.safe(macID)).json")
+    }
+
+    /// The team the last save was for: the one a launch draws.
+    private func lastTeamFile(_ accountID: String) -> URL { accountDirectory(accountID).appending(path: "last-team") }
+
+    /// Before teams had folders: the one team's head and tails in the account's folder.
+    private func unfolderedHead(_ accountID: String) -> URL { accountDirectory(accountID).appending(path: "head.json") }
+
+    /// The team a launch draws: the last one saved. A cache from before teams had folders moves into
+    /// its team's folder here (its files are renamed, not rewritten). Nil when there is no cache.
+    private func lastTeamID(_ accountID: String) -> String? {
+        let fileManager = FileManager.default
+        let account = accountDirectory(accountID)
+        let old = unfolderedHead(accountID)
+        if fileManager.fileExists(atPath: old.path) {
+            guard let data = try? Data(contentsOf: old), let head = try? JSONDecoder().decode(Head.self, from: data),
+                  head.format == Self.formatVersion else {
+                try? fileManager.removeItem(at: account)
+                return nil
+            }
+            let folder = teamDirectory(accountID, teamID: head.teamID)
+            try? fileManager.removeItem(at: folder)
+            try? fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+            for name in (try? fileManager.contentsOfDirectory(atPath: account.path)) ?? []
+            where name == "head.json" || name.hasPrefix("tail-") {
+                try? fileManager.moveItem(at: account.appending(path: name), to: folder.appending(path: name))
+            }
+            try? Data(head.teamID.utf8).write(to: lastTeamFile(accountID), options: .atomic)
+            return head.teamID
+        }
+        guard let data = try? Data(contentsOf: lastTeamFile(accountID)), let id = String(data: data, encoding: .utf8),
+              !id.isEmpty else { return nil }
+        return id
     }
 
     /// Format 1: the whole snapshot in one file. Not read; deleted when found.
     private func legacyFile(_ accountID: String) -> URL { directory.appending(path: "snapshot-\(Self.safe(accountID)).json") }
 
-    /// The cache as the first screen needs it: the space, its Macs and each Mac's first rows in
-    /// list order (`MacWorkspaces.total` says how many the Mac has). Reads one small file.
-    /// Nil when there is no cache, or it is of another version or unreadable (it is then deleted).
+    /// The cache as the first screen needs it, for the team the phone showed last: the space, its
+    /// Macs and each Mac's first rows in list order (`MacWorkspaces.total` says how many the Mac
+    /// has). Reads one small file. Nil when there is no cache, or it is of another version or
+    /// unreadable (it is then deleted).
     public func loadFirstScreen(accountID: String) -> LiveSnapshot? {
         let legacy = legacyFile(accountID)
         if FileManager.default.fileExists(atPath: legacy.path) { try? FileManager.default.removeItem(at: legacy) }
-        guard let data = try? Data(contentsOf: headFile(accountID)) else { return nil }
-        guard let head = try? JSONDecoder().decode(Head.self, from: data), head.format == Self.formatVersion else {
-            try? FileManager.default.removeItem(at: accountDirectory(accountID))
+        if hasUnwritten(accountID) { flush() }
+        guard let teamID = lastTeamID(accountID) else { return nil }
+        return loadFirstScreen(accountID: accountID, teamID: teamID)
+    }
+
+    /// `loadFirstScreen` for one team the phone has shown before (a switch to it draws these rows).
+    public func loadFirstScreen(accountID: String, teamID: String) -> LiveSnapshot? {
+        // A save of this account not written yet is what the phone last saw: write it first.
+        if hasUnwritten(accountID) { flush() }
+        guard let data = try? Data(contentsOf: headFile(accountID, teamID: teamID)) else { return nil }
+        guard let head = try? JSONDecoder().decode(Head.self, from: data), head.format == Self.formatVersion,
+              head.teamID == teamID else {
+            try? FileManager.default.removeItem(at: teamDirectory(accountID, teamID: teamID))
             return nil
         }
         let lists = head.lists.mapValues {
@@ -183,7 +271,7 @@ public final class LiveSnapshotStore: @unchecked Sendable {
     private func readRest(_ snapshot: LiveSnapshot, accountID: String) -> [String: LiveSnapshot.MacWorkspaces] {
         var result: [String: LiveSnapshot.MacWorkspaces] = [:]
         for (macID, list) in snapshot.workspaces where !list.isComplete {
-            let url = tailFile(accountID, macID: macID)
+            let url = tailFile(accountID, teamID: snapshot.teamID, macID: macID)
             var rows = list.workspaces
             if let data = try? Data(contentsOf: url) {
                 if let tail = try? JSONDecoder().decode(Tail.self, from: data), tail.format == Self.formatVersion {
@@ -199,6 +287,12 @@ public final class LiveSnapshotStore: @unchecked Sendable {
         return result
     }
 
+    /// `loadRest`, read now on the caller's thread: a screen opening on a workspace past the first
+    /// screen of rows (a notification, the Feed) before `loadRest` lands. Read once per launch.
+    public func restNow(_ snapshot: LiveSnapshot, accountID: String) -> [String: LiveSnapshot.MacWorkspaces] {
+        queue.sync { readRest(snapshot, accountID: accountID) }
+    }
+
     /// The whole cache, every row (tests; the app reads `loadFirstScreen` and then `loadRest`).
     public func load(accountID: String) -> LiveSnapshot? {
         guard var snapshot = loadFirstScreen(accountID: accountID) else { return nil }
@@ -211,11 +305,70 @@ public final class LiveSnapshotStore: @unchecked Sendable {
     /// (its first screen in the head, the rest in its tail); one that holds only its first
     /// screen (read at launch, its Mac not answered since) keeps the tail it has.
     public func save(_ snapshot: LiveSnapshot, accountID: String) {
-        queue.async { self.write(snapshot, accountID: accountID) }
+        guard minimumWriteInterval != nil else {
+            queue.async {
+                self.write(snapshot, accountID: accountID)
+                self.lock.withLock { self.writes += 1 }
+            }
+            return
+        }
+        let schedule = lock.withLock { () -> Bool in
+            // The latest save of a team replaces the one waiting and moves to the end, so the
+            // team saved last is written last.
+            pending.removeAll { $0.accountID == accountID && $0.snapshot.teamID == snapshot.teamID }
+            pending.append(Pending(snapshot: snapshot, accountID: accountID))
+            guard !writeScheduled else { return false }
+            writeScheduled = true
+            return true
+        }
+        guard schedule else { return }
+        queue.async { self.scheduleWrite() }
+    }
+
+    /// On `queue`: writes what waits now, or once `minimumWriteInterval` has passed since the last write.
+    private func scheduleWrite() {
+        let interval = minimumWriteInterval ?? .zero
+        let wait = lastWrite.map { interval - (ContinuousClock.now - $0) } ?? .zero
+        guard wait > .zero else {
+            writePending()
+            return
+        }
+        let (seconds, attoseconds) = wait.components
+        let nanoseconds = Int(seconds) * 1_000_000_000 + Int(attoseconds / 1_000_000_000)
+        queue.asyncAfter(deadline: .now() + .nanoseconds(nanoseconds)) { self.writePending() }
+    }
+
+    /// On `queue`: writes every save that waits, oldest first.
+    private func writePending() {
+        let saves = lock.withLock { () -> [Pending] in
+            defer {
+                writing.formUnion(pending.map(\.accountID))
+                pending = []
+                writeScheduled = false
+            }
+            return pending
+        }
+        guard !saves.isEmpty else { return }
+        for save in saves { write(save.snapshot, accountID: save.accountID) }
+        lastWrite = ContinuousClock.now
+        lock.withLock {
+            writes += saves.count
+            writing = []
+        }
+    }
+
+    /// A save of `accountID` waits or is being written: a read flushes first.
+    private func hasUnwritten(_ accountID: String) -> Bool {
+        lock.withLock { writing.contains(accountID) || pending.contains { $0.accountID == accountID } }
+    }
+
+    /// Writes what waits now, without waiting for it (the app going to the background).
+    public func writeSoon() {
+        queue.async { self.writePending() }
     }
 
     private func write(_ snapshot: LiveSnapshot, accountID: String) {
-        let folder = accountDirectory(accountID)
+        let folder = teamDirectory(accountID, teamID: snapshot.teamID)
         let fileManager = FileManager.default
         try? fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
@@ -223,7 +376,7 @@ public final class LiveSnapshotStore: @unchecked Sendable {
         var lists: [String: Head.List] = [:]
         var tails: Set<String> = []
         for (macID, list) in snapshot.workspaces {
-            let tailURL = tailFile(accountID, macID: macID)
+            let tailURL = tailFile(accountID, teamID: snapshot.teamID, macID: macID)
             guard list.isComplete else {
                 lists[macID] = Head.List(rows: list.workspaces, total: list.total, savedAt: list.savedAt, tail: list.tailToken)
                 tails.insert(tailURL.lastPathComponent)
@@ -247,7 +400,11 @@ public final class LiveSnapshotStore: @unchecked Sendable {
         let head = Head(format: Self.formatVersion, teamID: snapshot.teamID, teamName: snapshot.teamName, macs: snapshot.macs,
                         linkedMacID: snapshot.linkedMacID, lists: lists)
         guard let data = try? encoder.encode(head) else { return }
-        try? data.write(to: headFile(accountID), options: options)
+        try? data.write(to: headFile(accountID, teamID: snapshot.teamID), options: options)
+        let lastTeam = lastTeamFile(accountID)
+        if (try? Data(contentsOf: lastTeam)) != Data(snapshot.teamID.utf8) {
+            try? Data(snapshot.teamID.utf8).write(to: lastTeam, options: options)
+        }
         // Tails of Macs no longer listed, and of lists saved again without one.
         for name in (try? fileManager.contentsOfDirectory(atPath: folder.path)) ?? []
         where name.hasPrefix("tail-") && !tails.contains(name) {
@@ -275,11 +432,12 @@ public final class LiveSnapshotStore: @unchecked Sendable {
 
     /// Waits for pending writes (tests).
     public func flush() {
-        queue.sync {}
+        queue.sync { writePending() }
     }
 
     public func removeAll() {
         let directory = directory
+        lock.withLock { pending = [] }
         queue.async { try? FileManager.default.removeItem(at: directory) }
     }
 }

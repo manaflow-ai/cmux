@@ -1,0 +1,491 @@
+//! Synced app storage (`storage:synced`, cmuxterm-hq#12221): the cloud half
+//! of the replica in `storage.rs`.
+//!
+//! - Writes: one flusher thread sends the replica's outbox through the
+//!   daemon's cloud link (`appkv.set` / `appkv.delete` on `POST /v1/ops`),
+//!   each op with its own idempotency key, again after a failure with the
+//!   same key. Signed out it waits; the stream going live (a sign-in, a
+//!   reconnect) or a new local write wakes it.
+//! - Reads: the daemon subscribes once to the person's `appkv:<user>` stream
+//!   (`Target::AppKv`, the inbox's path); its snapshot and events apply to
+//!   the replicas of the apps that sync here, and each app hears
+//!   `app.storage.changed {keys}` for the keys that changed.
+//! - A different account on the stream drops the replicas and the queued
+//!   writes of the previous one; writes made before any sign-in go to the
+//!   first account. An event of any account but the current lease's (a late
+//!   one from the previous socket) is ignored before it touches the replica.
+//! - An app that loses `storage:synced` sends nothing: its queued writes are
+//!   held while it is revoked, and a regrant reads a snapshot first.
+
+use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError, Weak};
+use std::time::Duration;
+
+use cmux_app_host::ToHost;
+use serde_json::{Value, json};
+
+use super::storage::{Changed, PendingOp, SYNCED_SCOPE};
+use super::supervisor::{HostKey, Inner, Supervisor};
+use crate::cloud_conversations::{AppKvRow, AppKvWrite, CloudError, CloudEvent, Target};
+
+/// The event an app hears when another device changed its synced keys.
+pub(crate) const STORAGE_CHANGED: &str = "app.storage.changed";
+/// The daemon's own subscriber id on the cloud link: no connection has it
+/// (theirs count up from 1), so no disconnect ends the subscription.
+const APPKV_CLIENT: u64 = u64::MAX - 1;
+/// Outbox ops sent per pass.
+const BATCH: usize = 32;
+const RETRY_MIN: Duration = Duration::from_secs(2);
+const RETRY_MAX: Duration = Duration::from_secs(300);
+/// A quiet flusher still looks at the outbox this often (a lease that came
+/// back without a stream event).
+const IDLE_CHECK: Duration = Duration::from_secs(60);
+
+/// Why one op did not reach the cloud.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SendError {
+    /// Refused for good (`app.limit`, a bad request): dropped.
+    Refused(String),
+    /// Signed out, offline, 5xx: sent again later with the same key.
+    Retry(String),
+}
+
+/// The cloud link synced storage uses (the daemon's `CloudConversations`;
+/// a fake in tests).
+pub(crate) trait AppKvCloud: Send + Sync {
+    /// The signed-in account, `None` signed out.
+    fn account(&self) -> Option<String>;
+    /// Sends one op queued for `account`, only on a lease of that account;
+    /// the cloud's revision for it when the answer names one.
+    fn send(&self, account: &str, op: &PendingOp) -> Result<Option<u64>, SendError>;
+    /// Subscribes to `appkv:<user>` (idempotent).
+    fn subscribe(&self);
+    /// Ends that subscription (no app syncs here any more).
+    fn unsubscribe(&self);
+    /// Asks the stream for a snapshot (an app started syncing here).
+    fn resync(&self);
+    /// One `appkv.list` page after `after_revision`: its rows, the next
+    /// page's `after_revision` (`None` on the last) and the head revision.
+    fn list(&self, after_revision: u64) -> Result<(Vec<AppKvRow>, Option<u64>, u64), SendError>;
+}
+
+/// The flusher's wake signal.
+#[derive(Default)]
+struct Signal {
+    count: Mutex<u64>,
+    wake: Condvar,
+}
+
+impl Signal {
+    fn poke(&self) {
+        *self.count.lock().unwrap_or_else(PoisonError::into_inner) += 1;
+        self.wake.notify_all();
+    }
+
+    fn now(&self) -> u64 {
+        *self.count.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Waits up to `timeout` for a poke after `seen`.
+    fn wait(&self, seen: u64, timeout: Duration) {
+        let guard = self.count.lock().unwrap_or_else(PoisonError::into_inner);
+        let _unused = self.wake.wait_timeout_while(guard, timeout, |count| *count == seen);
+    }
+}
+
+/// Synced storage's state on the supervisor.
+#[derive(Default)]
+pub(crate) struct SyncState {
+    cloud: OnceLock<Arc<dyn AppKvCloud>>,
+    signal: Arc<Signal>,
+    started: AtomicBool,
+    /// The daemon holds the `appkv:<user>` subscription.
+    subscribed: AtomicBool,
+    /// A snapshot held only the newest rows: page `appkv.list` before the
+    /// next send.
+    needs_list: AtomicBool,
+    /// Apps with a replica here that did not sync at the last refresh: their
+    /// replica heard nothing meanwhile, so syncing again asks for a snapshot.
+    inactive: Mutex<BTreeSet<String>>,
+}
+
+impl SyncState {
+    fn poke(&self) {
+        self.signal.poke();
+    }
+
+    fn subscribe(&self, cloud: &dyn AppKvCloud) {
+        self.subscribed.store(true, Ordering::SeqCst);
+        cloud.subscribe();
+    }
+}
+
+/// What one flush pass did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Flush {
+    /// Nothing to send, or nothing can be sent now (signed out).
+    Idle,
+    /// A full batch went: look again at once.
+    More,
+    /// The cloud did not answer: back off.
+    Retry,
+}
+
+impl Supervisor {
+    /// Installs the cloud link (once) and starts the outbox sender.
+    pub(crate) fn set_appkv_cloud(&self, cloud: Arc<dyn AppKvCloud>) {
+        if self.synced.cloud.set(cloud).is_err() || self.synced.started.swap(true, Ordering::SeqCst)
+        {
+            return;
+        }
+        let me = self.me.clone();
+        let signal = self.synced.signal.clone();
+        let spawned = std::thread::Builder::new()
+            .name("cmux-app-synced".into())
+            .spawn(move || flusher(&me, &signal));
+        if let Err(error) = spawned {
+            eprintln!("cmux-tui: synced app storage: no sender thread: {error}");
+        }
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        self.appkv_refresh_locked(&inner);
+    }
+
+    /// Whether `app` keeps its storage in the synced replica here: installed
+    /// with `storage:synced` granted (and still asked for by its manifest).
+    pub(super) fn synced_locked(inner: &Inner, app: &str) -> bool {
+        inner.mirror.apps.get(app).is_some_and(|record| record.installed)
+            && Self::grant_for(inner, &HostKey { app: app.to_string(), preview: false })
+                .scopes
+                .contains(SYNCED_SCOPE)
+    }
+
+    /// After a change to the installed apps: the stream is subscribed while
+    /// any app syncs (and dropped when the last one goes), and an app syncing
+    /// here for the first time asks for a snapshot (the rows other devices
+    /// wrote before).
+    pub(super) fn appkv_refresh_locked(&self, inner: &Inner) {
+        let Some(cloud) = self.synced.cloud.get() else { return };
+        let synced: Vec<&String> =
+            inner.mirror.apps.keys().filter(|app| Self::synced_locked(inner, app)).collect();
+        // A replica that stopped syncing (revoked, or no longer asked for)
+        // misses the stream's rows until it syncs again.
+        let regranted = {
+            let storage = self.storage();
+            let mut inactive = self.synced.inactive.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(storage) = storage.as_ref() {
+                inactive.extend(
+                    storage.replica_apps().into_iter().filter(|app| !synced.contains(&app)),
+                );
+            }
+            let before = inactive.len();
+            inactive.retain(|app| !synced.contains(&app));
+            inactive.len() != before
+        };
+        if synced.is_empty() {
+            if self.synced.subscribed.swap(false, Ordering::SeqCst) {
+                cloud.unsubscribe();
+            }
+            return;
+        }
+        self.synced.subscribe(cloud.as_ref());
+        let fresh = regranted
+            || self
+                .storage()
+                .as_ref()
+                .is_some_and(|storage| synced.iter().any(|app| !storage.has_replica(app)));
+        if fresh {
+            cloud.resync();
+        }
+        self.synced.poke();
+    }
+
+    /// A synced write was made here: send it.
+    pub(super) fn appkv_wrote(&self) {
+        if let Some(cloud) = self.synced.cloud.get() {
+            self.synced.subscribe(cloud.as_ref());
+        }
+        self.synced.poke();
+    }
+
+    /// One event of the `appkv:<user>` stream (routed here by the mux).
+    pub(crate) fn on_appkv_event(&self, event: &CloudEvent) {
+        if let CloudEvent::SubscriptionState { state, .. } = event {
+            // Live after a sign-in or a reconnect: the outbox can go now.
+            if *state == "live" {
+                self.synced.poke();
+            }
+            return;
+        }
+        // Only the current lease's account: a late event of the previous
+        // socket must not reset the replica the new account writes into.
+        let Some(cloud) = self.synced.cloud.get() else { return };
+        let lease = cloud.account();
+        let Some(account) = event.account().filter(|a| lease.as_deref() == Some(*a)) else {
+            return;
+        };
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let guard = self.storage();
+        let Some(storage) = guard.as_ref() else { return };
+        let mut changed = Changed::new();
+        match storage.account() {
+            Some(previous) if previous != account => {
+                changed = storage.reset_synced();
+                let _ = storage.set_account(account);
+            }
+            None => {
+                let _ = storage.set_account(account);
+            }
+            Some(_) => {}
+        }
+        let synced = |app: &str| Self::synced_locked(&inner, app);
+        let applied = match event {
+            CloudEvent::AppKvReset { rows: Some(rows), revision, complete: true, .. } => {
+                storage.apply_snapshot(rows, *revision, synced)
+            }
+            // Only the owner's newest rows: they apply, and `appkv.list`
+            // pages every row before anything absent is removed.
+            CloudEvent::AppKvReset { rows, .. } => {
+                self.synced.needs_list.store(true, Ordering::SeqCst);
+                let writes: Vec<AppKvWrite> =
+                    rows.iter().flatten().cloned().map(AppKvWrite::Upsert).collect();
+                storage.apply_writes(&writes, synced)
+            }
+            CloudEvent::AppKvChanged { writes, .. } => storage.apply_writes(writes, synced),
+            _ => Ok(Changed::new()),
+        };
+        match applied {
+            Ok(more) => {
+                for (app, keys) in more {
+                    changed.entry(app).or_default().extend(keys);
+                }
+            }
+            Err(error) => eprintln!("cmux-tui: synced app storage: {}", error.message),
+        }
+        drop(guard);
+        Self::publish_storage_changed_locked(&inner, &changed);
+        if matches!(event, CloudEvent::AppKvReset { .. }) {
+            self.synced.poke();
+        }
+    }
+
+    /// `app.storage.changed {keys}` to each app's subscribed hosts.
+    pub(super) fn publish_storage_changed_locked(inner: &Inner, changed: &Changed) {
+        for (app, keys) in changed.iter().filter(|(_, keys)| !keys.is_empty()) {
+            let body = json!({ "keys": keys });
+            for (key, host) in inner.hosts.iter().filter(|(key, _)| &key.app == app) {
+                if !Self::stream_readable(inner, key, host, STORAGE_CHANGED) {
+                    continue;
+                }
+                let Some(process) = &host.process else { continue };
+                for (sub, _) in host.subs.iter().filter(|(_, s)| s.as_str() == STORAGE_CHANGED) {
+                    process.send(&ToHost::Event { sub: *sub, body: body.clone() });
+                }
+            }
+        }
+    }
+
+    /// Sends what the outbox holds, one op at a time, off every lock.
+    fn flush_once(&self) -> Flush {
+        let Some(cloud) = self.synced.cloud.get().cloned() else { return Flush::Idle };
+        let Some(account) = cloud.account() else { return Flush::Idle };
+        if self.synced.needs_list.swap(false, Ordering::SeqCst) && !self.list_all(cloud.as_ref()) {
+            self.synced.needs_list.store(true, Ordering::SeqCst);
+            return Flush::Retry;
+        }
+        let ops = {
+            let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            let storage = self.storage();
+            let Some(storage) = storage.as_ref() else { return Flush::Idle };
+            match storage.account() {
+                // Another account's writes never go to this one; its stream
+                // resets the replica first.
+                Some(previous) if previous != account => return Flush::Idle,
+                Some(_) => {}
+                None => {
+                    let _ = storage.set_account(&account);
+                }
+            }
+            // An app that lost `storage:synced` keeps its writes queued,
+            // never sent.
+            storage.pending(BATCH, |app| Self::synced_locked(&inner, app))
+        };
+        let full = ops.len() == BATCH;
+        for op in ops {
+            // The scope can go between the read above and this send.
+            let allowed = {
+                let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+                Self::synced_locked(&inner, &op.app)
+            };
+            if !allowed {
+                continue;
+            }
+            let sent = cloud.send(&account, &op);
+            let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            let changed = {
+                let storage = self.storage();
+                let Some(storage) = storage.as_ref() else { return Flush::Idle };
+                match &sent {
+                    Ok(revision) => storage.acked(&op, *revision),
+                    Err(SendError::Refused(reason)) => {
+                        eprintln!(
+                            "cmux-tui: synced app storage: the cloud refused {} {}: {reason}",
+                            op.app, op.key
+                        );
+                        storage.refused(&op)
+                    }
+                    Err(SendError::Retry(_)) => return Flush::Retry,
+                }
+            };
+            Self::publish_storage_changed_locked(&inner, &changed);
+            drop(inner);
+            if matches!(sent, Err(SendError::Refused(_))) {
+                cloud.resync();
+            }
+        }
+        if full { Flush::More } else { Flush::Idle }
+    }
+
+    /// Pages every row (`appkv.list`) and applies them as one snapshot read
+    /// at the first page's head revision; `false` when the cloud did not
+    /// answer or the pages never reached the last one (the page cap, a cursor
+    /// that does not advance): a list not read whole removes nothing.
+    fn list_all(&self, cloud: &dyn AppKvCloud) -> bool {
+        /// 500 rows a page: past this many pages the account is not one a
+        /// person's devices could have written (4 MiB per app, 256 apps).
+        const MAX_PAGES: usize = 10_000;
+        let (mut rows, mut after, mut head) = (Vec::new(), 0, None);
+        let mut whole = false;
+        for _ in 0..MAX_PAGES {
+            let Ok((page, next, revision)) = cloud.list(after) else { return false };
+            head.get_or_insert(revision);
+            rows.extend(page);
+            match next {
+                None => {
+                    whole = true;
+                    break;
+                }
+                Some(next) if next > after => after = next,
+                Some(next) => {
+                    eprintln!("cmux-tui: synced app storage: appkv.list stuck at {next}");
+                    return false;
+                }
+            }
+        }
+        if !whole {
+            eprintln!("cmux-tui: synced app storage: appkv.list passed {MAX_PAGES} pages");
+            return false;
+        }
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let changed = {
+            let storage = self.storage();
+            let Some(storage) = storage.as_ref() else { return true };
+            let synced = |app: &str| Self::synced_locked(&inner, app);
+            match storage.apply_snapshot(&rows, head.unwrap_or(0), synced) {
+                Ok(changed) => changed,
+                Err(error) => {
+                    eprintln!("cmux-tui: synced app storage: {}", error.message);
+                    return true;
+                }
+            }
+        };
+        Self::publish_storage_changed_locked(&inner, &changed);
+        true
+    }
+}
+
+fn flusher(me: &Weak<Supervisor>, signal: &Signal) {
+    let mut backoff = RETRY_MIN;
+    loop {
+        let seen = signal.now();
+        let flushed = {
+            let Some(supervisor) = me.upgrade() else { return };
+            supervisor.flush_once()
+        };
+        let wait = match flushed {
+            Flush::More => Duration::ZERO,
+            Flush::Idle => IDLE_CHECK,
+            Flush::Retry => {
+                let wait = backoff;
+                backoff = (backoff * 2).min(RETRY_MAX);
+                wait
+            }
+        };
+        if flushed != Flush::Retry {
+            backoff = RETRY_MIN;
+        }
+        if !wait.is_zero() {
+            signal.wait(seen, wait);
+        }
+    }
+}
+
+/// The daemon's cloud link as synced storage's [`AppKvCloud`].
+pub(crate) struct MuxCloud {
+    mux: Weak<crate::Mux>,
+}
+
+impl MuxCloud {
+    pub(crate) fn new(mux: &Arc<crate::Mux>) -> Self {
+        Self { mux: Arc::downgrade(mux) }
+    }
+
+    fn with<T>(
+        &self,
+        f: impl FnOnce(&crate::cloud_conversations::CloudConversations) -> T,
+    ) -> Option<T> {
+        let mux = self.mux.upgrade()?;
+        mux.cloud_conversations().map(f)
+    }
+}
+
+/// The revision the cloud gave a write: `value.revision` (or the row's).
+fn revision_of(data: &Value) -> Option<u64> {
+    let value = data.get("value")?;
+    value.get("revision").or_else(|| value.pointer("/row/revision")).and_then(Value::as_u64)
+}
+
+impl AppKvCloud for MuxCloud {
+    fn account(&self) -> Option<String> {
+        self.with(|service| service.lease_account()).flatten()
+    }
+
+    fn send(&self, account: &str, op: &PendingOp) -> Result<Option<u64>, SendError> {
+        let sent = self
+            .with(|service| {
+                service.appkv_op(account, &op.app, &op.key, op.value.as_ref(), &op.idempotency_key)
+            })
+            .ok_or_else(|| SendError::Retry("no cloud link".into()))?;
+        match sent {
+            Ok(data) => Ok(revision_of(&data)),
+            Err(CloudError::Rejected { code, retryable: false, .. }) => {
+                Err(SendError::Refused(code))
+            }
+            Err(CloudError::BadRequest(message)) => Err(SendError::Refused(message)),
+            Err(error) => Err(SendError::Retry(error.to_string())),
+        }
+    }
+
+    fn subscribe(&self) {
+        self.with(|service| {
+            let _ = service.subscribe(APPKV_CLIENT, Target::AppKv);
+        });
+    }
+
+    fn unsubscribe(&self) {
+        self.with(|service| service.unsubscribe(APPKV_CLIENT, &Target::AppKv));
+    }
+
+    fn resync(&self) {
+        self.with(|service| service.resync(&Target::AppKv));
+    }
+
+    fn list(&self, after_revision: u64) -> Result<(Vec<AppKvRow>, Option<u64>, u64), SendError> {
+        let listed = self
+            .with(|service| service.appkv_list(after_revision, 500))
+            .ok_or_else(|| SendError::Retry("no cloud link".into()))?
+            .map_err(|error| SendError::Retry(error.to_string()))?;
+        crate::cloud_conversations::appkv_list_page(&listed)
+            .map_err(|error| SendError::Retry(error.to_string()))
+    }
+}

@@ -36,6 +36,12 @@ impl Hub {
         })
     }
 
+    /// RFD 0161's replay of the logs `sessions` names (every one when empty) against its
+    /// cache-prefix invariants (`crate::scorecard_replay`): blocking, no model call.
+    pub fn scorecard_replay(&self, sessions: &[String]) -> Result<crate::scorecard_replay::Replay> {
+        crate::scorecard_replay::replay(&*self.store, sessions)
+    }
+
     /// The harness-magic scorecard over every session log (`crate::scorecard`): blocking, one
     /// pass over the store, reading the input of each harness as `stats` does.
     pub fn scorecard(

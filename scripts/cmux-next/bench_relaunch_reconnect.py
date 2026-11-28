@@ -9,7 +9,7 @@ reconnect half (manaflow-ai/cmuxterm-hq#6338).
 The load: `--chats` local chats on the app's own acpmux daemon (the test agent, idle_cost_agent.py),
 each in its own workspace and shown once; the first one streams a reply (`stream:`, `--rate` words
 a second) through the whole run, and its workspace is the one shown when the app quits. Then, for
-each mode in `--modes`, `--rounds` times: quit the app (Quit and Keep Sessions, as an update relaunch keeps them; SIGTERM if it is still up
+each mode in `--modes`, `--rounds` times: quit the app (Quit and Keep Sessions; update and new-version through the updater's relaunch path, quit_app; SIGTERM if it is still up
 after 20 s), do what the mode says, relaunch it into the same HOME and state, and wait until the
 shown chat gets a live event (one that arrives within LIVE_EVENT_LAG_MS of when acpmux recorded it,
 webviews perf.ts). Modes:
@@ -176,11 +176,21 @@ def daemon_log(home: str, since: float) -> tuple[dict, list[str]]:
 RENAME_SWAP = 0x2  # <stdio.h>: renamex_np swaps the two paths
 
 
-def quit_app(sock: str, bundle: str):
-    """The Quit action, as a person's Cmd-Q; SIGTERM (also a normal quit) when the app is still up after 20 s."""
+def quit_app(sock: str, bundle: str, updater: bool = False):
+    """The Quit action, as a person's Cmd-Q, or with `updater` what Restart to Update runs (`debug.updater relaunch`:
+    the updater's relaunch hook, which saves the windows, then terminate); SIGTERM
+    (also a normal quit) when the app is still up after 20 s.
+
+    The update modes quit through the updater: with Cmd-Q they measured a quit no update runs. Leo, 2026-11-24, on
+    Restart to Update: "it def percievably changed a lot bc the agent pane blanked": the updater's quit pictured the
+    chats after their windows had left the screen, found none and dropped every saved picture; these rows, quitting
+    with Cmd-Q, still showed the picture at once."""
     binary_dir = os.path.join(bundle, "Contents/MacOS")
     apps = {pid for pid, _, cmd in bm.process_table() if cmd.startswith(binary_dir + "/") and not bm.is_clone_cleanup(cmd)}
-    bm.App(bundle, sock).action("quitKeepSessions", wait=False)
+    if updater:
+        bp.rpc(sock, "debug.updater", {"action": "relaunch"}, timeout=10)
+    else:
+        bm.App(bundle, sock).action("quitKeepSessions", wait=False)
     left = bm.still_running(apps, 20)
     if left:
         print(f"   quit: the app was still up after 20 s; SIGTERM {sorted(left)}", file=sys.stderr)
@@ -230,13 +240,18 @@ def new_version_bundle(bundle: str, generation: int):
         for path in scripts + [os.path.join(root, "pane.css")]:
             with open(path, "a") as handle:
                 handle.write(f"\n/* {tag} */\n")
-        with open(os.path.join(root, "pane.css"), "rb") as handle:
-            digest = hashlib.sha256(handle.read()).hexdigest()[:16]
+        def digest(name: str) -> str:
+            with open(os.path.join(root, name), "rb") as handle:
+                return hashlib.sha256(handle.read()).hexdigest()[:16]
         index = os.path.join(root, "index.html")
         with open(index) as handle:
             text = handle.read()
+        # Each name the build writes by content gets the new content's, as a real update's index.html does.
+        text = re.sub(r"pane\.css\?h=[0-9a-f]+", f"pane.css?h={digest('pane.css')}", text)
+        if os.path.isfile(os.path.join(root, "pane.js")):
+            text = re.sub(r"pane\.js\?h=[0-9a-f]+", f"pane.js?h={digest('pane.js')}", text)
         with open(index, "w") as handle:
-            handle.write(re.sub(r"pane\.css\?h=[0-9a-f]+", f"pane.css?h={digest}", text))
+            handle.write(text)
     if not pages:
         raise RuntimeError(f"new-version: no agent page (index.html, pane.css, chat-snapshot.js) in {bundle}")
     plist = os.path.join(bundle, "Contents", "Info.plist")
@@ -482,7 +497,7 @@ def main(argv: list[str] | None = None):
             for index in range(args.rounds):
                 time.sleep(args.settle)  # test script: the chat streams a while before the quit
                 quit_at = time.time() * 1000
-                quit_app(sock, args.app)
+                quit_app(sock, args.app, updater=mode in ("update", "new-version"))
                 if mode == "cold":
                     bm.end_processes(daemon_pids(args.app))
                 elif mode == "update":

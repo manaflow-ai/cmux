@@ -3,14 +3,16 @@
   "steps": [
     {"title": "Launch", "wait": 2, "shot": false},
     {"title": "Home with the Chief", "cmux": ["action", "run", "home.show"], "wait": 5, "shot": false},
+    {"title": "Meet Chief ends, so the Chief's conversation shows", "rpc": {"method": "debug.onboarding", "params": {"action": "meet_chief_end"}},
+     "wait": 2, "shot": false, "optional": "Meet Chief may not show on this runner"},
     {"title": "Details: name, connections, vault, Edit Chief…",
-     "rpc": {"method": "debug.home.drive", "params": {"action": "chief_tab", "tab": "details"}}, "wait": 2.5,
+     "rpc": {"method": "debug.home.drive", "params": {"action": "chief_tab", "profile": "details"}}, "wait": 2.5,
      "shot": {"name": "details", "with_popups": true}},
     {"title": "Settings: the agent, reactions and appearance rows, All Chief Settings…",
-     "rpc": {"method": "debug.home.drive", "params": {"action": "chief_tab", "tab": "settings"}}, "wait": 2.5,
+     "rpc": {"method": "debug.home.drive", "params": {"action": "chief_tab", "profile": "settings"}}, "wait": 2.5,
      "shot": {"name": "settings", "with_popups": true}},
     {"title": "Computer: the Chief's computer, or the offer for one",
-     "rpc": {"method": "debug.home.drive", "params": {"action": "chief_tab", "tab": "computer"}}, "wait": 3,
+     "rpc": {"method": "debug.home.drive", "params": {"action": "chief_tab", "profile": "computer"}}, "wait": 3,
      "shot": {"name": "computer", "with_popups": true}}
   ]
 }

@@ -1,4 +1,6 @@
 import CmuxMobileArtifacts
+import CmuxMobileDesign
+import CmuxMobileTransport
 import Foundation
 
 /// A terminal tab whose session on the Mac does not exist yet (the link or
@@ -54,13 +56,16 @@ public enum TerminalSessionChoice {
         mockDataEnabled: Bool,
         reviewDemo: Bool = false,
         macName: String?,
-        programName: String
+        programName: String,
+        defaults: UserDefaults = .standard
     ) -> any TerminalSession {
         if let live {
             #if os(iOS)
-            // The phone re-wraps the Mac's terminal at its own width; the Mac
-            // keeps its size (Fit to Phone, per program or in Settings → Terminal, resizes it).
-            if TerminalProjectingSession.isEnabled(for: live.programName) { return TerminalProjectingSession(inner: live) }
+            // Both phone re-wrap and a Mac resize require an explicit setting.
+            let projects = TerminalProjectingSession.isEnabled(for: live.programName, defaults: defaults)
+            let fits = TerminalFitToPhoneMemory(defaults: defaults).fitToPhone(for: live.programName)
+            live.setPreservesHostGrid(!fits && !projects)
+            if projects { return TerminalProjectingSession(inner: live) }
             #endif
             return live
         }
@@ -71,9 +76,19 @@ public enum TerminalSessionChoice {
             // A Codex-like inline TUI streaming history (reproduction harness).
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex") { return FakeCodexSession() }
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex-idle") { return FakeCodexSession(idleRedraw: true) }
+            // `-CmuxMobileColdFrameDemo`: a tab that never attaches, over its cached frame
+            // (`TerminalColdFrameDemo`, PaneLayersUITests).
+            if ProcessInfo.processInfo.arguments.contains("-CmuxMobileColdFrameDemo") {
+                return PendingTerminalSession(macName: macName, programName: programName)
+            }
             // `-cmux-mobile-term-no-intro`: the prompt at once, no scripted commands (LaunchTTIUITests types into it).
             let intro = !ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-no-intro")
-            return MockTerminalSession(playsIntro: intro, roundTrip: .milliseconds(Self.mockRoundTripMilliseconds))
+            // `CMUX_MOBILE_MOCK_LINK`: slow answers each key a burst later; down is offline.
+            let link = MockLinkCondition.current
+            let roundTrip: Duration = link == .slow
+                ? max(MockLinkCondition.burst, .milliseconds(Self.mockRoundTripMilliseconds))
+                : .milliseconds(Self.mockRoundTripMilliseconds)
+            return MockTerminalSession(playsIntro: intro, roundTrip: roundTrip, offline: link == .down)
             #else
             return MockTerminalSession(instantIntro: true)
             #endif

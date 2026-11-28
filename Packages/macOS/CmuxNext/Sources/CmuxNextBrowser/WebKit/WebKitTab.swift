@@ -38,6 +38,10 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
     /// Files an agent offered this page's next file chooser (`runOpenPanelWith` takes them first).
     @ObservationIgnored public let agentFiles = BrowserAgentFiles()
+    /// An agent drove or read this page (``markAgentDriven()``, WebKitTab+AgentMarks); never cleared.
+    @ObservationIgnored public internal(set) var isAgentDriven = false
+    /// The agent session that last drove this page (``noteAgentSession(_:)``).
+    @ObservationIgnored public internal(set) var agentSessionID: String?
 
     private var machine = BrowserTabStateMachine()
     @ObservationIgnored private(set) weak var engine: WebKitEngine?
@@ -194,6 +198,17 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
         } else if (webView as? WebKitWebView)?.hasKeyboardFocus == true {
             FocusRoute(.system, "focus model: WebKit tab resigns").moveKeyboard(in: window, to: nil)
         }
+    }
+
+    /// Whether this page has the keyboard in `window`, the key window, and answers for every key:
+    /// the web view itself is the first responder (WebKit hands a key equivalent to the page only
+    /// then) and its WebContent process runs. WebKit sends a key the page left unhandled back to
+    /// `NSApp.sendEvent` (`WebViewImpl::doneWithKeyEvent`); with no process (before the first load,
+    /// after a crash) it drops the key and sends nothing back, so cmux must run its action first.
+    public func pageHasKeyboard(in window: NSWindow) -> Bool {
+        guard !isClosed, webView.window === window, window.firstResponder === webView,
+              case .pids = contentProcesses else { return false }
+        return true
     }
 
     /// WebKit draws in-view and throttles hidden views itself; a page shown after a memory end

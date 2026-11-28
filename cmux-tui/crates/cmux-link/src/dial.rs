@@ -45,12 +45,18 @@ pub enum Service {
     /// ([`RekeyRequest`]), over its old key's session, when it adopts this
     /// machine's node key. A local caller cannot dial it.
     Rekey,
+    /// A phone's ACP chat on this machine, the Mac off (RFD 0135 gate 4):
+    /// only the server's owner (`owner_session`), and the link serves it as
+    /// a mobile client of the daemon's local socket, so the daemon holds it
+    /// to the phone floor (`cmux_cloud_phone_acp`).
+    PhoneChat,
 }
 
 /// The one line a link writes after a [`Service::Rekey`] hello: its new
 /// WireGuard public key, standard base64 of 32 bytes. The answer is one
 /// [`RekeyReply`] line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// skew: strict wireguard rekey: a node key exchange between links, nothing else belongs in it
 #[serde(deny_unknown_fields)]
 pub struct RekeyRequest {
     pub public_key: String,
@@ -58,6 +64,7 @@ pub struct RekeyRequest {
 
 /// The receiving link's answer to a [`RekeyRequest`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// skew: strict wireguard rekey: a node key exchange between links, nothing else belongs in it
 #[serde(deny_unknown_fields)]
 pub struct RekeyReply {
     pub ok: bool,
@@ -90,7 +97,6 @@ pub const RELAY_AVAILABLE: bool = false;
 
 /// `{"op":"link.dial","host":"<install>","service":"daemon"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DialRequest {
     pub op: DialOp,
     pub host: String,
@@ -182,7 +188,6 @@ impl DialReply {
 /// `{"op":"link.reload"}`: re-read the pairing file (sent by `cmux link
 /// peer add|remove` to a running link). The reply is `{"ok":true|false}`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ReloadRequest {
     pub op: ReloadOp,
 }
@@ -197,7 +202,6 @@ pub enum ReloadOp {
 /// paired peer, `{"service":...,"link_token":...,"epoch":...}` to a Cloud
 /// host (the host checks the token before it serves anything).
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ServiceHello {
     pub service: Service,
     #[serde(default, skip_serializing_if = "Option::is_none")]

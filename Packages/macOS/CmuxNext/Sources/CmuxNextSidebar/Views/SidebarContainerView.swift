@@ -408,11 +408,15 @@ public final class SidebarContainerView: NSView {
         setClipReach(paneReach, collapsed: isPanelCollapsed, animated: false)
         SidebarHiddenState.apply(isPanelCollapsed, to: panel)
         panel.alphaValue = 1
+        // A restore can change the float look, and with it the reach: remount so the band follows the
+        // surface edge in this turn, not the observation's next one (as `apply()` does).
+        if paneReach != mountedPaneReach || resizeBand != mountedBand { mountHandle() }
         syncHandleVisibility()
         syncRail()
-        // A layout callback can start a newer width animation; that one owns the motion flag.
+        // A layout callback can start a newer width animation; that one owns the motion flag. Off screen (a window
+        // being built at launch) nothing reads the frames before its first display lays it out once (startup-tti).
         let generation = animationGeneration
-        superview?.layoutSubtreeIfNeeded()
+        if window?.isVisible == true { superview?.layoutSubtreeIfNeeded() } else { superview?.needsLayout = true }
         guard generation == animationGeneration else { return }
         isWidthAnimating = false
     }

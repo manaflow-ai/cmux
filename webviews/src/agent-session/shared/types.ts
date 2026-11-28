@@ -37,6 +37,10 @@ export type AgentSessionTheme = {
   borders?: "default" | "none";
   /// Whether keyboard focus outlines, including transcript response rows, are shown.
   focusRingEnabled?: boolean;
+  /// appearance.agentSignature (off by default): each agent's dot glyph from its session id before
+  /// the running line's words (acpmux conversation/agentSignatureModel.ts). Absent or false draws nothing
+  /// and asks acpmux for nothing.
+  agentSignature?: boolean;
   /// A collapsed tool run's look (acpmux toolRunLook.ts): `kind` (absent), `pencil`, `quiet` or
   /// `quiet-pencil`. Only the gallery sends it, for the versions it keeps beside the default.
   toolRunLook?: string;
@@ -54,6 +58,10 @@ export type AgentSessionTheme = {
   /// How agent work shows (Debug Settings `status.working`, CmuxNextDesign StatusWorkingLook): sets
   /// `data-working-look` on the root. Absent means the stylesheet default, the spinner.
   workingLook?: "breathe" | "shimmer" | "spinner";
+  /// appearance.homeCardStyle (CmuxNextDesign HomeCardStyle): how Home's and the New Tab page's cards draw. Sets
+  /// `data-home-cards` on the root for `flat`, `raised` and `glass` (newtab/screen.css HOME-CARDS); absent or
+  /// `standard` leaves today's cards.
+  homeCardStyle?: "standard" | "flat" | "raised" | "glass";
   /// The theme's choice per theme slot (schemas/theme/slots.json): `{ "<slot id>": "<variant id>" }`,
   /// e.g. `{ "chat.thinkingIndicator": "counting-dots" }` (slots/registry.ts). Absent, or an id no
   /// variant has, draws each slot's default.

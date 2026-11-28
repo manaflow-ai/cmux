@@ -58,6 +58,9 @@ import json, os, pathlib, signal, socket as net, sys, threading
 home = {home}
 socket = {socket}
 args = sys.argv[1:]
+# session_move.rs PLAIN_SCRIPT, the folder a move makes on the target, by its exact text:
+# other scripts (the carry's APPLY_SCRIPT) also read `d` and `mkdir -p`.
+PLAIN = 'read -r d || exit 2; mkdir -p -- "$d"'
 if '-W' in args:
     host, port = args[args.index('-W') + 1].rsplit(':', 1)
     s = net.create_connection((host, int(port)))
@@ -86,7 +89,7 @@ if 'acpmux daemon status --json' in command:
     print(home)
     print(json.dumps({{'socket': socket}}))
     print(500000000)
-elif 'mkdir -p' in command and 'read -r d' in command:
+elif PLAIN in command:
     folder = pathlib.Path(sys.stdin.readline().strip())
     assert str(folder).startswith(home + '/')
     folder.mkdir(parents=True, exist_ok=True)
@@ -185,7 +188,10 @@ fn move_command(source: &Daemon, id: &str, to: &Path) -> tokio::process::Command
 async fn committed(src: &mut Rpc, id: &str) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
     loop {
-        let info = src.call("_acpmux/info", json!({"sessionId": id})).await;
+        // The row this machine keeps: a plain `{sessionId}` info of a chat that moved to a
+        // connected peer is answered from its copy there (`MOVED_FORWARDED`, #52853).
+        let listed = src.call("_acpmux/info", json!({"sessionIds": [id], "row": true})).await;
+        let info = &listed["rows"][0];
         if info["status"] == "closed" && info["movedTo"]["host"] == "target" {
             return;
         }
@@ -251,6 +257,35 @@ async fn a_move_ends_as_soon_as_the_source_lists_the_chat_on_the_target() {
         after_commit < Duration::from_secs(3),
         "the receipt came {after_commit:?} after the commit ({took:?} in all): {stderr}"
     );
+}
+
+/// A last-reply read through the original id follows the moved chat. The source's local
+/// transcript ends before the new reply, so reading its tombstone would return stale text.
+#[tokio::test]
+async fn last_reply_through_the_original_id_reads_the_moved_destination() {
+    let (target, source, mut src) = linked("mrlast").await;
+    let (id, to) = chat(&source, &target, &mut src).await;
+    let before = src.call("_acpmux/last", json!({"sessionId": id, "count": 1})).await;
+    assert_eq!(before["replies"], json!(["echo: hi"]), "{before}");
+
+    let out =
+        tokio::time::timeout(Duration::from_secs(45), move_command(&source, &id, &to).output())
+            .await
+            .expect("session move completed")
+            .expect("run session move");
+    assert!(out.status.success(), "stderr={}", String::from_utf8_lossy(&out.stderr));
+    committed(&mut src, &id).await;
+
+    // Write on the destination directly: the source's old transcript cannot contain it.
+    let mut dst = Rpc::connect(&target.socket).await;
+    dst.call("session/prompt", text_prompt(&id, "p-after-move", "only on the destination")).await;
+    let expected = dst.call("_acpmux/last", json!({"sessionId": id, "count": 1})).await;
+    assert_eq!(expected["replies"], json!(["echo: only on the destination"]), "{expected}");
+
+    let forwarded = src.call("_acpmux/last", json!({"sessionId": id, "count": 1})).await;
+    assert_eq!(forwarded["replies"], expected["replies"], "{forwarded}");
+    assert_eq!(forwarded["peer"], "target", "the read must reach the peer: {forwarded}");
+    assert_eq!(forwarded["truncated"], false, "{forwarded}");
 }
 
 /// A prompt sent through the source the moment the move commits starts a turn on the target:

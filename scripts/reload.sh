@@ -11,6 +11,8 @@ source "$SCRIPT_DIR/lib/dev-secrets.sh"
 source "$SCRIPT_DIR/lib/stop-app-instances.sh"
 # shellcheck source=lib/cmux-dev-shim-install
 source "$SCRIPT_DIR/lib/cmux-dev-shim-install"
+# shellcheck source=scripts/lib/swiftpm-seed.sh
+source "$SCRIPT_DIR/lib/swiftpm-seed.sh"
 # shellcheck source=scripts/lib/dev-sign-identity.sh
 source "$SCRIPT_DIR/lib/dev-sign-identity.sh"
 
@@ -1863,6 +1865,22 @@ if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
   SWIFT_OTHER_FLAGS+=" $(live_code_swift_flags)"
   echo "==> live code build: $(live_code_targets | wc -l | tr -d ' ') CmuxNext targets at -Onone, testable and a file at a time${CMUX_LIVE_CODE_INTERPOSABLE_LIST:+, interposable as listed in $CMUX_LIVE_CODE_INTERPOSABLE_LIST}"
 fi
+if [[ "${CMUX_LINK_ORDER_PROBE:-0}" == "1" ]]; then
+  # The link order probe build (scripts/measure/link-order.sh): every Swift, C and Objective-C function calls a
+  # coverage guard on its first run (Packages/macOS/CmuxNext/Sources/CmuxNextLinkOrder). Swift takes coverage only
+  # beside a sanitizer: undefined adds no checks to Swift code. The framework defines and exports the guards
+  # (Package.swift reads CMUX_LINK_ORDER_PROBE too); every other image links them as dynamic lookups. Symbols stay
+  # in the binary so link-order.py can name each address. Never a build anyone runs as their app.
+  [[ "$BUILD_CONFIGURATION" == "Release" ]] || { echo "error: CMUX_LINK_ORDER_PROBE=1 needs a Release build (--release or --config bench)" >&2; exit 2; }
+  SWIFT_OTHER_FLAGS+=" -sanitize=undefined -sanitize-coverage=func,trace-pc-guard"
+  # shellcheck disable=SC2016 # Xcode expands $(inherited)
+  XCODEBUILD_ARGS+=(
+    'OTHER_CFLAGS=$(inherited) -DCMUX_LINK_ORDER_PROBE=1 -fsanitize-coverage=func,trace-pc-guard'
+    'OTHER_LDFLAGS=$(inherited) -Wl,-U,___sanitizer_cov_trace_pc_guard -Wl,-U,___sanitizer_cov_trace_pc_guard_init'
+    STRIP_INSTALLED_PRODUCT=NO COPY_PHASE_STRIP=NO DEPLOYMENT_POSTPROCESSING=NO
+  )
+  echo "==> link order probe build: coverage guards on every function's first call"
+fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
   echo "==> Swift frontend workaround enabled for this reload"
@@ -1970,6 +1988,8 @@ build_dirty=false
 # xcodebuild invocations can trample that daemon, and parallel builds swap a
 # laptop to a halt, so reload.sh builds take one of XCODEBUILD_LOCK_CONCURRENCY
 # slots (machine_build_slots above).
+# Runner slots sharing one SwiftPM artifact cache: seed it first (scripts/lib/swiftpm-seed.sh).
+seed_swiftpm_binary_artifacts "$SCRIPT_DIR/.."
 XCODEBUILD_STARTED=1
 set_xcodebuild_command
 python3 -c '
@@ -2367,7 +2387,6 @@ case "$cmux_next_tui_source" in
     exit 1
     ;;
 esac
-"$PWD/scripts/install-coderouter-client.sh" "$APP_PATH"
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi
@@ -2407,6 +2426,14 @@ if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
   # fails (stopping this script under set -e) when the app is still running.
   cmux_stop_app_instances "$BUNDLE_ID" "$TAG_PROCESS_PATTERN" \
     "${XCODEBUILD_SOURCE_APP_PATH:+$XCODEBUILD_SOURCE_APP_PATH/Contents/MacOS/${PRODUCT_APP_NAME}}"
+  # That quit keeps the old build's helpers (the terminal owner, acpmux, the Chief host, files-host),
+  # as a shipped app's quit does; the build is being replaced, so end the tree the old bundle
+  # started, also for a build older than its own reaper (issue 55842, scripts/dev-build.py).
+  # CMUX_DEV_KEEP_HELPERS=1 keeps them, to test that terminals survive a reload.
+  if [[ "${CMUX_DEV_KEEP_HELPERS:-0}" != 1 && "$NAME_SET" -eq 0 && "$TAG_SLUG" != next ]]; then
+    python3 "$SCRIPT_DIR/dev-build.py" stop --tag "$TAG_SLUG" \
+      || echo "warning: some processes of the old ${APP_NAME} build are still running (scripts/dev-build.py list)" >&2
+  fi
   # Tagged --launch runs are handed off to launchd so they survive the terminal
   # or automation process that invoked reload.sh. Remove a still-registered
   # prior job before publishing the replacement bundle.
@@ -2470,6 +2497,19 @@ if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && "$NO_GLOBAL_CLI_LINKS" != "1" ]]; the
 fi
 
 if [[ "$LAUNCH" -eq 1 ]]; then
+  # The agent chat that launches a tag owns it: `dev-build.py stop --all-idle` ends the build once
+  # that chat is closed (issue 55842).
+  if [[ -n "${TAG_SLUG:-}" && -n "${ACPMUX_SESSION_ID:-}" ]]; then
+    python3 "$SCRIPT_DIR/dev-build.py" claim --tag "$TAG_SLUG" --quiet || true
+  fi
+  # Every launch also ends the other tags nobody uses any more: an app whose chat closed or has
+  # been idle for CMUX_DEV_BUILD_IDLE_HOURS, or helpers whose app is gone (issue 63351: nothing
+  # ran the sweep, and a Mac kept a 42-hour-idle chat's build and its 83 processes). --detach runs
+  # it in its own session and returns at once (log: ~/.local/state/cmux/dev-builds/sweep.log), so
+  # the launch never waits on it. CMUX_DEV_BUILD_SWEEP=0 skips it.
+  if [[ -n "${TAG_SLUG:-}" && "${CMUX_DEV_BUILD_SWEEP:-1}" != 0 ]]; then
+    python3 "$SCRIPT_DIR/dev-build.py" stop --all-idle --except "$TAG_SLUG" --detach </dev/null || true
+  fi
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
     cmux_stop_app_instances "$BUNDLE_ID" "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"

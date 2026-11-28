@@ -50,7 +50,7 @@ pub(crate) enum Check {
     Rustfmt { file: PathBuf },
     Tsc { dir: PathBuf, plain_js: Vec<PathBuf> },
     Biome { dir: PathBuf, file: PathBuf },
-    NodeCheck { file: PathBuf },
+    Node { file: PathBuf },
     Python { file: PathBuf },
     Bash { file: PathBuf },
     Json { file: PathBuf },
@@ -65,7 +65,7 @@ impl Check {
             Self::Tsc { dir, .. } => format!("tsc:{}", dir.display()),
             Self::Biome { file, .. } => format!("biome:{}", file.display()),
             Self::Rustfmt { file } => format!("rustfmt:{}", file.display()),
-            Self::NodeCheck { file } => format!("node:{}", file.display()),
+            Self::Node { file } => format!("node:{}", file.display()),
             Self::Python { file } => format!("py:{}", file.display()),
             Self::Bash { file } => format!("bash:{}", file.display()),
             Self::Json { file } => format!("json:{}", file.display()),
@@ -84,9 +84,57 @@ fn up_find(from: &Path, names: &[&str]) -> Option<PathBuf> {
     }
 }
 
+fn read_manifest(manifest: &Path) -> Option<toml::Value> {
+    std::fs::read_to_string(manifest).ok()?.parse().ok()
+}
+
 fn package_name(manifest: &Path) -> Option<String> {
-    let doc: toml::Value = std::fs::read_to_string(manifest).ok()?.parse().ok()?;
-    doc.get("package")?.get("name")?.as_str().map(str::to_owned)
+    read_manifest(manifest)?.get("package")?.get("name")?.as_str().map(str::to_owned)
+}
+
+fn workspace_manifest(dir: &Path, manifest: &toml::Value) -> Option<toml::Value> {
+    if manifest.get("workspace").is_some() {
+        return Some(manifest.clone());
+    }
+    if let Some(path) = manifest
+        .get("package")
+        .and_then(|package| package.get("workspace"))
+        .and_then(toml::Value::as_str)
+    {
+        return read_manifest(&dir.join(path).join("Cargo.toml"));
+    }
+    for ancestor in dir.ancestors().skip(1) {
+        let candidate = ancestor.join("Cargo.toml");
+        if let Some(root) = read_manifest(&candidate)
+            && root.get("workspace").is_some()
+        {
+            return Some(root);
+        }
+    }
+    None
+}
+
+fn cargo_edition(file: &Path) -> Option<String> {
+    let dir = up_find(file, &["Cargo.toml"])?;
+    let manifest = read_manifest(&dir.join("Cargo.toml"))?;
+    let package = manifest.get("package");
+    let edition = package.and_then(|package| package.get("edition"));
+    if let Some(value) = edition.and_then(toml::Value::as_str) {
+        return Some(value.to_owned());
+    }
+    if edition.and_then(|value| value.get("workspace")).and_then(toml::Value::as_bool) == Some(true)
+        || package.is_none()
+    {
+        return workspace_manifest(&dir, &manifest).and_then(|root| {
+            root.get("workspace")
+                .and_then(|workspace| workspace.get("package"))
+                .and_then(|package| package.get("edition"))
+                .and_then(toml::Value::as_str)
+                .map(str::to_owned)
+        });
+    }
+    // Cargo's default for a package with no edition field.
+    Some("2015".to_owned())
 }
 
 /// The checks `files` (absolute paths) call for, each once.
@@ -128,7 +176,7 @@ pub(crate) fn plan(files: &[PathBuf]) -> Vec<Check> {
                         Check::Tsc { dir, plain_js: if plain { vec![f.clone()] } else { vec![] } },
                         &mut out,
                     ),
-                    None if plain => add(Check::NodeCheck { file: f.clone() }, &mut out),
+                    None if plain => add(Check::Node { file: f.clone() }, &mut out),
                     None => {}
                 }
                 if let Some(dir) = up_find(file, &["biome.json", "biome.jsonc"])
@@ -181,7 +229,7 @@ pub(crate) fn error_lines(check: &Check, output: &str) -> Vec<String> {
                     || l.contains(" parse")
                     || l.contains(" format")
             }
-            Check::NodeCheck { .. } | Check::Python { .. } => l.contains("Error"),
+            Check::Node { .. } | Check::Python { .. } => l.contains("Error"),
             Check::Bash { .. } | Check::Json { .. } | Check::Toml { .. } => true,
         }
     };
@@ -221,7 +269,7 @@ pub(crate) fn enabled_by(env: Option<&str>, doc: Option<&Value>) -> bool {
         .unwrap_or(true)
 }
 
-fn enabled() -> bool {
+pub(crate) fn enabled() -> bool {
     let env = std::env::var(ENV_OFF).ok();
     if env.as_deref() == Some("0") {
         return false;
@@ -277,7 +325,13 @@ fn run_cmd_blocking(dir: &Path, prog: &str, args: &[String]) -> Option<Ran> {
         Ok(None) => {
             // SAFETY: signals the process group this call made (`process_group(0)`); its pid is
             // not reaped yet, so the id is still this check's.
-            unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(-(child.id() as i32), libc::SIGKILL)
+            };
+            // No process groups off unix: end the child itself.
+            #[cfg(not(unix))]
+            let _ = child.kill();
             let _ = child.wait();
             Some(Ran { text: String::new(), slow: true })
         }
@@ -305,9 +359,9 @@ fn local_tool(dir: &Path, name: &str) -> Option<PathBuf> {
 async fn rustfmt_syntax(files: &[PathBuf]) -> Option<Ran> {
     let mut text = String::new();
     for f in files {
-        let r =
-            run_cmd(parent(f), "rustfmt", &["--check", "--edition", "2021", &f.to_string_lossy()])
-                .await?;
+        let edition = cargo_edition(f).unwrap_or_else(|| "2021".to_owned());
+        let path = f.to_string_lossy();
+        let r = run_cmd(parent(f), "rustfmt", &["--check", "--edition", &edition, &path]).await?;
         text.push_str(&r.text);
     }
     Some(Ran { text, slow: false })
@@ -335,10 +389,14 @@ async fn run_check(
             }
             (full, check.clone())
         }
-        Check::Rustfmt { file } => (
-            run_cmd(parent(file), "rustfmt", &["--check", "--edition", "2021", &s(file)]).await?,
-            check.clone(),
-        ),
+        Check::Rustfmt { file } => {
+            let edition = cargo_edition(file).unwrap_or_else(|| "2021".to_owned());
+            (
+                run_cmd(parent(file), "rustfmt", &["--check", "--edition", &edition, &s(file)])
+                    .await?,
+                check.clone(),
+            )
+        }
         Check::Tsc { dir, plain_js } => {
             let tsc = local_tool(dir, "tsc")?;
             let r = run_cmd(dir, &s(&tsc), &["--noEmit", "-p", &s(dir)]).await?;
@@ -347,7 +405,7 @@ async fn run_check(
                 let mut lines = vec![];
                 for f in plain_js {
                     let o = run_cmd(dir, "node", &["--check", &s(f)]).await?;
-                    lines.extend(error_lines(&Check::NodeCheck { file: f.clone() }, &o.text));
+                    lines.extend(error_lines(&Check::Node { file: f.clone() }, &o.text));
                 }
                 return Some(Outcome { lines, slow: true });
             }
@@ -363,7 +421,7 @@ async fn run_check(
             .await?;
             (r, check.clone())
         }
-        Check::NodeCheck { file } => {
+        Check::Node { file } => {
             (run_cmd(parent(file), "node", &["--check", &s(file)]).await?, check.clone())
         }
         Check::Python { file } => (
@@ -513,7 +571,7 @@ impl Hub {
             && STATES.lock().unwrap_or_else(|e| e.into_inner()).get(&session.id).is_some_and(|e| {
                 e.state.lock().unwrap_or_else(|e| e.into_inner()).calls.contains_key(id)
             });
-        if !named && !(done && known) {
+        if !(named || done && known) {
             return;
         }
         if !enabled() {

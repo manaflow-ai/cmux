@@ -197,6 +197,29 @@ const TOOLS: &[CustomizeTool] = &[
         mutation: false,
     },
     CustomizeTool {
+        name: "customize_docs",
+        verb: "docs",
+        description: "The reference for one customization surface, written from this build: a settings surface (sidebar, density, theme, composer, background) with each key's choices and default, or an extension surface (section, live-section, pane, newtab, widget, command, composer-command, composer-mention, session-info) with its contract, places and a working example to start from. Omit `surface` for the list. Reads only.",
+        argument: Some((
+            "surface",
+            false,
+            Kind::Text,
+            "One surface, like sidebar or section. Omit for the list.",
+        )),
+        note: None,
+        minutes: false,
+        mutation: false,
+    },
+    CustomizeTool {
+        name: "customize_prompts",
+        verb: "prompts",
+        description: "Copy-paste prompts for common goals (show something in the sidebar, clone an app's flow as a pane, add an animation, a New Tab page, a palette command, a composer slash command): each one a tested prompt that ends with `cmux ext dev --once --json` exit 0. Omit `name` for the list. Reads only.",
+        argument: Some(("name", false, Kind::Text, "One prompt's name. Omit for the list.")),
+        note: None,
+        minutes: false,
+        mutation: false,
+    },
+    CustomizeTool {
         name: "customize_profiles",
         verb: "profiles",
         description: "The saved profiles: name, description, how many settings and files each holds.",
@@ -217,7 +240,7 @@ const TOOLS: &[CustomizeTool] = &[
     CustomizeTool {
         name: "customize_doctor",
         verb: "doctor",
-        description: "What changes the person's customization in a way they may not expect: a pr or other code layer left on, a web-dev overlay, a layer that pins an old build, files that do not load, files or keys cmux skips, values another file or layer overrides, leftovers of a removed layer, unknown settings keys, files in the wrong folder, stray JSON or config files and environment variables that change cmux outside the usual settings, and values that hide something the default shows or no longer follow a changed default. Each finding has its file, line, what it changes and its fixes; the app shows the same list. Reads only: a fix (`cmux customize doctor fix ID off|remove|restore|follow-default`, or `recover` back to a setup that loads) is the person's to choose.",
+        description: "What changes the person's customization in a way they may not expect: a pr or other code layer left on, a web-dev overlay, a layer that pins an old build, files that do not load, files or keys cmux skips, values another file or layer overrides, leftovers of a removed layer, unknown settings keys, files in the wrong folder, and stray JSON or config files and environment variables that change cmux outside the usual settings. Warnings break something now; info findings are listed only. Each finding has its file, line, what it changes and its fixes; the app shows the same list. Reads only: a fix (`cmux customize doctor fix ID off|remove|restore`, or `recover` back to a setup that loads) is the person's to choose.",
         argument: None,
         note: None,
         minutes: false,

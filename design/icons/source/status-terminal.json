@@ -256,8 +256,8 @@
   {
    "name": "status.check",
    "meaning": "Finished, as a bare check after the total (a done line's end)",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5.75 12.5L10 16.75L18.25 7.75' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5.75 12.5L10 16.75L18.25 7.75' fill='none' stroke='currentColor' stroke-width='1.85' stroke-linecap='round' stroke-linejoin='round'/></svg>"
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5.25 12.27L9.84 16.86L18.75 7.14' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5.25 12.27L9.84 16.86L18.75 7.14' fill='none' stroke='currentColor' stroke-width='1.85' stroke-linecap='round' stroke-linejoin='round'/></svg>"
   },
   {
    "name": "status.critical",
@@ -335,6 +335,14 @@
    "replaces": [
     "info.circle"
    ]
+  },
+  {
+   "name": "status.question",
+   "meaning": "An agent's question waits for your answer (Needs your input)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/><path d='M10.36 10.571a1.64 1.64 0 1 1 2.255 1.517c-0.369 0.164 -0.615 0.492 -0.615 0.902v0.246'/><circle cx='12' cy='15.081' r='0.779' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-question' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M10.36 10.571a1.64 1.64 0 1 1 2.255 1.517c-0.369 0.164 -0.615 0.492 -0.615 0.902v0.246'/><circle cx='12' cy='15.081' r='0.861' fill='#000' stroke='none'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-question)'><circle cx='12' cy='12' r='7.375'/></g></svg>",
+   "alts": [],
+   "note": "status.info's circle with agent.question's drawn question mark at 82 %. No ring or pulse: the card says it waits in words."
   },
   {
    "name": "status.inprogress",
@@ -482,8 +490,8 @@
   {
    "name": "tab.terminal.dead",
    "meaning": "Terminal process exited, at tab size",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M13.5 13.5L18.5 18.5M18.5 13.5L13.5 18.5'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M13.5 13.5L18.5 18.5M18.5 13.5L13.5 18.5'/></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5 6L11 12L5 18M14 13.5L19 18.5M19 13.5L14 18.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5 6L11 12L5 18M14 13.5L19 18.5M19 13.5L14 18.5'/></svg>",
    "cat": null,
    "alts": [],
    "note": "tab.terminal with an x where the cursor was, as terminal.dead is to terminal. No cat on a dead process.",
@@ -494,8 +502,8 @@
    "name": "terminal.prompt",
    "meaning": "Terminal command (the prompt alone, no window box)",
    "sf": "terminal",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 8l4 4-4 4M12.5 16H18'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 8l4 4-4 4M12.5 16H18'/></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 7.5l4.5 4.5 -4.5 4.5M12.562 16.5H18.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 7.5l4.5 4.5 -4.5 4.5M12.562 16.5H18.75'/></svg>",
    "cat": null,
    "alts": [],
    "note": "terminal's >_ without the rounded window box, for rows that list commands (Session Info Background tasks). Leo 2026-10-24: \"remove the box for the terminal so it's just the >_\".",
@@ -523,8 +531,8 @@
   {
    "name": "terminal.dead",
    "meaning": "Terminal process exited",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M13.5 13.5L18.5 18.5M18.5 13.5L13.5 18.5'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M13.5 13.5L18.5 18.5M18.5 13.5L13.5 18.5'/></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5 6L11 12L5 18M14 13.5L19 18.5M19 13.5L14 18.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5 6L11 12L5 18M14 13.5L19 18.5M19 13.5L14 18.5'/></svg>",
    "alts": [
     {
      "label": "framed prompt with an x (before 2026-11-09)",
@@ -551,8 +559,8 @@
   {
    "name": "terminal.new",
    "meaning": "New terminal (sidebar shortcut / on machine)",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M16.25 12.75V19.25M13 16H19.5'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M16.25 12.75V19.25M13 16H19.5'/></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 5.5L10.5 11.5L4.5 17.5M16.25 12.25V18.75M13 15.5H19.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 5.5L10.5 11.5L4.5 17.5M16.25 12.25V18.75M13 15.5H19.5'/></svg>",
    "cat": null,
    "alts": [
     {

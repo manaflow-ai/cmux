@@ -15,12 +15,12 @@ use super::client::{
 };
 use super::contract::{
     Failure, Phase, PhaseTimes, PhasesOf, StdinLine, Step, Vmk, answer_line, connected_line,
-    detail_code, failure_line, parse_deadline, phases_line, route_line, served_line, serving_line,
-    stdin_line,
+    detail_code, failure_line, parse_deadline, phases_line, phases_line_on, route_line,
+    served_line, serving_line, stdin_line,
 };
 use super::{
-    DialArgs, DialService, ServeArgs, desktop_failure, parse, parse_key, parse_serve,
-    public_key_line, with_team_env,
+    DialArgs, DialService, ServeArgs, open_failure, parse, parse_key, parse_serve, public_key_line,
+    with_team_env,
 };
 
 fn words(text: &str) -> Vec<String> {
@@ -147,7 +147,37 @@ fn detail_codes_are_short_tokens_and_never_the_text() {
         ("relay WebSocket read failed", "closed"),
         ("relay WebSocket authentication was rejected", "rejected"),
         ("the machine has no daemon key", "daemon_key"),
+        ("SSH connection group is closed", "ssh_group_closed"),
+        ("could not start ssh: No such file or directory", "ssh_spawn"),
+        ("link transport failed: link closed during handshake", "handshake_closed"),
+        ("link is closed", "link_closed"),
+        ("link transport failed: the daemon closed the link before its welcome", "no_welcome"),
+        ("link transport failed: the daemon closed the link before link-ready", "no_link_ready"),
+        ("link transport failed: the ssh link ended (ssh exit 255)", "exit_255"),
+        ("link transport failed: the ssh link ended (ssh signal 9)", "signal_9"),
+        ("opening lane interactive on ssh://h did not finish within 15000 ms", "open_timeout"),
+        ("network changed", "network_changed"),
+        ("link protocol failed: bad frame", "link_protocol"),
+        ("noise handshake failed: decrypt", "noise"),
+        ("authorization failed: grant expired", "unauthorized"),
         ("unexpected Bearer eyJhbGciOi.secret-ticket", "other"),
+        ("reconnect deadline expired after 4 attempts", "resume_deadline"),
+        ("reconnect failed after 3 attempts: connection is closed", "closed"),
+        ("stale connection generation 2, current is 3", "stale_generation"),
+        ("connection generation changed from 2 to 3", "generation_changed"),
+        ("connection generation exhausted", "generation_exhausted"),
+        (
+            "daemon no longer has the requested logical session (it expired or was closed)",
+            "session_gone",
+        ),
+        ("too many connected clients: the daemon serves its limit of 256", "daemon_full"),
+        ("interactive replay buffer is full", "replay_full"),
+        ("bulk delivery window is full", "window_full"),
+        ("interactive outbound queue is full", "queue_full"),
+        ("interactive sequence gap: expected 6, got 9", "sequence_gap"),
+        ("frame belongs to another session", "wrong_session"),
+        ("outbound scheduler closed", "scheduler_closed"),
+        ("invalid session frame: short header", "invalid_frame"),
     ];
     let token = |code: &str| {
         (1..=24).contains(&code.len())
@@ -173,19 +203,33 @@ fn the_phases_line_is_pinned_and_never_a_route_line() {
         mux: ms(30),
         lanes: 3,
     };
-    let line = phases_line(VM, PhasesOf::Attempt(Phase::Connect), None, times, ms(760));
+    let line = phases_line_on(
+        VM,
+        PhasesOf::Attempt(Phase::Connect),
+        None,
+        times,
+        ms(760),
+        "wifi",
+        Some("relay.cmux.example"),
+    );
     assert_eq!(
         line,
         format!(
-            "carrier.phases machine={VM} phase=connect carrier=relay:0 outcome=ok ticket_ms=310 relay_ms=42 parked_ms=120 handshake_ms=250 mux_ms=30 lanes=3 ms=760\n"
+            "carrier.phases machine={VM} phase=connect carrier=relay:0 outcome=ok ticket_ms=310 relay_ms=42 parked_ms=120 handshake_ms=250 mux_ms=30 lanes=3 ms=760 net=wifi region=relay.cmux.example\n"
         )
     );
+    // No relay host (a stream on a held session) or one a reader could not split: unknown.
+    let bare = phases_line(VM, PhasesOf::Attempt(Phase::Connect), None, times, ms(760), None);
+    assert!(bare.contains(" region=unknown\n") && bare.contains(" net="), "{bare}");
+    let odd = phases_line_on(VM, PhasesOf::Stream, None, times, ms(1), "unknown", Some("a b"));
+    assert!(odd.ends_with(" net=unknown region=unknown\n"), "{odd}");
     let stream = phases_line(
         VM,
         PhasesOf::Stream,
         None,
         PhaseTimes { mux: ms(4), ..PhaseTimes::default() },
         ms(4),
+        None,
     );
     assert!(stream.contains(" phase=stream "), "{stream}");
     let failed = phases_line(
@@ -194,11 +238,12 @@ fn the_phases_line_is_pinned_and_never_a_route_line() {
         Some(Step::Parked),
         PhaseTimes::default(),
         ms(9),
+        None,
     );
     assert!(failed.contains(" phase=reconnect ") && failed.contains(" outcome=parked_timeout "));
     // cmuxterm-hq's start matrix fails a row on any cloud.connect line that
     // is not exactly a route line.
-    for line in [line, stream, failed] {
+    for line in [line, bare, stream, failed] {
         assert!(!line.contains("cloud.connect"), "{line}");
     }
 }
@@ -289,6 +334,10 @@ fn arguments_are_the_machine_and_one_deadline() {
         DialService::Desktop
     );
     assert_eq!(
+        parse(&words(&format!("dial --machine {VM} --service acpmux"))).unwrap().service,
+        DialService::Acpmux
+    );
+    assert_eq!(
         parse(&words(&format!("dial --service mux --machine {VM}"))).unwrap().service,
         DialService::Mux
     );
@@ -304,6 +353,7 @@ fn arguments_are_the_machine_and_one_deadline() {
         format!("dial --machine {VM} --host x"),
         format!("dial --machine {VM} --service ssh"),
         format!("dial --machine {VM} --service desktop --service desktop"),
+        format!("dial --machine {VM} --service acpmux --service mux"),
         format!("dial --machine {VM} --team team_0123"),
         format!("dial --machine {VM} --team team_0123456789ABCDEF0123"),
         format!("dial --machine {VM} --team user_0123456789abcdef0123"),
@@ -748,16 +798,17 @@ fn a_carrier_desktop_open_that_its_send_finds_the_session_gone_takes_a_fresh_ses
     use cmux_remote::bridge::BridgeError;
     use cmux_remote::service::ServiceError;
     let sent = BridgeError::Service(ServiceError::Client(ConnectionError::SessionUnavailable));
-    let failure = desktop_failure(sent, false);
+    let failure = open_failure(sent, false, "the desktop");
     assert!(failure.fresh_session && failure.retryable, "{}", failure.detail);
     assert_eq!(failure.step, Step::Relay);
-    let typed = desktop_failure(BridgeError::Service(ServiceError::SessionUnavailable), false);
+    let typed =
+        open_failure(BridgeError::Service(ServiceError::SessionUnavailable), false, "the desktop");
     assert!(typed.fresh_session, "{}", typed.detail);
     // A session that ended any other way is still the carrier's, and fatal.
-    let closed = desktop_failure(BridgeError::Service(ServiceError::Closed), false);
+    let closed = open_failure(BridgeError::Service(ServiceError::Closed), false, "the desktop");
     assert!(!closed.fresh_session && !closed.retryable, "{}", closed.detail);
     // The daemon's refusal is the service's.
-    let refused = desktop_failure(BridgeError::Rejected("not the owner".into()), false);
+    let refused = open_failure(BridgeError::Rejected("not the owner".into()), false, "the desktop");
     assert_eq!(refused.step, Step::Service);
     assert!(!refused.fresh_session);
 }
