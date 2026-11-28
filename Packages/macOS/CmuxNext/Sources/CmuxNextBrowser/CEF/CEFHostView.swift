@@ -441,6 +441,10 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// motion, and the page waits at the size it rests at instead of laying out at every frame's size
     /// (``CEFTabContentView/paneMotionWillRest(sizeChange:)``). True from the spring's start to its landing or first retarget.
     var pageRestHold = false
+    /// The sidebar's slide (``ContentAreaMotionHosting``) found this page at rest, with `DesignSettings.sideSlidePageHold`
+    /// on: the page keeps the size it had when the slide began and lays out once at the landing
+    /// (``holdPageForContentAreaMotion()``, ``paneMotionDidSettle()``). True from the slide's first layout to its landing.
+    var pageSlideHold = false
     /// The size the page took ahead of its pane's next layout commit, on an engine with no resize fence
     /// (`CEFTabContentView+PaneCommit`); nil otherwise. The page holds it (``heldPageSize``) until this view takes a
     /// new size (the commit showed), the change goes, or its wait lets it go.
@@ -554,6 +558,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         refreshSyncedDrag()
         // DevTools docked, a side panel or a device fit came up mid-drag: they lay out as before.
         if heldPageSize != nil, !pageCanHold { dropHold() }
+        holdPageForContentAreaMotion()
         let frames = tab?.devToolsController.frames(in: bounds)
             ?? CEFDevToolsLayout.Frames(page: bounds, devTools: .zero, line: .zero, grab: .zero)
         let devToolsHost = tab?.devToolsController.views?.host
@@ -612,6 +617,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// The pane's layout spring landed (a split's new pane grown in, a close, a zoom): the page's spring motion ends
     /// (``endPaneSpring()``) and the shown page is placed and clipped at the landed frame (`CEFPaneHost.paneMotionSettled`).
     func paneMotionDidSettle() {
+        endSlideHold()
         endPaneSpring()
         guard let tab, tab.host.hostView.superview === self else { return }
         tab.host.paneMotionSettled(tab)
@@ -646,6 +652,25 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         // moves 2 to 6, and the press detached all 9 page windows and the landing attached all 9 again.
         if motionHosting == nil { paneMotionAwaitsMove = true }
         beginPageSync(.drag)
+    }
+
+    /// The sidebar slides (its window's ``ContentAreaMotionHosting``), and every frame of it resizes this pane: with
+    /// `DesignSettings.sideSlidePageHold` on, a page in no motion of its own keeps the size it has now, top-left on its
+    /// pane and clipped, as a drag hold does, so Chromium lays out once at the landing and not in each slide frame (a
+    /// page window resize and a relayout each: nightly c6ff12463 s9-browser-w30 side_open 739 ms, 42 resizes of 9
+    /// pages). A page already holding, syncing or in a spring's rest hold is left as it is.
+    func holdPageForContentAreaMotion() {
+        guard DesignSettings.shared.sideSlidePageHold, !pageSlideHold, heldPageSize == nil, pageSyncReasons.isEmpty,
+              (window as? any ContentAreaMotionHosting)?.isContentAreaInMotion == true, startPageHold() else { return }
+        pageSlideHold = true
+    }
+
+    /// The slide landed (``paneMotionDidSettle()``): the page lays out once at its pane's final page area.
+    func endSlideHold() {
+        guard pageSlideHold else { return }
+        pageSlideHold = false
+        dropHold()
+        layoutContent()
     }
 
     /// The page keeps the size it has now; false when it cannot (not a plain page here, no size, out of a window).
@@ -694,6 +719,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         if !keepingKeyHold { pageMotionHold = nil }
         // A hide or reparent drops a spring's rest hold too: the page's next spring decides afresh.
         pageRestHold = false
+        pageSlideHold = false
         guard heldPageSize != nil else { return }
         heldPageSize = nil
         layer?.masksToBounds = false

@@ -231,6 +231,13 @@ public final class DesignSettings {
     /// call): the `CmuxNextSplitSnapshotOpen` user default (`-CmuxNextSplitSnapshotOpen YES` at launch) or
     /// `debug.motion {"kind":"splitSnapshotOpen","on":true}` turns it on.
     public var splitSnapshotOpen = UserDefaults.standard.bool(forKey: "CmuxNextSplitSnapshotOpen")
+    /// Sidebar slide page hold (goal instant-splits, prototype): while the sidebar's width animation resizes the content
+    /// area, each Chromium page keeps the size it had when the slide began (top-left on its pane, clipped, its backdrop
+    /// beside it) and lays out once at the landing, instead of taking a new size, and Chromium a relayout, in every slide
+    /// frame (nightly c6ff12463 s9-browser-w30: side_open 739 ms, frame p50 117 ms, 42 page resizes, no fence joined).
+    /// Off by default (flipping it is Leo's call): the `CmuxNextSideSlidePageHold` user default or
+    /// `debug.motion {"kind":"sideSlidePageHold","on":true}` turns it on.
+    public var sideSlidePageHold = UserDefaults.standard.bool(forKey: "CmuxNextSideSlidePageHold")
     /// `home.channelsEnabled`: the sidebar shows the Channels entry after Home (cx-frn2y); off by default.
     public var homeChannelsEnabled = false
     /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the

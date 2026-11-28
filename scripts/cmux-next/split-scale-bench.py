@@ -149,6 +149,9 @@ parser.add_argument("--gate", action="store_true", help="exit 1 when a move fail
 parser.add_argument("--app-env", action="append", default=[], metavar="NAME=VALUE",
                     help="an env var for the launched app, repeatable: an A/B of an app switch on one bench build "
                          "(CMUX_CEF_RESIZE_FENCE=0); the report's app_env lists them")
+parser.add_argument("--motion-kind", action="append", default=[], metavar="NAME=on|off",
+                    help="a DesignSettings switch set after launch through debug.motion kind, repeatable: an A/B of a "
+                         "default-off setting on one bench build (sideSlidePageHold=on); the report's motion_kind lists them")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts, _unknown = parser.parse_known_args()
@@ -158,6 +161,12 @@ for pair in opts.app_env:
     if not sep or not name.strip():
         parser.error(f"--app-env takes NAME=VALUE, not {pair!r}")
     APP_ENV[name.strip()] = value
+MOTION_KIND = {}
+for pair in opts.motion_kind:
+    name, sep, value = pair.partition("=")
+    if not sep or not name.strip() or value not in ("on", "off"):
+        parser.error(f"--motion-kind takes NAME=on or NAME=off, not {pair!r}")
+    MOTION_KIND[name.strip()] = value == "on"
 APP = os.path.realpath(opts.app.rstrip("/"))
 if opts.quick:
     opts.splits, opts.contents, opts.workspaces, opts.rounds = "1,4", "empty,browser", "1", 1
@@ -1064,6 +1073,13 @@ def main():
         if problem:  # a window off its screen or the wrong size measures nothing comparable; fail the run
             results["errors"]["placement"] = problem
             raise SystemExit(f"split-scale: {problem}: run with a 1920 x 1200 display (--vdisplay=120 makes one)")
+        for name, on in MOTION_KIND.items():
+            run.rpc("debug.motion", {"action": "kind", "name": name, "value": on})
+        if MOTION_KIND:
+            results["motion_kind"] = {"set": dict(MOTION_KIND),
+                                      "read_back": {k: v for k, v in (run.rpc("debug.motion", {"action": "read"}) or {}).items()
+                                                    if k in ("side_slide_page_hold", "split_snapshot_open")}}
+            say(f"split-scale: motion kinds {MOTION_KIND}")
         # Launch work ends before the first cell: the springs rest and the window's layers hold still.
         motion_ends(run, "the launch")
         if wait_stable(lambda: json.dumps(run.rpc("debug.layers"), sort_keys=True, default=str), "the window after launch",

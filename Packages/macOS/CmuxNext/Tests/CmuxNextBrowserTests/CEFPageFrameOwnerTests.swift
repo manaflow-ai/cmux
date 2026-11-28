@@ -185,6 +185,61 @@ import Testing
         #expect(page.frame == first.container.bounds)
     }
 
+    /// A window whose sidebar slides (``ContentAreaMotionHosting``): every frame of the slide resizes the panes beside it.
+    final class SlidingWindow: NSWindow, ContentAreaMotionHosting {
+        var isContentAreaInMotion = false
+    }
+
+    /// The sidebar's slide with `sideSlidePageHold` on: a page keeps the size it had when the slide began, top-left on its
+    /// pane and clipped, so its window takes no size in the slide's frames (each a Chromium relayout: nightly c6ff12463
+    /// s9-browser-w30 side_open 739 ms), and lays out once, at its pane's final page area, when the slide lands. Off, the
+    /// page follows its pane in every frame, as before.
+    @Test func aSidebarSlideHoldsThePageAtItsSizeAndLaysItOutOnceAtTheLanding() throws {
+        for on in [true, false] {
+            let was = DesignSettings.shared.sideSlidePageHold
+            DesignSettings.shared.sideSlidePageHold = on
+            defer { DesignSettings.shared.sideSlidePageHold = was }
+            let (runtime, root) = try Self.runtime()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let (host, first) = try Self.liveHost(runtime)
+            let window = SlidingWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            defer { window.closeAfterTest() }
+            first.container.frame = NSRect(x: 0, y: 0, width: 1000, height: 500)
+            window.contentView?.addSubview(first.container)
+            first.container.layoutSubtreeIfNeeded()
+            CFRunLoopRunInMode(.defaultMode, 0, true)
+            let page = host.hostView
+            let start = page.frame.size
+            try #require(start.width > 0 && first.container.heldPageSize == nil, "SETUP: the page has no size, or holds one (on \(on))")
+
+            // The sidebar slides open: the pane's leading edge moves 224 pt right over 6 frames.
+            window.isContentAreaInMotion = true
+            var sizes: [CGSize] = []
+            for step in 1...6 {
+                let dx = CGFloat(step) * 224 / 6
+                first.container.frame = NSRect(x: dx, y: 0, width: 1000 - dx, height: 500)
+                first.container.layoutSubtreeIfNeeded()
+                if sizes.last != page.frame.size { sizes.append(page.frame.size) }
+            }
+            if on {
+                #expect(sizes == [start], "the page took \(sizes.count) sizes in the slide (a Chromium relayout each): \(sizes)")
+                #expect(first.container.pageSlideHold && first.container.layer?.masksToBounds == true,
+                        "the held page is not clipped by its narrower pane")
+            } else {
+                #expect(sizes.count == 6, "with the hold off the page did not follow its pane in every frame: \(sizes)")
+                #expect(!first.container.pageSlideHold)
+            }
+
+            // The landing: the slide's motion ends, then the window's content hears it.
+            window.isContentAreaInMotion = false
+            first.container.notifyPaneMotionSettled()
+            first.container.layoutSubtreeIfNeeded()
+            #expect(page.frame == first.container.bounds, "the page is not at its pane's page area after the landing (on \(on)): \(page.frame)")
+            #expect(!first.container.pageSlideHold && first.container.heldPageSize == nil, "the landing left the slide's hold (on \(on))")
+        }
+    }
+
     /// A spring that starts and retargets (a second close mid-motion tells the content a new rest) is one motion: one page
     /// sync, ended once at the landing; a container that leaves its window mid-spring ends it.
     @Test func aRetargetedSpringIsOneMotionAndAContainerLeavingItsWindowEndsIt() throws {
