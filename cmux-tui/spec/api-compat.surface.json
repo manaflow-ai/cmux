@@ -495,6 +495,30 @@
         ]
       }
     },
+    "event:client-disconnected-by": {
+      "/by": {
+        "ty": "object"
+      },
+      "/by/device_name": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/by/display_name": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/by/user_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"client-disconnected-by\""
+        ]
+      }
+    },
     "event:client-list-invalidated": {
       "/event": {
         "ty": "literal",
@@ -23703,6 +23727,12 @@
       },
       "/data/*/attached/*": {
         "ty": "uint64"
+      },
+      "/data/*/capabilities": {
+        "ty": "array"
+      },
+      "/data/*/capabilities/*": {
+        "ty": "string"
       },
       "/data/*/client": {
         "ty": "uint64",
