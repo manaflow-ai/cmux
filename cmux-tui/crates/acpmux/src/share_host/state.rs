@@ -84,11 +84,25 @@ impl HubScreen {
     }
 }
 
-/// The name a hub record and a mesh host have in common: the first DNS label, lowercased (the
-/// mesh lists `pairing::machine_name`, the host label; a screen host registers the join's name or
-/// the kernel host name).
+/// The name a hub record and a mesh host have in common: the first DNS label, lowercased, each run
+/// of anything but a letter or digit one `-` (the mesh lists `pairing::machine_name`, the host
+/// label; a screen host registers the join's name, the kernel host name, or a Mac's computer
+/// name). A Mac's screen host registered as "Studio One" while the mesh lists it as `studio-one`,
+/// so the viewer read it as `no-screen-host` with its share host online and sharing (2026-11-27).
 fn host_key(name: &str) -> String {
-    name.trim().split('.').next().unwrap_or_default().to_ascii_lowercase()
+    let label = name.trim().split('.').next().unwrap_or_default().to_ascii_lowercase();
+    let mut key = String::with_capacity(label.len());
+    for c in label.chars() {
+        if c.is_alphanumeric() {
+            key.push(c);
+        } else if !key.is_empty() && !key.ends_with('-') {
+            key.push('-');
+        }
+    }
+    while key.ends_with('-') {
+        key.pop();
+    }
+    key
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
