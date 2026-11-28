@@ -342,6 +342,45 @@ def resolve(rows: list[dict], cases: list[dict], text_at=show, notes: dict | Non
     return out, missing
 
 
+# A fixture module a gallery file imports: mock data and gallery support, never product code.
+FIXTURE = re.compile(r"(^|/)(mock[^/]*|[^/]*[Ff]ixtures?[^/]*)\.tsx?$|^webviews/src/gallery/")
+IMPORT = re.compile(r"""\bfrom\s+["'](\.{1,2}/[^"']+)["']""")
+
+
+def fixture_overlays(commit: str, parent: str, path: str, text_at=show) -> list[str]:
+    """The fixture modules an overlaid gallery file imports (and theirs, fixture to fixture) that its commit changed
+    from PARENT: the overlay brings them along, or the file fails to load at the parent. 2026-11-28, run
+    46142019889: models-and-cloud-connections' dropdown (#54956) came with models.gallery.ts alone, which imports
+    chatgptDeviceError from the mockModels.ts the same commit changed, so the parent loaded 0 cases and the highlight
+    shipped with no before. Product code stays the parent's: the before is the old code drawing the new state."""
+    found: list[str] = []
+    queue = [path]
+    while queue:
+        here = queue.pop(0)
+        for spec in IMPORT.findall(text_at(commit, here) or ""):
+            base = os.path.normpath(os.path.join(os.path.dirname(here), spec))
+            for cand in (base, *(base + ext for ext in (".ts", ".tsx", "/index.ts", "/index.tsx"))):
+                text = text_at(commit, cand) if re.search(r"\.tsx?$", cand) else None
+                if text is None:
+                    continue
+                if cand not in found and cand != path and FIXTURE.search(cand) and text != text_at(parent, cand):
+                    found.append(cand)
+                    queue.append(cand)
+                break
+    return found
+
+
+def overlay_lines(rows: list[dict], parent: str, text_at=show) -> list[str]:
+    """"COMMIT PATH" per file to take from a highlight's commit into the checkout at PARENT: each overlaid gallery
+    file (resolve) and the changed fixtures it imports (fixture_overlays)."""
+    lines: list[str] = []
+    for r in rows:
+        if r.get("parent") == parent and r.get("overlay"):
+            for path in (r["overlay"], *fixture_overlays(r["commit"], parent, r["overlay"], text_at)):
+                lines.append(f"{r['commit']} {path}")
+    return list(dict.fromkeys(lines))
+
+
 def manifest(rows: list[dict], cases: list[dict], parent: str | None = None) -> tuple[list[dict], list[str]]:
     """One case per row: the dark default theme's case of its entry and variant; and the rows with none.
     With `parent`, the befores rendered at that commit: the same state there, never another one (the entry's
@@ -565,8 +604,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "heal":
         keep = set()
         if args.plan:
-            keep = {r["overlay"] for r in json.loads(args.plan.read_text())
-                    if r.get("parent") == args.parent and r.get("overlay")}
+            keep = {line.partition(" ")[2] for line in overlay_lines(json.loads(args.plan.read_text()), args.parent)}
         log = args.log.read_text(errors="replace") if args.log.exists() else ""
         for commit, path in heal(args.at, args.parent, args.head, log, keep):
             print(f"{commit} {path}")
@@ -580,8 +618,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "overlays":
         # "COMMIT PATH" per gallery file to take from the highlight's commit into the checkout at PARENT (resolve).
-        for line in dict.fromkeys(f"{r['commit']} {r['overlay']}" for r in rows
-                                  if r.get("parent") == args.parent and r.get("overlay")):
+        for line in overlay_lines(rows, args.parent):
             print(line)
         return 0
     if args.cmd == "manifest":

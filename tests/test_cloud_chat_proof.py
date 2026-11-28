@@ -252,7 +252,14 @@ class CloudChatProofTests(unittest.TestCase):
                 self.assertFalse(configs[0].parent.exists(), "The proof removes its scratch cmux.json")
             self.assertEqual(launch.call_count, 1)
             launch_args, launch_kwargs = launch.call_args
-            self.assertEqual(launch_args, (expected_launch + [str(app), "--args", "--cloud-backend", backend_name],))
+            # The app's own stdout and stderr go to the proof's scratch files, read only when it never answers.
+            launched = list(launch_args[0])
+            output = launched.index("--stdout")
+            self.assertEqual(launched[output + 2], "--stderr")
+            self.assertEqual([Path(launched[output + 1]).name, Path(launched[output + 3]).name], ["app.stdout", "app.stderr"])
+            self.assertFalse(Path(launched[output + 1]).parent.exists(), "The proof removes the app's output files")
+            del launched[output:output + 4]
+            self.assertEqual(launched, expected_launch + [str(app), "--args", "--cloud-backend", backend_name])
             self.assertEqual(launch_kwargs["stdout"], subprocess.DEVNULL)
             self.assertEqual(launch_kwargs["stderr"], subprocess.DEVNULL)
             self.assertNotIn(claude_login_cache.TOKEN_ENV, launch_kwargs["env"], "The launcher never inherits the Claude token")
