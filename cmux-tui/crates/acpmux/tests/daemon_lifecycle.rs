@@ -264,6 +264,58 @@ async fn a_login_read_with_no_end_marker_takes_no_variable_and_the_daemon_still_
 /// readiness line on fd 3. Two agents are live (one mid-turn, one that
 /// ignores SIGTERM), a client is attached and another watches. SIGTERM
 /// must still stop the daemon and every agent within 5 s.
+/// A login shell slower than `login_env::TIMEOUT` at the daemon's start (a loaded machine right
+/// after an image layer rebuild) is read again in the background with a longer limit, and its
+/// environment cached in `login-env.json`, with no agent spawn to ask for it. Before, the
+/// failed startup read waited for a spawn's check, so a machine image's bake (`rm -f
+/// login-env.json; systemctl --user restart acpmux.service`, then wait for the file) failed:
+/// roll 46173290720, "acpmux did not read the login shell after its restart".
+#[tokio::test]
+async fn a_login_read_slower_than_its_limit_at_start_is_cached_with_no_spawn() {
+    let dir = scratch("slow");
+    // No cache: deleted before the restart, as the bake does.
+    assert!(!dir.join("login-env.json").exists());
+    // Every run takes 5 s: past the 3 s startup limit, inside the first background one.
+    let shell = dir.join("slowsh");
+    write_executable(
+        &shell,
+        "#!/bin/sh\nsleep 5\nOPENAI_API_KEY=amx-test-placeholder\nexport OPENAI_API_KEY\nfor a; do last=$a; done\neval \"$last\"\n",
+    );
+    let socket = dir.join("s.sock");
+    let mut child = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[])
+        .args(["daemon", "run", "--memory", "--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_LOGIN_ENV", "1")
+        .env("SHELL", &shell)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let cache = dir.join("login-env.json");
+    let deadline = Instant::now() + Duration::from_secs(40);
+    let text = loop {
+        if let Ok(text) = std::fs::read_to_string(&cache)
+            && !text.is_empty()
+        {
+            break text;
+        }
+        if let Some(code) = child.try_wait().unwrap() {
+            panic!("the daemon exited ({code}) before caching the login environment");
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no login-env.json 40 s after a start whose first login read passed its limit"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    assert!(text.contains("OPENAI_API_KEY"), "the login read's names were not cached: {text}");
+    assert!(!text.contains("amx-test-placeholder"), "a secret value was cached: {text}");
+    end(&mut child);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[tokio::test]
 async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
     use std::os::fd::FromRawFd;

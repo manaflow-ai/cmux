@@ -47,6 +47,10 @@ pub use watch::start as watch_startup_files;
 
 /// The hard limit for one login shell run.
 pub const TIMEOUT: Duration = Duration::from_secs(3);
+/// The limits of the background reads after a read slower than `TIMEOUT` (`settle`): a shell
+/// that is slow once (a loaded machine, a cold disk, a first `compinit`) still answers, and its
+/// environment is cached, with no agent spawn to ask for it. Nothing waits on these reads.
+const SETTLE_LIMITS: [Duration; 2] = [Duration::from_secs(10), Duration::from_secs(30)];
 /// How often an agent spawn may stat the startup files for a change.
 const RECHECK: Duration = Duration::from_secs(10);
 /// A cache older than this is refreshed in the background at start: the
@@ -226,13 +230,39 @@ const MAX_ROUNDS: usize = 2;
 /// result never lags an edit. Returns true when the children's environment
 /// changed.
 pub async fn import() -> bool {
+    import_within(TIMEOUT).await
+}
+
+/// After a read that failed (`outcome` `Failed`), read again in the background with the longer
+/// `SETTLE_LIMITS`, until one answers. Free when the last read did not fail. Never awaited by a
+/// spawn: the startup read and a refresh run it after their own bounded read. Before, a failed
+/// read was retried only by a later spawn's check (`refresh_if_changed`), so a daemon no agent
+/// started on (a machine image's bake, an idle machine after a restart) kept no login
+/// environment and no `login-env.json`. Returns true when the children's environment changed.
+pub async fn settle() -> bool {
+    let mut changed = false;
+    for limit in SETTLE_LIMITS {
+        if outcome() != Outcome::Failed {
+            break;
+        }
+        tracing::info!(
+            limit_s = limit.as_secs(),
+            "login shell env: the last read failed; reading it again in the background"
+        );
+        changed |= import_within(limit).await;
+    }
+    changed
+}
+
+/// `import`, each shell run bounded by `limit`.
+async fn import_within(limit: Duration) -> bool {
     let _one = IMPORT.lock().await;
     let mut changed = false;
     for round in 1..=MAX_ROUNDS {
         // The fingerprint of the files this read sees, taken before it.
         let read = fingerprint();
         STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = Some(read.clone());
-        changed |= import_once(&read).await;
+        changed |= import_once(&read, limit).await;
         if outcome() == Outcome::Failed || fingerprint() == read {
             break;
         }
@@ -250,7 +280,8 @@ pub async fn import() -> bool {
     }
     if outcome() == Outcome::Failed {
         // A read that failed (a shell slower than TIMEOUT, at the daemon's start too) settled
-        // nothing: the next spawn's check reads again (`refresh`, at most every RECHECK), as it
+        // nothing: `settle` reads again in the background, and the next spawn's check reads
+        // again (`refresh`, at most every RECHECK), as it
         // would after an edit. Kept, the fingerprint made every later check see "no change", so
         // every agent of this daemon started without the login env until an edit or a restart.
         STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = None;
@@ -454,7 +485,7 @@ async fn wait_until(pending: impl Fn() -> bool, deadline: tokio::time::Instant) 
 
 /// One login shell run; its cache is labelled `read`, the fingerprint
 /// taken before the run.
-async fn import_once(read: &str) -> bool {
+async fn import_once(read: &str, limit: Duration) -> bool {
     let shell =
         std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into());
     let started = Instant::now();
@@ -468,7 +499,7 @@ async fn import_once(read: &str) -> bool {
     // Names only, read with the stamp: the values still come from the shell.
     let delivered = delivered_names();
     *DELIVERED.write().unwrap_or_else(|e| e.into_inner()) = delivered;
-    let output = run_shell(&shell, &marker).await;
+    let output = run_shell(&shell, &marker, limit).await;
     let elapsed = started.elapsed();
     let Some(text) = output else {
         let mut st = STATE.write().unwrap_or_else(|e| e.into_inner());
@@ -479,7 +510,7 @@ async fn import_once(read: &str) -> bool {
             ms = elapsed.as_millis() as u64,
             cache = cached,
             "login shell env: no result within {}s; using {}",
-            TIMEOUT.as_secs(),
+            limit.as_secs(),
             if cached { "the cached copy" } else { "the daemon's own environment" }
         );
         return false;
@@ -562,8 +593,10 @@ fn refresh(throttled: bool) {
     STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = Some(now);
     rt.spawn(async {
         tracing::info!("shell startup files changed; reading the login environment again");
-        // A failed read clears the fingerprint itself (`import`): a later spawn or edit tries again.
+        // A failed read clears the fingerprint itself (`import`) and reads again with longer
+        // limits (`settle`); a later spawn or edit tries again after those.
         import().await;
+        settle().await;
         let failed = outcome() == Outcome::Failed;
         REFRESHING.store(false, Ordering::SeqCst);
         if !failed {
@@ -575,9 +608,9 @@ fn refresh(throttled: bool) {
 
 /// `$SHELL -l -i -c` printing the marker and `env -0`: no terminal, stdin
 /// from /dev/null, in its own process group (killed with everything it
-/// started when `TIMEOUT` passes). The parent Claude session's own keys are
+/// started when `limit` passes: `TIMEOUT`, or a `SETTLE_LIMITS` bound). The parent Claude session's own keys are
 /// not passed in, so what comes back is the person's setup.
-async fn run_shell(shell: &str, marker: &str) -> Option<String> {
+async fn run_shell(shell: &str, marker: &str, limit: Duration) -> Option<String> {
     let mut cmd = tokio::process::Command::new(shell);
     // The environment between two markers: output with both is a whole read; anything else (a
     // startup file that replaced the shell first, a shell cut off mid-print) is a failed one.
@@ -628,7 +661,7 @@ async fn run_shell(shell: &str, marker: &str) -> Option<String> {
         }
     };
     let pid = child.id();
-    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    let deadline = tokio::time::Instant::now() + limit;
     let out = match child.stdout.take() {
         Some(stdout) => read_env_block(stdout, marker, deadline).await,
         None => None,
