@@ -348,7 +348,7 @@ const oneRulePlay =
   (view: "inline" | "strip"): Play =>
   async ({ waitFor, document }) => {
     const rows = () => [...document.querySelectorAll<HTMLElement>("[data-gallery-row]")];
-    await waitFor(() => rows().length === 3 && rows().every((row) => row.querySelector("img.cv-user__image")));
+    await waitFor(() => rows().length === 3 && rows().every((row) => row.querySelector(SENT_IMAGE)));
     for (const row of rows()) {
       const images = [...row.querySelectorAll(".cv-user__image, .cv-user__image-placeholder")];
       const inBubble = images.filter((node) => node.closest(".cv-user__bubble")).length;
