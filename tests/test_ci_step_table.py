@@ -176,6 +176,29 @@ class NightlyGateTest(unittest.TestCase):
         self.assertIn("nightly gate: runs only next-state-roots, rust-notices", why["pr-pipeline.yml"])
         self.assertEqual((jobs, only), (["linux"], ["next-state-roots", "rust-notices"]))
 
+    def test_a_webviews_only_landing_head_runs_the_webviews_checks(self) -> None:
+        # cmux#57668's files (2026-11-28 00:10Z): a webviews-only landing head on the affected tier. Before, it routed
+        # only persisted-formats, next-state-roots and webviews-typecheck; ci-web's react-apps-check (the only other
+        # place check:* ran) skips a cheap head, so its new raw buttons first reddened the post-merge batch.
+        files = ["webviews/src/agent-session/acpmux/ManagedBannerDesigns.gallery.tsx",
+                 "webviews/src/agent-session/acpmux/ManagedBannerDesigns.tsx",
+                 "webviews/src/agent-session/acpmux/managedBanner.css"]
+        start, why, (jobs, only) = self.landing(files)
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertEqual(jobs, ["linux"])
+        self.assertIn("webviews-checks", only)
+        self.assertIn("webviews-checks", why["pr-pipeline.yml"])
+        # A string catalog alone (check:catalog-keys) and the protocol spec route it too; a web/ page does not.
+        for other in (["Packages/macOS/CmuxNext/Sources/CmuxNext/Resources/Localizable.xcstrings"],
+                      ["cmux-tui/crates/acpmux/spec/protocol.md"]):
+            with self.subTest(other=other):
+                self.assertIn("webviews-checks", self.landing(other)[2][1])
+        self.assertNotIn("webviews-checks", self.landing(["web/app/page.tsx"])[2][1])
+        step = ci_steps.load(ci_steps.TABLE).steps["webviews-checks"]
+        self.assertIn("--base", step.run)
+        self.assertIn("--skip typecheck", step.run)
+        self.assertEqual(step.tier, "push", "a full-tier head's ci-web react-apps-check runs them; no second run")
+
     def test_a_landing_head_off_the_nightly_steps_starts_nothing(self) -> None:
         start, _, (jobs, only) = self.landing(["web/app/page.css"])
         self.assertNotIn("pr-pipeline.yml", start)
