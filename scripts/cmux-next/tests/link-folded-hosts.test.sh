@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # link-folded-hosts.sh: a cmux that runs the browser host and the app host by
-# argv[0] gets bin/cmux-browser-host and bin/cmux-app-host as links to cmux,
+# argv[0] gets bin/cmux-browser-host and bin/cmux-app-host (and every name its
+# --list prints) as links to cmux,
 # replacing placed copies; a cmux from before the fold keeps the copies.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -48,4 +49,34 @@ for name in cmux-browser-host cmux-app-host; do
   [[ -f "$TMP/old/$name" && ! -L "$TMP/old/$name" ]] || fail "a cmux from before the fold lost its $name copy"
 done
 grep -q "keeping their own binaries" <<<"$out" || fail "no note for a cmux from before the fold: $out"
+
+# A cmux that prints its list (CMUX_FOLDED_HOSTS_PROBE=1, cmux_tui::main FOLDED_HOSTS)
+# folds every name on it; the default links them all.
+mkdir -p "$TMP/listed"
+cat > "$TMP/listed/cmux" <<'SH'
+#!/bin/sh
+if [ "$CMUX_FOLDED_HOSTS_PROBE" = 1 ]; then
+  case "$(basename "$0")" in
+    cmux-browser-host|cmux-app-host|cmux-agent-screen-detection|cmux-cloud)
+      echo "folded-hosts: cmux-browser-host cmux-app-host cmux-agent-screen-detection cmux-cloud"; exit 0 ;;
+  esac
+fi
+echo "cmux 1.1.0 (def)"
+SH
+chmod 755 "$TMP/listed/cmux"
+listed=(cmux-browser-host cmux-app-host cmux-agent-screen-detection cmux-cloud)
+for name in "${listed[@]}"; do printf 'copy' > "$TMP/listed/$name"; done
+[[ "$("$SCRIPT" --list "$TMP/listed/cmux" | tr '\n' ' ')" == "${listed[*]} " ]] || fail "--list: $("$SCRIPT" --list "$TMP/listed/cmux")"
+[[ "$("$SCRIPT" --list "$TMP/folded/cmux" | tr '\n' ' ')" == "cmux-browser-host cmux-app-host " ]] || fail "--list of the first fold"
+[[ -z "$("$SCRIPT" --list "$TMP/old/cmux")" ]] || fail "--list named a host for a cmux from before the fold"
+"$SCRIPT" --probe "$TMP/listed/cmux" || fail "--probe refused a cmux with a list"
+out=$("$SCRIPT" "$TMP/listed")
+for name in "${listed[@]}"; do
+  [[ "$(readlink "$TMP/listed/$name")" == cmux ]] || fail "$name is not a link to cmux"
+  grep -qx "folded $name" <<<"$out" || fail "no 'folded $name' in: $out"
+done
+# The first fold carries only the two hosts: the detector stays a copy there.
+printf 'copy' > "$TMP/folded/cmux-agent-screen-detection"
+if "$SCRIPT" "$TMP/folded" cmux-agent-screen-detection 2>/dev/null; then fail "linked a program the first fold does not run"; fi
+[[ -f "$TMP/folded/cmux-agent-screen-detection" && ! -L "$TMP/folded/cmux-agent-screen-detection" ]] || fail "the refused name was replaced"
 echo "link-folded-hosts: ok"
