@@ -304,7 +304,23 @@ pub(crate) const LONE_DOCK_NEIGHBOR_WIDTH: f32 = 1.0;
 /// drop) inserts through [`Screen::insert_layout_column_beside`], which calls this.
 fn even_lone_dock_split(dock: &mut LayoutColumn, neighbor: &mut LayoutColumn) {
     dock.width = LONE_DOCK_WIDTH;
-    neighbor.width = LONE_DOCK_NEIGHBOR_WIDTH;
+    neighbor.width = lone_dock_neighbor_width(dock.dock);
+}
+
+/// The width the column beside a lone pinned dock takes ([`even_lone_dock_split`]).
+/// Beside a docked dock a column width is a share of the strip right of the
+/// dock, so [`LONE_DOCK_NEIGHBOR_WIDTH`] fills it. An overlay dock floats over
+/// a strip as wide as the whole viewport (the frontend's
+/// `DockStripGeometry.place` insets its columns by the dock instead), so there
+/// 1.0 is a full-viewport column starting at the dock's inner edge: half of it
+/// sat past the window's right edge and a page opened from Home never showed
+/// (goal screen-share-interaction-paths). The rest of the viewport is
+/// `1 - LONE_DOCK_WIDTH` of it.
+pub(crate) fn lone_dock_neighbor_width(dock: Option<ColumnDock>) -> f32 {
+    match dock.map(|flag| flag.mode) {
+        Some(DockMode::Overlay) => 1.0 - LONE_DOCK_WIDTH,
+        _ => LONE_DOCK_NEIGHBOR_WIDTH,
+    }
 }
 
 /// Restore the docked invariants after a structural change removed or

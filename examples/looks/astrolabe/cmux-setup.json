@@ -2,8 +2,8 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/astrolabe-look",
   "name": "Astrolabe",
-  "tagline": "A calm, ceremonial look for agent chats: deep navy, gold hairline frames, airy serif replies and near-square cards like plates in a ledger.",
-  "description": "A whole cmux look built only from public surfaces: theme files for color (Astrolabe, dark, the default; Astrolabe Dawn), settings for an airy serif chat and Markdown viewer and a sectioned sidebar, a stylesheet of cmux.agentPane.style/1 tokens that frames the prompt and cards in gold hairlines with small corners, and a customize view for a titled hover card and quiet sidebar rows. Remove it and everything you had comes back.",
+  "tagline": "Deep navy and gold, calm and formal.",
+  "description": "Deep navy with thin gold frames around prompts and cards, and an airy serif for replies. Includes a light parchment version. Remove it and everything you had comes back.",
   "version": "0.1.0",
   "license": "MIT",
 

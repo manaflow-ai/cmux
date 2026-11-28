@@ -93,6 +93,11 @@ pub const TRANSFER_LIVE: &str = "transfer-live-v1";
 /// A chat move whose history follows the chat as a session pack (`hub/transfer_history.rs`).
 pub const TRANSFER_HISTORY_LATER: &str = "transfer-history-later-v1";
 
+/// A `session/prompt` with `_meta.acpmux.waitForLink: true` for a chat on a peer that is down hears
+/// `_acpmux/prompt_held` at once when it is held or kept for the link instead of refused
+/// (`server/peer_forward.rs` `wait_for_prompt_link`). Older daemons ignore the field.
+pub const PROMPT_LINK_WAIT: &str = "prompt-link-wait-v1";
+
 /// A move's receive here takes `composers.json`, each surface's unsent text and the queue's
 /// labels (`hub/composers.rs`), a guarded one too (`hub/transfer_guard.rs` `bundle_path_kind`).
 pub const TRANSFER_COMPOSERS: &str = "transfer-composers-v1";
@@ -347,6 +352,7 @@ pub const CAPABILITIES: &[Capability] = &[
     // (`server/sign_in_follow.rs`). A literal id, which the app's reference check reads.
     Capability { id: "machine-signed-in-v1", wire: &[method::MUX_MACHINE_SIGNED_IN] },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
+    Capability { id: PROMPT_LINK_WAIT, wire: &[method::SESSION_PROMPT, method::MUX_PROMPT_HELD] },
     // Agent byte channels (`server/channels.rs`): a peer daemon opens one only on a peer that
     // lists this id, so an older peer is never sent a `connect` it would drop.
     Capability {
@@ -570,6 +576,16 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability {
         id: "team-directory-v1",
         wire: &[method::MUX_TEAM_NAVIGATOR, method::MUX_TEAM_PICK, method::MUX_TEAM_SESSION_INFO],
+    },
+    // RFD 0170 phase 4: team and person customization and the `Open in cmux` handoff, under the
+    // same team-messaging gate (`server/team_settings.rs`).
+    Capability {
+        id: "team-settings-v1",
+        wire: &[
+            method::MUX_TEAM_CUSTOMIZATION,
+            method::MUX_TEAM_CUSTOMIZE,
+            method::MUX_TEAM_HANDOFF,
+        ],
     },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },

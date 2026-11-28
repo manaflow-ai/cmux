@@ -139,9 +139,10 @@ class ChannelOnlyThinTest(unittest.TestCase):
         self.assertEqual(PROFILE_REF.findall(linux["target_set"]), [("shipped", "linux_target_set")])
         self.assertEqual(profiles()["shipped"]["linux_target_set"], "linux")
         self.assertEqual(resolve(linux["lto"]), "fat")
-        for name in ("publish", "darwin-fallback-plan"):
-            with self.subTest(job=name):
-                self.assertIn("build-linux", jobs[name]["needs"])
+        self.assertIn("build-linux", jobs["publish"]["needs"])
+        # FALLBACK_STARTS_WHEN_BUILD_FAILS: the macOS fallback plan starts when build fails, not
+        # after build-linux (a running Linux leg counts as not failed).
+        self.assertNotIn("build-linux", jobs["darwin-fallback-plan"]["needs"])
 
     def test_only_the_early_channel_reads_thin_artifacts(self):
         readers = []

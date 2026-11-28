@@ -24,10 +24,19 @@ nonisolated extension CloudHomeSource: HomeMessageRequestSource {
     }
 
     /// A listed request as Home shows it; a row without an inviter name or a conversation id is dropped.
+    /// The Rust rules decide (`cloud.source_message_request`, cmux-home-rules `cloud/source.rs`).
     static func request(_ cloud: CloudMessageRequest) -> HomeMessageRequest? {
-        guard !cloud.conversation.isEmpty, !cloud.inviter.isEmpty, !cloud.inviter.isHomeInternalID else { return nil }
-        return HomeMessageRequest(conversation: ConversationID(cloud.conversation), inviter: cloud.inviter, isGroup: cloud.isGroup,
-                                  title: cloud.title.flatMap { $0.isHomeInternalID ? nil : $0 }, preview: cloud.preview,
-                                  createdAt: cloud.createdAt, trusted: cloud.trusted)
+        let row = RequestWire(conversation: cloud.conversation, inviter: cloud.inviter, isGroup: cloud.isGroup, title: cloud.title,
+                              preview: cloud.preview, createdAt: cloud.createdAt, trusted: cloud.trusted)
+        let reply: SourceMessageRequestReply? = try? HomeRules.call("cloud.source_message_request", SourceMessageRequest(request: row))
+        return reply?.request?.request
     }
+}
+
+private nonisolated struct SourceMessageRequest: Encodable {
+    var request: RequestWire
+}
+
+private nonisolated struct SourceMessageRequestReply: Decodable {
+    var request: RequestWire?
 }

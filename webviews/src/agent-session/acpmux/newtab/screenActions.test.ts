@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { setCloudMachinesForTest } from "../cloudMachines";
 import { newTabScreenActions } from "./screenActions";
 
 test("fix-from-link selects the created chat while New Tab stays mounted", async () => {
@@ -189,4 +190,56 @@ test("the hold is asked again when the chat starts after the folder question, an
   expect(answers).toBe(2);
   expect(calls).not.toContain("chat.new");
   expect(calls).not.toContain("chat.send");
+});
+
+test("a direct Cloud peer send requires proof it belongs to the selected environment", async () => {
+  const env = "env_0123456789abcdef01234567";
+  const calls: Array<[string, unknown]> = [];
+  let matches = false;
+  let registry: string | undefined = "registry-a";
+  let replacePeer = false;
+  setCloudMachinesForTest([
+    { id: "vm_a", name: "Renamed", stage: "ready", cloudRegistryId: "registry-a" },
+    { id: "vm_b", name: "Builder", stage: "ready", cloudRegistryId: "registry-b" },
+  ]);
+  try {
+    const actions = newTabScreenActions({
+      callNative: async (method, params) => {
+        calls.push([method, params]);
+        if (method === "cloud.setup.state") {
+          if (replacePeer) registry = "registry-b";
+          return { environmentMatches: matches };
+        }
+        return "chat";
+      },
+      leave: () => {},
+      selectSession: () => {},
+      showAllChats: () => {},
+      runShell: () => {},
+      peerCloudRegistry: () => registry,
+    });
+    const send = () =>
+      Promise.resolve(
+        actions.onAsk("claude", "prompt", "/work", undefined, false, [], {
+          peer: "Builder",
+          cloudEnvironment: env,
+        }),
+      );
+    await expect(send()).rejects.toThrow();
+    expect(calls).toEqual([["cloud.setup.state", { machine: "vm_a", environment: env }]]);
+    matches = true;
+    await send();
+    expect(calls.slice(1).map(([method]) => method)).toEqual(["cloud.setup.state", "chat.new", "chat.send"]);
+    expect(calls[2]?.[1]).toEqual({ harness: "claude", peer: "Builder", cwd: "/work", cloudRegistryId: "registry-a" });
+    calls.length = 0;
+    replacePeer = true;
+    await expect(send()).rejects.toThrow();
+    expect(calls.map(([method]) => method)).toEqual(["cloud.setup.state"]);
+    calls.length = 0;
+    registry = undefined;
+    await expect(send()).rejects.toThrow();
+    expect(calls).toEqual([]);
+  } finally {
+    setCloudMachinesForTest([]);
+  }
 });

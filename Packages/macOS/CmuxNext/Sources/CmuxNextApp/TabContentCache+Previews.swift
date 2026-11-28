@@ -115,7 +115,7 @@ extension TabContentCache {
     /// A browser page that is not incognito.
     func keepsFrameOnDisk(_ key: String) -> Bool {
         guard let page = browsers[key]?.tab, page is CEFTab || page is WebKitTab else { return false }
-        return !cef.stores.offTheRecord.isOffTheRecord(page.profileID) && !browserTabs.isIncognitoTab(key)
+        return !cef.stores.offTheRecord.isOffTheRecord(page.profileID) && browserTabs.privacy.permitsPersistence(for: key, incognito: browserTabs.isIncognitoTab(key))
     }
     /// Keeps a terminal's or chat's card picture on disk (`cardPictures`), never an incognito window's tab's.
     func keepCardPicture(_ image: CGImage, for key: String) { if !browserTabs.isIncognitoTab(key) { cardPictures?.save(image, for: key) } }

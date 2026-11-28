@@ -17,6 +17,13 @@ export function railEdgeReserve(side: RailSide, chatMinimap: boolean, textInset:
   return width ? width + MINIMAP_EDGE : 0;
 }
 
+/// The rail's spacing steps, in px: the 4, 8, 12 and 16 of the `--cmux-space-1` to `--cmux-space-4` scale
+/// (conversation/renderBase.ts). They were read computed off the scroller, but no rule or inline write
+/// declares those names in the chat page (only a rendered page's frame, renderBase.ts), so the read always
+/// gave these fallbacks; it also restyled whatever was dirty first, at a chat page's start every element
+/// of its drawn copy (chatSnapshot/paint.ts) too.
+const RAIL_SPACE = { 1: 4, 2: 8, 3: 12, 4: 16 } as const;
+
 /// The pane edge owns x; the actual remaining text gutter only controls compression and occlusion.
 /// Reuses VirtualTranscript's resize measurements and Session Info's layout event. No observer or
 /// frame loop, and no DOM work on a streamed token. The scoped listener is removed on unmount.
@@ -51,9 +58,6 @@ export function useRailPlacement(
     if (!node) return undefined;
     const shell = node.closest<HTMLElement>(".acpmux-shell");
     const update = () => {
-      const style = node.ownerDocument.defaultView?.getComputedStyle(node);
-      const token = (name: string, fallback: number) =>
-        Number.parseFloat(style?.getPropertyValue(name) ?? "") || fallback;
       // The column's own inset, unless Session Info pushes: the chat keeps its width and the column,
       // pinned at its whole-pane width, centers in what the panel leaves (session-info/sessionInfo.css
       // --acpmux-session-info-room and --acpmux-session-info-column, set on the shell before its
@@ -78,10 +82,10 @@ export function useRailPlacement(
           paneWidth,
           inset - reserve,
           {
-            min: gutterArm === "tight" ? token("--cmux-space-1", 4) : token("--cmux-space-2", 8),
-            max: token("--cmux-space-4", 16),
-            compact: token("--cmux-space-3", 12),
-            ...(gutterArm === "tight" ? { narrowest: token("--cmux-space-3", 12) } : {}),
+            min: gutterArm === "tight" ? RAIL_SPACE[1] : RAIL_SPACE[2],
+            max: RAIL_SPACE[4],
+            compact: RAIL_SPACE[3],
+            ...(gutterArm === "tight" ? { narrowest: RAIL_SPACE[3] } : {}),
           },
           restTickArm === "inset-first",
         ),

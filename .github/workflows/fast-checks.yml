@@ -62,9 +62,15 @@ jobs:
     # on a size that starts jobs, from the overflow probe's per-size health), never a size named here: one stalled
     # size moves the pool to the next, which the overflow switch (it trips only when every size stalls) never did.
     # tests/test_ci_runner_set.py fails any job whose label comes only from literals.
+    # A webviews or playwright run whose broker re-dispatch names the 8 vCPU label takes the 32 vCPU one instead:
+    # run-webviews-tests.sh runs as many files at once as the box has cores, so a full run (3,815 files) held an
+    # 8 vCPU runner 61-93 min (jobs 140530406665, 140527835408, 140524513080, 2026-11-27 13Z), 29% of the
+    # workflow's job-minutes from 3 of 124 jobs. The broker records the label it tried, so a stalled 32 vCPU
+    # label moves on to the next size, not back here (HQ lane-gh-broker ci_reroute_label). Leo: "de facto, im
+    # asking for 99% fewer minutes of ci time, period."
     # The fork pull request branch is never taken (this workflow is dispatch-only); it is the shape
     # tests/test_ci_repo_variable_defaults.py asks of every RUNNER_POOLS read, which has no literal fallback.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-32vcpu-ubuntu-2404' }}  # frozen-label: RUNNER_POOLS.linux, ephemeral (#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || (inputs.setup == 'webviews' || inputs.setup == 'playwright') && inputs.runner == 'blacksmith-8vcpu-ubuntu-2404' && 'blacksmith-32vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-32vcpu-ubuntu-2404' }}  # frozen-label: RUNNER_POOLS.linux, ephemeral (#54437)
     timeout-minutes: 195
     defaults:
       run:
@@ -365,25 +371,34 @@ jobs:
             --store /home/runner/.cache/fast-checks/swiftpm-artifacts \
             --command "$FAST_CHECKS_COMMAND" --directory "$FAST_CHECKS_DIRECTORY"
 
-      # A Python suite named by file runs under pytest (`cmux-ci test -- python3 -m pytest tests/test_x.py -q`),
-      # and a Linux runner image does not always carry it: on 2026-11-22 run 45060228776 spent a 104 s job to
-      # print "/usr/bin/python3: No module named pytest", with no test run and nothing judged. hq's copy of this
-      # workflow has provided it since hq#12810; this copy never did. A runner without pytest gets the pinned one
-      # here, only when the command names it, in a venv that sees the system packages and comes first on PATH, so
-      # the command's own `python3` is the venv's.
-      - name: Provide pytest
-        if: runner.os == 'Linux' && contains(inputs.command, 'pytest')
+      # Python lane tests include raster acceptance checks. Reuse the Pillow pin from
+      # cmux-next checks, and install only dependencies needed by this command.
+      - name: Provide Python test dependencies
+        if: runner.os == 'Linux' && (contains(inputs.command, 'pytest') || contains(inputs.command, 'run_python_test_lane.py') || contains(inputs.command, 'new_tab_split_acceptance.py'))
         timeout-minutes: 3
+        env:
+          PYTHON_CHECK_COMMAND: ${{ inputs.command }}
         run: |
           set -euo pipefail
-          if ! python3 -c 'import pytest' 2>/dev/null; then
-            venv="$RUNNER_TEMP/pytest-venv"
+          packages=()
+          if [[ "$PYTHON_CHECK_COMMAND" == *pytest* ]] && ! python3 -c 'import pytest' 2>/dev/null; then
+            packages+=('pytest==8.3.5')
+          fi
+          if [[ "$PYTHON_CHECK_COMMAND" == *run_python_test_lane.py* || "$PYTHON_CHECK_COMMAND" == *new_tab_split_acceptance.py* ]] && ! python3 -c 'from PIL import Image, ImageChops' 2>/dev/null; then
+            packages+=('Pillow==11.3.0')
+          fi
+          if (( ${#packages[@]} )); then
+            venv="$RUNNER_TEMP/python-checks-venv"
             python3 -m venv --system-site-packages "$venv"
-            "$venv/bin/python" -m pip install --disable-pip-version-check -q 'pytest==8.3.5'
+            "$venv/bin/python" -m pip install --disable-pip-version-check -q "${packages[@]}"
             echo "$venv/bin" >> "$GITHUB_PATH"
-            "$venv/bin/python" -m pytest --version
-          else
+            export PATH="$venv/bin:$PATH"
+          fi
+          if [[ "$PYTHON_CHECK_COMMAND" == *pytest* ]]; then
             python3 -m pytest --version
+          fi
+          if [[ "$PYTHON_CHECK_COMMAND" == *run_python_test_lane.py* || "$PYTHON_CHECK_COMMAND" == *new_tab_split_acceptance.py* ]]; then
+            python3 -c 'from PIL import Image, ImageChops; print("Pillow", Image.__version__)'
           fi
 
       # FAST_CHECKS_OUT is an empty directory the command may write files to (screenshots,

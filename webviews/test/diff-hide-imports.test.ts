@@ -3,7 +3,11 @@
 // and code stays whole: every kept hunk is the hunk git printed, so its Stage and Revert still
 // match the host's own diff of the file.
 import { expect, test } from "bun:test";
-import { importSyntaxFor, isImportOnlyHunk, withoutImportOnlyHunks } from "../src/diff-viewer/importHunks";
+import { importWithDom } from "./support/importWithDom";
+
+const { importSyntaxFor, isImportOnlyHunk, withoutImportOnlyHunks } = await importWithDom(
+  () => import("../src/diff-viewer/importHunks"),
+);
 
 const file = (path: string, ...hunks: string[]) =>
   `diff --git a/${path} b/${path}\nindex 1111111..2222222 100644\n--- a/${path}\n+++ b/${path}\n${hunks.join("")}`;

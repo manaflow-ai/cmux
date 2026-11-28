@@ -191,7 +191,7 @@ fn a_memory_line_held_only_by_a_compactor_start_stall_posts_no_notice() {
         fatal: None,
         closed: false,
     };
-    assert_eq!(optchat_chief::brain::stuck_notice(&status), None);
+    assert_eq!(optchat_chief::brain::stuck_notice(&status, "claude"), None);
 }
 
 /// A start refused for a reason the person must fix is not a stall: it still shows at once.
