@@ -1,0 +1,172 @@
+diff --git a/scripts/glaeda-disk b/scripts/glaeda-disk
+--- a/scripts/glaeda-disk
++++ b/scripts/glaeda-disk
+@@ -1100,7 +1100,8 @@ PRESSURE_NEWEST_SEED = False
+ PRESSURE_SIM_RUNTIMES = False
+ BUILD_CACHE_FAMILY_NAMES = ("cmux-pr-builds", "cmux-seeds", "cmux-kept-build", "ci-derived-data",
+                             "ci-ios-derived-data", "cmux-ci-admission", "cmux-ci-runner-admission",
+-                            "cmux-spm-scratch", "cmux-fast-tier-seed-root", "cmux-next-ci-generated",
++                            "cmux-spm-scratch", "cmux-fast-tier-seed-root", "cmux-fast-tier-seed-root-2",
++                            "cmux-next-ci-generated",
+                             "runner-checkout-build", "xcode-derived-data")
+ 
+ 
+@@ -1434,10 +1435,11 @@ def fleet_families(ci: Path | None = None) -> list[Family]:
+                            platform="macos"))
+     if fams:  # root 1's store is the mini's, and the only one that holds SwiftPM scratch (cmux mini_store)
+         fams.append(spm_scratch_family(fleet_stores(ci)[0]))
+-    packages = CMUX_SEED_ROOT / "cmux/Packages"
+-    if (packages.is_dir() and not CMUX_SEED_ROOT.is_symlink()  # a fast-tier job used the seed root here
+-            and (CMUX_SEED_ROOT / SEED_ROOT_MARKER).is_file()):
+-        fams.append(seed_root_family(packages))
++    for seed_root, fid in ((CMUX_SEED_ROOT, SEED_ROOT_FAMILY), (CMUX_SECOND_SEED_ROOT, SECOND_SEED_ROOT_FAMILY)):
++        packages = seed_root / "cmux/Packages"
++        if (packages.is_dir() and not seed_root.is_symlink()  # a fast-tier job used the seed root here
++                and (seed_root / SEED_ROOT_MARKER).is_file()):
++            fams.append(seed_root_family(packages, fid))
+     return fams
+ 
+ 
+@@ -1711,16 +1713,22 @@ def remove_spm_scratch(path: Path) -> bool:
+ # the builds go, only under that lock; the mirrored source beside them is small.
+ CMUX_SEED_ROOT = Path("/Users/runner/_work/cmux")
+ SEED_ROOT_FAMILY = "cmux-fast-tier-seed-root"
++# The second seed root (cmux owned_spm_scratch.SECOND_SEED_WORKSPACE): a job that finds the first held takes it, on a
++# mini with the disk to keep both; the seed workflow builds its own seed at that path. 7 of 15 cold 60-min fast-tier
++# timeouts in 6 h (2026-11-23) had the one root held. Its own id, so apply's family-by-id map keeps each root's lock.
++CMUX_SECOND_SEED_ROOT = Path("/Users/runner/_work/cmux-2")
++SECOND_SEED_ROOT_FAMILY = "cmux-fast-tier-seed-root-2"
++SEED_ROOT_FAMILIES = (SEED_ROOT_FAMILY, SECOND_SEED_ROOT_FAMILY)
+ SEED_ROOT_LOCK = ".cmux-seed-root.lock"  # owned_spm_scratch.SEED_LOCK
+ # owned_spm_scratch.SEED_MARKER: provisioning marks the seed root. The nightly-next builder's runner also works in
+ # /Users/runner/_work/cmux/cmux; without the marker those builds are its runner checkout's, not this family's.
+ SEED_ROOT_MARKER = ".cmux-seed-root"
+ SEED_ROOT_REBUILD_MINUTES = 30.0  # above every per-slot build family: they go first under pressure
+ 
+ 
+-def seed_root_family(packages: Path) -> Family:
++def seed_root_family(packages: Path, fid: str = SEED_ROOT_FAMILY) -> Family:
+     """The seed workspace's package builds: PACKAGES is <seed root>/cmux/Packages."""
+-    return Family(SEED_ROOT_FAMILY, packages, True, "the next fast-tier job on this mini restores the base seed",
++    return Family(fid, packages, True, "the next fast-tier job on this mini restores the base seed",
+                   depth=3, match=".build", build_output=True,  # <platform>/<package>/.build
+                   owner="cmux owned_spm_scratch.py (seed_lease)", rebuild_minutes=SEED_ROOT_REBUILD_MINUTES,
+                   platform="macos")
+@@ -2067,7 +2075,7 @@ def family_item_window(fam: Family, path: Path, idle_hours: float, archived: fro
+         return max(window, CMUX_TUI_SETTLE_HOURS)
+     if fam.id == CMUX_NEXT_CI_FAMILY and (CMUX_NEXT_CI_DRAIN or cmux_next_ci_over()):
+         return 0.0
+-    if fam.id == SEED_ROOT_FAMILY:  # rewritten by nearly every fast-tier job, so its window rarely passes: below the
++    if fam.id in SEED_ROOT_FAMILIES:  # rewritten by nearly every fast-tier job, so its window rarely passes: below the
+         if seed_root_emergency(fam):  # emergency floor it goes once no job holds it (the floor hold: below)
+             return 0.0
+     if fam.id == SPM_SCRATCH:
+@@ -2103,7 +2111,7 @@ def floor_hold_family(fam: Family, path: Path) -> bool:
+     restores it from the artifact; a root without a token file keeps its 12 h window), and code-sign clones
+     (keep_live_app_clones and app_clone_running keep the live ones), and the fast tier's seed root builds (its
+     lock keeps the ones a job holds)."""
+-    if (fam.id in (RUNNER_BUILD_FAMILY, RUNNER_ROOT_ADMISSION, SEED_ROOT_FAMILY) or fam.app_clones
++    if (fam.id in (RUNNER_BUILD_FAMILY, RUNNER_ROOT_ADMISSION, *SEED_ROOT_FAMILIES) or fam.app_clones
+             or media_tour_warm_slot(fam, path)):
+         return True
+     if fam.id == CANONICAL_ADMISSION:  # only where the runner hook's token protocol is in force on this root
+@@ -2119,7 +2127,7 @@ def floor_hold_only(fam: Family, item: "Item", idle_hours: float) -> bool:
+     slot has no age window, so the floor hold is the only thing that lets it go."""
+     if media_tour_warm_slot(fam, Path(item.path)):
+         return True
+-    if fam.id == SEED_ROOT_FAMILY and seed_root_emergency(fam):  # goes below the emergency floor too, like spm scratch
++    if fam.id in SEED_ROOT_FAMILIES and seed_root_emergency(fam):  # goes below the emergency floor too, like spm scratch
+         return False
+     return floor_hold_family(fam, Path(item.path)) and item.idle_hours < idle_window(fam, idle_hours)
+ 
+@@ -8348,7 +8356,7 @@ def interrupted_families(fams: list[Family]) -> list[Family]:
+         dirs = {fam.root}
+         if fam.id == CMUX_NEXT_CI_FAMILY:  # a whole state set aside leaves no candidate where it sat
+             dirs.update(cmux_next_ci_aside_parents(fam.root))
+-        if fam.id == SEED_ROOT_FAMILY:  # its builds go aside beside the lock (seed_root_aside)
++        if fam.id in SEED_ROOT_FAMILIES:  # its builds go aside beside the lock (seed_root_aside)
+             dirs.add(seed_root_lock(fam).parent)
+         if fam.id == TART_IMAGES:  # an image sits at any depth: every namespace directory above one
+             dirs.update(tart_walk(fam.root)[1])
+@@ -11079,7 +11087,7 @@ def job_busy(fam: Family, path: Path) -> bool:
+         return False
+     if fam.id == SPM_SCRATCH:  # dozens of package builds within three levels; its lock is its in-use signal
+         return False
+-    if fam.id == SEED_ROOT_FAMILY:  # a package build; the seed root's lock is its in-use signal
++    if fam.id in SEED_ROOT_FAMILIES:  # a package build; the seed root's lock is its in-use signal
+         return False
+     if fam.id == CANONICAL_ADMISSION:  # a DerivedData; the root's token is its in-use signal
+         return False
+@@ -12250,7 +12258,7 @@ def _survey(families, idle_hours, min_bytes, known, evidence, defer_bulk=False,
+             reasons.append(why)
+         if fam.id in BUILD_STATE_FAMILY_IDS and not blind and (why := build_state_held(fam, path, cmds)):
+             reasons.append(why)
+-        if fam.id == SEED_ROOT_FAMILY and seed_root_held(fam, path):
++        if fam.id in SEED_ROOT_FAMILIES and seed_root_held(fam, path):
+             reasons.append("a fast-tier job holds the seed root's lock (owned_spm_scratch.py seed_lease)")
+         if fam.id == SPM_SCRATCH and spm_scratch_held(path):
+             reasons.append("a job holds its lock (owned_spm_scratch.py)")
+@@ -15369,7 +15377,7 @@ def apply(items: list[Item], families: dict[str, Family], receipt: Path,
+                 or (fam.id == WT_CARGO_TARGET and wt_checkout_hold(p, cwds, cmds))
+                 or (git_holder_family(fam) and git_used_from_outside(p, fresh=True))
+                 or (i.family == SPM_SCRATCH and spm_scratch_held(p))
+-                or (i.family == SEED_ROOT_FAMILY and seed_root_held(fam, p))
++                or (i.family in SEED_ROOT_FAMILIES and seed_root_held(fam, p))
+                 or (i.family == CANONICAL_ADMISSION and canonical_root_held(p))
+                 or (tmp_canonical_root(fam, p) and canonical_root_held(p, whole_root=True))):
+             outcome = "changed:in-use"
+@@ -15433,7 +15441,7 @@ def apply(items: list[Item], families: dict[str, Family], receipt: Path,
+                     released += max(0, original_bytes - destination.stat().st_size)
+                 elif i.family == SPM_SCRATCH:
+                     gone = remove_spm_scratch(p)  # only under its lock: a job may link it right now
+-                elif i.family == SEED_ROOT_FAMILY:
++                elif i.family in SEED_ROOT_FAMILIES:
+                     gone = remove_seed_root_build(fam, p)  # only under its lock: a job may take the root now
+                 elif i.family == CANONICAL_ADMISSION:
+                     gone = remove_canonical_admission(p)  # only under its root's token: a job may take it now
+diff --git a/scripts/test-glaeda-disk.py b/scripts/test-glaeda-disk.py
+--- a/scripts/test-glaeda-disk.py
++++ b/scripts/test-glaeda-disk.py
+@@ -2665,6 +2665,42 @@ def verdicts() -> dict[str, str]:
+         self.assertLess(gd.value(item(next_build), fam), gd.value(item(slot), runner_build))
+         self.assertLess(gd.value(item(next_build), fam), gd.value(item(slot), spm))
+ 
++    def test_the_second_seed_root_is_its_own_family_under_its_own_lock(self) -> None:
++        """2026-11-23: 7 of 15 cold 60-min fast-tier timeouts in 6 h had the one seed root held, so cmux's
++        owned_spm_scratch.py takes a second root, /Users/runner/_work/cmux-2, seeded at its own path. Its builds are
++        a family of their own id (apply maps families by id), marked the same way, and go only under its own lock:
++        a job holding the first root does not keep the second's builds, nor the other way round."""
++        first, second = self.root / "runner/_work/cmux", self.root / "runner/_work/cmux-2"
++        builds = {}
++        for seed in (first, second):
++            builds[seed] = make(seed / "cmux/Packages/macOS/CmuxNext/.build", mib=4, age_hours=50)
++            (seed / gd.SEED_ROOT_MARKER).touch()
++            (seed / gd.SEED_ROOT_LOCK).touch()
++        ci = self.root / "ci"
++        make(ci / "seeds/p-a", age_hours=1)
++        with mock.patch.object(gd, "CMUX_SEED_ROOT", first), mock.patch.object(gd, "CMUX_SECOND_SEED_ROOT", second):
++            fams = [f for f in gd.fleet_families(ci) if f.id in gd.SEED_ROOT_FAMILIES]
++            self.assertEqual([(f.id, f.root) for f in fams],
++                             [(gd.SEED_ROOT_FAMILY, first / "cmux/Packages"),
++                              (gd.SECOND_SEED_ROOT_FAMILY, second / "cmux/Packages")])
++            (second / gd.SEED_ROOT_MARKER).unlink()
++            self.assertEqual([f.id for f in gd.fleet_families(ci) if f.id in gd.SEED_ROOT_FAMILIES],
++                             [gd.SEED_ROOT_FAMILY], "unmarked, the second root is not a seed root")
++            (second / gd.SEED_ROOT_MARKER).touch()
++        self.assertTrue(all(gd.build_cache_family(f) for f in fams))
++        held = open(first / gd.SEED_ROOT_LOCK, "a")
++        fcntl.flock(held, fcntl.LOCK_EX)
++        self.addCleanup(held.close)
++        verdicts = {i.path: i.verdict for i in gd.survey(fams, 6, 0)}
++        self.assertEqual(verdicts, {os.fspath(builds[first]): "in-use", os.fspath(builds[second]): "reclaimable"})
++        items = [i for i in gd.survey(fams, 6, 0) if i.verdict == "reclaimable"]
++        with mock.patch.object(gd, "process_evidence", return_value=([], "")):
++            gd.apply(items, {f.id: f for f in fams}, self.root / "r.jsonl", None, 6)
++        self.assertTrue(builds[first].exists())
++        self.assertFalse(builds[second].exists())
++        self.assertEqual([p.name for p in second.iterdir() if gd.DELETING_RE.fullmatch(p.name)], [],
++                         "its aside tree went beside its own lock and was deleted")
++
+     def test_a_fresh_seed_root_build_goes_only_below_a_floor(self) -> None:
+         """Review of glaeda#2137: nearly every fast-tier job rewrites the seed root's builds, so they never age past
+         the idle window. Below the runner floor (the floor hold) or the emergency floor they go once no job holds
