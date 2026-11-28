@@ -44,6 +44,7 @@ extension SidebarListViewComponents {
         // Without a drag the full layout is the model's under `options` (`displayLayout`): a one-row insert splices onto it.
         let plain = shownDrag == nil && external == nil
             ? spliced?.options ?? removed?.options ?? edited?.options ?? page?.options ?? options(includeGap: true) : nil
+        drawnBlockHeights = plain?.blockHeights // what an in-place block patch must keep (`patchBlocks`)
         let layout = spliced?.layout ?? removed?.layout ?? edited?.layout ?? page?.layout
             ?? plain.map { SidebarLayout.make(sections: listSections, metrics: metrics, options: $0) } ?? displayLayout()
         // A full layout reads every listed row; a splice or a kept page reads none here.
@@ -64,6 +65,7 @@ extension SidebarListViewComponents {
         inlineRename.follow()
         groupEditor.follow(groups)
         if let shown = groupEditor.shownGroup { (rowViews[.group(shown)] as? GroupHeaderRowView)?.isEditing = true }
+        scheduleRelativeTimesTick()
     }
     /// The rows' caches (workspaces, groups and their subtrees, sections, listed items) from the sections the list draws.
     private func rebuildRowCaches() {

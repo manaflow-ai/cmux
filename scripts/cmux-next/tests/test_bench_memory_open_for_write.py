@@ -72,5 +72,54 @@ class Roots(unittest.TestCase):
             self.assertNotIn(os.path.realpath(home), roots)  # nested in the scratch: walked once
 
 
+class RewrittenInPlace(unittest.TestCase):
+    """A Mac launch window read the app writing 107 MB/h with the ad blocker on or off while files_written named
+    17 KB: a write through a mapping (or a same-second rewrite) moves no mtime. The census digests the files each
+    process holds open for writing at both ends and names the ones whose bytes changed."""
+
+    def test_names_a_file_whose_bytes_changed_without_its_mtime(self):
+        with tempfile.TemporaryDirectory() as d:
+            mapped, still = os.path.join(d, "BrowserMetrics.pma"), os.path.join(d, "still.db")
+            for path in (mapped, still):
+                with open(path, "wb") as f:
+                    f.write(b"a" * 4096)
+            before = bm.file_digests([mapped, still, os.path.join(d, "gone")])
+            st = os.stat(mapped)
+            with open(mapped, "r+b") as f:
+                f.write(b"b" * 16)
+            os.utime(mapped, ns=(st.st_atime_ns, st.st_mtime_ns))  # as a mapped page-out leaves it
+            got = bm.rewritten_in_place(before, bm.file_digests(before))
+        self.assertEqual(got, [{"path": mapped, "bytes": 4096, "grew": 0, "mtime_moved": False}])
+
+    def test_skips_files_over_the_limit(self):
+        with tempfile.NamedTemporaryFile() as f:
+            f.write(b"x" * 10)
+            f.flush()
+            self.assertEqual(bm.file_digests([f.name], limit=5), {})
+
+    def test_held_paths_are_listed_once(self):
+        self.assertEqual(bm.held_paths({"app": ["/b", "/a"], "acpmux-daemon": ["/a"]}), ["/a", "/b"])
+
+
+class DarwinUserDirs(unittest.TestCase):
+    def test_roots_include_the_cmux_entries_of_the_per_user_cache_dir(self):
+        with tempfile.TemporaryDirectory() as cache:
+            os.makedirs(os.path.join(cache, "com.cmuxterm.app.debug.perfidle", "com.apple.metal"))
+            os.makedirs(os.path.join(cache, "com.apple.Safari"))
+            with mock.patch.object(bm, "STORE_HOME", None), mock.patch.object(bm, "saved_state_dir", return_value=None), \
+                    mock.patch.object(bm, "darwin_user_dirs", return_value=[cache]):
+                roots = bm.store_roots("/nonexistent/cmux.app")
+            def walked(path):  # a root, or under one (TMPDIR may sit under /tmp/acpmux-<uid>, a root itself)
+                real = os.path.realpath(path)
+                return any(real == root or real.startswith(root + os.sep) for root in roots)
+            self.assertTrue(walked(os.path.join(cache, "com.cmuxterm.app.debug.perfidle")), roots)
+            if not walked(cache):
+                self.assertFalse(walked(os.path.join(cache, "com.apple.Safari")), roots)
+
+    def test_getconf_failure_reads_empty(self):
+        with mock.patch.object(bm.subprocess, "run", side_effect=OSError("no getconf")):
+            self.assertEqual(bm.darwin_user_dirs(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
