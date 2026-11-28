@@ -19,6 +19,13 @@ cd "$root/cmux-tui"
 # Match the cmux-tui-artifacts job environment so the extracted gate stays identical to CI.
 export CARGO_INCREMENTAL=0 CMUX_GHOSTTY_SRC="" GHOSTTY_ZIG_SOURCE=ghostty-next
 unset CMUX_ZIG ZIG
+# The acpmux lib test rustc alone peaked at 19.8 GiB (max RSS, `cargo test -p acpmux --no-run -j1`, run 46182122708),
+# past this job's memory.max of 14 GiB, so it was SIGKILLed at every job count (runs 46173475162, 46179078616: jobs
+# 3, 2, then 1). It is already opt-level 0. Without line tables and with 16 codegen units in place of 256 the same
+# build peaked at 11.4 GiB (run 46185372934). Only this gate's build changes; Cargo.toml's dev profile is untouched,
+# and a caller's own value wins.
+export CARGO_PROFILE_DEV_PACKAGE_ACPMUX_DEBUG="${CARGO_PROFILE_DEV_PACKAGE_ACPMUX_DEBUG:-0}"
+export CARGO_PROFILE_DEV_PACKAGE_ACPMUX_CODEGEN_UNITS="${CARGO_PROFILE_DEV_PACKAGE_ACPMUX_CODEGEN_UNITS:-16}"
 log_dir="${RUNNER_TEMP:-$(mktemp -d)}"
 # Bound cargo's parallel rustc by memory, the rule scripts/ci/cargo-groups.sh uses: one job per
 # CARGO_GROUPS_GIB_PER_GROUP (4) GiB of the lesser of the cgroup's memory.max and MemAvailable, at least 1, at most
