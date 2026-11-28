@@ -95,7 +95,8 @@ impl LossMeter {
             packet.resends = packet.resends.saturating_add(1);
             if !packet.arrived {
                 packet.repaired = true;
-                let wait = rtt_us.unwrap_or(0).saturating_add(REPAIR_FEEDBACK_US).min(MAX_REPAIR_WAIT_US);
+                let wait =
+                    rtt_us.unwrap_or(0).saturating_add(REPAIR_FEEDBACK_US).min(MAX_REPAIR_WAIT_US);
                 let due = now_us.saturating_add(wait);
                 packet.settle_due_us = Some(packet.settle_due_us.map_or(due, |d| d.max(due)));
             }
