@@ -509,13 +509,14 @@ async fn heartbeats(
         let wait = wait.max(floor);
         // A start's or a move's request beats sooner: at once while the hub's budget has a
         // heartbeat left (`HEARTBEAT_BURST`), never during a backoff.
-        let budget = &mut budget;
+        let beats_left = &mut budget;
+        let nudge = &beat.nudge;
         let nudged = async move {
             if !taken {
                 return std::future::pending().await;
             }
-            beat.nudge.notified().await;
-            tokio::time::sleep_until(budget.ready_at(tokio::time::Instant::now())).await;
+            nudge.notified().await;
+            tokio::time::sleep_until(beats_left.ready_at(tokio::time::Instant::now())).await;
         };
         let read_receipts = async {
             if let Some(hub) = hub.upgrade() {
