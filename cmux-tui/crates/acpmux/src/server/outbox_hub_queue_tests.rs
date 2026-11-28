@@ -600,3 +600,44 @@ fn only_an_unlisted_name_with_attempts_left_waits() {
     assert!(!super::unknown_recipient_waits(&unknown, super::UNKNOWN_RECIPIENT_ATTEMPTS));
     assert!(!super::unknown_recipient_waits(&hub_status(403, "mesh.forbidden"), 1));
 }
+
+/// A hub that flaps: it fails every post (503), but something else it answers between them opens
+/// its gate every 3 s (a 4xx for one name is not a passing failure, so `mesh_send::note` opens it).
+/// Each opening used to wake every queued delivery for another post at once: on one control host,
+/// 2026-11-28, that was 250-280 outbox requests a minute and the daemon at 154% CPU for an hour.
+/// One wake per back-off step: fifty deliveries cost their own schedules, not fifty per flap.
+#[tokio::test(start_paused = true)]
+async fn a_flapping_hub_gate_wakes_each_delivery_once_per_back_off_not_per_flap() {
+    const SENDS: usize = 50;
+    const FLAP: Duration = Duration::from_secs(3);
+    const SPAN: Duration = Duration::from_secs(600);
+    let (hub, stub) = setup(StubHub::default());
+    *stub.down_until.lock().unwrap() = Some(tokio::time::Instant::now() + SPAN * 2);
+    let mut ids = Vec::new();
+    for n in 0..SENDS {
+        let params = request(&format!("far-host/lane-{n}"), &format!("prompt-flap-{n}"));
+        let (answer, _, _) = timed_send(&hub, params).await;
+        let queued = answer.unwrap();
+        assert_eq!(queued["status"], "queued", "{queued}");
+        ids.push(queued["deliveryId"].as_str().unwrap().to_owned());
+    }
+    let flapper = {
+        let hub = hub.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(FLAP).await;
+                hub.mesh.gate().answered();
+            }
+        })
+    };
+    let before = stub.posts.lock().unwrap().len();
+    tokio::time::sleep(SPAN).await;
+    flapper.abort();
+    let posts = stub.posts.lock().unwrap().len() - before;
+    let flaps = SPAN.as_secs() / FLAP.as_secs();
+    println!("FLAP sends={SENDS} flaps={flaps} posts_in_{}s={posts}", SPAN.as_secs());
+    // Back-off 2, 5, 10, 30, 60, 120, 300 s: about seven steps in ten minutes, at most two posts
+    // a step (its own timer, one gate wake). A wake per flap would be SENDS * flaps = 10000.
+    assert!(posts <= SENDS * 16, "{posts} posts in ten minutes for {SENDS} deliveries");
+    assert!(ids.iter().all(|id| !hub.outbox.get(id).unwrap().settled()), "all still kept");
+}
