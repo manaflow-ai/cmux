@@ -235,6 +235,9 @@ pub(super) async fn route(
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
         return reply;
     }
+    if let Some(reply) = super::asks::dispatch(hub, conn, m, &params) {
+        return reply;
+    }
     if let Some(reply) = super::history::dispatch(hub, conn, m, &params).await {
         return reply;
     }
@@ -300,6 +303,12 @@ pub(super) async fn route(
         return reply;
     }
     // What turns cost (`hub/ledger`): local and the app's pane, never a peer's.
+    if m == crate::hub::ask_ledger::METHOD {
+        if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+            return Err(RpcError::method_not_found(m));
+        }
+        return Ok(hub.ask_ledger.page());
+    }
     if m == crate::rpc::method::MUX_LEDGER {
         return ledger::handle(hub, conn.origin, &params);
     }
