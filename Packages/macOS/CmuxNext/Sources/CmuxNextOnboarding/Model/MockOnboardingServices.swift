@@ -17,6 +17,8 @@ public final class MockOnboardingServices: OnboardingServices {
     public var passwordStore = false
     /// The computer use step's grants; nil: this build has no computer use.
     public var computerUseSource: MockComputerUsePermissionSource?
+    /// Make cmux Yours' split; nil: this app logs no walks.
+    public var introWalkSplit: (any IntroWalkSplitSource)?
 
     public private(set) var opened: [URL] = []
     public private(set) var plans: [ImportPlan] = []
