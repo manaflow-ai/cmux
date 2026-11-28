@@ -20,6 +20,16 @@ final class PaletteKeycapsView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
 
+    /// The line the legends center on, in this view's coordinates; nil is the view's middle. A footer button sets it
+    /// to its own middle: the view's frame snaps to the window's pixel grid, which on a 1x screen moves the cap half
+    /// a point off the label's line when the footer and the cap differ in parity, and the legend drew on that moved
+    /// middle (with its own snap, ↩ and ⇥ sat 1 pt above the footer's middle at Default 16 pt; fleet step 60653a70).
+    var legendMidY: CGFloat? {
+        didSet {
+            if legendMidY != oldValue { needsDisplay = true }
+        }
+    }
+
     /// The legend's font: the caption's size, emphasized, so a word reads at the size of the text beside it.
     static var font: NSFont { Typography.system(.default, size: Typography.caption.pointSize, weight: TypeScale.emphasis) }
 
@@ -108,6 +118,7 @@ final class PaletteKeycapsView: NSView {
             for piece in pieces {
                 let width = width(piece)
                 let rect = NSRect(x: x, y: y, width: width, height: size)
+                let legendRect = NSRect(x: x, y: (legendMidY ?? bounds.midY) - size / 2, width: width, height: size)
                 switch piece {
                 case .cap(let legend):
                     let radius = PaletteLayout.keycapCornerRadius
@@ -119,12 +130,12 @@ final class PaletteKeycapsView: NSView {
                     Palette.textPrimary.withAlphaComponent(0.16).setStroke()
                     edge.stroke()
                     let attributes = attributes
-                    (legend as NSString).draw(with: NSRect(origin: baseline(of: legend, in: rect, attributes: attributes), size: .zero),
+                    (legend as NSString).draw(with: NSRect(origin: baseline(of: legend, in: legendRect, attributes: attributes), size: .zero),
                                               options: [], attributes: attributes)
                 case .then:
                     let attributes = thenAttributes
                     let text = PaletteStrings.keycapThen
-                    (text as NSString).draw(with: NSRect(origin: baseline(of: text, in: rect, attributes: attributes), size: .zero),
+                    (text as NSString).draw(with: NSRect(origin: baseline(of: text, in: legendRect, attributes: attributes), size: .zero),
                                             options: [], attributes: attributes)
                 }
                 x += width + Metrics.space1
