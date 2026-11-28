@@ -458,6 +458,7 @@ jobs:
             scripts/ci/cmux_tui_publisher_testing.py
             scripts/ci/nightly_tree_source.py
             scripts/ci/job_input_fingerprint.py
+            scripts/ci/ci_steps.py
             scripts/ci/job_reuse.py
             scripts/ci/cmux_next_route.py
             scripts/ci/affected-jobs.json
@@ -501,6 +502,7 @@ jobs:
             scripts/ci/cmux_tui_publisher_testing.py
             scripts/ci/nightly_tree_source.py
             scripts/ci/job_input_fingerprint.py
+            scripts/ci/ci_steps.py
             scripts/ci/job_reuse.py
             scripts/ci/cmux_next_route.py
             scripts/ci/affected-jobs.json
@@ -1699,9 +1701,13 @@ jobs:
       build_cmux_rd: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.build_cmux_rd }}
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
       linux_runner: cmux-linux
-      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's reserved
-      # label (RFD 0021's other pool), never the pool that just failed it (cmux-tui-build-package.yml).
-      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || '' }}
+      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's one-job
+      # on-demand JIT label, never the pool that just failed it (cmux-tui-build-package.yml). Not
+      # cmux-gcp-nightly-x64: spot pool VMs serve it too, and 2026-11-28 08:05-12:05Z they were shut down 18-26
+      # min into the fat-LTO legs on attempts 1 and 2 alike (cmuxterm-hq#36618), so no tree published from 07:42Z
+      # and the Cloud image roll was never requested (deploy lag 259 min, bound 180). runner_pool.py keeps the
+      # nightly JIT label on-demand: "a long or one-off job there costs more to re-run than spot saves".
+      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-jit-x64' || '' }}
 
 
   # MACHINE_CHANNEL_THIN, LINUX_X86_64_FIRST: the Cloud machine channel's thin copy of the two Linux musl
@@ -1801,9 +1807,13 @@ jobs:
       # `mac` to that file.
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
       linux_runner: cmux-linux
-      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's reserved
-      # label (RFD 0021's other pool), never the pool that just failed it (cmux-tui-build-package.yml).
-      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || '' }}
+      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's one-job
+      # on-demand JIT label, never the pool that just failed it (cmux-tui-build-package.yml). Not
+      # cmux-gcp-nightly-x64: spot pool VMs serve it too, and 2026-11-28 08:05-12:05Z they were shut down 18-26
+      # min into the fat-LTO legs on attempts 1 and 2 alike (cmuxterm-hq#36618), so no tree published from 07:42Z
+      # and the Cloud image roll was never requested (deploy lag 259 min, bound 180). runner_pool.py keeps the
+      # nightly JIT label on-demand: "a long or one-off job there costs more to re-run than spot saves".
+      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-jit-x64' || '' }}
 
   # The Windows legs of the build, in their own call so that publish and
   # publish-tree start as soon as the macOS and Linux targets are built: the
@@ -2148,9 +2158,13 @@ jobs:
       darwin_builder: ${{ needs.darwin-fallback-plan.outputs.builder }}
       macos_stubs_ref: ${{ needs.darwin-fallback-plan.outputs.stubs_ref }}
       linux_runner: cmux-linux
-      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's reserved
-      # label (RFD 0021's other pool), never the pool that just failed it (cmux-tui-build-package.yml).
-      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || '' }}
+      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's one-job
+      # on-demand JIT label, never the pool that just failed it (cmux-tui-build-package.yml). Not
+      # cmux-gcp-nightly-x64: spot pool VMs serve it too, and 2026-11-28 08:05-12:05Z they were shut down 18-26
+      # min into the fat-LTO legs on attempts 1 and 2 alike (cmuxterm-hq#36618), so no tree published from 07:42Z
+      # and the Cloud image roll was never requested (deploy lag 259 min, bound 180). runner_pool.py keeps the
+      # nightly JIT label on-demand: "a long or one-off job there costs more to re-run than spot saves".
+      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-jit-x64' || '' }}
 
   # The publish jobs take the build from here: the matrix build, or that
   # build with its macOS targets rebuilt by build-darwin-fallback, or every
@@ -4388,7 +4402,7 @@ jobs:
     # It fetches the Mac-built x86_64 objects, which only main builds (CMUX_TUI_DARWIN_X86_64).
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'mac' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     # 32 vCPU: the shadow builds both macOS targets of every binary.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-gcp-lane-build-x64' }} # host pin: the darwin cross build lane (was vars.LINUX_RUNNER_DARWIN_CROSS)
     timeout-minutes: 60
     continue-on-error: true
     permissions:

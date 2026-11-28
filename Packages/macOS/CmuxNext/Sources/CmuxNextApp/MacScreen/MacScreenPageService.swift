@@ -118,12 +118,10 @@ final class MacScreenPageService: InternalPageProvider {
         if focus { window?.leaveTopPage() }  // under Home a focused tab opened unseen (feature-flows walk 11-27 04:04Z: Home read, no macScreen.home)
         let made = pages.whenCreated(key, focus: focus, then: created)
         let onCreated: (@MainActor (SurfaceID) -> Void)? = if let made { { (_: SurfaceID) in made() } } else { nil }
-        if let window, services.pages.openStoreTab(.macScreen, in: pane, window: window, focus: focus, key: key,
-                                                   created: onCreated) != nil {
+        if let window, services.pages.openStoreTab(.macScreen, in: pane, window: window, focus: focus, key: key, created: onCreated) != nil {
             return key
         }
-        services.pages.open(.macScreen, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
-                            window: window, key: key)
+        services.pages.open(.macScreen, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue, window: window, key: key)
         pane.apply(pane.snapshot())
         if focus { services.pages.reveal(key, in: pane) }
         made?()
@@ -195,8 +193,9 @@ extension AppServices {
         macScreenPages.follow(settings) { [weak self] in self?.registry.refuse($0) }
     }
 
-    /// Screen Sharing (`macScreen.open`): the home page beside the dock of the pane the action ran on, else of the active window's focused pane, the window off its top page by `open` (opened in Home's dock it never showed, walk 45927048373).
+    /// Screen Sharing (`macScreen.open`): the home page beside the dock of the pane the action ran on, else of the active window's focused pane, the window off its top page by `open` (opened in Home's dock it never showed, walk 45927048373); where Home stands for the hidden home workspace, in a workspace the window shows, as from another app (a tab there was never drawn, walk on NIGHTLY 946de8ba).
     func openMacScreen(for device: String = "", in target: PaneController?) {
+        if let window = target.flatMap({ windowController(showing: $0) }) ?? windows.active, !window.holdsVisiblePageTab { return externalOpen.perform(.macScreen(device: device)) }
         guard let pane = (target ?? windows.active?.focusedPane).map({ windowController(showing: $0)?.content?.pageTabPane(from: $0) ?? $0 }) else { return registry.refuse(RefusalStrings.noWindowOpen) }
         macScreenTabs.open(macScreenPages.record(forDevice: device, requesting: .view), in: pane, focus: true, byPerson: true)
     }

@@ -619,3 +619,59 @@ fn a_host_signed_in_at_another_deployments_hub_serves_nothing_and_sends_it_nothi
     assert!(at_elsewhere.is_empty(), "the other deployment's hub saw {at_elsewhere:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A machine restored from a snapshot holds the device its image was shared as (a record of this
+/// home from before joins were marked, under the image's name). Joined again under another name
+/// by the same account, it keeps the device but takes the join's name and registers it again, so
+/// the viewer's list shows the joined name (hq#37008, run 46137496866: joined as
+/// `probe-desktop-…-hub`, listed as `lease-lease_…`).
+#[test]
+fn a_kept_device_takes_the_joins_name() {
+    let (origin, seen) = stub(move |_, request| match request.path.as_str() {
+        "/v1/auth/machine" => (
+            200,
+            serde_json::json!({ "session": "m", "userId": "p:b", "expiresAt": now_ms() + 3_600_000 }),
+        ),
+        _ => (200, serde_json::json!({ "ok": true })),
+    });
+    let dir = dir("kept-renamed");
+    let home = home(&dir, &origin);
+    let old = Device::generate("lease-lease_2wn_9afec929").unwrap();
+    old.save(&dir).unwrap();
+    Account { hub: origin.clone(), user_id: "p:b".into(), anchored_until: 0 }.save(&dir).unwrap();
+    machine::Joined { acpmux_home: home.clone(), ..Default::default() }.save(&dir).unwrap();
+    let unit = Recorded::new(seen.clone(), false);
+    let got = super::join(&dir, &join_at(&home, credential("m-b"), &origin), &unit).unwrap();
+    assert_eq!(got.id, old.id, "the kept device stays");
+    assert_eq!(got.name, "lane-vm");
+    assert_eq!(Device::load(&dir).unwrap().map(|d| d.name).as_deref(), Some("lane-vm"));
+    let registers = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|s| s.method == "POST" && s.path == "/v1/devices")
+        .count();
+    assert_eq!(registers, 1, "registered again under the join's name");
+    assert!(unit.stops.lock().unwrap().is_empty(), "nothing is torn down");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_kept_device_already_named_for_the_join_is_not_registered_again() {
+    let (origin, seen) = stub(move |_, request| match request.path.as_str() {
+        "/v1/auth/machine" => (
+            200,
+            serde_json::json!({ "session": "m", "userId": "p:b", "expiresAt": now_ms() + 3_600_000 }),
+        ),
+        _ => (200, serde_json::json!({ "ok": true })),
+    });
+    let dir = dir("kept-same-name");
+    let home = home(&dir, &origin);
+    hold(&dir, &origin, Before::SameJoin);
+    let unit = Recorded::new(seen.clone(), false);
+    let got = super::join(&dir, &join_at(&home, credential("m-b"), &origin), &unit).unwrap();
+    assert_eq!(got.name, "lane-vm");
+    let registers = seen.lock().unwrap().iter().filter(|s| s.path == "/v1/devices").count();
+    assert_eq!(registers, 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
