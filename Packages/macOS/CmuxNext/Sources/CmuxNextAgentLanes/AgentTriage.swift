@@ -96,10 +96,10 @@ public final class AgentTriage {
     }
 
     static var noneWaiting: String {
-        String(localized: "agent.needsInput.none", defaultValue: "No agent is waiting for input", bundle: .module)
+        String(localized: "agent.needsInput.none", defaultValue: "No agent is waiting for input", bundle: .localizedModule)
     }
 
     static var noOtherWaiting: String {
-        String(localized: "agent.triage.noOther", defaultValue: "No other agent is waiting for input", bundle: .module)
+        String(localized: "agent.triage.noOther", defaultValue: "No other agent is waiting for input", bundle: .localizedModule)
     }
 }
