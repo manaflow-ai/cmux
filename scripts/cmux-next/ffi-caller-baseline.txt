@@ -47,7 +47,6 @@ cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_rea
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_starts_chromium_warmup
 cmux-tui/crates/cmux-app-ffi/include/cmux_files_lister.h	cmux_files_lister_abi_version
 cmux-tui/crates/cmux-app-ffi/include/cmux_interactivity.h	cmux_interactivity_abi_version
-cmux-tui/crates/cmux-app-ffi/include/cmux_interactivity.h	cmux_interactivity_is_interacting
 cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_front_window
 cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_windows
 cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_write_registry
