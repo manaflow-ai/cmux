@@ -489,6 +489,7 @@
       "paths": [
         ".github/workflows/base-coalesce.yml",
         "scripts/ci/cmux_tui_tree_key.py",
+        "scripts/ci/cmux-next-daemon-tests.sh",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/**",
         "schemas/agent-pane/stylesheet-guard.json",
         "schemas/settings/source/general.json",
@@ -677,7 +678,8 @@
         "docs/mdm/managed-preferences.md",
         "schemas/settings/source/row-facts.json",
         "schemas/settings/source/samples.json",
-        "schemas/window-registry/vectors.json"
+        "schemas/window-registry/vectors.json",
+        "scripts/ci/cmux-next-daemon-tests.sh"
       ],
       "jobs": {"conformance": "seven-language live conformance", "packages": "${{ matrix.language }} package", "consumers": "${{ matrix.language }} consumer", "rust-msrv": "Rust SDK MSRV (1.88)", "code-mode": "code-mode MCP cancellation"}
     },
