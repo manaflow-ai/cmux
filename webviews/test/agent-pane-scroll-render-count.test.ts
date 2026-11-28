@@ -52,7 +52,7 @@ await requireBrowserLane("agent-pane-scroll-render-count.test.ts", async () => {
   /// Two frames and a task after them: whatever the event scheduled has committed.
   const settle = (page: Page, ms = 0) =>
     page.evaluate(
-      (wait) =>
+      (ms) =>
         new Promise<void>((resolve) =>
           setTimeout(
             () =>
@@ -63,11 +63,21 @@ await requireBrowserLane("agent-pane-scroll-render-count.test.ts", async () => {
                   channel.port2.postMessage(0);
                 }),
               ),
-            wait,
+            ms,
           ),
         ),
       ms,
     );
+  /// Settles until the scroller's offset holds still across a settle: the scroll and what it caused are done.
+  const settleScroll = async (page: Page) => {
+    const offset = () => page.evaluate(() => document.querySelector(".acpmux-scroll")!.scrollTop);
+    for (let last = await offset(); ;) {
+      await settle(page);
+      const now = await offset();
+      if (now === last) return;
+      last = now;
+    }
+  };
 
   test(`a 40 px scroll step up a ${TURNS}-turn chat re-renders at most ${MAX_RENDERS_PER_STEP} components, the composer at most ${MAX_COMPOSER_RENDERS} times in ${STEPS}`, async () => {
     const port = await servePane(webviews, { unminified: true }, releases);
@@ -89,7 +99,7 @@ await requireBrowserLane("agent-pane-scroll-render-count.test.ts", async () => {
     await page.locator(".acpmux-scroll").hover();
     // One step first, outside the window: the first scroll up leaves the followed end, a state change of its own.
     await page.mouse.wheel(0, -40);
-    await settle(page, 300);
+    await settleScroll(page);
     const before = await page.evaluate(() => document.querySelector(".acpmux-scroll")!.scrollTop);
     await renderCountsReset(page);
     for (let i = 0; i < STEPS; i += 1) {

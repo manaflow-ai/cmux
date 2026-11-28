@@ -12,6 +12,7 @@ import { queuedRowsState } from "./queuedRowsState";
 import type { QueueEdit } from "./model";
 import { queueingOn, setQueueing } from "./queueing";
 import { settleReact } from "../../../test/support/domTeardown";
+import { actTurn, until } from "../../../test/support/until";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -1328,9 +1329,8 @@ test("a thumbnail whose first read failed is read again, not left blank", async 
   await settle();
   const slot = () => container.querySelector(".acpmux-queued-image-slot");
   expect(slot()?.getAttribute("data-thumbnail")).toBe("missing");
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-  });
+  // The retry's backoff is a real timer: turn the event loop until the second read has answered.
+  await until(() => reads === 2 && !!slot()?.querySelector("img"), actTurn);
   expect(reads).toBe(2);
   expect(slot()?.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,QQ==");
 });
