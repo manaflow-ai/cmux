@@ -76,31 +76,35 @@ PATH_RULES = [
     (NOAPP_EXT, "no-app", None),
 ]
 # ---- end of generated live rules ----
-COMMENT = re.compile(r"^\s*(//|/\*|\*|\*/)")
-STORED = re.compile(r"^(\s*)(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|nonisolated|lazy|weak|unowned|override)(\([^)]*\))?\s+)*(let|var)\s+\w+[^{]*$")
-FUNC = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|class|override|mutating|nonisolated|required|convenience)(\([^)]*\))?\s+)*(func\s+\w+|init[?!]?\s*[(<]|subscript\s*[(<])")
-TYPE_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|indirect)\s+)*(struct|class|enum|actor|protocol|extension)\s+\w+")
+# The Swift diff-line rules and the verdict order live in live-apply-rules.json beside this file, one copy: the
+# cmux-tui daemon's save router (`cmux live auto`, cmux-tui-core src/live_auto/rules.rs) reads the same file, and
+# the path rules above from the same [[live_rule]] table.
+RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live-apply-rules.json")
+with open(RULES_FILE) as _rules_file:
+    RULES = json.load(_rules_file)
+COMMENT = re.compile(RULES["comment"])
+STORED = re.compile(RULES["stored"])
+FUNC = re.compile(RULES["func"])
+TYPE_DECL = re.compile(RULES["type_decl"])
 # A constant with an initializer that belongs to no instance: `static let x = ...` (any access, `nonisolated(unsafe)`
 # and the like) or a file-level `let x = ...` (indent 0). It changes no type's size, so a patch can carry it: the patch
 # defines the variable and its addressor, the app repoints the addressor, and every caller (patched or not) reaches the
 # patch's copy. Only `let`: a `static var` is state a patch would reset, and an instance property changes the layout.
-STATIC_LET = re.compile(r"^(\s*)(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|nonisolated(\([^)]*\))?)\s+)*"
-                        r"(static|class)\s+((public|private|fileprivate|internal|package|open|final|nonisolated(\([^)]*\))?)\s+)*let\s+\w+[^{]*=")
-FILE_LET = re.compile(r"^((public|private|fileprivate|internal|package|nonisolated(\([^)]*\))?)\s+)*let\s+\w+[^{]*=")
-ENTRY = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*@main\b")
+STATIC_LET = re.compile(RULES["static_let"])
+FILE_LET = re.compile(RULES["file_let"])
+ENTRY = re.compile(RULES["entry"])
 # The modules a patch can replace code in: the app's live code build makes every CmuxNext module's
 # symbols interposable (live_code_targets in scripts/live-code/lib/xcodebuild-args.sh: the
 # CmuxNext targets of Packages/macOS/CmuxNext/Package.swift, and MessagesLabHome, the Home transcript
 # CmuxNextHome links from Packages/Shared/CmuxMessagesLab), and the view shell's inject.sh patches
 # its own module. Third-party modules are linked into the app as they were built.
-LIVE_MODULE = re.compile(r"^(CmuxNext[A-Za-z0-9_]*|MessagesLabHome|ViewShell)$")
-LIVE_PACKAGE = re.compile(r"(?:^|/)Packages/macOS/CmuxNext/Sources/|(?:^|/)Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/"
-                          r"|(?:^|/)Prototypes/ViewShell/Sources/")
-SWIFT_MODULE = re.compile(r"(?:^|/)Sources/([^/]+)/")
-CASE = re.compile(r"^ {4}(\t)?case\s+\w+|^\tcase\s+\w+")
+LIVE_MODULE = re.compile(RULES["live_module"])
+LIVE_PACKAGE = re.compile(RULES["live_package"])
+SWIFT_MODULE = re.compile(RULES["swift_module"])
+CASE = re.compile(RULES["case"])
 
 # Heaviest first: a change takes the verdict of its heaviest file.
-ORDER = ["rebuild", "swift-live", "daemon", "web-live", "strings", "ios-only", "no-app"]
+ORDER = list(RULES["order"])
 
 
 # The keyword and name of a type declaration (TYPE_DECL's line): `struct Reply`, `extension CloudWait.State`.
@@ -472,20 +476,36 @@ def with_kinds(lines, kinds):
             for sign, text, number in lines]
 
 
+def ffi_closure(repo):
+    """The app FFI archive's inputs and the folders under them Cargo never builds into it."""
+    from pathlib import Path  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci"))
+    import cmux_next_route  # noqa: PLC0415 - scripts/ci
+    root = Path(repo).resolve()
+    return {"inputs": list(cmux_next_route.app_ffi_inputs(root)),
+            "excluded": list(cmux_next_route.app_ffi_excluded(root))}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--repo", default=os.getcwd())
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--ffi-closure", action="store_true",
+                        help="print {inputs, excluded}: the paths the app FFI archive is built from "
+                             "(cmux_next_route.app_ffi_inputs, app_ffi_excluded), for the daemon's save router")
     parser.add_argument("--paths-from", help="classify STATUS<TAB>PATH lines by path alone; prints JSON")
     parser.add_argument("base", nargs="?")
     parser.add_argument("head", nargs="?")
     args = parser.parse_args(argv)
+    if args.ffi_closure:
+        print(json.dumps(ffi_closure(args.repo)))
+        return 0
     if args.paths_from:
         text = sys.stdin.read() if args.paths_from == "-" else open(args.paths_from).read()
         print(json.dumps(classify_paths(parse_name_status(text))))
         return 0
     if not (args.base and args.head):
-        parser.error("BASE and HEAD are required without --paths-from")
+        parser.error("BASE and HEAD are required without --paths-from or --ffi-closure")
     result = classify_range(args.repo, args.base, args.head)
     if args.json:
         print(json.dumps(result, indent=2))

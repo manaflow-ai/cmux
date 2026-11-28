@@ -193,6 +193,7 @@ public:
     [[nodiscard]] Result<ListTerminalsResult> list_terminals(const ListTerminalsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> list_workspace_groups(const ListWorkspaceGroupsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<Tree> list_workspaces(const ListWorkspacesRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> live_auto(const LiveAutoRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MachineListeningTcpResult> machine_listening_tcp(const MachineListeningTcpRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<MachineUsageResult> machine_usage(const MachineUsageRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> mark_workspaces_provider_managed(const MarkWorkspacesProviderManagedRequest& request, RequestOptions options = {});

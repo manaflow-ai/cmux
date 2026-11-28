@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b";
+inline constexpr std::string_view kProtocolIrSha256 = "9c616b15bc10cbdb786c6b1fc05a37c3b398c03d902244b89142ec5978078dc1";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -482,6 +482,7 @@ struct ListTerminalCommandsRequest;
 struct ListTerminalsRequest;
 struct ListWorkspaceGroupsRequest;
 struct ListWorkspacesRequest;
+struct LiveAutoRequest;
 struct MachineListeningTcpRequest;
 struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
@@ -4040,6 +4041,12 @@ struct ListWorkspacesRequest {
     Field<std::uint64_t> limit{};
     Field<ListWorkspacesSince> since{};
     friend bool operator==(const ListWorkspacesRequest&, const ListWorkspacesRequest&) = default;
+};
+
+struct LiveAutoRequest {
+    std::string op{};
+    Field<std::string> worktree{};
+    friend bool operator==(const LiveAutoRequest&, const LiveAutoRequest&) = default;
 };
 
 enum class NotificationLevel {
@@ -9881,6 +9888,12 @@ template <>
 struct Codec<ListWorkspacesRequest> {
     static Result<Json> encode(const ListWorkspacesRequest& value);
     static Result<ListWorkspacesRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<LiveAutoRequest> {
+    static Result<Json> encode(const LiveAutoRequest& value);
+    static Result<LiveAutoRequest> decode(const Json& value);
 };
 
 template <>
