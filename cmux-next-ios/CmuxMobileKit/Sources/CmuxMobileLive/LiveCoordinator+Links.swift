@@ -134,9 +134,12 @@ extension LiveCoordinator {
         session.workspaces.onNotification = { [weak session] post in session?.terminalFeed.notificationPosted(post) }
         let outputMac = session.macID
         session.workspaces.onTerminalOutput = { [weak self] tab in self?.onTerminalOutput?(tab, outputMac) }
-        session.acpmux.onWatchEvent = { [weak session] event in
+        session.acpmux.onWatchEvent = { [weak self, weak session] event in
             guard let session else { return }
             let hub = session.acpmux
+            // The chat list arrived: a failed bind's "Chats: ..." no longer stands (Leo, 2026-11-27:
+            // "Stale errors clear on fresh data.").
+            if case .sessionsLoaded = event, session.chatsErrors.fresh() { self?.updateDiagnostics(session) }
             session.feed.handle(event, sessions: hub.sessions)
             // One chat's event updates that chat's entries; only a whole list rebuilds them. Each
             // event used to rebuild both maps over every chat on the main actor (about 30,000
@@ -221,7 +224,7 @@ extension LiveCoordinator {
         session.pairingRetry = nil
         session.pairingRetries = 0
         session.acpmux.approver = nil
-        session.chatsError = nil
+        session.chatsErrors.clear()
         session.daemonErrors.clear()
         // Pairing belongs to one link (review M1): a banner for another Mac, or a
         // stale "waiting" that holds back the workspaces deadline, never carries over.
@@ -305,6 +308,7 @@ extension LiveCoordinator {
         // The chats' channel opens now, behind `auth`: the Mac holds it until the pairing passes,
         // so `initialize` and the first page of chats ride beside the pairing's last round trip
         // instead of after it (ask-48f698fc26). The hub applies nothing before `passed`.
+        let chatsStarted = session.chatsErrors.begin()
         let chats = Task { [weak self] in await self?.bindChats(session, link, passed: passed) }
         guard await passed.value else {
             // Nothing on this link is served now: terminals, files and uploads say
@@ -365,7 +369,7 @@ extension LiveCoordinator {
         await chats.value
         guard session.currentLink === link else { return }
         // A failed chat channel is shown, not only logged.
-        session.chatsError = session.acpmux.isReady ? nil : (session.acpmux.lastError ?? "chats are unavailable")
+        chatsBound(session, startedAt: chatsStarted)
         // A failed bind on a link that stays up is tried again by itself, bounded (before, only
         // the Feed's Retry or a new link bound the chats again).
         if !session.acpmux.isReady { rebindChats(session, link) }
@@ -406,9 +410,10 @@ extension LiveCoordinator {
                 // Another bind under way (the Feed's Retry, a stall's recovery) is left alone.
                 guard session.acpmux.lastError != nil || session.acpmux.connection == nil else { continue }
                 log.info("acpmux: binding the chats again (attempt \(attempt, privacy: .public))")
+                let started = session.chatsErrors.begin()
                 await self.bindChats(session, link, passed: Task { true })
                 guard session.currentLink === link else { return }
-                session.chatsError = session.acpmux.isReady ? nil : (session.acpmux.lastError ?? "chats are unavailable")
+                self.chatsBound(session, startedAt: started)
                 self.phaseChanged(session)
                 if session.acpmux.isReady { return }
             }
@@ -1140,6 +1145,18 @@ extension LiveCoordinator {
     nonisolated static func chatSessionChanged(built: String?, listed: String?) -> Bool {
         guard let listed else { return false }
         return listed != built
+    }
+
+    /// A chats bind that began at STARTEDAT ended: ready is fresh data; a failure stands only when no chat
+    /// list arrived since the bind began (``ConnectionErrorStamp``).
+    func chatsBound(_ session: MacSession, startedAt: UInt64, fallback: String? = "chats are unavailable") {
+        if session.acpmux.isReady {
+            session.chatsErrors.fresh()
+        } else if let error = session.acpmux.lastError ?? fallback {
+            session.chatsErrors.set(error, by: .fetch, startedAt: startedAt)
+        } else {
+            session.chatsErrors.clear()
+        }
     }
 
     /// The Mac sent its workspaces: a "didn't send its workspaces" left by the deadline on a slow

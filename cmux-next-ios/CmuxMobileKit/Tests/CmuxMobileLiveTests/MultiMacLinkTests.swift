@@ -401,7 +401,7 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         await settle { store.macConnection["m1"] == .connected }
         let session = try #require(live.sessions["m1"])
         session.outdated = false
-        session.chatsError = "acpmux channel closed"
+        session.chatsErrors.set("acpmux channel closed", by: .fetch)
         session.daemonErrors.set("list-workspaces reply is not an object", by: .fetch)
         live.phaseChanged(session)
         #expect(store.macLinkStatus["m1"] == nil, "a connected Mac says nothing in its header")
@@ -450,6 +450,32 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(session.daemonError == nil)
         #expect(store.macLinkDiagnostics["m1"]?.contains("didn't send its workspaces") != true)
         #expect(dialer.dialCount("m1") == dials, "cleared by the data, not by a redial")
+    }
+
+    /// Leo, 2026-11-27: "Stale errors clear on fresh data." The chats surface: a bind that timed out leaves
+    /// "Chats: ..." in Diagnostics; the chat list arriving clears it, and that bind's late failure stays dropped.
+    @Test func chatListArrivingClearsAChatsTimeoutError() async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        let session = try #require(live.sessions["m1"])
+        let bind = session.chatsErrors.begin()
+        session.chatsErrors.set("acpmux watch timed out", by: .timeout)
+        live.phaseChanged(session)
+        #expect(store.macLinkDiagnostics["m1"]?.contains("Chats: acpmux watch timed out") == true)
+        let dials = dialer.dialCount("m1")
+        session.acpmux.onWatchEvent?(.sessionsLoaded([]))
+        #expect(session.chatsError == nil)
+        #expect(store.macLinkDiagnostics["m1"]?.contains("Chats:") != true)
+        #expect(dialer.dialCount("m1") == dials, "cleared by the data, not by a redial")
+        // The bind that began before the list arrived fails late: stale, so nothing comes back.
+        #expect(!session.chatsErrors.set("acpmux channel closed", by: .fetch, startedAt: bind))
+        #expect(session.chatsError == nil)
     }
 
     @Test func bannerRetryKeepsItsMacWhenFocusChanges() async throws {
