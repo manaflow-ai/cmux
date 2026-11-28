@@ -26,6 +26,9 @@ async fn explicit_gather_fyi_compacts_then_restarts_at_the_original_cold_deadlin
         provenance.set(super::super::cold_wake::GATHER_META, json!(true));
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let mut accept = |notice| tx.send(notice).unwrap();
+        // Keep the sender connected: a fire-and-forget send may finish in the same
+        // poll that emits acceptance, so racing its result against the ack is invalid.
+        let (_connected, reader) = tokio::sync::watch::channel(false);
         let prompt = hub.inbox_accept(
             &session,
             &blocks,
@@ -37,7 +40,7 @@ async fn explicit_gather_fyi_compacts_then_restarts_at_the_original_cold_deadlin
             Some(&provenance),
             false,
             false,
-            None,
+            Some(reader),
             &mut accept,
         );
         tokio::pin!(prompt);
@@ -166,5 +169,26 @@ async fn cold_batch_consumption_is_saved_before_prompt_and_does_not_resurrect() 
     let session = restart_saved(&hub, &session);
     assert!(session.cold_batch.lock().unwrap().is_none());
     assert_eq!(hub.cold_batch_due(&session, &session.meta(), now_ms()), None, "off opens no batch");
+    super::super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(None));
+}
+
+#[tokio::test]
+async fn cold_batch_first_urgent_turn_after_restart_clears_before_inbox_review() {
+    let (hub, session) = hub_with_chat("cold-batch-first-urgent");
+    open_cold_batch(&hub, &session);
+    let session = restart_saved(&hub, &session);
+    assert!(session.cold_batch.lock().unwrap().is_none(), "not hydrated yet");
+    *session.turn.lock().unwrap() = Some(TurnInfo::prompted(
+        "test",
+        "urgent prompt",
+        "urgent-turn",
+        "urgent-prompt",
+        Control::Local,
+    ));
+    hub.inbox_turn_started(&session);
+    assert!(session.cold_batch_turn.load(Ordering::SeqCst));
+    assert_eq!(hub.store.load(&session.id).unwrap().unwrap().cold_batch_due, None);
+    let session = restart_saved(&hub, &session);
+    assert_eq!(session.meta().cold_batch_due, None, "consumed deadline stays cleared");
     super::super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(None));
 }

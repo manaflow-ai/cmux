@@ -316,6 +316,24 @@ pub(crate) struct Batch {
     pub due: u64,
 }
 
+impl Session {
+    /// Restore under the batch lock on first use, before either scheduling or consuming it.
+    /// An urgent first turn after restart must clear the saved deadline even if no inbox
+    /// review has hydrated the batch yet. Read current metadata, not an admission snapshot.
+    fn restored_cold_batch(&self) -> std::sync::MutexGuard<'_, Option<Batch>> {
+        let mut batch = self.cold_batch.lock().unwrap_or_else(|e| e.into_inner());
+        if batch.is_none() {
+            *batch = self
+                .meta
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .cold_batch_due
+                .map(|due| Batch { due });
+        }
+        batch
+    }
+}
+
 impl Hub {
     /// The deadline of `session`'s cold batch at `now` (unix ms): the open one, else one opened
     /// now when the chat is cold (and its compaction started, module docs). None while warm.
@@ -326,7 +344,7 @@ impl Hub {
         meta: &SessionMeta,
         now: u64,
     ) -> Option<u64> {
-        let mut batch = session.cold_batch.lock().unwrap_or_else(|e| e.into_inner());
+        let mut batch = session.restored_cold_batch();
         // A batch no turn took for a whole window past its deadline (its messages left) is over.
         if let Some(b) = *batch {
             if b.due.saturating_add(MAX_WINDOW_MS) >= now {
@@ -369,7 +387,7 @@ impl Hub {
         let taken = if compaction_runs(session) {
             false
         } else {
-            let mut batch = session.cold_batch.lock().unwrap_or_else(|e| e.into_inner());
+            let mut batch = session.restored_cold_batch();
             let taken = batch.take().is_some();
             if taken {
                 session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold_batch_due = None;
