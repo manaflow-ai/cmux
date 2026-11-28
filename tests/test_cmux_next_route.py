@@ -2268,11 +2268,7 @@ def workflow_step(workflow: str, job: str, step: str) -> dict:
 
 
 class HotAwareWorkflows(unittest.TestCase):
-    """Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we
-    can get it to do". The two feat-cmux-next pull request workflows outside cmux-next.yml that spent Mac time on
-    hot-only pull requests (2026-11-08..14: tooling-tests 0.9 min, fleet-test-compile 0.4 min a PR) no longer do:
-    tooling-tests is always on Linux, and fleet-test-compile reads the router's `--hot-only` verdict on the same
-    merge-commit diff, so its test compile plan is empty. Anything else keeps its route, and a router failure reads as not hot."""
+    """Tooling tests remain on Linux, including hot-only pull requests."""
 
     HOT = ["webviews/src/agent-session/pane.tsx", "cmux-tui/crates/acpmux/src/lib.rs"]
     APP = ["webviews/src/agent-session/pane.tsx", f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"]
@@ -2317,51 +2313,6 @@ class HotAwareWorkflows(unittest.TestCase):
             "github.repository && 'ubuntu-24.04' || 'cmux-linux' }}",
         )
 
-    # fleet-test-compile.yml: the plan step.
-
-    def plan(self, changed: list[str], labels: str = "", fake_plan: str | None = "Packages/macOS/CmuxNext",
-             router: str | None = None) -> tuple[object, dict, str]:
-        """The plan step over `changed`, with a stand-in compile_test_plan.py printing `fake_plan` (None: the real
-        one) and the real router (or `router`'s text in its place)."""
-        import tempfile
-        step = workflow_step("fleet-test-compile.yml", "plan", "Plan the test targets this change reaches")
-        with tempfile.TemporaryDirectory() as work:
-            ci = Path(work) / "scripts" / "ci"
-            ci.mkdir(parents=True)
-            planner = ci / "compile_test_plan.py"
-            if fake_plan is None:
-                planner.symlink_to(ROOT / "scripts" / "ci" / "compile_test_plan.py")
-            else:
-                planner.write_text(f"print({fake_plan!r})\n", encoding="utf-8")
-            if router is None:
-                (ci / "cmux_next_route.py").symlink_to(ROOT / "scripts" / "ci" / "cmux_next_route.py")
-            else:
-                (ci / "cmux_next_route.py").write_text(router, encoding="utf-8")
-            done, values, summary = self.run_step(step_run(step), Path(work), changed, labels)
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        return done, values, summary
-
-    def test_a_hot_only_pull_request_compiles_nothing(self):
-        _, values, summary = self.plan(self.HOT)
-        self.assertEqual(values["needed"], "false")
-        self.assertEqual(values["packages"], "")
-        self.assertIn("Hot-only pull request", summary)
-        self.assertIn("Packages/macOS/CmuxNext", summary)  # what the path plan would have compiled
-        # With the real planner a hot-only diff plans nothing either (its CmuxNext targets come from the router).
-        self.assertEqual(self.plan(self.HOT, fake_plan=None)[1]["needed"], "false")
-
-    def test_any_other_pull_request_keeps_its_plan(self):
-        for changed, labels in ((self.APP, ""), (self.HOT, "full-ci"), (self.HOT, "dev-build")):
-            with self.subTest(changed=changed, labels=labels):
-                _, values, summary = self.plan(changed, labels)
-                self.assertEqual(values["needed"], "true")
-                self.assertEqual(values["packages"], "CmuxNext")
-                self.assertNotIn("Hot-only", summary)
-
-    def test_a_router_failure_keeps_the_plan(self):
-        done, values, _ = self.plan(self.HOT, router="import sys\nsys.exit(3)\n")
-        self.assertEqual(values["needed"], "true")
-        self.assertIn("::warning", done.stdout)
 
 
 if __name__ == "__main__":
