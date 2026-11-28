@@ -6,6 +6,12 @@
 //! (`measured: false`, `unmeasured_reason`), and so does the summary. The frame count is the
 //! capture's own frame loop (the display's rate); `owners` names the page code that asked for
 //! frames, frame-paced timers and animations meanwhile, by source file (webviews frameOwners.ts).
+//!
+//! `cmux app chat perf --page-source`: the app's count of how each chat page made since launch got
+//! its page (AgentPageSourceCounts.swift: the warm spare, a kept page, or a cold build and why), read
+//! with `agent.chat.perf {"page_source": true}`, and `pages`: the chat and New Tab pages built now,
+//! how many are asleep, and how many were let go while hidden. No tab, no capture, so it answers at once and an
+//! unloaded or asleep chat changes nothing; it never passes `reset`, so the read leaves the counts.
 
 use std::fmt::Write as _;
 use std::os::unix::net::UnixStream;
@@ -30,7 +36,15 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     if rest.get(1).map(String::as_str) != Some("perf") {
         return Err(UsageError::new(messages.usage));
     }
-    let options = Options::parse(rest.get(2..).unwrap_or_default(), &["tab", "seconds"], &[])?;
+    let options =
+        Options::parse(rest.get(2..).unwrap_or_default(), &["tab", "seconds"], &["page-source"])?;
+    if options.flag("page-source") {
+        // The counts are the app's, not a tab's, and nothing is sampled: a tab or a window is a mistake.
+        if options.value("tab").is_some() || options.value("seconds").is_some() {
+            return Err(UsageError::new(messages.usage));
+        }
+        return Ok(AppCommand::ChatPageSource { params: json!({ "page_source": true }) });
+    }
     let Some(tab) = options.value("tab").filter(|tab| !tab.is_empty()) else {
         return Err(UsageError::new(messages.usage));
     };
@@ -69,6 +83,113 @@ pub(super) fn run(
         }
         Err(error) => super::super::wire::print_local_error(&error, global.output, 3),
     }
+}
+
+/// The app answers the counts at once; the CLI keeps the control plane's usual short wait.
+const PAGE_SOURCE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Calls `agent.chat.perf {"page_source": true}` and prints the counts (`--json`) or the summary.
+pub(super) fn run_page_source(global: &GlobalArgs, stream: &mut UnixStream, params: Value) -> i32 {
+    match super::wait::request(global, stream, METHOD, &params, Some(PAGE_SOURCE_TIMEOUT)) {
+        Ok(Ok(report)) => match global.output {
+            OutputMode::Human => {
+                print!(
+                    "{}",
+                    page_source_human(&report, &crate::localization::catalog().app_control)
+                );
+                0
+            }
+            _ => super::super::wire::print_local_success(&report, global.output),
+        },
+        Ok(Err(mut error)) => {
+            if super::error_code(&error) == Some("method_not_found") {
+                super::skew::annotate(stream, METHOD, &mut error);
+            }
+            super::super::wire::print_local_error(&error, global.output, 1)
+        }
+        Err(error) => super::super::wire::print_local_error(&error, global.output, 3),
+    }
+}
+
+/// `reason count, reason count` from a `{reason: count}` map, the largest first (then by name), or
+/// None when it is empty.
+fn reasons(map: &Value) -> Option<String> {
+    let mut pairs: Vec<(&str, u64)> = map
+        .as_object()?
+        .iter()
+        .map(|(reason, count)| (reason.as_str(), count.as_u64().unwrap_or(0)))
+        .collect();
+    if pairs.is_empty() {
+        return None;
+    }
+    pairs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    Some(
+        pairs
+            .iter()
+            .map(|(reason, count)| format!("{reason} {count}"))
+            .collect::<Vec<_>>()
+            .join(", "),
+    )
+}
+
+/// The summary `cmux app chat perf --page-source` prints without `--json`. An app from before the
+/// counts answers with a capture refusal or an object without `page_source`; that says so.
+pub(super) fn page_source_human(report: &Value, catalog: &AppControlMessages) -> String {
+    let messages = &catalog.chat_perf;
+    let counts = &report["page_source"];
+    let mut out = String::new();
+    if !counts.is_object() {
+        let _ = writeln!(out, "{}", messages.page_source_unsupported);
+        return out;
+    }
+    let _ = writeln!(
+        out,
+        "{}",
+        fill(
+            messages.page_source,
+            &[
+                ("spare", number(counts, &["spare_adopted"])),
+                ("kept", number(counts, &["kept"])),
+                ("cold", number(counts, &["cold"])),
+            ],
+        )
+    );
+    let _ = writeln!(
+        out,
+        "{}",
+        fill(
+            messages.page_source_spare,
+            &[
+                ("empty", number(counts, &["spare_empty"])),
+                ("unready", number(counts, &["spare_unready"])),
+                ("refused", number(counts, &["spare_refused"])),
+            ],
+        )
+    );
+    if let Some(list) = reasons(&counts["cold_why"]) {
+        let _ = writeln!(out, "{}", fill(messages.page_source_cold_why, &[("reasons", list)]));
+    }
+    if let Some(list) = reasons(&counts["refused_why"]) {
+        let _ = writeln!(out, "{}", fill(messages.page_source_refused_why, &[("reasons", list)]));
+    }
+    // The pages held now and let go (an app from before them answers the counts alone).
+    let pages = &report["pages"];
+    if pages.is_object() {
+        let _ = writeln!(
+            out,
+            "{}",
+            fill(
+                messages.page_source_pages,
+                &[
+                    ("chat", number(pages, &["chat"])),
+                    ("frozen", number(pages, &["frozen"])),
+                    ("new_tab", number(pages, &["new_tab"])),
+                    ("released", number(pages, &["released"])),
+                ],
+            )
+        );
+    }
+    out
 }
 
 fn number(value: &Value, path: &[&str]) -> String {

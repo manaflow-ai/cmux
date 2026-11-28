@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "9ec9944a25f9ad6c03f7f5341e9a5796ccb4620d79b93cf1ddf1233c074d67c1";
+pub const ir_sha256 = "0a87f87c04ba4020da21634a928be5f8706f9762ad10f0dc140e770aa1e53e0b";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -411,6 +411,8 @@ pub const ChiefWorkTask = struct {
 
 pub const ClientInfo = struct {
     attached: []const Id,
+    /// The capabilities this connection declared in set-client-info that the daemon recognized, sorted (for example agent-cli-hybrid-v1). Absent from daemons older than this field.
+    capabilities: ?[]const []const u8 = null,
     client: u64,
     connected_seconds: u64,
     kind: wire.Nullable([]const u8),
@@ -418,6 +420,10 @@ pub const ClientInfo = struct {
     self: bool,
     sizes: []const ClientSize,
     transport: ClientTransport,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "capabilities",
+    };
 };
 
 pub const ClientSize = struct {

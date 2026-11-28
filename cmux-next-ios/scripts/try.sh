@@ -278,8 +278,10 @@ for name, sel in (("built ahead or cached", [r for r in ok if r["how"].startswit
 PY
 }
 
-# The checks cmux-next-ios-try-ahead.yml reports on each iPhone PR head: the fleet job, and the verdict, which
-# exists only when the fleet built the head (success) or its device app failed to build (failure).
+# The checks cmux-next-ios-try-ahead.yml reports on each iPhone PR head: the fleet job, and the verdict. Detached
+# (the default) the controller posts the verdict when the step ends (report_check.go): success built, failure did
+# not build, neutral no verdict; between the fleet job's end and that post the row reads "none", and a tap attaches
+# to the same step under its key. Waiting, the workflow's verdict job posts it only for built or failed.
 TRY_AHEAD_CHECK="cmux Dev try build (ahead)"
 TRY_FLEET_CHECK="cmux Dev try build (fleet)"
 

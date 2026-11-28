@@ -10,7 +10,9 @@ import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineSt
 import { rpcFailureReason } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { saveSendTrace, SEND_TRACE_SETTLE_MS } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString, agentReady, milestoneLines, spareTaken } from "./cloud-journey";
+import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt,
+  journeyTextPrompt,
+  journeyTextReply, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString, agentReady, milestoneLines, spareTaken } from "./cloud-journey";
 import { oidcSignIn, ownerKindGated, startAfterOwnerKind, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_GATE_EXIT, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
@@ -590,6 +592,13 @@ server.shutdown()
       rmSync(dir, { recursive: true, force: true });
     }
   });
+  test("Codex's reserved home chat turn is text only: Codex offers no Read, and its shell waits under policy ask", () => {
+    // Prod run 46090508199: the Read came back "unsupported call: Read" and the reply said "The tool printed .".
+    const turn = JOURNEY_STUB_SCRIPT.turns.find((t) => new RegExp(t.match).test(journeyTextPrompt("Name the planet.")));
+    expect(turn?.steps).toEqual([{ text: journeyTextReply("{{nonce}}") }]);
+    expect(new RegExp(turn!.match).test(journeyReadPrompt("Name the planet.", "/tmp/x"))).toBe(false);
+    expect(journeyTextReply("3bde18dfd6b9")).toStartWith("Stub reply 3bde18dfd6b9. ");
+  });
   test("a team machine gets the DEV creator allowance, as a nightly build copies", () => {
     const team = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), true);
     expect(team.preflight).toContain("owner|team");
@@ -826,6 +835,16 @@ describe("cloud journey: leaked machine sweep", () => {
     }
     expect(seen).toContain("cmux-vm.yml");
     expect(long).toContain("cloud-resume-matrix.yml");
+  });
+
+  test("a CI run's machines carry a ttl past any run that named them; a hand run's none unless asked", () => {
+    const ci = { GITHUB_ACTIONS: "true" };
+    expect(journey.journeyMachineTtl(false, ci)).toEqual({ ttl_seconds: STALE_JOURNEY_MS / 2 / 1000 });
+    expect(journey.journeyMachineTtl(true, ci)).toEqual({ ttl_seconds: LONG_JOURNEY_MS / 1000 });
+    expect(journey.journeyMachineTtl(false, {})).toEqual({});
+    expect(journey.journeyMachineTtl(false, { CLOUD_JOURNEY_MACHINE_TTL_S: "3600" })).toEqual({ ttl_seconds: 3600 });
+    expect(journey.journeyMachineTtl(false, { ...ci, CLOUD_JOURNEY_MACHINE_TTL_S: "0" })).toEqual({});
+    expect(() => journey.journeyMachineTtl(false, { CLOUD_JOURNEY_MACHINE_TTL_S: "60" })).toThrow(/300 to 604800/);
   });
 
   test("a long run's machines (` long`) get the long bound; a short run's leak is swept after 3 h", () => {
@@ -2995,8 +3014,15 @@ except probe.OutOfTime as cut:
       polls++;
       return { status: 503, body: {} };
     };
-    await expect(settleBackground(accepted, "http://fs", {}, Date.now() + 60_000, 1, down)).rejects.toThrow("no answer");
-    expect(polls).toBe(5);
+    await expect(settleBackground(accepted, "http://fs", {}, Date.now() + 5, 1, down, 200)).rejects.toThrow("provider outage");
+    expect(polls).toBeGreaterThan(5);
+    // Rebake 45960390204 (2026-11-27): 503 to every poll for 9 min while the command ran on; it is waited out.
+    let n = 0;
+    const overloaded = async () => (++n <= 9 ? { status: 503, body: {} } : { status: 200, body: { statusCode: 0 } });
+    expect((await settleBackground(accepted, "http://fs", {}, Date.now() + 5, 1, overloaded, 5_000)).status).toBe(200);
+    expect(n).toBe(10);
+    const pending = async () => ({ status: 202, body: {} });
+    await expect(settleBackground(accepted, "http://fs", {}, Date.now() + 20, 1, pending, 200)).rejects.toThrow("by the deadline");
     const refused = await settleBackground(accepted, "http://fs", {}, Date.now() + 60_000, 1, async () => ({ status: 409, body: { error: "busy" } }));
     expect(refused.status).toBe(409);
     await expect(settleBackground({ status: 202, body: { requestId: "../x" } }, "http://fs", {}, Date.now() + 60_000, 1, down)).rejects.toThrow("names no request");
