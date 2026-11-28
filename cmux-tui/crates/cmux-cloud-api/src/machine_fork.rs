@@ -12,7 +12,7 @@
 use serde_json::{Map, Value, json};
 
 use super::chat::is_path_id;
-use super::previews::{answered, client};
+use super::previews::{answered, platform_client};
 use super::{Failure, Request, optional_text, text};
 
 /// A fork is a snapshot plus a restore on the carrier: about 6.4 s on staging (cmux-platform
@@ -66,7 +66,7 @@ pub async fn fork_machine(request: &Request, args: &Map<String, Value>) -> Resul
     }
     let body: cmux_cloud_client::types::MachinesForkBody = serde_json::from_value(body)
         .map_err(|e| Failure::Transport(format!("machine.fork body: {e}")))?;
-    let client = client(request)?;
+    let client = platform_client(request)?;
     let on =
         machine.parse().map_err(|_| Failure::Transport(format!("not a path id: {machine}")))?;
     let sent = async { client.machines_fork(&on, &body).await.map(|r| json!(r.into_inner())) };

@@ -408,20 +408,104 @@
    "affects": [
     ".github/workflows/cmux-next-motion-frames.yml",
     "scripts/ci/frame-pacing/motion_frames.py",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+Motion*.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+Visibility.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+SnapFrame.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/LayoutPaneContentProvider.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneCommitMotion*.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneZoomDim*.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/LayoutModel+PaneClose.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/PendingPaneClose.swift",
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneCommitMotion*.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneController+PaneClose.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/**"
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneController+PaneClose.swift"
    ],
-   "affects_why": "golden.py's motion_frames (scripts/ci/frame-pacing/motion_frames.py) records Cmd-Shift-Enter (split zoom), Cmd-P (the palette) and Cmd-W (a pane's close) on an owned Mac; the files listed are those gestures' motion and what each pane's content sees during it. A change touching none of them moves no frame it records.",
+   "areas": [
+    "Pane layout",
+    "Palette and omnibar"
+   ],
+   "affects_why": "golden.py's motion_frames (scripts/ci/frame-pacing/motion_frames.py) records Cmd-Shift-Enter (split zoom), Cmd-P (the palette) and Cmd-W (a pane's close) on an owned Mac. It reads the CI area map (docs/benches/relevance-map.toml) instead of a path list: a change in the Pane layout area (CmuxNextLayout: split zoom, a pane's close) or the Palette and omnibar area (CmuxNextPalette) starts it, and so does a change to the workflow, the recorder, or the two motion files outside those areas (CmuxNextDesign's PaneCommitMotion, CmuxNextApp's pane close), which `affects` keeps. A change in no motion area moves no frame it records.",
+   "land_affected": true,
+   "land_affected_why": "A pull request that touches a motion area's files gets its frames run on the affected landing tier too (Leo, 2026-11-27: \"These run only when Cmd+W, the palette or split zoom are touched\"): before this, only the hourly full tier ran it, so the PR that changed a gesture never measured it. It costs one 5-minute Linux dispatcher; the Mac run starts only while an owned Mac is free and gates nothing (fail open).",
    "skip_docs_only": true
+  },
+  "cmux-next-sidebar-bench.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "paths": [
+    "Packages/macOS/CmuxNext/Sources/**/Sidebar*",
+    "Packages/macOS/CmuxNext/Sources/**/*Chief*",
+    "Packages/macOS/CmuxNext/Sources/**/HomeRules*",
+    "Packages/macOS/CmuxNext/Sources/**/WelcomeRule*",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/Sidebar*Bench*.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarChief*.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefFaceFlushBench*.swift",
+    ".github/workflows/cmux-next-sidebar-bench.yml"
+   ],
+   "affects": [
+    "Packages/macOS/CmuxNext/Sources/**/Sidebar*",
+    "Packages/macOS/CmuxNext/Sources/**/*Chief*",
+    "Packages/macOS/CmuxNext/Sources/**/HomeRules*",
+    "Packages/macOS/CmuxNext/Sources/**/WelcomeRule*",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/Sidebar*Bench*.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarChief*.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefFaceFlushBench*.swift",
+    ".github/workflows/cmux-next-sidebar-bench.yml"
+   ],
+   "affects_why": "SidebarChiefLagTests and ChiefFaceFlushBenchTests read the sidebar row feed and bridge (Sources/**/Sidebar*), the Chief faces and pet settings (*Chief*), the Home rules and engine they flush through, and the bench files themselves; a change touching none of them moves no SIDEBAR-CHIEF-LAG number.",
+   "skip_docs_only": true
+  },
+  "bench-relevance-pr.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "affects": [
+    "webviews/src/**",
+    "webviews/bench/**",
+    "webviews/package.json",
+    "webviews/bun.lock",
+    "scripts/bench/**",
+    "docs/benches/**",
+    ".github/workflows/bench-relevance-pr.yml"
+   ],
+   "affects_why": "cmux-bench for-paths --run measures only the areas of docs/benches/relevance-map.toml with a Linux `run` bench: New Tab (web), Diff view and Model picker search under webviews/src (benches in webviews/bench, run with the webviews packages), and Bench tooling (scripts/bench, docs/benches). A change touching none of those has no bench to compare with its nightly baseline.",
+   "skip_docs_only": true,
+   "land_affected": true
+  },
+  "first-run-setup-check.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "paths": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView+SetupCard.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextImportCards/ClassicImportPrompt.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstRunSetupTests.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SkipOnboardingLaunchTests.swift",
+    "scripts/measure/first-run-setup-walk.sh",
+    "scripts/measure/first-run-setup-walk.swift",
+    "scripts/cmux-next/side-instance.sh",
+    ".github/workflows/first-run-setup-check.yml"
+   ],
+   "affects": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView+SetupCard.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextImportCards/ClassicImportPrompt.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstRunSetupTests.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SkipOnboardingLaunchTests.swift",
+    "scripts/measure/first-run-setup-walk.sh",
+    "scripts/measure/first-run-setup-walk.swift",
+    "scripts/cmux-next/side-instance.sh",
+    ".github/workflows/first-run-setup-check.yml"
+   ],
+   "affects_why": "The walk launches the head's built app and reads the first-run setup card (CmuxNextOnboarding, the app's Onboarding service, the Home setup card and the Classic import prompt it hosts); the harness is the measure script, its Accessibility reader and side-instance.sh. A change elsewhere that breaks first run is still the nightly onboarding walk's to catch."
   }
  }
 }

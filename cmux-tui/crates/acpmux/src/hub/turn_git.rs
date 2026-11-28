@@ -78,6 +78,7 @@ impl Hub {
         if let Some(o) = msg.as_object_mut() {
             o.extend(git);
             super::verify::stamp(&session.id, o);
+            super::speculative::stamp(&session.id, o);
             // What this turn's prefetch attached and how much of it was read anyway (`prefetch.rs`).
             if let Some(turn) = o.get("turnId").and_then(Value::as_str).map(str::to_owned) {
                 o.extend(self.take_prefetch_counters(session, &turn));
@@ -94,6 +95,7 @@ impl Hub {
         super::turn_checkpoint::count(&mut msg);
         self.cache_alarm(session, &mut msg);
         self.turn_rules_end(session, &mut msg);
+        self.plan_first_end(session, &mut msg);
         self.sidecars_end(session, &mut msg);
         super::best_of_n::stamp(&session.id, &mut msg);
         // The turn's edits, tests and PRs as one card (`turn_artifacts.rs`).
