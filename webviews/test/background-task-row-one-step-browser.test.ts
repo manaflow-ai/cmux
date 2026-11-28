@@ -149,7 +149,7 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
         }),
     );
 
-  const open = async (browser: Browser) => {
+  const open = async (browser: Browser, delay = REPLY_MS, failLists = 0) => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
     await installPaintedFrames(page);
@@ -158,13 +158,16 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
     await page.waitForFunction(() => "__showRawRows" in window);
     await page.evaluate(async () => (window as unknown as { __loadStrings(): Promise<void> }).__loadStrings());
     await page.evaluate(
-      ({ outputs, delay }) =>
+      ({ outputs, delay, failLists }) =>
         (
-          window as unknown as { __backgroundOutputs(outputs: Record<string, string>, delay: number): void }
-        ).__backgroundOutputs(outputs, delay),
+          window as unknown as {
+            __backgroundOutputs(outputs: Record<string, string>, delay: number, failLists: number): void;
+          }
+        ).__backgroundOutputs(outputs, delay, failLists),
       {
         outputs: { "bg-1": "checks green\n", [NOTE]: OUTPUT, "bg-3": "review SHIP\n" },
-        delay: REPLY_MS,
+        delay,
+        failLists,
       },
     );
     return page;
@@ -188,6 +191,27 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
         },
         undefined,
         { timeout: 3_000 },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
+  /// Longer than a click holds for a read (BackgroundTaskNote OPEN_HOLD_MS, 1.5 s), per reply.
+  const SLOW_REPLY_MS = 900;
+  /// The note as the reader finds it after it sat on screen while its first read failed: as long as
+  /// a read again, three failed lists and three whole reads (list and tail) at SLOW_REPLY_MS, take,
+  /// plus the backoff between them. A build that never reads again starts none, so this gives up.
+  const retriedReads = (page: Page) =>
+    page
+      .waitForFunction(
+        () => {
+          const reads = (
+            window as unknown as { __backgroundReads(): { tails: number; answered: number; failed: number } }
+          ).__backgroundReads();
+          return reads.failed >= 3 && reads.answered >= 3 && reads.tails === reads.answered;
+        },
+        undefined,
+        { timeout: 15_000 },
       )
       .then(
         () => true,
@@ -278,11 +302,12 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
     belowMotions: number;
     lastChangeAfterFinal: number;
   };
-  const measure = async (page: Page, sat: boolean): Promise<Result> => {
+  const measure = async (page: Page, sat: boolean | ((page: Page) => Promise<unknown>)): Promise<Result> => {
     await show(page);
     await settle(page);
     // The note as the reader finds it: on screen a while, or clicked as it arrives.
-    if (sat) await readsAnswered(page);
+    if (sat === true) await readsAnswered(page);
+    else if (sat) await sat(page);
     await record(page);
     await click(page);
     await whole(page);
@@ -341,6 +366,14 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
       await page.close();
       console.log(line(name, "clicked as it arrives", fresh));
       out.push(...failures(`${name} clicked as it arrives`, fresh, REPLY_MS * 2 + 250));
+      // On screen a while on a daemon too busy to answer: the first read of each task failed and
+      // every reply takes longer than a click holds (Leo's 11-28 frames: the stub, then the card).
+      // The note reads again while it sits, so the click finds the read answered.
+      page = await open(browsers[name]!, SLOW_REPLY_MS, 3);
+      const busy = await measure(page, retriedReads);
+      await page.close();
+      console.log(line(name, "after a failed read on a busy daemon", busy));
+      out.push(...failures(`${name} after a failed read on a busy daemon`, busy, 120));
       expect(out).toEqual([]);
     });
   }

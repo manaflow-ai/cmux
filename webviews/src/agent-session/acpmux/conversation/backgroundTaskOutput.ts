@@ -165,6 +165,11 @@ export function prefetchBackgroundTaskOutput(
 
 /// How long a note must stay drawn before it reads its task (a fast scroll past reads nothing).
 export const BACKGROUND_PREFETCH_DELAY_MS = 150;
+/// The first wait before a drawn note reads again a read that failed or found its task running; it
+/// doubles each time (0.5, 1, 2, 4, 8 s), and a note reads again at most BACKGROUND_REREAD_LIMIT times
+/// (a task that never ends reads a bounded number of times however long its note stays drawn).
+export const BACKGROUND_REREAD_MS = 500;
+export const BACKGROUND_REREAD_LIMIT = 5;
 
 export type BackgroundTaskRead = {
   output: BackgroundTaskOutput;
@@ -201,11 +206,28 @@ export function useBackgroundTaskOutput(toolCallId: string, wanted: boolean): Ba
     return read;
   }, [reader, toolCallId, key]);
   const missing = output === undefined && Boolean(key);
+  // A read that failed (a daemon too busy to answer) or found the task still running is read again
+  // while the note stays drawn, after a backoff, so the reader's click finds it answered. Before,
+  // only the click read again; on a busy daemon that read outlasted the click's hold, so the note
+  // opened to its stub and grew into the card when the read came (Leo, 11-28 frames: "3 background
+  // tasks finished", a note opening in two stages).
+  const unsettled = Boolean(key) && output !== undefined && (output.unread === true || output.running === true);
+  const retries = useRef({ key: "", count: 0 });
+  if (retries.current.key !== key) retries.current = { key, count: 0 };
   useEffect(() => {
-    if (!wanted || !missing) return;
-    const timer = setTimeout(request, BACKGROUND_PREFETCH_DELAY_MS);
+    if (!wanted) return;
+    if (missing) {
+      const timer = setTimeout(request, BACKGROUND_PREFETCH_DELAY_MS);
+      return () => clearTimeout(timer);
+    }
+    if (!unsettled || retries.current.count >= BACKGROUND_REREAD_LIMIT) return;
+    const delay = BACKGROUND_REREAD_MS * 2 ** retries.current.count;
+    const timer = setTimeout(() => {
+      retries.current.count += 1;
+      request();
+    }, delay);
     return () => clearTimeout(timer);
-  }, [wanted, missing, request]);
+  }, [wanted, missing, unsettled, output, request]);
   // A read that failed, or found the process still running (the harness said it ended before the
   // registry wrote its exit), is not final: a click reads again rather than opening what it has.
   return {
