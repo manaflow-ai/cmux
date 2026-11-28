@@ -190,6 +190,8 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
                 app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
                 app.launchEnvironment["CMUX_MOBILE_DEV_SERVICE_PUSH"] = Self.push(kind)
                 app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-tab", "home", "-cmux-mobile-no-restore"]
+                // The address capsule this test drives (Settings › Horizontal tabs off).
+                app.launchArguments += ["-cmuxMobile.settings.horizontalTabs", "<false/>"]
                 app.launch()
                 let allow = springboard.alerts.buttons["Allow"].firstMatch
                 if allow.waitForExistence(timeout: 8) {

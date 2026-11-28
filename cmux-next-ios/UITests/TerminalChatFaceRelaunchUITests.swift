@@ -31,6 +31,8 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_MOCK_TERMINAL_AGENTS"] = "1"
         app.launchArguments += ["-cmux-mobile-tab", "home", "-cmux-mobile-no-restore",
                                 "-cmuxMobile.settings.terminalChatToggle", "YES"]
+        // The address capsule this test drives (Settings › Horizontal tabs off).
+        app.launchArguments += ["-cmuxMobile.settings.horizontalTabs", "<false/>"]
         app.launch()
         let choose = app.scrollViews["setup.teams.choose"]
         if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }

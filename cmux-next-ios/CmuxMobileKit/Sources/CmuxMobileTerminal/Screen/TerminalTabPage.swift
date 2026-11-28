@@ -286,10 +286,9 @@ public struct TerminalTabCard: View {
     private var cardContent: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
-                // The page's ground: the Mac's wallpaper under the terminal background's tint, else that background.
-                CmuxMobileBackdrop(background: Color(uiColor: (model.hostTheme
-                        ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
-                    ?? CmuxMobileGhosttyApp.background))
+                // The page's ground: the Mac's wallpaper under the terminal background's tint, else that
+                // background (`pageBackground`, which the top bar's band paints too).
+                CmuxMobileBackdrop(background: Color(uiColor: model.pageBackground))
                 switch content {
                 case .screenText:
                     TerminalCardScreenText(text: model.cardScreenText ?? "", topInset: insets.top, width: geo.size.width)

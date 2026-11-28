@@ -598,6 +598,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         return model.flatMap { $0.offlineSubtitle($0.connectionState.pillSubtitle) }
     }
 
+    /// A read (no host is created): the open page's own background, else its Mac's theme.
+    func pageBackground(for tab: WorkspaceTab, in workspace: Workspace) -> Color? {
+        Color(uiColor: hosts[tab.id]?.model.pageBackground ?? TerminalModel.pageBackground(macID: workspace.macID))
+    }
+
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {
         host(for: tab, in: workspace).model.focusComposer()
     }
@@ -1027,6 +1032,7 @@ struct TerminalTabSlotCard: View {
     /// picture this card reads.
     let snapshots: TabCardSnapshots
     let insets: EdgeInsets
+    @Environment(\.workspaceTabCardInsets) private var pageInsets
 
     /// The tab's last-known picture in `snapshots`, keyed as the grid keys it (the account, the
     /// tab's Mac and the tab's id), asked of the disk again if the cache let it go.
@@ -1041,7 +1047,7 @@ struct TerminalTabSlotCard: View {
         // The tab's last-known picture (its Mac's thumbnail, or one this phone drew) stands in for the
         // labeled placeholder, and is asked of the disk again if the cache let it go.
         let known = Self.lastKnown(in: snapshots, macID: slot.host.model.hostMacID, tabID: tabID)
-        let card = TerminalTabCard(model: slot.host.model, insets: insets, fallback: known)
+        let card = TerminalTabCard(model: slot.host.model, insets: pageInsets ?? insets, fallback: known)
         let content = card.content
         card
             .id(ObjectIdentifier(slot.host))

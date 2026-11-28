@@ -134,6 +134,9 @@ struct TabsToolbar: View {
     /// The system cancelled a bar drag on this axis (the app left the
     /// foreground, a system gesture took the touch): no end comes.
     var onSwipeCancelled: (BarSwipe.Axis) -> Void = { _ in }
+    /// The paged strip in place of the address capsule (`TabsKitToolbarStyle.pagedTabs`, top
+    /// bar only); nil keeps the capsule.
+    var strip: ToolbarStrip? = nil
 
     @State private var labelWidth: CGFloat = 69
     /// The bar drag's direction, fixed once it moved past the slop.
@@ -147,10 +150,22 @@ struct TabsToolbar: View {
     @State private var progressShown: CGFloat = 0
     @State private var progressOpacity: Double = 0
     @Environment(\.tabsKitTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
 
     static let defaultPlaceholder = "Search or enter website"
 
+    private var showsStrip: Bool { strip != nil && !chrome.editing && theme.metrics.barEdge == .top }
     private var collapsed: Bool { chrome.bar == .collapsed && !chrome.editing }
+    /// Over the active page's band the bar takes the band's light or dark, as the status bar
+    /// does: a black terminal in light mode reads white chip titles, not black ones.
+    private var bandScheme: ColorScheme? {
+        guard showsStrip, let color = tab?.pageColor else { return nil }
+        // Resolved for the screen's own appearance: `UITraitCollection.current` is not dark while
+        // SwiftUI draws, so an adaptive color (the chat's background) read as its light value and
+        // turned the bar light in dark mode: the neighbors' titles went black on black.
+        let trait = UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light)
+        return TabsKitStatusBarStyle(over: UIColor(color).resolvedColor(with: trait)) == .lightContent ? .dark : .light
+    }
     private var historyState: BackForwardState { BackForwardState(tab: tab, sidesVisible: chrome.sidesVisible, editing: chrome.editing) }
     private var splitBack: Bool { historyState.forwardShown }
     private var address: TabsKitAddress { tab?.address ?? .placeholder(Self.defaultPlaceholder) }
@@ -183,14 +198,34 @@ struct TabsToolbar: View {
                 .position(x: row.midX, y: row.midY)
                 .allowsHitTesting(!collapsed)
                 .accessibilityHidden(true)
+            if showsStrip, let strip {
+                // In the screen's own appearance: New Tab's blank page is the kit's background.
+                stripBand(strip, layout: layout)
+                    .environment(\.colorScheme, colorScheme)
+            }
+            if showsStrip, let strip {
+                // Its chips fade out at both ends before Back and Tabs.
+                // Between Back and Tabs, as Conductor's: a chip is gone by the side buttons' edge.
+                let m = theme.metrics
+                let frame = CGRect(x: layout.back.maxX + m.gap / 2, y: layout.capsule.minY,
+                                   width: layout.right.minX - layout.back.maxX - m.gap, height: layout.capsule.height)
+                PagedTabStrip(entries: strip.entries, activeID: strip.activeID, restToken: strip.restToken, frame: frame, screenWidth: size.width,
+                              onMove: strip.onMove, onRelease: strip.onRelease, onActiveTap: {
+                                  if features.contains(.addressEditing) { onBeginEditing() } else if features.contains(.pageMenu) { onMenu() }
+                              })
+                    .opacity(chrome.menuOpen ? 0.3 : 1)
+                    .position(x: frame.midX, y: frame.midY)
+            }
             backButton(layout.back)
                 .scaleEffect(collapsed ? 0.8 : 1)
                 .opacity(features.contains(.history) ? sideOpacity : 0)
                 .position(x: layout.back.midX, y: layout.back.midY)
                 .allowsHitTesting(historyState.visible)
                 .accessibilityHidden(!historyState.visible)
-            capsule(layout.capsule)
-                .position(x: layout.capsule.midX, y: layout.capsule.midY)
+            if !showsStrip {
+                capsule(layout.capsule)
+                    .position(x: layout.capsule.midX, y: layout.capsule.midY)
+            }
             rightButton(layout.right)
                 .scaleEffect(collapsed ? 0.8 : 1)
                 .opacity(chrome.editing ? 1 : sideOpacity)
@@ -199,6 +234,7 @@ struct TabsToolbar: View {
                 .accessibilityHidden(!chrome.editing && sideOpacity == 0)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .environment(\.colorScheme, bandScheme ?? colorScheme)
         .background(alignment: .topLeading) {
             // Width of the label (and its glyph) at 17 pt; the pill hugs it.
             labelContent(m).fixedSize().hidden()
@@ -209,6 +245,44 @@ struct TabsToolbar: View {
         .animation(theme.motion.resolve(.easeInOut(duration: 0.2)), value: tab?.navigation.canGoBack == true)
         .onChange(of: loading, initial: true) { _, loading in updateProgress(loading: loading) }
         .onChange(of: tab?.navigation.progress ?? 1) { _, _ in updateProgress(loading: loading) }
+    }
+
+    // MARK: Strip band
+
+    /// Conductor's bar sits on the page's own color, which fades out below it (the top scroll
+    /// edge effect): the page scrolls under a calm band, never under the chips' text. Each
+    /// page's band is its own `TabsKitTab.pageColor` and slides with that page during a strip
+    /// swipe, so a terminal's or a chat's background runs up under the bar to the top of the
+    /// screen with no seam. A page with no color has no band. New Tab's blank page is the
+    /// kit's page background.
+    private func stripBand(_ strip: ToolbarStrip, layout: ToolbarLayout) -> some View {
+        let bottom = layout.capsule.maxY + 14
+        let active = strip.entries.firstIndex { $0.id == strip.activeID } ?? 0
+        let offset = chrome.swiping ? chrome.swipeOffset : 0
+        let pages = strip.entries.enumerated().compactMap { index, entry -> (id: String, x: CGFloat, color: Color)? in
+            let x = CGFloat(index - active) * size.width + offset
+            let color: Color? = switch entry {
+            case .tab(let tab): tab.pageColor
+            case .newTab: theme.colors.pageBackground
+            }
+            guard abs(x) < size.width, let color else { return nil }
+            return (entry.id, x, color)
+        }
+        return ZStack(alignment: .topLeading) {
+            ForEach(pages, id: \.id) { page in
+                page.color
+                    .frame(width: size.width, height: bottom)
+                    .offset(x: page.x)
+            }
+        }
+        .frame(width: size.width, height: bottom, alignment: .topLeading)
+        .clipped()
+        .mask(LinearGradient(stops: [.init(color: .black, location: 0),
+                                     .init(color: .black, location: (layout.capsule.maxY - 6) / bottom),
+                                     .init(color: .clear, location: 1)],
+                             startPoint: .top, endPoint: .bottom))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     // MARK: Back / forward
@@ -556,6 +630,16 @@ struct TabsToolbar: View {
             }
         }
     }
+}
+
+/// What the toolbar's paged strip shows and reports (`PagedTabStrip`).
+struct ToolbarStrip {
+    var entries: [StripEntry]
+    var activeID: String?
+    /// Bumped to send the strip back to the active chip (a New Tab that failed).
+    var restToken: Int
+    var onMove: (CGFloat) -> Void
+    var onRelease: (Int) -> Void
 }
 
 /// Glass buttons highlight through the interactive glass itself; the

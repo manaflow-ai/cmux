@@ -57,6 +57,22 @@ public struct TabsKitTheme: Sendable {
         /// Safari's default is the bottom; an app whose bottom belongs to a composer
         /// puts it at the top, where it never hides behind the keyboard.
         public var barEdge: TabsKitBarEdge = .bottom
+        /// What the top bar's middle shows: Safari's address capsule, or the paged strip of the
+        /// active tab's pane's tabs (`pagedTabs`, Conductor's horizontal tabs). The grid, Back and
+        /// Tabs stay as they are in both.
+        public var toolbarStyle: TabsKitToolbarStyle = .address
+        /// The paged strip's chips (Conductor's iPhone toolbar measured at 3x, scaled to the kit's
+        /// 48 pt controls): 40 pt glass capsules 10 pt apart, 16 pt side padding, an 8 pt gap
+        /// between the glyph and a 15 pt medium title, at most 200 pt wide.
+        public var stripChipHeight: CGFloat = 42
+        public var stripChipGap: CGFloat = 10
+        public var stripChipPadding: CGFloat = 16
+        public var stripChipIconGap: CGFloat = 7
+        public var stripChipFont: CGFloat = 15
+        public var stripChipMaxWidth: CGFloat = 200
+        /// The strip runs under Back and Tabs; over this many points from each end its chips
+        /// fade out (Conductor's chips are gone at the back circle's edge, solid about 30 pt in).
+        public var stripEdgeFade: CGFloat = 30
         /// The top bar's distance below the status bar.
         public var topBarGap: CGFloat = 2
         /// The top bar's side inset: the grid header's (20), so Back sits in one place on page and grid.
@@ -139,6 +155,17 @@ public struct TabsKitTheme: Sendable {
             UIAccessibility.isReduceMotionEnabled ? .easeInOut(duration: 0.18) : animation
         }
     }
+}
+
+/// What the page toolbar's middle shows (`TabsKitTheme.Metrics.toolbarStyle`).
+public enum TabsKitToolbarStyle: Sendable, Equatable {
+    /// Safari's address capsule (title, subtitle, page menu, reload).
+    case address
+    /// A paged horizontal strip of the active tab's pane's tabs: the active tab's chip sits in
+    /// the middle, a drag pages the strip one chip at a time and the page follows it 1:1, and
+    /// the strip's ends fade under the bar's side buttons (the native scroll edge effect).
+    /// Only with `barEdge == .top`; a bottom bar keeps the address capsule.
+    case pagedTabs
 }
 
 extension EnvironmentValues {

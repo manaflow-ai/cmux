@@ -172,8 +172,44 @@ extension AppStore {
         // CMUX_MOBILE_MOCK_PANES=1: first, a workspace of five terminals in two panes side by
         // side (build, server, logs | tests, git), for the Panes page's drag (PaneDragMoveUITests).
         let panes = ProcessInfo.processInfo.environment["CMUX_MOBILE_MOCK_PANES"] == "1" ? [Self.mockPanesWorkspace(now: now)] : []
-        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: (panes + terminalAgents + workspaces + bare).enumerated().map { Self.mockLinkIDs($1, index: $0) }, feed: feed,
+        // CMUX_MOBILE_MOCK_STRIP=1: first, `ws-strip`, three panes of tabs of every kind and title
+        // length for the paged strip's captures (PagedTabStripUITests).
+        let strip = ProcessInfo.processInfo.environment["CMUX_MOBILE_MOCK_STRIP"] == "1" ? [Self.mockStripWorkspace(now: now)] : []
+        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: (strip + panes + terminalAgents + workspaces + bare).enumerated().map { Self.mockLinkIDs($1, index: $0) }, feed: feed,
                         tabMemory: tabMemory)
+    }
+
+    /// `ws-strip`: a pane of six tabs (agents, terminals, a page; one-word to truncated titles), a
+    /// pane of one terminal, and a pane of two.
+    static func mockStripWorkspace(now: Date) -> Workspace {
+        let folder = "~/Development/cmux"
+        var workspace = Workspace(
+            id: "ws-strip", macID: "mac-studio", title: "strip", directory: folder, branch: "feat-paged-tabs",
+            tabs: [
+                WorkspaceTab(id: "t-strip-wellbeing", kind: .agent, title: "Well-being check", subtitle: "Say hi", harness: "claude",
+                             agentStatus: .waiting),
+                WorkspaceTab(id: "t-strip-ho", kind: .agent, title: "Ho", subtitle: "Short title", harness: "codex"),
+                WorkspaceTab(id: "t-strip-greeting", kind: .agent, title: "Greeting Message", subtitle: "Say hey", harness: "claude",
+                             agentStatus: .working),
+                WorkspaceTab(id: "t-strip-zsh", kind: .terminal, title: "zsh", subtitle: folder),
+                WorkspaceTab(id: "t-strip-docs", kind: .browser, title: "Swift docs", subtitle: "developer.apple.com",
+                             url: URL(string: "https://developer.apple.com/documentation/swiftui")),
+                WorkspaceTab(id: "t-strip-long", kind: .terminal,
+                             title: "A very long tab title that never fits in one chip", subtitle: folder),
+                WorkspaceTab(id: "t-strip-solo", kind: .terminal, title: "server", subtitle: "localhost:3000"),
+                WorkspaceTab(id: "t-strip-tests", kind: .terminal, title: "tests", subtitle: folder),
+                WorkspaceTab(id: "t-strip-git", kind: .terminal, title: "git", subtitle: folder),
+            ],
+            lastActivityAt: now.addingTimeInterval(-20), activeTabID: "t-strip-wellbeing"
+        )
+        workspace.layout = WorkspaceLayout(screens: [WorkspaceLayout.Screen(id: 1, isActive: true, panes: [
+            WorkspaceLayout.Pane(id: 1, tabIDs: ["t-strip-wellbeing", "t-strip-ho", "t-strip-greeting", "t-strip-zsh", "t-strip-docs",
+                                                 "t-strip-long"], activeTabID: "t-strip-wellbeing", isFocused: true),
+            WorkspaceLayout.Pane(id: 2, tabIDs: ["t-strip-solo"], activeTabID: "t-strip-solo"),
+            WorkspaceLayout.Pane(id: 3, tabIDs: ["t-strip-tests", "t-strip-git"], activeTabID: "t-strip-tests"),
+        ], root: .split(id: 9, axis: .horizontal, ratio: 0.5, first: .pane(1),
+                        second: .split(id: 10, axis: .vertical, ratio: 0.5, first: .pane(2), second: .pane(3))))])
+        return workspace
     }
 
     /// `ws-panes`: build, server and logs in the left pane, tests and git in the right one.

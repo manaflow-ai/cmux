@@ -175,6 +175,11 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     }
                     .pickerStyle(.menu)
                     .accessibilityIdentifier("settings.attentionMark")
+                    // Conductor's horizontal tabs: the top bar pages through the active tab's pane.
+                    Toggle(isOn: $settings.horizontalTabs) {
+                        SettingsLabel("Horizontal tabs", symbol: "rectangle.split.3x1")
+                    }
+                    .accessibilityIdentifier("settings.horizontalTabs")
                     NavigationLink(value: SettingsRoute.longPressMenus) {
                         SettingsLabel("Long-Press Menus", symbol: "contextualmenu.and.cursorarrow")
                     }

@@ -281,6 +281,9 @@ public final class SettingsStore {
     /// glow until it is opened. Badge by default; read by the list through
     /// `CmuxMobilePreferences.Key.attentionMark`.
     public var attentionMark: AttentionMarkLook { didSet { save(attentionMark.rawValue, "attentionMark") } }
+    /// Settings → Horizontal Tabs (off by default); read by the workspace screen through
+    /// `CmuxMobilePreferences.Key.horizontalTabs`.
+    public var horizontalTabs: Bool { didSet { save(horizontalTabs, "horizontalTabs") } }
 
     /// The terminal's key row zooms by writing the font size directly.
     @ObservationIgnored private var defaultsObserver: (any NSObjectProtocol)?
@@ -351,6 +354,8 @@ public final class SettingsStore {
         requireFaceID = bool("requireFaceID", false)
         compactWorkspaceList = bool("compactWorkspaceList", false)
         attentionMark = AttentionMarkLook(stored: string("attentionMark"))
+        horizontalTabs = defaults.object(forKey: "cmuxMobile.settings.horizontalTabs") == nil
+            ? true : defaults.bool(forKey: "cmuxMobile.settings.horizontalTabs")
         #if canImport(Darwin)
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reloadTerminalFontSize() }

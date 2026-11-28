@@ -153,6 +153,10 @@ public protocol TabsDataSource: AnyObject, Observable {
     var notice: String? { get }
     /// The toast was tapped away or timed out (5 s).
     func clearNotice()
+    /// The tabs the paged strip (`TabsKitToolbarStyle.pagedTabs`) shows while `id` is active, in
+    /// order: the tabs of its pane. They may include tabs `tabs` leaves out (a grid filter hides a
+    /// kind): a pane's strip shows all of the pane. Default: all of `tabs`.
+    func stripTabs(for id: TabsKitTab.ID) -> [TabsKitTab]
 }
 
 extension TabsDataSource where Card == TabsKitThumbnailCard {
@@ -203,6 +207,7 @@ extension TabsDataSource {
     public func moveTab(_ id: TabsKitTab.ID, to index: Int) {}
     public var notice: String? { nil }
     public func clearNotice() {}
+    public func stripTabs(for id: TabsKitTab.ID) -> [TabsKitTab] { tabs }
 }
 
 extension EnvironmentValues {
@@ -245,7 +250,15 @@ public struct TabsKitContentContext {
     public var isToolbarCollapsed: Bool
     /// The screen edge the toolbar is on (`TabsKitTheme.Metrics.barEdge`).
     public var toolbarEdge: TabsKitBarEdge
+    /// The top bar shows the paged strip of tabs (`TabsKitToolbarStyle.pagedTabs`) instead of
+    /// the address capsule: a page with an address puts its own search field at the bottom.
+    public var showsTabStrip: Bool = false
     let onScroll: @MainActor (CGFloat) -> Void
+    var onBeginAddressEditing: @MainActor () -> Void = {}
+
+    /// Opens the address field (the active tab's URL, its suggestions and other tabs), as a tap
+    /// on the address capsule does: the strip's bottom search field calls it.
+    @MainActor public func beginAddressEditing() { onBeginAddressEditing() }
 
     init(pageSize: CGSize, safeAreaInsets: EdgeInsets, chromeInsets: EdgeInsets? = nil, isInteractive: Bool,
          isOnPage: Bool, isZoomGestureActive: Bool, isToolbarCollapsed: Bool, toolbarEdge: TabsKitBarEdge = .bottom,

@@ -77,6 +77,10 @@ public enum CmuxMobilePreferences {
         /// Settings → Needs You Look (the Mac's `notifications.attention.mark`, the same values):
         /// `badge` (default) or `glow`, a waiting workspace row that glows until it is opened.
         public static let attentionMark = "cmuxMobile.settings.attentionMark"
+        /// Settings → Horizontal Tabs (off by default): a workspace's top bar shows the active tab's
+        /// pane's tabs as a paged strip of chips (Conductor's iPhone toolbar) in place of the
+        /// title capsule. The tab grid stays.
+        public static let horizontalTabs = "cmuxMobile.settings.horizontalTabs"
         /// Long-press menu items the person hid (Settings → Long-Press Menus), by item id.
         public static let hiddenMenuItems = "cmuxMobile.settings.hiddenMenuItems"
     }
@@ -106,6 +110,13 @@ public enum CmuxMobilePreferences {
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
     /// easily toggle" it).
     public static let defaultSwipeDownCollapsesComposer = false
+    public static let defaultHorizontalTabs = true
+
+    /// Whether a workspace's top bar shows the paged strip of its pane's tabs.
+    public static func horizontalTabs(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.horizontalTabs) == nil ? defaultHorizontalTabs : defaults.bool(forKey: Key.horizontalTabs)
+    }
     /// `FollowUpBehavior.steer.rawValue`: a message sent while the agent works
     /// interrupts it instead of waiting for the turn to end.
     public static let steerFollowUp = "steer"

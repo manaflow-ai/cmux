@@ -68,6 +68,8 @@ public struct WorkspaceScreen: View {
     @State private var inNavigationTransition = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    /// Settings › Horizontal tabs: the top bar's paged strip of the active tab's pane.
+    @AppStorage(CmuxMobilePreferences.Key.horizontalTabs) private var horizontalTabs = CmuxMobilePreferences.defaultHorizontalTabs
     #if DEBUG
     private let director = WorkspaceDemoDirector.shared
     #endif
@@ -94,9 +96,15 @@ public struct WorkspaceScreen: View {
 
     private var source: WorkspaceTabsSource { holder.source(makeSource) }
 
+    private var tabsTheme: TabsKitTheme {
+        var theme = TabsKitTheme.mobile
+        theme.metrics.toolbarStyle = horizontalTabs ? .pagedTabs : .address
+        return theme
+    }
+
     public var body: some View {
         TabsView(source: source, isShowingOverview: $showsGrid)
-            .tabsKitTheme(.mobile)
+            .tabsKitTheme(tabsTheme)
             // The overview shows as many columns as the page's width fits (Rust's
             // `overview_columns`): two on a phone, more on an unfolded screen.
             .environment(\.tabsKitOverviewColumns, overviewColumnCount)

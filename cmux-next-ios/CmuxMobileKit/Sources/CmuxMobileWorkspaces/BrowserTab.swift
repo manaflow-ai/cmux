@@ -205,7 +205,16 @@ public final class BrowserTabModel: BrowserTabState {
         watch(\.canGoForward) { model, value in model.canGoForward = value }
         watch(\.isLoading) { model, value in model.isLoading = value }
         watch(\.estimatedProgress) { model, value in model.progress = value }
+        // The page's own top color (its theme-color, else its top background, iOS 15's
+        // `underPageBackgroundColor`): the horizontal tabs' band under the top bar takes it.
+        watch(\.themeColor) { model, value in model.themeColor = value }
+        watch(\.underPageBackgroundColor) { model, value in model.underPageColor = value }
     }
+
+    private var themeColor: UIColor?
+    private var underPageColor: UIColor?
+    /// The color at the page's top edge, or nil before a page draws.
+    public var topColor: UIColor? { themeColor ?? underPageColor }
 
     public var host: String { url.map(TabsKitAddress.displayLabel(for:)) ?? "" }
 

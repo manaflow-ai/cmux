@@ -74,6 +74,12 @@ public struct CmuxMobileChatBackdrop: View {
         self.macTheme = macTheme
     }
 
+    /// The backdrop's color at the page's top edge, for the top bar's band; nil over a picture.
+    public static func topColor(macTheme: CmuxMobileMacTheme = .shared) -> Color? {
+        guard let look = macTheme.chatLook else { return .cmuxMobileBackground }
+        return look.picture == nil ? Color(uiColor: look.background.uiColor) : nil
+    }
+
     public var body: some View {
         if let look = macTheme.chatLook {
             let ground = Color(uiColor: look.background.uiColor)

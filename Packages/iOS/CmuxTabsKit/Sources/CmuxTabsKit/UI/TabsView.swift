@@ -78,6 +78,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
     let keyboard: CGFloat
 
     let chrome: ChromeState
+    /// Bumped when the strip must go back to the active chip by itself (a New Tab that failed).
+    @State private var stripRestToken = 0
+    /// A tapped chip the page is sliding to.
+    @State private var stripTapTarget: Int?
     /// Close All Tabs is waiting for the person's answer.
     @State private var confirmingCloseAll: CloseAllConfirmation?
     /// The page <-> grid transition (one interruptible progress value).
@@ -298,7 +302,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     Text(confirmation.message)
                 }
 
-            if chrome.swiping {
+            if chrome.swiping, showsStrip {
+                stripNeighbors
+            } else if chrome.swiping {
                 swipeNeighbor
             }
 
@@ -315,7 +321,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     .transition(.opacity.animation(theme.motion.resolve(.easeInOut(duration: 0.1).delay(0.03))))
             }
 
-            if let tab = activeTab, !chrome.swiping, !chrome.editing {
+            if let tab = activeTab, !chrome.swiping || showsStrip, !chrome.editing {
                 // Above the toolbar, riding the keyboard while it is up. Part
                 // of the zoom: it stays laid out in every phase and is drawn
                 // through the page's own rect, fading over the first half
@@ -379,7 +385,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
                         onEndEditing: { endEditing() }, onGo: go,
                         onSwipeChanged: swipeChanged, onSwipeEnded: swipeEnded,
                         onSwipeUpChanged: swipeUpChanged, onSwipeUpEnded: swipeUpEnded,
-                        onSwipeCancelled: swipeCancelled)
+                        onSwipeCancelled: swipeCancelled,
+                        strip: showsStrip ? ToolbarStrip(entries: stripEntries, activeID: activeID, restToken: stripRestToken,
+                                                         onMove: stripMoved, onRelease: stripReleased) : nil)
                 .opacity(1 - overviewShown)
                 // Usable on the page, and while a zoom heads back to the page
                 // (the tabs button then reverses it).
@@ -471,10 +479,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
     // MARK: Page
 
     private var contentContext: TabsKitContentContext {
-        let chrome = chrome, theme = theme
+        let chrome = chrome, theme = theme, strip = showsStrip
         let insets = ToolbarLayout.pageInsets(metrics: theme.metrics, size: size, safeTop: safeTop, safeBottom: safeBottom,
                                               bar: chrome.bar)
-        return TabsKitContentContext(
+        var context = TabsKitContentContext(
             pageSize: size,
             safeAreaInsets: EdgeInsets(top: insets.resting.top, leading: 0, bottom: insets.resting.bottom, trailing: 0),
             chromeInsets: EdgeInsets(top: insets.live.top, leading: 0, bottom: insets.live.bottom, trailing: 0),
@@ -483,7 +491,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
             isZoomGestureActive: zoomPinchActive,
             isToolbarCollapsed: chrome.bar == .collapsed,
             toolbarEdge: theme.metrics.barEdge,
-            onScroll: { dy in chrome.pageDragged(dy, theme) })
+            onScroll: { dy in
+                // The strip's bar stays: Conductor's toolbar never collapses into a pill.
+                if !strip { chrome.pageDragged(dy, theme) }
+            })
+        context.showsTabStrip = strip
+        context.onBeginAddressEditing = { self.beginEditing() }
+        return context
     }
 
     /// The active tab's live page. It stays at one place in the view tree
@@ -506,7 +520,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             : ZoomPresentation.make(phase: phase, progress: zoomState.progress, offset: .zero, full: fullRect,
                                     card: activeCardContentRect.offsetBy(dx: activeID.map { cardSwipes.offset($0) } ?? 0, dy: 0),
                                     gridOrigin: .zero, screenRadius: theme.metrics.screenRadius, cardRadius: overviewLayout.cardRadius,
-                                    settledPageRadius: chrome.swiping ? theme.metrics.screenRadius : 0, variant: zoomState.motion)
+                                    settledPageRadius: chrome.swiping && !showsStrip ? theme.metrics.screenRadius : 0, variant: zoomState.motion)
         let asCard = phase == .overview && staticCardID != nil && staticCardID == activeID
         let scale = size.width > 0 ? max(0.01, g.rect.width / size.width) : 1
         // The card's content anchor, moving with the zoom's scale.
@@ -996,10 +1010,108 @@ struct TabsScreen<Source: TabsDataSource>: View {
         return await source.close(id)
     }
 
+    // MARK: Paged strip
+
+    /// The top bar shows the paged strip of the active tab's pane (`TabsKitToolbarStyle.pagedTabs`).
+    private var showsStrip: Bool {
+        theme.metrics.toolbarStyle == .pagedTabs && theme.metrics.barEdge == .top && activeTab != nil
+    }
+
+    /// The strip's pages: the active tab's pane's tabs, then New Tab when the source can make one.
+    private var stripEntries: [StripEntry] {
+        guard let id = activeID else { return [] }
+        var entries = source.stripTabs(for: id).map(StripEntry.tab)
+        if !entries.contains(where: { $0.id == id }), let tab = activeTab { entries = [.tab(tab)] }
+        if !source.newTabOptions.isEmpty { entries.append(.newTab) }
+        return entries
+    }
+
+    private var stripActiveIndex: Int { stripEntries.firstIndex { $0.id == activeID } ?? 0 }
+
+    /// The strip moved under the finger: the page follows it 1:1, a page width per chip.
+    private func stripMoved(_ position: CGFloat) {
+        guard stripTapTarget == nil else { return }
+        chrome.swipeOffset = (CGFloat(stripActiveIndex) - position) * size.width
+        if !chrome.swiping { chrome.swiping = true }
+    }
+
+    /// The strip is heading to `index` (a release, a tapped chip) on the swipe spring: the page
+    /// runs the same spring beside it, then that tab becomes active; the active page itself
+    /// springs back. New Tab makes a tab; its blank page stays until the tab opens.
+    private func stripReleased(_ index: Int) {
+        let entries = stripEntries
+        guard entries.indices.contains(index) else { return }
+        let active = stripActiveIndex
+        stripTapTarget = index
+        chrome.swiping = true
+        withAnimation(theme.motion.resolve(theme.motion.swipe)) {
+            chrome.swipeOffset = (CGFloat(active) - CGFloat(index)) * size.width
+        } completion: {
+            guard stripTapTarget == index else { return }
+            stripTapTarget = nil
+            switch entries[index] {
+            case .tab(let tab):
+                var t = Transaction()
+                t.disablesAnimations = true
+                withTransaction(t) {
+                    if tab.id != activeID { source.activate(tab.id) }
+                    chrome.swipeOffset = 0
+                    chrome.swiping = false
+                }
+            case .newTab:
+                guard let option = source.newTabOptions.first else { return endStripSwipe() }
+                Task {
+                    let id = await source.createTab(option)
+                    endStripSwipe()
+                    if id == nil { stripRestToken += 1 }
+                }
+            }
+        }
+    }
+
+    private func endStripSwipe() {
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) {
+            chrome.swipeOffset = 0
+            chrome.swiping = false
+        }
+    }
+
+    /// The pages beside the live one while the strip moves: the entries on either side of its
+    /// position, side by side with no gap (Conductor's pages slide flat, unscaled).
+    @ViewBuilder private var stripNeighbors: some View {
+        let entries = stripEntries
+        let active = stripActiveIndex
+        let position = CGFloat(active) - chrome.swipeOffset / max(1, size.width)
+        let pages = Set([Int(position.rounded(.down)), Int(position.rounded(.up))] + (stripTapTarget.map { [$0] } ?? []))
+            .filter { entries.indices.contains($0) && $0 != stripActiveIndex }
+            .sorted()
+        ZStack(alignment: .topLeading) {
+            theme.colors.pageBackground
+            ForEach(pages, id: \.self) { index in
+                Group {
+                    if case .tab(let tab) = entries[index] {
+                        ScaledContent(pageSize: size) { source.card(for: tab).environment(\.tabsKitCardPageSize, size) }
+                    } else {
+                        theme.colors.pageBackground
+                    }
+                }
+                .frame(width: size.width, height: size.height)
+                .clipped()
+                .offset(x: CGFloat(index - active) * size.width + chrome.swipeOffset)
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .allowsHitTesting(false)
+    }
+
     private func swipeChanged(_ dx: CGFloat) {
         if !chrome.swiping { chrome.swiping = true }
-        let atFirst = (activeIndex ?? 0) == 0
-        chrome.swipeOffset = dx > 0 && atFirst ? dx * 0.25 : dx
+        // No tab before the first or after the last: a drag there does not move the page.
+        let index = activeIndex ?? 0
+        let atFirst = index == 0, atLast = index >= tabs.count - 1
+        chrome.swipeOffset = (dx > 0 && atFirst) || (dx < 0 && atLast) ? 0 : dx
     }
 
     private func swipeEnded(_ dx: CGFloat, _ predicted: CGFloat) {
@@ -1008,9 +1120,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
         let commit = abs(predicted) > size.width * 0.35 || abs(dx) > size.width * 0.5
         var target: CGFloat = 0
         var destination: String?? = nil  // .some(nil) = a new tab
-        if commit, dx < 0 {
+        if commit, dx < 0, index + 1 < tabs.count {
             target = -pitch
-            destination = index + 1 < tabs.count ? .some(tabs[index + 1].id) : .some(nil)
+            destination = .some(tabs[index + 1].id)
         } else if commit, dx > 0, index > 0 {
             target = pitch
             destination = .some(tabs[index - 1].id)

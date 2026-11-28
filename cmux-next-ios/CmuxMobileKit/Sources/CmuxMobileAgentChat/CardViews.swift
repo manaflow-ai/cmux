@@ -451,7 +451,7 @@ struct FailureCard: View {
             Image(systemName: "exclamationmark.triangle").font(.system(size: 17))
             Text(title).font(.headline)
             Text(message).font(.subheadline).foregroundStyle(.secondary)
-            if let detail {
+            if let detail, !still {
                 DisclosureGroup("Details") {
                     // Range-selectable (CMUX-33): `.textSelection` grabbed the whole detail.
                     SelectableTextView(detail, textStyle: .caption1, monospaced: true, scrolls: false, textColor: .secondaryLabel)
