@@ -35,6 +35,7 @@ pub struct Capability {
 pub const REMOVAL: &str = "removal-v1";
 pub const FILE_PREVIEW: &str = "file-preview-v1";
 pub const LOCALHOST_FORWARD: &str = "localhost-forward-v1";
+pub const LOCALHOST_HOSTS: &str = "localhost-hosts-v1";
 pub const CLOUD_DIRECTORY: &str = "cloud-directory-v1";
 pub const CLOUD_ACPMUX: &str = "cloud-acpmux-v1";
 pub const NEEDS_YOU: &str = "needs-you-v1";
@@ -97,6 +98,10 @@ pub const ALL: &[Capability] = &[
     host(
         LOCALHOST_FORWARD,
         "(2026-10-30) The host serves `localhost`: a phone browser tab reaches a port on the Mac's loopback.",
+    ),
+    host(
+        LOCALHOST_HOSTS,
+        "(2026-11-24) The host also forwards a phone browser tab to a private, tailnet or loopback host named by the phone; public and link-local addresses are refused.",
     ),
     host(
         CLOUD_DIRECTORY,
