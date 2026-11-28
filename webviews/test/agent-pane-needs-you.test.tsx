@@ -11,20 +11,33 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { translate } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxPermission, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { AgentQuestion } from "../src/agent-session/acpmux/question/model";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
-import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
-import { needsYouLink, needsYouTarget, onOpenNeedsYou, openNeedsYou } from "../src/agent-session/acpmux/needsYou/links";
-import { NeedsYouPill, type TranscriptNeedsYou } from "../src/agent-session/acpmux/needsYou/JumpPill";
-import { nextAsk, pillAsks } from "../src/agent-session/acpmux/needsYou/jumpPillModel";
-import { answerParams, useNeedsYou } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
-import { NeedsYouPanel, type NeedsYouActions } from "../src/agent-session/acpmux/needsYou/NeedsYou";
-import { needsYouMode, sideQuestionPrompt } from "../src/agent-session/acpmux/needsYou/needsYouModel";
-import { askContext, CONTEXT_TURNS, turnsBefore } from "../src/agent-session/acpmux/needsYou/context";
-import { NativeError } from "../src/agent-session/acpmux/nativeError";
+import type { NeedsYouItem, WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
+import type { TranscriptNeedsYou } from "../src/agent-session/acpmux/needsYou/JumpPill";
+import type { NeedsYouActions } from "../src/agent-session/acpmux/needsYou/NeedsYou";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { needsYouItems } = await importWithDom(() => import("../src/agent-session/acpmux/needsYou/model"));
+const { needsYouLink, needsYouTarget, onOpenNeedsYou, openNeedsYou } = await importWithDom(
+  () => import("../src/agent-session/acpmux/needsYou/links"),
+);
+const { NeedsYouPill } = await importWithDom(() => import("../src/agent-session/acpmux/needsYou/JumpPill"));
+const { nextAsk, pillAsks } = await importWithDom(() => import("../src/agent-session/acpmux/needsYou/jumpPillModel"));
+const { answerParams, useNeedsYou } = await importWithDom(
+  () => import("../src/agent-session/acpmux/needsYou/useNeedsYou"),
+);
+const { NeedsYouPanel } = await importWithDom(() => import("../src/agent-session/acpmux/needsYou/NeedsYou"));
+const { needsYouMode, sideQuestionPrompt } = await importWithDom(
+  () => import("../src/agent-session/acpmux/needsYou/needsYouModel"),
+);
+const { askContext, CONTEXT_TURNS, turnsBefore } = await importWithDom(
+  () => import("../src/agent-session/acpmux/needsYou/context"),
+);
+const { NativeError } = await importWithDom(() => import("../src/agent-session/acpmux/nativeError"));
 
 const options: AcpmuxPermission["options"] = [
   { id: "allow", name: "Allow", kind: "allow_once", allow: true },

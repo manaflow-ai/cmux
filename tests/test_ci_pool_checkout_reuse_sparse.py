@@ -30,6 +30,7 @@ _spec.loader.exec_module(git_fixture_env)
 
 GUARD = 'if [[ -n "${SPARSE//[[:space:]]/}" ]]; then'
 TAIL_END = "workspace=$reuse"
+SPARSE_ON = "git config core.sparseCheckout true"
 
 
 def steps() -> list[tuple[str, str, str]]:
@@ -44,7 +45,10 @@ def steps() -> list[tuple[str, str, str]]:
                 run = step.get("run") or ""
                 if TAIL_END not in run or GUARD not in run:
                     continue
-                start = run.index(GUARD)
+                # From the start of the line that first writes the patterns: a step that turns sparse mode on
+                # unguarded (cmux-next path routing) reaches GUARD only inside `if [[ $reuse == reused ]]; then`, and
+                # a slice from mid-line ends in an unmatched `fi`.
+                start = run.rfind("\n", 0, min(i for i in (run.find(GUARD), run.find(SPARSE_ON)) if i >= 0)) + 1
                 end = run.index("\n", run.index(TAIL_END))
                 sparse = (step.get("env") or {}).get("SPARSE", "")
                 found.append((f"{path.name}:{job_name}:{step.get('name')}", sparse, run[start:end]))

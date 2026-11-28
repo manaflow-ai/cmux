@@ -96,6 +96,10 @@ pub enum SessionCmd {
         /// released). Default 12h.
         #[arg(long = "for", value_name = "DURATION")]
         hold_for: Option<String>,
+        /// With `--fleet`: the order its chats thaw in when it lifts, comma-separated entries
+        /// as in `--allow` (first match first, the rest after); default: the hold's own.
+        #[arg(long, value_delimiter = ',')]
+        thaw_order: Option<Vec<String>>,
     },
     /// Release a held session (`session hold`): it runs its next prompt as usual. With
     /// `--fleet`: lift the fleet hold.
@@ -211,8 +215,9 @@ pub enum SessionCmd {
     /// Move a chat between Local (this Mac), Cloud (stays in cmux Cloud) and AutoCloud (here
     /// while the Mac is up, in the Cloud while it sleeps), through Auto mode's fenced handoff. The
     /// person may make any move; a chat's own agent may move it off the Mac only while the
-    /// AutoCloud setting is on, and back to local never (the answer says needs_person and the
-    /// command). `cmux chat move SESSION --on PLACE` runs this.
+    /// AutoCloud setting is on, and back to local, also from the Cloud machine it runs on (else
+    /// the answer says needs_person and the command). `cmux chat move SESSION --on PLACE` runs
+    /// this.
     Place {
         session: String,
         /// local, cloud or auto (autocloud).
