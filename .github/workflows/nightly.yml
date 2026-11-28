@@ -182,6 +182,10 @@ env:
   NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY: IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM=
   # Why: docs/ci/nightly-workflow-notes.md#note-35
   NIGHTLY_NEXT_BROWSER_DATA_IMPORT: full
+  # Why: docs/ci/nightly-workflow-notes/2026-11-28-cargo-net-retry.md
+  CARGO_NET_RETRY: "10"
+  CARGO_HTTP_TIMEOUT: "120"
+  CARGO_HTTP_MULTIPLEXING: "false"
 
 jobs:
   # Why: docs/ci/nightly-workflow-notes.md#note-29
