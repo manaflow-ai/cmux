@@ -294,6 +294,32 @@ class ProtectionTests(unittest.TestCase):
             name="Xcode incremental generation canary", path=".github/workflows/incremental-state-canary.yml")))
 
 
+    CI_RUN_NAME = ("v1;sha=9523b2615f96056be6b556c4df331abac4856c59;ref=lane/qol-activity-agent-label;cache=r2;"
+                   "release=arm64;coverage=compile-only")
+
+    def test_a_ci_run_names_release_setting_does_not_protect_it(self):
+        # Run 46059745828: attempt 2 of ci.yml at merged PR #53898's head, ten macOS jobs queued 179 minutes.
+        run = make_run(name=self.CI_RUN_NAME, branch="lane/qol-activity-agent-label", attempt=2)
+        self.assertIsNone(janitor.protected_reason(run))
+        verdict = janitor.classify(run, janitor.macos_usage(mac_jobs(queued=10)), make_pr(state="MERGED"),
+                                   newer_ci_run_waiting=False, pull_request_policy="compile-only", now=NOW)
+        self.assertEqual(verdict[0], "stale-pr")
+        self.assertIn("merged", verdict[1])
+
+    def test_a_merged_pull_requests_ci_run_is_cancelled_on_a_backed_up_pool(self):
+        run = make_run(name=self.CI_RUN_NAME, branch="feature", attempt=2)
+        result = plan([run], {run["id"]: mac_jobs(queued=10)}, prs={"feature": [make_pr(state="MERGED")]})
+        self.assertEqual([(d.candidate.run["id"], d.action) for d in result.decisions], [(run["id"], "cancel")])
+
+    def test_release_words_outside_the_setting_still_protect(self):
+        for name, path in (("Release;release=arm64", ".github/workflows/ci.yml"),
+                           ("v1;release=arm64", ".github/workflows/release.yml"),
+                           ("release=arm64 build", ".github/workflows/ci.yml"),
+                           ("v1;sha=a;publish=1", ".github/workflows/ci.yml")):
+            with self.subTest(name=name, path=path):
+                self.assertIsNotNone(janitor.protected_reason(make_run(name=name, path=path)))
+
+
 class CategoryTests(unittest.TestCase):
     def classify(self, run, pr=None, *, jobs=None, newer=False, policy="compile-only"):
         usage = janitor.macos_usage(jobs if jobs is not None else mac_jobs(queued=2))
