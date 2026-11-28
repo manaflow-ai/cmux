@@ -99,7 +99,7 @@ def main(argv=None):
     p.add_argument("--ring", required=True)
     p.add_argument("--seq", type=int, required=True, help="the source commit's time: later commits sort later")
     p.add_argument("--now", type=int, required=True)
-    p.add_argument("--days", type=int, default=30, help="how long readers take it; the weekly run re-signs it")
+    p.add_argument("--days", type=int, default=30, help="how long readers take it; the workflow passes 365")
     p.add_argument("--out", required=True)
     s = sub.add_parser("seq")
     s.add_argument("--published", required=True)
