@@ -332,6 +332,9 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
                 ghostOpacity: Number(style.opacity),
                 ghost: Boolean(ghost),
                 folding: Boolean(fold),
+                finalTop: 0,
+                finalOpacity: 0,
+                finalClipped: 0,
               };
               if (moving) {
                 // Read real interpolated clips across the entire move, not just its first frame.
@@ -349,6 +352,12 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
                       Math.max(retained.top, now.top + sides[0]!),
                   );
                 }
+                const finalStyle = getComputedStyle(lower);
+                const finalInset = /^inset\(([^)]*)\)/.exec(finalStyle.clipPath);
+                const finalSides = finalInset?.[1]!.split(/\s+/).map(Number.parseFloat) ?? [0];
+                out.finalTop = lower.getBoundingClientRect().top;
+                out.finalOpacity = Number(finalStyle.opacity);
+                out.finalClipped = Math.max(finalSides[0]!, finalSides[2] ?? finalSides[0]!);
               }
               settleTurnEnd(thread, fold);
               return out;
@@ -362,6 +371,11 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
           expect(result.upperAnimations).toBe(0);
           expect(result.ghostOpacity).toBe(1);
           expect(result.overlap).toBeLessThanOrEqual(0);
+          if (moving) {
+            expect(result.finalTop).toBe(250);
+            expect(result.finalOpacity).toBe(1);
+            expect(result.finalClipped).toBe(0);
+          }
         } finally {
           await page.close();
         }

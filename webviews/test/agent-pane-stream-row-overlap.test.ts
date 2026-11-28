@@ -277,8 +277,8 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     examples: Overlap[];
   };
 
-  /// Samples every painted frame until stopped: each pair of rows next to each other (by where they
-  /// are drawn), and how far the upper one's box and text reach past the lower one's top.
+  /// Samples every painted frame until stopped: adjacent layout boxes plus a sweep of visible ink.
+  /// Clipping can reorder ink or hide intervening rows, so box adjacency alone misses collisions.
   const sample = (page: Page) =>
     page.evaluate(() => {
       type Pair = { t: number; upper: string; lower: string; box: number; ink: number; why?: string };
@@ -379,13 +379,16 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
         const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-thread > .acpmux-row")]
           .map((row) => ({ row, rect: row.getBoundingClientRect() }))
           .filter(({ rect }) => rect.height > 0.5 && rect.bottom > view.top && rect.top < view.bottom)
-          .sort((a, b) => a.rect.top - b.rect.top);
-        for (let index = 0; index + 1 < rows.length; index++) {
-          const upper = rows[index]!;
-          const lower = rows[index + 1]!;
+          .sort((a, b) => a.rect.top - b.rect.top)
+          .map((entry, index) => ({ ...entry, index, ink: ink(entry.row) }));
+        const recorded = new Set<string>();
+        const record = (upper: (typeof rows)[number], lower: (typeof rows)[number]) => {
+          const key = `${Math.min(upper.index, lower.index)}:${Math.max(upper.index, lower.index)}`;
+          if (recorded.has(key)) return;
+          recorded.add(key);
           const box = upper.rect.bottom - lower.rect.top;
-          const upperInk = ink(upper.row);
-          const lowerInk = ink(lower.row);
+          const upperInk = upper.ink;
+          const lowerInk = lower.ink;
           // A clipped ghost's box may start above the next row while its visible words are below it.
           // Compare the visible intervals, not their ordering by unclipped row boxes.
           const inked =
@@ -421,6 +424,15 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
                 )
                 .join(" ; "),
             });
+        };
+        for (let index = 0; index + 1 < rows.length; index++) record(rows[index]!, rows[index + 1]!);
+        const visible = rows.filter((entry) => entry.ink).sort((a, b) => a.ink!.top - b.ink!.top);
+        // The earlier interval with the farthest bottom witnesses every subsequent collision.
+        // Sorting plus this linear sweep avoids comparing every pair of mounted rows per frame.
+        let farthest: (typeof rows)[number] | undefined;
+        for (const current of visible) {
+          if (farthest && farthest.ink!.bottom - current.ink!.top > 0.5) record(farthest, current);
+          if (!farthest || current.ink!.bottom > farthest.ink!.bottom) farthest = current;
         }
       };
       (w as unknown as { __read: (frame: number) => void }).__read = read;
@@ -510,7 +522,11 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
             </div>
             <div class="acpmux-row" style="top:30px;height:24px;${middle}">Middle words</div>
             <div class="acpmux-row" style="top:84px;height:24px">Other words</div>`);
-          expect(report.rest.some((pair) => pair.ink > 10 && pair.upper.includes("Lower words") && pair.lower.includes("Other words"))).toBe(true);
+          expect(
+            report.rest.some(
+              (pair) => pair.ink > 10 && pair.upper.includes("Lower words") && pair.lower.includes("Other words"),
+            ),
+          ).toBe(true);
         }
       } finally {
         await page.close();

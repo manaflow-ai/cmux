@@ -784,7 +784,7 @@ function layoutTops(nodes: readonly HTMLElement[]): number[] {
 }
 
 /// What one row of the fold plays now: how far from its place it started, and its animations.
-/// `covered`: a copy's clip under the rows that come over it (`coverClip`), as its keyframes' text.
+/// `covered`: a row or copy's clip against covering rows (`coverClip`), as its keyframes' text.
 type Moving = {
   delta: number;
   fades: boolean;
