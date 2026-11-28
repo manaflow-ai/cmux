@@ -249,8 +249,8 @@ class Workflow(unittest.TestCase):
         )
         self.assertIn('"$client" cancel "$step" --reason "nightly pr build: job cancelled"', text)
         self.assertIn("arm64", npb.ARCHS)
-        # The gateway runner refuses any job whose id does not end in -fleet.
-        gateway = re.findall(r"^  ([a-z0-9_-]+):\n(?:    .*\n)*?    runs-on: \$\{\{ vars.CI_EVAL_STEP_GATEWAY", text, re.M)
+        # The gateway runner refuses any job whose id does not end in -fleet (a fork's hosted arm may come first, #64401).
+        gateway = re.findall(r"^  ([a-z0-9_-]+):\n(?:    .*\n)*?    runs-on: \$\{\{ (?:github\.repository_owner != 'manaflow-ai' && 'ubuntu-24\.04' \|\| )?vars.CI_EVAL_STEP_GATEWAY", text, re.M)
         self.assertTrue(gateway)
         for job in gateway:
             self.assertTrue(job.endswith("-fleet"), job)
