@@ -52,6 +52,9 @@ class AcceptanceTests(unittest.TestCase):
                          "frames": [{"ms": i * 10, "file": "content.png"} for i in range(8)]}
         self.action = {"ran": True, "action": "splitRight"}
         self.field = {"focused": True}
+        self.focus = {"windows": [{"model": {"resolved_pane": "target", "resolved_tab": "new-tab"},
+                                   "layout_focused_pane": "target",
+                                   "topology": [{"pane": "target", "selected": "new-tab"}]}]}
         image = Image.new("RGB", (100, 100), (30, 30, 30))
         draw = ImageDraw.Draw(image)
         for i in range(20):
@@ -60,7 +63,7 @@ class AcceptanceTests(unittest.TestCase):
         Image.new("RGB", (100, 100), (30, 30, 30)).save(self.directory / "empty.png")
 
     def run_capture(self):
-        return acceptance.accept(self.strip, self.trace, self.action, self.endpoint, self.field,
+        return acceptance.accept(self.strip, self.trace, self.action, self.endpoint, self.field, self.focus,
                                  self.directory, self.directory, "right")
 
     def test_current_capture_contract_accepts_stable_target(self):
@@ -78,6 +81,21 @@ class AcceptanceTests(unittest.TestCase):
     def test_same_capture_endpoint_cannot_pass(self):
         self.endpoint["sent_host_s"] = self.strip["sent_host_s"]
         with self.assertRaisesRegex(ValueError, "independently"):
+            self.run_capture()
+
+    def test_another_ready_new_tab_cannot_satisfy_target_readiness(self):
+        self.focus["windows"][0]["model"]["resolved_pane"] = "source"
+        with self.assertRaisesRegex(ValueError, "not bound"):
+            self.run_capture()
+
+    def test_focused_tab_must_match_target_selected_tab(self):
+        self.focus["windows"][0]["topology"][0]["selected"] = "old-tab"
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            self.run_capture()
+
+    def test_missing_focus_receipt_cannot_pass(self):
+        self.focus = {}
+        with self.assertRaisesRegex(ValueError, "not bound"):
             self.run_capture()
 
     def test_blank_or_changing_endpoint_cannot_pass(self):

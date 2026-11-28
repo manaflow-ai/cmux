@@ -11,7 +11,9 @@ motion trace and retain `debug.key` `{ "last": true }`. The executed action must
 `ran: true`. A dry-run action name is insufficient.
 
 After at least three seconds, capture a second **keyless** `frame_strip` at the same
-scale for at least six frames (250 ms), plus `debug.new_tab` `{ "action": "field" }`.
+scale for at least six frames (250 ms), plus `debug.new_tab` `{ "action": "field" }`
+and `debug.focus` `{}`. The focus receipt must name the inferred new pane as both resolved
+and layout focus, and its resolved tab must match that pane's selected topology tab.
 Keep its PNGs separate from the transition. Keep the video and a normal settled screenshot
 for visual inspection of the intended composer, labels and workspace.
 
@@ -19,7 +21,7 @@ for visual inspection of the intended composer, labels and workspace.
 python3 scripts/cmux-next/new_tab_split_acceptance.py \
   --strip transition.json --trace motion.json --last-action action.json \
   --frames transition-pngs --settled-strip endpoint.json \
-  --settled-frames endpoint-pngs --settled-field field.json \
+  --settled-frames endpoint-pngs --settled-field field.json --settled-focus focus.json \
   --direction right --source-sha FULL_BUILD_SOURCE_SHA --build-id BUILD_JOB_ID
 ```
 

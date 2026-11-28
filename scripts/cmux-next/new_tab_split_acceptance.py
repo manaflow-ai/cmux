@@ -82,7 +82,7 @@ def nonblank(image):
         high - low for low, high in image.convert("RGB").getextrema()) >= 16
 
 
-def accept(strip, trace, last_action, settled, field, frames_dir, settled_dir, direction):
+def accept(strip, trace, last_action, settled, field, focus, frames_dir, settled_dir, direction):
     action = "splitRight" if direction == "right" else "splitDown"
     require(last_action.get("ran") is True and last_action.get("action") == action,
             "split action was refused, missing or different")
@@ -93,6 +93,12 @@ def accept(strip, trace, last_action, settled, field, frames_dir, settled_dir, d
     require(not settled.get("key"), "endpoint capture must not execute another action")
     require(field.get("focused") is True, "settled focused tab is not New Tab")
     rect, layout_ms, window, target = target_geometry(strip, trace, direction)
+    focused = [w for w in focus.get("windows", []) if w.get("model", {}).get("resolved_pane") == target
+               and w.get("layout_focused_pane") == target]
+    require(len(focused) == 1, "settled New Tab focus is not bound to the added target pane")
+    tab = focused[0]["model"].get("resolved_tab")
+    selected = [p for p in focused[0].get("topology", []) if p.get("pane") == target and p.get("selected") == tab]
+    require(bool(tab) and len(selected) == 1, "settled focused tab does not match target topology")
     endpoint_frames = [f for f in settled["frames"] if f["ms"] >= 0]
     require(len(endpoint_frames) >= 6, "endpoint has fewer than six compositor frames")
     endpoint = Image.open(Path(settled_dir) / endpoint_frames[-1]["file"]).convert("RGB")
@@ -117,14 +123,14 @@ def accept(strip, trace, last_action, settled, field, frames_dir, settled_dir, d
         require(image.size == endpoint.size, "transition and endpoint capture scales differ")
         rows.append({"file": frame["file"], "ms": frame["ms"],
                      "changed_pixels": changed_pixels(image.crop(crop), final)})
-    return {"pass": all(row["changed_pixels"] == 0 for row in rows), "target": target,
+    return {"pass": all(row["changed_pixels"] == 0 for row in rows), "target": target, "target_tab": tab,
             "direction": direction, "layout_settled_ms": layout_ms, "crop": crop,
             "endpoint_sha256": hashlib.sha256(endpoint.tobytes()).hexdigest(), "frames": rows}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("strip", "trace", "last-action", "settled-strip", "settled-field", "frames", "settled-frames",
+    for name in ("strip", "trace", "last-action", "settled-strip", "settled-field", "settled-focus", "frames", "settled-frames",
                  "source-sha", "build-id"):
         parser.add_argument("--" + name, required=True)
     parser.add_argument("--direction", choices=["right", "down"], required=True)
@@ -134,7 +140,7 @@ def main():
     try:
         require(len(args.source_sha) == 40 and all(c in "0123456789abcdef" for c in args.source_sha), "full source SHA required")
         result = accept(read(args.strip), read(args.trace), read(args.last_action), read(args.settled_strip),
-                        read(args.settled_field), args.frames, args.settled_frames, args.direction)
+                        read(args.settled_field), read(args.settled_focus), args.frames, args.settled_frames, args.direction)
     except (ValueError, KeyError, IndexError, OSError, TypeError) as error:
         result = {"pass": False, "error": str(error)}
     result.update(source_sha=args.source_sha, build_id=args.build_id)
