@@ -255,6 +255,24 @@ class RelevanceMapFileTest(unittest.TestCase):
             self.assertEqual(index.match("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/x.swift").unit.name,
                              "swift:CmuxNextSidebar")
 
+    def test_every_tracked_file_is_mapped(self):
+        # Advisory job 141105799487 (run 46185961880): "default:cmux-next-ios has no mapping"; repo-wide 4,441 of
+        # 78,494 tracked files fell back to a default (cmux-next-ios 2,935, Resources 690, ios 216, art 179, ...).
+        # Every top-level folder now has second-level units and a top-level unit, and repo-root files have one.
+        index = rel.load()
+        unmapped = [f for f in tracked() if not index.match(f).mapped]
+        self.assertEqual(unmapped[:20], [], f"{len(unmapped)} tracked files fall back to a default")
+        self.assertEqual(index.match("README.md").unit.name, "(repo root)")
+        if any(f.startswith("cmux-next-ios/verify/") for f in tracked()):
+            self.assertEqual(index.match("cmux-next-ios/verify/ACCEPTANCE.md").unit.name, "cmux-next-ios:verify")
+
+    def test_units_do_not_depend_on_a_sparse_checkout(self):
+        # A folder hidden by a sparse checkout (cmux-next-ios/verify/ on lane checkouts) still gets its unit: the
+        # folder list comes from git ls-files, not the disk.
+        units = rel.generate_units(ROOT, ["zz-not-on-disk/sub/a.txt", "zz-not-on-disk/b.txt", "root.txt"])
+        names = {u["name"] for u in units}
+        self.assertLessEqual({"zz-not-on-disk:sub", "zz-not-on-disk:(top level)", "(repo root)"}, names)
+
     def test_a_crate_routes_its_direct_dependents_tests(self):
         # The 20-merge backtest's two misses (ask-5ad71ec59c): a path took only its own folder's unit.
         # #63799 changed cmux-history's Visit (cmux-tui-core opens VisitStores); #54760 added a cmux-action-catalog
