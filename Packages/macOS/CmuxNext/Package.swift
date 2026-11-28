@@ -2256,6 +2256,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPalette",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
@@ -2272,6 +2273,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
                 "CmuxNextWakeupsTestSupport",
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
+                .product(name: "CmuxVisibleRowsTesting", package: "CmuxVisibleRows"),
             ],
             swiftSettings: uiSwiftSettings
         ),

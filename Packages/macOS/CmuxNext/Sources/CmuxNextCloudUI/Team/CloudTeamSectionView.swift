@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxVisibleRows
 
 /// The sidebar's Team section (lane D): the team's Cloud workspaces and chats under one of four
 /// filters, each row with its follow (eye) toggle and a menu with Reassign To, Copy Link and
@@ -38,9 +39,16 @@ final class CloudTeamSectionView: NSView {
     var colors: CloudTeamColors { didSet { if colors != oldValue { recolor() } } }
     private(set) var shown: Shown
     private(set) var filters: [CloudTeamFilterButton] = []
-    private(set) var rows: [CloudTeamSessionRowView] = []
+    /// The made rows top-down: the ones in view and one viewport past each edge, never every session.
+    var rows: [CloudTeamSessionRowView] { list.subviews.compactMap { $0 as? CloudTeamSessionRowView } }
+    /// The made rows by session key, so a row stays with its session when others come, go or move.
+    private var made: [String: CloudTeamSessionRowView] = [:]
+    /// Rows scrolled out of range, for the next ones that come in.
+    private var spare: [CloudTeamSessionRowView] = []
+    /// The rows' work, for the visible-rows contract (`CloudTeamSectionRows`).
+    let listWork = ListWorkMeter()
     private let placeholder = NSTextField(wrappingLabelWithString: "")
-    private let scroll = OverlayScrollView()
+    let scroll = OverlayScrollView()
     private let list = CloudTeamRowList()
 
     init(store: CloudTeamSessionStore, colors: CloudTeamColors, actions: CloudTeamSessionRowView.Actions) {
@@ -59,13 +67,16 @@ final class CloudTeamSectionView: NSView {
         placeholder.maximumNumberOfLines = 2
         placeholder.cell?.truncatesLastVisibleLine = true
         addSubview(placeholder)
+        let clip = CloudTeamRowClip()
+        clip.onBoundsChange = { [weak self] in self?.realize() }
+        scroll.contentView = clip
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.documentView = list
         SystemScrollers.followThin(scroll)
         addSubview(scroll)
-        apply(shown)
         recolor()
+        apply(shown)
         watch()
     }
 
@@ -83,8 +94,9 @@ final class CloudTeamSectionView: NSView {
         Task { await store.select(filter) }
     }
 
-    /// Draws `next`: the picked filter, then a row per session (or the placeholder with none).
+    /// Draws `next`: the picked filter, then the rows in view (or the placeholder with none).
     func apply(_ next: Shown) {
+        let membersChanged = next.members != shown.members
         shown = next
         for (button, filter) in zip(filters, CloudTeamSessionStore.Filter.allCases) {
             button.isSelected = next.filter == filter
@@ -92,26 +104,79 @@ final class CloudTeamSectionView: NSView {
         placeholder.stringValue = next.placeholder
         placeholder.isHidden = !next.sessions.isEmpty
         scroll.isHidden = next.sessions.isEmpty
-        while rows.count > next.sessions.count {
-            rows.popLast()?.removeFromSuperview()
-        }
-        while rows.count < next.sessions.count {
-            let row = CloudTeamSessionRowView(actions: actions)
-            list.addSubview(row)
-            rows.append(row)
-        }
-        for (row, session) in zip(rows, next.sessions) {
-            row.configure(session, members: next.members, colors: colors)
-        }
+        // Members only feed a row's Reassign To menu: handed over, nothing redrawn.
+        if membersChanged { for row in made.values { row.members = next.members } }
+        realize()
         needsLayout = true
     }
 
     private func recolor() {
         placeholder.textColor = colors.secondary
         for button in filters { button.colors = colors }
-        for (row, session) in zip(rows, shown.sessions) {
-            row.configure(session, members: shown.members, colors: colors)
+        for row in made.values {
+            guard let session = row.row else { continue }
+            configure(row, session)
         }
+    }
+
+    /// The rows of `count` to make for a clip showing `visible`: those in it and one viewport past each
+    /// edge. Before the first layout (no clip height yet) the viewport is the section's tallest.
+    static func realizedRange(count: Int, visible: NSRect) -> Range<Int> {
+        FixedRowWindow.range(count: count, top: Double(visible.minY), height: Double(visible.height),
+                             rowHeight: Double(rowHeight), fallbackHeight: Double(rowHeight) * Double(maxRows))
+    }
+
+    /// Makes the rows in range, each matched to its session by key (`FixedRowWindow.remount`): a row whose
+    /// session did not change is not configured again, a moved one is only framed, and one that left the
+    /// range goes spare.
+    private func realize() {
+        let sessions = shown.sessions
+        let width = scroll.contentSize.width
+        let range = Self.realizedRange(count: sessions.count, visible: scroll.contentView.bounds)
+        listWork.walked(range.count)
+        let inRange = sessions[range].map { (key: $0.key, item: Optional($0)) }
+        let plan = FixedRowWindow.remount(window: inRange, mounted: made.mapValues(\.row))
+        for key in plan.released {
+            guard let row = made.removeValue(forKey: key) else { continue }
+            row.removeFromSuperview()
+            spare.append(row)
+        }
+        var toConfigure = Set(plan.configure)
+        var kept: [String: CloudTeamSessionRowView] = [:]
+        var ordered: [NSView] = []
+        var remade = false
+        for position in plan.placed {
+            let session = sessions[range.lowerBound + position]
+            let row: CloudTeamSessionRowView
+            if let old = made[session.key] {
+                row = old
+            } else {
+                row = spare.popLast() ?? makeRow()
+                remade = true
+            }
+            if toConfigure.remove(position) != nil { configure(row, session) }
+            let frame = NSRect(x: 0, y: Self.rowHeight * CGFloat(range.lowerBound + position), width: width,
+                               height: Self.rowHeight)
+            if row.frame != frame {
+                row.frame = frame
+                listWork.laidOut()
+                remade = true
+            }
+            kept[session.key] = row
+            ordered.append(row)
+        }
+        made = kept
+        // Subviews top-down, so accessibility and the key loop read the rows in list order.
+        if list.subviews != ordered { list.subviews = ordered }
+        // A reused or moved row under a still pointer: hover from where the rows are now.
+        if remade, let window { PointerHover.refresh(in: window) }
+    }
+
+    private func makeRow() -> CloudTeamSessionRowView { CloudTeamSessionRowView(actions: actions) }
+
+    private func configure(_ row: CloudTeamSessionRowView, _ session: CloudTeamSession) {
+        row.configure(session, members: shown.members, colors: colors)
+        listWork.configured()
     }
 
     private func watch() {
@@ -147,10 +212,33 @@ final class CloudTeamSectionView: NSView {
         placeholder.frame = NSRect(x: 8, y: below.minY, width: max(0, bounds.width - 16), height: min(Self.rowHeight, below.height))
         scroll.frame = below
         let width = scroll.contentSize.width
-        list.frame = NSRect(x: 0, y: 0, width: width, height: Self.rowHeight * CGFloat(rows.count))
-        for (index, row) in rows.enumerated() {
-            row.frame = NSRect(x: 0, y: Self.rowHeight * CGFloat(index), width: width, height: Self.rowHeight)
-        }
+        let listFrame = NSRect(x: 0, y: 0, width: width, height: Self.rowHeight * CGFloat(shown.sessions.count))
+        if list.frame != listFrame { list.frame = listFrame }
+        realize()
+    }
+}
+
+extension CloudTeamSectionView: VisibleRowsList {
+    /// Row views alive: the shown ones and the spares.
+    var rowViewsAlive: Int { made.count + spare.count }
+}
+
+/// The rows' clip: tells the section when what it shows moves (a scroll) or resizes, so the rows in
+/// view are made then, with no notification observer.
+@MainActor
+final class CloudTeamRowClip: NSClipView {
+    var onBoundsChange: (() -> Void)?
+
+    override func setBoundsOrigin(_ newOrigin: NSPoint) {
+        let moved = newOrigin != bounds.origin
+        super.setBoundsOrigin(newOrigin)
+        if moved { onBoundsChange?() }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let resized = newSize != frame.size
+        super.setFrameSize(newSize)
+        if resized { onBoundsChange?() }
     }
 }
 

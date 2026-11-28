@@ -16,7 +16,8 @@ final class CloudTeamSessionRowView: NSView {
 
     private let actions: Actions
     private(set) var row: CloudTeamSession?
-    private var members: [CloudTeamMember] = []
+    /// Whom the row's Reassign To offers; the section hands a new list over without a configure.
+    var members: [CloudTeamMember] = []
     private var colors: CloudTeamColors?
     private let icon = NSImageView()
     private let title = NSTextField(labelWithString: "")
