@@ -28,7 +28,6 @@ BASELINE = {
     "scripts/ci/cla_quota_rerun.py": 1,
     "scripts/ci/cmux_binaries_prune.py": 1,
     "scripts/ci/cmux_next_dev_publish_supersede.py": 1,
-    "scripts/ci/cmux_tui_artifacts_retry.py": 1,
     "scripts/ci/delta_since_green.py": 1,
     "scripts/ci/download-run-artifact.py": 2,
     "scripts/ci/guard_attribution.py": 1,

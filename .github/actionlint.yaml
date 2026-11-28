@@ -43,7 +43,7 @@ paths:
       - 'unexpected key "deployment" for "environment" section'
   .github/workflows/ui-proof-stale-sweep.yml:
     ignore:
-      # The same real `environment.deployment: false` key (#64805); actionlint 1.7.7 predates it.
+      # Same key as cloud-mvp-nightly-readback.yml (#64805 added it here).
       - 'unexpected key "deployment" for "environment" section'
   .github/workflows/test-ios.yml:
     ignore:
