@@ -79,10 +79,17 @@ PATCH = f"""@@ -1,15 +1,16 @@
 """
 
 
-def pr_run(*, branch, sha, age, path=PATH, attempt=1, status="queued"):
+def pr_run(*, branch, sha, age, path=PATH, attempt=1, status="queued", base_ref="main"):
     run = base.make_run(branch=branch, sha=sha, age=age, path=path, status=status, attempt=attempt)
-    run["pull_requests"] = [{"number": 1, "base": {"ref": "main"}}]
+    run["pull_requests"] = [{"number": 1, "base": {"ref": base_ref}}]
     return run
+
+
+def agent_pr(*args, author="cmux-agents-lander[bot]", **kwargs):
+    """base.make_pr() plus the author the janitor's PR query reads; None: the read had no author."""
+    pr = base.make_pr(*args, **kwargs)
+    pr["author"] = None if author is None else {"login": author}
+    return pr
 
 
 def queued_job(label=LABEL):
@@ -215,27 +222,41 @@ class DecideTests(unittest.TestCase):
         return stale.Suspect(run, LABEL, "main", PATH)
 
     def test_open_pull_request_at_the_run_head_is_base_merged(self):
-        d = stale.decide(self.suspect(), change(), [base.make_pr(63559, head="head")], resolve=resolve)
+        d = stale.decide(self.suspect(), change(), [agent_pr(63559, head="head")], resolve=resolve)
         self.assertEqual((d.action, d.pr["number"]), ("base-merge", 63559))
 
     def test_merged_pull_request_run_is_shed(self):
-        d = stale.decide(self.suspect(), change(), [base.make_pr(63559, state="MERGED", head="head")],
+        d = stale.decide(self.suspect(), change(), [agent_pr(63559, state="MERGED", head="head")],
                          resolve=resolve)
         self.assertEqual(d.action, "shed")
-        d = stale.decide(self.suspect(), change(), [base.make_pr(63559, state="CLOSED", head="head")],
+        d = stale.decide(self.suspect(), change(), [agent_pr(63559, state="CLOSED", head="head")],
                          resolve=resolve)
         self.assertEqual(d.action, "shed")
 
+    def test_teammate_open_pull_request_is_shed_never_merged_into(self):
+        d = stale.decide(self.suspect(), change(), [agent_pr(62888, head="head", author="austinywang")],
+                         resolve=resolve)
+        self.assertEqual(d.action, "shed")
+        self.assertIn("austinywang's", d.note)
+
+    def test_unread_author_is_shed_never_merged_into(self):
+        d = stale.decide(self.suspect(), change(), [agent_pr(63678, head="head", author=None)], resolve=resolve)
+        self.assertEqual(d.action, "shed")
+
+    def test_teammates_match_red_autofix(self):
+        import red_autofix
+        self.assertEqual(stale.TEAMMATES, red_autofix.TEAMMATES)
+
     def test_open_pull_request_that_moved_on_sheds_the_old_head(self):
-        d = stale.decide(self.suspect(), change(), [base.make_pr(63559, head="newer")], resolve=resolve)
+        d = stale.decide(self.suspect(), change(), [agent_pr(63559, head="newer")], resolve=resolve)
         self.assertEqual(d.action, "shed")
 
     def test_a_run_created_after_the_change_is_not_stale(self):
-        self.assertIsNone(stale.decide(self.suspect(age=30), change(), [base.make_pr(63559, head="head")],
+        self.assertIsNone(stale.decide(self.suspect(age=30), change(), [agent_pr(63559, head="head")],
                                        resolve=resolve))
 
     def test_no_routing_change_means_no_decision(self):
-        self.assertIsNone(stale.decide(self.suspect(), None, [base.make_pr(63559, head="head")], resolve=resolve))
+        self.assertIsNone(stale.decide(self.suspect(), None, [agent_pr(63559, head="head")], resolve=resolve))
 
     def test_an_unknown_pull_request_is_kept(self):
         self.assertEqual(stale.decide(self.suspect(), change(), [], resolve=resolve).action, "keep")
@@ -250,14 +271,14 @@ class PlanTests(unittest.TestCase):
         def lookup(*key):
             lookups.append(key)
             return change()
-        decisions = stale.plan(suspects, {"lane/a": [base.make_pr(7, head="head")]}, lookup=lookup, resolve=resolve)
+        decisions = stale.plan(suspects, {"lane/a": [agent_pr(7, head="head")]}, lookup=lookup, resolve=resolve)
         self.assertEqual([d.action for d in decisions], ["base-merge", "keep", "keep"])
         self.assertEqual(lookups, [("main", PATH, LABEL)])
 
     def test_shed_cap_and_runs_another_category_cancels(self):
         runs = [pr_run(branch=f"lane/{i}", sha="head", age=90 - i) for i in range(3)]
         suspects = [stale.Suspect(run, LABEL, "main", PATH) for run in runs]
-        prs = {f"lane/{i}": [base.make_pr(i + 1, state="MERGED", head="head")] for i in range(3)}
+        prs = {f"lane/{i}": [agent_pr(i + 1, state="MERGED", head="head")] for i in range(3)}
         decisions = stale.plan(suspects, prs, lookup=lambda *k: change(), resolve=resolve, max_sheds=1,
                                already_cancelled=[runs[0]["id"]])
         self.assertEqual([d.action for d in decisions], ["keep", "shed", "keep"])
@@ -300,27 +321,39 @@ class StaleRouteGitHub(base.FakeGitHub):
 class SweepTests(unittest.TestCase):
     """The janitor sweep end to end: macos-26 saturated, one stale-ref run among runs main still sends there."""
 
-    def sweep(self, stale_pr_state, *, dry_run=False, can_merge=True):
-        hogger = pr_run(branch="lane/ios-rust-macname-tags", sha="head63559", age=68, attempt=3)
+    def sweep(self, stale_pr_state, *, dry_run=False, can_merge=True, author="cmux-agents-lander[bot]",
+              base_ref="main"):
+        hogger = pr_run(branch="lane/ios-rust-macname-tags", sha="head63559", age=68, attempt=3, base_ref=base_ref)
         busy = [pr_run(branch=f"lane/busy-{i}", sha=f"busy{i}", age=20 + i, path=".github/workflows/ci.yml")
                 for i in range(8)]
         runs = [hogger, *busy]
         jobs = {run["id"]: [queued_job()] for run in runs}
         fake = StaleRouteGitHub({run["id"]: dict(run) for run in runs}, jobs)
         fake.app_token = can_merge  # cmux-bot's App token (GitHub.app_token); False: the workflow token fallback
-        fake.prs = {"lane/ios-rust-macname-tags": [base.make_pr(63559, state=stale_pr_state, head="head63559")]}
-        fake.prs.update({f"lane/busy-{i}": [base.make_pr(100 + i, head=f"busy{i}")] for i in range(8)})
+        fake.prs = {"lane/ios-rust-macname-tags": [agent_pr(63559, state=stale_pr_state, head="head63559",
+                                                                author=author)]}
+        fake.prs.update({f"lane/busy-{i}": [agent_pr(100 + i, head=f"busy{i}")] for i in range(8)})
         fake.commit_details = {CHANGE_SHA: {"files": [{"filename": PATH, "status": "modified", "patch": PATCH}],
                                             "commit": {"committer": {"date": iso(60)}}}}
         printed = []
         with tempfile.TemporaryDirectory() as temp:
             workflows = Path(temp) / "workflows"
             workflows.mkdir()
-            (workflows / "ios-sim-screenshot-loop.yml").write_text(ROUTED)
             (workflows / "ci.yml").write_text(STILL)
+            argv = []
+            if base_ref == "main":
+                (workflows / "ios-sim-screenshot-loop.yml").write_text(ROUTED)
+            else:
+                # cmux#64299's shape: the change landed on base_ref; main's copy still asks for macos-26.
+                (workflows / "ios-sim-screenshot-loop.yml").write_text(ROUTED.replace(RUNS_ON, LABEL))
+                branch = Path(temp) / base_ref
+                branch.mkdir()
+                (branch / "ios-sim-screenshot-loop.yml").write_text(ROUTED)
+                (branch / "ci.yml").write_text(STILL)
+                argv = ["--branch-workflows", f"{base_ref}={branch}"]
             out, summary = Path(temp) / "pool.json", Path(temp) / "summary.md"
-            argv = ["--repo", "manaflow-ai/cmux", "--summary", str(summary), "--workflows-dir", str(workflows),
-                    "--pool-load", str(out)] + (["--dry-run"] if dry_run else [])
+            argv += ["--repo", "manaflow-ai/cmux", "--summary", str(summary), "--workflows-dir", str(workflows),
+                     "--pool-load", str(out)] + (["--dry-run"] if dry_run else [])
             with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
                     mock.patch.dict("os.environ", {"GH_TOKEN": "t", "CMUX_BOT_TOKEN": "t"}), \
                     mock.patch.object(janitor.time, "sleep", lambda _: None), \
@@ -361,6 +394,20 @@ class SweepTests(unittest.TestCase):
         self.assertIn("keep (base merge needs cmux-bot's token)", text)
         warning = next(line for line in printed if line.startswith("::warning title=stale-ref routing"))
         self.assertNotIn("base-merged", warning)
+
+    def test_teammate_open_pull_request_run_is_shed_not_merged_into(self):
+        code, fake, hogger, busy, snapshot, text, printed = self.sweep("OPEN", author="austinywang")
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.updated, [])
+        self.assertIn(hogger["id"], self.cancelled(fake))
+        self.assertIn("austinywang's", text)
+
+    def test_feat_cmux_next_change_base_merges_its_pull_request(self):
+        """The 2026-11-28 incident: #64299 landed on feat-cmux-next, whose copy the PR run follows."""
+        code, fake, hogger, busy, snapshot, text, printed = self.sweep("OPEN", base_ref="feat-cmux-next")
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.updated, [(63559, "head63559")])
+        self.assertIn("routing change in 64299deadb on feat-cmux-next", text)
 
     def test_dry_run_writes_nothing(self):
         code, fake, hogger, busy, snapshot, text, printed = self.sweep("OPEN", dry_run=True)

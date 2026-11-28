@@ -28,7 +28,9 @@ Then the remedy (decide()):
   - the run is at an open pull request's head: base-merge that pull request (PUT .../pulls/N/update-branch, at
     most once per pull request a sweep, MAX_BASE_MERGES a sweep, as cmux-bot only). The run becomes right once the
     branch has the change: the merge is a new head, whose runs follow the new copy, and category b sheds the old
-    head's runs as superseded on the next sweep. Never a cancel at an open head (OPEN_HEAD_RULE);
+    head's runs as superseded on the next sweep. Never a cancel at an open head (OPEN_HEAD_RULE), with one
+    exception: a core teammate's pull request (TEAMMATES), or one whose author is unread, is never merged into, so
+    its stale run is shed instead and the base merge stays the teammate's;
   - the pull request is merged or closed, or the run is no longer its head: moot work, shed (cancelled) like any
     superseded run, at most MAX_SHEDS a sweep, unless another category already cancels it this sweep;
   - no pull request could be told apart: left alone and reported.
@@ -51,10 +53,15 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 # The pool snapshot key (queue_janitor's macos-pool-load artifact) this sweep's findings ride under.
 STALE_ROUTES_KEY = "stale_routes"
 # Base merges and sheds a sweep may make. A base merge is one write and pushes one merge commit; a shed is a cancel.
-# Measured: on 2026-11-28 one routing change (cmux#64299) left 1 such run among 9 queued on macos-26; a sweep runs
-# every 5 minutes, so 5 and 10 clear a label's whole queue (DEFAULT_THRESHOLD 6 a pool) within a sweep or two.
-MAX_BASE_MERGES = 5
+# Measured: at 11:45Z on 2026-11-28, 11 of the 23 queued or running ios-sim-screenshot-loop.yml runs asked for
+# macos-26 from refs older than cmux#64299; each was a distinct pull request. A sweep runs every 5 minutes and the
+# repository paces base merges at 8 per 600 s, so 3 a sweep (6 per 600 s) stays under that pace and clears 11 open
+# pull requests in four sweeps; 10 sheds a sweep clears a label's whole queue (DEFAULT_THRESHOLD 6 a pool) in one.
+MAX_BASE_MERGES = 3
 MAX_SHEDS = 10
+# Core teammates (red_autofix.TEAMMATES; tests/test_ci_stale_route_runs.py keeps the two equal). No automation
+# merges into a teammate's branch, so a teammate's stale run is shed, never base-merged.
+TEAMMATES = frozenset({"austinywang", "azooz2003-bit", "lawrencecchen", "lucasr1b"})
 # Commits read (one GET each) per (file, label) when looking for the routing change, newest first.
 # Bound by GitHub's 24 h queue limit, not a measurement: a run queued now was created within a day, so only that
 # day's commits to the file can postdate it, and 8 is more than any workflow file here takes in a day.
@@ -225,6 +232,12 @@ def find_suspects(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, S
     return out
 
 
+def pr_author(pr: Mapping[str, Any]) -> str:
+    """The pull request's author login ("" when the read had none)."""
+    author = pr.get("author")
+    return str(author.get("login") or "") if isinstance(author, Mapping) else ""
+
+
 def decide(suspect: Suspect, change: Change | None, prs: Sequence[Mapping[str, Any]], *,
            resolve: Callable[[Mapping[str, Any], Sequence[Mapping[str, Any]]], Mapping[str, Any] | None]
            ) -> StaleRoute | None:
@@ -247,6 +260,13 @@ def decide(suspect: Suspect, change: Change | None, prs: Sequence[Mapping[str, A
     if pr.get("headRefOid") != run.get("head_sha"):
         return StaleRoute(run, suspect.label, change, "shed",
                           f"PR #{pr.get('number')} moved past this run's head", pr)
+    author = pr_author(pr)
+    if not author:
+        return StaleRoute(run, suspect.label, change, "shed",
+                          f"PR #{pr.get('number')}'s author is unread: shed, never merged into", pr)
+    if author in TEAMMATES:
+        return StaleRoute(run, suspect.label, change, "shed",
+                          f"PR #{pr.get('number')} is {author}'s: shed, the base merge is theirs", pr)
     return StaleRoute(run, suspect.label, change, "base-merge",
                       f"PR #{pr.get('number')} predates {change.sha[:10]}: base merge", pr)
 

@@ -2921,6 +2921,7 @@ def branches_to_resolve(
 PR_FIELDS = """
         number state headRefOid url
         headRepositoryOwner { login }
+        author { login }
         labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
         files(first: 100) { pageInfo { hasNextPage } nodes { path } }
         timelineItems(last: 50, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {
@@ -2941,6 +2942,7 @@ OPEN_PRS_UNREAD = "openPullRequestsUnread"
 OPEN_PR_FIELDS = """
         number state headRefOid url
         headRepositoryOwner { login }
+        author { login }
         labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
 """
 
