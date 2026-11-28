@@ -54,7 +54,7 @@ jobs:
           - leg: before
             ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || '9262d60ac68e8b84d58e95fcd00f3654d874d6d4' }}
           - leg: after
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || '85b89e6e1c19948f5e25dd2d99995ad43d299ace' }}
+            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || '9262d60ac68e8b84d58e95fcd00f3654d874d6d4' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
