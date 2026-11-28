@@ -14,6 +14,10 @@ final class TabZoomDriver {
     nonisolated static let variant = TabTransitionVariant.fromEnvironment()
     /// The cards' close buttons and titles (their own clock after 0.96).
     private(set) var chrome = CardChrome()
+    /// How far the grid shows: 0 = page, 1 = grid, clamped (the spring may
+    /// overshoot slightly). Read where it is drawn, by leaf effects, so a
+    /// zoom frame re-runs those and not the views around them.
+    var shown: Double { min(1, max(0, state.progress)) }
     @ObservationIgnored var onSettle: ((TabZoomState.Phase) -> Void)?
     /// The zoom just turned toward the page (a tap, a reversal, a pinch
     /// released that way). Called in the same update as the change, before
@@ -72,9 +76,11 @@ final class TabZoomDriver {
             if state.phase == .animating, before == .page || before == .overview {
                 frameLog.begin(at: CACurrentMediaTime(), toOverview: state.target == 1)
                 AccessoryProbe.trace.reset()
+                ZoomWorkProbe.begin()
             } else if state.phase != .animating, frameLog.isRunning {
                 // A pinch grabbed it or it jumped: not a tap-to-settled zoom.
                 _ = frameLog.end(maxFPS: 0)
+                ZoomWorkProbe.end()
             }
         }
         #endif
@@ -132,6 +138,7 @@ final class TabZoomDriver {
             #if DEBUG
             if var summary = frameLog.end(maxFPS: Int((1 / max(0.001, link.targetTimestamp - link.timestamp)).rounded())) {
                 summary.row = AccessoryProbe.trace.summary(toOverview: summary.toOverview)
+                summary.work = ZoomWorkProbe.end()
                 Self.write(summary)
             }
             #endif
@@ -153,6 +160,32 @@ enum AccessoryProbe {
     static func note(_ z: AccessoryZoom, moving: Bool, bottom: CGFloat? = nil) {
         guard on, moving else { return }
         trace.note(opacity: z.opacity, scale: Double(z.scale), bottom: bottom.map { Double(z.origin.y + z.scale * $0) })
+    }
+}
+
+/// Counts the views that re-run while a logged zoom moves (`ZoomWork`,
+/// `CMUX_TABS_FRAME_LOG=1` only): their bodies call `note` once each.
+@MainActor
+enum ZoomWorkProbe {
+    private static var work = ZoomWork()
+    private static var running = false
+
+    static func begin() {
+        guard AccessoryProbe.on else { return }
+        work.reset()
+        running = true
+    }
+
+    @discardableResult
+    static func end() -> ZoomWork.Counts? {
+        guard running else { return nil }
+        running = false
+        return work.counts
+    }
+
+    static func note(_ view: ZoomWork.Kind) {
+        guard running else { return }
+        work.note(view)
     }
 }
 

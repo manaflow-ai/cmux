@@ -18,6 +18,15 @@ struct ZoomFrameLog: Equatable, Sendable {
         var maxFPS: Int
         /// What the screen drew of the accessory row during the zoom.
         var row: AccessoryTrace.Summary? = nil
+        /// When the zoom started and ended (CACurrentMediaTime, ms), to line
+        /// it up with the main-thread tracer's hitches.
+        var startMs: Double = 0
+        var endMs: Double = 0
+        /// The views re-run while the zoom moved (`ZoomWork`): the screen,
+        /// the grid and its cards. Counted, not timed, so the same on any
+        /// host: a zoom whose grid or cards re-run every frame does work in
+        /// proportion to the tabs on every frame.
+        var work: ZoomWork.Counts? = nil
     }
 
     static let jitter = 0.0005
@@ -28,9 +37,12 @@ struct ZoomFrameLog: Equatable, Sendable {
 
     var isRunning: Bool { last != nil }
 
+    private var start: Double = 0
+
     mutating func begin(at time: Double, toOverview: Bool) {
         intervals = []
         last = time
+        start = time
         self.toOverview = toOverview
     }
 
@@ -42,13 +54,48 @@ struct ZoomFrameLog: Equatable, Sendable {
 
     /// Ends the log and returns its summary (nil when none was running).
     mutating func end(maxFPS: Int) -> Summary? {
-        guard last != nil else { return nil }
+        guard let end = last else { return nil }
         last = nil
         let ms = intervals.map { $0 * 1000 }
         return Summary(toOverview: toOverview, frames: ms.count, durationMs: ms.reduce(0, +), firstFrameMs: ms.first ?? 0,
                        worstMs: ms.max() ?? 0,
                        over8ms: intervals.filter { $0 > 1.0 / 120 + Self.jitter }.count,
                        over16ms: intervals.filter { $0 > 1.0 / 60 + Self.jitter }.count,
-                       maxFPS: maxFPS)
+                       maxFPS: maxFPS, startMs: start * 1000, endMs: end * 1000)
     }
+}
+
+/// How many times the tab screen's views re-ran while a zoom moved.
+struct ZoomWork: Equatable, Sendable {
+    struct Counts: Equatable, Sendable, Codable {
+        /// The tab screen (one per frame is expected: it places the zooming page).
+        var screen = 0
+        /// The grid's body.
+        var grid = 0
+        /// Grid card bodies, all cards together.
+        var cards = 0
+        /// The grid's gate (`DormantGate`) awake: comparisons, how many found
+        /// the grid's inputs unchanged, and its body runs (updates it passed on).
+        /// Grid runs beyond `gatePass` come from the grid's own dependencies.
+        var gateCompared = 0
+        var gateEqual = 0
+        var gatePass = 0
+    }
+
+    enum Kind: Sendable { case screen, grid, card, gateCompared, gateEqual, gatePass }
+
+    private(set) var counts = Counts()
+
+    mutating func note(_ view: Kind) {
+        switch view {
+        case .screen: counts.screen += 1
+        case .grid: counts.grid += 1
+        case .card: counts.cards += 1
+        case .gateCompared: counts.gateCompared += 1
+        case .gateEqual: counts.gateEqual += 1
+        case .gatePass: counts.gatePass += 1
+        }
+    }
+
+    mutating func reset() { counts = Counts() }
 }
