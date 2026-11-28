@@ -1828,9 +1828,7 @@ func (value *ChiefWorkTask) UnmarshalJSON(data []byte) error {
 }
 
 type ClientInfo struct {
-	Attached []ID `json:"attached"`
-	// The capabilities this connection declared in set-client-info that the daemon recognized, sorted (for example agent-cli-hybrid-v1). Absent from daemons older than this field.
-	Capabilities     *[]string                `json:"capabilities,omitempty"`
+	Attached         []ID                     `json:"attached"`
 	Client           uint64                   `json:"client"`
 	ConnectedSeconds uint64                   `json:"connected_seconds"`
 	Kind             RequiredNullable[string] `json:"-"`
@@ -1884,15 +1882,14 @@ func (value *ClientInfo) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode ClientInfo: expected object")
 	}
 	var fields struct {
-		Attached         *[]ID                         `json:"attached"`
-		Capabilities     optionalNonNullJSON[[]string] `json:"capabilities"`
-		Client           *uint64                       `json:"client"`
-		ConnectedSeconds *uint64                       `json:"connected_seconds"`
-		Kind             RequiredNullable[string]      `json:"kind"`
-		Name             RequiredNullable[string]      `json:"name"`
-		Self             *bool                         `json:"self"`
-		Sizes            *[]ClientSize                 `json:"sizes"`
-		Transport        *ClientTransport              `json:"transport"`
+		Attached         *[]ID                    `json:"attached"`
+		Client           *uint64                  `json:"client"`
+		ConnectedSeconds *uint64                  `json:"connected_seconds"`
+		Kind             RequiredNullable[string] `json:"kind"`
+		Name             RequiredNullable[string] `json:"name"`
+		Self             *bool                    `json:"self"`
+		Sizes            *[]ClientSize            `json:"sizes"`
+		Transport        *ClientTransport         `json:"transport"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode ClientInfo: %w", err)
@@ -1903,12 +1900,6 @@ func (value *ClientInfo) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode ClientInfo: required field attached is missing or null")
 	}
 	decoded.Attached = *fields.Attached
-	if fields.Capabilities.null {
-		return fmt.Errorf("decode ClientInfo: non-nullable field capabilities is null")
-	}
-	if fields.Capabilities.set {
-		decoded.Capabilities = &fields.Capabilities.value
-	}
 	if fields.Client == nil {
 		return fmt.Errorf("decode ClientInfo: required field client is missing or null")
 	}

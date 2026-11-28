@@ -89,8 +89,6 @@ jobs:
             .github/actions/runner-cargo-home
             .github/golden-inputs.json
             cmux-tui
-            # cargo loads every cmux-tui member; one links this by path (tests/test_ci_sparse_cargo_path_deps.py).
-            workers/cmux-vm/cli
             scripts
             Cargo.toml
             rust-toolchain.toml

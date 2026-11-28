@@ -481,8 +481,6 @@ impl Hub {
             self.host_move_settled(&session);
         }
         drop((turn, using, spawning));
-        // RFD 0158 §10: the git state it will want on wake, as a file (`idle_digest.rs`).
-        self.idle_digest(&session, super::idle_digest::Moment::Sleep);
         tracing::info!(
             session = %session.id,
             cause = if pressed {
@@ -604,8 +602,6 @@ impl Hub {
             None => {
                 self.clear_hibernation(session);
                 tracing::info!(session = %session.id, cause, took_ms, ?slept_secs, "woke");
-                // What moved while it slept, written over the sleep's digest (`idle_digest.rs`).
-                self.idle_digest(session, super::idle_digest::Moment::Wake);
             }
             Some(e) => {
                 tracing::warn!(session = %session.id, cause, took_ms, ?slept_secs, "wake failed: {}", e.message)

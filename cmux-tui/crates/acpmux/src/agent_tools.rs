@@ -341,21 +341,13 @@ pub fn cmux_server(cmux: &Path, all_tools: bool, settings_file: &Path) -> McpSer
     if all_tools {
         args.push("--all-tools".to_owned());
     }
-    let mut env = vec![
+    let env = vec![
         (
             crate::user_settings::CONFIG_OVERRIDE.to_owned(),
             settings_file.to_string_lossy().into_owned(),
         ),
         (crate::desktop_link::GUEST_ENV.to_owned(), String::new()),
     ];
-    // macOS: the server runs malloc in space-efficient mode, as the daemons do (malloc_space.rs).
-    // An idle chat's server held 32 MB, about 20 of it freed blocks still dirty in its footprint
-    // (goal ram-baseline); its `main` drops the variable, so the tools it starts run the default.
-    env.extend(
-        cmux_tui_platform::malloc_space::child_env()
-            .into_iter()
-            .map(|(key, value)| (key.to_owned(), value.to_owned())),
-    );
     McpServer { name: CMUX_SERVER.into(), command: cmux.to_path_buf(), args, env }
 }
 

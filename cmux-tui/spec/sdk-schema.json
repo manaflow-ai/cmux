@@ -3370,18 +3370,6 @@
      },
      "presence": "required",
      "nullable": false
-    },
-    "capabilities": {
-     "type": {
-      "kind": "array",
-      "items": {
-       "kind": "scalar",
-       "name": "string"
-      }
-     },
-     "presence": "optional",
-     "nullable": false,
-     "description": "The capabilities this connection declared in set-client-info that the daemon recognized, sorted (for example agent-cli-hybrid-v1). Absent from daemons older than this field."
     }
    },
    "additional_properties": false

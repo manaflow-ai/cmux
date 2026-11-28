@@ -96,8 +96,6 @@ struct Fields<'a> {
     agent_session_id: Option<&'a str>,
     host_build: Option<&'a str>,
     handle: Option<&'a str>,
-    /// Its tags as its heartbeat lists them (`SessionRow::tags`).
-    tags: Option<&'a std::collections::BTreeMap<String, String>>,
     /// When the session last changed on its machine, as its heartbeat says (`updatedAt`).
     updated_at: Option<u64>,
 }
@@ -119,7 +117,6 @@ impl<'a> Fields<'a> {
             // Only a given handle: a derived one is every reader's to derive, and an invalid one
             // is no handle at all (`session_handle::valid`).
             handle: s.handle.as_deref().filter(|h| crate::session_handle::valid(h)),
-            tags: s.tags.as_ref().filter(|t| !t.is_empty()),
             updated_at: s.updated_at.filter(|&at| at > 0),
         }
     }
@@ -142,7 +139,6 @@ struct Bare {
     agent_session_id: Option<String>,
     host_build: Option<String>,
     handle: Option<String>,
-    tags: Option<std::collections::BTreeMap<String, String>>,
     updated_at: Option<u64>,
     read: u64,
     /// The `updatedAt` its row lists.
@@ -165,7 +161,6 @@ impl Bare {
             agent_session_id: own(fields.agent_session_id),
             host_build: own(fields.host_build),
             handle: own(fields.handle),
-            tags: fields.tags.cloned(),
             updated_at: fields.updated_at,
             read,
             stamped,
@@ -186,7 +181,6 @@ impl Bare {
             agent_session_id: self.agent_session_id.as_deref(),
             host_build: self.host_build.as_deref(),
             handle: self.handle.as_deref(),
-            tags: self.tags.as_ref(),
             updated_at: self.updated_at,
         }
     }
@@ -254,7 +248,7 @@ pub(crate) fn pushed_health(
 /// null when the hub does not say, so no reader drops or misfiles a chat for a missing key (Leo,
 /// 2026-11-22: "my gui chats are not showing yet").
 #[cfg(test)]
-pub(crate) const ROW_KEYS: [&str; 12] = [
+pub(crate) const ROW_KEYS: [&str; 11] = [
     "name",
     "nameGiven",
     "title",
@@ -265,7 +259,6 @@ pub(crate) const ROW_KEYS: [&str; 12] = [
     "agentSessionId",
     "hostBuild",
     "handle",
-    "tags",
     "status",
 ];
 
@@ -286,7 +279,6 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         agent_session_id,
         host_build,
         handle,
-        tags,
         // `set_mesh_book` sets `updatedAt` itself, from this or its own reading.
         updated_at: _,
     } = *fields;
@@ -308,8 +300,6 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         // from the id (`session_handle::display`, `session_handle::matches`).
         "handle": handle,
         "displayName": handle,
-        // Its tags, as a local row lists them (`session::live_tags`): null when the hub says none.
-        "tags": tags,
         // Keep the daemon's lifecycle status usable by existing summary views. The synthetic
         // failed heartbeat state is carried by the last turn they already know how to render.
         "status": if failed { "idle" } else { state },

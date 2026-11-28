@@ -197,8 +197,6 @@ pub struct Health {
     receipts: VecDeque<Receipt>,
     /// Newest first.
     pending: VecDeque<PendingView>,
-    /// Ticks that came [`policy::OBSERVER_LATE_MS`] or more past their deadline ([`Self::forgive`]).
-    observer_stalls: u64,
     /// Heap entries popped by `tick` (the scale test's counter).
     #[cfg(test)]
     pub(crate) visited: u64,
@@ -694,13 +692,6 @@ impl Health {
 
     /// Runs every expired deadline; the actions for the host.
     pub fn tick(&mut self, now: u64) -> Vec<Action> {
-        // The host's timer came late: the host itself (its main thread, the Mac) ran nothing for that
-        // long, so no beat could reach the model either. That time is the observer's, not the pages'.
-        if let Some(late) = self.next_tick_ms().map(|due| now.saturating_sub(due))
-            && late >= policy::OBSERVER_LATE_MS
-        {
-            self.forgive(late, now);
-        }
         let mut due = Vec::new();
         while let Some(&Reverse((deadline, generation, slot))) = self.heap.peek() {
             if deadline > now {
@@ -726,45 +717,6 @@ impl Health {
             self.refresh(slot, now, Some(&mut actions));
         }
         actions
-    }
-
-    /// Moves every silence clock forward by `late` (never past `now`): the time the observer stalled
-    /// is not charged to the parts it watches. Leo's Mac, 2026-11-27 13:30:57 and 13:31:32 (load 187
-    /// on 15 cores): two agent chats were reloaded for "Not answering for 65 s" and "Has not handled
-    /// your clicks or typing for 10 s" while the app's own main thread, which delivers their beats and
-    /// runs this timer, was stalled (the app relaunched 37 s later). Leo, 2026-11-22: "we need to make
-    /// sure any solutions that reloading would help with, we never encounter those classes of bugs in
-    /// the first place." A page that really hangs stays silent after the stall and is judged from
-    /// there, at most [`policy::PAGE_STUCK_MS`] later. The same shape as the daemon's admission lease
-    /// (cmux#62394): wall time the runtime gave no task is not the task's fault.
-    fn forgive(&mut self, late: u64, now: u64) {
-        let shift = |t: &mut Option<u64>| {
-            if let Some(at) = t {
-                *at = at.saturating_add(late).min(now);
-            }
-        };
-        self.observer_stalls = self.observer_stalls.saturating_add(1);
-        self.timed.clear();
-        for (slot, part) in self.slots.iter_mut().enumerate() {
-            let Some(part) = part.as_mut() else { continue };
-            let s = &mut part.signals;
-            shift(&mut s.last_beat);
-            shift(&mut s.input_since);
-            shift(&mut s.loading_since);
-            shift(&mut s.unresponsive_since);
-            shift(&mut s.roster_since);
-            s.last_progress = s.last_progress.saturating_add(late).min(now);
-            shift(&mut part.timed_beat);
-            if let Some(beat) = part.timed_beat {
-                self.timed.insert((beat, slot));
-            }
-        }
-    }
-
-    /// How many times the host's timer came at least [`policy::OBSERVER_LATE_MS`] late (each one's
-    /// stall was not charged to the parts): the detector of this class.
-    pub fn observer_stalls(&self) -> u64 {
-        self.observer_stalls
     }
 
     /// The earliest live deadline: the host's one timer. `None`: no timer.

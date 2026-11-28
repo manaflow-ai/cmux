@@ -391,7 +391,7 @@ public struct CloudDaemon: Sendable {
     /// child (a child past it is killed: `timedOut`, since the call may have run).
     /// `auth` is the credential's kind as cmux-cloud-api reads it: `owner` (the Stack session) or `worker`
     /// (this Mac's install token). A misconfigured dev build refuses before anything runs.
-    public func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration, auth: String = "owner", tail: Data? = nil) async throws -> Data {
+    public func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration, auth: String = "owner") async throws -> Data {
         try buildSpace.check()
         let run: @Sendable (Data, Duration) async throws -> Data
         if let daemonCall {
@@ -408,9 +408,7 @@ public struct CloudDaemon: Sendable {
         if let team = await teamID() { request["team"] = team }
         let output: Data
         do {
-            var input = try JSONSerialization.data(withJSONObject: request)
-            if let tail { input.append(0x0A); input.append(tail) }
-            output = try await run(input, timeout)
+            output = try await run(try JSONSerialization.data(withJSONObject: request), timeout)
         } catch let noAnswer as CloudMachineIO.NoAnswer {
             // Never started: nothing ran. Started and then killed or crashed: the call may have run.
             if noAnswer.dispatched { throw CloudAPIError.timedOut("cloud.\(call)") }

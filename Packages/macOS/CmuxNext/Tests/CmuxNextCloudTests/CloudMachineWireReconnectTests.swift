@@ -13,16 +13,15 @@ struct CloudMachineWireReconnectTests {
         var count = 0
     }
 
-    /// A first step far longer than the test: only a wake can end the wait. The middle draw gives Rust's pacer no jitter.
-    private static let long: Duration = .seconds(60)
-    private static let noJitter: () -> Double = { 0.5 }
+    /// A backoff whose first step is far longer than the test: only a wake can end the wait.
+    private static let longBackoff = Backoff(initial: .seconds(60), maximum: .seconds(60), jitter: 0, random: { 0.5 })
 
     @Test func networkChangeEndsTheBackoffWaitAtOnce() async throws {
         let clock = ManualClock()
         let wake = RetryWake(owner: "test.cloud.wire")
         let dials = Dials()
         let loop = Task { @MainActor in
-            await CloudMachineWire.reconnecting(wake: wake, initial: Self.long, maximum: Self.long, random: Self.noJitter, clock: clock, keepGoing: { dials.count < 2 }) { _ in
+            await CloudMachineWire.reconnecting(wake: wake, backoff: Self.longBackoff, clock: clock, keepGoing: { dials.count < 2 }) { _ in
                 dials.count += 1
                 throw URLError(.notConnectedToInternet)
             }
@@ -41,7 +40,7 @@ struct CloudMachineWireReconnectTests {
         let clock = ManualClock()
         let wake = RetryWake(owner: "test.cloud.wire")
         let dials = Dials()
-        await CloudMachineWire.reconnecting(wake: wake, initial: Self.long, maximum: Self.long, random: Self.noJitter, clock: clock, keepGoing: { dials.count < 2 }) { _ in
+        await CloudMachineWire.reconnecting(wake: wake, backoff: Self.longBackoff, clock: clock, keepGoing: { dials.count < 2 }) { _ in
             dials.count += 1
             // The network changed while the dial ran on the old one.
             if dials.count == 1 { wake.fire() }
@@ -55,8 +54,9 @@ struct CloudMachineWireReconnectTests {
         let clock = ManualClock()
         let wake = RetryWake(owner: "test.cloud.wire")
         let dials = Dials()
+        let short = Backoff(initial: .milliseconds(100), maximum: .seconds(60), jitter: 0, random: { 0.5 })
         let loop = Task { @MainActor in
-            await CloudMachineWire.reconnecting(wake: wake, initial: .milliseconds(100), maximum: .seconds(60), random: Self.noJitter, clock: clock, keepGoing: { dials.count < 6 }) { onSubscribed in
+            await CloudMachineWire.reconnecting(wake: wake, backoff: short, clock: clock, keepGoing: { dials.count < 6 }) { onSubscribed in
                 dials.count += 1
                 onSubscribed()
                 throw URLError(.networkConnectionLost)
@@ -80,7 +80,7 @@ struct CloudMachineWireReconnectTests {
         let wake = RetryWake(owner: "test.cloud.wire")
         let dials = Dials()
         let loop = Task { @MainActor in
-            await CloudMachineWire.reconnecting(wake: wake, initial: Self.long, maximum: Self.long, random: Self.noJitter, clock: clock, keepGoing: { true }) { _ in
+            await CloudMachineWire.reconnecting(wake: wake, backoff: Self.longBackoff, clock: clock, keepGoing: { true }) { _ in
                 dials.count += 1
                 throw URLError(.notConnectedToInternet)
             }

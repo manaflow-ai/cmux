@@ -11,8 +11,6 @@
 //! | `disk-full`, slow fsync | [`disk::DiskFault`]: a switch file the store's debug seam reads (ENOSPC, EDQUOT, a slow sync) |
 //! | `ticket-expire`, `mint-down` | [`mint::Mint`]: tickets with a short TTL; the mint answers, refuses (a 503) or hangs |
 //! | a phone's link | [`shaper::Shaper`] (TCP) and [`shaper::UdpShaper`] (datagrams: plus a NAT rebinding, one-way loss and a profile step): rate, delay, jitter, loss, a blackout and an address change from a named profile in `link-profiles.json`, seeded |
-//! | `cpu`, `ram` | [`load::CpuLoad`] (spinning threads at a duty cycle, 10x cores for RFD 0124's legs) and [`load::RamLoad`] (resident memory under a ceiling), real load in the test's own process |
-//! | a storm | [`storm::Storm`]: every wired fault (net, disk, cpu, ram, clock) moved from one seed at every tick, then one scenario step; a paused tokio clock ticks a day in moments. Instead of a soak |
 //! | `clock-jump` | [`clock::WallClock`]: a wall clock on tokio's clock (paused or not) that jumps; monotonic time does not |
 //!
 //! Every scenario runs through [`runs::Runs`]: `CMUX_FAULT_RUNS` seeds (default 20, the nightly
@@ -24,7 +22,6 @@
 pub mod clock;
 pub mod disk;
 pub mod invariants;
-pub mod load;
 pub mod mint;
 // Signals by pid (kill, SIGSTOP, SIGCONT): unix only.
 #[cfg(unix)]
@@ -33,7 +30,6 @@ pub mod proxy;
 pub mod rng;
 pub mod runs;
 pub mod shaper;
-pub mod storm;
 pub mod timer;
 pub mod trace;
 

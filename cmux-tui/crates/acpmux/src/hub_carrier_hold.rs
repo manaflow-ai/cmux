@@ -107,7 +107,6 @@ impl HubCarrier {
                 circuit.hold();
                 self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
                 kept.live = Some(circuit);
-                kept.saved_since = None;
                 kept.path = Some(Path::Relay);
                 kept.reopen_at = None;
                 kept.reopen_wait = Duration::ZERO;

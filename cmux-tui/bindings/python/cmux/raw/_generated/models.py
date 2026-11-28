@@ -562,7 +562,6 @@ class ClientInfo:
     is_self: bool = field(metadata={'wire_name': 'self'})
     sizes: List[ClientSize]
     transport: ClientTransport
-    capabilities: Union[List[str], MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

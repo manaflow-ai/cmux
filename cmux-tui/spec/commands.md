@@ -1154,7 +1154,7 @@ Example:
 | status | implemented |
 | since | protocol 6 additive extension |
 
-Returns all current Unix and WebSocket control connections in ascending client-id order. `self` identifies the requesting connection. `connected_seconds` is elapsed monotonic whole seconds. `attached` contains unique surface ids, and each corresponding `sizes` entry has null dimensions until that connection requests `resize-surface` for the attached surface. Protocol v10 reports `size_participating` on each size entry because one client may participate on one terminal and be excluded on another. `capabilities` lists the capabilities the connection declared in `set-client-info` that the daemon recognized, sorted (for example `agent-cli-hybrid-v1`); older daemons omit it.
+Returns all current Unix and WebSocket control connections in ascending client-id order. `self` identifies the requesting connection. `connected_seconds` is elapsed monotonic whole seconds. `attached` contains unique surface ids, and each corresponding `sizes` entry has null dimensions until that connection requests `resize-surface` for the attached surface. Protocol v10 reports `size_participating` on each size entry because one client may participate on one terminal and be excluded on another.
 
 Params: none.
 
@@ -1174,8 +1174,7 @@ array<object{
     rows:uint16|null,
     size_participating:boolean
   }>,
-  self:boolean,
-  capabilities?:array<string>
+  self:boolean
 }>
 ```
 

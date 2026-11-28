@@ -36,18 +36,6 @@ refuses and `swap` is the live route.
 - CmuxMobileKit's tests run in `.github/workflows/cmux-next-ios-kit.yml`. They run with no label on a PR into `feat-cmux-next` that touches the kit or a package it links, and skip a tree that already passed. The Mac-to-iPhone gate is `.github/workflows/ios-e2e.yml`: its tailnet jobs skip on PRs while the repo variable `IOS_E2E_PR_TAILNET` isn't `true`, and a dispatch runs them.
 - A Mac build proves neither an iOS compile nor an install. Report Mac, simulator and iPhone results separately.
 
-## Prove a fix: FlowSuite
-
-- Before you call an iOS change done, run `cmux ios verify` on the pushed head. It runs the
-  [FlowSuite](../../cmux-next-ios/FlowSuite/README.md) flows your diff can affect, diffs their screenshots
-  against the base, and posts the proof the `cmux/ios-fast` gate needs. The steps, and the route without
-  fleet access, are in [cmux-next-ios/CLAUDE.md](../../cmux-next-ios/CLAUDE.md), "Prove an iOS fix".
-- Open the before and after screenshots of the screen you changed and put them in the PR. A green run you
-  never looked at is not a fix (Leo, 2026-11-27: "i think even y'all didnt even look at sceenshots for those").
-- An iOS regression fix adds its flow in the same PR: a test that fails on the broken build, a `flows.json`
-  entry with `source: regression:N`, and a table row. From then on every PR that touches those paths runs it.
-- What still needs a person, and why: [FlowSuite/CHECKLIST.md](../../cmux-next-ios/FlowSuite/CHECKLIST.md).
-
 ## Logic in Rust
 
 - New logic goes in Rust: `cmux-next-ios/rust` (see its README for `cargo test`, clippy and fmt) or the `cmux-tui` crates it uses. Swift is the UI and the glue.

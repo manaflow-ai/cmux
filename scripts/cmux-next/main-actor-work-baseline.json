@@ -193,6 +193,12 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentActivity/AgentActivityPageProvider.swift": {
   "JSON / property-list encode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentChatUploads.swift": {
+  "synchronous file write or file-system change": 5
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentPeerUploads.swift": {
+  "synchronous file write or file-system change": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabSeed.swift": {
   "line split of a whole input": 1
  },
@@ -234,6 +240,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat+Machine.swift": {
   "JSON / property-list encode": 1,
   "JSON encode with sorted keys": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudUploads.swift": {
+  "synchronous file write or file-system change": 4
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Cloud.swift": {
   "JSON / property-list decode": 2,

@@ -95,55 +95,6 @@ async fn a_restarted_carrier_opens_the_kept_circuits_written_before_it() {
     assert!(started.elapsed() < Duration::from_secs(5));
 }
 
-/// One that does not open at start is not lost: it stays in its slot, is written down again,
-/// and the reopen pass tries it again once its backoff runs out (before: one failed try at
-/// start, and the next call to that machine paid a whole new circuit).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_saved_circuit_that_did_not_open_is_tried_again() {
-    let (after, tickets) = carrier();
-    let saved = Saved {
-        daemon: "machine-b".into(),
-        lane: "cheap".into(),
-        path: "relay".into(),
-        used_at: unix_now() - 10,
-    };
-    assert_eq!(after.reopen_saved(std::slice::from_ref(&saved)).await, 0);
-    assert_eq!(tickets.asked.load(Ordering::SeqCst), 1);
-
-    // Still kept in mind: a second restart now would open it too.
-    let again = after.saved_now();
-    assert_eq!(again.len(), 1, "{again:?}");
-    assert_eq!(again[0].key(), saved.key());
-    assert!(again[0].used_at <= saved.used_at + 1, "{again:?}");
-    assert_eq!(after.kept.prune(), 0, "the waiting slot is not pruned");
-
-    // Inside its backoff the pass leaves it; past it, the pass tries it again.
-    assert_eq!(after.reopen_closed().await, 0);
-    assert_eq!(tickets.asked.load(Ordering::SeqCst), 1);
-    tokio::time::sleep(mux::REOPEN_BACKOFF_MIN + Duration::from_millis(100)).await;
-    assert_eq!(after.reopen_closed().await, 0);
-    assert_eq!(tickets.asked.load(Ordering::SeqCst), 2);
-}
-
-/// A waiting one that has idled out by now is dropped, not tried forever.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_saved_circuit_waiting_past_its_idle_is_given_up() {
-    let (after, tickets) = carrier();
-    {
-        let slot = after.kept.slot("machine-b", CircuitLane::Cheap);
-        let mut kept = slot.lock().await;
-        kept.path = Some(Path::Relay);
-        kept.saved_since = Instant::now().checked_sub(after.timings.kept_idle);
-    }
-    if after.kept.slot("machine-b", CircuitLane::Cheap).lock().await.saved_since.is_none() {
-        return; // the clock is too young to stand an instant that far back
-    }
-    assert_eq!(after.reopen_closed().await, 0);
-    assert_eq!(tickets.asked.load(Ordering::SeqCst), 0);
-    assert!(after.saved_now().is_empty());
-    assert!(!after.kept.slot("machine-b", CircuitLane::Cheap).lock().await.saved_waiting());
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_circuit_that_would_have_idled_out_is_not_opened_again() {
     let (after, tickets) = carrier();

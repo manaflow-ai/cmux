@@ -119,8 +119,7 @@ removable() {
   # another dylib loads is kept too: conservative, it may keep a dylib nothing loads).
   linked="$( { otool -L "$exe"; find "$app/Contents/Frameworks" -maxdepth 1 -name '*.framework' | while read -r f; do
     local b; b="$(basename "$f" .framework)"; [[ -f "$f/$b" ]] && otool -L "$f/$b"; done
-    # The first entry otool prints for a dylib is its own install name: skipped, or every dylib would count as linked.
-    # (No apostrophe in a comment inside this $( ): macOS /bin/bash 3.2 reads it as an open quote.)
+    # A dylib's first entry is its own install name: skipped, or every dylib would count as linked.
     find "$app/Contents/Frameworks" -maxdepth 1 -type f -name '*.dylib' | while read -r f; do otool -L "$f" | tail -n +3; done; } 2>/dev/null \
     | awk '/^[[:space:]]/ { print $1 }' | sed 's#.*/##' | sort -u)"
   find "$app/Contents/Frameworks" -maxdepth 1 -name '*.app' -print

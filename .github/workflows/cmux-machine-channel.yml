@@ -51,14 +51,6 @@ name: cmux machine channel
 # "does the machine run merge M" stays an ancestry question. Keys that differ, a fork head, or a head
 # build that failed or never ran: the build below runs as before (the slow, canonical path).
 #
-# TWIN_BUILD (scripts/ci/cmux_machine_channel_twin.py): a push whose v2 tree key its first-parent ancestors share
-# (a merge that moved no build input) takes the newest of their push runs whose x86_64 build is queued, running
-# or passed, and builds nothing. 42 of 60 merges (00:30-01:05Z 2026-11-28) had their parent's key, and each queued
-# its own 14-minute thin build of the same bytes in one of three lanes, so a merge that did change an input
-# waited for a lane behind them. twin-x86_64 and twin-linux wait for that run's artifacts outside the plan and
-# point groups (one waiter running and one pending per build, a newer push replacing the pending one), then the
-# points take them as they take a PR head's (from_run).
-#
 # Safe beside cmux-tui-artifacts.yml's point-machine-channel (the fat fallback after publish): both
 # move the channel forward only (web-ota-pointer.py newer), that one keeps a channel of the same tree
 # (--same-tree), and this one's objects are write-once (cmux-machine-linux-bytes.sh early).
@@ -118,7 +110,6 @@ jobs:
     outputs:
       build: ${{ steps.plan.outputs.build }}
       from_run: ${{ steps.plan.outputs.from_run }}
-      twin_run: ${{ steps.plan.outputs.twin_run }}
       x86_64_target_set: ${{ steps.plan.outputs.x86_64_target_set }}
       aarch64_target_set: ${{ steps.plan.outputs.aarch64_target_set }}
       lane: ${{ steps.plan.outputs.lane }}
@@ -208,15 +199,6 @@ jobs:
               build=false
             fi
           fi
-          if [[ "$build" == true ]]; then
-            # TWIN_BUILD (see the header): an earlier push with this tree key already builds it.
-            twin_run="$(GH_TOKEN="$GH_TOKEN" scripts/ci/timeout.sh 120 python3 -I scripts/ci/cmux_machine_channel_twin.py find "$GITHUB_SHA")" || twin_run=""
-            if [[ "$twin_run" =~ ^[0-9]+$ ]]; then
-              echo "::notice title=machine channel takes an earlier push's build::run $twin_run builds this tree key"
-              echo "twin_run=$twin_run" >> "$GITHUB_OUTPUT"
-              build=false
-            fi
-          fi
           echo "build=$build" >> "$GITHUB_OUTPUT"
           # FREE_LANE (see the header): a free build lane, else the one that frees first; run_number % 3 when
           # the read fails.
@@ -291,96 +273,19 @@ jobs:
       artifact_prefix: ${{ inputs.artifact_prefix || needs.plan.outputs.artifact_prefix }}
       linux_runner: cmux-linux
 
-  # TWIN_BUILD (see the header): the earlier push's x86_64 artifact, waited for here so neither the plan nor the
-  # point group holds a runner for it. Its group is the twin build's: the pushes waiting on one build share one
-  # waiter and one pending (a newer push replaces it, and its point carries the older one).
-  twin-x86_64:
-    name: wait for the earlier push's x86_64 build
-    needs: plan
-    if: ${{ github.event_name == 'push' && needs.plan.outputs.twin_run != '' }}
-    concurrency:
-      group: cmux-machine-channel-twin-x86_64-${{ needs.plan.outputs.twin_run }}
-      cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      actions: read
-    outputs:
-      from_run: ${{ steps.wait.outputs.from_run }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          sparse-checkout: scripts
-      # The poll is on the cmux-bot App's own budget, as the plan's (tests/test_ci_no_github_token_polling.py).
-      - name: Mint the wait's App token
-        id: app
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.CMUX_BOT_APP_ID }}
-          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
-          permission-actions: read
-      - name: Wait for the earlier push's artifact
-        id: wait
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-          TWIN_RUN: ${{ needs.plan.outputs.twin_run }}
-        run: |
-          set -euo pipefail
-          run="$(python3 -I scripts/ci/cmux_machine_channel_twin.py wait "$TWIN_RUN" --target x86_64-unknown-linux-musl)" || run=""
-          echo "from_run=$run" >> "$GITHUB_OUTPUT"
-
-  # TWIN_BUILD: both Linux artifacts for point-linux, as twin-x86_64.
-  twin-linux:
-    name: wait for the earlier push's Linux builds
-    needs: plan
-    if: ${{ github.event_name == 'push' && needs.plan.outputs.twin_run != '' }}
-    concurrency:
-      group: cmux-machine-channel-twin-linux-${{ needs.plan.outputs.twin_run }}
-      cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      actions: read
-    outputs:
-      from_run: ${{ steps.wait.outputs.from_run }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          sparse-checkout: scripts
-      - name: Mint the wait's App token
-        id: app
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.CMUX_BOT_APP_ID }}
-          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
-          permission-actions: read
-      - name: Wait for the earlier push's artifacts
-        id: wait
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-          TWIN_RUN: ${{ needs.plan.outputs.twin_run }}
-        run: |
-          set -euo pipefail
-          run="$(python3 -I scripts/ci/cmux_machine_channel_twin.py wait "$TWIN_RUN" --target x86_64-unknown-linux-musl --target aarch64-unknown-linux-musl)" || run=""
-          echo "from_run=$run" >> "$GITHUB_OUTPUT"
-
   point-x86_64:
     # R2 credentials and the channel signing key.
     environment:
       name: artifacts
       deployment: false
     name: point the Cloud machine channel at this commit's x86_64 Linux build
-    needs: [plan, build-x86_64, twin-x86_64]
+    needs: [plan, build-x86_64]
     # One channel writer of this workflow at a time on a push (both points share it); a pull request's run is already one group of its own.
     concurrency:
       group: cmux-machine-channel-point-${{ github.event_name == 'push' && github.ref || format('run-{0}', github.run_id) }}
       cancel-in-progress: false
     # This run's build, or the merged PR head's (PR_HEAD_FAST_LANE); a pull request run points nothing.
-    if: ${{ !cancelled() && github.event_name == 'push' && (needs.build-x86_64.result == 'success' || needs.plan.outputs.from_run != '' || needs.twin-x86_64.outputs.from_run != '') }}
+    if: ${{ !cancelled() && github.event_name == 'push' && (needs.build-x86_64.result == 'success' || needs.plan.outputs.from_run != '') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
@@ -406,7 +311,7 @@ jobs:
       # Another run's artifacts list through the REST API: on the cmux-bot App's own budget (see plan).
       - name: Mint the PR head download's App token
         id: app
-        if: ${{ needs.plan.outputs.from_run != '' || needs.twin-x86_64.outputs.from_run != '' }}
+        if: ${{ needs.plan.outputs.from_run != '' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ vars.CMUX_BOT_APP_ID }}
@@ -421,12 +326,12 @@ jobs:
           path: assets/cmux-tui
           merge-multiple: true
           # PR_HEAD_FAST_LANE: the merged PR head's pr-router run when the plan found one; else this run.
-          run-id: ${{ needs.plan.outputs.from_run || needs.twin-x86_64.outputs.from_run || github.run_id }}
+          run-id: ${{ needs.plan.outputs.from_run || github.run_id }}
           # A token only for another run's artifacts: with one, download-artifact lists them through the
           # REST API, here on the App's budget above: on the shared GITHUB_TOKEN quota, run 45730730942 (c0374e0b,
           # 01:29Z 2026-11-26) failed both points on "API rate limit exceeded for installation". Empty, it reads
           # this run's own artifacts through the runtime artifact service, as before cmux#56753.
-          github-token: ${{ (needs.plan.outputs.from_run != '' || needs.twin-x86_64.outputs.from_run != '') && steps.app.outputs.token || '' }}
+          github-token: ${{ needs.plan.outputs.from_run != '' && steps.app.outputs.token || '' }}
 
       # The x86_64 machines' half: a set of two claims under its own name (cmux-machine-linux-bytes.sh).
       - name: Upload the Linux binaries and point the channel
@@ -458,12 +363,12 @@ jobs:
       name: artifacts
       deployment: false
     name: point the Cloud machine channel at this commit's Linux builds
-    needs: [plan, build-x86_64, build-aarch64, point-x86_64, twin-linux]
+    needs: [plan, build-x86_64, build-aarch64, point-x86_64]
     # One channel writer of this workflow at a time on a push (both points share it); a pull request's run is already one group of its own.
     concurrency:
       group: cmux-machine-channel-point-${{ github.event_name == 'push' && github.ref || format('run-{0}', github.run_id) }}
       cancel-in-progress: false
-    if: ${{ !cancelled() && github.event_name == 'push' && ((needs.build-x86_64.result == 'success' && needs.build-aarch64.result == 'success') || needs.plan.outputs.from_run != '' || needs.twin-linux.outputs.from_run != '') }}
+    if: ${{ !cancelled() && github.event_name == 'push' && ((needs.build-x86_64.result == 'success' && needs.build-aarch64.result == 'success') || needs.plan.outputs.from_run != '') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
@@ -489,7 +394,7 @@ jobs:
       # Another run's artifacts list through the REST API: on the cmux-bot App's own budget (see plan).
       - name: Mint the PR head download's App token
         id: app
-        if: ${{ needs.plan.outputs.from_run != '' || needs.twin-linux.outputs.from_run != '' }}
+        if: ${{ needs.plan.outputs.from_run != '' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ vars.CMUX_BOT_APP_ID }}
@@ -504,12 +409,12 @@ jobs:
           path: assets/cmux-tui
           merge-multiple: true
           # PR_HEAD_FAST_LANE: the merged PR head's pr-router run when the plan found one; else this run.
-          run-id: ${{ needs.plan.outputs.from_run || needs.twin-linux.outputs.from_run || github.run_id }}
+          run-id: ${{ needs.plan.outputs.from_run || github.run_id }}
           # A token only for another run's artifacts: with one, download-artifact lists them through the
           # REST API, here on the App's budget above: on the shared GITHUB_TOKEN quota, run 45730730942 (c0374e0b,
           # 01:29Z 2026-11-26) failed both points on "API rate limit exceeded for installation". Empty, it reads
           # this run's own artifacts through the runtime artifact service, as before cmux#56753.
-          github-token: ${{ (needs.plan.outputs.from_run != '' || needs.twin-linux.outputs.from_run != '') && steps.app.outputs.token || '' }}
+          github-token: ${{ needs.plan.outputs.from_run != '' && steps.app.outputs.token || '' }}
 
       - name: Upload the Linux binaries and point the channel
         env:
@@ -539,7 +444,7 @@ jobs:
   # bound off this workflow's jobs. A delivery step, not a gate: both callee jobs are continue-on-error.
   machine-channel-journey-baseline:
     needs: plan
-    if: ${{ github.event_name == 'push' && (needs.plan.outputs.build == 'true' || needs.plan.outputs.from_run != '' || needs.plan.outputs.twin_run != '') }}
+    if: ${{ github.event_name == 'push' && (needs.plan.outputs.build == 'true' || needs.plan.outputs.from_run != '') }}
     permissions:
       contents: read
     uses: ./.github/workflows/cloud-machine-channel-journey.yml

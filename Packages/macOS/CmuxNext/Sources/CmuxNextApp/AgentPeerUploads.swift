@@ -50,10 +50,11 @@ struct AgentPeerUploads {
                 if let batchToken {
                     guard let batch = stages.batchTarget(batchToken, name: name, size: size), owns(batch) else { return failed }
                 }
-                let file = FileManager.default.temporaryDirectory.appending(path: "cmux-peer-staged-" + UUID().uuidString.lowercased() + "-" + name)
-                guard await AgentPaneStageFiles.make(file, in: nil, work: services.work) else { return failed }
-                let begun = stages.begin(name: name, size: size, batchToken: batchToken, manifest: manifest, target: target, work: services.work) { _ in (file, file) }
-                if begun == nil { await AgentPaneStageFiles.remove(file, work: services.work) }
+                let begun = stages.begin(name: name, size: size, batchToken: batchToken, manifest: manifest, target: target, work: services.work) { token in
+                    let file = FileManager.default.temporaryDirectory.appending(path: "cmux-peer-staged-" + token + "-" + name)
+                    guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { return nil }
+                    return (file, file)
+                }
                 guard let begun else { return failed }
                 var reply: [String: Any] = ["token": begun.token, "size": size, "chunkSize": AgentPaneStagedUploads<Target>.chunkBytes]
                 if let batch = begun.batchToken { reply["batchToken"] = batch }

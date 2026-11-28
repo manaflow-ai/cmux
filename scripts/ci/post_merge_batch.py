@@ -46,7 +46,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1211,46 +1211,6 @@ def confirm_reuse_on() -> bool:
     return (os.environ.get(CONFIRM_REUSE_ENV) or "1").strip() != "0"
 
 
-JOB_PROBES_ENV = "POST_MERGE_JOB_PROBES_PER_DAY"
-# A red on every commit (an outside service, a base break no single merge made) is never pinned, yet each new batch red
-# made a new (good, bad) key, so MAX_REBISECTS bounded nothing: 11-27 19:20Z-23:55Z spent 98 probe runs on 8 suite jobs,
-# 52 of them confirm runs failing on both sides (rust-workspaces 17, web-tests 16, gallery-health 15, ...), about 70
-# probes a day per red job and 23k-34k runner minutes a day for the workflow. A suite job whose probes started this
-# many times in the last 24 h starts no new bisect from a batch run; a chain already running goes on. 0 turns it off.
-DEFAULT_JOB_PROBES_PER_DAY = 12
-
-
-def job_probes_per_day() -> int:
-    """vars.POST_MERGE_JOB_PROBES_PER_DAY: the daily probe cap per suite job, DEFAULT_JOB_PROBES_PER_DAY when unset; 0 is no cap."""
-    raw = (os.environ.get(JOB_PROBES_ENV) or "").strip()
-    return int(raw) if raw.isdigit() else DEFAULT_JOB_PROBES_PER_DAY
-
-
-def job_probes_today(runs: list[dict], suite: str, only: str, now: datetime) -> int:
-    """Probe runs of suite job only (all its confirm and states runs too) created in the 24 h before now."""
-    prefix = f"{PROBE} {suite} {only or 'all'} at "
-    count = 0
-    for r in runs:
-        if not (r.get("display_title") or "").startswith(prefix):
-            continue
-        try:
-            if (now - parse_time(r.get("created_at") or "")).total_seconds() < 86400:
-                count += 1
-        except ValueError:
-            continue
-    return count
-
-
-def over_probe_cap(runs: list[dict], suites: dict, suite: str, name: str, now: datetime) -> int:
-    """The suite job's probe count today when it is at or over job_probes_per_day(), else 0."""
-    cap = job_probes_per_day()
-    if cap <= 0 or suite not in suites:
-        return 0
-    only = suites[suite].probe_only(name.partition(" / ")[2])
-    n = job_probes_today(runs, suite, only, now)
-    return n if n >= cap else 0
-
-
 def runs_for_confirm(args: argparse.Namespace) -> list[dict]:
     if not confirm_reuse_on():
         return []
@@ -1349,14 +1309,6 @@ def cmd_judge(args: argparse.Namespace) -> int:
             summary(args.summary, f"- {note}")
         if not found:
             summary(args.summary, f"No new red on `{args.sha[:11]}` ({len(verdicts)} suite jobs finished).")
-        now = datetime.now(timezone.utc)
-        capped = [(name, n) for name, suite, *_ in found + stuck if (n := over_probe_cap(runs, suites, suite, name, now))]
-        capped_names = {name for name, _ in capped}
-        for name, n in capped:
-            summary(args.summary, f"- Red `{name}`: its suite job ran {n} probes in 24 h (cap {job_probes_per_day()}, "
-                                  f"vars.{JOB_PROBES_ENV}), named only, no new bisect.")
-        found = [f for f in found if f[0] not in capped_names]
-        stuck = [s for s in stuck if s[0] not in capped_names]
         for name, suite, good in found[:MAX_CHAINS]:
             inner = name.partition(" / ")[2]
             probe = Probe(suite, name, suites[suite].probe_only(inner), args.sha, good, "", str(args.run_id),

@@ -40,6 +40,7 @@ extension GitHubConnections {
     /// The signed-in scope and the owner API op call every connection model shares
     /// (``GitHubConnections``, ``ChiefConnections``): reads go to `v1/read`, a mutation with its key to `v1/ops`.
     public static func liveCall(auth: CloudAuth, ownerAPI: URL, preview: Bool) -> (scope: @MainActor () -> Scope?, call: Call) {
+        let transport = InstallHTTPTransport(baseURL: ownerAPI, buildSpace: auth.configuration.buildSpace)
         let current: @MainActor () -> Scope? = {
             guard !preview, auth.isSignedIn, let user = auth.user?.id else { return nil }
             return signedInScope(project: auth.configuration.stackProjectID, user: user, team: auth.teamID, managedTeam: auth.managedTeamID)
@@ -54,7 +55,7 @@ extension GitHubConnections {
             }
             var headers: [String: String] = [:]
             if let team = backendTeam(project: auth.configuration.stackProjectID, stackTeam: bound.team) { headers["x-cmux-team"] = team }
-            let response = try await InstallHTTPTransport(baseURL: ownerAPI, buildSpace: auth.configuration.buildSpace, machineIO: auth.machineIO).post(mutationKey != nil ? "v1/ops" : "v1/read", json: Data(JSONValue.object(body).compactText.utf8), bearer: access, headers: headers)
+            let response = try await transport.post(mutationKey != nil ? "v1/ops" : "v1/read", json: Data(JSONValue.object(body).compactText.utf8), bearer: access, headers: headers)
             guard current() == bound else { throw GitHubFailure.changedAccount }
             // A timeout, throttling response or server failure does not prove that
             // the mutation was refused. Keep its key for a safe retry.

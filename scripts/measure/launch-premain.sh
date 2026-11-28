@@ -50,19 +50,6 @@
 #   e e2 x                   B (exec) is still stopped at main_start for the pre-main readings, then let run on to its
 #                            window and settle, then SIGTERM; its marks after main include the stop (stopped_at_main_ms).
 #   f                        as e, under `sample`: the sample still covers the first 5 s.
-# bytes=0,50,100,200 [filler=res,macho] (startup-matrix "Pre-main vs bundle size"): in place of the arms, does a NEW
-# copy's first exec to main (launch-tti's cold_install, 2.2 s, where a relaunch takes 24 to 51 ms) grow with the
-# bundle's bytes? Templates made once from the DMG's app: orig (untouched), orig-q (orig with com.apple.quarantine, as a
-# download has), adhoc-0 (re-signed ad hoc, entitlements dropped so AMFI allows it), and per N MB of filler, from adhoc-0:
-#   res-N    Contents/Resources/filler.bin, N MB of random bytes; the bundle re-signed ad hoc (its seal hashes it)
-#   macho-N  Contents/Frameworks/Filler.dylib with an N MB __DATA,__filler section of random bytes, signed ad hoc, then
-#            the bundle (nothing loads it: hashed bytes, not faulted pages)
-# Each round ditto's one template to a new path (as cold_install's fresh copy), exec's it to main (LP-RUN role B, with
-# variant and bundle_bytes) and removes that copy; the order rotates per rep, reps= rounds of each. LP-BYTES rows give
-# main_start and spawn_ms median and p90 per variant, LP-SLOPE the least-squares ms per MB per filler kind.
-# A fleet step holds no signing identity (signing-runtime-guard), so filler variants are ad hoc, which Gatekeeper sees as
-# unnotarized: orig vs adhoc-0 measures that path's difference. Ad hoc copies carry no quarantine (a quarantined ad hoc
-# app is refused), as cold_install's ditto copy carries none.
 # The LP root line names which root commands sudo allows without a password (sudo -n -l per command: purge for arm d,
 # fs_usage for the fs_usage record, sample for arm f), so a host whose sudoers allow only /usr/sbin/purge says so.
 set -uo pipefail
@@ -168,23 +155,19 @@ copy_app() {
 # parse_args ARG...: DMG, REPS, ARMS and SETTLE from the step's arguments; a bad one exits 2 before anything runs.
 parse_args() {
   local arg
-  DMG=nightly REPS=5 ARMS="h,a,b,c,g,d,k,e,e2,x,f,t1,t3,t6" SETTLE=0 BYTES="" FILLER="res,macho"
+  DMG=nightly REPS=5 ARMS="h,a,b,c,g,d,k,e,e2,x,f,t1,t3,t6" SETTLE=0
   for arg in "$@"; do
     case "$arg" in
       dmg=nightly|dmg=https://*|dmg=sha256:*) DMG="${arg#dmg=}" ;;
       reps=*) REPS="${arg#reps=}" ;;
       arms=*) ARMS="${arg#arms=}" ;;
       settle=*) SETTLE="${arg#settle=}" ;;
-      bytes=*) BYTES="${arg#bytes=}" ;;
-      filler=*) FILLER="${arg#filler=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$REPS" =~ ^([1-9]|1[0-2])$ ]] || { echo "reps= must be 1 to 12" >&2; exit 2; }
   [[ "$ARMS" =~ ^(h|a|b|c|g|d|k|e|e2|x|f|t1|t3|t6)(,(h|a|b|c|g|d|k|e|e2|x|f|t1|t3|t6))*$ ]] || { echo "arms= takes h,a,b,c,g,d,k,e,e2,x,f,t1,t3,t6" >&2; exit 2; }
   [[ "$SETTLE" =~ ^[01]$ ]] || { echo "settle= takes 0 or 1" >&2; exit 2; }
-  [[ -z "$BYTES" || "$BYTES" =~ ^[0-9]{1,3}(,[0-9]{1,3})*$ ]] || { echo "bytes= takes MB counts, 0 to 999, comma separated" >&2; exit 2; }
-  [[ "$FILLER" =~ ^(res|macho)(,(res|macho))*$ ]] || { echo "filler= takes res,macho" >&2; exit 2; }
   SETTLE_S=15
 }
 
@@ -241,8 +224,6 @@ main() {
   launch open prime 0 term >/dev/null || rc=1
   launch open prime 10 quit >/dev/null || rc=1
   local list; IFS=, read -r -a list <<<"$arms"
-  # bytes=: the bundle-size study (header) runs in place of the arms.
-  [[ -n "$BYTES" ]] && { bytes_study "$out" "$reps" || rc=1; reps=0; }
   for ((rep = 1; rep <= reps; rep++)); do
     # Rotate the arm order per rep, so no arm always follows the same one.
     local n=${#list[@]} k
@@ -256,8 +237,8 @@ main() {
   # console user, who may not be the step's user.
   local pids; pids="$(ps -axo pid=,command= | LP_ROOT="$out/" awk 'index($0, ENVIRON["LP_ROOT"]) { print $1 }')"
   [[ -n "$pids" ]] && { sudo -n kill $pids 2>/dev/null || kill $pids 2>/dev/null; }
-  if [[ -n "$BYTES" ]]; then bytes_table "$out/runs.jsonl"; else lp_table "$out/runs.jsonl" "$SETTLE"; fi
-  tar -czf "$out.tgz" -C "$out" --exclude '*.dmg' --exclude copy --exclude templates --exclude runs --exclude filler --exclude mnt --exclude home --exclude home-other . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
+  lp_table "$out/runs.jsonl" "$SETTLE"
+  tar -czf "$out.tgz" -C "$out" --exclude '*.dmg' --exclude copy --exclude mnt --exclude home --exclude home-other . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
   exit "$rc"
 }
 
@@ -294,93 +275,6 @@ for arm in dict.fromkeys(r["arm"] for r in rows if r.get("role") == "B"):
     if stubs:
         table["stub_wall_ms"] = med([r.get("wall_ms") for r in stubs])
     print("LP-TABLE", json.dumps(table), flush=True)
-PY
-}
-
-# bytes_study OUT REPS: the bytes= study (header): templates under OUT/templates, rounds under OUT/runs.
-bytes_study() {
-  local out="$1" reps="$2" t="$1/templates" mb kind v name rep k n base copy rc=0 max=0 variants=(orig orig-q adhoc-0)
-  local mbs kinds; IFS=, read -r -a mbs <<<"$BYTES"; IFS=, read -r -a kinds <<<"$FILLER"
-  name="$(basename "$APP")"
-  mkdir -p "$t" "$out/runs" "$out/filler"
-  for mb in "${mbs[@]}"; do ((10#$mb > max)) && max=$((10#$mb)); done
-  ((max > 0)) && { dd if=/dev/urandom of="$out/filler/blob" bs=1048576 count="$max" 2>/dev/null || return 3; }
-  mkdir -p "$t/orig" "$t/orig-q" "$t/adhoc-0"
-  ditto "$APP" "$t/orig/$name" && ditto "$APP" "$t/orig-q/$name" && ditto "$APP" "$t/adhoc-0/$name" || return 3
-  xattr -r -w com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Safari;" "$t/orig-q/$name"
-  codesign --force --deep --sign - --preserve-metadata=identifier,flags "$t/adhoc-0/$name" >>"$out/sign.log" 2>&1 \
-    || { echo "LP-FAIL ad hoc re-sign (sign.log)"; tail -5 "$out/sign.log"; return 3; }
-  for kind in "${kinds[@]}"; do
-    for mb in "${mbs[@]}"; do
-      mb=$((10#$mb)); ((mb == 0)) && continue
-      v="$kind-$mb"
-      mkdir -p "$t/$v" && ditto "$t/adhoc-0/$name" "$t/$v/$name" || return 3
-      head -c $((mb * 1048576)) "$out/filler/blob" >"$out/filler/slice-$mb"
-      if [[ "$kind" == res ]]; then
-        cp "$out/filler/slice-$mb" "$t/$v/$name/Contents/Resources/filler.bin"
-      else
-        printf '.section __DATA,__filler\n.p2align 14\n.globl _cmux_filler\n_cmux_filler:\n.incbin "%s"\n' "$out/filler/slice-$mb" >"$out/filler/f-$mb.s"
-        { xcrun clang -dynamiclib -arch arm64 -install_name @rpath/Filler.dylib -o "$t/$v/$name/Contents/Frameworks/Filler.dylib" "$out/filler/f-$mb.s" \
-          && codesign --force --sign - "$t/$v/$name/Contents/Frameworks/Filler.dylib"; } >>"$out/sign.log" 2>&1 \
-          || { echo "LP-FAIL filler dylib $v (sign.log)"; tail -5 "$out/sign.log"; return 3; }
-      fi
-      codesign --force --sign - --preserve-metadata=identifier,flags "$t/$v/$name" >>"$out/sign.log" 2>&1 \
-        || { echo "LP-FAIL re-sign $v (sign.log)"; tail -5 "$out/sign.log"; return 3; }
-      variants+=("$v")
-    done
-  done
-  for v in "${variants[@]}"; do
-    echo "LP-VARIANT $v bundle_bytes=$(du -sk "$t/$v/$name" | awk '{print $1 * 1024}') verify=$(codesign --verify --deep --strict "$t/$v/$name" >/dev/null 2>&1 && echo ok || echo fail) assess=$(spctl --assess --type exec "$t/$v/$name" >/dev/null 2>&1 && echo accepted || echo rejected)"
-  done
-  base="$APP"; n=${#variants[@]}
-  for ((rep = 1; rep <= reps; rep++)); do
-    # Rotate the variant order per rep, so no variant always follows the same one.
-    for ((k = 0; k < n; k++)); do
-      v="${variants[$(((k + rep - 1) % n))]}"
-      ARM="$v" REP="$rep"
-      wait_load "$v" "$rep"
-      copy="$out/runs/$v-$rep"
-      mkdir -p "$copy" && ditto "$t/$v/$name" "$copy/$name" || { rc=1; continue; }
-      APP="$copy/$name"
-      B_STATE="\"variant\": \"$v\", \"bundle_bytes\": $(du -sk "$APP" | awk '{print $1 * 1024}')"
-      quiesce 2
-      launch exec B || rc=1
-      B_STATE=""
-      quiesce 0
-      rm -rf "$copy"  # this round's own copy, made above
-      APP="$base"
-    done
-  done
-  return $rc
-}
-
-# bytes_table RUNS: LP-BYTES per variant (main_start and spawn_ms median and p90, n, bytes) and LP-SLOPE per filler
-# kind: least-squares ms of main_start per MB over adhoc-0 and that kind's variants.
-bytes_table() {
-  python3 -I - "$1" <<'PY'
-import json, statistics, sys
-rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
-b = [r for r in rows if r.get("role") == "B" and r.get("variant") and isinstance(r.get("main_start"), (int, float))]
-def p90(v):
-    v = sorted(v)
-    return v[min(len(v) - 1, int(round(0.9 * (len(v) - 1))))]
-def mb(v):
-    return int(v.rsplit("-", 1)[1]) if v.startswith(("res-", "macho-")) else 0
-for v in dict.fromkeys(r["variant"] for r in b):
-    mine = [r for r in b if r["variant"] == v]
-    m = [r["main_start"] for r in mine]
-    s = [r["spawn_ms"] for r in mine if isinstance(r.get("spawn_ms"), (int, float))]
-    print("LP-BYTES", json.dumps({"variant": v, "filler_mb": mb(v), "bundle_bytes": statistics.median(r["bundle_bytes"] for r in mine),
-        "n": len(m), "main_p50": round(statistics.median(m), 1), "main_p90": p90(m),
-        "spawn_p50": round(statistics.median(s), 1) if s else None, "spawn_p90": p90(s) if s else None}), flush=True)
-for kind in ("res", "macho"):
-    pts = [(mb(r["variant"]), r["main_start"]) for r in b if r["variant"] == "adhoc-0" or r["variant"].startswith(kind + "-")]
-    if len({x for x, _ in pts}) < 2:
-        continue
-    mx = sum(x for x, _ in pts) / len(pts)
-    my = sum(y for _, y in pts) / len(pts)
-    slope = sum((x - mx) * (y - my) for x, y in pts) / sum((x - mx) ** 2 for x, _ in pts)
-    print("LP-SLOPE", json.dumps({"filler": kind, "ms_per_mb": round(slope, 3), "n": len(pts)}), flush=True)
 PY
 }
 

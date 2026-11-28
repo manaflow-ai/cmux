@@ -382,9 +382,6 @@ pub struct ChiefWorkTask {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClientInfo {
     pub attached: Vec<Id>,
-    /// The capabilities this connection declared in set-client-info that the daemon recognized, sorted (for example agent-cli-hybrid-v1). Absent from daemons older than this field.
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub capabilities: Option<Vec<String>>,
     pub client: u64,
     pub connected_seconds: u64,
     pub kind: Nullable<String>,

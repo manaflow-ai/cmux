@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import random
 import re
-import statistics
 import subprocess
 import time
 import tomllib
@@ -318,8 +317,6 @@ def plan(index: Index, paths: list[str]) -> dict:
 # A bench may print its own measurement; it beats wall time (which counts process start and the TOML load).
 MEASURED = re.compile(r"^bench_seconds=([0-9]+(?:\.[0-9]+)?)\s*$", re.M)
 OVER, OK, MISSING, ERROR, TIMEOUT = "over-budget", "ok", "missing", "error", "timeout"
-# Every repeat more than baselines.THRESHOLD over the area's nightly baseline (baselines.judge).
-REGRESSED = "regressed"
 
 
 def runs_for(plan_: dict) -> list[dict]:
@@ -334,62 +331,34 @@ def runs_for(plan_: dict) -> list[dict]:
     return list(out.values())
 
 
-def _measure(cmd: str, timeout: float, root: Path) -> tuple[str, float | None, str, str]:
-    """One run of a bench command: (status, seconds, how it was measured, detail)."""
+def run_one(run: dict, timeout: float, root: Path = ROOT) -> dict:
+    """Run one bench command. Only a measured result over its budget is OVER; a missing tool, an error or a
+    timeout under no budget is a warning (fail open)."""
+    budget = run["budget_s"]
     t = time.perf_counter()
     try:
-        res = subprocess.run(["bash", "-c", cmd], cwd=root, capture_output=True, text=True, timeout=timeout)
+        res = subprocess.run(["bash", "-c", run["cmd"]], cwd=root, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return TIMEOUT, time.perf_counter() - t, "wall", f"killed at the {timeout:g} s timeout"
+        wall = time.perf_counter() - t
+        status = OVER if budget is not None and wall > budget else TIMEOUT
+        return {**run, "status": status, "seconds": round(wall, 4), "detail": f"killed at the {timeout:g} s timeout"}
     except OSError as err:
-        return MISSING, None, "", str(err)
+        return {**run, "status": MISSING, "seconds": None, "detail": str(err)}
     wall = time.perf_counter() - t
     tail = (res.stderr or res.stdout).strip().splitlines()[-1:] or [""]
     if res.returncode == 127 or "No such file or directory" in res.stderr and res.returncode != 0:
-        return MISSING, None, "", tail[0][:200]
+        return {**run, "status": MISSING, "seconds": None, "detail": tail[0][:200]}
     if res.returncode != 0:
-        return ERROR, None, "", f"exit {res.returncode}: {tail[0][:200]}"
+        return {**run, "status": ERROR, "seconds": None, "detail": f"exit {res.returncode}: {tail[0][:200]}"}
     found = MEASURED.findall(res.stdout)
-    return OK, (float(found[-1]) if found else wall), ("bench" if found else "wall"), ""
+    seconds = float(found[-1]) if found else wall
+    status = OVER if budget is not None and seconds > budget else OK
+    return {**run, "status": status, "seconds": round(seconds, 4), "measured": "bench" if found else "wall",
+            "detail": ""}
 
 
-def run_one(run: dict, timeout: float, root: Path = ROOT, repeats: int = 1) -> dict:
-    """Run one bench command `repeats` times (stopping at the first run that does not measure). Only a measured
-    result over its budget is OVER, judged on the median; a missing tool, an error or a timeout under no budget is
-    a warning (fail open). `repeats_s` keeps every measurement for the baseline rule (baselines.judge)."""
-    budget = run["budget_s"]
-    reps: list[float] = []
-    how = ""
-    for _ in range(max(1, repeats)):
-        status, seconds, how_, detail = _measure(run["cmd"], timeout, root)
-        if status == TIMEOUT:
-            status = OVER if budget is not None and seconds > budget else TIMEOUT
-            return {**run, "status": status, "seconds": round(seconds, 4), "repeats_s": reps, "detail": detail}
-        if status != OK:
-            return {**run, "status": status, "seconds": None, "repeats_s": reps, "detail": detail}
-        reps.append(round(seconds, 4))
-        how = how_
-    median = round(statistics.median(reps), 4)
-    status = OVER if budget is not None and median > budget else OK
-    return {**run, "status": status, "seconds": median, "repeats_s": reps, "measured": how, "detail": ""}
-
-
-def run_benches(plan_: dict, timeout: float = 120, root: Path = ROOT, repeats: int = 1,
-                baseline_docs: dict | None = None) -> list[dict]:
-    """Every bench the plan's areas name. With baseline_docs (baselines.fetch), each result also carries its
-    baseline and the 3-repeat verdict; only a REGRESSED verdict changes an OK status."""
-    results = [run_one(r, timeout, root, repeats) for r in runs_for(plan_)]
-    if baseline_docs is None:
-        return results
-    from . import baselines
-    for r in results:
-        value, area = baselines.lookup(baseline_docs, r["areas"], r["cmd"])
-        verdict = baselines.judge(r.get("repeats_s") or [], value) if r["status"] in (OK, OVER) else \
-            baselines.NO_MEASURE
-        r.update(baseline_s=value, baseline_area=area or None, verdict=verdict)
-        if verdict == baselines.REGRESSED and r["status"] == OK:
-            r["status"] = REGRESSED
-    return results
+def run_benches(plan_: dict, timeout: float = 120, root: Path = ROOT) -> list[dict]:
+    return [run_one(r, timeout, root) for r in runs_for(plan_)]
 
 
 def scaled(rules: list[Rule], scale: int) -> list[Rule]:

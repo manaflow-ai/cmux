@@ -67,13 +67,6 @@ pub struct SessionRow {
     /// The role addresses it claimed (`acpmux role claim`), at most [`MAX_ROLES`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<RoleClaim>,
-    /// Its live tags (`acpmux session tag`, `session::live_tags`), bounded by [`heartbeat_tags`],
-    /// so another machine's row lists the lineage (`succeeds=`, `takes-from=`, `goal=`) a local
-    /// one does. Without it every hub-listed row read `tags: null` on other machines (2026-11-27:
-    /// all 1,554 on one lane VM's listing) and `lane_deaths` called finished lanes unfinished. A
-    /// hub that does not know the key drops it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tags: Option<std::collections::BTreeMap<String, String>>,
     /// When the session last changed here (ms since the epoch, its meta's `updated_at`): what
     /// another machine's row shows as `updatedAt`. Without it a reading daemon stamps each hub row
     /// with its own clock whenever it first sees it, so every restart of a reader moved all of a
@@ -143,36 +136,6 @@ pub fn heartbeat_handle(handle: Option<&str>, id: &str) -> Option<String> {
             crate::session_handle::valid(h) && *h != crate::session_handle::default_handle(id)
         })
         .map(str::to_owned)
-}
-
-/// The most tags one heartbeat row lists.
-pub const MAX_TAGS: usize = 32;
-/// The longest tag key and value (chars) a heartbeat lists.
-pub const MAX_TAG_KEY: usize = 64;
-pub const MAX_TAG_VALUE: usize = 256;
-/// The most bytes a row's tags take as JSON: the hub (cmux-platform `MAX_SESSION_TAGS_BYTES`)
-/// stores a larger set as null.
-pub const MAX_TAGS_BYTES: usize = 4096;
-
-/// The tags a heartbeat lists for a session: its live ones (`tags`, a flat key to value map as
-/// `session::live_tags` makes), each key 1..=[`MAX_TAG_KEY`] and value at most [`MAX_TAG_VALUE`]
-/// chars, at most [`MAX_TAGS`] by key order, then cut from the end until the JSON fits
-/// [`MAX_TAGS_BYTES`]; none when no tag is left.
-pub fn heartbeat_tags(tags: &Value) -> Option<std::collections::BTreeMap<String, String>> {
-    let mut out: std::collections::BTreeMap<String, String> = tags
-        .as_object()?
-        .iter()
-        .filter_map(|(k, v)| Some((k, v.as_str()?)))
-        .filter(|(k, v)| {
-            (1..=MAX_TAG_KEY).contains(&k.chars().count()) && v.chars().count() <= MAX_TAG_VALUE
-        })
-        .take(MAX_TAGS)
-        .map(|(k, v)| (k.clone(), v.to_owned()))
-        .collect();
-    while !out.is_empty() && serde_json::to_vec(&out).map_or(0, |j| j.len()) > MAX_TAGS_BYTES {
-        out.pop_last();
-    }
-    (!out.is_empty()).then_some(out)
 }
 
 /// The longest `cwd` (UTF-16 units, as the hub counts) a heartbeat lists (`MeshSessionAnnouncement`).
@@ -262,9 +225,6 @@ pub struct BookSession {
     /// Its heartbeat's `roles` (`SessionRow::roles`), when the hub returns them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<RoleClaim>,
-    /// Its heartbeat's `tags` (`SessionRow::tags`), when the hub returns them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tags: Option<std::collections::BTreeMap<String, String>>,
     /// Its heartbeat's `updatedAt` (`SessionRow::updated_at`), when the hub returns it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<u64>,

@@ -606,16 +606,6 @@ describe("devbox image template", () => {
     }
     expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/0");
     expect(readScript("build-devbox-freestyle.ts")).toContain("blesh-cache-seed");
-    // Without the keymap seed the first shell spends ~0.25 s (seconds on a slow
-    // clone) showing "ble.sh: updating cache/keymap.emacs..." before its prompt.
-    expect(dockerfile).toContain("test -s /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs");
-    for (const uid of ["0", "1000"]) {
-      expect(dockerfile).toContain(
-        `/etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs /usr/local/share/blesh/cache.d/${uid}/`,
-      );
-    }
-    expect(bashrc).toContain("/etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs; do");
-    expect(bashrc).toContain("/usr/local/share/blesh/lib/keymap.emacs.sh");
   });
 
   test("publishes each ble.sh cache seed atomically", () => {
@@ -837,12 +827,6 @@ test "$daemon_pid" = fixture
     }
     expect(freestyleScript).toContain("/usr/local/share/blesh/cache.d/0/");
     expect(freestyleScript).toContain("/usr/local/share/blesh/cache.d/1000/");
-    expect(freestyleScript).toContain("test -s /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs");
-    for (const uid of ["0", "1000"]) {
-      expect(freestyleScript).toContain(
-        `/etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs /usr/local/share/blesh/cache.d/${uid}/`,
-      );
-    }
     expect(freestyleScript).toContain(
       "chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000",
     );

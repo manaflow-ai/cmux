@@ -419,7 +419,7 @@ const replayRecordedAttempt = <C>(caller: Named<C, Principal>, scope: KeyHasScop
 
 /**
  * Settles an agent create's slot (limits/agent-slots.ts) by how it ended: a recorded VM keeps the slot naming it; a
- * create whose send began (its intent is `creating`, dispatch `sent`) may exist upstream unrecorded, so the slot stays, naming the
+ * create whose send began (its intent is `creating`, not rejected) may exist upstream unrecorded, so the slot stays, naming the
  * intent's VM id and bound to the creation key, until that VM is deleted or a retry records it; any other failure
  * gives the slot back. Best effort: a slot left unsettled
  * lapses on its own, after the longest create.
@@ -430,18 +430,16 @@ const settleAgentCreate = <C>(caller: Named<C, Principal>, slot: { readonly agen
     const tenantId = caller.value.tenantId;
     if (Exit.isSuccess(exit)) return yield* limits.settleAgentSlot(tenantId, slot.agent, slot.slotId, { recorded: exit.value.id });
     const progress = (yield* limits.inspect(tenantId, key))?.progress;
-    // Only a send that began (dispatch `sent`, or a legacy intent with no receipt) may have made a VM. A send the
-    // provider definitely rejected (400/429), or one that never left `ready` (the create queue refused it, 503
-    // vm-provider.createQueueFull, or the fence or image read failed first), made nothing: its slot goes back.
+    // A send the provider definitely rejected (400/429) made nothing: its slot goes back like any other failure.
     const outcome = progress?.phase === "done" ? { recorded: progress.vmId }
-      : progress?.phase === "creating" && (progress.dispatch === undefined || progress.dispatch.state === "sent") ? { held: key, vmId: progress.vmId }
+      : progress?.phase === "creating" && progress.dispatch?.state !== "rejected" ? { held: key, vmId: progress.vmId }
       : "released" as const;
     return yield* limits.settleAgentSlot(tenantId, slot.agent, slot.slotId, outcome);
   }).pipe(Effect.ignore);
 
 /**
  * A resumed agent create: one that recorded its VM binds the slot its first attempt held to that VM; one whose send
- * the provider definitely rejected, or that never sent, made nothing, so that held slot goes back.
+ * the provider definitely rejected made nothing, so that held slot goes back.
  */
 const resumedAgentCreate = <C>(caller: Named<C, Principal>, key: string, exit: Exit.Exit<{ readonly id: string }, unknown>) =>
   Effect.gen(function* () {
@@ -449,7 +447,7 @@ const resumedAgentCreate = <C>(caller: Named<C, Principal>, key: string, exit: E
     const tenantId = caller.value.tenantId;
     if (Exit.isSuccess(exit)) return yield* limits.bindAgentCreation(tenantId, agentSlotOwner(caller.value), key, exit.value.id);
     const progress = (yield* limits.inspect(tenantId, key))?.progress;
-    if (progress?.phase === "creating" && (progress.dispatch?.state === "rejected" || progress.dispatch?.state === "ready")) yield* limits.forgetAgentVm(tenantId, progress.vmId, key);
+    if (progress?.phase === "creating" && progress.dispatch?.state === "rejected") yield* limits.forgetAgentVm(tenantId, progress.vmId, key);
   }).pipe(Effect.ignore);
 
 const resumeSlot = (key: string | null, prior: IdempotencyProgress | null) => key !== null && (prior?.phase === "creating" || prior?.phase === "capturing") ? { key, vmId: prior.vmId } : undefined;
@@ -594,9 +592,8 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
             // A fresh allocation by an agent key must fit its live-VM and $/h budget; a resumed one already counted.
             // Its slot is settled by how the create ends (settleAgentCreate), so concurrent creates count it.
             let agentSlot: { readonly agent: string; readonly slotId: string } | undefined;
-            // A retry of a send the provider rejected, or of one that never sent (its slot went back), allocates afresh,
-            // so an agent key is admitted again, atomically.
-            const rejectedRetry = prior?.phase === "creating" && (prior.dispatch?.state === "rejected" || prior.dispatch?.state === "ready");
+            // A retry of a send the provider rejected allocates afresh, so an agent key is admitted again, atomically.
+            const rejectedRetry = prior?.phase === "creating" && prior.dispatch?.state === "rejected";
             if (resumeSlot(key, prior) === undefined || (rejectedRetry && caller.value.agent !== undefined)) {
               yield* reclaimGoneCiVms(caller, scope);
               agentSlot = yield* agentBudgetAllows(caller, scope, payload.resources);

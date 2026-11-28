@@ -9,6 +9,7 @@
     "CmuxNextAgentPane/AgentPaneProjectInstructions.swift": 1,
     "CmuxNextAgentPane/AgentPaneSavePanel.swift": 1,
     "CmuxNextApp/ChiefMove/ChiefMoveHandlers.swift": 1,
+    "CmuxNextApp/Cloud/CloudUploads.swift": 1,
     "CmuxNextApp/Control/DebugAgentPane.swift": 1,
     "CmuxNextApp/Focus/DebugPaletteEntries.swift": 1,
     "CmuxNextApp/Onboarding/AppOnboardingServices+ClassicSessions.swift": 1,

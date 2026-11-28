@@ -65,72 +65,31 @@ jobs:
             --head "$GITHUB_SHA" --before "$BEFORE" --out "$RUNNER_TEMP/plan.json"
           echo "count=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["run"]))' "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
 
-      # The benches on an exclusive build-fleet Linux worker (scripts/measure/interaction-latency-linux.sh): this job's
-      # cmux-linux runner shares its VM with another runner (skills/infra/linux-runner-pool), and there WebKit's fastest
-      # frame took 37 ms and composer typing read 117 ms at p99 against 17 ms on a quiet worker. When the fleet does not
-      # return results, the steps below run them here as before, and the state names the runner that measured.
-      - uses: ./.github/actions/fleet-client
-        if: steps.plan.outputs.count != '0' && vars.CMUX_FLEET_CONTROLLER != ''
-        continue-on-error: true
-        with:
-          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
-
-      - name: Run the touched benches on the fleet
-        id: fleet
-        if: steps.plan.outputs.count != '0' && vars.CMUX_FLEET_CONTROLLER != ''
-        continue-on-error: true
-        timeout-minutes: 120
-        run: |
-          set -uo pipefail
-          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if ! [[ -x "$client" ]]; then
-            echo "::warning title=Interaction latency::$client is not installed on runner $RUNNER_NAME; benches run here"
-            exit 0
-          fi
-          keys="$(python3 -I -c 'import json,sys; print(",".join(i["key"] for i in json.load(open(sys.argv[1]))["run"]))' "$RUNNER_TEMP/plan.json")"
-          mkdir -p "$RUNNER_TEMP/results"
-          log="$RUNNER_TEMP/fleet.log"
-          status=0
-          "$client" run --class exclusive --measurement --os linux --label measure \
-            --script scripts/measure/interaction-latency-linux.sh --ref "$GITHUB_SHA" --timeout 6600 \
-            --key "interaction-latency-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
-            --artifact artifacts/interaction-latency/results.json --arg "interactions=$keys" \
-            2>&1 | tee "$log" || status=1
-          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1)"
-          if [[ -n "$step" ]] && { "$client" artifact "$step" "$RUNNER_TEMP/results/results.json" || "$client" artifact --failed "$step" "$RUNNER_TEMP/results/results.json"; } \
-            && python3 -I -c 'import json,sys; json.load(open(sys.argv[1]))' "$RUNNER_TEMP/results/results.json"; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-            echo "Benches ran on fleet step \`$step\` (exit $status)." >> "$GITHUB_STEP_SUMMARY"
-          else
-            rm -f "$RUNNER_TEMP/results/results.json"
-            echo "::warning title=Interaction latency::fleet step ${step:-(none)} (exit $status) returned no results; benches run here"
-          fi
-
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
-        if: steps.plan.outputs.count != '0' && steps.fleet.outputs.ok != 'true'
+        if: steps.plan.outputs.count != '0'
         shell: bash
         continue-on-error: true
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
-        if: steps.plan.outputs.count != '0' && steps.fleet.outputs.ok != 'true'
+        if: steps.plan.outputs.count != '0'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Install webview dependencies
-        if: steps.plan.outputs.count != '0' && steps.fleet.outputs.ok != 'true'
+        if: steps.plan.outputs.count != '0'
         working-directory: webviews
         run: bun install --frozen-lockfile
 
       - name: Install Playwright browsers
-        if: steps.plan.outputs.count != '0' && steps.fleet.outputs.ok != 'true'
+        if: steps.plan.outputs.count != '0'
         working-directory: webviews
         run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
       - name: Run the touched benches
-        if: steps.plan.outputs.count != '0' && steps.fleet.outputs.ok != 'true'
+        if: steps.plan.outputs.count != '0'
         continue-on-error: true
         timeout-minutes: 95
         run: python3 -I scripts/ci/nightly_interaction_latency.py run --plan "$RUNNER_TEMP/plan.json" --webviews webviews --out "$RUNNER_TEMP/results"
@@ -139,7 +98,7 @@ jobs:
       - name: Write the state
         if: ${{ always() && !cancelled() && steps.plan.outcome == 'success' }}
         env:
-          RUNNER_LABEL: ${{ steps.fleet.outputs.ok == 'true' && 'fleet-linux-exclusive' || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux') }}
+          RUNNER_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
         run: |
           python3 -I scripts/ci/nightly_interaction_latency.py report --state "$RUNNER_TEMP/prev/state.json" \
             --plan "$RUNNER_TEMP/plan.json" --results "$RUNNER_TEMP/results" --out "$RUNNER_TEMP/state" --runner "$RUNNER_LABEL"

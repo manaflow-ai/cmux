@@ -23728,12 +23728,6 @@
       "/data/*/attached/*": {
         "ty": "uint64"
       },
-      "/data/*/capabilities": {
-        "ty": "array"
-      },
-      "/data/*/capabilities/*": {
-        "ty": "string"
-      },
       "/data/*/client": {
         "ty": "uint64",
         "required": true
