@@ -775,9 +775,11 @@ async fn a_cold_connect_to_a_daemon_that_offered_ik_saves_a_round_trip() {
     let (mut xx, mut ik) = (Vec::new(), Vec::new());
     for _ in 0..5 {
         let session = SessionId(*uuid::Uuid::new_v4().as_bytes());
-        xx.push(cold_connect_time(&mut daemon, group(&daemon, session, &sent).await, false).await);
+        let link_group = group(&daemon, session, &sent).await;
+        xx.push(cold_connect_time(&mut daemon, link_group, false).await);
         let session = SessionId(*uuid::Uuid::new_v4().as_bytes());
-        ik.push(cold_connect_time(&mut daemon, group(&daemon, session, &sent).await, true).await);
+        let link_group = group(&daemon, session, &sent).await;
+        ik.push(cold_connect_time(&mut daemon, link_group, true).await);
     }
     let (xx, ik) = (median(&mut xx), median(&mut ik));
     eprintln!("cold connect one-way {ONE_WAY:?}: XX median {xx:?}, IK median {ik:?}");
