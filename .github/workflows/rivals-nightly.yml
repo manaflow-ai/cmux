@@ -4,8 +4,7 @@ name: Rivals head-to-head (nightly)
 # keep finding more and more work to do". wow-20 idea 4, "Head-to-head bench vs desktop apps": a page that updates
 # daily with cmux NEXT against the Claude and ChatGPT desktop apps on one fleet Mac.
 #
-# Runs scripts/measure/rivals.sh (apps cmux,claude,chatgpt; signed out) as one exclusive measurement on the bench
-# Mac, then scripts/perf-bench/rivals_page.py merges its results.json into the history and renders the page. Both go
+# Runs scripts/measure/rivals.sh (signed out) as one exclusive measurement on the bench Mac, then scripts/perf-bench/rivals_page.py merges its results.json into the history and renders the page. Both go
 # to the cmux-ci-cache-next bucket: rivals/v1/index.md (the page), rivals/v1/index.json (one entry per day, 90 days),
 # rivals/v1/days/<date>.json (the day's full run) and rivals/v1/_stamp.json. Public:
 # https://ci-cache-next.cmux.com/rivals/v1/index.md
@@ -14,6 +13,11 @@ name: Rivals head-to-head (nightly)
 # measures feat-cmux-next. Each push to feat-cmux-next reads the stamp; a run that finds it younger than RECORD_HOURS
 # stops after one HTTP read. workflow_dispatch records now. A run that measures nothing is red and the stamp stays old.
 # The job id ends in -fleet: the runner hook admits a fleet-client job by that suffix.
+#
+# Apps: every column of RFD 0131's Measured table (hq docs/rfd/0131-launch-like-the-browsers.md), plus ChatGPT, so
+# each day's rivals/v1/days/<date>.json fills that table. Leo, 2026-11-25: "Ok well we can't be letting important
+# rfds like that take breaks unless I put in fleet wide pauses, esp when this is stuff that materially improves the
+# app". Rex has no public download: rivals.py measures the bench Mac's own /Applications/Rex.app when it is there.
 on:
   push:
     branches: [feat-cmux-next]
@@ -22,7 +26,7 @@ on:
       apps:
         description: "Comma-separated rivals.py apps"
         required: false
-        default: "cmux,claude,chatgpt"
+        default: "cmux,rex,zed,claude,chatgpt,codex,t3code,slack,chrome,edge,helium,safari"
       soak:
         description: "Idle soak seconds per app"
         required: false
@@ -46,8 +50,9 @@ jobs:
     # The fleet controller is tailnet-only; a job that fetches the fleet client runs on the gateway runner
     # (tests/test_ci_gateway_jobs_on_linux.py).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
-    # The client's queue wait (30 min) and run limit (60 min: 3 apps, each launches plus a 5 minute soak), the upload.
-    timeout-minutes: 100
+    # The client's queue wait (30 min) and run limit (150 min: 12 apps, each about 10 min: the bundle copy, the quiet
+    # wait, five launches with 20 s after each, a 5 minute soak), the upload.
+    timeout-minutes: 200
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
       contents: read
@@ -92,7 +97,7 @@ jobs:
       - name: Run rivals.sh on the bench Mac
         if: steps.due.outputs.due == 'true'
         env:
-          APPS: ${{ inputs.apps || 'cmux,claude,chatgpt' }}
+          APPS: ${{ inputs.apps || 'cmux,rex,zed,claude,chatgpt,codex,t3code,slack,chrome,edge,helium,safari' }}
           SOAK: ${{ inputs.soak || '300' }}
         run: |
           set -uo pipefail
@@ -108,7 +113,7 @@ jobs:
             --script scripts/measure/rivals.sh --ref "$GITHUB_SHA" \
             --artifact artifacts/rivals/results.json \
             --arg="apps=$APPS" --arg="soak=$SOAK" \
-            --timeout 3600 --queue-timeout 1800 2>&1 | tee "$out/step.log" || status=$?
+            --timeout 9000 --queue-timeout 1800 2>&1 | tee "$out/step.log" || status=$?
           step="$(grep -o -E '\b[0-9a-f]{24}\b' "$out/step.log" | head -1 || true)"
           if [[ -n "$step" ]]; then
             "$client" artifact "$step" "$out/results.json" || "$client" artifact --failed "$step" "$out/results.json" || true
