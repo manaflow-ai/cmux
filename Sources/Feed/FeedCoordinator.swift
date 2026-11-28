@@ -1988,6 +1988,32 @@ enum FeedSocketEncoding {
         }
     }
 
+    /// A tool input or result JSON string for the wire, at most
+    /// `primaryTextLimit` characters. A JSON object or array keeps every key
+    /// and still parses (``WorkstreamToolJSONLimiter``); anything it cannot
+    /// shorten in place is cut as text.
+    private static func limitedToolJSON(_ value: String) -> (text: String, truncated: Bool) {
+        let limit = primaryTextLimit
+        // The byte count is free and never below the character count.
+        guard value.utf8.count > limit, value.count > limit else { return (value, false) }
+        if let shortened = WorkstreamToolJSONLimiter(scalarLimit: limit).shortened(value) {
+            return (shortened, true)
+        }
+        return limitedText(value, limit: limit)
+    }
+
+    private static func assignLimitedToolJSON(
+        _ value: String,
+        key: String,
+        to dict: inout [String: Any]
+    ) {
+        let limited = limitedToolJSON(value)
+        dict[key] = limited.text
+        if limited.truncated {
+            dict["\(key)_truncated"] = true
+        }
+    }
+
     private static func questionDict(_ question: WorkstreamQuestionPrompt) -> [String: Any] {
         var dict: [String: Any] = [
             "id": question.id,
@@ -2045,7 +2071,7 @@ enum FeedSocketEncoding {
             ) {
                 dict["tool_input_capabilities"] = capabilityJSON
             }
-            assignLimitedText(toolInputJSON, key: "tool_input", to: &dict)
+            assignLimitedToolJSON(toolInputJSON, key: "tool_input", to: &dict)
             if let pattern { dict["pattern"] = pattern }
         case .exitPlan(let requestId, let plan, let defaultMode):
             dict["request_id"] = requestId
@@ -2073,10 +2099,10 @@ enum FeedSocketEncoding {
             }
         case .toolUse(let toolName, let toolInputJSON):
             dict["tool_name"] = toolName
-            assignLimitedText(toolInputJSON, key: "tool_input", to: &dict)
+            assignLimitedToolJSON(toolInputJSON, key: "tool_input", to: &dict)
         case .toolResult(let toolName, let resultJSON, let isError):
             dict["tool_name"] = toolName
-            assignLimitedText(resultJSON, key: "tool_result", to: &dict)
+            assignLimitedToolJSON(resultJSON, key: "tool_result", to: &dict)
             dict["tool_result_is_error"] = isError
         case .userPrompt(let text), .assistantMessage(let text):
             assignLimitedText(text, key: "text", to: &dict)
