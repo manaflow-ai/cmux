@@ -946,7 +946,7 @@
       "comment": "Claude team route refusal when the machine's settings file contains a credential that would be exposed by the launch.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Claude could not start on the team route because its settings file contains a credential that would be copied into the launch. Remove the credential from the settings file and try again."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Claude couldn't start on the team route: its settings file holds a credential the launch would copy. Remove it from the file and try again."}},
         "ja": {"stringUnit": {"state": "translated", "value": "Claude の設定ファイルに起動時にコピーされる認証情報が含まれているため、チームのルートで起動できませんでした。設定ファイルから認証情報を削除して、もう一度お試しください。"}},
         "de": {"stringUnit": {"state": "translated", "value": "Claude konnte die Teamroute nicht nutzen, weil seine Einstellungsdatei Zugangsdaten enthält, die beim Start kopiert würden. Entferne die Zugangsdaten aus der Einstellungsdatei und versuche es erneut."}},
         "fr": {"stringUnit": {"state": "translated", "value": "Claude n’a pas pu démarrer via la route de l’équipe, car son fichier de paramètres contient un identifiant d’accès qui serait copié au démarrage. Retirez-le du fichier, puis réessayez."}},
