@@ -85,6 +85,10 @@ export const PLACES = {
   autoLocal: { mode: "auto", at: "local" },
   autoCloud: { mode: "auto", at: "cloud", cloudName: "swift-otter" },
   moving: { mode: "cloud", at: "local", cloudName: "swift-otter", move: MOVES.moving },
+  /// Settings > Machines' AutoCloud on, Cloud Toggle off: the chat offers AutoCloud off (Local) and on (Auto).
+  twoLocal: { mode: "local", at: "local", modes: ["local", "auto"] },
+  twoAuto: { mode: "auto", at: "local", modes: ["local", "auto"] },
+  twoAutoCloud: { mode: "auto", at: "cloud", cloudName: "swift-otter", modes: ["local", "auto"] },
 } satisfies Record<string, PlaceState>;
 
 const EVAC_STARTED = Date.UTC(2026, 9, 6, 9, 41, 0);
