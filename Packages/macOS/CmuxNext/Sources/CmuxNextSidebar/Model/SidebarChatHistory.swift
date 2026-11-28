@@ -62,20 +62,9 @@ public nonisolated struct SidebarChatHistoryState: Hashable, Sendable {
     public static func make(newest: some Sequence<SidebarHistoryChat>, chat: (String) -> SidebarHistoryChat?,
                             live: Set<String>, pinned: [String], limit: Int, folded: Bool, more: Bool = false,
                             loading: Bool = false) -> SidebarChatHistoryState {
-        var state = SidebarChatHistoryState(earlierFolded: folded, loading: loading)
-        state.pinned = pinned.compactMap(chat)
-        let skipped = live.union(pinned)
-        let wanted = folded ? 0 : max(0, limit)
-        for item in newest where !skipped.contains(item.id) {
-            state.hasEarlier = true
-            guard state.earlier.count < wanted else { break }
-            state.earlier.append(item)
-            if state.earlier.count == wanted { break }
-        }
-        state.hasMore = more && !folded
-        // Chats wait past the page even while the local skip leaves it empty: Earlier keeps its header.
-        if state.hasMore { state.hasEarlier = true }
-        return state
+        // The rule is the reducer's (`sidebar_chat_history` `make`).
+        RustSidebarChatHistory.make(newest: newest, chat: chat, live: live, pinned: pinned, limit: limit, folded: folded,
+                                    more: more, loading: loading)
     }
 
     // MARK: Heights (the list's layout and the views share them)
