@@ -19,10 +19,10 @@
 //! chat's last stored seq, after [`Hub::display_logged`]. The first seal of a chat in a daemon's
 //! life is a whole [`pack::pack`], which checks every sealed segment the store holds against the
 //! log (BLAKE3, about 4 ms a segment) and encodes from the first that differs, unless an earlier
-//! daemon of the same build kept its trust in them at the log's stamp (`pack_trust.rs`). After it, while
-//! the log's stamp ([`Store::log_stamp`]: a count of rewrites of lines already written) stays the
-//! same, a seal reads only the records after the last sealed segment's last seq and extends the
-//! pack from there ([`pack::pack_after`]): its cost is the 4 MiB that filled and the open tail,
+//! daemon of the same build kept its trust in them at the log's stamp (`pack_trust.rs`). After
+//! it, while the log's stamp ([`Store::log_stamp`]: a count of rewrites of lines already
+//! written) stays the same, a seal reads only the records after the last sealed segment's last
+//! seq and extends the pack from there ([`pack::pack_after`]): its cost is the 4 MiB that filled and the open tail,
 //! whatever the log's length. A rewritten log (retention, a history that arrived) changes the
 //! stamp, and the next seal is a whole pack again.
 //!

@@ -83,7 +83,8 @@ fn a_restarted_daemon_extends_from_the_kept_trust() {
     let through = session.read_meta(|m| m.last_seq);
     // A pack through the newest record, as a compaction's, keeps every sealed segment trusted.
     hub.pack_checked.lock().unwrap().clear();
-    let (m, stats, _) = hub.pack_through(&session, through, &store, &root.path().join("w1")).unwrap();
+    let (m, stats, _) =
+        hub.pack_through(&session, through, &store, &root.path().join("w1")).unwrap();
     assert_eq!(stats.kept_segments as usize, m.segments.iter().filter(|s| s.sealed).count());
     assert!(hub.pack_checked.lock().unwrap().contains_key(id), "trusted from the store");
 

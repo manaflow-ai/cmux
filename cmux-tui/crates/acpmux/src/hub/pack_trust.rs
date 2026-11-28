@@ -148,7 +148,10 @@ pub(in crate::hub) fn sweep_pack_work_in(dir: &Path) {
         let name = entry.file_name().to_string_lossy().into_owned();
         let changed = entry.metadata().and_then(|m| m.modified()).ok();
         if name.starts_with("work-") && super::transfer_out::dead_scratch(&name, changed) {
-            tracing::info!("removing {name} in {}: seal scratch of a daemon that is gone", dir.display());
+            tracing::info!(
+                "removing {name} in {}: seal scratch of a daemon that is gone",
+                dir.display()
+            );
             let _ = crate::home_fs::remove_dir_all(entry.path());
         }
     }
