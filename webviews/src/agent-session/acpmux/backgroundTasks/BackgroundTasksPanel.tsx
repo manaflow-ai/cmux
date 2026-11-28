@@ -3,7 +3,8 @@
 // glass and type. It docks in the chat's right column, under the side panel when one is open
 // (App.tsx, backgroundTasks.css), so it splits below what is already on the right.
 //
-// Top to bottom: the head (Background tasks, then Clear finished, Expand and Close); then a block per
+// Top to bottom: the head (Background tasks, then Expand and Close; none at all as a tab of its own,
+// which already names it; Clear finished is a text button on the Finished heading's hover); then a block per
 // agent (backgroundTasks.ts): its name, which opens its transcript, its time and, while it runs, its
 // stop button; under it the counts line, "39 tasks, 3 failed" with the failures in the danger colour,
 // which opens its tasks: the running ones first, each with its time and its own stop button, then
@@ -42,7 +43,8 @@ import {
   type ReactNode,
 } from "react";
 import { formatDuration, spanDuration } from "../conversation/turns";
-import { ChevronLeft, Close, Expand } from "../conversation/icons";
+import { Bot, ChevronLeft, Close, Expand, TerminalSquare } from "../conversation/icons";
+import { experimentArm } from "../../../experiments/experiment";
 import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -60,6 +62,7 @@ import {
   type StopTarget,
 } from "./backgroundTasks";
 import { BackgroundTaskCard } from "./BackgroundTaskCard";
+import { backgroundTasksRows } from "./backgroundTasksRows.experiment";
 import { FOCUS_FRESH_MS } from "./openBackgroundTasks";
 import { SubagentTranscript } from "./SubagentTranscript";
 import { NestedAgents } from "./subagentTranscriptModel";
@@ -77,7 +80,7 @@ export type WorkflowReads = { sessionId?: string; chat: string; connection: stri
 const Workflows = createContext<WorkflowReads | undefined>(undefined);
 
 /// Whether the host reads a command's output (a chat on this Mac, App.tsx `canReadTail`); without it
-/// a command's card shows its command alone, never a "No output yet" that would never change.
+/// a command's card shows its command alone.
 const ReadsOutput = createContext(true);
 
 /// The gallery's arms (BackgroundTasksPanel.gallery.tsx). `nested` is Claude Desktop's shape and
@@ -147,6 +150,8 @@ export function BackgroundTasksPanel({
   onOpenCommand?(task: BackgroundTask): void;
 }) {
   const t = useT();
+  // Read once per panel: the arm is the gallery's override or a dogfood key, never a per-row read.
+  const [rowsLook] = useState(() => experimentArm(backgroundTasksRows));
   // Docked in the chat's right column (it can be closed), opening narrows the chat and its composer,
   // and closing widens them again: a split's resize (schemas/layout-motion/contract.json `resize`), one
   // move of each box, as the side panel's (ArtifactPanel.tsx). Its own tab narrows nothing.
@@ -211,12 +216,17 @@ export function BackgroundTasksPanel({
             title={drill ? (drilled?.name ?? drill.agentId) : t("backgroundTasks.title")}
             back={drill ? back : undefined}
             backLabel={t("backgroundTasks.back")}
-            clear={!drill && finished.length > 0 ? () => onClearFinished(finished) : undefined}
             expanded={expanded}
             onExpand={onExpand}
             onClose={onClose}
           >
-            <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
+            <div
+              ref={list}
+              className="acpmux-bg__list"
+              data-look={look}
+              data-rows={rowsLook}
+              hidden={drill !== undefined}
+            >
               {groups.length === 0 ? (
                 <p className="acpmux-bg__empty">
                   {loading ? t("backgroundTasks.loading") : t("backgroundTasks.empty")}
@@ -228,6 +238,9 @@ export function BackgroundTasksPanel({
                     id={section.id}
                     count={section.groups.length + section.commands.length}
                     openAt={focusedIn(section.commands, target)}
+                    onClear={
+                      section.id === "finished" && finished.length > 0 ? () => onClearFinished(finished) : undefined
+                    }
                   >
                     {section.commands.map((task) => (
                       <TaskRow
@@ -295,12 +308,16 @@ function Section({
   id,
   count,
   openAt,
+  onClear,
   children,
 }: {
   id: PanelSection["id"];
   count: number;
   /// A request to open on a command under it (`focus`): each new one opens the heading.
   openAt?: number;
+  /// Finished only: clears the ended groups. A text button on the heading's own line, shown while the
+  /// heading is hovered or has focus (Leo, 2026-11-24: "there is for some reason a garbage can").
+  onClear?(): void;
   children: ReactNode;
 }) {
   const t = useT();
@@ -312,24 +329,31 @@ function Section({
   }
   return (
     <div className="acpmux-bg__section" data-section={id}>
-      <Button
-        variant="ghost"
-        type="button"
-        className="acpmux-bg__fold acpmux-bg__section-head"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
-        <Disclosure open={open} />
-        {/* Running is its mark and its count, no word (Leo, 2026-11-23: ""running" doesn't need text"). */}
-        {id === "running" ? (
-          <LiveCount n={count} label={t("summary.subagents.running", { n: count })} />
-        ) : (
-          <>
-            <span>{t("backgroundTasks.section.finished")}</span>
-            <span className="acpmux-bg__section-count">{count}</span>
-          </>
+      <div className="acpmux-bg__section-bar">
+        <Button
+          variant="ghost"
+          type="button"
+          className="acpmux-bg__fold acpmux-bg__section-head"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          <Disclosure open={open} />
+          {/* Running is its mark and its count, no word (Leo, 2026-11-23: ""running" doesn't need text"). */}
+          {id === "running" ? (
+            <LiveCount n={count} label={t("summary.subagents.running", { n: count })} />
+          ) : (
+            <>
+              <span>{t("backgroundTasks.section.finished")}</span>
+              <span className="acpmux-bg__section-count">{count}</span>
+            </>
+          )}
+        </Button>
+        {onClear && (
+          <Button variant="ghost" type="button" size="sm" className="acpmux-bg__clear" onClick={onClear}>
+            {t("backgroundTasks.clearFinished")}
+          </Button>
         )}
-      </Button>
+      </div>
       {open && children}
     </div>
   );
@@ -389,7 +413,6 @@ function PanelFrame({
   title,
   back,
   backLabel,
-  clear,
   expanded,
   onExpand,
   onClose,
@@ -398,7 +421,6 @@ function PanelFrame({
   title: string;
   back?: () => void;
   backLabel?: string;
-  clear?: () => void;
   expanded: boolean;
   /// Unset (the panel is a tab of its own, backgroundPane.ts), no Expand button.
   onExpand?(): void;
@@ -408,10 +430,16 @@ function PanelFrame({
 }) {
   const t = useT();
   const expandLabel = t(expanded ? "backgroundTasks.collapse" : "backgroundTasks.expand");
+  // The panel as a tab of its own (backgroundPane.ts): the tab already says "Background tasks", so the
+  // list has no head at all (Leo, 2026-11-24: "background tasks title is bad and spaced so far down and
+  // ugly and maybe redundant and could be cut entirely"); a drill-in keeps back and the agent's name.
+  const ownTab = !onExpand && !onClose;
+  const headed = Boolean(back) || !ownTab;
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape steps back or closes from anywhere inside.
     <section
       className="acpmux-bg"
+      data-headless={!headed || undefined}
       aria-label={t("backgroundTasks.title")}
       data-expanded={expanded || undefined}
       // ui-allow: Escape steps back out of a transcript, else closes the panel
@@ -422,67 +450,55 @@ function PanelFrame({
         else onClose?.();
       }}
     >
-      <header className="acpmux-bg__head">
-        {back && (
-          <Button
-            variant="ghost"
-            type="button"
-            className="acpmux-bg__icon"
-            size="sm"
-            icon
-            aria-label={backLabel}
-            onClick={back}
-          >
-            <ChevronLeft size={14} />
-          </Button>
-        )}
-        <h2 className="acpmux-bg__title">{title}</h2>
-        <span className="acpmux-bg__tools">
-          {clear && (
+      {headed && (
+        <header className="acpmux-bg__head">
+          {back && (
             <Button
               variant="ghost"
               type="button"
               className="acpmux-bg__icon"
               size="sm"
               icon
-              aria-label={t("backgroundTasks.clearFinished")}
-              title={t("backgroundTasks.clearFinished")}
-              onClick={clear}
+              aria-label={backLabel}
+              onClick={back}
             >
-              <Icon name="action.delete" size={14} />
+              <ChevronLeft size={14} />
             </Button>
           )}
-          {onExpand && (
-            <Button
-              variant="ghost"
-              type="button"
-              className="acpmux-bg__icon"
-              size="sm"
-              icon
-              aria-label={expandLabel}
-              title={expandLabel}
-              aria-pressed={expanded}
-              onClick={onExpand}
-            >
-              <Expand size={14} />
-            </Button>
-          )}
-          {onClose && (
-            <Button
-              variant="ghost"
-              type="button"
-              className="acpmux-bg__icon"
-              size="sm"
-              icon
-              aria-label={t("backgroundTasks.close")}
-              title={t("backgroundTasks.close")}
-              onClick={onClose}
-            >
-              <Close size={14} />
-            </Button>
-          )}
-        </span>
-      </header>
+          <h2 className="acpmux-bg__title">{title}</h2>
+          <span className="acpmux-bg__tools">
+            {onExpand && (
+              <Button
+                variant="ghost"
+                type="button"
+                className="acpmux-bg__icon"
+                size="sm"
+                icon
+                aria-label={expandLabel}
+                title={expandLabel}
+                aria-pressed={expanded}
+                onClick={onExpand}
+              >
+                <Expand size={14} />
+              </Button>
+            )}
+            {onClose && (
+              <Button
+                variant="ghost"
+                type="button"
+                className="acpmux-bg__icon"
+                size="sm"
+                icon
+                aria-label={t("backgroundTasks.close")}
+                title={t("backgroundTasks.close")}
+                onClick={onClose}
+              >
+                <Close size={14} />
+              </Button>
+            )}
+          </span>
+        </header>
+      )}
       {children}
     </section>
   );
@@ -535,6 +551,7 @@ function GroupBlock({
     <div className="acpmux-bg__group" data-state={live ? "running" : group.state} data-group={group.id}>
       <div className="acpmux-bg__agent">
         <Button variant="ghost" type="button" className="acpmux-bg__name" disabled={!opens} onClick={opens}>
+          <KindGlyph kind="agent" />
           <span className="acpmux-bg__label">{group.name}</span>
           {opens && (
             <span className="acpmux-bg__chevron" aria-hidden="true">
@@ -598,6 +615,14 @@ function Counts({ total, failed }: { total: number; failed: number }) {
     </span>
   );
 }
+
+/// What a row is, by its leading glyph, as the chat's tool rows lead with theirs: an agent is the bot,
+/// a command or a tool call the terminal.
+const KindGlyph = ({ kind }: { kind: "agent" | "command" }) => (
+  <span className="acpmux-bg__glyph" data-kind={kind} aria-hidden="true">
+    {kind === "agent" ? <Bot size={14} /> : <TerminalSquare size={14} />}
+  </span>
+);
 
 const Disclosure = ({ open }: { open: boolean }) => (
   <span className="acpmux-bg__disclosure" aria-hidden="true">
@@ -727,13 +752,16 @@ function TaskRow({
         ? () => onOpenCommand(task)
         : undefined;
   return (
-    <div className="acpmux-bg__task" data-state={task.state}>
+    <div className="acpmux-bg__task" data-state={task.state} data-kind={task.kind === "agent" ? "agent" : "command"}>
       <Button variant="ghost" type="button" className="acpmux-bg__task-open" disabled={!opens} onClick={opens}>
-        {/* A running task's time and Stop say it runs: it leads with the same mark as one that ended. */}
-        <span className="acpmux-bg__disclosure" aria-hidden="true">
-          <Icon name="disclosure.collapsed" size={12} row />
-        </span>
+        {/* A running task's time and Stop say it runs: it leads with the same glyph as one that ended. */}
+        <KindGlyph kind={task.kind === "agent" ? "agent" : "command"} />
         <span className="acpmux-bg__label">{task.title}</span>
+        {opens && (
+          <span className="acpmux-bg__chevron" aria-hidden="true">
+            <Icon name="disclosure.collapsed" size={12} row />
+          </span>
+        )}
       </Button>
       <Clock
         className="acpmux-bg__time"
