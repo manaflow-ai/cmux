@@ -448,6 +448,34 @@ fn another_builds_dev_phone_asks_quietly() {
     assert_eq!(dev_tag("nightly", Some("com.cmuxterm.app.nightly"), None), None);
 }
 
+/// 11-28 (Leo: "can't connect to [his NIGHTLY] on my connected iphone"): cmux Dev asked his NIGHTLY
+/// quietly, so no prompt showed. The build-spaceless apps prompt on a Mac with no dev tag, theirs, and
+/// still wait quietly on a tagged dev Mac; a tagged one (and a tagged Demo build) still waits on NIGHTLY.
+#[test]
+fn a_build_spaceless_phone_prompts_on_nightly() {
+    for bundle_id in [
+        "dev.cmux.mobile.dev",
+        "dev.cmux.mobile.prod",
+        "dev.cmux.mobile.demo",
+        "DEV.CMUX.MOBILE.DEV",
+    ] {
+        assert!(!asks_quietly("phone", Some(bundle_id), None), "{bundle_id}");
+        assert!(asks_quietly("phone", Some(bundle_id), Some("pair-fast-v1")), "{bundle_id}");
+    }
+    assert!(asks_quietly("phone", Some("dev.cmux.mobile.demo.pair-fast-v1"), None));
+    assert!(asks_quietly("phone", Some("dev.cmux.mobile.ios-onboard"), None));
+    let reply: Value = serde_json::from_slice(
+        &respond(
+            &serde_json::to_vec(&json!({"op": "dev_request", "kind": "phone",
+        "bundleId": "dev.cmux.mobile.dev", "pairedUserId": "u", "accountUserId": "u"}))
+            .unwrap(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(reply["asksQuietly"], json!(false));
+}
+
 #[test]
 fn a_quiet_request_never_auto_approves() {
     let other = auto("com.cmuxterm.app.debug.cu.all", Some("cu-all"), None, true);

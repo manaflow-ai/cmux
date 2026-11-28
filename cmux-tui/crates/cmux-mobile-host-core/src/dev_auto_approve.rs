@@ -1,6 +1,8 @@
 //! `IPhoneDevAutoApprove`: in a tagged dev build (`com.cmuxterm.app.debug.<tag>`, DEBUG), the same
 //! tag's iPhone app (`dev.cmux.mobile.<tag>`) of the signed-in account pairs without the prompt;
-//! a dev iPhone app asking any other Mac build waits quietly (cmux-next-ios/SECURITY.md "Dev auto-approve").
+//! a dev iPhone app asking another Mac build waits quietly, except the iPhone apps with no build space
+//! (cmux Dev, Production, Demo) on a NIGHTLY, RC or release Mac, which is theirs and prompts
+//! (cmux-next-ios/SECURITY.md "Dev auto-approve").
 
 /// The launch variable that keeps the Allow prompt (`1`).
 pub const APPROVE_FIRST_KEY: &str = "CMUX_NEXT_IPHONE_APPROVE_FIRST";
@@ -42,9 +44,20 @@ pub fn phone_tag(kind: &str, bundle_id: Option<&str>) -> Option<String> {
     (!tag.is_empty()).then(|| tag.to_owned())
 }
 
-/// Whether the request waits without prompt, banner or Dock bounce on a Mac of dev tag `mac_dev_tag`.
+/// The dev iPhone app tags with no cloud build space: the Production configuration (`prod`), the shared
+/// Demo build (`demo`) and cmux Dev (`dev`). Their Mac is NIGHTLY, RC or release (the space with none),
+/// and these names are reserved tags (CMUX_ATTACH_RESERVED_TAGS), so no tagged dev build has them.
+pub const BUILD_SPACELESS_PHONE_TAGS: [&str; 3] = ["prod", "demo", "dev"];
+
+/// Whether the request waits without prompt, banner or Dock bounce on a Mac of dev tag `mac_dev_tag`
+/// (None: NIGHTLY, RC, release): a dev iPhone app of another tag, or a tagged one on a Mac with no dev
+/// tag. A build-spaceless app on such a Mac prompts: that Mac is its own (Leo, 11-28: "can't connect to
+/// [his NIGHTLY] on my connected iphone"; the phone only waited in Settings > Mobile).
 pub fn asks_quietly(kind: &str, bundle_id: Option<&str>, mac_dev_tag: Option<&str>) -> bool {
-    phone_tag(kind, bundle_id).is_some_and(|phone| Some(phone.as_str()) != mac_dev_tag)
+    phone_tag(kind, bundle_id).is_some_and(|phone| match mac_dev_tag {
+        Some(mac) => phone != mac,
+        None => !BUILD_SPACELESS_PHONE_TAGS.contains(&phone.as_str()),
+    })
 }
 
 /// `IPhoneHostService.devAutoApproves`: the auto-approve of tag `auto_tag` takes the request of the

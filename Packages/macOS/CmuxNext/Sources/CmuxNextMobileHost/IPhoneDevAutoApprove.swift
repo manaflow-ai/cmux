@@ -13,7 +13,8 @@ public import Foundation
 ///
 /// Its other half holds in every build: a dev iPhone app's request to any Mac but its own tag's
 /// dev build (NIGHTLY, stable, another tag) asks quietly (``asksQuietly(_:macDevTag:)``): no prompt,
-/// banner or Dock bounce, only a waiting row in Settings > Mobile. A phone signed in to the
+/// banner or Dock bounce, only a waiting row in Settings > Mobile. An app with no build space (cmux Dev,
+/// Production, Demo) on NIGHTLY, RC or release, its own Mac, prompts instead (11-28). A phone signed in to the
 /// account dials the Macs it lists, which can be another build on the same computer, and the
 /// person running a dev phone never meant to pair it there (2026-11-17, tag `ios-onboard`).
 ///
@@ -76,8 +77,9 @@ public nonisolated struct IPhoneDevAutoApprove: Sendable, Equatable {
     }
 
     /// Whether `request` waits without the prompt, banner or Dock bounce on a Mac whose dev tag is
-    /// `macDevTag` (nil: not a tagged dev build): a dev iPhone app of another tag, or any dev iPhone
-    /// app on NIGHTLY, RC or release. The same tag (with `--approve-first`) and every other phone ask as before.
+    /// `macDevTag` (nil: not a tagged dev build): a dev iPhone app of another tag, or a tagged dev iPhone
+    /// app on NIGHTLY, RC or release. cmux Dev, Production and Demo (no build space) prompt on NIGHTLY, RC
+    /// and release, their Mac. The same tag (with `--approve-first`) and every other phone ask as before.
     public static func asksQuietly(_ request: MobileHostPairRequest, macDevTag: String?) -> Bool {
         ask(request, macDevTag: macDevTag)?["asksQuietly"] as? Bool ?? false
     }
