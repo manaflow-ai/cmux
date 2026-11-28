@@ -196,7 +196,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 8fb52925c3320cb1cd962bf79fee6717a8d1e19019a685c2c8ed003130cd653f
+// app-ffi-pin-checksum: c87d9695977175f555b9a6631ca06a782d9e45d747cfe504734527e17bd31f7c
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -243,6 +243,9 @@ let uiLayerPreviewProducts: [Product] = [
         "CmuxNextSidebar",
         "CmuxNextTabs",
     ]),
+    // The UI shell's HomeEngine host (Prototypes/UiLayerHost cmux-ui-home --shoot) draws HomeEngine's playgrounds
+    // from an incremental build of HomeEngine and what it needs, without the app composition root.
+    .library(name: "CmuxNextUiHomeModules", targets: ["CmuxNextHomeEngine"]),
 ]
 
 // Debug-only: the preview leaf and its tests share this one condition.
