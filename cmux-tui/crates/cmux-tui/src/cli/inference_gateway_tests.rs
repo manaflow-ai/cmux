@@ -730,3 +730,39 @@ fn call_line_splits_head_from_stream() {
         call_line(&"m".repeat(64), "POST", "/v1/messages", 200, 600_000, 600_000, Some(600_000));
     assert!(format!("cmux inference gateway: {longest}").len() <= 200, "{}", longest.len());
 }
+
+/// A Codex login sends its access token only as ChatGPT's bearer and its account only as `chatgpt-account-id`;
+/// the refresh and id tokens stay on the gateway (the access token is fresh), and so does the backend's machine id.
+#[tokio::test]
+async fn seeded_codex_login_rides_only_where_chatgpt_needs_it() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("{\"exp\":4102444800}");
+    let access = format!("e30.{payload}.SEEDgatewayCodexAccess-3a1f");
+    let refresh = "SEEDgatewayCodexRefresh-8c02";
+    let id_token = "SEEDgatewayCodexIdToken-55e9";
+    let account = "SEEDgatewayCodexAccount-d7b6";
+    let dir = tempfile::tempdir().unwrap();
+    let auth = dir.path().join("auth.json");
+    let login = json!({"tokens": {
+        "access_token": access, "refresh_token": refresh, "id_token": id_token, "account_id": account,
+    }});
+    std::fs::write(&auth, login.to_string()).unwrap();
+    let http = cmux_egress::client_builder("cmux_tui::cli::inference_gateway").build().unwrap();
+    let provider = Provider::new(Upstream::Codex { auth }, http);
+    let (tx, mut rx) = mpsc::channel(32);
+    answer(&provider, "c1", pending("/v1/responses", r#"{"model":"m"}"#), &tx).await;
+    let _ = frames(&mut rx).await;
+    let sent = cmux_egress::capture::requests_to("chatgpt.com");
+    assert!(sent.iter().any(|r| r.target == "/backend-api/codex/responses"), "{sent:?}");
+    for (secret, place) in
+        [(access.as_str(), ": header authorization"), (account, ": header chatgpt-account-id")]
+    {
+        let places = cmux_egress::capture::leaks(secret);
+        assert!(!places.is_empty(), "{secret}: {sent:?}");
+        assert!(places.iter().all(|p| p.ends_with(place)), "{secret}: {places:?}");
+    }
+    for secret in [refresh, id_token, "vm_abcdefghij0123456789"] {
+        assert_eq!(cmux_egress::capture::leaks(secret), Vec::<String>::new(), "{secret}");
+    }
+}
