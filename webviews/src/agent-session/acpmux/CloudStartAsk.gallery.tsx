@@ -24,7 +24,7 @@ const asks: Record<string, CloudStartAsk> = {
     kind: "firstLogin",
     title: "Set up Claude on paint-dev?",
     lines: [
-      "cmux runs claude setup-token for Personal account. The token stays in this Mac's Keychain; Cloud machines get it only to run your chat.",
+      "Claude Code will open its sign-in page for this Cloud machine.",
       "Cloud machines you own later get this login with no prompt.",
     ],
     buttons: [decline, { id: "setUp", title: "Set Up", role: "default" }],
@@ -72,7 +72,7 @@ const asks: Record<string, CloudStartAsk> = {
     kind: "firstLogin",
     title: "Set up Claude on paint-dev?",
     lines: [
-      "cmux runs claude setup-token for Personal account. The token stays in this Mac's Keychain; Cloud machines get it only to run your chat.",
+      "Claude Code will open its sign-in page for this Cloud machine.",
       "This replaces Claude's login on this VM and restarts this chat before retrying its failed prompt.",
     ],
     buttons: [decline, { id: "transfer", title: "Transfer and restart", role: "default" }],

@@ -973,10 +973,11 @@ async fn a_link_row_carries_what_v1_watch_gives_the_same_peer() {
             "extra {key}: link {new} v1 {old}"
         );
     }
+    // V2 clips masked text to its field budget; `says` above checks that prefix.
+    assert!(old.to_string().contains("GitHub"), "the v1 mask names what it hid: {old}");
     for row in [&new, &old] {
         let text = row.to_string();
         assert!(!text.contains(&token), "a peer reads the secret: {text}");
-        assert!(text.contains("GitHub"), "the mask names what it hid: {text}");
         for key in ["stuckError", "stuckSince"] {
             assert!(row.get(key).is_none() && row["extra"].get(key).is_none(), "{key}: {row}");
         }

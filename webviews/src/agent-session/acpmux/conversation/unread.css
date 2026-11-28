@@ -54,9 +54,10 @@
   /* The transcript's own metadata type, as the Worked for line beside it draws it (conversation.css
      .cv-worked): its family, size, tracking and regular weight. Leo, 2026-11-25, of a bold caption
      "2 new messages": "honestly the font is wack it's different from the rest of the app", "size
-     and bolding". */
+     and bolding". The size is --cv-worked-font-size, the one .cv-worked reads, so the two never differ
+     (Leo, 2026-11-27: "the font size on working for and new messages is different"). */
   font-family: var(--cv-font);
-  font-size: var(--cv-font-size);
+  font-size: var(--cv-worked-font-size);
   font-weight: var(--weight-regular);
   letter-spacing: var(--cv-tracking, var(--instrument-type-chat-tracking, normal));
   white-space: nowrap;
@@ -218,12 +219,16 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The count gives way whole before the label starts to: the label barely shrinks (its weight is
-   tiny) until the count is down to nothing. The count is a flex row ("·" and the tokens), so its
-   ellipsis is the tokens' own. The doubled class outranks the shared rule above, whose :is()
-   takes its :has() argument's weight. */
+/* The count gives way whole before the label starts to: the label does not shrink, it is only
+   capped at the line's width, so the count is down to nothing before the label's ellipsis shows.
+   A tiny shrink weight (0.001) still took a fraction of a pixel off the label as soon as the count
+   gave way, and that fraction drew its ellipsis: "Worked for 4m 1… · 679.9…" at a 240 px pane (Leo,
+   2026-11-22: "the shifts and animations need to be accounted for/added adn refined"). The count is
+   a flex row ("·" and the tokens), so its ellipsis is the tokens' own. The doubled class outranks
+   the shared rule above, whose :is() takes its :has() argument's weight. */
 .acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider .cv-worked__label.cv-worked__label {
-  flex-shrink: 0.001;
+  flex-shrink: 0;
+  max-width: 100%;
 }
 .acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider .cv-worked__tokens {
   min-width: 0;
@@ -231,8 +236,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Ultra tight, where "New" fades out, its room goes with it. The selector repeats the room's own
+   (above): a bare `.cv-worked.has-divider` lost to it on specificity, so the room was never given
+   back and the label cut to "Worked fo…" beside an empty end. */
 @container cv-since-line (max-width: 150px) {
-  .cv-worked.has-divider {
+  .acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider {
     padding-inline-end: 0;
   }
 }
@@ -261,6 +269,11 @@
   .acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider::after {
     transition: background-color var(--agent-motion-calm) var(--agent-ease-out);
   }
+  /* "New"'s room at the line's end opens and closes on the same step as "New" fades, so at the
+     ultra tight step the line's words ease into the room instead of jumping a few characters. */
+  .acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider {
+    transition: padding-inline-end var(--agent-motion-calm) var(--agent-ease-out);
+  }
 }
 /* The app's motion gate: with motion off or reduced the line comes and goes in one step. */
 :root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
@@ -270,7 +283,7 @@
 :root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
   .acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap]))
   + :is(.acpmux-worked, .acpmux-working)
-  .cv-worked.has-divider::after {
+  :is(.cv-worked.has-divider, .cv-worked.has-divider::after) {
   transition: none;
 }
 

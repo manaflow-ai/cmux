@@ -1110,6 +1110,27 @@ so a prompt carrying an image reaches acpmux whole. A frame sequence that is
 not JSON closes the channel with `bad_request`. This adds no new method and
 does not change acpmux's own guard.
 
+## `acpmux`: one zstd stream per channel (`zstd-stream-v1`, 2026-11-24)
+
+A phone that lists `zstd-stream-v1` in the channel's `compressions` gets every
+acpmux message from the Mac through one zstd stream kept for the channel's
+life (PROTOCOL.md "acpmux compression"). It adds no method and changes no
+policy: hostd compresses only what `acpmux_policy` already let through to this
+phone, after filtering. Two things to know:
+
+- **Size hints across messages.** Like WebSocket permessage-deflate's context
+  takeover, a message that repeats something earlier on the channel comes out
+  smaller. The plaintext and the sizes of the compressed messages are only
+  visible inside the WireGuard tunnel, which is end to end between the phone
+  and the Mac; outside it, datagram sizes were already content-dependent with
+  per-message deflate. The stream carries only the Mac's messages to the
+  phone, so the phone cannot mix chosen text with the Mac's secrets in one
+  context (the CRIME/BREACH shape), and no relay or Worker sees either.
+- **Decoder bounds.** The phone's decoder (Rust, `ZstdStreamDecoder`) refuses a
+  window over 1 MiB, a text over 64 MiB and any envelope that does not decode
+  to exactly its stated length; a refusal closes the channel. Before the
+  pairing check the joiner's held-byte budget still bounds what it keeps.
+
 ## `upload`: phone attachments into this Mac
 
 `upload {name, size, cwd?}` writes the bytes that follow into one new file
@@ -1130,6 +1151,30 @@ sent as an ACP `resource_link` to that path.
   the `upload` cases in `tests/host.rs`: a plain upload, a workspace folder, a
   folder that is no tab's and outside the roots (`forbidden`), and
   `an_upload_past_the_old_100_mib_cap_is_saved_whole` (no size cap).
+- Resumable uploads (`upload_id`) use the authenticated device identity across
+  link sessions. Parts stay inside the authorized publish directory in a
+  device-keyed `.parts-<sha256(device)>` directory (0700); files are 0600.
+  The staging directory cannot be a symlink. Knowing another device's upload ID
+  does not permit resuming or truncating its bytes. Cleanup visits only that
+  device's staging directory, never the publish directory's parent.
+- Completion receipts bind the upload ID, declared name and size to the published
+  inode and content digest, including uploads satisfied by deduplication. A retry
+  after a lost final reply returns the same path without another copy. Publication
+  interrupted before its receipt is recovered by matching the retained part inode. Receipts expire with partial uploads after 24 hours; replaced files are
+  refused, as are same-inode content changes. Receipts are written atomically.
+  `upload_completion_recovers_interrupted_publication_and_checks_bytes` covers
+  crash recovery and changed bytes. `resumable_upload_reports_have_acks_and_path` checks replay at three
+  offsets, ID reuse with another name, and replacement of the published inode.
+- Legacy development receipts without a content digest, and partial authoritative
+  receipts from the earlier writer, fail closed without changing the receipt or
+  published file. They are not migrated from the current file's bytes. A phone
+  encountering one must start a new upload ID; retrying that old ID remains an
+  error. `upload_completion_refuses_legacy_hashless_and_partial_receipts` checks
+  this policy with and without a supplied digest.
+- **Regression detectors:** `another_phone_cannot_resume_an_earlier_upload_part`,
+  `resumable_upload_reopens_from_the_last_ack`,
+  `resumable_upload_root_alias_does_not_clean_workspace_parent`, and the
+  `upload_parts_*` unit tests cover isolation, redial, confinement and permissions.
 - **Open:** there is no total quota per phone, and old uploads are not
   cleaned up. Both are bounded only by the person's disk.
 

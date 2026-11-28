@@ -131,10 +131,10 @@
 #          commit has tree <key>; nothing when none; "unknown" when the runs cannot all be read;
 #          CMUX_TUI_TREE_SKIP_PUBLISHERS, space-separated commits, are passed over)
 #        | run-progress <commit> (its active cmux-tui artifacts runs, from their jobs:
-#          building, "failed <job>: <url>", "stalled <what>", none or unknown)
+#          building, rebuilding, "failed <job>: <url>", "stalled <what>", none or unknown)
 #        | tree-publisher <key> <candidate>... (who will publish tree <key>, the nightly's one
 #          reading for resolve-tree-pending.sh and await-tree-client.sh: "building <commit>",
-#          "stuck <why>", ended, none or unknown; see tree_publisher)
+#          "rebuilding <commit>", "stuck <why>", ended, none or unknown; see tree_publisher)
 #        | verify-key <key> (commit=<publishing commit> when tree <key> is published and its
 #          manifest sha256 verifies; exit 1 not published (a 404), 3 a read failure or unverifiable)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
@@ -480,6 +480,9 @@ else:
 # Prints how cmux-tui artifacts runs of commit <sha> are doing, one line,
 # from their jobs, so a waiter follows the run's live state instead of only "active":
 #   building             a run is making progress: nothing below holds for it
+#   rebuilding           as building, but its primary macOS leg failed (a runner shutdown, mostly)
+#                        and build-darwin-fallback is rebuilding it, so the tree lands about
+#                        30 min later than a clean run's; await-tree-client.sh waits for it
 #   failed <job>: <url>  every active run has a failed preflight, build or publish job on its last
 #                        retry attempt, so none publishes the tree
 #   stalled <what>       every active run is stuck: a job (or the run itself, with no
@@ -560,6 +563,12 @@ for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
     if not jobs and age(run.get("created_at")) >= stall:
         stalled.append(f"run pending {age(run.get('created_at')) // 60} min with no job started: {url}")
         continue
+    # 2026-11-27: the primary macOS leg of run 46057516735 (tree 8ddb82e1, 03fefcf7) got a runner
+    # shutdown 28 min in; build-darwin-fallback published the tree 38 min later, 13 min after
+    # NIGHTLY 46057516701 stopped waiting and bundled the older tree of 2bfbcf5a.
+    if any(DARWIN_PRIMARY.match(j.get("name", "")) and j.get("conclusion") in ("failure", "timed_out", "cancelled")
+           for j in jobs):
+        print("rebuilding"); sys.exit(0)
     print("building"); sys.exit(0)
 print(("failed " + failed[0]) if failed else ("stalled " + stalled[0]) if stalled else "none")
 PY
@@ -570,6 +579,7 @@ PY
 # artifacts runs build it, oldest first), one line:
 #   building <commit>  an active run of <commit> (a candidate's first, then any
 #                      same-key run) is making progress (artifacts_run_progress)
+#   rebuilding <commit> as building, while that run rebuilds its failed primary macOS leg
 #   stuck <why>        active runs exist, and none of them is making progress: a
 #                      build failed on its last retry attempt, or waits for a runner
 #                      past CMUX_TUI_TREE_RUNNER_STALL_SECONDS
@@ -590,7 +600,7 @@ tree_publisher() {
         [[ "$state" == active ]] || ended=true
         progress="$(artifacts_run_progress "$candidate")"
         case "$progress" in
-          building) echo "building $candidate"; return 0 ;;
+          building|rebuilding) echo "$progress $candidate"; return 0 ;;
           unknown) unknown=true ;;
           # The first read observed an active run; preserve it across list lag.
           none) [[ "$state" != active ]] || { echo "building $candidate"; return 0; } ;;
@@ -610,6 +620,7 @@ tree_publisher() {
       *)
         progress="$(artifacts_run_progress "$found")"
         case "$progress" in
+          rebuilding) echo "rebuilding $found"; return 0 ;;
           building|none) echo "building $found"; return 0 ;;
           unknown) echo unknown; return 0 ;;
           *) stuck="the run of ${found:0:12} is $progress"; skip="$skip $found" ;;
@@ -1412,7 +1423,9 @@ tree_published() {
 #                          it ends, scripts/ci/cmux_next_tree_notify.py starts
 #                          the tree jobs (cmux-next same-tree mode)
 #   tree_state=superseded  a push whose artifacts runs were cancelled or skipped
-#                          while the branch moved on: nothing to test
+#                          while the branch moved on: nothing to test (with
+#                          CMUX_TUI_TREE_TIP_SUITE set, a tip suite, deferred
+#                          instead: no newer run tests this exact commit)
 #   tree_state=failed      nothing will publish it (tree_reason says why)
 #   tree_state=skipped     CMUX_TUI_TREE_BASE_FALLBACK=1 and no tree in the
 #                          history is published: the tree jobs do not run
@@ -1512,7 +1525,17 @@ probe_checkout_tree() {
     ended\ *)
       superseded=""
       [[ "$source" == commit:* && -n "$publisher" ]] && superseded="$(superseded_by "$publisher" "$state")"
-      if [[ -n "$superseded" ]]; then
+      if [[ -n "$superseded" && -n "${CMUX_TUI_TREE_TIP_SUITE:-}" ]]; then
+        # A tip suite (cmux-next.yml tip_daemon_suite) is the base's verdict for this exact commit, and in a
+        # landing burst the push that would publish its tree is always cancelled by the next one: until
+        # 2026-11-27 every such run read superseded and skipped daemon-test (one daemon-test verdict in 14
+        # tip daemon suite runs from 21:54Z to 05:23Z). No other run tests this commit's daemon tree, so
+        # the newer head being tested does not apply. Its wait marker (tip_suite, which
+        # cmux_next_tree_notify.is_current keeps past a moved tip) waits for the tree's next publish: the
+        # next window's push with this key, or cmux-tui-tree-request.yml.
+        state=deferred
+        reason="the cmux-tui artifacts run for ${source#*:} was cancelled by a newer push ($superseded), and this tip suite tests this exact commit; tree $key's next publish starts the tree jobs"
+      elif [[ -n "$superseded" ]]; then
         state=superseded
         reason="$(git -C "$repo_root" rev-parse HEAD) was superseded by $superseded on ${GITHUB_REF#refs/heads/}: its tree $key was not published, and the newer head is tested"
       elif [[ "$source" == commit:* && -n "$publisher" ]] && artifacts_runs_coalesced "$publisher"; then

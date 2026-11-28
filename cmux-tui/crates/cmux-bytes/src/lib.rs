@@ -12,8 +12,12 @@
 //!   size plus a fixed header ([`frame::MAX_OVERHEAD`]): a payload never grows.
 //! - [`order`] orders a folder's files for the background fill: manifest,
 //!   then hot files, then the rest.
+//! - [`serial`] picks the zstd level where a page is compressed, then sent, then the next
+//!   (session move's history pages): per kind of data, calibrated on the run.
 //! - [`lanes`] schedules frames across priority lanes (manifest, faulted
 //!   reads, hot files, background fill).
+//! - [`prefetch`] ranks what a chat could read (likelihood per byte), plans it over idle
+//!   bandwidth on the fill lane, and measures the first-turn hit rate and bytes held unread.
 
 pub mod cas;
 pub mod cdc;
@@ -26,6 +30,8 @@ pub mod lanes;
 pub mod order;
 pub mod params;
 pub mod policy;
+pub mod prefetch;
+pub mod serial;
 
 pub use frame::{Encoding, decode, encode};
 pub use params::Params;

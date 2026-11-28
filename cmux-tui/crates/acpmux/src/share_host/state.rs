@@ -84,11 +84,25 @@ impl HubScreen {
     }
 }
 
-/// The name a hub record and a mesh host have in common: the first DNS label, lowercased (the
-/// mesh lists `pairing::machine_name`, the host label; a screen host registers the join's name or
-/// the kernel host name).
+/// The name a hub record and a mesh host have in common: the first DNS label, lowercased, each run
+/// of anything but a letter or digit one `-` (the mesh lists `pairing::machine_name`, the host
+/// label; a screen host registers the join's name, the kernel host name, or a Mac's computer
+/// name). A Mac's screen host registered as "Studio One" while the mesh lists it as `studio-one`,
+/// so the viewer read it as `no-screen-host` with its share host online and sharing (2026-11-27).
 fn host_key(name: &str) -> String {
-    name.trim().split('.').next().unwrap_or_default().to_ascii_lowercase()
+    let label = name.trim().split('.').next().unwrap_or_default().to_ascii_lowercase();
+    let mut key = String::with_capacity(label.len());
+    for c in label.chars() {
+        if c.is_alphanumeric() {
+            key.push(c);
+        } else if !key.is_empty() && !key.ends_with('-') {
+            key.push('-');
+        }
+    }
+    while key.ends_with('-') {
+        key.pop();
+    }
+    key
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -321,7 +335,15 @@ pub(crate) fn status_now() -> Value {
             not_running_json(why.as_ref(), cfg!(any(target_os = "macos", target_os = "linux")))
         }
     };
-    refreshed(status, || super::joined().is_ok())
+    let mut status = refreshed(status, || super::joined().is_ok());
+    // The helper's own grant reading holds whether or not this machine joined yet, so `cmux
+    // remote-host grants` reads the helper's grants, not the app's, before the host runs.
+    if let Some(fields) = status.as_object_mut() {
+        fields
+            .entry("helper")
+            .or_insert_with(|| super::helper::status_json(&crate::config::home()));
+    }
+    status
 }
 
 /// `status`, or, when it says the host does not run for want of a join and the machine is joined
