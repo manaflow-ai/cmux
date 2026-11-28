@@ -6906,8 +6906,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && !env.LEFT_SLOT
         env: {KEY: *zig-key}
         run: bash scripts/ci/nightly-steps/zig-cache-kept.sh check
-      - &one-zig-cache
-        name: Cache Zig packages
+      - name: Cache Zig packages
         if: inputs.nightly_next_unsigned_run == '' && steps.zig-kept.outputs.kept != 'true' && !env.LEFT_SLOT
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with: *zig-cache
@@ -6916,8 +6915,7 @@ jobs:
         id: helper-cache-key
         if: steps.reuse.outputs.hit != 'true' && !env.LEFT_SLOT
         run: bash scripts/ci/nightly-steps/helper-cache-key.sh
-      - &one-helper-cache
-        name: Cache the Ghostty CLI helper
+      - name: Cache the Ghostty CLI helper
         id: helper-cache
         if: steps.reuse.outputs.hit != 'true' && !env.LEFT_SLOT
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
