@@ -3,24 +3,22 @@ import Foundation
 
 /// Carries the daemon's `agent-session-share-changed` to each agent pane whose page read a chat's shares
 /// (`shareOp` `state`), so an open Share dialog re-reads its chat on an access request, a role change or a removal made
-/// elsewhere (ask-fe19418926). Only the chat id goes with it; the page reads the state itself.
-public enum AgentPaneShareChanges {
-    static var name: Notification.Name { Notification.Name("cmux.agentPane.shareChanged") }
+/// elsewhere (ask-fe19418926). The app holds one (``AgentPaneShared/shareChanges``); only the chat id goes to the
+/// page, which reads the state itself.
+@MainActor
+public final class AgentPaneShareChanges {
+    private let views = NSHashTable<AgentPaneView>.weakObjects()
 
-    /// The daemon reported `session`'s shares changed.
-    @MainActor public static func changed(_ session: String) {
+    public init() {}
+
+    /// `view`'s page read a chat's shares: it hears that chat's changes from now on.
+    func watch(_ view: AgentPaneView) { views.add(view) }
+
+    /// The daemon reported `session`'s shares changed: each watching pane that still shows it re-reads.
+    public func changed(_ session: String) {
         guard !session.isEmpty else { return }
-        NotificationCenter.default.post(name: name, object: session)
-    }
-
-    /// Follows changes for `view` until the view goes; the caller keeps the token and removes it.
-    @MainActor static func watch(_ view: AgentPaneView) -> NSObjectProtocol {
-        NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak view] note in
-            guard let session = note.object as? String else { return }
-            MainActor.assumeIsolated {
-                guard let view, view.model.header?.showsChat(session) == true else { return }
-                view.deliver([event(session)], scripts: [script(session)])
-            }
+        for view in views.allObjects where view.model.header?.showsChat(session) == true {
+            view.deliver([Self.event(session)], scripts: [Self.script(session)])
         }
     }
 
