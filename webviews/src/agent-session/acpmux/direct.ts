@@ -11428,6 +11428,10 @@ export class AcpmuxDirectClient {
         ...(existing?.modelCalls && { modelCalls: existing.modelCalls }),
       });
       this.streamingActivity = id;
+      // The empty placeholder says nothing has come yet; a thought is the turn's first output, as
+      // reply text is, so it gives way here too. Kept, it stays over the thought rows on a page
+      // whose turn view never folds it (a read from a notice turn's prompt, chat-sim-map).
+      this.rows.delete("typing");
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
       const tool = update._meta?.claude?.tool ?? update.title;

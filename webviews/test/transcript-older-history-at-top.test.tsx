@@ -67,6 +67,14 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
 // jsdom has no layout: each row draws at a height of its own, which a redraw can change.
 const drawnHeights = new Map<string, number>();
 const drawnHeight = (id: string) => drawnHeights.get(id) ?? 40 + (id.length % 7) * 9;
+// The scroller's end is the drawn history's height. jsdom reports 0, so without it every scroll
+// reads as a spring back past the end (#48114's `sprangBack` reads scrollHeight - clientHeight),
+// the view never stops following, and a landed page is never anchored.
+let drawnContent = 0;
+Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", {
+  configurable: true,
+  get: () => drawnContent,
+});
 dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
   const height = this.dataset.rowId ? drawnHeight(this.dataset.rowId) : 0;
   return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON() {} } as DOMRect;
@@ -103,8 +111,9 @@ test("a reader back at the top after a page lands gets the next page", async () 
     asked += 1;
     return new Promise<void>((resolve) => (land = resolve));
   };
-  const draw = async (connected = true) =>
-    act(async () =>
+  const draw = async (connected = true) => {
+    drawnContent = history.reduce((sum, { id }) => sum + drawnHeight(id), 0);
+    return act(async () =>
       root.render(
         <VirtualTranscript
           rows={turnView(history, new Set(), { working: false, now: at })}
@@ -116,6 +125,7 @@ test("a reader back at the top after a page lands gets the next page", async () 
         />,
       ),
     );
+  };
   const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
   // The reader's scroll: the offset moves, then one scroll event, as a frame delivers it.
   const scrollTo = async (top: number) =>
