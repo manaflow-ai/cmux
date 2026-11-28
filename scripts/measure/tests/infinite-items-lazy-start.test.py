@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""--lazy-start sets CMUX_TUI_LAZY_START for cmux-tui only when asked, never from the caller's environment."""
+"""--lazy-start sets CMUX_TUI_LAZY_START for cmux-tui explicitly in both arms, never from the caller's environment."""
 import importlib.util
 import os
 from pathlib import Path
@@ -39,16 +39,37 @@ class LazyStartArm(unittest.TestCase):
     def test_on_sets_the_switch(self):
         self.assertEqual(self.env_of({}, lazy_start="on").get("CMUX_TUI_LAZY_START"), "1")
 
-    def test_off_drops_the_callers_switch(self):
-        self.assertNotIn("CMUX_TUI_LAZY_START", self.env_of({"CMUX_TUI_LAZY_START": "1"}, lazy_start="off"))
+    def test_on_overrides_the_callers_off(self):
+        self.assertEqual(self.env_of({"CMUX_TUI_LAZY_START": "0"}, lazy_start="on").get("CMUX_TUI_LAZY_START"), "1")
 
-    def test_the_flag_defaults_off(self):
+    def test_off_turns_it_off_over_the_default_and_the_caller(self):
+        self.assertEqual(self.env_of({}, lazy_start="off").get("CMUX_TUI_LAZY_START"), "0")
+        self.assertEqual(self.env_of({"CMUX_TUI_LAZY_START": "1"}, lazy_start="off").get("CMUX_TUI_LAZY_START"), "0")
+
+    def test_the_flag_defaults_on_like_the_product(self):
         bench = load()
         with patch("sys.argv", ["infinite-items.py", "--acpmux", "a", "--tui", "t", "--help"]), \
                 patch("sys.stdout"), self.assertRaises(SystemExit):
             bench.main()
-        self.assertIn('choices=("off", "on"), default="off"', BENCH.read_text())
+        self.assertIn('choices=("off", "on"), default="on"', BENCH.read_text())
 
+
+
+class RowArm(unittest.TestCase):
+    """--row-arm names an arm's rows infinite_items.ARM.nN.*, beside the product arm's infinite_items.nN.*."""
+
+    def rows_with(self, arm):
+        bench = load()
+        bench.ARGS = types.SimpleNamespace(row_arm=arm)
+        with patch("builtins.print"):
+            bench.perf_row("infinite_items.n1000.memory_vs_empty", 12.82, "x", floor=0.1)
+        return [r["name"] for r in bench.ROWS]
+
+    def test_no_arm_keeps_the_product_name(self):
+        self.assertEqual(self.rows_with(""), ["infinite_items.n1000.memory_vs_empty"])
+
+    def test_the_all_live_arm_has_its_own_name(self):
+        self.assertEqual(self.rows_with("all_live"), ["infinite_items.all_live.n1000.memory_vs_empty"])
 
 if __name__ == "__main__":
     unittest.main()
