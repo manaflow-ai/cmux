@@ -1927,6 +1927,16 @@ pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
 }
 
+/// The phone app went to (`true`) or came back from (`false`) the
+/// background (`LinkMachine.isBackgrounded`). While it is there no
+/// WireGuard session re-probes a dead direct path every 750 ms while
+/// relayed; the path keeps its 30 s turn, so a backgrounded phone does not
+/// wake its radio for it. False until the app says.
+#[uniffi::export]
+pub fn set_app_backgrounded(backgrounded: bool) {
+    cmux_mobile_link::dial::wireguard::set_app_backgrounded(backgrounded);
+}
+
 /// Keep the IP literals every dialed host (TURN, STUN, signaling, API) last resolved to in the
 /// file at `path` (an Application Support file of this build's own), so a dial after a relaunch
 /// with DNS down still reaches them (`cmux_mobile_link::route_literals`). Without a call they

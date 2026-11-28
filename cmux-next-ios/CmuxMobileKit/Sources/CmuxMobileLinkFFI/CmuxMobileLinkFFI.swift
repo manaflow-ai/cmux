@@ -27956,6 +27956,19 @@ public func resetWarmState()async   {
         )
 }
 /**
+ * The phone app went to (`true`) or came back from (`false`) the
+ * background (`LinkMachine.isBackgrounded`). While it is there no
+ * WireGuard session re-probes a dead direct path every 750 ms while
+ * relayed; the path keeps its 30 s turn, so a backgrounded phone does not
+ * wake its radio for it. False until the app says.
+ */
+public func setAppBackgrounded(backgrounded: Bool)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_app_backgrounded(
+        FfiConverterBool.lower(backgrounded),$0
+    )
+}
+}
+/**
  * A dev build's cloud data space, `dev:<slug>` (Swift `CMUXBuildSpace`),
  * set once at launch by the app's composition root before any `connect`
  * or `prewarm`: every `GET /v1/ice` and signaling upgrade then carries
@@ -29691,6 +29704,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_warm_state() != 25219) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_app_backgrounded() != 56864) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_build_space() != 53497) {
