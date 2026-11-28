@@ -197,6 +197,12 @@ struct Pending {
     id: Value,
 }
 
+/// The `progress` key of request `g`'s token, as a server's `notifications/progress` names it
+/// (the token's JSON text).
+fn progress_key(g: u64) -> String {
+    Value::String(format!("acpmux-pool-p{g}")).to_string()
+}
+
 #[derive(Default)]
 struct State {
     /// Lines for the running server's stdin, in order.
@@ -381,6 +387,9 @@ fn from_server(sh: &Arc<Shared>, mut m: Value) {
                 return;
             }
             if let Some(p) = st.pending.remove(&g) {
+                // Its progress token goes with it: a token was kept per request until its chat
+                // left, so a long-lived chat's every tool call stayed in `progress`.
+                st.progress.remove(&progress_key(g));
                 m["id"] = p.id;
                 st.send_client(p.client, &m);
             }
@@ -474,7 +483,7 @@ fn on_client(st: &mut State, client: u64, mut m: Value) {
             let g = st.next;
             if let Some(token) = m.pointer("/params/_meta/progressToken").cloned() {
                 let given = format!("acpmux-pool-p{g}");
-                st.progress.insert(Value::String(given.clone()).to_string(), (client, token));
+                st.progress.insert(progress_key(g), (client, token));
                 m["params"]["_meta"]["progressToken"] = Value::String(given);
             }
             st.pending.insert(g, Pending { client, id });

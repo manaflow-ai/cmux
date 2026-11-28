@@ -175,3 +175,24 @@ fn shim_answers_an_initialize_written_before_it_connects() {
     });
     pool.scope.token().cancel();
 }
+
+/// A request's progress token was kept until its chat left: a long-lived chat's every tool call
+/// that asked for progress stayed in `progress`. Its answer takes it out now.
+#[test]
+fn an_answer_takes_its_progress_token_out() {
+    let sh = Arc::new(Shared {
+        key: "k".into(),
+        spec: Spec::default(),
+        st: Mutex::new(State::default()),
+    });
+    for n in 0..100u64 {
+        let request = json!({"jsonrpc": "2.0", "id": n, "method": "tools/call",
+            "params": {"name": "t", "_meta": {"progressToken": n}}});
+        on_client(&mut sh.lock(), 1, request);
+        let g = sh.lock().next;
+        assert_eq!(sh.lock().progress.len(), 1);
+        from_server(&sh, json!({"jsonrpc": "2.0", "id": g, "result": {}}));
+        assert!(sh.lock().pending.is_empty());
+        assert!(sh.lock().progress.is_empty(), "request {n} left its token");
+    }
+}
