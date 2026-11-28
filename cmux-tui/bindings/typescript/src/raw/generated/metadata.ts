@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "bd90a6b9bab1ac87fa839f672abb7150223a629fcc430d19a5fbb3e684ac462b" as const;
+export const SDK_IR_SHA256 = "4641b9ed6555477c806f1e7a9c91a52de807b6e3e139a416d54d83e5cd1a9420" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -5947,6 +5947,18 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "items": {
             "kind": "ref",
             "name": "Id"
+          },
+          "kind": "array"
+        }
+      },
+      "capabilities": {
+        "description": "The capabilities this connection declared in set-client-info that the daemon recognized, sorted (for example agent-cli-hybrid-v1). Absent from daemons older than this field.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
           },
           "kind": "array"
         }
