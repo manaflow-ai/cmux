@@ -7,7 +7,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Another app is using the sign-in port. Close it and try again."
+            "value" : "Another app holds the sign-in port. Close it and try again."
           }
         },
         "ar" : {
