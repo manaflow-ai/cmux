@@ -275,6 +275,29 @@ inputs = [
 ]
 run = "python3 tests/test_ci_reusable_workflow_permissions.py"
 
+# A nightly runs-on label or picker output with no declared fallback used to pass here and fail afterwards: the
+# build-fleet runner label policy test reads these workflows live, so mac-gateway, mac-nightly and xcode-27.0 on
+# nightly jobs and ios-internal-nightly.yml's undeclared archive picker output (2026-11-27) turned every build-fleet
+# pull request red until cmux 6b9c53cd declared them. CI only warned (ci-guards.yml --advisory). This fails the pull
+# request that adds such a name, a runs-on variable or single-host label, judging only what the change adds against
+# its base (HEAD^1 of the merge commit). Offline, a few seconds.
+[step.runs-on-fallbacks-declared]
+job = "linux"
+timeout = 180
+title = "New runs-on names declare a fallback"
+about = "a runs-on variable, single-host label, nightly label or nightly picker output this change adds is declared in .github/single-host-fallbacks.json"
+inputs = [
+  ".github/workflows/*",
+  ".github/single-host-fallbacks.json",
+  "scripts/cmux-next/check-single-host-fallbacks.py",
+  "tests/workflow_jobs.py",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+git cat-file -e "$base^{commit}"
+python3 scripts/cmux-next/check-single-host-fallbacks.py --new-since "$base"
+'''
+
 # The compile preflight's own rules (cmux-next-compile-preflight.yml: no tier gate, no job-level if:, the build
 # NIGHTLY runs; scripts/ci/compile_preflight.py's web-touched and error lines). It ran as a step of the preflight job
 # on every pull request head, 14-15 s of a 40 s run that changed no web source, ~1.8k runner-min/day; here it runs
@@ -3097,6 +3120,7 @@ inputs = [
   "cmux-tui/persisted-formats/*",
   "cmux-tui/persisted-formats/agent-host-record/*",
   "cmux-tui/persisted-formats/terminal-host-record/*",
+  "cmux-tui/crates/acpmux/src/server/pull_request_actions/*",
 ]
 run = '''
 python3 -I tests/test_ci_daemon_pr_member_steps.py
@@ -4130,7 +4154,7 @@ alone = true
 # Mac, 20 on a cold one).
 timeout = 2700
 title = "CmuxMobileKit tests (macOS swift test)"
-about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), then runs the kit's swift test on macOS"
+about = "takes CmuxMobileLinkFFI.xcframework from the build fleet (whose build checks the checked-in bindings match), then runs the kit's swift test on macOS"
 # The kit and every local package it links (scripts/ci/ios_app_package_paths.py --check keeps the list exact), and
 # its toolchain. A change to only notes or cmux-next-ios/verify/ evidence builds nothing new (cmux#43251 took a
 # simulator Mac for SECURITY.md and verify/parity-mac.md). A note under a package's Resources/ ships in the bundle,
@@ -4207,11 +4231,14 @@ inputs = [
   "cmux-tui/crates/cmux-scope/**",
   "cmux-tui/crates/cmux-share-approval/**",
   "cmux-tui/crates/cmux-tab-snapshots/**",
+  "cmux-tui/crates/cmux-tailnet/**",
+  "cmux-tui/crates/cmux-tailnet-join/**",
   "cmux-tui/crates/cmux-terminal-prediction/**",
   "cmux-tui/crates/cmux-terminal-projection/**",
   "cmux-tui/crates/cmux-terminal-sizing/**",
   "cmux-tui/crates/cmux-transport/**",
   "cmux-tui/crates/cmux-unix-socket/**",
+  "cmux-tui/crates/cmux-vault-e2e/**",
   "cmux-tui/crates/cmux-vnc/**",
   "cmux-tui/crates/cmux-wg/**",
   "cmux-tui/crates/cmux-window-rules/**",
@@ -4239,7 +4266,7 @@ ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/verify/agent-cli
 needs = ["rust"]
 run = '''
 (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
-# The build fleet's copy of the head when it has one for these inputs, else this Mac builds it (a logged Mac fallback).
+# The build fleet builds it (a fleet red is this step's red); only a run that cannot ask the fleet builds on this Mac.
 bash scripts/ci/ios_link_ffi.sh 8
 # The xcframework and target/ are gitignored; a Mac build rewrites the bindings and restores Cargo.lock, so any
 # tracked change is drift (the fleet's build passes only when its bindings match the checked-in ones).
@@ -4268,7 +4295,7 @@ alone = true
 # 60 min, plus up to 20 for the fleet pool's verdict before a Mac fallback (vars.CMUX_IOS_SIM_LINUX=on).
 timeout = 4800
 title = "CmuxMobileKit tests (iOS simulator)"
-about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), then runs the kit's tests on an iOS 26 iPhone simulator; the macOS swift test is ios-kit-macos, in the `ios macos` job beside it"
+about = "takes CmuxMobileLinkFFI.xcframework from the build fleet (whose build checks the checked-in bindings match), then runs the kit's tests on an iOS 26 iPhone simulator; the macOS swift test is ios-kit-macos, in the `ios macos` job beside it"
 # The kit and every local package it links (scripts/ci/ios_app_package_paths.py --check keeps the list exact), and
 # its toolchain. A change to only notes or cmux-next-ios/verify/ evidence builds nothing new (cmux#43251 took a
 # simulator Mac for SECURITY.md and verify/parity-mac.md). A note under a package's Resources/ ships in the bundle,
@@ -4383,7 +4410,7 @@ ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/verify/agent-cli
 needs = ["rust"]
 run = '''
 (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
-# The build fleet's copy of the head when it has one for these inputs, else this Mac builds it (a logged Mac fallback).
+# The build fleet builds it (a fleet red is this step's red); only a run that cannot ask the fleet builds on this Mac.
 bash scripts/ci/ios_link_ffi.sh 8
 # The xcframework and target/ are gitignored; a Mac build rewrites the bindings and restores Cargo.lock, so any
 # tracked change is drift (the fleet's build passes only when its bindings match the checked-in ones).
@@ -4480,7 +4507,7 @@ exit $(( status || sim ))
 
 [step.ios-phone-cells]
 job = "ios"
-# After the kit, on the same simulator; it builds the xcframework itself when the kit did not run.
+# After the kit, on the same simulator; it has the fleet build the xcframework when the kit did not run.
 alone = true
 timeout = 2700
 title = "iOS matrix: phone cells (iOS simulator)"
@@ -4653,6 +4680,7 @@ python3 -I scripts/cmux-next/fast-tier.py --root "${CMUX_MAC_ROOT:-$PWD}" --kind
 
 [step.phone-speed-icount]
 job = "linux"
+tier = "push"
 pr_scope = false
 timeout = 300
 title = "Phone terminal instruction budgets"
