@@ -8,6 +8,26 @@ extension JSONCObjectEditor {
         case nonObjectPathSegment(String)
     }
 
+    /// Sets a top-level property to an already-encoded JSON value. Comments and
+    /// formatting outside the property value are preserved.
+    static func setRootProperty(key: String, valueJSON: String, in source: String) -> String? {
+        guard let root = rootObject(in: source) else { return nil }
+        let newline = setPreferredNewline(in: source)
+
+        if let property = root.property(named: key) {
+            let indent = setIndentationBeforeLine(containing: property.keyStart, in: source)
+            let formatted = setWithPreferredNewline(
+                setValueJSONForProperty(valueJSON, propertyIndent: indent),
+                newline: newline
+            )
+            return replacing(source, from: property.valueStart, to: property.valueEnd, with: formatted)
+        }
+
+        let indent = setPropertyIndent(for: root, in: source)
+        let property = setPropertyText(key: key, valueJSON: valueJSON, indent: indent)
+        return setInserting(property, into: root, in: source)
+    }
+
     /// Sets a nested string property in a JSONC object source, preserving all
     /// comments and formatting outside the inserted or replaced entry.
     static func setNestedStringProperty(
