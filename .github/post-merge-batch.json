@@ -159,7 +159,7 @@
       ],
       "jobs": {
         "cargo": "fast tier (cargo and script entries)",
-        "swift": "fast tier (Swift entries, build fleet)"
+        "swift-fleet": "fast tier (Swift entries, build fleet)"
       }
     },
     "tooling-tests": {
@@ -258,6 +258,7 @@
         "scripts/ci/ios_link_ffi.sh",
         "scripts/ci/ios_sim_udid.py",
         "scripts/ci/ios-sim-pool.sh",
+        "scripts/ci/ios-sim-linux-test.sh",
         ".github/actions/setup-cmux-tui-rust/**",
         ".github/actions/runner-cargo-home/**",
         "cmux-tui/rust-toolchain.toml",
@@ -297,9 +298,11 @@
         "cmux-tui/crates/cmux-egress/**",
         "cmux-tui/crates/cmux-felt/**",
         "cmux-tui/crates/cmux-follow-cam/**",
+        "cmux-tui/crates/cmux-local-url/**",
         "cmux-tui/crates/cmux-mobile-core/**",
         "cmux-tui/crates/cmux-mobile-last-place/**",
         "cmux-tui/crates/cmux-process/**",
+        "cmux-tui/crates/cmux-proxy/**",
         "cmux-tui/crates/cmux-rd-core/**",
         "cmux-tui/crates/cmux-rd-ffi/**",
         "cmux-tui/crates/cmux-rd-link/**",
@@ -317,7 +320,10 @@
         "cmux-tui/crates/cmux-vnc/**",
         "cmux-tui/crates/cmux-window-rules/**",
         "cmux-tui/vendor/crossterm/**",
-        "cmux-tui/vendor/terminput-crossterm/**"
+        "cmux-tui/vendor/terminput-crossterm/**",
+        "cmux-tui/crates/cmux-local-url/**",
+        "cmux-tui/crates/cmux-proxy/**",
+        "scripts/ci/ios-sim-linux-test.sh"
       ],
       "jobs": {"ios": "ios"}
     },
@@ -671,6 +677,18 @@
         "acpmux-protocol-ir": "acpmux protocol IR is current",
         "remote-web-wasm": "cmux remote web wasm"
       }
+    },
+    "ghosttykit-release-check": {
+      "workflow": "ghosttykit-release-check.yml",
+      "paths": [
+        "ghostty",
+        "scripts/download-prebuilt-ghosttykit.sh",
+        "scripts/validate-xcframework-archive.py",
+        "scripts/ghosttykit-checksums.txt",
+        "tests/test_ci_ghosttykit_release_check.sh",
+        ".github/workflows/ghosttykit-release-check.yml"
+      ],
+      "jobs": {"verify": "GhosttyKit release check"}
     }
   }
 }

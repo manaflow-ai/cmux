@@ -73,6 +73,8 @@ export interface UpstreamConfig {
   readonly timeoutMs?: number;
   /** How often a background request's stored result is polled (live-background.ts); tests set 1. */
   readonly backgroundPollMs?: number;
+  /** How long background polls may fail before the request is unanswered (tests set it lower). */
+  readonly backgroundOutageMs?: number;
   /** How often a disk grow re-reads a VM that is still starting (GROW_START_POLLS times); tests set 1. */
   readonly startPollMs?: number;
   /** The environment's provider create queue (limits/create-admission.ts); none sends every create at once. */
@@ -308,7 +310,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
         }).pipe(
           Effect.flatMap((response) =>
             response.status === 202
-              ? awaitBackground(send, "execVm", response, base.origin, deadlineAt, config.backgroundPollMs ?? DEFAULT_BACKGROUND_POLL_MS)
+              ? awaitBackground(send, "execVm", response, base.origin, deadlineAt, config.backgroundPollMs ?? DEFAULT_BACKGROUND_POLL_MS, config.backgroundOutageMs)
               : Effect.succeed(response),
           ),
           Effect.flatMap((response) =>

@@ -148,9 +148,16 @@ final class KeyWindow: NSWindow {
     override var canBecomeMain: Bool { true }
 }
 
+log("marker: starting pid \(getpid())")
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
-let screen = NSScreen.main!
+// No `NSScreen.main!`: in an -O build a nil force-unwrap traps without a word, which the rig read
+// as an empty marker.log. A session with no display (display asleep, no monitor, no window-server
+// login) says so and exits 3.
+guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+    log("marker: no display (NSScreen.screens is empty: display asleep, no monitor, or no window-server session)")
+    exit(3)
+}
 let frame = screen.frame
 
 var motion: MotionView?

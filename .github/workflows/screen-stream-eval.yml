@@ -38,7 +38,7 @@ on:
         description: "window and OCR repeats (each number is their median)"
         default: "3"
       worker:
-        description: "fleet worker (empty: vars.SCREEN_STREAM_EVAL_WORKER, else any idle console measure worker)"
+        description: "fleet worker (empty: vars.SCREEN_STREAM_EVAL_WORKER, else a granted console measure worker, cmux20-bench first)"
         default: ""
       budget:
         description: "budget overrides for this run, STAGE=MS separated by spaces (proving the gate; the daily run passes none)"
@@ -142,9 +142,45 @@ jobs:
           log="$RUNNER_TEMP/eval.log"
           status=0
           # A console session worker (gui-session-v1): the hosts capture the screen and post input.
+          # Unpinned, the controller took any such Mac, and most hold no Screen Recording or Accessibility:
+          # run 46043765418 (2026-11-27) landed on one without them and measured nothing. So an empty
+          # worker resolves to one labelled screen-eval-granted, cmux20-bench first. The controller grants
+          # that label only when CmuxScreenEvalLauncher.app itself holds Screen Recording and Accessibility
+          # on an unlocked console (worker screen_share.eval_launcher); the top-level screen_share grants are
+          # the Computer Use helper's, and Macs read as granted from them failed the eval's preflight (exit 3).
+          # The iPhone viewer target boots an iOS simulator, so it also needs the simulator label.
+          if [ -z "$WORKER" ]; then
+            WORKER=$("$client" workers --online --label gui-session-v1 2>/dev/null | python3 -I -c '
+          import json, sys
+          try:
+              rows, _ = json.JSONDecoder().raw_decode(sys.stdin.read())
+          except ValueError:
+              sys.exit(0)
+          iphone = ",iphone-sim," in "," + sys.argv[1] + ","
+          def ok(w):
+              labels = w.get("labels", [])
+              return ("measure" in labels and "screen-eval-granted" in labels
+                      and (not iphone or "simulator" in labels))
+          names = sorted((n for n, w in rows.items() if ok(w)),
+                         key=lambda n: (n != "cmux20-bench", bool(rows[n].get("claim_paused")), n))
+          print(names[0] if names else "")
+          ' "$TARGETS" || true)
+            [ -n "$WORKER" ] || WORKER=cmux20-bench
+            echo "screen-stream-eval: no worker named; resolved the granted worker $WORKER"
+          fi
           target=()
+          # A worker that runs only its own label's jobs (cmux20-bench: bench) takes this step only with it.
+          labels=$("$client" workers --name "$WORKER" 2>/dev/null | python3 -I -c '
+          import json, sys
+          try:
+              rows, _ = json.JSONDecoder().raw_decode(sys.stdin.read())
+          except ValueError:
+              sys.exit(0)
+          print(" ".join(rows.get(sys.argv[1], {}).get("labels", [])))
+          ' "$WORKER" || true)
+          [[ " $labels " == *" bench "* ]] && target+=(--label bench)
           # A strict pin never moves to another worker (that one would lack the console grants).
-          [ -n "$WORKER" ] && target=(--target-worker "$WORKER")
+          [ -n "$WORKER" ] && target+=(--target-worker "$WORKER")
           [ -n "$WORKER" ] && "$client" run --help 2>/dev/null | grep -q -- --pin-strict && target+=(--pin-strict)
           # A queue wait past its bound ends the client with 75 and leaves the step queued; the step is
           # then cancelled below, so a paused or drained worker never holds this runner without end.
