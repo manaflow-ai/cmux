@@ -785,6 +785,11 @@ enum AgentResumeCommandBuilder {
         ) {
         case .resolved(let argv):
             return argv
+        case .rejected:
+            // A routed Codex record whose executable does not match its argv:
+            // never fall back to a direct resume that could keep Subrouter
+            // provider settings.
+            return nil
         case .passthrough:
             break
         }
