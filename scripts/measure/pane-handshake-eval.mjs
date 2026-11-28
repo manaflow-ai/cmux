@@ -158,7 +158,7 @@ async function oneRun(browser, base, rate, withProfile) {
     () => {
       const mark = performance.getEntriesByName("acpmux:handshakeStart")[0];
       if (!mark) return false;
-      const script = performance.getEntriesByType("resource").find((entry) => entry.name.endsWith("/pane.js"));
+      const script = performance.getEntriesByType("resource").find((entry) => /\/pane\.js(\?|$)/.test(entry.name));
       return { handshake: mark.startTime, paneLoaded: script ? script.responseEnd : -1 };
     },
     undefined,
