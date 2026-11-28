@@ -15,7 +15,7 @@
         "--arg",
         "name=Preview",
         "--arg",
-        "command=printf '\\033]0;Preview\\007'; clear; python3 -I -c \"import struct, zlib; w = h = 160; row = b'\\x00' + b'\\x3c\\x8c\\xe6' * w; c = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d)); open('/tmp/share-demo.png', 'wb').write(b'\\x89PNG\\r\\n\\x1a\\n' + c(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + c(b'IDAT', zlib.compress(row * h)) + c(b'IEND', b''))\"; printf 'import AppKit\\nlet u = URL(fileURLWithPath: \\\"/tmp/share-demo.png\\\")\\nif let s = NSSharingService.sharingServices(forItems: [u]).first(where: { $0.title.hasSuffix(\\\" Chat\\\") }) { s.perform(withItems: [u]) }\\nRunLoop.main.run(until: Date().addingTimeInterval(5))\\n' > /tmp/share-demo.swift; printf '\\n  Share > Chat\\n'; sleep 3; xcrun swift /tmp/share-demo.swift; sleep 900",
+        "command=printf '\\033]0;Preview\\007'; clear; python3 -I -c \"import struct, zlib; w = h = 160; row = b'\\x00' + b'\\x3c\\x8c\\xe6' * w; c = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d)); open('/tmp/share-demo.png', 'wb').write(b'\\x89PNG\\r\\n\\x1a\\n' + c(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + c(b'IDAT', zlib.compress(row * h)) + c(b'IEND', b''))\"; printf 'import AppKit\\nlet u = URL(fileURLWithPath: \\\"/tmp/share-demo.png\\\")\\nif let s = NSSharingService.sharingServices(forItems: [u]).first(where: { $0.title.hasSuffix(\\\" Chat\\\") }) { s.perform(withItems: [u]) }\\nRunLoop.main.run(until: Date().addingTimeInterval(5))\\n' > /tmp/share-demo.swift; printf '\\n  Share > Chat\\n'; sleep 2; xcrun swift /tmp/share-demo.swift; sleep 900",
         "--arg",
         "focus=true"
       ],
@@ -23,7 +23,7 @@
     },
     {
       "title": "Share > Chat",
-      "wait": 6,
+      "wait": 5,
       "clip": true
     },
     {
