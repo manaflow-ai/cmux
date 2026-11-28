@@ -17,8 +17,9 @@ use std::path::Path;
 
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
-const TEMPLATE: &str =
-    include_str!("../../../../acpmux/skills/cmux-rich-output/templates/deck.html");
+// A `use`, not `static TEMPLATE: &str = ...`: a static initialized from another crate's static
+// gets its own copy of the 47 KB page.
+use acpmux::agent_tools::RICH_OUTPUT_DECK_HTML as TEMPLATE;
 const MAIN_OPEN: &str = "<main class=\"deck\">";
 const MAIN_CLOSE: &str = "</main>";
 const TITLE_TAG: &str = "<title>Deck title</title>";
