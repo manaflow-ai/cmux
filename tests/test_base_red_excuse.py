@@ -2989,6 +2989,19 @@ class StatusOnlyChecks(unittest.TestCase):
         self.assertNotIn("which tested", why)
         self.assertFalse([r for r in self.gh.routes if r.endswith("/actions/runs/10")])  # the status decides
 
+    def test_a_fast_gates_status_green_again_after_a_dispatch_is_no_red(self):
+        """2026-11-27, cmux#62419: the land judge's reds came from a read before a coordinator dispatched the gates
+        again; the newest status is success, linking a workflow_dispatch run whose head_sha is the base tip. It was
+        refused as "its status links run ..., which tested <tip>, not <head>"; a green status at the head is no red."""
+        self.status = {"context": excuse.FAST_GATES_STATUS, "state": "success",
+                       "target_url": f"https://github.com/{REPO}/actions/runs/10", "description": f"base {BASE_SHA}"}
+        self.head_run = {"id": 10, "workflow_id": 7, "head_sha": BASE_SHA, "event": "workflow_dispatch",
+                         "display_title": "cmux-next fast gates"}
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[excuse.FAST_GATES_STATUS])
+        self.assertTrue(any(line.startswith(f"excused '{excuse.FAST_GATES_STATUS}': its newest status on {HEAD} "
+                                            "is success") for line in lines), lines)
+        self.assertFalse([r for r in self.gh.routes if r.endswith("/actions/runs/10")])  # the status decides
+
     def test_a_status_whose_run_has_no_such_job_is_refused_with_its_description(self):
         # same-tree-cmux-tui posts a failure when the tree is unavailable: no daemon tests ran.
         self.gh.jobs.pop(1)
@@ -18677,10 +18690,14 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
             "cmux-next-tab-switch.yml",
+            # iPhone DEV built ahead (#51721): an advisory fleet build per PR head; never a required check.
+            "cmux-next-ios-try-ahead.yml",
             # Split latency measurements (#61185) and acpmux's transfer_cli product tests (#58314).
             "cmux-next-split-table.yml", "session-move-tests.yml",
             # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.
             "measure-swift-typecheck.yml",
+            # Builds each iPhone-touching head's cmux Dev device app ahead on the fleet (#51721); advisory.
+            "cmux-next-ios-try-ahead.yml",
             # Push-only checks that also run, advisory and path-gated, on PRs into feat-cmux-next (#47445): the
             # acpmux simulator sweep, Chief's evals, the mobile FFI, the cmux-next terminal and the Windows RD host.
             "acpmux-sim-sweep.yml", "chief-evals.yml", "cmux-mobile-ffi.yml", "cmux-next-terminal.yml",

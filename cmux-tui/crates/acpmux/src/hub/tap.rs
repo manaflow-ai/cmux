@@ -172,6 +172,7 @@ impl Hub {
                 tap_hub.note_tool_update(&tap_session, &p["update"]);
                 if !tap_session.loading.load(Ordering::SeqCst) {
                     tap_hub.note_verify(&tap_session, &p["update"]);
+                    tap_hub.note_speculative(&tap_session, &p["update"]);
                     tap_hub.note_sidecars(&tap_session, &p["update"]);
                 }
                 // Counted before it is logged, so no check waits for the inbound loop to apply
