@@ -430,9 +430,11 @@ const settleAgentCreate = <C>(caller: Named<C, Principal>, slot: { readonly agen
     const tenantId = caller.value.tenantId;
     if (Exit.isSuccess(exit)) return yield* limits.settleAgentSlot(tenantId, slot.agent, slot.slotId, { recorded: exit.value.id });
     const progress = (yield* limits.inspect(tenantId, key))?.progress;
-    // A send the provider definitely rejected (400/429) made nothing: its slot goes back like any other failure.
+    // A send the provider definitely rejected (400/429) made nothing, and neither did one never sent (dispatch still
+    // `ready`: the provider create queue refused it, createQueueFull, before the send began): its slot goes back like
+    // any other failure. Holding it kept the CI smoke key at its 2-VM cap for 25 h (2026-11-27).
     const outcome = progress?.phase === "done" ? { recorded: progress.vmId }
-      : progress?.phase === "creating" && progress.dispatch?.state !== "rejected" ? { held: key, vmId: progress.vmId }
+      : progress?.phase === "creating" && progress.dispatch?.state !== "rejected" && progress.dispatch?.state !== "ready" ? { held: key, vmId: progress.vmId }
       : "released" as const;
     return yield* limits.settleAgentSlot(tenantId, slot.agent, slot.slotId, outcome);
   }).pipe(Effect.ignore);
@@ -592,9 +594,10 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
             // A fresh allocation by an agent key must fit its live-VM and $/h budget; a resumed one already counted.
             // Its slot is settled by how the create ends (settleAgentCreate), so concurrent creates count it.
             let agentSlot: { readonly agent: string; readonly slotId: string } | undefined;
-            // A retry of a send the provider rejected allocates afresh, so an agent key is admitted again, atomically.
-            const rejectedRetry = prior?.phase === "creating" && prior.dispatch?.state === "rejected";
-            if (resumeSlot(key, prior) === undefined || (rejectedRetry && caller.value.agent !== undefined)) {
+            // A retry of a send the provider rejected, or of one never sent (`ready`: its slot went back at
+            // settleAgentCreate), allocates afresh, so an agent key is admitted again, atomically.
+            const unsentRetry = prior?.phase === "creating" && (prior.dispatch?.state === "rejected" || prior.dispatch?.state === "ready");
+            if (resumeSlot(key, prior) === undefined || (unsentRetry && caller.value.agent !== undefined)) {
               yield* reclaimGoneCiVms(caller, scope);
               agentSlot = yield* agentBudgetAllows(caller, scope, payload.resources);
             }

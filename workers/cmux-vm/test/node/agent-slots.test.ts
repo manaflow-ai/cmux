@@ -49,3 +49,23 @@ it("holds the slot of a create that may exist upstream unrecorded until a retry 
   await settleAgentSlot(storage, agent, "s4", { held: "ck_2", vmId: "vm_y" }, 0);
   expect(await admitAgentSlot(storage, agent, 1, [], HELD_TTL_MS + 1, "s5")).toBe(true);
 });
+
+it("drops a held slot whose creation ended cancelled, and keeps one whose creation may still exist", async () => {
+  // Production smoke, 2026-11-27: two createQueueFull creates, cancelled before any send, held the CI key's 2 slots
+  // for HELD_TTL_MS and every later create answered agent_vms 429 with no VM listed.
+  const storage = memoryLedgerStorage();
+  const cancelled = new Set(["ck_gone"]);
+  const ended = async (_tx: unknown, key: string) => cancelled.has(key);
+  expect(await admitAgentSlot(storage, agent, 2, [], 0, "s1", ended)).toBe(true);
+  await settleAgentSlot(storage, agent, "s1", { held: "ck_gone", vmId: "vm_a" }, 1);
+  expect(await admitAgentSlot(storage, agent, 2, [], 2, "s2", ended)).toBe(true);
+  await settleAgentSlot(storage, agent, "s2", { held: "ck_live", vmId: "vm_b" }, 3);
+  // vm_a's creation is cancelled, so only vm_b counts: one more fits a budget of 2, a second does not.
+  expect(await admitAgentSlot(storage, agent, 2, [], 4, "s3", ended)).toBe(true);
+  expect(await admitAgentSlot(storage, agent, 2, [], 5, "s4", ended)).toBe(false);
+  // Without the ledger's answer (no reader), a held slot counts as before.
+  const plain = memoryLedgerStorage();
+  expect(await admitAgentSlot(plain, agent, 1, [], 0, "s1")).toBe(true);
+  await settleAgentSlot(plain, agent, "s1", { held: "ck_gone", vmId: "vm_a" }, 1);
+  expect(await admitAgentSlot(plain, agent, 1, [], 2, "s2")).toBe(false);
+});

@@ -124,6 +124,8 @@ const isGeneratedRecord = Schema.is(GeneratedRecord);
 const readRecord = (value: unknown): IdempotencyRecord | undefined => isGeneratedRecord(value)
   ? { ...value, progress: value.progress.value }
   : checked(isRecord, value);
+/** A creation in its terminal `cancelled` phase: it can no longer send, and what it sent is deleted (agent-slots.ts). */
+const creationEnded = async (tx: LedgerStorage, creationKey: string) => readRecord(await tx.get(`idem:${creationKey}`))?.progress.phase === "cancelled";
 /** Decodes a stored idempotency record (plain or generated); exported for the scan oracle in test/support. */
 export const readIdempotencyRecord = readRecord;
 const putRecord = (storage: LedgerStorage, key: string, record: IdempotencyRecord) => storage.put(key,
@@ -206,7 +208,7 @@ export class TenantLedger {
   constructor(private readonly storage: LedgerStorage) {}
 
   meshCreation(command: MeshCreationCommand, nowMs: number): Promise<MeshCreationResult> { return meshCreation(this.storage, command, nowMs); }
-  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean> { return admitAgentSlot(this.storage, agent, limit, ownedVmIds, nowMs, slotId); }
+  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean> { return admitAgentSlot(this.storage, agent, limit, ownedVmIds, nowMs, slotId, creationEnded); }
   settleAgentSlot(agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void> { return settleAgentSlot(this.storage, agent, slotId, outcome, nowMs); }
   bindAgentCreation(agent: string, creationKey: string, vmId: string, nowMs: number): Promise<void> { return bindAgentCreation(this.storage, agent, creationKey, vmId, nowMs); }
   forgetAgentVm(vmId: string, creationKey: string | null): Promise<void> { return forgetAgentVm(this.storage, vmId, creationKey); }
