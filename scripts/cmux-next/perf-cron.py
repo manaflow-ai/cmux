@@ -379,6 +379,7 @@ PARTS = [
     # One-off A/B arms for goal infinite-items-flat (lane/iif-freed-arm only, not for landing).
     {"name": "infinite-items-n1000", "where": "linux", "kind": "webui", "needs": "infinite-items"},
     {"name": "infinite-items-freed30", "where": "linux", "kind": "webui", "needs": "infinite-items"},
+    {"name": "infinite-items-holder", "where": "linux", "kind": "webui", "needs": "infinite-items"},
     # A 1,000,000-event chat (webviews/bench/million-event-chat.bench.ts, CMUX-571, cmux#37713): the pane client's open,
     # one older page and its heap, for long turns and for 4-record turns. Its own part (about 2 minutes).
     {"name": "web-ui-million", "where": "linux", "kind": "webui", "needs": "web-ui-million"},
@@ -1407,9 +1408,10 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "chat-search":
         script = os.path.join(root, CHAT_SEARCH)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
-    if part in ("infinite-items-n1000", "infinite-items-freed30"):
+    if part in ("infinite-items-n1000", "infinite-items-freed30", "infinite-items-holder"):
         script = os.path.join(root, INFINITE_ITEMS)
-        extra = ["--free-idle-seconds=30"] if part.endswith("freed30") else []
+        extra = {"infinite-items-freed30": ["--free-idle-seconds=30"],
+                 "infinite-items-holder": ["--terminal-host-model=holder"]}.get(part, [])
         return {"build": (["bash", script, "build-only"], root or ".", {}),
                 "suite": (["bash", script, "counts=1000", "pages=0", "days=1", "--window=5", *extra], root or ".", {})}
     if part == "infinite-items":
