@@ -34,4 +34,21 @@ nonisolated struct OmnibarNarrowFit: Equatable, Sendable {
         }
         return OmnibarNarrowFit(showsChipLabel: false, showsBadges: false)
     }
+
+    /// The widths a fit is resolved from, as the omnibar last measured them: the chip's label and each shown badge's
+    /// `fittingSize`, an Auto Layout pass each (about 0.7 ms of every window resize step per browser pane when measured
+    /// at each new width; 2026-11-27 sample of a corner drag). They change with what the chip and badges show and with
+    /// the density, never with the bar's width, so a new width resolves from them and measures again only when its fit
+    /// differs.
+    nonisolated struct Widths: Equatable, Sendable {
+        var chipLeading, chipIcon, chipLabeled, textLeading, badges, badgesInset, fieldTrailingGap, trailingPadding: CGFloat
+
+        /// The fit at `barWidth`; before the bar has a width (its first layout) nothing folds.
+        func fit(at barWidth: CGFloat) -> OmnibarNarrowFit {
+            guard barWidth > 0 else { return OmnibarNarrowFit(showsChipLabel: true, showsBadges: true) }
+            return OmnibarNarrowFit.resolve(barWidth: barWidth, chipLeading: chipLeading, chipIcon: chipIcon, chipLabeled: chipLabeled,
+                                            textLeading: textLeading, badges: badges, badgesInset: badgesInset,
+                                            fieldTrailingGap: fieldTrailingGap, trailingPadding: trailingPadding)
+        }
+    }
 }
