@@ -188,8 +188,7 @@ class Plan(unittest.TestCase):
         self.assertEqual(len(steps), 3)
         keys = []
         for step in steps:
-            result = ios_verify.subprocess.CompletedProcess([], 0, stdout="step abc12345", stderr="")
-            with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+            with mock.patch.object(ios_verify, "stream", return_value=(0, "step abc12345")) as run:
                 receipt = ios_verify.run_step(step, HEAD, 7, False)
             cmd = run.call_args.args[0]
             self.assertNotIn("--target-worker", cmd)
@@ -205,8 +204,7 @@ class Plan(unittest.TestCase):
         step = {"name": "sim 1/1", "mode": "test", "args": ["test"], "worker": "cmux23"}
         for strict in (False, True):
             with self.subTest(strict=strict):
-                result = ios_verify.subprocess.CompletedProcess([], 0, stdout="", stderr="")
-                with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+                with mock.patch.object(ios_verify, "stream", return_value=(0, "")) as run:
                     ios_verify.run_step(step, HEAD, 7, strict)
                 cmd = run.call_args.args[0]
                 self.assertEqual(cmd[cmd.index("--target-worker") + 1], "cmux23")
