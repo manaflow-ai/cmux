@@ -48,6 +48,9 @@ os.environ["PR_STATUS_SETTLE_SECONDS"] = "0"  # no wait before the status commen
 FEAT_CMUX_NEXT_SKIPS = (
     "github.event.pull_request.base.ref != 'feat-cmux-next'",
     "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')",
+    # feat-cmux-next's #65396 skips pull requests into feat-cmux-next and lane/ branches in one clause.
+    "!(startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || "
+    "startsWith(github.event.pull_request.base.ref, 'lane/'))",
 )
 
 
