@@ -423,6 +423,11 @@ impl Moving<'_> {
             if let Some(stage_id) = &begun.stage_id {
                 sent.set("stageId", json!(stage_id));
             }
+            // No files and no uncommitted changes go over the hub: only a clean checkout is the
+            // chat's own folder there, which its namespace manifest rebinds to.
+            if plan::same_folder(&folder, args.cwd.is_some(), false, false) {
+                sent.set("sameFolder", json!(true));
+            }
             if let (Folder::Worktree { branch, dirty, .. }, Some(c)) = (&folder, &checkout) {
                 let commit = tokio::task::spawn_blocking({
                     let (top, branch, lane) =
