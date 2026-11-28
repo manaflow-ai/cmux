@@ -2158,6 +2158,26 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
         unread += rendered
     else:
         named = rendered
+    # A job of a local called workflow ('rust-workspaces / plan (changed Cargo workspaces)', cmux-next-post-merge.yml's
+    # `uses: ./.github/workflows/rust-workspaces.yml`) is that workflow's job named by the rest: read there at the same
+    # sha. Unread, every base verdict of a job the post-merge batch calls was STEP_NAMES_UNKNOWN and its log unplaced,
+    # so cmux#63770's 'plan (changed Cargo workspaces)', red on the very same `##[error]` line as feat-cmux-next run
+    # 46106894410, was refused (cmux#64116; hq#35638 too). Only when that caller is the one job JOB can be, with no
+    # matrix (_check_matcher refuses one) and no other job whose steps could fit.
+    if (len(named) == 1 and isinstance(called := named[0].get("uses"), str) and not unread
+            and (local := re.fullmatch(r"\./(\.github/workflows/[\w.-]+\.ya?ml)", called))
+            and local[1] != path and seen.get(("called-depth", sha), 0) < 4):
+        caller = next((job_id for job_id, spec in jobs.items() if spec is named[0]), None)
+        prefixes = _check_matcher(str(caller), named[0], path)["prefixes"] if caller is not None else []
+        inner = next((str(job.get("name", ""))[len(start):] for start in prefixes
+                      if str(job.get("name", "")).startswith(start)), "")
+        if len(prefixes) != 1 or not inner:
+            return STEP_NAMES_UNKNOWN
+        seen[("called-depth", sha)] = seen.get(("called-depth", sha), 0) + 1
+        try:
+            return workflow_step_names(repo, dict(job, name=inner), local[1], github, seen)
+        finally:
+            seen[("called-depth", sha)] -= 1
     # A matrix leg is read like any job: its steps are the workflow's, in order, whatever the matrix values, and a
     # step name or script line that holds an expression is matched only up to it (_step_marks, _step_headers).
     # cmux#43014's 'Reviewer path (appstore, ipad)' (ios-review-gate.yml, matrix family) was refused because its
