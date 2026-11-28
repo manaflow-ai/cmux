@@ -266,81 +266,87 @@ const agent = (index: number, fields: Partial<Subagent> = {}): Subagent => ({
   ...fields,
 });
 
-test("every line of the tray, and its header, does something", async () => {
-  const container = mount();
-  const calls: string[] = [];
-  const items: TrayItem[] = [
-    { kind: "agent", id: "tray-0", agent: agent(0), depth: 0 },
-    { kind: "agent", id: "tray-1", agent: agent(1, { parent: "tray-0" }), depth: 1 },
-    {
-      kind: "command",
-      id: "cmd",
-      command: { id: "cmd", command: "bun run dev", state: "running", startedAt: started - 30_000, processId: "p/1" },
-    },
-    {
-      kind: "session",
-      id: "lane-a",
-      session: { sessionId: "lane-a", title: "summary-panel", state: "running", createdAt: started - 300_000 },
-    },
-    {
-      kind: "session",
-      id: "lane-b",
-      session: { sessionId: "lane-b", title: "priority-view", state: "running", createdAt: started - 200_000 },
-    },
-  ];
-  const props = spied(
-    {
-      items,
-      working: true,
-      waiting: new Set<string>(),
-      onOpen: () => undefined,
-      onOpenCommand: () => undefined,
-      onOpenSession: () => undefined,
-      stop: async () => undefined,
-      stopProcess: async () => undefined,
-    },
-    calls,
-  );
-  const root = createRoot(container);
-  await act(async () => root.render(createElement(SubagentTray, props)));
-  await settle();
-  // Five items start folded to the header; clicking it opens them, and then each line is clicked.
-  expect(loneChevrons(container)).toEqual([]);
-  // Folded, the header draws one icon per subagent and chat, and a click on one opens it (HatFaces.tsx,
-  // #49824): the two chats' icons are there to click.
-  const sessionFaces = [...container.querySelectorAll(".acpmux-hat-face")].filter((face) =>
-    /^(summary-panel|priority-view),/.test(face.getAttribute("aria-label") ?? ""),
-  );
-  expect(sessionFaces).toHaveLength(2);
-  const { dead } = await deadClicks(container, calls);
-  expect(dead).toEqual([]);
-  for (const handler of ["onOpen", "onOpenCommand", "onOpenSession"]) expect(calls).toContain(handler);
-  // Folded, the header names what runs; open, it reads the counts (#33104), so the sweep sees it as a
-  // second control and its last round, the one that clicks what closes, folds the tray again. Open it
-  // to reach the lines' menus.
-  const head = container.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
-  if (head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
-  // A line's Stop is in its context menu (#28533), and each one there does something too.
-  for (const name of ["Land piece 0", "bun run dev"]) {
-    const line = [...container.querySelectorAll<HTMLElement>(".acpmux-agent-line")].find((each) =>
-      each.textContent?.includes(name),
-    )!;
-    await act(async () => {
-      line
-        .querySelector(".acpmux-agent-line__button")!
-        .dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
-      await Promise.resolve();
-    });
-    const item = dom.window.document.body.querySelector<HTMLButtonElement>('[role="menu"] [role="menuitem"]')!;
-    await act(async () => item.click());
-  }
-  for (const handler of ["stop", "stopProcess"]) expect(calls).toContain(handler);
-  // The session lines open their session (App.tsx `openOfferChat`), never nothing, and so do their
-  // icons in the folded header: two lines and two icons.
-  expect(calls.filter((call) => call === "onOpenSession")).toHaveLength(4);
-  expect(hoverOnDisabled(container)).toEqual([]);
-  await act(async () => root.unmount());
-});
+// The shipped header is one plain line of words (#56287; Leo, 2026-11-25: "like claude code just has this
+// and they tuck it at the very bottom of the transcript after the latest message"); the kinds header,
+// still an experiment arm, draws one icon per subagent and chat (#49824). Both are swept.
+for (const foldHeadLook of [undefined, "kinds"] as const)
+  test(`every line of the tray, and its header, does something (${foldHeadLook ?? "the default line"} header)`, async () => {
+    const container = mount();
+    const calls: string[] = [];
+    const items: TrayItem[] = [
+      { kind: "agent", id: "tray-0", agent: agent(0), depth: 0 },
+      { kind: "agent", id: "tray-1", agent: agent(1, { parent: "tray-0" }), depth: 1 },
+      {
+        kind: "command",
+        id: "cmd",
+        command: { id: "cmd", command: "bun run dev", state: "running", startedAt: started - 30_000, processId: "p/1" },
+      },
+      {
+        kind: "session",
+        id: "lane-a",
+        session: { sessionId: "lane-a", title: "summary-panel", state: "running", createdAt: started - 300_000 },
+      },
+      {
+        kind: "session",
+        id: "lane-b",
+        session: { sessionId: "lane-b", title: "priority-view", state: "running", createdAt: started - 200_000 },
+      },
+    ];
+    const props = spied(
+      {
+        items,
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => undefined,
+        onOpenCommand: () => undefined,
+        onOpenSession: () => undefined,
+        stop: async () => undefined,
+        stopProcess: async () => undefined,
+        foldHeadLook,
+      },
+      calls,
+    );
+    const root = createRoot(container);
+    await act(async () => root.render(createElement(SubagentTray, props)));
+    await settle();
+    // Five items start folded to the header; clicking it opens them, and then each line is clicked.
+    expect(loneChevrons(container)).toEqual([]);
+    // Folded, the header draws one icon per subagent and chat, and a click on one opens it (HatFaces.tsx,
+    // #49824): the two chats' icons are there to click.
+    const sessionFaces = [...container.querySelectorAll(".acpmux-hat-face")].filter((face) =>
+      /^(summary-panel|priority-view),/.test(face.getAttribute("aria-label") ?? ""),
+    );
+    const faces = foldHeadLook === "kinds" ? 2 : 0;
+    expect(sessionFaces).toHaveLength(faces);
+    const { dead } = await deadClicks(container, calls);
+    expect(dead).toEqual([]);
+    for (const handler of ["onOpen", "onOpenCommand", "onOpenSession"]) expect(calls).toContain(handler);
+    // Folded, the header names what runs; open, it reads the counts (#33104), so the sweep sees it as a
+    // second control and its last round, the one that clicks what closes, folds the tray again. Open it
+    // to reach the lines' menus.
+    const head = container.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+    if (head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
+    // A line's Stop is in its context menu (#28533), and each one there does something too.
+    for (const name of ["Land piece 0", "bun run dev"]) {
+      const line = [...container.querySelectorAll<HTMLElement>(".acpmux-agent-line")].find((each) =>
+        each.textContent?.includes(name),
+      )!;
+      await act(async () => {
+        line
+          .querySelector(".acpmux-agent-line__button")!
+          .dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+        await Promise.resolve();
+      });
+      const item = dom.window.document.body.querySelector<HTMLButtonElement>('[role="menu"] [role="menuitem"]')!;
+      await act(async () => item.click());
+    }
+    for (const handler of ["stop", "stopProcess"]) expect(calls).toContain(handler);
+    // The session lines open their session (App.tsx `openOfferChat`), never nothing, and so do their
+    // icons in the folded header: two lines, and two icons where the header draws them.
+    expect(calls.filter((call) => call === "onOpenSession")).toHaveLength(2 + faces);
+    expect(hoverOnDisabled(container)).toEqual([]);
+    await act(async () => root.unmount());
+  });
 
 test("a line that cannot open (no handler) is disabled and never lights on hover", async () => {
   resetSessionInfoState();
@@ -414,11 +420,12 @@ for (const [label, place] of [["an SSH peer's", { peer: "huge-blue", host: "huge
     // A command whose call is not loaded has nothing to open: not a button, and it says why.
     const cargo = row("cargo watch");
     expect(cargo.disabled).toBe(true);
-    // It says why as text on the row, not a title: a disabled row gets no hover (TasksSection.tsx).
-    expect(cargo.querySelector(".acpmux-session-info-task__why")?.textContent).toBe(
-      translatorFor("en")("sessionInfo.tasks.noTerminal.remote"),
-    );
-    expect(cargo.closest("li")?.hasAttribute("title")).toBe(false);
+    // It says why in the row's tooltip and to VoiceOver, never as row text that squeezes the command
+    // (#51164, cmuxterm-hq#19495): the tooltip is on the row, since a disabled button takes no hover.
+    const why = translatorFor("en")("sessionInfo.tasks.noTerminal.remote");
+    expect(cargo.querySelector(".acpmux-session-info-task__why")).toBeNull();
+    expect(cargo.closest("li")?.getAttribute("title")).toBe(why);
+    expect(cargo.getAttribute("aria-description")).toBe(why);
     const { dead } = await deadClicks(container, calls);
     expect(dead).toEqual([]);
     expect(hoverOnDisabled(container)).toEqual([]);

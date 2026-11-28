@@ -34,6 +34,7 @@ import { scrollListTo } from "./motionOwner";
 import { WriteLabel } from "./WriteLabel";
 import { writeCall } from "./writeLabelModel";
 import { ToolLabel } from "./ToolVerb";
+import { Tick } from "../subagents/trayMotion";
 import { toolFailure } from "./toolFailure";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, InStep } from "./toolFailureCauseModel";
@@ -375,18 +376,22 @@ export const ToolGroupRow = memo(function ToolGroupRow({
               {/* The group's line reads as words, "Ran 2 commands", its count never pushed out to the
                   verb column its calls' rows share (Leo, 2026-10-29: "Why is there space between ran
                   and two?"). */}
-              <ToolLabel
-                whole
-                text={
-                  description ??
-                  toolGroupLabel(
-                    t,
-                    kind,
-                    items,
-                    files.map((file) => file.path),
-                  )
-                }
-              />
+              {/* A count that grows rolls on its own and new words roll in, on the one text roll
+                  every live label shares (ui/motion/TextRoll.tsx, #56303). */}
+              <ToolLabel whole>
+                <Tick
+                  steadyCounts
+                  text={
+                    description ??
+                    toolGroupLabel(
+                      t,
+                      kind,
+                      items,
+                      files.map((file) => file.path),
+                    )
+                  }
+                />
+              </ToolLabel>
             </span>
             {totals && <EditCounts totals={totals} zero={kind === "edits"} />}
             {/* One call says why it failed in a word; several say how many, "(2 failed)", as Claude

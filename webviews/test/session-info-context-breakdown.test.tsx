@@ -247,12 +247,12 @@ test("Session Info's Compact stays live while a turn runs, and its click sends /
   );
   const context = container.querySelector('[data-section="context"]')!;
   expect(context.querySelector(".acpmux-session-info-context__compact")).toBeNull();
-  // Its line is a fold (Lucas, 2026-11-06): unfolded, the breakdown's rows from the first one down,
-  // with no total line and no bar (the head has the meter and tokens).
+  // Its line is a fold (Lucas, 2026-11-06): unfolded, the share and tokens on a line above the bar,
+  // then the breakdown's rows (#53132; Lucas, 2026-11-23: "move the tokens and percentage to the context bar").
   const trigger = context.querySelector<HTMLButtonElement>("button.ui-disclosure-trigger")!;
   if (trigger.getAttribute("aria-expanded") !== "true") await act(async () => trigger.click());
-  expect(context.querySelector(".acpmux-session-info-context__total")).toBeNull();
-  expect(context.querySelector(".acpmux-session-info-context__bar")).toBeNull();
+  expect(context.querySelector(".acpmux-session-info-context__total")).not.toBeNull();
+  expect(context.querySelector(".acpmux-session-info-context__bar")).not.toBeNull();
   expect(context.querySelectorAll(".acpmux-session-info-context .acpmux-session-info-row").length).toBeGreaterThan(0);
   const button = container.querySelector<HTMLButtonElement>(".acpmux-session-info-usage__action")!;
   expect(button.textContent).toBe("Compact");

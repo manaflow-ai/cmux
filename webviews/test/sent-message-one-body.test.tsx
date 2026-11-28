@@ -268,9 +268,11 @@ test("Find reads a legacy prompt's typed text when its parts are only for its fi
   expect(findMatches([row], "quarterly report")).toEqual([{ rowIndex: 0, rowId: "legacy-files", occurrence: 0 }]);
   const bubble = render(row);
   expect(bubble.textContent).toContain(typed);
-  // The file draws in the band above the bubble, not in it.
-  expect(bubble.querySelector(".acpmux-file-chip")).toBeNull();
-  expect(host.querySelector(".cv-user__files .acpmux-file-chip")).not.toBeNull();
+  // The inline view (the default) draws the file once, at the bubble's end after the typed text,
+  // never in a band above it (#61287; Leo, 2026-11-27: "did we fix that inline + top isn't the thing
+  // that gets displayed when you select inline?").
+  expect(bubble.querySelectorAll(".acpmux-file-chip")).toHaveLength(1);
+  expect(bubble.querySelector(".cv-user__files--in-bubble .acpmux-file-chip")).not.toBeNull();
 });
 
 // A placed prompt's image the composer left in the strip draws in the band, so the bubble joins the

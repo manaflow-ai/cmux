@@ -65,11 +65,23 @@ function enclosingKeyframes(text: string, offset: number): string | undefined {
   return found;
 }
 
+/** A transform that turns a full turn and back in one declaration (`rotate(360deg) translateX(r)
+ *  rotate(-360deg)`) carries the element round a circle and never turns it: an orbit, not a spinner
+ *  (the agent dot signature's drift, #47075). */
+function orbits(text: string, offset: number): boolean {
+  const start = Math.max(text.lastIndexOf(";", offset), text.lastIndexOf("{", offset)) + 1;
+  const ends = [text.indexOf(";", offset), text.indexOf("}", offset)].filter((at) => at >= 0);
+  const declaration = text.slice(start, ends.length ? Math.min(...ends) : text.length);
+  const turns = [...declaration.matchAll(/rotate\(\s*(-?)(360deg|1turn|2turn)\s*\)/g)];
+  return turns.length === 2 && turns[0]![2] === turns[1]![2] && turns[0]![1] !== turns[1]![1];
+}
+
 export function scanSpinnerText(file: string, raw: string): SpinnerViolation[] {
   const text = blankComments(raw);
   const out: SpinnerViolation[] = [];
   const add = (offset: number, message: string) => out.push({ file, line: lineAt(text, offset), text: message });
   for (const match of text.matchAll(FULL_TURN)) {
+    if (orbits(text, match.index!)) continue;
     const name = enclosingKeyframes(text, match.index!);
     if (name === undefined || !SPIN_KEYFRAMES.has(name) || HOMES[name] !== file)
       add(match.index!, `${match[0]}: a spinner turns with cmux-spin (pages/shared/desktop.css), not its own turn`);
@@ -164,5 +176,10 @@ describe("spinner period", () => {
     ).toEqual([]);
     expect(finds("a.css", "/* @keyframes old { to { transform: rotate(360deg); } } */")).toEqual([]);
     expect(finds("a.css", ".a { transform: rotate(90deg); animation: breathe 2.4s ease infinite; }")).toEqual([]);
+    // An orbit turns there and back in one transform: the dot circles and never spins.
+    expect(
+      finds("a.css", "@keyframes drift {\n  to { transform: rotate(360deg) translateX(2px) rotate(-360deg); }\n}"),
+    ).toEqual([]);
+    expect(finds("a.css", "@keyframes drift {\n  to { transform: rotate(360deg) translateX(2px); }\n}")).toEqual([2]);
   });
 });

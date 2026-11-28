@@ -38,7 +38,7 @@ await requireBrowserLane("ui-pointer-overlay-browser.test.ts", async () => {
     });
   `,
   );
-  const built = await Bun.build({ entrypoints: [entry], target: "browser" }).finally(() =>
+  const built = await Bun.build({ entrypoints: [entry], format: "iife", target: "browser" }).finally(() =>
     fs.rmSync(dir, { recursive: true, force: true }),
   );
   if (!built.success) throw new Error(built.logs.join("\n"));
