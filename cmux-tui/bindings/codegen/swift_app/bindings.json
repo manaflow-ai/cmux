@@ -1482,7 +1482,32 @@
               "type": "DaemonGeneration"
             }
           },
-          "response": "hand-written"
+          "response": "generate",
+          "response_order": [
+            "accepted",
+            "pid",
+            "generation",
+            "ended_terminals"
+          ],
+          "response_fields": {
+            "accepted": {
+              "type": "Bool",
+              "optional": true
+            },
+            "pid": {
+              "type": "Int32",
+              "optional": true
+            },
+            "generation": {
+              "type": "DaemonGeneration",
+              "optional": true
+            },
+            "ended_terminals": {
+              "doc": [
+                "Terminals ended before the handoff (`end_terminals`)."
+              ]
+            }
+          }
         },
         "set-default-colors": {
           "name": "SetDefaultColorsRequest",
@@ -1559,7 +1584,23 @@
         },
         "remote-host-app": {
           "name": "RemoteHostAppRequest",
-          "response": "hand-written"
+          "response": "generate",
+          "response_order": [
+            "socket",
+            "secret",
+            "host_pid"
+          ],
+          "response_fields": {
+            "secret": {
+              "doc": [
+                "The app socket's secret for this app's own process. Never log or store it."
+              ]
+            },
+            "host_pid": {
+              "name": "hostPID",
+              "type": "Int32"
+            }
+          }
         },
         "subscribe": {
           "name": "SubscribeRequest",
@@ -1628,6 +1669,48 @@
             }
           },
           "response": "EmptyResponse"
+        }
+      },
+      "objects": {
+        "BrowserHostProviderResult": {
+          "result": "browser-host-provider",
+          "doc": [
+            "`browser-host-provider` data: the provider credentials of the daemon's browser host. The secret must never be logged or stored."
+          ],
+          "order": [
+            "socket",
+            "secret",
+            "host_pid",
+            "listener_pid"
+          ],
+          "fields": {
+            "socket": {
+              "doc": [
+                "The provider socket (`browser-host-provider.sock`)."
+              ]
+            },
+            "secret": {
+              "doc": [
+                "The host launch's provider secret."
+              ]
+            },
+            "host_pid": {
+              "name": "hostPID",
+              "type": "Int32",
+              "doc": [
+                "The host process."
+              ]
+            },
+            "listener_pid": {
+              "name": "listenerPID",
+              "type": "Int32",
+              "optional": true,
+              "doc": [
+                "The process that holds the listening socket (the daemon under socket activation);",
+                "absent from older daemons. Send the secret only to a peer that is one of the two."
+              ]
+            }
+          }
         }
       }
     },
@@ -2344,10 +2427,232 @@
             "Why tabs or a workspace close (`close-reason-v1`); `.sessionEnd` keeps them out of closed history."
           ]
         }
+      },
+      "objects": {
+        "SetTerminalKeepResult": {
+          "result": "set-terminal-keep",
+          "doc": [
+            "`set-terminal-keep` data."
+          ],
+          "order": [
+            "terminal_id",
+            "keep",
+            "terminal_resource_id"
+          ],
+          "fields": {
+            "terminal_id": {
+              "type": "TerminalID"
+            },
+            "terminal_resource_id": {
+              "type": "ResourceID",
+              "doc": [
+                "The terminal's public id (`term_…`, a separate random id), which",
+                "`attach-identity-v1` resolves."
+              ]
+            }
+          }
+        },
+        "SetTerminalTailPinResult": {
+          "result": "set-terminal-tail-pin",
+          "doc": [
+            "`set-terminal-tail-pin` data."
+          ],
+          "order": [
+            "terminal",
+            "pinned"
+          ],
+          "fields": {
+            "terminal": {
+              "doc": [
+                "The terminal's public id (`term_…`)."
+              ]
+            }
+          }
+        },
+        "TerminalLastCommandResult": {
+          "result": "terminal-last-command",
+          "doc": [
+            "`terminal-last-command` data: the terminal and its last command, if any."
+          ],
+          "order": [
+            "terminal_id",
+            "last_command"
+          ],
+          "fields": {
+            "terminal_id": {
+              "type": "TerminalID",
+              "doc": [
+                "The terminal's host id."
+              ]
+            },
+            "last_command": {
+              "doc": [
+                "The newest finished command; nil while recording is off, for an",
+                "incognito terminal and before the shell finished a command."
+              ]
+            }
+          }
+        },
+        "TerminalLastCommand": {
+          "type": "TerminalLastCommand",
+          "doc": [
+            "One finished command line."
+          ],
+          "order": [
+            "command",
+            "exit_code",
+            "started_at_ms",
+            "ended_at_ms"
+          ],
+          "fields": {
+            "exit_code": {
+              "doc": [
+                "Its exit status; nil when the shell reported none."
+              ]
+            },
+            "started_at_ms": {
+              "doc": [
+                "When it started, Unix epoch milliseconds as a decimal string."
+              ]
+            },
+            "ended_at_ms": {
+              "doc": [
+                "When it ended, Unix epoch milliseconds as a decimal string."
+              ]
+            },
+            "command": {
+              "doc": [
+                "The command line as the shell submitted it."
+              ]
+            }
+          }
+        },
+        "TerminalResumeCommandResult": {
+          "result": "terminal-resume-command",
+          "doc": [
+            "`terminal-resume-command` data: the stored resume command after the request."
+          ],
+          "order": [
+            "terminal_id",
+            "command"
+          ],
+          "fields": {
+            "terminal_id": {
+              "type": "TerminalID",
+              "doc": [
+                "The terminal's host id."
+              ]
+            },
+            "command": {
+              "doc": [
+                "The stored command, nil when none is set."
+              ]
+            }
+          }
+        },
+        "TerminalResourceProcess": {
+          "type": "TerminalResourceProcess",
+          "doc": [
+            "One process in a `terminal-resources` tree, or the terminal host."
+          ],
+          "order": [
+            "pid",
+            "ppid",
+            "name",
+            "cpu_ns",
+            "memory_bytes"
+          ],
+          "fields": {
+            "pid": {
+              "type": "Int32"
+            },
+            "ppid": {
+              "type": "Int32",
+              "optional": true
+            },
+            "name": {
+              "optional": true
+            },
+            "cpu_ns": {
+              "name": "cpuNanos",
+              "doc": [
+                "Cumulative user plus system CPU time."
+              ]
+            },
+            "memory_bytes": {
+              "doc": [
+                "Physical footprint on macOS, resident memory on Linux."
+              ]
+            }
+          }
+        },
+        "TerminalResources": {
+          "type": "TerminalResources",
+          "doc": [
+            "One terminal's process tree in `terminal-resources` data."
+          ],
+          "omit": [
+            "terminal_id"
+          ],
+          "order": [
+            "surface",
+            "pid",
+            "host",
+            "processes",
+            "truncated"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "pid": {
+              "type": "Int32"
+            },
+            "host": {
+              "type": "TerminalResourceProcess",
+              "doc": [
+                "The `__terminal-host` process that owns the PTY; nil for PTYs",
+                "inside the daemon."
+              ]
+            },
+            "processes": {
+              "default": "[]"
+            },
+            "truncated": {
+              "default": "false"
+            }
+          }
+        },
+        "TerminalResourcesResult": {
+          "result": "terminal-resources",
+          "doc": [
+            "`terminal-resources` data."
+          ],
+          "order": [
+            "sampled_at_ns",
+            "terminals",
+            "missing"
+          ],
+          "fields": {
+            "sampled_at_ns": {
+              "name": "sampledAtNanos",
+              "doc": [
+                "Monotonic nanoseconds on the daemon host's clock."
+              ]
+            },
+            "terminals": {
+              "default": "[]"
+            },
+            "missing": {
+              "type": "[SurfaceID]",
+              "default": "[]"
+            }
+          }
+        }
       }
     },
     "TerminalIO": {
-      "$comment": "Hand-written still: set-attach-visibility, clear-history, the clipboard subscribe and reply, cancel-creating-input, release-attached-view-size, set-size-counts, detach-attached-view, resize-attached-view and snapshot (the schema adds a capability the app lacks); set-size-policy (nested Policy); send (two Swift types share it, and SendInputRequest's public Data field needs public import Foundation); attach-surface (its init does work); terminal-find (the schema adds max_matches and page_rows).",
+      "$comment": "Hand-written still: set-attach-visibility, clear-history, the clipboard subscribe and reply, cancel-creating-input, release-attached-view-size, set-size-counts, detach-attached-view, resize-attached-view and snapshot (the schema adds a capability the app lacks); set-size-policy (nested Policy); send (two Swift types share it, and SendInputRequest's public Data field needs public import Foundation); attach-surface (its init does work).",
       "enums": {},
       "requests": {
         "send-key": {
@@ -2466,6 +2771,81 @@
             }
           },
           "response": "hand-written"
+        },
+        "terminal-find": {
+          "name": "TerminalFindRequest",
+          "doc": [
+            "`terminal-find`: one page of Cmd-F matches over a PTY surface's whole retained history, newest",
+            "first (cmux-tui `spec/commands.md`). The daemon matches and pages; a client asks for the next",
+            "page with the previous `nextBefore` and `epoch`. A daemon without the command answers",
+            "\"unknown variant\", which the caller treats as no history search."
+          ],
+          "order": [
+            "surface",
+            "query",
+            "case_sensitive",
+            "whole_word",
+            "regex",
+            "before",
+            "epoch",
+            "page_rows",
+            "max_matches"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "case_sensitive": {
+              "optional": false,
+              "default": "false",
+              "encode": "always"
+            },
+            "whole_word": {
+              "optional": false,
+              "default": "false",
+              "encode": "always"
+            },
+            "regex": {
+              "optional": false,
+              "default": "false",
+              "encode": "always"
+            }
+          },
+          "response": "hand-written"
+        },
+        "offer-link-to-phone": {
+          "name": "OfferLinkToPhoneRequest",
+          "doc": [
+            "`offer-link-to-phone`: a program in terminal `terminalID` asked a browser for `url`",
+            "(`browser.open_link`). The daemon owns the terminals and the phone's connections, so it",
+            "decides: when a phone drives the terminal (its last key came from that phone, recently) and",
+            "the address is public, the phone gets the link and opens it, and `Response.offered` is",
+            "true; the app then opens nothing. Otherwise it is false and the app opens the link as before.",
+            "A daemon older than this command answers with an error: the app opens it as before too."
+          ],
+          "order": [
+            "terminal_id",
+            "url"
+          ],
+          "response": "generate"
+        }
+      },
+      "objects": {
+        "TerminalClipboardReplyResult": {
+          "result": "terminal-clipboard-reply",
+          "doc": [
+            "`terminal-clipboard-reply` data."
+          ],
+          "order": [
+            "accepted",
+            "granted"
+          ]
+        },
+        "TerminalClipboardSubscribeResult": {
+          "result": "terminal-clipboard-subscribe",
+          "doc": [
+            "`terminal-clipboard-subscribe` data."
+          ]
         }
       }
     },
@@ -2986,7 +3366,7 @@
             "`conversation-search` (`conversation-search-v1`): Home-only search over the",
             "text of the caller's conversations, newest first (the shared read model)."
           ],
-          "response": "hand-written",
+          "response": "generate",
           "order": [
             "query",
             "limit"
@@ -2996,6 +3376,35 @@
               "type": "Int"
             }
           }
+        },
+        "conversation-thread": {
+          "name": "ConversationThreadRequest",
+          "doc": [
+            "`conversation-thread`: the root and up to `limit` (1...500) replies after `afterSeq`."
+          ],
+          "order": [
+            "conversation",
+            "root",
+            "after_seq",
+            "limit"
+          ],
+          "fields": {
+            "after_seq": {
+              "optional": false,
+              "encode": "always"
+            },
+            "limit": {
+              "type": "Int",
+              "optional": false,
+              "encode": "always",
+              "clamp": {
+                "minimum": 1,
+                "maximum": 500,
+                "constant": "maxLimit"
+              }
+            }
+          },
+          "response": "ConversationThread"
         },
         "conversation-typing": {
           "name": "ConversationTypingRequest",
@@ -3282,6 +3691,21 @@
               ]
             }
           }
+        },
+        "ConversationSearchHit": {
+          "type": "ConversationSearchHit",
+          "doc": [
+            "One `conversation-search` hit."
+          ],
+          "order": [
+            "conversation",
+            "title",
+            "seq",
+            "message_id",
+            "author",
+            "created_at",
+            "snippet"
+          ]
         }
       }
     },
@@ -3383,8 +3807,10 @@
         },
         "list-terminal-commands": {
           "name": "ListTerminalCommandsRequest",
+          "allow_unadvertised_capability": "terminal-command-history-v1",
           "doc": [
-            "`list-terminal-commands`: reads unexpired terminal commands after an optional id."
+            "`list-terminal-commands`: reads unexpired terminal commands after an optional id.",
+            "Legacy daemons served this without advertising terminal-command-history-v1; preserve the app's ungated read."
           ],
           "order": [
             "after_id",
