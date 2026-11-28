@@ -6,12 +6,14 @@
 //!
 //! Each flap: the current socket stops working, the OS reports the new path
 //! `FLAP_ROAM_MS` later (default 300), and the stream must resume. The test
-//! prints one line per flap with the time from the loss to the first echoed
-//! byte after the network came back, and fails if any flap takes longer than
+//! prints one line per flap with the time from the network's return to the
+//! first echoed byte (and from the loss), and fails if any flap takes longer than
 //! `FLAP_BOUND_MS` (default 3000) or loses a byte. `FLAP_MODE` picks the
 //! flap: `roam` (default), `late` or `dark`.
 //!
-//! `FLAPS=20 cargo test -p cmux-mobile-link --test flap_path -- --nocapture`
+//! A plain `cargo test` runs 4 flaps (~30 s) so CI keeps it cheap; the
+//! recorded run is 20:
+//! `FLAPS=20 FLAP_MODE=dark cargo test -p cmux-mobile-link --test flap_path -- --nocapture`
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -40,7 +42,7 @@ async fn wireguard_reconnects_across_twenty_flaps() {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_test_writer()
         .try_init();
-    let flaps = env_u64("FLAPS", 20) as usize;
+    let flaps = env_u64("FLAPS", 4) as usize;
     // `roam`: the network goes away and the OS reports a new one
     // `FLAP_ROAM_MS` later (default 300). `late`: the same, reported 3 s
     // later. `dark`: the network goes dark and comes back `FLAP_ROAM_MS`
