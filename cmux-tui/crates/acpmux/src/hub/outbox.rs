@@ -521,6 +521,12 @@ impl OutboxState {
         let mut book = self.book();
         book.pending_targets = None;
         book.deliveries.extend(saved.deliveries);
+        // A file over the bounds is rewritten within them now, not at the first change a day on.
+        let trimmed = book.cap_settled() > 0;
+        if trimmed {
+            // The cut goes to `outbox.json` itself, not a journal line (a drop is not a change a journal can say).
+            self.disk.lock().unwrap_or_else(|e| e.into_inner()).snapshot_next = true;
+        }
         book.stats = super::outbox_stats::read(path, crate::store::now_ms());
         // Attachments come back from beside the file; ones no waiting delivery names go.
         let dir = attachments_dir(path);
@@ -543,7 +549,7 @@ impl OutboxState {
         let pending = book.deliveries.values().filter(|d| !d.settled()).cloned().collect();
         // A journal left over is folded into the snapshot now, so the files read alone by an
         // older daemon hold everything.
-        if saved.journal_bytes > 0 {
+        if saved.journal_bytes > 0 || trimmed {
             let change = book.changed();
             drop(book);
             self.save(change);
@@ -1267,6 +1273,7 @@ impl Book {
             // Open on its peer is not settled for this: kept until it closes or lapses.
             !d.settled() || d.open_on_peer || now.saturating_sub(d.updated_at) < keep
         });
+        self.cap_settled();
         self.changes += 1;
         self.changes
     }
@@ -1369,6 +1376,10 @@ pub fn local_only() -> RpcError {
 fn projected_message(d: &Delivery) -> Option<&Value> {
     d.request.pointer("/_meta/acpmux/forwardProjection/messageId")
 }
+
+#[path = "outbox_cap.rs"]
+mod cap;
+pub use cap::{MAX_SETTLED, MAX_SETTLED_RECEIPTS};
 
 #[cfg(test)]
 #[path = "outbox_model_tests.rs"]

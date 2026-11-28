@@ -56,7 +56,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/ManagedUpdatePolicy.swift	com.cm
 cmux-tui/crates/acpmux/src/agent/session_tmp.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/agent_login.rs	.cache/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/agent_login.rs	.config/cmux/	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/acpmux/src/agent_tools.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/cloud_repo_mcp.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/codex_auth_file.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/computer_use/daemon_socket.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
@@ -435,7 +434,6 @@ scripts/cmux-next/typeahead-gate.sh	/tmp/cmux-debug-$TAG.sock	2	keep	dev harness
 scripts/cmux-next/typing-frame-bench.py	/tmp/cmux-debug-{TAG}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/update-e2e.py	.config/cmux"	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
 scripts/cmux-next/update-e2e.py	.local/state/cmux"	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
-scripts/cmux-next/update-e2e.py	/tmp/cmux-nightly-cmux-next.sock	2	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/update-harness/idle_e2e.py	/tmp/cmux-debug-{a.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/update-harness/job.sh	/tmp/cmux-debug-$tag.sock	2	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/update-harness/run.py	/tmp/cmux-debug-{a.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
@@ -479,3 +477,7 @@ scripts/cmux-next/update-card-resize-drag.py	/tmp/cmux-debug-{o.tag}.sock	1	keep
 cmux-tui/crates/cmux-config/src/app_ops/section_reads.rs	com.cmuxterm.app	1	keep	computer-use denied-apps default list: names every cmux bundle id (com.cmuxterm.app.* covers NEXT's own) so an agent never drives a cmux window; no read or write under it
 scripts/cmux-next/agent-conn-chaos/linux_daemon.py	join(self.env["XDG_CONFIG_HOME"], "cmux")	1	keep	harness: XDG_CONFIG_HOME is the run's own mkdtemp root, never a person's (scripts ship in no build)
 scripts/cmux-next/auto-journal-nightly-recovery.ts	.config/cmux	1	keep	harness: writes settings under the run's own scratch home (out/home), never a person's (scripts ship in no build)
+scripts/cmux-next/autocloud-sync-probe.ts	.config/cmux	2	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
+scripts/cmux-next/autocloud-sync-probe.ts	join(home, ".config", "cmux")	2	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
+scripts/cmux-next/autocloud-sync-probe.ts	join(home, "bin", "cmux")	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
+scripts/cmux-next/update-e2e.py	/tmp/cmux-nightly.sock	2	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)

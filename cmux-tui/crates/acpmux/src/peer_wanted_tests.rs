@@ -96,6 +96,36 @@ async fn an_ask_starts_the_next_attempt_at_once_once_per_cap() {
     assert!(again.elapsed() >= Backoff::WANTED_CAP / 2, "{:?}", again.elapsed());
 }
 
+/// 2026-11-28: 76 saved peers, most unreachable, each asked about by lists and watches: the
+/// daemon redialed every one about once a second. A simulated unreachable peer asked about
+/// every 100 ms for ten minutes gets few attempts, each further apart.
+#[tokio::test(start_paused = true)]
+async fn an_unreachable_peer_that_is_always_asked_about_is_dialed_ever_less_often() {
+    let peer = peer();
+    let asking = peer.clone();
+    let asker = tokio::spawn(async move {
+        loop {
+            asking.want();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    });
+    let start = Instant::now();
+    let mut attempts = vec![];
+    let mut backoff = Backoff::default();
+    while start.elapsed() < Duration::from_secs(600) {
+        let delay = backoff.next(crate::peer_link::jitter());
+        assert_eq!(peer.wait_backoff_after(delay, backoff.failures()).await, BackoffWait::Done);
+        attempts.push(start.elapsed());
+    }
+    asker.abort();
+    // Before: one attempt per second (about 600). Now the gap reaches half the slow cap.
+    assert!(attempts.len() < 90, "{} attempts in 10 minutes", attempts.len());
+    let gaps: Vec<_> = attempts.windows(2).map(|w| w[1] - w[0]).collect();
+    for gap in gaps.iter().rev().take(10) {
+        assert!(*gap >= Backoff::WANTED_SLOW_CAP / 2 - Duration::from_millis(200), "{gap:?}");
+    }
+}
+
 /// Review of #38015 (F1): an ask made while the attempt was still opening its tunnel, before
 /// anything listened for it, restarts the attempt all the same; one before the mark does not.
 #[tokio::test(start_paused = true)]

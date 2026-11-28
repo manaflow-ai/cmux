@@ -36,6 +36,61 @@ fn a_failed_transfer_keeps_a_host_off_for_the_cooldown() {
     assert_eq!(Failures::parse(b"not json"), Failures::default());
 }
 
+/// A lane host, 2026-11-28: its chat folder refused every start while `machine pick`
+/// saw room for 6 and kept sending starts there.
+#[test]
+fn a_refused_start_keeps_the_host_out_of_the_pick_until_a_start_works_or_the_cooldown_ends() {
+    use crate::rpc::RpcError;
+    let refused = RpcError::invalid_params(
+        "the Cloud chat folder could not be made: /home/cmux/chats is not a directory",
+    )
+    .with_data(json!({"reason": "session_new.invalid_params"}));
+    let why = refused_start(&refused).unwrap();
+    assert!(why.starts_with("session_new.invalid_params: the Cloud chat folder"), "{why}");
+    let mut f = Failures::default();
+    f.record_refused("Lane-Host", &why, 1_000);
+    let said = f.failure("lane-host", 61_000).unwrap();
+    assert!(said.starts_with("start refused: session_new.invalid_params"), "{said}");
+    assert!(said.contains("60s ago; tried again in 9 min"), "{said}");
+    assert_eq!(Failures::parse(&f.to_bytes()), f, "the kind survives the file");
+    // The bounded mark ends by itself.
+    assert_eq!(f.failure("lane-host", 1_000 + COOLDOWN_MS), None);
+    // A start there that worked forgets it at once.
+    assert!(f.has("lane-host") && f.clear("lane-host"));
+    assert_eq!(f.failure("lane-host", 2_000), None);
+}
+
+#[test]
+fn only_the_hosts_own_refusals_count() {
+    use crate::rpc::RpcError;
+    let with = |reason: &str| RpcError::invalid_params("no").with_data(json!({"reason": reason}));
+    for host_fault in [
+        crate::server::remote_guard::CHAT_FOLDER_REASON,
+        "session_new.internal",
+        "session_new.not_found",
+        "agent.exited",
+        "peer_start_timeout",
+    ] {
+        assert!(refused_start(&with(host_fault)).is_some(), "{host_fault}");
+    }
+    assert!(refused_start(&RpcError::internal("boom")).is_some(), "no reason at all");
+    for callers in [
+        "remote.cwd_not_checkout",
+        "remote.full_access_required",
+        "policy.denied",
+        "trust.pending",
+        "peer.forward_refused",
+        "peer_unreachable",
+        crate::rpc::NO_PEER,
+        "session_new.not_allowed",
+        "message.too_large",
+    ] {
+        assert_eq!(refused_start(&with(callers)), None, "{callers}");
+    }
+    let full = RpcError::invalid_params("no").with_data(json!({"fullAccessRefusedBy": "h"}));
+    assert_eq!(refused_start(&full), None);
+}
+
 #[test]
 fn concurrent_launchers_keep_each_hosts_failure() {
     const HOSTS: usize = 16;

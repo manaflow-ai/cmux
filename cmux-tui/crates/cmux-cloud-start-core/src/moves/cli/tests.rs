@@ -629,3 +629,28 @@ fn a_copy_answer_carries_its_bytes_and_what_it_left_on_this_mac() {
         (&json!("machine.too_small"), &json!(5), &json!("cloud-chats"))
     );
 }
+
+#[test]
+fn an_answers_phases_and_its_sync_spans_read_flat() {
+    let line = r#"{"ok":true,"session_id":"s","phases":{"state":3,"begin":40,"frozen_sync":900,"bad":"x"},"frozen_sync_phases":{"spans":{"pull.read_here":{"ms":350,"n":1},"git cat-file":{"ms":12,"n":1}},"remote":[]},"total_ms":1000}"#;
+    let (answer, _) = parse(&output(line, "", 0));
+    let want: BTreeMap<String, u64> = [
+        ("state", 3),
+        ("begin", 40),
+        ("frozen_sync", 900),
+        ("pull.read_here", 350),
+        ("git cat-file", 12),
+    ]
+    .into_iter()
+    .map(|(name, ms)| (name.to_owned(), ms))
+    .collect();
+    assert_eq!(answer.phases, want);
+    let (pull, _) = parse(&output(
+        r#"{"ok":true,"sync_phases":{"spans":{"pull.export":{"ms":60,"n":2}}}}"#,
+        "",
+        0,
+    ));
+    assert_eq!(pull.phases.get("pull.export"), Some(&60));
+    let (none, _) = parse(&output(r#"{"ok":true}"#, "", 0));
+    assert!(none.phases.is_empty());
+}
