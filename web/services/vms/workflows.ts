@@ -1666,7 +1666,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
       }),
     ).pipe(
-      Effect.tapError((err) => Effect.sync(() => noteProviderStartRefusal(input.provider, err.cause))),
+      Effect.tapError((err) => Effect.sync(() => noteProviderStartRefusal(input.provider, err))),
       Effect.tapError((err) =>
         awaitRequestedEvents.pipe(Effect.andThen(Effect.all([
           revokeModelPlane(input.modelPlane, create.vm.id),
