@@ -180,6 +180,7 @@ import { useComposerKeyboard } from "./composerFocus";
 import { type AutomationCompose } from "./automation";
 import { acpmuxPerf } from "./perf";
 import { type PerfSend } from "./perfReporter";
+import type { ReadInspectorHistory } from "./InspectorTiming";
 import { startFromContext } from "./newtab/startHint";
 import { useSameValue } from "./session-info/sameValue";
 import { drawsAsIs, setStreamingRowBlocked, streamingRowBlocked, textOnlyRow } from "./streamingRow";
@@ -1339,6 +1340,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       directClient.current ? directClient.current.perf(params) : Promise.reject(new Error(translate("error.notOpen"))),
     [],
   );
+  /// `_acpmux/history` through the client connected now (the Inspector's Timing tab, InspectorTiming.tsx).
+  const readInspectorHistory = useCallback<ReadInspectorHistory>(
+    (sessionId) =>
+      directClient.current
+        ? directClient.current.inspectorHistory(sessionId)
+        : Promise.reject(new Error(translate("error.notOpen"))),
+    [],
+  );
   // acpmux's verdict on this Mac's load and swap (host_overload.rs): the composer draws it only when over.
   const readOverload = useCallback(
     () => directClient.current?.hostOverload() ?? Promise.reject(new Error("no client")),
@@ -1483,12 +1492,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [clientSnapshot, switchView, catalog, shownStarting, shownOffline],
   );
   // Unsettle (a settle toast's Undo, the home's Settled shelf): Unarchive by id (direct.ts
-  // `unsettle`); a refusal says so in a toast.
+  // `unsettle`); a refusal says so in a toast, in the pane's words (plainErrors.test.ts).
   const unsettleChat = useCallback(
     (entry: AcpmuxSessionEntry) => {
       const client = directClient.current;
       if (!client) return notices.failed(translate("error.notOpen"));
-      client.unsettle(entry.sessionId).catch((error: unknown) => notices.failed(errorMessage(error) || String(error)));
+      client
+        .unsettle(entry.sessionId)
+        .catch((error: unknown) => notices.failed(knownRefusalText(error) ?? translate("settle.unsettleFailed")));
     },
     [notices],
   );
@@ -11672,6 +11683,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setDisplayAnchor,
     closeInspector,
     sendPerf,
+    readInspectorHistory,
     setDock,
     dockFoot,
     paneToasts,

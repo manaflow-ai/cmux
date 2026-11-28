@@ -726,6 +726,11 @@ pub trait Store: Send + Sync {
     fn audit_dir(&self) -> Option<PathBuf> {
         None
     }
+    /// Where each chat's usage tracker is saved (`hub/usage_view.rs`): `usage-trackers/` beside
+    /// `sessions/`, or none (in memory, read over by each daemon) for the memory store.
+    fn usage_tracker_dir(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// [`Store::newest_window`] by `scan_back`, for a store with no cheaper read of its seqs.
@@ -2028,6 +2033,10 @@ impl Store for LocalStore {
 
     fn audit_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("audit"))
+    }
+
+    fn usage_tracker_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("usage-trackers"))
     }
 }
 
