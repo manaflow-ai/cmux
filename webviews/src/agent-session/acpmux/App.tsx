@@ -103,6 +103,7 @@ import {
 } from "./newtab/draftFolder";
 import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
 import { cloudAgentPick, holdCloudAgentPick } from "./cloudAgentPick";
+import { cloudLastPick } from "./cloudLastPick";
 import {
   askAppCloudPick,
   cloudPickChoices,
@@ -628,7 +629,7 @@ import { ShellRuns } from "./shell/shellRuns";
 import { answerBlock, restartOwner, restartReaches } from "./subagents/restart";
 import { bridgedWatch } from "./watchBannerModel";
 import { type SubagentRows, runningGroups, subagentsIn } from "./subagents/subagentRows";
-import { foldOwnLog, subagentPaneView, useOwnLog, needsOwnLog } from "./subagents/subagentOwnLog";
+import { foldOwnLog, subagentPaneView, useOwnLog, needsOwnLog, type OwnLogRecord } from "./subagents/subagentOwnLog";
 import { lastReply as lastSubagentReply, SubagentReplyContext } from "./subagents/wholeReport";
 import { knownMark } from "../shared/AgentMark";
 import { useSenderIconLook } from "./subagents/senderIconLook";
@@ -2645,7 +2646,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const readSubagentLog = useCallback(
     // l10n-allow: internal transport error; the subagent pane renders its own localized state.
-    (id: string) => directClient.current?.readSubagentLog(id) ?? Promise.reject(new Error("Not connected")),
+    (id: string, onNewest?: (records: OwnLogRecord[]) => void) =>
+      directClient.current?.readSubagentLog(id, onNewest) ?? Promise.reject(new Error("Not connected")),
     [],
   );
   // A finished subagent's whole last reply, from its own records, for a report card whose Show more
@@ -5167,7 +5169,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const client = directClient.current;
         const { intent, model } = harnessSwitch.view();
         const summary = snapshotRef.current?.summary;
-        const cloudPick = cloudAgentPick();
+        const cloudPick = cloudAgentPick() ?? cloudLastPick();
         return {
           harness: cloudPick?.harness ?? intent?.harness ?? summary?.harness,
           revision: [
