@@ -112,7 +112,9 @@ class TheGatedJourneys(unittest.TestCase):
                 cond = gate.get("if", "")
                 self.assertIn("github.event_name == 'pull_request'", cond)
                 self.assertIn(f"github.event.pull_request.changed_files >= {sweep.SWEEP_MIN_WORKFLOWS}", cond)
-                self.assertIn("!contains(github.event.pull_request.labels.*.name, 'full-ci')", cond)
+                # full-ci is one-shot into feat-cmux-next (#58290): the label skips the gate only on its own
+                # labeled event, off that base, or with CI_FULL_CI_ONE_SHOT=0.
+                self.assertIn("!(contains(github.event.pull_request.labels.*.name, 'full-ci') && ", cond)
 
     def test_every_root_heavy_job_runs_unless_the_gate_answers_false(self) -> None:
         for name, roots in GATED.items():
@@ -123,7 +125,8 @@ class TheGatedJourneys(unittest.TestCase):
                     needs = job.get("needs")
                     self.assertIn("self-edit", [needs] if isinstance(needs, str) else needs)
                     cond = job.get("if", "")
-                    self.assertTrue(cond.startswith("${{ !cancelled() && needs.self-edit.outputs.run != 'false' && ("),
+                    # The gate's answer comes first; the job's own conditions (a scope hit, the event) follow.
+                    self.assertTrue(cond.startswith("${{ !cancelled() && needs.self-edit.outputs.run != 'false' && "),
                                     cond)
 
     def test_the_gate_workflow_is_call_only_and_reads_the_switch(self) -> None:
