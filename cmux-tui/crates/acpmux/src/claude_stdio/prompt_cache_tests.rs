@@ -214,3 +214,22 @@ async fn each_call_is_classed_as_a_cache_fault() {
     assert!(faults["unreadTokens"]["conflict"].as_u64().unwrap() > 9_000, "{faults}");
     assert!(faults["medianMissGapMs"].is_u64(), "{faults}");
 }
+
+#[tokio::test]
+async fn each_call_that_writes_the_context_again_counts_toward_the_turns_rebuild() {
+    // Two cold calls inside one turn, each read back right after: the turn's sums count one at
+    // most, the calls count both (hub/cache_rebuild.rs).
+    let t = Translator::new("acp-1".into(), "default", "opus", "default");
+    call(&t, usage(0, 0, 100_000), usage(0, 0, 100_000)).await;
+    call(&t, usage(100_000, 0, 500), usage(100_000, 0, 500)).await;
+    assert_eq!(t.cache.take_turn_rebuilds().tokens, 0, "a warm turn rebuilds nothing");
+    for _ in 0..2 {
+        call(&t, usage(0, 0, 101_000), usage(0, 0, 101_000)).await;
+        call(&t, usage(101_000, 0, 200), usage(101_000, 0, 200)).await;
+    }
+    let r = t.cache.take_turn_rebuilds();
+    assert!(r.tokens > 200_000, "{r:?}");
+    assert_eq!(r.tokens_1h, r.tokens, "all of it hour-long");
+    assert_eq!(r.to_json()["cause"], json!("prefix"), "warm and no compaction: the prefix");
+    assert_eq!(t.cache.take_turn_rebuilds().tokens, 0, "the next turn counts its own");
+}

@@ -26,9 +26,22 @@
 //!
 //! The first turn of a chat, a fork's first, and any turn with no `contextTokens` carry nothing:
 //! they have no previous context to compare. `sessionCacheRebuildUsd` is the chat's running total.
+//!
+//! Per call: the sums count a turn's cold calls once, so a turn with several (a long tool call or
+//! a 40-minute wait inside it) undercounts; on one fleet host the turn rule found 18.8% of Claude
+//! spend where each request's own usage said 32.9%. Claude's stream names each main-loop call's
+//! usage at its `message_start`, so its translator applies the same rule to every call, `P` the
+//! context the call before left (`CallRebuilds`, `claude_stdio/prompt_cache.rs`), with the cause
+//! told per call (a compaction since, the gap since the call before past the cache's life, else
+//! the prefix), and sends the turn's sum as `_meta.claude.cacheRebuild`; `turn_usage` carries it
+//! here as `callCacheRebuild`, which is not kept. The turn takes the larger of the two counts: a
+//! call count misses a cold first call after acpmux restarted (no call before it to compare), and
+//! the turn rule still sees that one. A harness that names no per-call usage (Codex) keeps the
+//! turn rule alone.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use std::collections::BTreeMap;
 
 use super::Session;
 
@@ -67,6 +80,68 @@ impl CacheRebuildState {
     }
 }
 
+/// The `turn_result` field a Claude turn's per-call count rides in to `rebuild_fields` (not kept).
+pub const CALLS_FIELD: &str = "callCacheRebuild";
+
+/// The tokens a call or turn wrote again that it could have read: the context before it was
+/// `previous`, it ended (or sent) `context`, and it wrote `written`. None when it was warm, or the
+/// context is too small to flag.
+pub fn rebuilt(previous: u64, context: u64, written: u64) -> Option<u64> {
+    let r = written.saturating_sub(context.saturating_sub(previous)).min(previous);
+    (previous >= MIN_CONTEXT && r >= previous / 2).then_some(r)
+}
+
+/// One turn's main-loop calls that wrote again a context they could have read (module docs).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CallRebuilds {
+    pub tokens: u64,
+    /// The hour-long share of `tokens`, by each call's own tier split.
+    pub tokens_1h: u64,
+    pub by_cause: BTreeMap<&'static str, u64>,
+    /// The longest gap before a call that rebuilt for `idle`.
+    pub idle_ms: u64,
+}
+
+impl CallRebuilds {
+    /// A main-loop call found `previous` tokens left by the call before, `gap_ms` after it
+    /// started, and sent a prompt of `prompt` tokens, of which it wrote `written` (`written_1h`
+    /// of them hour-long), with `compacted` a compaction since.
+    pub fn call(
+        &mut self,
+        previous: u64,
+        prompt: u64,
+        (written, written_1h): (u64, u64),
+        gap_ms: u64,
+        compacted: bool,
+    ) {
+        let Some(r) = rebuilt(previous, prompt, written) else { return };
+        let hour = written_1h.min(written).saturating_mul(2) > written;
+        let idle_after_ms = 1000 * if hour { IDLE_1H_S } else { IDLE_5M_S };
+        let cause = if compacted {
+            "compaction"
+        } else if gap_ms >= idle_after_ms {
+            self.idle_ms = self.idle_ms.max(gap_ms);
+            "idle"
+        } else {
+            "prefix"
+        };
+        let r_1h = (r as u128 * written_1h.min(written) as u128)
+            .checked_div(written as u128)
+            .unwrap_or(0) as u64;
+        self.tokens = self.tokens.saturating_add(r);
+        self.tokens_1h = self.tokens_1h.saturating_add(r_1h);
+        *self.by_cause.entry(cause).or_default() += r;
+    }
+
+    /// The turn's `_meta.claude.cacheRebuild`: its tokens, their hour-long share, the cause with
+    /// the most tokens, and the longest idle gap in seconds.
+    pub fn to_json(&self) -> Value {
+        let cause = self.by_cause.iter().max_by_key(|(_, n)| **n).map(|(c, _)| *c);
+        json!({"tokens": self.tokens, "tokens1h": self.tokens_1h, "cause": cause,
+               "idleSeconds": self.idle_ms / 1000})
+    }
+}
+
 fn usd(x: f64) -> f64 {
     (x * 1e6).round() / 1e6
 }
@@ -85,25 +160,38 @@ pub fn rebuild_fields(
         return (out, next);
     };
     next.last = Some(LastTurnCache { context_tokens: context, ended_ms: now_ms });
-    let Some(prev) = state.last else {
-        return (out, next);
-    };
-    let p = prev.context_tokens;
     let written = n("cacheWriteTokens").unwrap_or(0);
-    let rebuilt = written.saturating_sub(context.saturating_sub(p)).min(p);
-    if p < MIN_CONTEXT || rebuilt < p / 2 {
-        return (out, next);
-    }
     let written_1h = n("cacheWrite1hTokens").unwrap_or(0).min(written);
-    let share_1h = if written == 0 { 0.0 } else { written_1h as f64 / written as f64 };
-    let gap_s = now_ms.saturating_sub(prev.ended_ms) / 1000;
-    let idle_after = if share_1h > 0.5 { IDLE_1H_S } else { IDLE_5M_S };
-    let cause = if (context as f64) < COMPACTED * p as f64 {
-        "compaction"
-    } else if gap_s >= idle_after {
-        "idle"
-    } else {
-        "prefix"
+    // The turn rule: (tokens, hour-long share, cause, idle seconds).
+    let by_turn = state.last.and_then(|prev| {
+        let p = prev.context_tokens;
+        let rebuilt = rebuilt(p, context, written)?;
+        let share_1h = if written == 0 { 0.0 } else { written_1h as f64 / written as f64 };
+        let gap_s = now_ms.saturating_sub(prev.ended_ms) / 1000;
+        let idle_after = if share_1h > 0.5 { IDLE_1H_S } else { IDLE_5M_S };
+        let cause = if (context as f64) < COMPACTED * p as f64 {
+            "compaction"
+        } else if gap_s >= idle_after {
+            "idle"
+        } else {
+            "prefix"
+        };
+        Some((rebuilt, share_1h, cause.to_owned(), gap_s))
+    });
+    // The per-call count, when the harness named each call's usage.
+    let by_call = fields.get(CALLS_FIELD).and_then(|c| {
+        let tokens = c.get("tokens").and_then(Value::as_u64).filter(|t| *t > 0)?;
+        let t_1h = c.get("tokens1h").and_then(Value::as_u64).unwrap_or(0).min(tokens);
+        let cause = c.get("cause").and_then(Value::as_str).unwrap_or("prefix").to_owned();
+        let idle_s = c.get("idleSeconds").and_then(Value::as_u64).unwrap_or(0);
+        Some((tokens, t_1h as f64 / tokens as f64, cause, idle_s))
+    });
+    let best = match (by_turn, by_call) {
+        (Some(t), Some(c)) => Some(if c.0 >= t.0 { c } else { t }),
+        (t, c) => t.or(c),
+    };
+    let Some((rebuilt, share_1h, cause, gap_s)) = best else {
+        return (out, next);
     };
     out.insert("cacheRebuildTokens".into(), json!(rebuilt));
     out.insert("cacheRebuildCause".into(), json!(cause));
@@ -131,6 +219,7 @@ pub(super) fn add_cache_rebuild(session: &Session, msg: &mut Map<String, Value>)
     let now_ms = crate::store::now_ms();
     let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
     let (fields, next) = rebuild_fields(msg, now_ms, meta.cache_rebuild);
+    msg.remove(CALLS_FIELD);
     meta.cache_rebuild = next;
     drop(meta);
     msg.extend(fields);

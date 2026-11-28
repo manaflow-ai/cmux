@@ -97,3 +97,68 @@ fn a_turn_without_context_keeps_the_last_one() {
     assert!(out.is_empty());
     assert_eq!(next, after(100_000, MIN));
 }
+
+#[test]
+fn a_call_is_judged_by_the_same_rule_and_its_own_cause() {
+    let mut r = CallRebuilds::default();
+    r.call(100_000, 110_000, (11_000, 11_000), MIN, false);
+    assert_eq!(r, CallRebuilds::default(), "warm: wrote what grew");
+    r.call(100_000, 101_000, (101_000, 101_000), 40 * MIN, false);
+    r.call(101_000, 102_000, (102_000, 0), 2 * MIN, false);
+    // A compaction to 30k that wrote 60k: at least half the old context written again.
+    r.call(100_000, 30_000, (60_000, 60_000), MIN, true);
+    assert_eq!(r.by_cause["idle"], 100_000);
+    assert_eq!(r.by_cause["prefix"], 101_000);
+    assert_eq!(r.by_cause["compaction"], 60_000);
+    assert_eq!(r.tokens, 261_000);
+    assert_eq!(r.tokens_1h, 160_000);
+    assert_eq!(r.idle_ms, 40 * MIN);
+    let j = r.to_json();
+    assert_eq!((j["cause"].clone(), j["idleSeconds"].clone()), (json!("prefix"), json!(2400)));
+    // A 5-minute write is cold after 5 minutes; a small context is not flagged.
+    let mut five = CallRebuilds::default();
+    five.call(100_000, 100_000, (100_000, 0), 6 * MIN, false);
+    five.call(10_000, 10_000, (10_000, 0), 90 * MIN, false);
+    assert_eq!(five.by_cause.get("idle"), Some(&100_000));
+    assert_eq!(five.tokens, 100_000);
+}
+
+#[test]
+fn a_turns_calls_count_every_cold_call_where_its_sums_count_one() {
+    // Two cold calls inside a warm-looking turn: the sums net out to under half the context.
+    let mut fields = turn(110_000, 60_000, 60_000);
+    fields.insert(
+        CALLS_FIELD.into(),
+        json!({"tokens": 200_000, "tokens1h": 200_000, "cause": "idle", "idleSeconds": 2400}),
+    );
+    let (out, next) = rebuild_fields(&fields, 3 * MIN, after(100_000, MIN));
+    assert_eq!(out["cacheRebuildTokens"], json!(200_000));
+    assert_eq!(out["cacheRebuildCause"], json!("idle"));
+    assert_eq!(out["cacheIdleSeconds"], json!(2400));
+    let (_, p) = crate::pricing::table().lookup(MODEL).unwrap();
+    let want = 200_000.0 * (p.cache_write_1h_rate() - p.cache_read.unwrap()) / 1e6;
+    assert!((out["cacheRebuildUsd"].as_f64().unwrap() - want).abs() < 1e-6);
+    assert!(next.total_usd.is_some());
+}
+
+#[test]
+fn the_turn_rule_still_counts_what_the_calls_could_not_see() {
+    // A cold first call after acpmux restarted has no call before it: the calls say 0, the turn
+    // rule against the kept last turn says 100k.
+    let mut fields = turn(110_000, 110_000, 110_000);
+    fields.insert(
+        CALLS_FIELD.into(),
+        json!({"tokens": 0, "tokens1h": 0, "cause": null, "idleSeconds": 0}),
+    );
+    let (out, _) = rebuild_fields(&fields, 41 * MIN, after(100_000, MIN));
+    assert_eq!(out["cacheRebuildTokens"], json!(100_000));
+    assert_eq!(out["cacheRebuildCause"], json!("idle"));
+    // And a first turn the calls count is flagged even with no turn before it.
+    let mut first = turn(120_000, 120_000, 120_000);
+    first.insert(
+        CALLS_FIELD.into(),
+        json!({"tokens": 50_000, "tokens1h": 0, "cause": "prefix", "idleSeconds": 0}),
+    );
+    let (out, _) = rebuild_fields(&first, MIN, Default::default());
+    assert_eq!(out["cacheRebuildTokens"], json!(50_000));
+}

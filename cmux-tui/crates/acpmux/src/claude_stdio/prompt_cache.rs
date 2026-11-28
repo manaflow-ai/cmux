@@ -67,6 +67,8 @@ pub(super) struct CacheClock {
     turn_misses: StdMutex<TurnMisses>,
     /// Every main-loop call's cache fault class so far (RFD 0182 B6, `cache_faults.rs`).
     faults: StdMutex<super::cache_faults::FaultCounts>,
+    /// This turn's calls that wrote again a context they could have read (`hub/cache_rebuild.rs`).
+    turn_rebuilds: StdMutex<crate::hub::cache_rebuild::CallRebuilds>,
 }
 
 /// One turn's main-loop calls that missed the cache, by cause (RFD 0158 §1). A miss with no
@@ -163,6 +165,18 @@ impl CacheClock {
         if let Some(milli) = (read * 1000).checked_div(prompt) {
             self.hit_milli.store(milli + 1, Ordering::SeqCst);
         }
+        let gap = if previous_at == 0 { 0 } else { at_ms.saturating_sub(previous_at) };
+        let write_1h = usage
+            .pointer("/cache_creation/ephemeral_1h_input_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        self.turn_rebuilds.lock().unwrap_or_else(|e| e.into_inner()).call(
+            context,
+            prompt,
+            (write, write_1h),
+            gap,
+            compacted,
+        );
         // Only a chat whose calls use the cache misses it.
         let caching = self.ttl_ms.load(Ordering::SeqCst) > 0;
         if !caching {
@@ -179,7 +193,6 @@ impl CacheClock {
             turn.unread_tokens = turn.unread_tokens.saturating_add(context.saturating_sub(read));
         }
         let fault = super::cache_faults::classify(previous_at == 0, context, read, cause);
-        let gap = if previous_at == 0 { 0 } else { at_ms.saturating_sub(previous_at) };
         self.faults.lock().unwrap_or_else(|e| e.into_inner()).record(
             fault,
             context.saturating_sub(read),
@@ -233,6 +246,11 @@ impl CacheClock {
     /// This turn's misses, and the next turn counts its own.
     pub(super) fn take_turn_misses(&self) -> TurnMisses {
         std::mem::take(&mut *self.turn_misses.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+
+    /// This turn's per-call cache rebuilds, and the next turn counts its own.
+    pub(super) fn take_turn_rebuilds(&self) -> crate::hub::cache_rebuild::CallRebuilds {
+        std::mem::take(&mut *self.turn_rebuilds.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     pub(super) fn expires_at(&self) -> Option<u64> {
