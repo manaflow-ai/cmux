@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextIcons
 public import CmuxNextSettings
 import ImageIO
 import QuartzCore
@@ -260,8 +261,8 @@ final class ComputerUseFloatingPreviewView: NSView {
     var onAspect: ((CGFloat) -> Void)?
     private let frameLayer = CALayer()
     private let pointerLayer = CALayer()
-    private let closeButton = ComputerUseFloatingPreviewButton(symbol: "xmark")
-    private let expandButton = ComputerUseFloatingPreviewButton(symbol: "arrow.up.left.and.arrow.down.right")
+    private let closeButton = ComputerUseFloatingPreviewButton(icon: .actionClose)
+    private let expandButton = ComputerUseFloatingPreviewButton(icon: .viewExpand)
     private var card: ComputerUseFloatingPreview.Card?
     private var decoding: String?
     private var aspect: CGFloat = 0
@@ -372,9 +373,10 @@ final class ComputerUseFloatingPreviewView: NSView {
 /// A round button over the picture that works on the first click of a panel that is never key.
 @MainActor
 final class ComputerUseFloatingPreviewButton: NSButton {
-    init(symbol: String) {
+    /// The pack's drawing, as the terminal pane's twin card draws its close and full-size buttons.
+    init(icon: IconName) {
         super.init(frame: .zero)
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        image = NSImage.icon(icon, size: 10)
         imagePosition = .imageOnly
         isBordered = false
         bezelStyle = .circular

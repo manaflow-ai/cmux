@@ -12,7 +12,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoPageView.swif
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserDownloadsPopup.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefMemoryPageService.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFloating/SleepyMode/SleepySceneView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultHostView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultListView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultRowView.swift
@@ -49,6 +48,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedPicker+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThinScrollers+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastModifier.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tooltip/ThemedHelpModifier.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextFloating/SleepyMode/SleepySceneView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Vault/VaultColors.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupAvatar.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupContactRow.swift

@@ -17,11 +17,12 @@ public nonisolated final class ColumnScrollState {
     /// A keyboard resize press that trades width between two columns (`PaneResize.press`): the next sync keeps this
     /// column where it shows and reveals nothing, so only the divider the press moves moves. That sync clears it.
     public var keptColumn: ColumnID?
-    private let handle: OpaquePointer
+    /// Null only for an unknown kind (`Scroll::new`), and 0 is the columns kind; every `cmux_scroll_*` call takes
+    /// a null handle as a no-op, so a strip that never got one stays still instead of trapping.
+    private let handle: OpaquePointer?
 
     public init() {
-        guard let handle = cmux_scroll_new(0) else { preconditionFailure("cmux_scroll_new") }
-        self.handle = handle
+        handle = cmux_scroll_new(0)
     }
 
     deinit { cmux_scroll_free(handle) }
@@ -96,7 +97,7 @@ public nonisolated final class ColumnScrollState {
 
     /// The strip as the request the reducer reads: ids as ranges into one byte buffer, panes in layout order then the
     /// panes that only have a frame.
-    private static func sync(_ handle: OpaquePointer, _ spring: inout CmuxScrollSpring, _ strip: ColumnStrip, focused: PaneID?,
+    private static func sync(_ handle: OpaquePointer?, _ spring: inout CmuxScrollSpring, _ strip: ColumnStrip, focused: PaneID?,
                              source: ColumnFocusSource, animated: Bool, reveals: Bool, anchor: ColumnID?, keepsView: Bool) -> CmuxScrollEffects {
         var bytes: [UInt8] = []
         func range(_ text: String?) -> CmuxScrollStr {

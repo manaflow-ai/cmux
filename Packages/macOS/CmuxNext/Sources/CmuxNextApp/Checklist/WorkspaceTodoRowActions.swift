@@ -4,7 +4,7 @@ import CmuxNextDaemon
 struct WorkspaceTodoRowActions {
     var toggle: @MainActor (String) -> Void
     var setState: @MainActor (String, WorkspaceChecklistItem.State) -> Void
-    var beginEdit: @MainActor (String) -> Void
+    var startEditing: @MainActor (String) -> Void
     var commitEdit: @MainActor (String, String) -> Void
     var cancelEdit: @MainActor () -> Void
     var attachImages: @MainActor (String) -> Void
