@@ -233,10 +233,27 @@ function shapedMiss(shaped: readonly AcpmuxRow[], open: ReadonlyMap<string, Acpm
     if (row.kind === "user") continue;
     const drew = open.get(row.id);
     if (!drew) return `absent:${row.kind}${row.id === LIVE_THINKING ? "(line)" : ""}`;
-    if (!sameShape(drew, row, COMPARE_DEPTH)) return `differs:${row.kind}`;
+    if (!sameShape(drew, row, COMPARE_DEPTH)) return `differs:${row.kind}@${diffPath(drew, row, COMPARE_DEPTH)}`;
     count += 1;
   }
   return `count:${count}/${open.size}`;
+}
+
+/// Debug: the first key path where `a` and `b` differ under `sameShape`.
+function diffPath(a: unknown, b: unknown, depth: number): string {
+  if (a === b) return "";
+  if (depth <= 0 || typeof a !== "object" || typeof b !== "object" || a === null || b === null) return "=";
+  const ka = Object.keys(a as object),
+    kb = Object.keys(b as object);
+  for (const key of new Set([...ka, ...kb])) {
+    const va = (a as Record<string, unknown>)[key],
+      vb = (b as Record<string, unknown>)[key];
+    if (!sameShape(va, vb, depth - 1)) {
+      const rest = diffPath(va, vb, depth - 1);
+      return rest === "=" || rest === "" ? key : `${key}.${rest}`;
+    }
+  }
+  return "proto";
 }
 
 /// A row of the open turn drew `row`: while calls are ahead of the pane, a row they moved that is not
