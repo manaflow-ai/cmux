@@ -91,4 +91,12 @@ struct CloudNewWorkspaceSettingTests {
         #expect(SettingsSchema.agentRefusedKeys["cloud.newWorkspacesInCloud"] != nil)
         #expect(SettingsSchema.agentRefusedKeys["cloud.newWorkspaceFolder"] != nil)
     }
+
+    /// Leo, 2026-11-27: "remember we need to be able to toggle a chat on and off of autocloud"; "IT JUST SIMPLY MUST BE AN OPTION."
+    @Test func autoCloudOffersEachChatLocalAndAutoAndCloudToggleAllThree() {
+        #expect(CmuxConfigSnapshot.placeModes(cloudToggle: false, autoCloud: false).isEmpty)
+        #expect(CmuxConfigSnapshot.placeModes(cloudToggle: false, autoCloud: true) == ["local", "auto"])
+        #expect(CmuxConfigSnapshot.placeModes(cloudToggle: true, autoCloud: false) == ["local", "cloud", "auto"])
+        #expect(CmuxConfigSnapshot.placeModes(cloudToggle: true, autoCloud: true) == ["local", "cloud", "auto"])
+    }
 }
