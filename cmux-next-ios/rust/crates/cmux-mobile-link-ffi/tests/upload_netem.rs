@@ -449,7 +449,8 @@ async fn upload_netem_cell() {
     let connect_ms = ms(connect_started);
     let (mut yes_workers, stop) = (Vec::new(), Arc::new(AtomicBool::new(false)));
     let progress = Arc::new(Progress::default());
-    let (mut finished, mut code, mut capped) = (false, String::new(), false);
+    let (mut finished, mut capped) = (false, false);
+    let code: String;
     let mut total_ms = 0;
     let started = Instant::now();
     match connected {
@@ -519,7 +520,7 @@ async fn upload_netem_cell() {
             match tokio::time::timeout(cap, engine(&engine_name)(job)).await {
                 Ok(Ok(())) => (finished, code) = (true, "ok".into()),
                 Ok(Err(error)) => {
-                    code = error.split(':').next().unwrap_or("error").to_owned() + &format!(" [{error}]")
+                    code = error.split(':').next().unwrap_or("error").to_owned() + &format!(" [{error}]");
                 }
                 Err(_) => (capped, code) = (true, format!("cap {} s", cap.as_secs())),
             }
