@@ -1412,3 +1412,80 @@ fn external_connect_request() -> ProviderRequest {
         mutation_id: id("connect-mutation"),
     })
 }
+
+/// hq RFD 0224: a provider that refuses the hello for its version is the typed refusal, from a
+/// provider from before the range (`unsupported_version`) and from one after it.
+#[test]
+fn hello_refused_for_its_version_is_a_typed_version_incompatible() {
+    for code in [ProviderErrorCode::UnsupportedVersion, ProviderErrorCode::VersionIncompatible] {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let sent_code = code.clone();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            let request: RequestEnvelope = read_test_frame(&mut reader);
+            let ProviderRequest::Hello(params) = &request.request else {
+                panic!("first request was not hello");
+            };
+            assert!(params.client.supported_versions.contains(&protocol::PROTOCOL_VERSION));
+            write_test_frame(
+                &mut stream,
+                &ResponseEnvelope::<HelloResult>::failure(
+                    request.id,
+                    ProviderError {
+                        code: sent_code,
+                        message: "provider speaks 7..=8".to_string(),
+                        retryable: false,
+                    },
+                ),
+            );
+        });
+        let error = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect_err("a version refusal must not authenticate");
+        let ProviderClientError::VersionIncompatible(refusal, Some(message)) = &error else {
+            panic!("expected the typed refusal for {code:?}, got {error:?}");
+        };
+        assert_eq!(refusal.ours, protocol::ProtocolRange::OURS);
+        assert_eq!(message, "provider speaks 7..=8");
+        let shown = error.to_string();
+        assert!(shown.contains("update cmux or machine provider"), "{shown}");
+        server.join().expect("join fake provider");
+    }
+}
+
+/// hq RFD 0224: a response from outside this build's range fails the request with the typed
+/// refusal naming the side to update, not a JSON decode error.
+#[test]
+fn a_response_from_outside_the_range_is_a_typed_version_incompatible() {
+    let socket = TestSocket::bind();
+    let listener = socket.listener();
+    let newer = protocol::PROTOCOL_MAX + 1;
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept control socket");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+        let request: RequestEnvelope = read_test_frame(&mut reader);
+        let line = format!(
+            "{{\"protocol\":\"cmux.machine-provider\",\"version\":{newer},\"id\":\"{}\",\
+             \"result\":{{\"provider_id\":\"p\",\"provider_name\":\"P\",\"negotiated_version\":{newer}}}}}\n",
+            request.id.as_str()
+        );
+        stream.write_all(line.as_bytes()).expect("write newer frame");
+    });
+    let error = ProviderClient::connect_authenticated(
+        &socket.path,
+        token("provider-secret"),
+        client_descriptor(),
+    )
+    .expect_err("a frame from outside the range must not authenticate");
+    let ProviderClientError::VersionIncompatible(refusal, None) = &error else {
+        panic!("expected the typed refusal, got {error:?}");
+    };
+    assert_eq!(refusal.update(), protocol::UpdateSide::This);
+    assert_eq!(refusal.action(), "update cmux");
+    server.join().expect("join fake provider");
+}
