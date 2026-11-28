@@ -603,6 +603,15 @@ fi
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_SHELL_ACTIVITY_LAST="${_CMUX_SHELL_ACTIVITY_LAST:-}"
+# The preexec "running" report needs the PS0 hook, which Bash only expands
+# from 4.4. Older shells never leave the idle state once a prompt is shown, so
+# they must not report "prompt" either; the app then keeps the tab's activity
+# state unknown and falls back to its own close-confirmation check.
+if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
+    _CMUX_BASH_PREEXEC_AVAILABLE=1
+else
+    _CMUX_BASH_PREEXEC_AVAILABLE=0
+fi
 _CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
 _CMUX_TTY_REPORTED="${_CMUX_TTY_REPORTED:-0}"
 _CMUX_TMUX_PUSH_SIGNATURE="${_CMUX_TMUX_PUSH_SIGNATURE:-}"
@@ -1528,7 +1537,8 @@ _cmux_prompt_command() {
         _cmux_reset_terminal_keyboard_protocols
     fi
     if [[ -n "$CMUX_PANEL_ID" ]] || (( ! cmux_has_unix_socket )); then
-        _cmux_report_shell_activity_state prompt
+        (( _CMUX_BASH_PREEXEC_AVAILABLE )) \
+            && _cmux_report_shell_activity_state prompt
     fi
     _cmux_report_tty_once
 
