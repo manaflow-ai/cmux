@@ -1310,6 +1310,28 @@ NUMBER = r"[0-9]{1,9}"
 HOST_ARGS = {"--resolution-ladder": None, "--max-qp": NUMBER, "--max-kbps": NUMBER,
              "--stats-every-ms": NUMBER}
 VIEWER_ARGS = {"--caps": r"[a-z0-9._-]+(,[a-z0-9._-]+)*"}
+# `run --host-env NAME=VALUE`: the only environment a run sets on `cmux-rd serve` beyond its own
+# timing and loss variables, checked here and again by the rig. Both are cmux-rd-host's
+# measurement switches (mac/capture.rs): the ScreenCaptureKit surface-pool depth, and the raise of
+# the captured display to its fastest refresh for the serve process.
+HOST_ENV = {"CMUX_RD_SCK_QUEUE_DEPTH": r"[3-8]", "CMUX_RD_MAC_MAX_REFRESH": r"[01]"}
+
+
+def checked_env(items):
+    """{NAME: VALUE} for ITEMS (`NAME=VALUE`), each NAME in HOST_ENV with a VALUE matching its
+    pattern, none twice; anything else raises ValueError."""
+    env = {}
+    for item in items or []:
+        name, sep, value = str(item).partition("=")
+        if name not in HOST_ENV:
+            raise ValueError(f"--host-env {item!r}: {name} is not allowed "
+                             f"(allowed: {', '.join(sorted(HOST_ENV))})")
+        if not sep or not re.fullmatch(HOST_ENV[name], value):
+            raise ValueError(f"--host-env {item!r}: {name} needs a value matching {HOST_ENV[name]}")
+        if name in env:
+            raise ValueError(f"--host-env {item!r}: {name} given twice")
+        env[name] = value
+    return env
 
 
 def test_loss_pct(value):
@@ -1429,6 +1451,7 @@ def cmd_rig(args):
                     socket.inet_aton(bind)  # an IPv4 literal, or this request fails
                     argv += ["--link-bind", f"{bind}:0"]
                 env = dict(os.environ)
+                env.update(checked_env(req.get("env")))  # refused, not dropped
                 if req.get("test_loss_pct") is not None:
                     env["CMUX_RD_TEST_LOSS_PCT"] = test_loss_pct(req["test_loss_pct"])
                 if req.get("timing"):
@@ -2533,6 +2556,7 @@ class Orchestrator:
             loss = getattr(args, "host_test_loss", None)
             self.host_test_loss = test_loss_pct(loss) if loss is not None else None
             self.host_argv = checked_args(self.host_args, HOST_ARGS, "host")
+            self.host_env = checked_env(getattr(args, "host_env", None))
             self.viewer_argv = checked_args(self.viewer_args, VIEWER_ARGS, "viewer")
         except ValueError as e:
             raise SystemExit(str(e))
@@ -2569,7 +2593,8 @@ class Orchestrator:
     def log(self, rec):
         pct = getattr(self, "host_test_loss", None)
         loss = {"host_test_loss_pct": float(pct)} if pct else {}
-        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args, **loss})
+        env = {"host_env": self.host_env} if getattr(self, "host_env", None) else {}
+        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args, **loss, **env})
         print(line, flush=True)
         if self.out:
             self.out.write(line + "\n")
@@ -2769,6 +2794,7 @@ class Orchestrator:
                                                                  "flags": {"--profile": "high"},
                                                                  "args": self.host_args,
                                                                  "test_loss_pct": getattr(self, "host_test_loss", None),
+                                                                 "env": [f"{k}={v}" for k, v in self.host_env.items()],
                                                                  "link_bind": self.a.link_bind})))
             setup = {"session": session, "peer_key": viewer_key, "scope": "control", "stun": [],
                      "display": "main", "max_fps": self.a.max_fps,
@@ -3000,6 +3026,8 @@ class Orchestrator:
         pct = getattr(self, "host_test_loss", None)
         if pct:
             env += f"CMUX_RD_TEST_LOSS_PCT={shlex.quote(pct)} "
+        for name, value in self.host_env.items():
+            env += f"{name}={shlex.quote(value)} "
         err = shlex.quote(f"{self.root}/state/serve.err")
         return env + " ".join(shlex.quote(a) for a in argv) + f" 2> {err}"
 
@@ -3771,6 +3799,9 @@ def build_parser():
                    help="drop PCT %% of the host's video and parity datagrams (CMUX_RD_TEST_LOSS_PCT "
                         "on its `cmux-rd serve`): a loss leg with no dummynet hold and no sudo. Each "
                         "row records host_test_loss_pct")
+    r.add_argument("--host-env", action="append", metavar="NAME=VALUE",
+                   help="an environment variable on the host's `cmux-rd serve`, repeatable; only "
+                        + ", ".join(sorted(HOST_ENV)) + ". Each row records host_env")
     r.add_argument("--viewer-arg", action="append", metavar="ARG",
                    help="an extra `cmux-rd bench` flag for the viewer, repeatable, in the = form "
                         "(--viewer-arg=--caps=video.scaled); only " + ", ".join(sorted(VIEWER_ARGS)))

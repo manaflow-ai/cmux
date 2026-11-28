@@ -92,6 +92,10 @@ FAKE_FORK_SILENT=1: the agent never answers session/fork, and goes on answering 
 FAKE_FORK_DELAY_MS=<ms>: the agent answers session/fork that long after it read it, and goes on
 answering everything else meanwhile.
 
+FAKE_FORK_BUSY=1: session/fork as OpenCode 1.19 answers it: only once no prompt of this process
+runs, and of any session id (its sessions are in a store every process of it reads), the new id
+unique across processes. FAKE_FORK_LOG=<path>: each session/new, session/load and session/fork
+appends {"pid", "method", "sessionId"} as one JSON line.
 FAKE_FORK_REPLAY=1: before it answers session/fork, the agent replays the forked conversation as
 session/updates under the NEW session's id (a prompt, a thought, a tool call, a reply, its
 commands), as OpenCode 1.19's forkSession does (its replayMessages).
@@ -168,6 +172,20 @@ if os.environ.get("FAKE_REEXEC_WITHOUT"):
               {k: v for k, v in os.environ.items() if k not in _drop})
 
 lock = threading.Lock()
+# FAKE_FORK_BUSY=1: the prompts of this process running now.
+running_prompts = [0]
+
+
+def counted(target):
+    def run(rid, params):
+        with lock:
+            running_prompts[0] += 1
+        try:
+            target(rid, params)
+        finally:
+            with lock:
+                running_prompts[0] -= 1
+    return run
 # FAKE_CAPACITY_FILE: how many prompts the storm refused, to rotate its errors.
 capacity_storm = [0]
 cancelled = set()
@@ -2494,6 +2512,9 @@ def main():
             sys.stderr.flush()
             sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
+            if os.environ.get("FAKE_FORK_LOG"):
+                with open(os.environ["FAKE_FORK_LOG"], "a") as log:
+                    log.write(json.dumps({"pid": os.getpid(), "method": m, "sessionId": params.get("sessionId")}) + "\n")
             LAST_MCP_SERVERS = params.get("mcpServers")
             # FAKE_MCP_OUT=<dir>: each start writes the servers it was given to <dir>/<pid>.json.
             if os.environ.get("FAKE_MCP_OUT"):
@@ -2819,6 +2840,16 @@ def main():
                 continue
             sessions += 1
             result = {"sessionId": f"{SESSION_PREFIX}{sessions}"}
+            if os.environ.get("FAKE_FORK_BUSY") == "1":
+                result = {"sessionId": f"{params['sessionId']}-fork-{os.getpid()}-{sessions}"}
+
+                def answer_when_idle(reply={"jsonrpc": "2.0", "id": rid, "result": result}):
+                    import time as clock  # main() binds `time` locally
+                    while running_prompts[0] > 0:
+                        clock.sleep(0.02)
+                    send(reply)
+                threading.Thread(target=answer_when_idle, daemon=True).start()
+                continue
             if os.environ.get("FAKE_FORK_REPLAY") == "1":
                 new_sid = result["sessionId"]
                 update(new_sid, {"sessionUpdate": "available_commands_update", "availableCommands": []})
@@ -2900,7 +2931,7 @@ def main():
                 target = codex_store_prompt
             if CLAUDE_STORE and params.get("sessionId") in claude_files:
                 claude_write(params["sessionId"], {"type": "fake-prompt", "text": prompt_text(params)})
-            threading.Thread(target=target, args=(rid, params), daemon=True).start()
+            threading.Thread(target=counted(target), args=(rid, params), daemon=True).start()
             # FAKE_ASK_HOLDS_STDIN=<path>: after an "ask:" prompt, read nothing more until that
             # file exists: a long answer then waits in the agent host's stdin writer, as it does
             # for a harness that stopped reading.
