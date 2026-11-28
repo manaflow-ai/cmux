@@ -428,11 +428,11 @@ jobs:
         id: rustfmt-check
         working-directory: cmux-tui
         run: |
-          # A crate whose tests/ files are modules of one `it` binary (tests/it/main.rs, #56677) reaches
-          # them through a generated list cargo fmt cannot follow, so they are named to rustfmt.
-          fmt_tests=()
-          for it_main in crates/*/tests/it/main.rs; do [[ -f "$it_main" ]] && fmt_tests+=("${it_main%/it/main.rs}"/*.rs); done
-          if ! cargo fmt --check ${fmt_tests[@]+-- "${fmt_tests[@]}"}; then
+          # Generated test modules need separate rustfmt calls with each owning crate's edition.
+          fmt_failed=0
+          cargo fmt --check || fmt_failed=1
+          python3 ../.github/scripts/cmux-tui-fmt-changed.py --it-tests-only || fmt_failed=1
+          if [[ "$fmt_failed" == 1 ]]; then
             echo "unformatted=true" >> "$GITHUB_OUTPUT"
             echo "::warning title=cmux-tui rustfmt::cmux-tui is not rustfmt-clean; run cargo fmt in cmux-tui"
             [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1
@@ -442,9 +442,8 @@ jobs:
         if: ${{ !cancelled() && steps.rustfmt-check.outputs.unformatted == 'true' }}
         working-directory: cmux-tui
         run: |
-          fmt_tests=()
-          for it_main in crates/*/tests/it/main.rs; do [[ -f "$it_main" ]] && fmt_tests+=("${it_main%/it/main.rs}"/*.rs); done
-          cargo fmt ${fmt_tests[@]+-- "${fmt_tests[@]}"}
+          cargo fmt
+          python3 ../.github/scripts/cmux-tui-fmt-changed.py --it-tests-only --fix
           git diff --binary -- . > "$RUNNER_TEMP/rustfmt.patch"
           # The later lint and test steps check the commit as pushed, not the reformatted tree.
           git checkout -- .
