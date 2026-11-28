@@ -241,8 +241,28 @@ pub fn screen_host_installed(config_home: &std::path::Path) -> bool {
     config_home.join("systemd").join("user").join(SCREEN_HOST_UNIT).is_file()
 }
 
+/// Where a person picks their own machine's glyph, under the config home: one wire name
+/// (`mac-studio`, `linux-server`, `ipad`...) in `cmux/device-kind`. Leo, 2026-10-20: "if you want to
+/// add your own icon for your machine, sure".
+pub const CHOSEN_KIND_FILE: &str = "cmux/device-kind";
+
+/// The kind a person chose for this machine under `config_home` ([`CHOSEN_KIND_FILE`]); none when
+/// the file is absent, empty or names no kind (a typo keeps the detected glyph, never `generic`).
+pub fn chosen_kind_in(config_home: &std::path::Path) -> Option<DeviceKind> {
+    let text = std::fs::read_to_string(config_home.join(CHOSEN_KIND_FILE)).ok()?;
+    let name = text.trim();
+    DeviceKind::ALL.into_iter().find(|k| k.as_str() == name)
+}
+
+/// The kind every view of this machine draws: the one its person chose ([`chosen_kind_in`]),
+/// else what the hardware says ([`this_device`]). Read on every ask (one small read), so a pick
+/// shows without a restart. Only the glyph follows the pick: what Screen Sharing offers reads the
+/// hardware's own kind.
+pub fn shown_kind() -> DeviceKind {
+    user_config_home().and_then(|home| chosen_kind_in(&home)).unwrap_or_else(|| this_device().kind)
+}
+
 /// This user's config home (`$XDG_CONFIG_HOME`, else `$HOME/.config`), as `cmux-rd` resolves it.
-#[cfg(target_os = "linux")]
 fn user_config_home() -> Option<std::path::PathBuf> {
     match std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
         Some(dir) => Some(dir.into()),

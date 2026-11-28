@@ -28,6 +28,18 @@ extension AgentPaneView {
         }
     }
 
+    /// The page's last error boundary caught a render error (`pane.renderFailed`, webviews PaneBoundary.tsx). React
+    /// took the whole app down with it, so the document draws nothing (the window's wallpaper through a clear page) until
+    /// the boundary's retry reloads it, a second at first and longer on each failure in a row. That empty page was the
+    /// blank pane Leo saw, then the bare `location.reload()` (Leo, 2026-11-22: "the agent pane just blanked out entirely
+    /// yet again. i dont know what that was, some sort of ultra hard reload?"). The pane keeps its last frame over it
+    /// now (the loading state when it has none) until the reloaded document paints, as for every other new document;
+    /// the remembered frame is from before the failure (none is taken while a cover shows).
+    func pageRenderFailed() {
+        documentCoverLogger.error("agent pane page render failed; covering it session=\(self.model.sessionId ?? "none", privacy: .public) engine=\(self.engineName, privacy: .public)")
+        coverNewDocument(.renderFailed)
+    }
+
     /// Puts the cover over a page that drew before: its last frame when it has one of this size and look,
     /// else the loading state. `onlyWithPicture`: nothing without a picture (the old document still draws).
     func coverNewDocument(_ cause: AgentPaneDocumentCover.Cause, onlyWithPicture: Bool = false, afterCommit: Bool = false) {

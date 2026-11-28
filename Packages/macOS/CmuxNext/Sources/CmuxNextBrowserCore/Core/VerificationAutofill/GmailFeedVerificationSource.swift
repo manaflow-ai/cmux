@@ -2,7 +2,7 @@ public import Foundation
 
 /// Fetches one Gmail inbox feed with the Google sign-in the person already has in cmux's
 /// browser: the seam ``GmailFeedVerificationSource`` reads through, so tests pass a fake.
-public protocol GmailFeedFetching: Sendable {
+public nonisolated protocol GmailFeedFetching: Sendable {
     /// GETs `https://mail.google.com/mail/u/<index>/feed/atom` with the browser profile's
     /// cookies and returns the body.
     /// - Parameter accountIndex: Gmail's signed-in account slot (`/u/0`, `/u/1`, ...).

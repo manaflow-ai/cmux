@@ -6,6 +6,7 @@
 // holds it here. One page holds one pick, as cloudModePick.ts holds the mode; a start that opens its
 // chat closes this page.
 import { useSyncExternalStore } from "react";
+import { rememberCloudPick } from "./cloudLastPick";
 
 export type CloudAgentPick = { harness: string; model?: string };
 
@@ -16,10 +17,12 @@ function emit() {
   for (const listener of listeners) listener();
 }
 
-/** Holds `pick` for the next Cloud start; a later pick replaces it. */
+/** Holds `pick` for the next Cloud start; a later pick replaces it. It is also Cloud's remembered
+ * pick (cloudLastPick.ts), the next Cloud page's, never This Mac's (lastPick.ts). */
 export function holdCloudAgentPick(pick: CloudAgentPick): void {
   if (!pick.harness) return;
   held = pick.model ? { harness: pick.harness, model: pick.model } : { harness: pick.harness };
+  rememberCloudPick(held);
   emit();
 }
 

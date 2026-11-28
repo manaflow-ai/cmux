@@ -19,7 +19,7 @@
 //!   `start_session` tool call. A person, the app and a script outside a chat
 //!   are never refused.
 //! - The limit: `ACPMUX_MAX_LANE_SESSIONS`, else the setting
-//!   `agents.subsessions.maxLaneSessions`, else [`DEFAULT_MAX`]; at most
+//!   `agents.subsessions.maxLaneSessions`, else none ([`NO_CAP`]: the cap is opt-in); at most
 //!   [`CEILING`]. A forced create (`acpmux new --force-admit`) goes past it
 //!   with a warning.
 
@@ -33,7 +33,8 @@ use std::collections::HashSet;
 pub(crate) const REASON: &str = "lane.fanout_cap";
 pub(crate) const SETTING: &str = "agents.subsessions.maxLaneSessions";
 pub(crate) const ENV: &str = "ACPMUX_MAX_LANE_SESSIONS";
-pub(crate) const DEFAULT_MAX: u32 = 32;
+/// No limit: nobody set one. A cap on a person's agents is the fleet's choice, not a default.
+pub(crate) const NO_CAP: u32 = u32::MAX;
 pub(crate) const CEILING: u32 = 1000;
 /// A link loop (a moved chat whose parent id came back) ends the walk here.
 const MAX_WALK: usize = 1024;
@@ -65,7 +66,7 @@ pub(crate) fn lane_of(links: &HashMap<String, Option<String>>, id: &str) -> Stri
     at
 }
 
-/// The limit in force: env, then setting, then default; within 1..=CEILING.
+/// The limit in force: env, then setting, else none; a set one is within 1..=CEILING.
 pub(crate) fn max_from(env: Option<&str>, setting: Option<u32>) -> (u32, &'static str) {
     if let Some(n) = env.and_then(|v| v.trim().parse::<u32>().ok()) {
         return (n.clamp(1, CEILING), "env");
@@ -73,7 +74,7 @@ pub(crate) fn max_from(env: Option<&str>, setting: Option<u32>) -> (u32, &'stati
     if let Some(n) = setting {
         return (n.clamp(1, CEILING), "settings");
     }
-    (DEFAULT_MAX, "default")
+    (NO_CAP, "default")
 }
 
 fn max() -> (u32, &'static str) {

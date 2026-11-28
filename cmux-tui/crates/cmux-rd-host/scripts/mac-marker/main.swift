@@ -148,9 +148,16 @@ final class KeyWindow: NSWindow {
     override var canBecomeMain: Bool { true }
 }
 
+log("marker: starting pid \(getpid())")
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
-let screen = NSScreen.main!
+// No `NSScreen.main!`: in an -O build a nil force-unwrap traps without a word, which the rig read
+// as an empty marker.log. A session with no display (display asleep, no monitor, no window-server
+// login) says so and exits 3.
+guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+    log("marker: no display (NSScreen.screens is empty: display asleep, no monitor, or no window-server session)")
+    exit(3)
+}
 let frame = screen.frame
 
 var motion: MotionView?
@@ -197,7 +204,10 @@ if let motion {
 }
 log("marker-origin 0,\(originY) click-at \(32 * (cells + padCells / 2)),\(originY + 16)")
 log("marker: stream width \(streamed) px, cell \(marker.cell) pt, display \(frame.size)")
-log("refresh-hz \(screen.maximumFramesPerSecond)")
+// The screen's top rate and the current mode's rate: the composite waits one refresh, so a
+// 30 Hz mode doubles the Screen stage. screen-share-vs.py records both on every row.
+let modeHz = CGDisplayCopyDisplayMode(screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? CGMainDisplayID())?.refreshRate ?? 0
+log("refresh-hz \(screen.maximumFramesPerSecond) mode-hz \(Int(modeHz.rounded()))")
 marker.frame = NSRect(origin: .zero, size: window.frame.size)
 window.contentView = marker
 // Above every app window, so test clicks land only on the marker.

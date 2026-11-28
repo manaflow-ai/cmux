@@ -379,6 +379,88 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
+class _LimitHandler(http.server.BaseHTTPRequestHandler):
+    """Refuses the tokens in `spent` for the rate limit (403, X-RateLimit-Remaining 0) and answers the rest."""
+    spent = set()
+    seen = []
+
+    def do_GET(self):
+        auth = self.headers.get("Authorization", "")
+        _LimitHandler.seen.append(auth)
+        if auth.removeprefix("Bearer ") in _LimitHandler.spent:
+            body = b'{"message": "API rate limit exceeded for installation"}'
+            self.send_response(403)
+            self.send_header("X-RateLimit-Remaining", "0")
+            self.send_header("X-RateLimit-Reset", str(int(__import__("time").time()) + 120))
+        elif self.path == "/forbidden":
+            body = b'{"message": "Resource not accessible by integration"}'
+            self.send_response(403)
+            self.send_header("X-RateLimit-Remaining", "4000")
+        else:
+            body = json.dumps({"ok": auth}).encode()
+            self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    do_PATCH = do_GET
+
+    def log_message(self, *a):
+        pass
+
+
+class TokenWalkTests(unittest.TestCase):
+    """cmux#24569, 2026-11-27: the repo's GITHUB_TOKEN hour was spent from 12:20Z, every tick's artifacts read got 403
+    and the cron read no state for hours while the CI pool Apps had their own hours."""
+
+    def setUp(self):
+        _LimitHandler.spent, _LimitHandler.seen = set(), []
+        cron.SPENT_TOKENS.clear()
+        self.addCleanup(cron.SPENT_TOKENS.clear)
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _LimitHandler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.shutdown)
+        env = {"GH_TOKEN": "job", "PERF_CRON_POOL_TOKENS": "pool1 pool2",
+               "GITHUB_API_URL": f"http://127.0.0.1:{self.server.server_port}"}
+        patcher = mock.patch.dict(os.environ, env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_spent_job_token_reads_with_the_next_pool_token_and_is_not_tried_again(self):
+        _LimitHandler.spent = {"job"}
+        self.assertEqual(cron.gh_request("/state"), {"ok": "Bearer pool1"})
+        self.assertEqual(cron.gh_request("/state"), {"ok": "Bearer pool1"})
+        self.assertEqual(_LimitHandler.seen, ["Bearer job", "Bearer pool1", "Bearer pool1"])
+
+    def test_every_token_spent_is_rate_limited_with_a_wait(self):
+        _LimitHandler.spent = {"job", "pool1", "pool2"}
+        with self.assertRaises(cron.RateLimited) as caught:
+            cron.gh_request("/state")
+        self.assertIn("each of 3 tokens", str(caught.exception))
+        self.assertIsNotNone(caught.exception.wait)
+        with self.assertRaises(cron.RateLimited):
+            cron.gh_request("/state")
+        self.assertEqual(len(_LimitHandler.seen), 3)
+
+    def test_a_refusal_that_is_not_the_limit_does_not_walk(self):
+        with self.assertRaises(cron.urllib.error.HTTPError):
+            cron.gh_request("/forbidden")
+        self.assertEqual(_LimitHandler.seen, ["Bearer job"])
+
+    def test_without_pool_tokens_a_spent_job_token_is_rate_limited_as_before(self):
+        _LimitHandler.spent = {"job"}
+        with mock.patch.dict(os.environ, {"PERF_CRON_POOL_TOKENS": ""}):
+            with self.assertRaises(cron.RateLimited) as caught:
+                cron.gh_request("/state")
+        self.assertNotIn("each of", str(caught.exception))
+
+    def test_a_write_stays_on_the_job_token(self):
+        _LimitHandler.spent = {"job"}
+        with self.assertRaises(cron.RateLimited):
+            cron.gh_request("/state", method="PATCH", body={})
+        self.assertEqual(_LimitHandler.seen, ["Bearer job"])
+
+
 class FetchStateTests(unittest.TestCase):
     def setUp(self):
         _Handler.seen = []

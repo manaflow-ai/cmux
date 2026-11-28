@@ -2,7 +2,7 @@
 // off-white ink (#ececec), a neutral gray selection and white as the accent.
 {
   "name": "Halo Dark",
-  "description": "Near-monochrome black: a near-black page, a darker sidebar, off-white ink, no accent color.",
+  "description": "Dark: nearly all black, no accent color.",
 
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.

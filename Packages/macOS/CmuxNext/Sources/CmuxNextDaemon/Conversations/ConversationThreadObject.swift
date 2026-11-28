@@ -22,16 +22,6 @@ public struct ConversationThreadObject: Codable, Sendable, Hashable {
     }
 }
 
-/// `conversation-link-resolve` (conversation-tree-v1): a permalink's conversation, message, the
-/// message's top thread root and the path from that root down to it.
-public struct ConversationLinkResolveRequest: DaemonRequest {
-    public typealias Response = ConversationLinkTarget
-    public static let command = "conversation-link-resolve"
-    public static let requiredCapability: String? = "conversation-tree-v1"
-    public var url: String
-    public init(url: String) { self.url = url }
-}
-
 public struct ConversationLinkTarget: Decodable, Sendable, Hashable {
     public var url: String
     public var message: ConversationMessage?

@@ -29,6 +29,15 @@
 //! heartbeat, about 10 s, plus [`PONG_TIMEOUT`]). Probed this way a death in
 //! those seconds is found within about `CHECK_INTERVAL + PONG_TIMEOUT`.
 //!
+//! A loop that did not run for longer than [`STALL`] (but less than
+//! [`RELAY_RETIRES_SILENT`]) with a ping out has not been listening: the
+//! answer may be sitting in the socket, and a just-restored machine faults
+//! its memory back in and stalls for seconds while the daemon starts. Its
+//! next check is [`Check::Stalled`], and the ping gets a fresh
+//! [`PONG_TIMEOUT`] of awake time before it counts as unanswered, so a stall
+//! never reads as a dead registration (a dead one costs the dial attached
+//! to it 4 s or more, and a new ticket).
+//!
 //! The registration loop checks every [`CHECK_INTERVAL`], so a dead
 //! registration after a resume is found within about `CHECK_INTERVAL`. It
 //! then registers again with a fresh ticket ([`Retry`]): at once after a
@@ -41,10 +50,24 @@ use std::time::{Duration, SystemTime};
 
 use tokio::time::Instant;
 
+/// The longest `Retry-After` a registration honours; a relay that names more is waited out for
+/// this long and asked again.
+pub(super) const RETRY_AFTER_MAX: Duration = Duration::from_secs(60);
+
+/// A relay's `Retry-After` in whole seconds (the HTTP-date form is not used by our relays), at
+/// most [`RETRY_AFTER_MAX`]; None when absent or not a number.
+pub(super) fn retry_after_of(headers: &http::HeaderMap) -> Option<Duration> {
+    let seconds: u64 =
+        headers.get(http::header::RETRY_AFTER)?.to_str().ok()?.trim().parse().ok()?;
+    Some(Duration::from_secs(seconds).min(RETRY_AFTER_MAX))
+}
+
 /// How often the loop checks the clocks and an outstanding ping.
 pub(crate) const CHECK_INTERVAL: Duration = Duration::from_secs(1);
 /// How long a ping may go unanswered.
 pub(crate) const PONG_TIMEOUT: Duration = Duration::from_secs(3);
+/// A gap between two checks past this is the loop stalling, not listening.
+pub(crate) const STALL: Duration = Duration::from_secs(2);
 /// A wall-clock step beyond the monotonic clock that counts as a resume.
 pub(crate) const CLOCK_JUMP: Duration = Duration::from_secs(2);
 /// A pause longer than this outlived the registration: the relay retires a
@@ -75,6 +98,9 @@ pub(crate) enum Check {
     /// The machine resumed from a pause the registration did not survive:
     /// close it and register again at once.
     Resumed,
+    /// The loop did not run for this long with a ping out: the ping waits a
+    /// fresh [`PONG_TIMEOUT`] (the answer may be in the socket unread).
+    Stalled(Duration),
 }
 
 /// The wall clock against the monotonic clock: how far the wall clock moved
@@ -163,6 +189,10 @@ impl Liveness {
         if look.outlived_relay() {
             return Check::Resumed;
         }
+        if self.awaiting_since.is_some() && look.mono_step > STALL {
+            self.awaiting_since = Some(mono);
+            return Check::Stalled(look.mono_step);
+        }
         if self.awaiting_since.is_some_and(|since| mono.duration_since(since) >= PONG_TIMEOUT) {
             return Check::Dead;
         }
@@ -220,11 +250,18 @@ impl Backoff {
     }
 }
 
+/// The wait after a relay answers 503 or 429 (full, or rate limiting), before the first retry.
+pub(crate) const FIRST_BUSY_BACKOFF: Duration = Duration::from_secs(1);
+/// The longest wait between two registration attempts on a relay that keeps answering busy.
+pub(crate) const MAX_BUSY_BACKOFF: Duration = Duration::from_secs(60);
+
 /// How an attempt to register ended, for [`Retry::wait`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Ended {
     /// The relay refused or the socket failed.
     Relay,
+    /// The relay answered the upgrade 503 or 429, with its `Retry-After` when it sent one.
+    Busy { retry_after: Option<Duration> },
     /// The credential source (the ticket command) failed.
     Credential,
     /// The machine resumed: the registration from before the pause is gone.
@@ -237,17 +274,23 @@ pub(crate) enum Ended {
 #[derive(Debug)]
 pub(crate) struct Retry {
     relay: Backoff,
+    busy: Backoff,
     credential: Backoff,
 }
 
 impl Retry {
     pub(crate) fn new() -> Self {
-        Self { relay: Backoff::new(), credential: Backoff::credential() }
+        Self {
+            relay: Backoff::new(),
+            busy: Backoff::with_bounds(FIRST_BUSY_BACKOFF, MAX_BUSY_BACKOFF),
+            credential: Backoff::credential(),
+        }
     }
 
     /// A registration got ready (and may have ended since).
     pub(crate) fn ready(&mut self) {
         self.relay.reset();
+        self.busy.reset();
         self.credential.reset();
     }
 
@@ -257,6 +300,19 @@ impl Retry {
         match ended {
             Ended::Relay => self.relay.next(unit),
             Ended::Credential => self.credential.next(unit),
+            Ended::Busy { retry_after } => {
+                // Never under the relay's own word, and never in step with the other daemons
+                // it told the same: the jitter is on top of it, up to half again. Without a
+                // word, a doubling wait from 1 s to 60 s, at least half its ceiling (not the
+                // full jitter's near-zero draws, which kept a full relay full).
+                let ceiling = self.busy.ceiling;
+                self.busy.next(unit);
+                let own = ceiling / 2 + ceiling.mul_f64(unit.clamp(0.0, 1.0) / 2.0);
+                let told = retry_after.map_or(Duration::ZERO, |after| {
+                    after.min(RETRY_AFTER_MAX).mul_f64(1.0 + unit.clamp(0.0, 1.0) / 2.0)
+                });
+                own.max(told)
+            }
             Ended::Resumed => {
                 self.ready();
                 Duration::ZERO

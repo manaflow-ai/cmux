@@ -71,15 +71,6 @@ export function MessageFooterRow({ children, className }: { children: ReactNode;
   return <span className={["cv-message-footer-row", className].filter(Boolean).join(" ")}>{children}</span>;
 }
 
-/// The dot between a prompt's age and its buttons (Leo's spec for the row under a prompt).
-export function MessageDot() {
-  return (
-    <span className="cv-user__dot" aria-hidden="true">
-      ·
-    </span>
-  );
-}
-
 /// Copy through CopyButton (its name as a tooltip, a check once the clipboard took the text), at the
 /// row's compact size. The message goes as Claude's and ChatGPT's do: its Markdown as the plain text
 /// and its HTML beside it, so Notes, Slack, Docs and Mail paste its headings, bullets and code
@@ -404,18 +395,6 @@ export function PromptActions({
     </MessageFooterRow>
   );
   return <div className="cv-user__actions">{pending ? pending(actions, {}) : actions}</div>;
-}
-
-/// The hover row at the end of a message this agent sent another one (MessageCard.tsx): Copy,
-/// kept clear of the line's words.
-export function SentActions({ text }: { text: string }) {
-  return (
-    <span className="cv-sent-actions">
-      <MessageFooterRow>
-        <MessageCopy text={text} />
-      </MessageFooterRow>
-    </span>
-  );
 }
 
 /// The row at the end of another agent's message line (IncomingMessageCard.tsx IncomingMessageLine):

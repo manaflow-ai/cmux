@@ -15,6 +15,7 @@
 use std::time::Duration;
 
 /// How long the provider has to answer before the key is saved unasked.
+// timeout: past it the key is saved unchecked (Verdict::Unreachable); the save never fails on it.
 pub const CHECK_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// What the provider said about a key.

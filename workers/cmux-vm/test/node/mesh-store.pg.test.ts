@@ -5,6 +5,7 @@ import uncommittedCreations from "../../migrations/0012_cmux_vm_uncommitted_crea
  * (PGlite). No network database is involved.
  */
 import { PGlite } from "@electric-sql/pglite";
+import { freshPg } from "./fresh-pglite.ts";
 import { Effect, Layer, Option } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import ownership from "../../migrations/0001_cmux_vm_ownership.sql?raw";
@@ -30,7 +31,7 @@ const KEY = "dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDE=";
 const at = new Date(Date.UTC(2026, 9, 7, 0, 0));
 
 beforeEach(async () => {
-  pg = new PGlite();
+  pg = await freshPg();
   for (const migration of [ownership, s2, snapshots, mesh, meshM2, meshM3, creationReceipts, uncommittedCreations]) await pg.exec(migration);
   const sql = Layer.succeed(SqlClient, {
     query: (operation, text, params) =>

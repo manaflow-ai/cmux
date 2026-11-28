@@ -1,3 +1,4 @@
+import CmuxMobileDesign
 import Foundation
 import Testing
 @testable import CmuxMobileTerminal
@@ -7,6 +8,8 @@ import Testing
 private final class LiveStub: TerminalSession {
     let programName = "zsh"
     let isAlternateScreen = false
+    var preservesHostGrid = false
+    func setPreservesHostGrid(_ preserves: Bool) { preservesHostGrid = preserves }
     func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {}
     func send(_ bytes: Data) {}
     func resize(columns: Int, rows: Int) {}
@@ -17,11 +20,34 @@ private final class LiveStub: TerminalSession {
 /// content (DEBUG mock mode, or the server-flagged App Review demo account).
 @MainActor
 @Suite struct TerminalSessionChoiceTests {
+    #if os(iOS)
+    @Test func macGridIsDefaultAndProjectionAndFitRemainExplicitChoices() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let live = LiveStub()
+        func choose() -> any TerminalSession {
+            TerminalSessionChoice.session(live: live, mockDataEnabled: false, macName: "Mac", programName: "zsh", defaults: defaults)
+        }
+        #expect(choose() === live)
+        #expect(live.preservesHostGrid)
+        defaults.set(true, forKey: CmuxMobilePreferences.Key.terminalPhoneProjection)
+        #expect(choose() is TerminalProjectingSession)
+        #expect(!live.preservesHostGrid)
+        defaults.set(true, forKey: CmuxMobilePreferences.Key.terminalFitToPhone)
+        #expect(choose() === live)
+        #expect(!live.preservesHostGrid, "Fit to Phone still explicitly resizes the Mac")
+        TerminalFitToPhoneMemory(defaults: defaults).set(false, for: "zsh")
+        #expect(choose() is TerminalProjectingSession, "the per-program choice wins over global Fit to Phone")
+        defaults.set(false, forKey: CmuxMobilePreferences.Key.terminalPhoneProjection)
+        #expect(choose() === live)
+        #expect(live.preservesHostGrid)
+    }
+    #endif
+
     @Test func liveSessionAlwaysWins() {
         let live = LiveStub()
         for mock in [false, true] {
             let chosen = TerminalSessionChoice.session(live: live, mockDataEnabled: mock, macName: "Studio", programName: "zsh")
-            // The live session itself, or (projection, the default on iOS)
+            // The live session itself, or opt-in projection on iOS
             // the phone's projection of it: never the mock.
             #expect(chosen.underlyingSession === live)
             #if os(iOS)
@@ -41,7 +67,8 @@ private final class LiveStub: TerminalSession {
         #expect(chosen is PendingTerminalSession)
         #expect(!(chosen is MockTerminalSession))
         #expect(chosen.connectionState == .connecting(mac: "Aziz's Mac Studio"))
-        #expect(chosen.connectionState.quietLine == "Connecting to Aziz's Mac Studio…")
+        // Connecting says nothing: the pill keeps the program name (#53778, Leo 2026-11-22).
+        #expect(chosen.connectionState.quietLine == nil)
         #expect(chosen.programName == "zsh")
     }
 
@@ -112,7 +139,7 @@ private final class LiveStub: TerminalSession {
         session.send(Data("ls\r".utf8))
         session.resize(columns: 80, rows: 24)
         #expect(events == [.connection(.connecting(mac: nil))])
-        #expect(session.connectionState.quietLine == "Connecting to your Mac…")
+        #expect(session.connectionState.quietLine == nil, "connecting says nothing (#53778)")
     }
 }
 
@@ -125,7 +152,7 @@ private final class LiveStub: TerminalSession {
         // Bytes from the Mac mean attached, even without a `.connection` event.
         #expect(connecting.applying(.output(Data("$ ".utf8))) == .attached)
         #expect(TerminalConnectionState.attached.applying(.connection(.reattaching(mac: "mini"))) == .reattaching(mac: "mini"))
-        #expect(TerminalConnectionState.reattaching(mac: "mini").quietLine == "Reconnecting to mini…")
+        #expect(TerminalConnectionState.reattaching(mac: "mini").quietLine == nil, "a reattach says nothing (Leo 2026-11-22)")
         #expect(TerminalConnectionState.attached.quietLine == nil)
     }
 }

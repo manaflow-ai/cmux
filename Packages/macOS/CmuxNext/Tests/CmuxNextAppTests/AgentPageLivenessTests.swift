@@ -141,6 +141,9 @@ struct AgentPageLivenessTests {
         #expect(census.violations == 0 && census.visibleTabless == 0, "after the sweep: \(census.pages)")
         let closed = await Self.settles(within: AgentPageRetirer.delay + .seconds(3)) { !Self.isLive(page) }
         #expect(closed, "the orphan was retired but never closed")
+        // This test still holds the closed page, as a leaked observer would: `pages` hides it, `closedAlive` counts it.
+        #expect(!tabs.livePages.pages.contains { $0 === page })
+        #expect(tabs.livePages.closedAlive >= 1, "a closed page still in memory is not counted")
     }
 
     /// An orphan a pane still shows stays (closing it would blank the pane); the census counts it.

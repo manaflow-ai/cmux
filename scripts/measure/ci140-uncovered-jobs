@@ -72,6 +72,8 @@ def selectors():
         ("cmux-next guards", "cmux-next CI guard group", "cmux-next CI guard group", guard),
         ("pr router", "pr pipeline / web-browser", "pr pipeline / web-browser",
          lambda ch: any(glob_hit(p, g) for p in ch for g in wb)),
+        ("pr router", "pr web pipeline / web-browser", "pr web pipeline / web-browser",
+         lambda ch: any(glob_hit(p, g) for p in ch for g in wb)),
         # 16 of its steps scan the whole workspace ("$GITHUB_WORKSPACE"): every path is an input.
         ("cmux-next · <SHA>", "cmux-next checks (god files", "cmux-next checks", lambda ch: bool(ch)),
     ]
