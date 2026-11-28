@@ -500,9 +500,11 @@ fn unread(path: &std::path::Path) -> Option<usize> {
 /// (`hub/bg_notify.rs`), by their text.
 fn ends(hub: &Hub, id: &str) -> Vec<String> {
     let events = hub.events(id, 0, 10_000).unwrap();
+    // An idle chat's own exit-0 end waits in its inbox for the next turn or 5 min (#59782,
+    // `bg_notify.rs` `OWN_END_HOLD_MS`): it has reached the chat there, as a turn's message has.
     events
         .iter()
-        .filter(|e| e.kind == "user_message")
+        .filter(|e| e.kind == "user_message" || e.kind == "inbox")
         .filter_map(|e| e.msg["text"].as_str())
         .filter(|t| t.contains("Background command"))
         .map(str::to_owned)
@@ -779,25 +781,6 @@ async fn a_task_end_the_turn_never_read_comes_after_it() {
 }
 
 /// Waits up to 20 s for `done`.
-/// DEBUG (brr): every record kind and text head of chat `id`.
-fn dump(hub: &Hub, id: &str) -> String {
-    let events = hub.events(id, 0, 10_000).unwrap();
-    events
-        .iter()
-        .map(|e| {
-            let t = e.msg["text"].as_str().unwrap_or("");
-            format!(
-                "{}/{}:{}|{}",
-                e.dir,
-                e.kind,
-                t.chars().take(90).collect::<String>(),
-                e.msg.get("surgeHeld").map(|v| v.to_string()).unwrap_or_default()
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 async fn until_true(what: &str, done: impl Fn() -> bool) {
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     while !done() {
@@ -856,15 +839,10 @@ async fn a_task_end_is_sent_once_across_a_restart() {
     })
     .await;
     let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
-    let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    while ends(&hub, &id).len() != 2 {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the end that came while no daemon ran was never sent:\n{}",
-            dump(&hub, &id)
-        );
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    until_true("the end that came while no daemon ran was never sent", || {
+        ends(&hub, &id).len() == 2
+    })
+    .await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let ends = ends(&hub, &id);
     assert_eq!(ends.len(), 2, "{ends:?}");
@@ -901,22 +879,10 @@ async fn a_chat_runs_past_the_old_cap_of_32_tasks_and_every_end_is_sent() {
     std::fs::write(&go, "").unwrap();
     r.until("not every task ended", || ids.iter().all(|t| state(&r, &id, t) == "exited")).await;
     // 32 ends at once outrun the chat's reply period, so the receiver's surge rate holds most
-    // of them in its inbox (`hub/inbox_surge.rs`) instead of running a turn each: an end has
-    // reached its chat when a turn or a held inbox message names its task.
+    // of them in its inbox (`hub/inbox_surge.rs`) and an idle chat holds its own exit-0 ends
+    // (#59782) instead of running a turn each: an end has reached its chat when a turn or an
+    // inbox message names its task.
     let notified: Vec<&String> = ids.iter().step_by(2).collect();
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        let seen = reached(&r.hub, &id);
-        if notified.iter().all(|t| seen.iter().any(|text| text.contains(t.as_str()))) {
-            break;
-        }
-        if std::time::Instant::now() > deadline {
-            let missing: Vec<_> =
-                notified.iter().filter(|t| !seen.iter().any(|x| x.contains(t.as_str()))).collect();
-            panic!("DEBUG missing {missing:?}\n{}", dump(&r.hub, &id));
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
     r.until("not every notify task's end reached its chat", || {
         let seen = reached(&r.hub, &id);
         notified.iter().all(|t| seen.iter().any(|text| text.contains(t.as_str())))
@@ -940,15 +906,13 @@ async fn a_chat_runs_past_the_old_cap_of_32_tasks_and_every_end_is_sent() {
     }
 }
 
-/// The task ends chat `id` took: as a turn's message, or held by the surge rate in its inbox.
+/// The task ends chat `id` took: as a turn's message, or held in its inbox, by the surge rate or
+/// as an idle chat's own exit-0 end (#59782, `bg_notify.rs` `OWN_END_HOLD_MS`).
 fn reached(hub: &Hub, id: &str) -> Vec<String> {
     let events = hub.events(id, 0, 10_000).unwrap();
-    let held = |e: &&acpmux::store::EventRecord| {
-        e.kind == "inbox" && e.msg["surgeHeld"].as_bool() == Some(true)
-    };
     events
         .iter()
-        .filter(|e| e.kind == "user_message" || held(e))
+        .filter(|e| e.kind == "user_message" || e.kind == "inbox")
         .filter_map(|e| e.msg["text"].as_str())
         .filter(|t| t.contains("Background command"))
         .map(str::to_owned)

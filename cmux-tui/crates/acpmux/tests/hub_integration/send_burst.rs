@@ -15,12 +15,14 @@ const ROUNDS: usize = 3;
 /// How long a sender may wait for its answer.
 const SENDER_WAIT: Duration = Duration::from_secs(90);
 
-/// Session `caller`'s send of `text` to `target`, as its agent's `acpmux send` makes it.
+/// Session `caller`'s send of `text` to `target`, as its agent's `acpmux send` makes it when it
+/// waits for the reply (`readsReply`): its answer comes once the message went in, not once the
+/// inbox took it (#62138), so every sender answered means every message delivered.
 fn message(target: &str, prompt_id: &str, text: &str, resend: bool) -> Value {
     json!({
         "sessionId": target,
         "prompt": [{"type": "text", "text": text}],
-        "_meta": {"acpmux": {"promptId": prompt_id, "class": "blocker", "resend": resend}},
+        "_meta": {"acpmux": {"promptId": prompt_id, "class": "blocker", "resend": resend, "readsReply": true}},
     })
 }
 
