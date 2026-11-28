@@ -2577,8 +2577,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [subagentView, snapshot.rows, snapshot.subagentViews, snapshot.canLoadOlder],
   );
   const readSubagentLog = useCallback(
-    // l10n-allow: internal transport error; the subagent pane renders its own localized state.
     (id: string, onNewest?: (records: OwnLogRecord[]) => void) =>
+      // l10n-allow: internal transport error; the subagent pane renders its own localized state.
       directClient.current?.readSubagentLog(id, onNewest) ?? Promise.reject(new Error("Not connected")),
     [],
   );

@@ -167,18 +167,21 @@ type ConfigOptions = NonNullable<NonNullable<AcpmuxSnapshot["summary"]>["configO
 const providerHarnesses: CatalogHarness[] = [
   {
     id: "grok",
+    // l10n-allow: a product's name
     name: "Grok Build",
     brand: "grok",
     families: ["grok"],
     modelSource: "catalog",
     defaultModel: "grok-build-0.1",
     models: [
+      // l10n-allow: a product's name
       { id: "grok-build-0.1", name: "Grok Build", shortName: "Grok Build" },
       { id: "grok-4.7", name: "Grok 4.7", shortName: "4.7" },
     ],
   },
   {
     id: "github-copilot",
+    // l10n-allow: a product's name
     name: "GitHub Copilot",
     brand: "opencode",
     families: ["github-copilot"],
