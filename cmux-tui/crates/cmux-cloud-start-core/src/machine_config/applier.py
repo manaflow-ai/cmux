@@ -273,9 +273,10 @@ def private_folder(path):
     os.chmod(path, 0o700)
 
 
-def delivered():
+def delivered(vault_only=False):
     """The names in machine-secrets.env: a regular file of this user (machine.env sources nothing else),
-    opened without following a link or blocking on a FIFO."""
+    opened without following a link or blocking on a FIFO. `vault_only`: just the names below the cmux
+    vault's header (cmux host writes them there, cloud/vault.rs; the vault owns them, not this config)."""
     try:
         fd = os.open(SECRETS_FILE, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
@@ -284,13 +285,23 @@ def delivered():
         st = os.fstat(f.fileno())
         if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
             return set()
-        return {m.group(1) for m in re.finditer(r"^export ([A-Za-z_][A-Za-z0-9_]*)=", f.read(), re.M)}
+        text = f.read()
+    if vault_only:
+        at = re.search(r"^# cmux vault", text, re.M)
+        text = text[at.start():] if at else ""
+    return {m.group(1) for m in re.finditer(r"^export ([A-Za-z_][A-Za-z0-9_]*)=", text, re.M)}
 
 
-def stale_secrets(have, declared):
+def stale_names(declared):
+    """Delivered names this config does not declare, to unset after sourcing: a secret delivered for an
+    older config. Never the vault's (it keeps its own names: one it stops sending leaves the file)."""
+    return stale_secrets(delivered(), declared, delivered(vault_only=True))
+
+
+def stale_secrets(have, declared, vault=frozenset()):
     """The delivered names machine.env unsets after sourcing machine-secrets.env: what the config no longer
-    declares, never an ALWAYS_DELIVERED name."""
-    return sorted(set(have) - set(declared) - ALWAYS_DELIVERED)
+    declares, never a vault name or an ALWAYS_DELIVERED name."""
+    return sorted(set(have) - set(vault) - set(declared) - ALWAYS_DELIVERED)
 
 
 def previous_env_names():
@@ -713,7 +724,7 @@ def apply_once(request):
         if config["secrets"] or held:
             lines += ["unset " + " ".join(config["secrets"] + held)]
         lines += ['if [ -z "${CMUX_MACHINE_SETUP:-}" ] && [ -f "$HOME/.config/cmux/machine-secrets.env" ] && [ ! -L "$HOME/.config/cmux/machine-secrets.env" ]; then . "$HOME/.config/cmux/machine-secrets.env"; fi']
-        stale = stale_secrets(have, config["secrets"])
+        stale = stale_secrets(have, config["secrets"], delivered(vault_only=True))
         if stale:
             lines += ["unset " + " ".join(stale)]
         # Names an earlier apply exported (or already unset) and this config no longer declares: a shell
