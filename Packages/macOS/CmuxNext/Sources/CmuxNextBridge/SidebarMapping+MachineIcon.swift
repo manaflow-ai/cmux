@@ -31,4 +31,20 @@ extension SidebarMapping {
 
     /// `DeviceKind::Cloud`'s symbol (cmux-device-kind), the one a Cloud machine's header draws.
     public static let cloudDeviceSymbol = "cloud"
+
+    /// `sections` as given, after telling the theme store their machines (This Mac left out) and the
+    /// emoji icons their headers draw, so each takes a color no other machine draws and the pages'
+    /// machine marks (the composer's project chooser) match the headers (Leo, 2026-11-28: "we can
+    /// have them be delineated rather than just this is a computer symbol").
+    @MainActor public static func publishMachineMarks(_ sections: [SidebarRowSection]) -> [SidebarRowSection] {
+        var names: [String] = []
+        var emoji: [String: String] = [:]
+        for section in sections {
+            guard case .machine(let machine) = section.kind, machine.kind != .local else { continue }
+            names.append(machine.name)
+            if case .emoji(let text)? = machine.icon { emoji[machine.name] = text }
+        }
+        ThemeScope.app.store.setMachines(names: names, icons: emoji)
+        return sections
+    }
 }
