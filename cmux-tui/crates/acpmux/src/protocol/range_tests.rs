@@ -58,3 +58,55 @@ fn no_overlap_is_refused_typed_naming_the_side_to_update() {
     assert_eq!(data["details"]["update"], json!("peer"));
     assert!(data["recovery"].as_str().unwrap().starts_with("this client is older"), "{data}");
 }
+
+fn reply(abi: u32, min: u32) -> Value {
+    json!({"_meta": {"acpmux": {"abi": abi, "abiMin": min}}})
+}
+
+#[test]
+fn a_peer_reply_from_n_minus_1_n_plus_1_or_before_the_fields_is_served() {
+    let n = crate::protocol::ABI;
+    // N-1: a far daemon one revision behind, its floor at or under it.
+    assert!(check_reply(&reply(n - 1, ABI_MIN), "the peer daemon").is_ok());
+    // N+1: a far daemon one revision ahead that still serves ours.
+    assert!(check_reply(&reply(n + 1, n), "the peer daemon").is_ok());
+    // A daemon from before the fields names no `abi`: served as before.
+    assert!(check_reply(&json!({"_meta": {"acpmux": {"version": "0.1"}}}), "x").is_ok());
+    assert!(check_reply(&json!({}), "x").is_ok());
+}
+
+#[test]
+fn a_peer_reply_with_no_overlap_is_refused_typed() {
+    let n = crate::protocol::ABI;
+    let refused = check_reply(&reply(n + 5, n + 1), "the peer daemon").expect_err("no overlap");
+    let data = refused.data.clone().expect("typed");
+    assert_eq!(data["errorKind"], json!(crate::recovery::kind::VERSION_INCOMPATIBLE));
+    assert_eq!(data["details"]["update"], json!("self"), "the far daemon is newer: update here");
+    assert_eq!(data["details"]["theirs"], json!({"min": n + 1, "max": n + 5}));
+    let line = describe(&refused);
+    assert!(line.contains("version.incompatible"), "{line}");
+    assert!(line.contains("acpmux host self-update"), "{line}");
+    // An untyped error reads as its message alone.
+    assert_eq!(describe(&crate::rpc::RpcError::new(-1, "nope")), "nope");
+}
+
+#[test]
+fn an_incompatible_agent_host_names_the_side_and_keeps_its_build() {
+    let (message, data) = agent_host_incompatible((2, 3), (1, 1), "abc");
+    assert!(message.contains("build abc"), "{message}");
+    assert_eq!(data["errorKind"], json!(crate::recovery::kind::VERSION_INCOMPATIBLE));
+    assert_eq!(data["details"]["update"], json!("peer"));
+    assert_eq!(data["details"]["link"], json!("agent-host"));
+    assert!(data["recovery"].as_str().unwrap().contains("restart the chat"), "{data}");
+    let (_, newer) = agent_host_incompatible((1, 3), (4, 5), "def");
+    assert_eq!(newer["details"]["update"], json!("self"));
+    assert!(newer["recovery"].as_str().unwrap().contains("self-update"), "{newer}");
+}
+
+#[test]
+fn every_hello_stamp_carries_the_floor() {
+    let mut meta = serde_json::Map::new();
+    crate::abi_hello::stamp(&mut meta);
+    assert_eq!(meta.get(ABI_MIN_FIELD), Some(&json!(ABI_MIN)));
+    assert_eq!(meta.get("abi"), Some(&json!(crate::protocol::ABI)));
+}

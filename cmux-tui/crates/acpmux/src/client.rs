@@ -243,10 +243,6 @@ impl Client {
         // revision it speaks (`protocol/range.rs`), a daemon that shares none with it refuses the
         // hello typed, and one from before the check ignores the keys.
         crate::abi_hello::stamp(&mut meta);
-        meta.insert(
-            crate::protocol::range::ABI_MIN_FIELD.to_owned(),
-            json!(crate::protocol::range::ABI_MIN),
-        );
         hello.set("_meta", json!({"acpmux": meta}));
         // Every command waits here first: a daemon that stopped answering says so (`slow_notice.rs`).
         let init = crate::slow_notice::noted(
