@@ -99,6 +99,7 @@ mod cloud_environment;
 #[cfg(unix)]
 mod cloud_hands;
 mod cloud_help;
+#[cfg(unix)]
 mod cloud_install_post;
 #[cfg(unix)]
 mod cloud_journey;
@@ -108,6 +109,7 @@ mod cloud_machine_auth;
 mod cloud_machine_io;
 #[cfg(unix)]
 mod cloud_machines;
+#[cfg(unix)]
 mod cloud_pair_invite_watch;
 #[cfg(unix)]
 mod cloud_pause_all;

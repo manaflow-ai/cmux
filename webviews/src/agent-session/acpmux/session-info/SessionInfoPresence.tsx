@@ -53,7 +53,6 @@ import type { ResumeActions } from "../subagents/ResumeControl";
 import { useCountedRender } from "../perfRender";
 import { COMPUTER_USE_PREVIEW_RESERVE, useComputerUsePreview } from "../computerUse/computerUsePreview";
 import { useChangeCounts, type ReadChanges } from "./changeCounts";
-import type { ReadCarried, ResolveCarried } from "./carriedSectionModel";
 import { usageEntries } from "./usageEntries";
 import { chatPlace } from "../chatMachine";
 import { agentSideRowsOf } from "./agentSide";
@@ -201,8 +200,6 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenChanges,
   onSaveEnvironment,
   onReconnectMcp,
-  readCarried,
-  onResolveCarried,
   remoteControl,
   cloud,
   onCompact,
@@ -277,9 +274,6 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenChanges?: () => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
-  /// Carried memory (CarriedSection.tsx): `_acpmux/agent_home` and `_acpmux/agent_home_resolve`.
-  readCarried?: ReadCarried;
-  onResolveCarried?: ResolveCarried;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   /// Environment's cloud controls (hybrid/HybridMounts.tsx), in Remote Control's place.
   cloud?: SessionInfoCloudControl;
@@ -827,9 +821,6 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
-        // Carried memory is the chat's own, never a subagent's.
-        readCarried={scope ? undefined : readCarried}
-        onResolveCarried={scope ? undefined : onResolveCarried}
         remoteControl={scope ? undefined : remoteControl}
         cloud={scope ? undefined : cloud}
         // Compact ends the chat's context, not a subagent's.
