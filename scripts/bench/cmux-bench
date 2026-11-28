@@ -26,7 +26,10 @@
   cmux-bench baselines record [--out DIR] [--sha SHA] [--areas A,B]
                                                  run every area's benches (3 repeats) and write one baseline
                                                  object per area under DIR (the nightly uploads DIR to R2)
-  cmux-bench baselines fetch AREA... [--from URL|DIR] [--json]
+  cmux-bench baselines from-log LOG [--out DIR] [--sha SHA]
+                                                 the Mac-only benches a fleet step printed (3 repeats in
+                                                 one step) as baseline objects; exit 1 when none recorded
+  cmux-bench baselines fetch AREA... [--from URL|DIR] [--class C] [--json]
                                                  read those areas' baselines and say how long it took
   cmux-bench for-paths --self-bench N [--scale K] seconds for load + plan on N tracked paths, K times the rules
   cmux-bench for-paths --coverage [--days 7]     % of the paths merged in the last N days a mapping covers
@@ -480,12 +483,19 @@ def cmd_baselines(argv: list[str]) -> int:
     rec.add_argument("--timeout", type=float, default=300)
     rec.add_argument("--repeats", type=int, default=baselines.REPEATS)
     rec.add_argument("--map", type=Path, default=relevance.MAP)
+    flog = sub.add_parser("from-log", help="record the Mac-only benches a fleet step printed (baselines.LOG_BENCHES)")
+    flog.add_argument("log", type=Path)
+    flog.add_argument("--out", type=Path, default=Path("bench-baselines-out"))
+    flog.add_argument("--sha", default="")
+    flog.add_argument("--map", type=Path, default=relevance.MAP)
     fet = sub.add_parser("fetch")
     fet.add_argument("areas", nargs="+")
     fet.add_argument("--from", dest="where", default=None)
     fet.add_argument("--json", action="store_true")
+    fet.add_argument("--class", dest="mclass", default="",
+                     help="another machine class's objects (the fleet Mac's: macos-arm64-fleet-light)")
     a = p.parse_args(argv)
-    mclass = baselines.machine_class()
+    mclass = baselines.slug(a.mclass) if getattr(a, "mclass", "") else baselines.machine_class()
     if a.action == "fetch":
         docs, missing, took = baselines.fetch(a.areas, mclass, a.where)
         if a.json:
@@ -500,6 +510,18 @@ def cmd_baselines(argv: list[str]) -> int:
                 print(f"  {name}: {why}")
         return 0
     rules = relevance.load_rules(a.map)
+    if a.action == "from-log":
+        results = baselines.from_log(a.log.read_text(errors="replace"), rules)
+        docs = baselines.documents(results, mclass, a.sha)
+        for r in results:
+            print(f"  {r['status']}: {r['cmd']}  repeats {r['repeats_s']}  ({', '.join(r['areas'])}) {r['detail']}")
+        for path in baselines.write_dir(docs, a.out):
+            print(f"wrote {path}")
+        if not docs:
+            print(f"cmux-bench: baselines: no Mac bench printed all {baselines.REPEATS} repeats in {a.log}",
+                  file=sys.stderr)
+            return 1
+        return 0
     want = {x.strip() for x in a.areas.split(",") if x.strip()}
     areas = [{"name": r.name, "run": list(r.run), "budget_s": r.budget_s} for r in rules
              if r.kind == "area" and r.run and (not want or r.name in want)]
