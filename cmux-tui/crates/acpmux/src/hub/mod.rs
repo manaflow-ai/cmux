@@ -585,6 +585,7 @@ pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use peer_row::PeerRow;
 pub use person_hold::PromptTriager;
 pub(crate) use policy_mode::SetRequest;
+pub(crate) mod ask_ledger;
 pub(crate) use pool::SESSION_NEW_BUDGET;
 pub use prompt_coach::CoachRewriter;
 pub use retention::RetentionRequest;
@@ -1230,6 +1231,8 @@ pub struct Hub {
     pub(crate) review_index: review_queue::Index,
     /// The approvals audit trail (`audit_log.rs`).
     pub(crate) audit: audit_log::AuditLog,
+    /// The opt-in first ask-ledger experiment: accepted human prompts, bounded in memory.
+    pub(crate) ask_ledger: ask_ledger::AskLedger,
     pub shutdown: Notify,
     /// The owner of the hub's own tasks (`cmux_scope`). Every task that lives off the hub (the
     /// idle reaper, each chat's inbound loop, pool starts, carried turns, retries, message
@@ -1896,6 +1899,7 @@ impl Hub {
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             review_index: Default::default(),
             audit,
+            ask_ledger: ask_ledger::AskLedger::default(),
             shutdown: Notify::new(),
             scope: cmux_scope::Scope::new("acpmux hub"),
             ws_shutdown: Default::default(),
