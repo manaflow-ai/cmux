@@ -1048,6 +1048,55 @@ class DeadLabelRescueTests(unittest.TestCase):
         self.rescue(actions)
         self.assertEqual(actions.calls, [("force-cancel", 500), ("rerun", 500)])
 
+    SEED_POOLS = {"_dead": {"blacksmith-6vcpu-macos-15": "2026-11-28T12:55:00Z"},
+                  "linux": "blacksmith-2vcpu-ubuntu-2404", "macos_15": "blacksmith-6vcpu-macos-15"}
+    SEED = {"status": "queued", "runner_name": None, "created_at": ago(70),
+            "labels": ["blacksmith-6vcpu-macos-15"], "name": "seed"}
+
+    def scheduled_runs(self) -> FakeActions:
+        runs = [{"id": 30, "status": "queued", "event": "schedule", "name": "Seed SwiftPM manifests",
+                 "created_at": ago(70), "run_attempt": 1},
+                {"id": 31, "status": "queued", "event": "pull_request", "name": "CI", "created_at": ago(70)},
+                {"id": 32, "status": "queued", "event": "schedule", "name": "Nightly build", "created_at": ago(70)},
+                {"id": 33, "status": "queued", "event": "schedule", "name": "Dev build", "created_at": ago(70)},
+                {"id": 34, "status": "queued", "event": "schedule", "name": "Cloud image promote",
+                 "created_at": ago(70)},
+                {"id": 35, "status": "in_progress", "event": "schedule", "name": "Sweep", "created_at": ago(70)}]
+        running = {**self.SEED, "status": "in_progress", "runner_name": "bs-1"}
+        jobs = {30: [self.SEED], 31: [self.SEED], 32: [self.SEED], 33: [self.SEED], 34: [self.SEED],
+                35: [self.SEED, running]}
+        return FakeActions(None, runs, jobs)
+
+    def test_a_scheduled_run_queued_on_a_dead_pooled_macos_label_is_re_run_once(self) -> None:
+        actions = self.scheduled_runs()
+        self.rescue(actions, self.SEED_POOLS)
+        # Only the scheduled seed: a PR run would queue on the same dead label again, nightly, dev and promote runs
+        # are protected, and a run with a running job is never cut.
+        self.assertEqual(actions.calls, [("force-cancel", 30), ("rerun", 30)])
+
+    def test_scheduled_dead_labels_need_a_mark_and_no_variable_naming_them(self) -> None:
+        self.assertEqual(switch.scheduled_dead_labels(self.SEED_POOLS, minutes=5), {"blacksmith-6vcpu-macos-15": 5})
+        self.assertEqual(switch.scheduled_dead_labels(self.SEED_POOLS, {"blacksmith-6vcpu-macos-15"}), {})
+        self.assertEqual(switch.scheduled_dead_labels({"macos_15": "blacksmith-6vcpu-macos-15"}), {})
+        self.assertEqual(switch.scheduled_dead_labels({"_dead": {"blacksmith-16vcpu-ubuntu-2404": "x"}}), {})
+
+    def test_a_listing_that_is_incomplete_leaves_a_scheduled_run_alone(self) -> None:
+        actions = self.scheduled_runs()
+        before = actions.jobs
+
+        def jobs(run_id: int, attempt: int | None = None) -> list[dict]:
+            if run_id == 30:
+                raise switch.GitHubError("incomplete (100 of 140 jobs)")
+            return before(run_id, attempt)
+
+        actions.jobs = jobs  # type: ignore[method-assign]
+        self.rescue(actions, self.SEED_POOLS)
+        self.assertEqual(actions.calls, [])
+
+    def test_the_seed_workflow_skips_while_its_label_is_marked_dead(self) -> None:
+        text = (ROOT / ".github/workflows/seed-swiftpm-manifests.yml").read_text(encoding="utf-8")
+        self.assertIn("!contains(toJSON(fromJSON(vars.RUNNER_POOLS || '{}')._dead), 'blacksmith-6vcpu-macos-15')", text)
+
     def test_a_macos_label_is_never_rescued(self) -> None:
         # MACOS_RUNNER_* variables, which no pool step moves, can still name it.
         self.assertNotIn("blacksmith-6vcpu-macos-26",
