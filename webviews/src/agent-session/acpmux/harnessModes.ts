@@ -181,8 +181,8 @@ export const CLOUD_DEFAULT_AGENT = "claude";
 const UNII = "unii";
 
 /** The agent a Cloud start runs for a chat the composer shows on HARNESS, and whether the send names
- * it. Claude, Codex, OpenCode and pi (the agents the machine carries) are named and run; a Mac-only
- * profile of Claude Code or Codex runs its base agent; any other harness starts the machine's
+ * it. Claude, Codex, OpenCode, pi, Gemini and Grok are named; a Mac-only profile of Claude Code
+ * or Codex runs its base agent; any other harness starts the machine's
  * default. UniiChat is not a machine agent: the send leaves it out, so the machine starts its
  * default, Claude, which the Mode chip names. The chip and every Cloud send read this one answer. */
 export function cloudStartAgent(
@@ -199,7 +199,7 @@ export function cloudStartAgent(
   // the base agent: naming the profile was refused as `agent_session.harness_missing` (cmux#51731).
   const base = cloudMachineAgent(harness) ?? cloudMachineAgent(family);
   if (base) return { family: base, harness: base, named: true };
-  // An agent the machine does not carry (a Mac-only harness, gemini, amp): the Cloud picker never lists
+  // An agent the machine does not carry (a Mac-only harness, amp): the Cloud picker never lists
   // it (cloudPickerEntries.ts), and a send on it starts the machine's default rather than a refusal.
   return { family: CLOUD_DEFAULT_AGENT, harness: CLOUD_DEFAULT_AGENT, named: false };
 }
@@ -207,11 +207,11 @@ export function cloudStartAgent(
 /** The agents every Cloud machine carries (web/services/vms/images/agents.ts GUEST_AGENTS). */
 export const CLOUD_MACHINE_AGENTS: ReadonlySet<string> = new Set(["claude", "codex", "opencode", "pi"]);
 
-/** The Cloud machine's agent for a harness id: itself when the machine carries it, the base agent for
+/** The Cloud machine's agent for a harness id: itself when supported, the base agent for
  * a Claude Code or Codex profile (`claude-sr2` → `claude`), none for anything else. */
 function cloudMachineAgent(value: string | undefined): string | undefined {
   const id = (value ?? "").toLowerCase();
-  if (CLOUD_MACHINE_AGENTS.has(id)) return id;
+  if (CLOUD_MACHINE_AGENTS.has(id) || id === "gemini" || id === "grok") return id;
   for (const base of ["claude", "codex"]) if (id.startsWith(`${base}-`) || id.startsWith(`${base}_`)) return base;
   return undefined;
 }
