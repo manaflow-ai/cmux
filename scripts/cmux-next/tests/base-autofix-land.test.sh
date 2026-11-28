@@ -187,11 +187,15 @@ run > "$tmp/out" 2>&1 || fail "a graph the tip already holds failed the run: $(c
 
 # 6. The Mac settings exports held by a settings move are never made here (they need a Mac): the
 #    graph lands from the repair on the tip, the exports stay as the tip has them, and the run
-#    fails so the next run's Mac job makes them.
+#    passes with a warning, writing them to CMUX_BASE_AUTOFIX_LEFT: the workflow then uploads no
+#    own-exports marker, so the next run's "since" covers them and its Mac job makes them. Failing for
+#    them made every run of 2026-11-28 red (46176330727), though nothing was refused.
 setup
 first_repair settings
 lane_commit "lane edits a setting and the manifest" "$setting" "setting v2" "$manifest" "manifest v2"
-if run > "$tmp/out" 2>&1; then fail "a run that held the settings exports passed: $(cat "$tmp/out")"; fi
+run CMUX_BASE_AUTOFIX_LEFT="$tmp/left" > "$tmp/out" 2>&1 || fail "a run that left the settings exports to the next run failed: $(cat "$tmp/out")"
+grep -qxF "$schema" "$tmp/left" || fail "the left list does not name the held settings export: $(cat "$tmp/left")"
+grep -q '::warning' "$tmp/out" || fail "a run that left files to the next run did not warn: $(cat "$tmp/out")"
 [[ "$(remote_show "$graph")" == "graph for manifest v2" ]] || fail "the graph was not made again on the tip: $(remote_show "$graph")"
 [[ "$(remote_show "$schema")" == "schema old" ]] || fail "settings exports whose inputs moved landed: $(remote_show "$schema")"
 grep -q "$schema" "$tmp/out" || fail "the run does not name the held settings export: $(cat "$tmp/out")"
@@ -201,7 +205,9 @@ setup
 first_repair settings
 (cd "$tmp/bot" && git checkout -q HEAD^ -- "$graph" && git commit -q --amend --no-edit)
 lane_commit "lane edits a setting" "$setting" "setting v2"
-if run > "$tmp/out" 2>&1; then fail "a run that held the settings exports passed: $(cat "$tmp/out")"; fi
+rm -f "$tmp/left"
+run CMUX_BASE_AUTOFIX_LEFT="$tmp/left" > "$tmp/out" 2>&1 || fail "a run that left only the settings exports failed: $(cat "$tmp/out")"
+grep -qxF "$schema" "$tmp/left" || fail "the left list does not name the held settings export: $(cat "$tmp/left" 2>/dev/null)"
 [[ ! -s "$tmp/again" ]] || fail "the repair was made again although only the Mac exports waited"
 
 # 7b. A push that never got through (the branch moved under every attempt) is no hold: nothing of
@@ -231,13 +237,15 @@ rm -f "$tmp/remote.git/hooks/pre-receive"
 [[ "$(remote_show "$schema")" == "schema old" ]] || fail "the settings exports landed: $(remote_show "$schema")"
 
 # 7c. A held Chief inspector page comes only from the webviews formatting job's patch, which a round
-#     on the tip does not apply: it waits for the next run and the run fails.
+#     on the tip does not apply: it waits for the next run (left), and the run passes.
 setup
 inspector=Native/OptChat/optchat-chief/inspector/index.html
 (cd "$tmp/bot" && mkdir -p "$(dirname "$inspector")" && echo "page new" > "$inspector" && git add -A \
   && git commit -q -m "chore(next): base autofix at ${base:0:12}")
 lane_commit "lane rebuilds the page" "$inspector" "page lane"
-if run > "$tmp/out" 2>&1; then fail "a held inspector page passed the run: $(cat "$tmp/out")"; fi
+rm -f "$tmp/left"
+run CMUX_BASE_AUTOFIX_LEFT="$tmp/left" > "$tmp/out" 2>&1 || fail "a held inspector page failed the run: $(cat "$tmp/out")"
+grep -qxF "$inspector" "$tmp/left" || fail "the left list does not name the held page: $(cat "$tmp/left" 2>/dev/null)"
 [[ "$(remote_show "$inspector")" == "page lane" ]] || fail "the lane's page was overwritten"
 grep -q "$inspector" "$tmp/out" || fail "the run does not name the held page: $(cat "$tmp/out")"
 

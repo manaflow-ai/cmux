@@ -22,7 +22,15 @@
 # inputs too); without SETTINGS_MADE_AT only when the tip's sources give the same source stamp
 # (defaults_guard.py source-stamp, derived from each tree; the stamp is never committed) as BASE_SHA,
 # whose committed exports the first push built the snapshot from. Otherwise,
-# and for the webviews formatting, a held file waits for the next run and the run fails.
+# and for the webviews formatting, a held file waits for the next run (left, below).
+#
+# Left, not red: a file held because a newer push moved its inputs is no failure of this run; that push
+# started a run that makes it on its own tip. This run then ends green with a warning naming the files,
+# and writes them to CMUX_BASE_AUTOFIX_LEFT (when set), so the workflow uploads no own-exports marker
+# and the next run's "since" (base-autofix-since.sh) still covers them. Ending red for them made the
+# job red on every run of 2026-11-28 (10:21-18:31Z, run 46176330727: "pushed part of the repair"),
+# though nothing was refused. A repair refused on the tip (its checker left the output unwritten, or
+# a frozen path) still fails the run.
 # A round that finds nothing left to repair on the tip ends the run.
 #
 # The repair runs without TOKEN, the push credentials; only base-autofix-push.sh gets them.
@@ -223,15 +231,26 @@ none" >/dev/null; then
     fi
     exit 0
   }
-  # Out of time for a round on a moved tip: what this job cannot make in time waits for the run the
-  # move started. A held file no round here makes still fails the run (the next run's "since" keeps it).
+  # Out of time for a round on a moved tip, or no round here makes them: held files wait for the run the
+  # move started (Left, above). A refused one fails the run.
   hand_off() {
-    if [[ -n "$waits" ]]; then
-      echo "::error::these wait for repair (their inputs moved, or regeneration was refused):" >&2
-      printf '%s' "$waits" | sort -u | sed 's/^/  /' >&2
+    if [[ -n "$refused" ]]; then
+      echo "::error::regeneration was refused on the tip for these; the next run makes them again:" >&2
+      printf '%s' "$refused" | sort -u | sed 's/^/  /' >&2
+      leave
       exit 1
     fi
+    leave
     finish
+  }
+  # Files whose inputs moved and that no round here makes: the run the move started makes them (Left, above).
+  leave() {
+    [[ -n "$waits" ]] || return 0
+    echo "::warning title=Base autofix::$branch moved the inputs of these after they were made; the run its push started makes them, and this run leaves the next run's since before them:" >&2
+    printf '%s' "$waits" | sort -u | sed 's/^/  /' >&2
+    if [[ -n "${CMUX_BASE_AUTOFIX_LEFT:-}" ]]; then
+      printf '%s' "$waits" | sort -u > "$CMUX_BASE_AUTOFIX_LEFT"
+    fi
   }
   split_sources() { # <base>: moves the Swift HEAD rewrote out of HEAD; 1 when nothing is left to push
     local on="$1" paths path message
@@ -259,22 +278,26 @@ none" >/dev/null; then
   push() { # <base> [<settings made at>] [<action exports made at>] -> the push's status; its held files in $work/held
     local auth status=0
     : > "$work/held"
+    : > "$work/compile_held"
     split_sources "$1" || return 0
     if [[ -n "$token" ]]; then
       auth="$(printf 'x-access-token:%s' "$token" | base64 -w0)"
       env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
-        GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" CMUX_BASE_AUTOFIX_HELD="$work/held" \
+        GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" CMUX_BASE_AUTOFIX_HELD="$work/held" CMUX_BASE_AUTOFIX_COMPILE_HELD="$work/compile_held" \
         CMUX_BASE_AUTOFIX_COMPILE_GATE="$compile_gate" COMPILE_GATE_TOKEN="$gate_token" CMUX_BASE_AUTOFIX_COMPILED="$work/compiled" \
         "$push_script" "$remote" "$branch" "$@" || status=$?
     else
-      CMUX_BASE_AUTOFIX_HELD="$work/held" \
+      CMUX_BASE_AUTOFIX_HELD="$work/held" CMUX_BASE_AUTOFIX_COMPILE_HELD="$work/compile_held" \
         CMUX_BASE_AUTOFIX_COMPILE_GATE="$compile_gate" COMPILE_GATE_TOKEN="$gate_token" CMUX_BASE_AUTOFIX_COMPILED="$work/compiled" \
         "$push_script" "$remote" "$branch" "$@" || status=$?
     fi
+    # Swift the build fleet did not pass is a refusal, not a move: the run fails for it.
+    if grep -q . "$work/compile_held"; then refused+="$(grep . "$work/compile_held")"$'\n'; fi
     return "$status"
   }
 
-  waits=""  # held files no round here makes: the run fails for them
+  waits=""    # held files (their inputs moved) no round here makes: left to the next run, not red
+  refused=""  # held files a round here was refused making: the run fails for them
   round=1
   status=0
   push "$base" "$settings_made_at" "$actions_made_at" || status=$?
@@ -330,7 +353,7 @@ none" >/dev/null; then
       if remade "$path"; then again+="$path"$'\n'; else waits+="$path"$'\n'; fi
     done <<<"$held"
     if [[ -z "$again" ]]; then
-      exit "$status"
+      hand_off  # every held file waits for the run the move started (or was refused: red)
     fi
     if ((round >= rounds)); then
       # No red: the run the newest of those pushes started repairs them.
@@ -377,7 +400,7 @@ none" >/dev/null; then
       [[ -n "$path" ]] || continue
       if grep -qF "left: $path " "$work/repair.txt" \
         || grep -qxF "skipped (frozen): $path" "$work/repair.txt"; then
-        waits+="$path"$'\n'
+        refused+="$path"$'\n'
       fi
     done <<<"$again"
     # A submodule the job initialized (ghostty-next, for cargo clippy --fix) stays at the commit it
@@ -395,7 +418,7 @@ for meta, path in zip(parts[0::2], parts[1::2]):
         sys.stdout.buffer.write(path + b"\0")
 ')
     if git diff --cached --quiet; then
-      if [[ -z "$waits" ]]; then
+      if [[ -z "$waits$refused" ]]; then
         echo "$branch at ${tip:0:12} needs none of it again."
       else
         echo "$branch at ${tip:0:12} has no new repair; unresolved outputs remain."
@@ -410,11 +433,6 @@ for meta, path in zip(parts[0::2], parts[1::2]):
     status=0
     push "$tip" || status=$?
   done
-  if [[ -n "$waits" ]]; then
-    echo "::error::these wait for repair (their inputs moved, or regeneration was refused):" >&2
-    printf '%s' "$waits" | sort -u | sed 's/^/  /' >&2
-    exit 1
-  fi
-  finish
+  hand_off
 }
 main "$@"; exit $?
