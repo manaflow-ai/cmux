@@ -44,6 +44,8 @@ export PATH="$work/bin:$PATH" FAKE_LOG="$work/log"
 # group 1 got 5 jobs, not the host's 96, and the tree build failed here (cmux-tui job 140944131931). No cgroup
 # file means no cap; scripts/ci/tests/cargo-groups-memory.test.sh covers the cap itself.
 export CARGO_GROUPS_PROC_CGROUP="$work/no-cgroup"
+# Not this host's RAM either: GIANT_RESERVE would size the groups by whatever MemAvailable the test host has.
+export CARGO_GROUPS_MEMINFO="$work/no-meminfo"
 t=x86_64-unknown-linux-musl
 td="$work/target"
 
