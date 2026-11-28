@@ -87,17 +87,38 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # Cargo fingerprints a registry crate by its absolute source path, so the seed is built under the CARGO_HOME the
+      # fleet's clippy-changed steps use (clippy-base-seed.sh cargo-home); under /home/runner/.cargo every registry crate
+      # rechecked there. Only a path that does not exist is made (never another owner's cache taken over).
+      - name: Build under the fleet step's CARGO_HOME
+        run: |
+          set -euo pipefail
+          want="$(bash scripts/ci/clippy-base-seed.sh cargo-home)"
+          have="${CARGO_HOME:-$HOME/.cargo}"
+          if [[ ! -e "$want" ]]; then
+            mkdir -p "$want" 2>/dev/null || { sudo -n mkdir -p "$want" && sudo -n chown "$(id -u):$(id -g)" "$want"; } || true
+          fi
+          if [[ ! -d "$want" || ! -w "$want" ]]; then
+            echo "::warning::$want is not writable here; the seed is built under $have and fleet steps will skip it"
+            exit 0
+          fi
+          for name in config.toml config credentials.toml; do
+            if [[ -f "$have/$name" && ! -e "$want/$name" ]]; then ln -s "$have/$name" "$want/$name"; fi
+          done
+          echo "CARGO_HOME=$want" >> "$GITHUB_ENV"
+          echo "CARGO_HOME=$want (was $have)"
+
       - name: Key the seed
         id: r2-cargo-key
         run: |
           set -euo pipefail
           inputs="$(bash scripts/ci/clippy-base-seed.sh inputs)"
           {
-            echo "deps-key=cmux-tui-clippy-seed-deps-v1-$inputs"
-            echo "target-prefix=cmux-tui-clippy-seed-deps-v1-"
-            echo "ws-base=cmux-tui-clippy-seed-ws-v1-"
-            echo "ws-key=cmux-tui-clippy-seed-ws-v1-$inputs-$GITHUB_SHA"
-            echo "ws-prefix=cmux-tui-clippy-seed-ws-v1-$inputs-"
+            echo "deps-key=cmux-tui-clippy-seed-deps-v2-$inputs"
+            echo "target-prefix=cmux-tui-clippy-seed-deps-v2-"
+            echo "ws-base=cmux-tui-clippy-seed-ws-v2-"
+            echo "ws-key=cmux-tui-clippy-seed-ws-v2-$inputs-$GITHUB_SHA"
+            echo "ws-prefix=cmux-tui-clippy-seed-ws-v2-$inputs-"
             echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
           } >> "$GITHUB_OUTPUT"
 

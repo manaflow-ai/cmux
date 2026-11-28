@@ -2,6 +2,7 @@
 # The base's clippy target, for a cold clippy-changed slot (goal ci-min-per-pr-140).
 #
 #   clippy-base-seed.sh inputs              the 16-hex key of the toolchain and lockfiles (after the pinned cargo is on PATH)
+#   clippy-base-seed.sh cargo-home          the CARGO_HOME the seed is built with and read under (the fleet step's)
 #   clippy-base-seed.sh restore TARGET      seed an empty TARGET from the base's build; any failure is a miss, exit 0
 #   clippy-base-seed.sh verdict DIR BASE    the newest recorded whole-workspace clippy verdict into DIR/verdict.json
 #                                           (BASE's own first); any failure is a miss, exit 0
@@ -12,11 +13,18 @@
 # an empty target, so every workspace crate and its build scripts (libghostty-vt's zig build, libtailscale's Go build)
 # ran from nothing. Registry crates already come from sccache; the workspace does not. The seed is written only by
 # cmux-tui-clippy-seed.yml on feat-cmux-next (the next-cache-writer environment), so a pull request only reads it:
-#   cmux-tui-clippy-seed-deps-v1-<inputs>       dependencies only (cargo_target_strip.py)
-#   cmux-tui-clippy-seed-ws-v1-<inputs>-<sha>   the workspace delta (cargo-target-delta.sh), with source mtimes
+#   cmux-tui-clippy-seed-deps-v2-<inputs>       dependencies only (cargo_target_strip.py)
+#   cmux-tui-clippy-seed-ws-v2-<inputs>-<sha>   the workspace delta (cargo-target-delta.sh), with source mtimes
 # restore puts the dependency entry in TARGET, the newest workspace delta on top, and gives every source whose bytes
 # equal the base build's its recorded mtime back (scripts/ci/cargo-target-delta.sh apply), so Cargo rechecks only what
 # this commit changed and its dependents. A changed file keeps a fresh mtime: correctness never rests on the seed.
+#
+# One CARGO_HOME for writer and reader: Cargo fingerprints a registry crate by its absolute source path
+# ($CARGO_HOME/registry/src/...). The v1 seed was built under the GitHub runner's /home/runner/.cargo and read by fleet
+# steps under /srv/cmux-ci/cache/cargo (the worker's shared cache dir), so every registry crate came back
+# "dirty: PathToSourceChanged" (354 of 402 dirty units, fleet job bef36aa6e408b09eea39f386, 2026-11-28) and the 15-57 s
+# restore bought nothing. v2 is built under the fleet's path (the seed workflow), and a reader whose CARGO_HOME is
+# another path skips the restore, which could only recheck everything.
 # A reused slot (a target that already holds a build) is left alone. CMUX_CLIPPY_BASE_SEED=off turns it off.
 # Test: scripts/ci/tests/clippy-base-seed.test.sh.
 set -uo pipefail
@@ -24,6 +32,8 @@ set -uo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 here="$repo/scripts/ci"
 mode="${1:-}"
+# The build-fleet worker's CARGO_HOME for a ci-step: its shared cache dir plus cargo (worker main.go, sharedCacheDir).
+seed_cargo_home="${CMUX_CLIPPY_SEED_CARGO_HOME:-/srv/cmux-ci/cache/cargo}"
 
 seed_inputs() {
   { git -C "$repo" ls-files -z -- 'cmux-tui/Cargo.lock' 'cmux-tui/**/Cargo.lock' 'cmux-tui/rust-toolchain.toml' '.cargo/config.toml' \
@@ -41,6 +51,11 @@ restore() {
   [[ -n "$target" ]] || { echo "usage: $0 restore TARGET" >&2; return 2; }
   if [[ "${CMUX_CLIPPY_BASE_SEED:-}" == off ]]; then echo "clippy base seed: off"; return 0; fi
   if target_is_warm "$target"; then echo "clippy base seed: skipped, $target already holds a build (a reused slot)"; return 0; fi
+  local home="${CARGO_HOME:-${HOME:-}/.cargo}"
+  if [[ "${home%/}" != "${seed_cargo_home%/}" ]]; then
+    echo "clippy base seed: skipped, CARGO_HOME $home is not the seed's $seed_cargo_home (every registry crate would recheck)"
+    return 0
+  fi
   export CI_CACHE_R2_PUBLIC_URL="${CI_CACHE_R2_PUBLIC_URL:-https://ci-cache-next.cmux.com}"
   # The writer is a Linux X64 runner; a fleet step has no RUNNER_OS or RUNNER_ARCH.
   export CI_CACHE_R2_NAMESPACE="${CI_CACHE_R2_NAMESPACE:-Linux-X64}"
@@ -48,9 +63,9 @@ restore() {
   overlay="$(mktemp -d "${TMPDIR:-/tmp}/clippy-seed-ws.XXXXXX")" || return 0
   stamp="$overlay.stamp"
   mkdir -p "$target"
-  bash "$here/r2-cache.sh" restore "$target" "cmux-tui-clippy-seed-deps-v1-$inputs" "cmux-tui-clippy-seed-deps-v1-" \
+  bash "$here/r2-cache.sh" restore "$target" "cmux-tui-clippy-seed-deps-v2-$inputs" "cmux-tui-clippy-seed-deps-v2-" \
     || echo "clippy base seed: dependency entry not restored"
-  bash "$here/r2-cache.sh" restore "$overlay" "cmux-tui-clippy-seed-ws-v1-$inputs-" "cmux-tui-clippy-seed-ws-v1-$inputs-" "cmux-tui-clippy-seed-ws-v1-" \
+  bash "$here/r2-cache.sh" restore "$overlay" "cmux-tui-clippy-seed-ws-v2-$inputs-" "cmux-tui-clippy-seed-ws-v2-$inputs-" "cmux-tui-clippy-seed-ws-v2-" \
     || echo "clippy base seed: workspace delta not restored"
   # x86_64-unknown-linux-gnu as the clippy job's warm target: libghostty-vt is built for baseline x86-64 (CMUX_GHOSTTY_VT_ZIG_CPU).
   bash "$here/cargo-target-delta.sh" apply "$target" "$overlay" "$stamp" x86_64-unknown-linux-gnu \
@@ -82,7 +97,8 @@ verdict() {
 
 case "$mode" in
   inputs) seed_inputs ;;
+  cargo-home) echo "$seed_cargo_home" ;;
   restore) shift; restore "$@" ;;
   verdict) shift; verdict "$@" ;;
-  *) echo "usage: $0 inputs | restore TARGET | verdict DIR BASE" >&2; exit 2 ;;
+  *) echo "usage: $0 inputs | cargo-home | restore TARGET | verdict DIR BASE" >&2; exit 2 ;;
 esac

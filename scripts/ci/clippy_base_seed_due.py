@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import deadline_http  # noqa: E402  (scripts/ci: every call ends by its deadline)
 
 PUBLIC_URL = "https://ci-cache-next.cmux.com"
-POINTER = "v1/Linux-X64/latest/cmux-tui-clippy-seed-ws-v1-"
+POINTER = "v1/Linux-X64/latest/cmux-tui-clippy-seed-ws-v2-"
 KEY_INPUT = re.compile(r"^(?:cmux-tui/(?:.+/)?Cargo\.lock|cmux-tui/rust-toolchain\.toml|\.cargo/config\.toml)$")
 
 
