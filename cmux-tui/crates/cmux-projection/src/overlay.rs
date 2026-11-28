@@ -2813,6 +2813,7 @@ pub mod shared;
 
 #[path = "overlay_age.rs"]
 mod age;
+pub use age::age_unmounted;
 
 #[path = "overlay_bulk.rs"]
 pub mod bulk;

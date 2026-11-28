@@ -55,6 +55,10 @@ fn main() -> ExitCode {
 /// Runs the helper with `arguments` (argv without the program name).
 /// `exe_prefix` is the argv that re-enters this mode through `current_exe`:
 /// empty for the standalone helper, `["__agent-hook"]` inside cmux-tui.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
     if let [mode] = arguments.as_slice()
         && let Some(source) = mode.strip_prefix("--plugin-stream=")
