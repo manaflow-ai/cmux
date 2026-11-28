@@ -573,9 +573,21 @@ async fn machine<C: Cloud>(cloud: &C, start: &Start, size: ChiefSize) -> Result<
         match status {
             "running" if id_of(&row, "/host").is_some() => return Ok(row),
             "failed" | "deleted" | "deleting" => {
+                // Provider messages can contain arbitrary upstream text. Keep only a bounded
+                // diagnostic code so public Chief logs explain the failed state safely.
+                let reason = row.pointer("/error/code").and_then(Value::as_str).filter(|code| {
+                    !code.is_empty()
+                        && code.len() <= 96
+                        && code.bytes().all(|c| {
+                            c.is_ascii_lowercase()
+                                || c.is_ascii_digit()
+                                || matches!(c, b'.' | b'_' | b'-')
+                        })
+                });
+                let reason = reason.map(|code| format!(" ({code})")).unwrap_or_default();
                 return Err(refused(
                     "chief.machine_gone",
-                    format!("machine {id} is {status}; start again with a new key"),
+                    format!("machine {id} is {status}{reason}; start again with a new key"),
                 ));
             }
             "paused" | "stopped" if !started => {
@@ -801,10 +813,10 @@ fn chief_reply(reply: &super::http::Reply, path: &str) -> Result<Value, Failure>
                 reply.retry_after.as_deref(),
             );
             // Add context without losing retry facts for a header-only refusal.
-            if let Failure::Http { code: None, message, .. } = &mut error {
-                if message.is_none() {
-                    *message = Some(format!("{path}: {}", body_summary(object.as_ref())));
-                }
+            if let Failure::Http { code: None, message, .. } = &mut error
+                && message.is_none()
+            {
+                *message = Some(format!("{path}: {}", body_summary(object.as_ref())));
             }
             Err(error)
         }

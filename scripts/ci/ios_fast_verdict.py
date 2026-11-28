@@ -113,7 +113,12 @@ def rust_inner(path: str) -> bool:
 def swift_facing(path: str, root: Path, base_marked: set[str] | frozenset[str] = frozenset()) -> bool:
     """Whether rust_inner PATH can change the Swift surface: it names RUST_SWIFT_MARK at the head (ROOT) or the base
     (BASE_MARKED, the paths whose base text does), or the head file is unreadable. A Cargo.lock never does: a uniffi
-    or target change comes with a Cargo.toml or a .rs that names it."""
+    or target change comes with a Cargo.toml or a .rs that names it.
+
+    The head text is the working tree's, else the commit's (head_blob): both CI callers run in a sparse checkout that
+    leaves cmux-tui/ out (pr-router.yml's route job, pr-pipeline.yml's ios-fast-runner), so a disk read failed for
+    every Rust path and each one took the Mac. 2026-11-28 01:58-07:35Z: cmux#61886, a cloud server change whose only
+    routed files were generated cmux-cloud-wire .rs with no FFI mark, ran the ios fast verdict on 5 heads."""
     if path.rsplit("/", 1)[-1] == "Cargo.lock":
         return False
     if path in base_marked:
@@ -121,8 +126,27 @@ def swift_facing(path: str, root: Path, base_marked: set[str] | frozenset[str] =
     try:
         text = (root / path).read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return True
+        text = head_blob(path, root)
+        if text is None:
+            return True
     return bool(RUST_SWIFT_MARK.search(text))
+
+
+# A blob:none checkout (a fork's pull request) fetches the blob from GitHub on this read.
+HEAD_BLOB_S = 60.0
+
+
+def head_blob(path: str, root: Path, rev: str = "HEAD") -> str | None:
+    """PATH's text at REV in the git repository at ROOT (a path a sparse checkout left off disk); None when ROOT is no
+    repository, REV has no such file (a deletion) or the read fails."""
+    try:
+        out = subprocess.run(["git", "-C", str(root), "cat-file", "blob", f"{rev}:{path}"],
+                             capture_output=True, timeout=HEAD_BLOB_S)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout.decode("utf-8", errors="replace")
 
 
 def base_marked_paths(paths: list[str], base: str = "HEAD^1") -> set[str]:
@@ -379,7 +403,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"::warning::{STATUS_CONTEXT} not posted: REPO, SHA and TOKENS are needed")
             return 0
         if not post_status(args.state, args.description, repo, sha, tokens, os.environ.get("RUN_URL", "")):
-            print(f"::warning::{STATUS_CONTEXT} ({args.state}) was not posted at {sha}: its land waits on the last state")
+            # Red, not a warning: a green job whose post was refused (a spent hourly budget on every token) left
+            # no cmux/ios-fast at the head, and a passed job cannot be rerun, so its land waited for a new head
+            # (cmux#64513: a passed verdict lost at 11:39Z, then an empty push that started no router run).
+            # A failed job is rerun with `gh run rerun RUN --failed` once the budget refills.
+            run = os.environ.get("GITHUB_RUN_ID", "RUN")
+            print(f"::error::{STATUS_CONTEXT} ({args.state}) was not posted at {sha}: its land waits on the last "
+                  f"state posted there (rerun once the rate limit lifts: gh run rerun {run} --failed)")
+            return 1
         return 0
     paths = ci_steps.read_paths(args.paths_file) if args.paths_file else diff_paths()
     if paths is None:

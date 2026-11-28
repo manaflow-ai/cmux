@@ -33,6 +33,7 @@ struct Fake {
     read_failures: RefCell<VecDeque<Failure>>,
     pauses: RefCell<Vec<Duration>>,
     read_latency: Duration,
+    machine_error: Value,
 }
 
 impl Fake {
@@ -94,7 +95,8 @@ impl Cloud for Fake {
                 let status = self.status.borrow_mut().pop().unwrap_or("running");
                 let id = self.machines.borrow().values().next().unwrap()["id"].clone();
                 Ok(
-                    json!({ "machine": { "id": id, "status": status, "host": "host_1", "revision": 3 } }),
+                    json!({ "machine": { "id": id, "status": status, "host": "host_1", "revision": 3,
+                        "error": self.machine_error } }),
                 )
             }
             "chief.list" => Ok(json!({ "chiefs": self.chiefs.borrow().clone() })),
@@ -747,6 +749,40 @@ fn the_fallback_unit_reads_both_env_files_as_the_image_unit_does() {
 }
 
 #[tokio::test]
+async fn failed_machine_reports_only_a_bounded_code_without_retrying_creation() {
+    for status in ["failed", "deleted", "deleting"] {
+        for (code, expected) in [
+            (json!("cloud.machine.create_overdue"), " (cloud.machine.create_overdue)"),
+            (json!("cloud.provider.unavailable"), " (cloud.provider.unavailable)"),
+            (Value::Null, ""),
+            (json!(""), ""),
+            (json!("provider error\nsecret"), ""),
+            (json!("a".repeat(97)), ""),
+            (json!({"unexpected": "shape"}), ""),
+        ] {
+            let fake = Fake {
+                machine_error: json!({"code": code, "message": "private provider details"}),
+                ..Fake::default()
+            };
+            fake.status.borrow_mut().push(status);
+            assert_eq!(
+                run(&fake, &start(true)).await.unwrap_err(),
+                refused(
+                    "chief.machine_gone",
+                    format!(
+                        "machine vm_00000000000000000000 is {status}{expected}; start again with a new key"
+                    )
+                )
+            );
+            assert_eq!(fake.count("cloud.machine.create"), 1);
+            assert_eq!(fake.count("cloud.machine.get"), 1);
+            assert_eq!(fake.count("exec"), 0);
+            assert!(fake.pauses.borrow().is_empty());
+        }
+    }
+}
+
+#[tokio::test]
 async fn machine_reads_recover_without_recreating_the_machine() {
     let fake = Fake::default();
     fake.read_failures.borrow_mut().extend([
@@ -815,6 +851,8 @@ async fn machine_reads_respect_http_retry_after_and_the_remaining_budget() {
             status: 429,
             header_code: None,
             retry_after: Some(header.into()),
+            content_type: Some("application/json".into()),
+            commit: None,
             body: serde_json::to_vec(&body).unwrap(),
         };
         let error = chief_reply(&reply, "/v1/read").unwrap_err();
