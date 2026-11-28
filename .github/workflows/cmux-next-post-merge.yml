@@ -434,8 +434,32 @@ jobs:
     permissions:
       contents: read
 
+  # Off the pull request's land event since 2026-11-28 (RFD 0023 tier B): the gesture matrix on a fleet simulator,
+  # not detached here, so the judge reads its verdict.
+  ios-gestures:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' ios-gestures ')
+    uses: ./.github/workflows/cmux-next-ios-gestures.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
+  # Off the pull request's land event since 2026-11-28 (RFD 0023): the advisory composer and terminal keyboard
+  # screenshot loop; its job is continue-on-error, so it reports and never turns the batch red.
+  ios-sim-screenshot-loop:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' ios-sim-screenshot-loop ')
+    uses: ./.github/workflows/ios-sim-screenshot-loop.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, chat-size-ladder, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, pr-pipeline-mac, pr-pipeline-ios, gallery-health, cmux-tui-sdks, cmux-tui-spec, ghosttykit-release-check]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, chat-size-ladder, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, pr-pipeline-mac, pr-pipeline-ios, gallery-health, cmux-tui-sdks, cmux-tui-spec, ghosttykit-release-check, ios-gestures, ios-sim-screenshot-loop]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}

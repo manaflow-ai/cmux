@@ -707,6 +707,26 @@
         ".github/workflows/ghosttykit-release-check.yml"
       ],
       "jobs": {"verify": "GhosttyKit release check"}
+    },
+    "ios-gestures": {
+      "workflow": "cmux-next-ios-gestures.yml",
+      "paths": [
+        "cmux-next-ios/**/*.swift",
+        "cmux-next-ios/project.yml",
+        "scripts/ci/cmux-next-ios-sim.sh",
+        ".github/workflows/cmux-next-ios-gestures.yml"
+      ],
+      "jobs": {"gestures": "Gesture conflicts on a fleet simulator"}
+    },
+    "ios-sim-screenshot-loop": {
+      "workflow": "ios-sim-screenshot-loop.yml",
+      "paths": [
+        "cmux-next-ios/**",
+        "Packages/iOS/**",
+        "scripts/ci/cmux-next-ios-sim.sh",
+        ".github/workflows/ios-sim-screenshot-loop.yml"
+      ],
+      "jobs": {"loop": "composer + terminal keyboard screenshots"}
     }
   }
 }

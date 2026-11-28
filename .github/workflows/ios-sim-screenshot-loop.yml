@@ -22,23 +22,39 @@ on:
       - Packages/iOS/**
       - scripts/ci/cmux-next-ios-sim.sh
       - .github/workflows/ios-sim-screenshot-loop.yml
+  # The post-merge batch tier (cmuxterm-hq docs/rfd/0023-ci-10x.md part 3; cmux-next-post-merge.yml, suite
+  # ios-sim-screenshot-loop in .github/post-merge-batch.json): once a batch window at the merged tip, when the
+  # commits since the last batch touched the paths above. The screenshots are that run's artifact.
+  workflow_call:
+    inputs:
+      sha:
+        description: "The commit to drive (the post-merge batch's tip or a bisect probe's commit). Empty: the event's own."
+        type: string
+        default: ""
+      only:
+        description: "The one job id to run (a bisect probe): loop. Empty: every job."
+        type: string
+        default: ""
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id)) || '' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}${{ (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id)) || '' }}
   cancel-in-progress: true
 
 jobs:
   loop:
     name: composer + terminal keyboard screenshots
-    # Heavy-at-land rule (scripts/ci/head_tier.py, CI_HEAVY_AT_LAND, on unless 0; Leo, 2026-11-26: "de facto, im
-    # asking for 99% fewer minutes of ci time, period."): on a pull request this runs only on the `labeled` event that
-    # adds ready-to-land or full-ci, at that head; land-judge pulses ready-to-land at the head it lands. On 11-28
-    # 07Z..11:30Z it spent about 7.5k runner-min/day on every push of every iOS pull request head. Dispatch and CI_HEAVY_AT_LAND=0: as before.
-    if: ${{ (github.event_name != 'pull_request' || (github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) || ((vars.CI_HEAVY_AT_LAND || '1') == '0' && github.event.action != 'labeled')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    # Post-merge batch tier (cmuxterm-hq docs/rfd/0023-ci-10x.md: an advisory check, and a new check "starts in tier
+    # B unless it shows a sole red"; Leo, 2026-11-21: "everything else runs once post-merge, batched"): on a pull
+    # request into feat-cmux-next this runs only on the `labeled` event that adds full-ci, at that head; the land's
+    # ready-to-land event no longer runs it, the post-merge batch (suite ios-sim-screenshot-loop) does. At land it was
+    # 1,540 runner-min in 4 h (64 runs, 13Z..17Z 11-28, NOW ci_minutes), about 9.2k a day. Another base keeps the
+    # heavy-at-land rule (ready-to-land or full-ci); CI_IOS_SIM_POST_MERGE=0 restores it here too, and
+    # CI_HEAVY_AT_LAND=0 with it every push as before. Dispatch: as before.
+    if: ${{ (inputs.only == '' || inputs.only == 'loop') && (github.event_name != 'pull_request' || (github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && (github.event.label.name == 'full-ci' || github.event.pull_request.base.ref != 'feat-cmux-next' || (vars.CI_IOS_SIM_POST_MERGE || '1') == '0')) || ((vars.CI_HEAVY_AT_LAND || '1') == '0' && github.event.action != 'labeled' && (github.event.pull_request.base.ref != 'feat-cmux-next' || (vars.CI_IOS_SIM_POST_MERGE || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_LIGHT_LANE_RUNNER || (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     continue-on-error: true
     # The hosted simulator build and both UI suites can exceed an hour. Keep the
@@ -49,6 +65,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       # A fork's run is on GitHub's hosted macos-26 image, which has Xcode 26.6, not the pool pin (27.2); the
       # floor is 26. Every other run takes the pool pin from scripts/ci/xcode-pins.txt.

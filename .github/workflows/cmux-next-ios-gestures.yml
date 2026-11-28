@@ -34,6 +34,20 @@ on:
       - ".github/workflows/cmux-next-ios-gestures.yml"
   push:
     branches: [nightly-next]
+  # The post-merge batch tier (cmuxterm-hq docs/rfd/0023-ci-10x.md part 3; cmux-next-post-merge.yml, suite
+  # ios-gestures in .github/post-merge-batch.json): once a batch window at the merged tip, when the commits since the
+  # last batch touched the paths above; a red there is bisected to the merge that made it. Not detached there: the
+  # batch's judge reads this job's own verdict.
+  workflow_call:
+    inputs:
+      sha:
+        description: "The commit to test (the post-merge batch's tip or a bisect probe's commit). Empty: the event's own."
+        type: string
+        default: ""
+      only:
+        description: "The one job id to run (a bisect probe): gestures. Empty: every job."
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       ref:
@@ -44,28 +58,31 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-ios-gestures-${{ github.event.pull_request.number || github.sha }}${{ (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id)) || '' }}
+  group: cmux-next-ios-gestures-${{ github.event.pull_request.number || inputs.sha || github.sha }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}${{ (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id)) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   gestures:
     name: Gesture conflicts on a fleet simulator
-    # Heavy-at-land rule (scripts/ci/head_tier.py, CI_HEAVY_AT_LAND, on unless 0; Leo, 2026-11-26: "de facto, im
-    # asking for 99% fewer minutes of ci time, period."): on a pull request this runs only on the `labeled` event that
-    # adds ready-to-land or full-ci, at that head; land-judge pulses ready-to-land at the head it lands. On 11-28
-    # 07Z..11:30Z it spent about 12.5k runner-min/day on every push of every iOS pull request head. Dispatch, the
-    # nightly-next push and CI_HEAVY_AT_LAND=0: as before.
+    # Post-merge batch tier (cmuxterm-hq docs/rfd/0023-ci-10x.md, tier B: "A new check starts in tier B unless it
+    # shows a sole red"; Leo, 2026-11-21: "everything else runs once post-merge, batched"): on a pull request this
+    # runs only on the `labeled` event that adds full-ci, at that head. The land's ready-to-land event no longer runs
+    # it: the post-merge batch (suite ios-gestures) does, once a window at the merged tip. At land it was 5,948
+    # runner-min in 4 h (59 runs, 13Z..17Z 11-28, NOW ci_minutes), about 35.7k a day. CI_IOS_SIM_POST_MERGE=0 runs it
+    # at ready-to-land again (the heavy-at-land rule, CI_HEAVY_AT_LAND, as before). Dispatch and the nightly-next
+    # push: as before.
     if: >-
-      ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (github.event_name != 'pull_request'
+      ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (inputs.only == '' || inputs.only == 'gestures')
+      && (github.event_name != 'pull_request'
       || (github.event.pull_request.draft != true && github.event.pull_request.head.repo.full_name == github.repository))
-      && (github.event_name != 'pull_request' || (github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) || ((vars.CI_HEAVY_AT_LAND || '1') == '0' && github.event.action != 'labeled'))
+      && (github.event_name != 'pull_request' || (github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && (github.event.label.name == 'full-ci' || (vars.CI_IOS_SIM_POST_MERGE || '1') == '0')) || ((vars.CI_HEAVY_AT_LAND || '1') == '0' && (vars.CI_IOS_SIM_POST_MERGE || '1') == '0' && github.event.action != 'labeled'))
       && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (linux-pickers-gone host pins)
     timeout-minutes: 240
     permissions:
       contents: read
     env:
-      DETACH: ${{ vars.CI_IOS_GESTURES_DETACH || '1' }}
+      DETACH: ${{ inputs.sha != '' && '0' || vars.CI_IOS_GESTURES_DETACH || '1' }}
       REPORT_CHECK: Gesture conflicts (fleet simulator verdict)
     steps:
       # Only the composite action's folder: the step runs on a fleet Mac, not here.
@@ -86,7 +103,7 @@ jobs:
 
       - name: Run GestureConflictUITests
         env:
-          REF: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          REF: ${{ inputs.sha || inputs.ref || github.event.pull_request.head.sha || github.sha }}
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
