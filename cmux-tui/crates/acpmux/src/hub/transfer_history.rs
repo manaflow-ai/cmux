@@ -52,6 +52,8 @@ pub(in crate::hub) const HISTORY_FILE: &str = "events/history.cspb";
 
 #[path = "pack_as_it_grows.rs"]
 mod pack_as_it_grows;
+#[path = "pack_trust.rs"]
+mod pack_trust;
 /// Each chat's newest history-later prepare's pack ([`Hub::prepack_history`]): the seq it packs
 /// through, and its result once done.
 static PREPACKS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, (u64, Arc<Prepack>)>>> =
@@ -104,6 +106,27 @@ struct Prepacked {
     manifest: pack::Manifest,
     stats: pack::PackStats,
     ms: u64,
+}
+
+/// A log line's fields as `emit_lines` reads them, its message unparsed, in an
+/// `EventRecord`'s order. A line is copied as it is only when it is this written back (its
+/// fields exactly an `EventRecord`'s, in its order, no space): the bytes `serde_json` writes
+/// for the record, its message as `serde_json` wrote it (keys sorted: no `preserve_order`).
+#[derive(serde::Deserialize, serde::Serialize)]
+// A local log line, not a peer's: one with a field this build does not know is parsed whole.
+// skew: strict a line read here falls back to a whole parse, never refused
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LoggedLine<'a> {
+    seq: u64,
+    at: u64,
+    #[serde(borrow)]
+    dir: std::borrow::Cow<'a, str>,
+    #[serde(borrow)]
+    kind: std::borrow::Cow<'a, str>,
+    #[serde(borrow)]
+    msg: &'a serde_json::value::RawValue,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    host_seq: Option<u64>,
 }
 
 /// The most records one scan of [`Hub::write_lines`] writes before it lets the store's
@@ -213,6 +236,8 @@ impl Hub {
         let store = self.pack_store(chat)?;
         // It writes the chat's manifest, as a pack does.
         let _turn = PackTurn::take(chat);
+        // Its segments are the bundle's, not ones a seal here checked against this log.
+        self.forget_pack_trust(chat);
         let mut input = std::io::BufReader::new(std::fs::File::open(&file)?);
         let manifest = pack::ship::unbundle(&store, &mut input, pack::ship::Lacking::Refuse)
             .map_err(pack_error)?
@@ -520,8 +545,7 @@ impl Hub {
             .take_while(|s| s.sealed && s.seq.is_some_and(|(_, hi)| hi <= through))
             .collect();
         let Some(last) = candidates.last().and_then(|s| s.seq) else { return Ok(None) };
-        let trusted = self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).get(&session.id)
-            == Some(&stamp);
+        let trusted = self.pack_trusted(&session.id, store, stamp);
         let keep = if trusted {
             candidates.len()
         } else {
@@ -564,13 +588,12 @@ impl Hub {
         });
         let _ = crate::home_fs::remove_file(&lines);
         let packed = packed?;
-        if packed.is_some() && self.store.log_stamp(&session.id)? == stamp {
+        if let Some((manifest, _, _)) = &packed
+            && self.store.log_stamp(&session.id)? == stamp
+        {
             // Every sealed segment the pack names now was checked against the log at `stamp`
             // (kept ones by hash or by the same trust, the rest encoded from it here).
-            self.pack_checked
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(session.id.clone(), stamp);
+            self.trust_pack(&session.id, store, stamp, manifest);
         }
         Ok(packed)
     }
@@ -609,21 +632,65 @@ impl Hub {
         // chat queues behind that waiting commit. A whole 30 MB log written in one scan, on the
         // pack worker's background-priority thread (`pack_as_it_grows.rs`) of a loaded host, held
         // it for minutes (the coordinator Mac, 2026-11-27: every acpmux delivery there timed out).
+        //
+        // Each pass reads the log's lines as they are (`Store::scan_raw`) and copies a line that
+        // reads the same written back (every record `display_logged` leaves as it is: the
+        // stored line is `serde_json`'s of the record, and so the bytes it writes) without
+        // parsing its message; only the last line (its digest) and the ones `display_logged` may
+        // change are parsed whole. Parsing every line into a `Value` was a whole core on a
+        // loaded host (cosmic-gray, 2026-11-28: the pack-grow thread, 1,079 of 1,846 samples in
+        // `scan_lines` and its allocations).
         loop {
             let (mut seen, mut ended) = (0usize, true);
             let from = last;
-            self.store.scan(&session.id, from, &mut |mut e: EventRecord| {
-                if e.seq > through {
+            let mut again = Vec::new();
+            self.store.scan_raw(&session.id, from, &mut |line: &[u8]| {
+                let head = match serde_json::from_slice::<LoggedLine>(line) {
+                    Ok(head) => Some(head),
+                    Err(_) => None,
+                };
+                let seq = match &head {
+                    Some(head) => head.seq,
+                    // A line the head does not read (a field it does not know): parsed whole
+                    // below, or skipped as `scan` skips one it cannot read.
+                    None => match serde_json::from_slice::<EventRecord>(line) {
+                        Ok(rec) => rec.seq,
+                        Err(_) => return true,
+                    },
+                };
+                if seq <= from {
+                    return true;
+                }
+                if seq > through {
                     return false;
                 }
-                let at_end = e.seq == through;
+                let at_end = seq == through;
                 let step = (|| -> anyhow::Result<()> {
-                    if at_end {
-                        digest = crate::sha256::sha256_hex(&serde_json::to_vec(&e)?);
+                    last = seq;
+                    match &head {
+                        Some(head)
+                            if !at_end
+                                && !super::permissions::display_may_change(
+                                    &head.dir,
+                                    &head.kind,
+                                    head.msg.get(),
+                                )
+                                && {
+                                    again.clear();
+                                    serde_json::to_writer(&mut again, head).is_ok() && again == line
+                                } =>
+                        {
+                            out.write_all(line)?;
+                        }
+                        _ => {
+                            let mut e = serde_json::from_slice::<EventRecord>(line)?;
+                            if at_end {
+                                digest = crate::sha256::sha256_hex(&serde_json::to_vec(&e)?);
+                            }
+                            self.display_logged(Some(session), &mut e);
+                            serde_json::to_writer(&mut *out, &e)?;
+                        }
                     }
-                    last = e.seq;
-                    self.display_logged(Some(session), &mut e);
-                    serde_json::to_writer(&mut *out, &e)?;
                     out.write_all(b"\n")?;
                     Ok(())
                 })();
@@ -826,6 +893,9 @@ impl Hub {
     }
 }
 
+#[cfg(test)]
+#[path = "emit_lines_tests.rs"]
+mod emit_lines_tests;
 #[cfg(test)]
 #[path = "pack_through_kept_tests.rs"]
 mod kept_tests;

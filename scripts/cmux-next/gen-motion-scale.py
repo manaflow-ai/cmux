@@ -114,6 +114,10 @@ def css_block(data):
     lines.append("  /* A fold or Show more that grows or shrinks decelerates into its new height, never past it. */")
     lines.append("  --cmux-motion-settle: %sms;" % settle_ms)
     lines.append("  --cmux-ease-settle: %s;" % bezier(data, data["settle"]["bezier"]))
+    lines.append("  /* A streamed reply's newest words fading in. Unset (initial) follows the host's fade-in,")
+    lines.append("     --agent-motion-in, which ui.animationSpeed scales; a look may set its own. */")
+    lines.append("  --cmux-motion-stream: initial;")
+    lines.append("  --cmux-ease-stream: initial;")
     lines.append("  /* One turn of every spinner (`cmux-spin`); not a transition. */")
     lines.append("  --cmux-spinner-period: %sms;" % data["spinner"]["ms"])
     lines.append("}")
@@ -130,6 +134,8 @@ def css_block(data):
     lines.append("  --cmux-ease-spring: %s;" % spring_linear(data))
     lines.append("  --cmux-ease-settle: %s;" % bezier(data, data["settle"]["bezier"]))
     lines.append("  --cmux-ease-send: %s;" % bezier(data, data["send"]["ease"]))
+    lines.append("  --cmux-motion-stream: initial;")
+    lines.append("  --cmux-ease-stream: initial;")
     lines += ["}", END]
     return "\n".join(lines)
 
