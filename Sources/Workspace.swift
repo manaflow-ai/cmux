@@ -3379,6 +3379,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     // temporarily owns the published presentation above.
     var remoteControllerConnectionState: WorkspaceRemoteConnectionState = .disconnected
     var remoteControllerConnectionDetail: String?
+    /// Explicit Disconnect intent, cleared only by a new connection request.
+    var remoteConnectionWasDisconnected = false
     @Published var remoteDaemonStatus: WorkspaceRemoteDaemonStatus = WorkspaceRemoteDaemonStatus()
     @Published var remoteDetectedPorts: [Int] = []
     @Published var remoteForwardedPorts: [Int] = []
@@ -7463,6 +7465,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return suspendCloudRemoteConfiguration(configuration)
         }
         if configuration.routesThroughSSHTui {
+            remoteConnectionWasDisconnected = false
             return configureSSHTuiConnection(configuration, autoConnect: autoConnect)
         }
         var configuration = configuration.scopedToOwnerWorkspace(id)
@@ -7509,6 +7512,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return false
         }
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
+        remoteConnectionWasDisconnected = false
         let previousConfiguration = remoteConfiguration
         let previousPresentedDirectory = presentedCurrentDirectory
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
@@ -7627,6 +7631,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func disconnectRemoteConnection(clearConfiguration: Bool = false, disconnectedDetail: String? = nil) {
+        remoteConnectionWasDisconnected = true
         AppDelegate.shared?.sshTuiWorkspaceCoordinator.disconnect(workspace: self)
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousPresentedDirectory = presentedCurrentDirectory

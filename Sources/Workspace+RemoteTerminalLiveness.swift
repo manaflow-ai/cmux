@@ -382,6 +382,7 @@ extension Workspace {
     private func applyRemoteTerminalLaunchingPresentation() {
         guard remoteConfiguration != nil,
               !remoteControllerIsParked,
+              !remoteSessionIsWaitingForReconnect,
               !hasAuthoritativelyConnectedRemoteTerminal(
                   in: DockSplitStore.liveRemoteTerminalStores(
                       presentationWorkspaceID: id
@@ -421,6 +422,11 @@ extension Workspace {
                         presentationWorkspaceID: id
                     )
             )
+            return
+        }
+        if remoteSessionIsWaitingForReconnect {
+            applyBrowserRemoteWorkspaceStatusToPanels()
+            postRemoteConnectionPresentationDidChange()
             return
         }
         switch remoteControllerConnectionState {
