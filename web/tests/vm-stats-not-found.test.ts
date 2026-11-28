@@ -83,6 +83,8 @@ async function withStatsFixture(
       return true;
     }),
     deferObservedDestroyCleanup: () => Effect.succeed(true),
+    // No parked-address successor (#65184): a missing id stays missing, so the NOT_FOUND path is what's under test.
+    findAddressReleaseSuccessor: () => Effect.succeed(null),
     recordUsageEvent: (input: { eventType: string; metadata?: Record<string, unknown> }) => Effect.sync(() => {
       usageEvents.push(input);
     }),
