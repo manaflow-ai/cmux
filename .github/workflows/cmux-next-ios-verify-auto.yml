@@ -56,7 +56,7 @@ jobs:
     name: request cmux ios verify
     if: ${{ github.event_name == 'pull_request' && github.repository == 'manaflow-ai/cmux' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_EVAL_STEP_GATEWAY != '' && format('{0}', vars.CI_IOS_VERIFY_AUTO) != '0' && format('{0}', vars.CI_IOS_VERIFY_PROOF) != '0' }}
     runs-on: cmux-linux
-    timeout-minutes: 5
+    timeout-minutes: 30
     permissions:
       actions: write
     concurrency:
@@ -69,17 +69,45 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha }}
+          IOS_VERIFY_RESET_WAIT_S: '1500'
         run: |
           set -uo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad head $SHA"; exit 1; }
+          err="$(mktemp)"
+          dispatch() {
+            gh workflow run cmux-next-ios-verify-auto.yml --repo "$REPO" --ref feat-cmux-next \
+              -f pr="$PR" -f sha="$SHA" 2>"$err" && return 0
+            cat "$err" >&2
+            return 1
+          }
+          # A refusal fails this job: a green request that started nothing leaves cmux/ios-fast
+          # waiting for a proof no run will post, with nothing red to rerun (#65473 at f875e016).
+          refused() {
+            echo "::error title=cmux ios verify (auto)::$1; rerun this job's failed jobs, or run \`cmux ios verify --pr $PR\`"
+            exit 1
+          }
           for try in 1 2 3; do
-            if gh workflow run cmux-next-ios-verify-auto.yml --repo "$REPO" --ref feat-cmux-next -f pr="$PR" -f sha="$SHA"; then
+            if dispatch; then
+              echo "### cmux ios verify requested for #$PR at ${SHA:0:12}" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            # A spent installation rate limit returns only at its reset: wait for it (bounded), once.
+            if grep -qi 'rate limit' "$err"; then
+              # The rate_limit endpoint costs no request against the limit it reports.
+              reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || echo 0)"
+              [ "${reset:-0}" -gt 0 ] 2>/dev/null || refused "rate limit spent and its reset time unreadable"
+              wait_s=$(( reset - $(date +%s) + 5 ))
+              [ "$wait_s" -le "$IOS_VERIFY_RESET_WAIT_S" ] \
+                || refused "rate limit spent; it resets in ${wait_s}s, past the ${IOS_VERIFY_RESET_WAIT_S}s bound"
+              echo "Rate limit spent; waiting ${wait_s}s for its reset, then dispatching once more."
+              [ "$wait_s" -le 0 ] || sleep "$wait_s"
+              dispatch || refused "rate limit still refused after waiting ${wait_s}s for its reset"
               echo "### cmux ios verify requested for #$PR at ${SHA:0:12}" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
             sleep $((try * 10))
           done
-          echo "::warning title=cmux ios verify (auto)::dispatch refused 3 times; run \`cmux ios verify --pr $PR\` by hand"
+          refused "dispatch refused 3 times: $(tail -n 1 "$err")"
 
   # -fleet: the gateway runner's hook takes only job ids ending in it.
   verify-fleet:

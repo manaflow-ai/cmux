@@ -1,7 +1,6 @@
 import Foundation
 import Testing
 @testable import CmuxNextBrowserAutomation
-import CmuxNextBrowserCore
 
 /// The driver's rules answered by Rust (cmux-browser-rules `driver.rs`) keep the texts and
 /// meanings the Swift copy had.
@@ -10,7 +9,7 @@ import CmuxNextBrowserCore
         try DriverParams(method: "page.goto", json: .object(fields))
     }
 
-    /// The closures here are inferred as `throws(any Error)`, so take that and name a non-driver error.
+    /// Untyped `throws`: a trailing closure's thrown type is inferred as `any Error`.
     private func message(_ body: () throws -> Void) -> String? {
         do {
             try body()
@@ -18,7 +17,7 @@ import CmuxNextBrowserCore
         } catch let error as DriverError {
             return error.message
         } catch {
-            return "not a DriverError: \(error)"
+            return "unexpected error: \(error)"
         }
     }
 
