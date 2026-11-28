@@ -420,7 +420,7 @@ paths = [
 situations = ["main-thread"]
 benches = ["post-update"]
 tests = [
-  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi updater",
+  "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml --lib updater",
   "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-update-prewarm-core",
   "swift test --package-path Packages/macOS/CmuxNext --filter 'AutomaticUpdatePauseTests|AutomaticUpdateBreakageMatrixTests|TipUpdateCheckTests|SilentBackgroundUpdateTests|UpdateOneStepTests|UpdateAsksBeforeInstallTests'",
 ]
