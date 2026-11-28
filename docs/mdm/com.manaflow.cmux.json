@@ -4910,6 +4910,12 @@
       "title" : "Cloud Disk Bar",
       "type" : "boolean"
     },
+    "experiments.compactionThresholdInsight" : {
+      "default" : false,
+      "description" : "Show when Claude automatically compacted a chat and how to lower the context it carries between turns.",
+      "title" : "Compaction Threshold Insight",
+      "type" : "boolean"
+    },
     "experiments.cloudToggle" : {
       "default" : false,
       "description" : "A cloud button in the chat's composer picks where the chat runs: this Mac, Cloud or Auto. It lights up in rainbow colors when on.",
