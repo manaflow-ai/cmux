@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxFoundation
+import CmuxSwiftRenderUI
 import Foundation
 import SwiftUI
 
@@ -37,6 +38,9 @@ enum CmuxMain {
         routeWorkers: () -> Void = {
             CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
         },
+        configureJavaScriptCore: () -> Void = {
+            JavaScriptCoreProcessOptions().disableConcurrentJIT()
+        },
         preloadSigningSecret: () -> Void = {
             SurfaceResumeApprovalStore.preloadSigningSecret()
         },
@@ -56,6 +60,9 @@ enum CmuxMain {
         Bonsplit.DebugEventLog.setExternalSink { cmuxDebugLog($0) }
 #endif
         routeWorkers()
+        // Before anything in the app creates a JSContext; workers that run
+        // JavaScript do the same on their own path.
+        configureJavaScriptCore()
         preloadSigningSecret()
         launchApp()
     }
