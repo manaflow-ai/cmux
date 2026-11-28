@@ -89,7 +89,8 @@ RESERVED_RUNNER_VARIABLES = (
 )
 # An owned GUI or session label: one console-token or logged-in-session queue per pool, a single pool with no
 # second member (glaeda_fleet_labels.gui_label(), session_label()). GitHub never moves a job queued on it.
-OWNED_ROLE_LABEL = re.compile(r"'(glaeda-(?:[a-z]+-)*?(?:gui|session)-[a-z0-9.-]+)'")
+# RFD 0185 (#61222): the unified mac-gui and mac-session labels name the same owned role pools.
+OWNED_ROLE_LABEL = re.compile(r"'(glaeda-(?:[a-z]+-)*?(?:gui|session)-[a-z0-9.-]+|mac-(?:gui|session)(?:-[a-z0-9.-]+)?)'")
 # A placement's role route and the health-checked overflow that must sit beside it (side_lane_placement.py).
 ROLE_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.(?:gui_runner|session_runner)\b")
 RESCUE = WORKFLOWS / "ci-owned-pool-rescue.yml"
@@ -270,7 +271,9 @@ SHARED_GROUP_ALLOWED = {
     # Branch-tip only (a dispatch, or a post-merge batch call keyed by its commit and job): each run compiles the
     # change since the last verified commit, so a newer tip that evicts a pending one covers its commits too.
     ("cmux-next-tip-test-compile.yml",
-     "cmux-next-tip-test-compile${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}"),
+     "cmux-next-tip-test-compile${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}"
+     # #61726: a call also keys by its caller run, so a confirm round's same-commit calls stop evicting each other.
+     "${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}"),
     # The same for the head compile check: each push run checks the change since the last commit it verified, and a
     # replay (a dispatch with a head) is keyed by that head.
     ("cmux-next-head-compile.yml",
@@ -451,7 +454,7 @@ def role_label_problems(path: str, text: str, rescued: set[str]) -> list[str]:
         last = unwrap(split_top(unwrap(expression), "||")[-1])
         while len(split_top(last, "||")) > 1:
             last = unwrap(split_top(last, "||")[-1])
-        if not (unconditional(last) and not last.strip("'").startswith("glaeda-")):
+        if not (unconditional(last) and not last.strip("'").startswith(("glaeda-", "mac-"))):
             found.append(f"{labels[0]} has no last alternative off the owned pools")
         found += [f"{label} is taken on every attempt, so a re-run queues on it again"
                   for label in ungated_role_labels(expression)]
