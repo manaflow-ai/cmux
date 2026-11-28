@@ -2,8 +2,8 @@
   "files": [
     {
       "path": "commands.rs",
-      "sha256": "ef73b8c3ca0624a32bd2c6cc6ee8a919765681103af8ab5a37f101c0d7a325ee",
-      "size": 247889
+      "sha256": "247ed47e696874963518ec6c31514d5722ca2540e8c1f5f8e9fad669e5f8bce3",
+      "size": 248625
     },
     {
       "path": "events.rs",
@@ -12,8 +12,8 @@
     },
     {
       "path": "metadata.rs",
-      "sha256": "4a5bb863055e8a88dca985bd0c35115515bfc66b908920baa687babc1ca27640",
-      "size": 109870
+      "sha256": "511949feb0b332ae2fa406518fa5aa75d2c0f157020b8062fbeb38446871ef16",
+      "size": 110161
     },
     {
       "path": "mod.rs",
@@ -27,7 +27,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "bbdf077ccd94645ace9ffc66ef760f14a76b4f8720e0462c123423194f142ff4",
+  "ir_sha256": "5c25e6dd7abdc0b2abba8c1912525fa0b3bc5fae75e00d8e207b821f39eaf738",
   "language": "rust",
   "mux_protocol": 12,
   "schema_version": 2
