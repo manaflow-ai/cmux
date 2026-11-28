@@ -101,6 +101,7 @@ cr use [own|team|auto] [claude|codex|opencode] [--json]   # your own sign-in or 
         <tbody>
           <tr><td>{t("errSignIn")}</td><td>{t("fixSignIn")}</td></tr>
           <tr><td>{t("errExpired")}</td><td>{t("fixExpired")}</td></tr>
+          <tr><td>{t("errClaudeInteractiveAuth")}</td><td>{t("fixClaudeInteractiveAuth")}</td></tr>
           <tr><td>{t("errNoCodex")}</td><td>{t("fixNoCodex")}</td></tr>
           <tr><td>{t("errNoClaude")}</td><td>{t("fixNoClaude")}</td></tr>
           <tr><td>{t("errClaudeCooling")}</td><td>{t("fixClaudeCooling")}</td></tr>
