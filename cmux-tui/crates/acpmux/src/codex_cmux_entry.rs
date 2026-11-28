@@ -306,25 +306,7 @@ fn resolve_until(
 /// read-only scan that only ever adds doubt: it never makes cmux send anything.
 pub fn project_doubt(folder: &Path, user: Option<&Path>, entry: &CmuxEntry) -> Option<String> {
     let user = user.and_then(|u| u.canonicalize().ok().or_else(|| Some(u.to_path_buf())));
-    let resolved = folder.canonicalize().ok();
-    let mut files: Vec<PathBuf> = Vec::new();
-    for start in std::iter::once(folder.to_path_buf()).chain(resolved) {
-        // Outside a repository, the launch folder is the project root.
-        let root = start
-            .ancestors()
-            .find(|dir| dir.join(".git").exists())
-            .map_or_else(|| start.clone(), Path::to_path_buf);
-        for dir in start.ancestors() {
-            let file = dir.join(".codex/config.toml");
-            if !files.contains(&file) {
-                files.push(file);
-            }
-            if dir == root {
-                break;
-            }
-        }
-    }
-    for file in files {
+    for file in project_files(folder) {
         let Ok(text) = std::fs::read_to_string(&file) else { continue };
         let real = file.canonicalize().unwrap_or_else(|_| file.clone());
         if user.as_deref() == Some(real.as_path()) {
@@ -359,6 +341,144 @@ pub fn project_doubt(folder: &Path, user: Option<&Path>, entry: &CmuxEntry) -> O
         }
     }
     None
+}
+
+/// The `.codex/config.toml` paths a launch in `folder` may load, there or not: from `folder` up to
+/// the repository root (the nearest folder with `.git`; outside a repository, `folder`'s own
+/// only), for `folder` as written and as resolved. [`project_doubt`] scans them; [`fingerprint`]
+/// hashes them.
+pub fn project_files(folder: &Path) -> Vec<PathBuf> {
+    let resolved = folder.canonicalize().ok();
+    let mut files: Vec<PathBuf> = Vec::new();
+    for start in std::iter::once(folder.to_path_buf()).chain(resolved) {
+        // Outside a repository, the launch folder is the project root.
+        let root = start
+            .ancestors()
+            .find(|dir| dir.join(".git").exists())
+            .map_or_else(|| start.clone(), Path::to_path_buf);
+        for dir in start.ancestors() {
+            let file = dir.join(".codex/config.toml");
+            if !files.contains(&file) {
+                files.push(file);
+            }
+            if dir == root {
+                break;
+            }
+        }
+    }
+    files
+}
+
+/// Whether env key `key` is one Codex finds or chooses its config with: `HOME`, `USER`,
+/// `XDG_CONFIG_HOME` and every `CODEX_*` (`CODEX_HOME` among them). [`fingerprint`] hashes these
+/// only, so a fork, whose env is built apart from its parent's start (`hub/fork.rs`
+/// `harness_env`), gets the same digest when they are the same; Codex's config files expand no
+/// other variable into an `mcp_servers` entry.
+pub fn config_env(key: &str) -> bool {
+    matches!(key, "HOME" | "USER" | "XDG_CONFIG_HOME") || key.starts_with("CODEX_")
+}
+
+/// The folder of the config Codex loads for every launch on the machine (its system and managed
+/// config): [`fingerprint`] hashes every file in it.
+pub const SYSTEM_DIR: &str = "/etc/codex";
+
+/// The macOS managed preferences Codex reads (MDM), the machine's and the person's
+/// (`<dir>/<user>/<file>`): [`fingerprint`] hashes them.
+pub const MANAGED_PREFS: (&str, &str) = ("/Library/Managed Preferences", "com.openai.codex.plist");
+
+/// A digest of everything [`resolve`]'s answer for this launch depends on, so a recorded answer
+/// is reused only while none of it changed (RFD 0181 B7, `session_manifest.rs`): the program's
+/// path, size and modification time; the config arguments `mcp get` is passed; the launch folder;
+/// the child's environment Codex finds its config with ([`config_env`]: hashed, never kept); and
+/// the contents of every config file Codex
+/// merges (the user config, the [`project_files`], [`SYSTEM_DIR`]'s files, the
+/// [`MANAGED_PREFS`]), a missing one as missing. `None` when any of it cannot be read: no digest,
+/// so the answer is asked again. The skip-on-doubt rules hold as before: an answer that was doubt
+/// is never recorded, and a project file's change is a new digest.
+pub fn fingerprint(
+    codex: &Path,
+    args: &[OsString],
+    cwd: &Path,
+    env: &[(OsString, OsString)],
+) -> Option<String> {
+    use sha2::Digest as _;
+    fn put(h: &mut sha2::Sha256, bytes: &[u8]) {
+        h.update((bytes.len() as u64).to_le_bytes());
+        h.update(bytes);
+    }
+    // A file as its contents, a missing one as missing; any other error is no digest.
+    fn file(h: &mut sha2::Sha256, path: &Path) -> Option<()> {
+        put(h, path.as_os_str().as_encoded_bytes());
+        match std::fs::read(path) {
+            Ok(bytes) => {
+                put(h, b"file");
+                put(h, &bytes);
+            }
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) =>
+            {
+                put(h, b"missing")
+            }
+            Err(_) => return None,
+        }
+        Some(())
+    }
+    let h = &mut sha2::Sha256::new();
+    let config = config_args(args);
+    let getenv = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
+    let home = home_dir(&getenv);
+    let folder = launch_folder(cwd, config.cd.as_deref(), home.as_deref());
+    put(h, b"codex-mcp-get-v1");
+    put(h, codex.as_os_str().as_encoded_bytes());
+    let program = std::fs::metadata(codex).ok()?;
+    let modified = program.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
+    put(h, &program.len().to_le_bytes());
+    put(h, &modified.as_nanos().to_le_bytes());
+    put(h, &(config.passed.len() as u64).to_le_bytes());
+    for arg in &config.passed {
+        put(h, arg.as_encoded_bytes());
+    }
+    put(h, folder.as_os_str().as_encoded_bytes());
+    let mut sorted: Vec<&(OsString, OsString)> =
+        env.iter().filter(|(k, _)| config_env(&k.to_string_lossy())).collect();
+    sorted.sort();
+    put(h, &(sorted.len() as u64).to_le_bytes());
+    for (k, v) in sorted {
+        put(h, k.as_encoded_bytes());
+        put(h, v.as_encoded_bytes());
+    }
+    let user = getenv("CODEX_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| home.as_ref().map(|h| h.join(".codex")))
+        .map(|dir| dir.join("config.toml"));
+    match user {
+        Some(user) => file(h, &user)?,
+        None => put(h, b"no-user-config"),
+    }
+    for project in project_files(&folder) {
+        file(h, &project)?;
+    }
+    let mut system: Vec<PathBuf> = match std::fs::read_dir(SYSTEM_DIR) {
+        Ok(entries) => entries.map(|e| e.map(|e| e.path())).collect::<Result<_, _>>().ok()?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(_) => return None,
+    };
+    system.sort();
+    put(h, SYSTEM_DIR.as_bytes());
+    for path in system.iter().filter(|p| !p.is_dir()) {
+        file(h, path)?;
+    }
+    let (prefs, plist) = MANAGED_PREFS;
+    file(h, &Path::new(prefs).join(plist))?;
+    match getenv("USER").filter(|u| !u.is_empty()) {
+        Some(user) => file(h, &Path::new(prefs).join(user).join(plist))?,
+        None => put(h, b"no-user"),
+    }
+    Some(format!("{:x}", h.clone().finalize()))
 }
 
 /// Why a terminal launch of Codex with the person's arguments `args` may load another config than

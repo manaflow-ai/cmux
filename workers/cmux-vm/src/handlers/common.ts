@@ -10,6 +10,7 @@
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Either, Option } from "effect";
 import { afterResponse } from "../db/sql.ts";
+import { timedStep } from "../upstream/timing.ts";
 import { AuditStore } from "../db/stores.ts";
 import { auditActorOf, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
@@ -28,13 +29,10 @@ import { tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-res
  * could not be told from one that was down.
  */
 export const failureClass = (error: unknown): string => {
-  const e = (error !== null && typeof error === "object" && "cause" in error ? (error as { cause: unknown }).cause : error) as
-    | { overloaded?: unknown; retryable?: unknown; message?: unknown }
-    | null
-    | undefined;
+  const e: unknown = error !== null && typeof error === "object" && "cause" in error ? error.cause : error;
   if (e === null || e === undefined || typeof e !== "object") return "unknown";
-  if (e.overloaded === true) return "overloaded";
-  const text = typeof e.message === "string" ? e.message.toLowerCase() : "";
+  if ("overloaded" in e && e.overloaded === true) return "overloaded";
+  const text = "message" in e && typeof e.message === "string" ? e.message.toLowerCase() : "";
   for (const [needle, word] of [
     ["overloaded", "overloaded"],
     ["exceeded its memory", "memory_limit"],
@@ -45,7 +43,7 @@ export const failureClass = (error: unknown): string => {
     ["not confirmed", "write_unconfirmed"],
   ] as const)
     if (text.includes(needle)) return word;
-  return e.retryable === true ? "retryable" : "other";
+  return "retryable" in e && e.retryable === true ? "retryable" : "other";
 };
 
 /** A Durable Object call Cloudflare says may be repeated, and that did not fail for want of capacity. */
@@ -134,13 +132,15 @@ export const withOwnedVm = <const S extends Scope, A, E, R>(
             // The rate spend (a TenantLimits object call) and the ownership read (Postgres) are independent reads of
             // the caller's own tenant, so they run together; one VM call used to wait for both in turn. They are
             // still judged in the order above: a 429 wins over a 404, and nothing acts before ownership is proven.
-            const [rated, found] = yield* Effect.all(
+            // Named on the answer as `own` (server-timing), so a caller's trace splits this gate from the provider's time, and
+            // its halves as `rate` and `read`, so the slower of the two is named (2026-11-28 production: own ~150 ms a resume).
+            const [rated, found] = yield* timedStep("own", Effect.all(
               [
-                Effect.either(rateLimit(principal, rateClass)),
-                Effect.either(tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find")))),
+                Effect.either(timedStep("rate", rateLimit(principal, rateClass))),
+                Effect.either(timedStep("read", tenantOwnsVm(caller, vm)).pipe(Effect.catchAll(dependencyDown("ownership.find")))),
               ],
               { concurrency: 2 },
-            );
+            ));
             if (Either.isLeft(rated)) return yield* Effect.fail(rated.left);
             if (Either.isLeft(found)) return yield* Effect.fail(found.left);
             const owns = found.right;

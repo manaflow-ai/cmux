@@ -44,7 +44,9 @@ export function installBrowserHost(): void {
     switch (method) {
       case "ready":
       case "handshake": {
+        // l10n-allow: the browser host's connect error, a developer/URL-context message surfaced in the dev console
         if (!window.isSecureContext) throw new Error("Open cmux over HTTPS or on localhost to connect this browser.");
+        // l10n-allow: the browser host's connect error, a developer/URL-context message surfaced in the dev console
         if (!token) throw new Error("Open the browser link from your cmux daemon to connect this tab.");
         const sessionId = new URL(location.href).searchParams.get("session") ?? undefined;
         return {
@@ -68,6 +70,7 @@ export function installBrowserHost(): void {
       case "cmux.page.heartbeat":
         return { rest: true };
       default:
+        // l10n-allow: the browser host's connect error, a developer/URL-context message surfaced in the dev console
         throw new Error(`This browser does not support ${method}.`);
     }
   });
