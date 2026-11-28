@@ -30,7 +30,7 @@
 #     runs a subset (dhat alone in a job of its own: it records slowly and writes at the budget's end if not done).
 #   infinite-items-linux.sh musl=1 ...: builds the shipped musl flavor (cargo-zigbuild, x86_64-unknown-linux-musl) and
 #     measures those binaries (not with before=ref:, which builds REF for the host).
-# Builds release acpmux and cmux-tui (cmux-tui/), then prints INFINITE and PERF_ROW lines.
+# Builds release acpmux and cmux-tui (cmux-tui/) (musl=1: acpmux-standalone, staged as acpmux, as the package does), then prints INFINITE and PERF_ROW lines.
 set -euo pipefail
 counts="10,100,1000"
 days=3
@@ -116,9 +116,19 @@ if [[ "$musl" == 1 ]]; then
   ensure_rust_targets "$musl_target" >/dev/null
   command -v cargo-zigbuild >/dev/null || cargo install --locked cargo-zigbuild@0.20.0 2>&1 | tail -n 1
   if ! command -v zig >/dev/null && [ -n "${CMUX_ZIG:-}" ]; then export CARGO_ZIGBUILD_ZIG_PATH="$CMUX_ZIG"; fi
-  cargo zigbuild --locked --release --target "$musl_target" \
-    -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 3
+  # The package ships acpmux-standalone (its shipping features, a cargo of its own so features do not unify) staged
+  # as acpmux; `-p acpmux --bin acpmux` is not what users run, and its musl-only DT_RELR link flag (build.rs) is one
+  # this zig refuses ("unsupported linker extension flag: -z pack-relative-relocs", job of run 46100970694).
+  build_log="$(mktemp)"
+  if ! { cargo zigbuild --locked --release --target "$musl_target" -p cmux-tui --bin cmux-tui --bin cmux-tui-host \
+      && cargo zigbuild --locked --release --target "$musl_target" -p acpmux-standalone --bin acpmux-standalone \
+        $("$root/scripts/ci/acpmux-build-features.sh" crates/acpmux-standalone/Cargo.toml "$musl_target"); } >"$build_log" 2>&1; then
+    grep -E -A30 '^error' "$build_log" | head -n 120 >&2 || tail -n 60 "$build_log" >&2
+    exit 1
+  fi
+  tail -n 3 "$build_log"
   bin="$target/$musl_target/release"
+  cp "$bin/acpmux-standalone" "$bin/acpmux"
 else
   cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 3
   bin="$target/release"
