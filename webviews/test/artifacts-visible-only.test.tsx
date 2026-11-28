@@ -335,3 +335,176 @@ test("a selection made with the keyboard keeps its lines mounted while the pane 
   expect(copied.taken).toBe(true);
   expect(copied.text).toBe(["ne 3", "+line 4", "+line 5", "+line 6", "+line 7", "+li"].join("\n"));
 });
+
+// A press pins its line until the selection says where it is. Each press used to add its line to
+// the pinned ones for good: where a click selects nothing (the page unselectable, a press of another
+// button) no selection change came to clear them, so every line clicked stayed mounted.
+const pinsRows = async (pane: HTMLElement, top: number) =>
+  act(async () => {
+    pane.scrollTop = top * LINE;
+    pane.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+const lineAt = (index: number) => host.querySelector<HTMLElement>(`.artifacts-line[data-index="${index}"]`);
+/** A press and release on a line; `caret` puts the caret where it pressed, as a selectable page does. */
+async function click(index: number, { caret = false, shift = false, char = 2 } = {}) {
+  const row = lineAt(index)!;
+  await act(async () => {
+    row.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true, shiftKey: shift }));
+    const selection = dom.window.getSelection()!;
+    if (shift) selection.extend(row.childNodes[1]!, char);
+    else if (caret) selection.setBaseAndExtent(row.childNodes[1]!, char, row.childNodes[1]!, char);
+    // The browser says so with a selectionchange, a task later (jsdom too).
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    row.dispatchEvent(new dom.window.MouseEvent("pointerup", { bubbles: true, shiftKey: shift }));
+  });
+}
+/** The mounted lines outside the window around the line at the pane's top (one viewport, 20 lines, each side). */
+const outsideWindow = (top: number) =>
+  [...lines()].map((row) => Number((row as HTMLElement).dataset.index)).filter((at) => at < top - 20 || at > top + 40);
+
+for (const caret of [false, true])
+  test(`50 clicks on lines far apart that ${caret ? "put the caret" : "select nothing"} leave mounted only the window${caret ? " and the caret's line" : ""}`, async () => {
+    const { pane } = await mount(10_000);
+    await pinsRows(pane, 9_600);
+    const window = lines().length;
+    dom.window.getSelection()!.removeAllRanges();
+    const clicked: number[] = [];
+    for (let at = 0; at < 50; at++) {
+      const index = at * 190 + 5;
+      await pinsRows(pane, index - 2);
+      await click(index, { caret });
+      clicked.push(index);
+    }
+    await pinsRows(pane, 9_600);
+    const extra = outsideWindow(9_600);
+    console.log(JSON.stringify({ caret, window, mounted: lines().length, extra: extra.length }));
+    expect(extra).toEqual(caret ? [clicked.at(-1)!] : []);
+    expect(lines().length).toBeLessThanOrEqual(window + (caret ? 1 : 0));
+    if (!caret) return;
+
+    // A Shift-click far above extends from the caret, whose line stayed mounted, and copies what it covers.
+    const anchor = lineAt(9_315)!;
+    await pinsRows(pane, 0);
+    expect(anchor.isConnected).toBe(true);
+    await click(20, { shift: true, char: 3 });
+    const selection = dom.window.getSelection()!;
+    expect(selection.anchorNode).toBe(anchor.childNodes[1]!);
+    expect(selection.anchorOffset).toBe(2);
+    expect(selection.focusNode).toBe(lineAt(20)!.childNodes[1]!);
+    expect(outsideWindow(0)).toEqual([9_315]);
+    const expected = ["e 20", ...Array.from({ length: 9_315 - 21 }, (_, at) => `+line ${21 + at}`), "+li"].join("\n");
+    expect(copySelection().text).toBe(expected);
+    // Scrolled far from both ends: both stay mounted, and only they.
+    await pinsRows(pane, 5_000);
+    expect(outsideWindow(5_000)).toEqual([20, 9_315]);
+    expect(copySelection().text).toBe(expected);
+  });
+
+// A press keeps its line mounted until it is released. The release used to be heard only as a
+// pointerup or pointercancel reaching the document, so a press released where the document does not
+// hear it (outside the window, or after the window lost focus mid-press) kept its line mounted for
+// good. The window losing focus, or the pressed element losing pointer capture, ends the press too.
+for (const release of ["window blur", "lostpointercapture", "none"] as const)
+  test(`a press with no pointerup ${release === "none" ? "keeps its line mounted while it is held" : `is released by a ${release}: its line unmounts once scrolled away`}`, async () => {
+    const { pane } = await mount(10_000);
+    await pinsRows(pane, 9_600);
+    const window = lines().length;
+    dom.window.getSelection()!.removeAllRanges();
+    await pinsRows(pane, 98);
+    const row = lineAt(100)!;
+    await act(async () => {
+      row.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    // Held: the line stays mounted far away.
+    await pinsRows(pane, 9_600);
+    expect(row.isConnected).toBe(true);
+    expect(outsideWindow(9_600)).toEqual([100]);
+    await act(async () => {
+      if (release === "window blur") dom.window.dispatchEvent(new dom.window.FocusEvent("blur"));
+      else if (release === "lostpointercapture")
+        row.dispatchEvent(new dom.window.MouseEvent("lostpointercapture", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    if (release === "none") {
+      expect(row.isConnected).toBe(true);
+      expect(outsideWindow(9_600)).toEqual([100]);
+      // Released at last: as before, a pointerup reaching the document lets it go.
+      await act(async () => {
+        dom.window.document.body.dispatchEvent(new dom.window.MouseEvent("pointerup", { bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+    expect(row.isConnected).toBe(false);
+    expect(outsideWindow(9_600)).toEqual([]);
+    expect(lines().length).toBeLessThanOrEqual(window);
+  });
+
+test("a focus moving between elements inside the window does not release a press", async () => {
+  const { pane } = await mount(1_000);
+  dom.window.getSelection()!.removeAllRanges();
+  const row = lineAt(3)!;
+  await act(async () => {
+    row.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+    // An element's blur reaches the window only in the capture phase; it is not the window's.
+    dom.window.document.body.dispatchEvent(new dom.window.FocusEvent("blur"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await pinsRows(pane, 400);
+  expect(row.isConnected).toBe(true);
+});
+
+test("a window blur ends the press but not the caret's pin: a later Shift-click extends from it and copies", async () => {
+  const { pane } = await mount(1_000);
+  dom.window.getSelection()!.removeAllRanges();
+  const row = lineAt(5)!;
+  await act(async () => {
+    row.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+    dom.window.getSelection()!.setBaseAndExtent(row.childNodes[1]!, 2, row.childNodes[1]!, 2);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    dom.window.dispatchEvent(new dom.window.FocusEvent("blur"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await pinsRows(pane, 600);
+  expect(row.isConnected).toBe(true);
+  expect(outsideWindow(600)).toEqual([5]);
+  await click(610, { shift: true, char: 3 });
+  const selection = dom.window.getSelection()!;
+  expect(selection.anchorNode).toBe(row.childNodes[1]!);
+  expect(selection.focusNode).toBe(lineAt(610)!.childNodes[1]!);
+  const expected = ["ne 5", ...Array.from({ length: 610 - 6 }, (_, at) => `+line ${6 + at}`), "+lin"].join("\n");
+  expect(copySelection()).toEqual({ text: expected, taken: true });
+});
+
+test("the window blur and lost-capture listeners go when the diff unmounts", async () => {
+  const live = new Map<string, number>();
+  const count = (target: EventTarget, kinds: string[]) => {
+    const add = target.addEventListener;
+    const remove = target.removeEventListener;
+    target.addEventListener = function (type: string, ...rest: unknown[]) {
+      if (kinds.includes(type)) live.set(type, (live.get(type) ?? 0) + 1);
+      return (add as (...args: unknown[]) => void).call(this, type, ...rest);
+    };
+    target.removeEventListener = function (type: string, ...rest: unknown[]) {
+      if (kinds.includes(type)) live.set(type, (live.get(type) ?? 0) - 1);
+      return (remove as (...args: unknown[]) => void).call(this, type, ...rest);
+    };
+    return () => {
+      target.addEventListener = add;
+      target.removeEventListener = remove;
+    };
+  };
+  const restore = [count(dom.window, ["blur"]), count(dom.window.document, ["lostpointercapture"])];
+  try {
+    await mount(1_000);
+    expect(live.get("blur")).toBe(1);
+    expect(live.get("lostpointercapture")).toBe(1);
+    act(() => root?.unmount());
+    root = undefined;
+    expect(live.get("blur")).toBe(0);
+    expect(live.get("lostpointercapture")).toBe(0);
+  } finally {
+    for (const undo of restore) undo();
+  }
+});

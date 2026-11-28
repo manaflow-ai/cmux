@@ -310,6 +310,129 @@ await requireBrowserLane("artifacts-selectable-browser.test.ts", async () => {
       }
     });
 
+    /** Scrolls the history pane to `top` px and waits for the lines there to mount. */
+    async function scrollPane(page: Page, top: number) {
+      await page.evaluate(({ scroller, top }) => (document.querySelector<HTMLElement>(scroller)!.scrollTop = top), {
+        scroller: SCROLLER,
+        top,
+      });
+      await page.waitForFunction(
+        ({ line, scroller }) => {
+          const pane = document.querySelector<HTMLElement>(scroller)!;
+          const middle = pane.getBoundingClientRect().top + pane.clientHeight / 2;
+          return [...document.querySelectorAll<HTMLElement>(line)].some((row) => {
+            const box = row.getBoundingClientRect();
+            return box.top <= middle && box.bottom >= middle;
+          });
+        },
+        { line: LINE, scroller: SCROLLER },
+      );
+    }
+
+    /** The line under the middle of the history pane, and a point on its text. */
+    async function middleLine(page: Page) {
+      const pane = (await page.locator(SCROLLER).boundingBox())!;
+      const y = pane.y + pane.height / 2;
+      const index = await page.evaluate(
+        ({ line, y }) =>
+          Number(
+            [...document.querySelectorAll<HTMLElement>(line)].find((row) => {
+              const box = row.getBoundingClientRect();
+              return box.top <= y && box.bottom >= y;
+            })!.dataset.index,
+          ),
+        { line: LINE, y },
+      );
+      const row = (await page.locator(`${LINE}[data-index="${index}"]`).boundingBox())!;
+      return { index, x: row.x + 60, y: row.y + row.height / 2 };
+    }
+
+    for (const button of ["left", "middle", "right"] as const)
+      test(`${engine}: 50 ${button} clicks on lines far apart at 10,000 lines mount no more lines than none`, async () => {
+        const browser = await type.launch({ headless: true });
+        try {
+          const { page } = await open(browser, engine, 10_000);
+          const far = 136_000;
+          await scrollPane(page, far);
+          const before = await page.locator(LINE).count();
+          const clicked: number[] = [];
+          for (let at = 0; at < 50; at++) {
+            await scrollPane(page, at * 2_400);
+            const { index, x, y } = await middleLine(page);
+            await page.mouse.click(x, y, { button });
+            if (button === "right") await page.keyboard.press("Escape");
+            clicked.push(index);
+          }
+          await scrollPane(page, far);
+          const after = await page.locator(LINE).count();
+          const selection = await page.evaluate(() => {
+            const selection = document.getSelection()!;
+            return { count: selection.rangeCount, collapsed: selection.isCollapsed, text: selection.toString().length };
+          });
+          console.log(JSON.stringify({ engine, button, before, after, selection, last: clicked.at(-1) }));
+          // At most the line of the selection's caret, when the click put one.
+          expect(after).toBeLessThanOrEqual(before + 1);
+        } finally {
+          await browser.close();
+        }
+      });
+
+    test(`${engine}: a Shift-click after clicks on lines far apart extends from the last one clicked, and copies what it covers`, async () => {
+      const browser = await type.launch({ headless: true });
+      try {
+        const { page, added } = await open(browser, engine, 10_000);
+        let from = -1;
+        for (let at = 0; at < 10; at++) {
+          await scrollPane(page, 10_000 + at * 6_000);
+          const { index, x, y } = await middleLine(page);
+          await page.mouse.click(x, y);
+          from = index;
+        }
+        // Far above every line clicked: the last one is not in the window, only pinned.
+        await scrollPane(page, 0);
+        const to = await middleLine(page);
+        await page.keyboard.down("Shift");
+        await page.mouse.click(to.x, to.y);
+        await page.keyboard.up("Shift");
+        const ends = await page.evaluate(() => {
+          const selection = document.getSelection()!;
+          const at = (node: Node, offset: number) => {
+            const row = (node.nodeType === 1 ? (node as Element) : node.parentElement)!.closest<HTMLElement>(
+              "[data-line]",
+            )!;
+            const before = document.createRange();
+            before.setStart(row, 0);
+            before.setEnd(node, offset);
+            return { line: Number(row.dataset.index), char: before.toString().length };
+          };
+          return [at(selection.anchorNode!, selection.anchorOffset), at(selection.focusNode!, selection.focusOffset)];
+        });
+        const [anchor, focus] = ends as [{ line: number; char: number }, { line: number; char: number }];
+        expect(anchor.line).toBe(from);
+        expect(focus.line).toBe(to.index);
+        // Scrolled away from both: mounted are the window's run of lines and the selection's two lines.
+        await scrollPane(page, 70_000);
+        const mounted = await page.evaluate(
+          (line) => [...document.querySelectorAll<HTMLElement>(line)].map((row) => Number(row.dataset.index)),
+          LINE,
+        );
+        const middle = (await middleLine(page)).index;
+        expect(mounted.filter((at) => Math.abs(at - middle) > 100)).toEqual([to.index, from]);
+        // The copy, with both ends out of the window (WebKit's copy here pastes into a field of the
+        // page's own, which takes the selection: once, at the end).
+        const expected = [
+          added[focus.line]!.slice(focus.char),
+          ...added.slice(focus.line + 1, anchor.line),
+          added[anchor.line]!.slice(0, anchor.char),
+        ].join("\n");
+        const text = await copied(page, engine);
+        expect(text.length).toBe(expected.length);
+        expect(text === expected).toBe(true);
+      } finally {
+        await browser.close();
+      }
+    });
+
     test(`${engine}: a control's label cannot be selected`, async () => {
       const browser = await type.launch({ headless: true });
       try {
