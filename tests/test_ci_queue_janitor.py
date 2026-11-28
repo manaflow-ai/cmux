@@ -4684,6 +4684,17 @@ class HostedLightCandidatesTests(unittest.TestCase):
         self.assertTrue(value["truncated"])
         self.assertEqual(value["total_runs"], 2)
 
+    def test_boolean_attempt_is_dropped_not_forwarded(self):
+        # Python: True == 1, so a JSON boolean run_attempt must not pass as attempt 1.
+        created = (NOW - dt.timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        row = {"id": 7, "path": ".github/workflows/ci.yml", "event": "pull_request", "run_attempt": True,
+               "status": "queued", "head_sha": "c" * 40, "created_at": created}
+        snapshot = {"truncated": False}
+        janitor.attach_hosted_light_candidates(snapshot, self._raw(rows=[row]), now=NOW)
+        value = snapshot["hosted-light-candidates"]
+        self.assertEqual(value["runs"], [])
+        self.assertTrue(value["truncated"])
+
     def test_encoded_and_decoded_bounds_omit_source(self):
         snapshot = {"truncated": False}
         janitor.attach_hosted_light_candidates(snapshot, "A" * (48 * 1024 + 1), now=NOW)

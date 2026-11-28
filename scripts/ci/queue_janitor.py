@@ -1136,7 +1136,7 @@ def hosted_light_candidates(raw: str | None, *, now: dt.datetime) -> dict[str, A
                 continue
             if (type(run_id) is not int or run_id <= 0 or run_id in seen
                     or not isinstance(path, str) or not HOSTED_LIGHT_WORKFLOW.fullmatch(path)
-                    or event != "pull_request" or attempt != 1
+                    or event != "pull_request" or type(attempt) is not int or attempt != 1
                     or status not in ("queued", "in_progress")
                     or not isinstance(head_sha, str) or not HOSTED_LIGHT_SHA.fullmatch(head_sha)
                     or not -RUNNER_STATE_CLOCK_SKEW_S <= age <= 90 * 60):
