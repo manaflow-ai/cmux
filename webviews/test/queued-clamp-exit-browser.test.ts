@@ -77,7 +77,7 @@ await requireBrowserLane("queued-clamp-exit-browser.test.ts", async () => {
     }
   }
 
-  test("the queued text's cover leaves in 80 ms with its actions, and comes in on 120 ms", async () => {
+  test("the queued text's cover leaves on --cmux-motion-quick with its actions, and comes in on --cmux-motion-micro", async () => {
     const { rest, hovered } = await timings(false);
     expect(rest.length).toBe(2);
     for (const row of rest) expect(row).toEqual({ cover: 80, actions: 80 });
