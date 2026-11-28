@@ -201,7 +201,7 @@ private struct SceneNodeContent: View {
 
     /// Applies the node's style props in one fixed, documented order:
     /// font → color → lineLimit/truncation → fixedSize → padding →
-    /// background → cornerRadius → border → frame → opacity → cursor → tap.
+    /// background → cornerRadius → border → frame → opacity → cursor → help → tap.
     @ViewBuilder
     private func styled(_ view: some View) -> some View {
         // Hover-revealed children (a row's close button): present only while
@@ -217,6 +217,7 @@ private struct SceneNodeContent: View {
             .modifier(SceneTrailingFade(node: node))
             .modifier(SceneBoxStyle(node: node))
             .modifier(SceneCursor(node: node))
+            .modifier(SceneHelp(node: node))
             // A truncating Text and a Spacer are both "flexible" to HStack
             // layout, which would split the width between them and truncate
             // the text at half the row. Truncating text therefore outranks
@@ -458,6 +459,25 @@ private struct SceneFixedSize: ViewModifier {
     func body(content: Content) -> some View {
         if let axes = dslFixedSizeAxes(node.props["fixedSize"]) {
             content.fixedSize(horizontal: axes.horizontal, vertical: axes.vertical)
+        } else {
+            content
+        }
+    }
+}
+
+/// `.help("tip")`: the tooltip shown while the pointer rests on the node.
+/// The text is shown as written, not looked up as a localization key.
+///
+/// The branch keys on the prop being present, not on its text, so a live
+/// binding that goes between a tip and "" keeps the node's identity (hover
+/// state, a focused text field) instead of rebuilding everything inside it.
+private struct SceneHelp: ViewModifier {
+    let node: SceneNode
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if node.props["help"] != nil {
+            content.help(node.string("help") ?? "")
         } else {
             content
         }
