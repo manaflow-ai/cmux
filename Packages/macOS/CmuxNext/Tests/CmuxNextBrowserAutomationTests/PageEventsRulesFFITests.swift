@@ -1,6 +1,7 @@
 import Security
 import Foundation
 import Testing
+import CmuxNextBrowserCore
 @testable import CmuxNextBrowserAutomation
 import CmuxNextBrowserCore
 
