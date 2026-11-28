@@ -29,8 +29,8 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "audit-export",
         &[
             (
-                "Ship the whole audit log to a bucket",
-                "acpmux audit-export | aws s3 cp - s3://org-audit/acpmux.jsonl",
+                "Write the whole audit log as JSON lines, for a bucket or SIEM",
+                "acpmux audit-export",
             ),
             (
                 "Check the hash chain, then export what came after the last run",
