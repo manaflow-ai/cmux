@@ -53,6 +53,9 @@
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxPhoneControl">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSentryTelemetry">
       </FileRef>
       <FileRef
