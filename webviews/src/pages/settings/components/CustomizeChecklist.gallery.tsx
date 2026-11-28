@@ -39,7 +39,7 @@ const SAMPLE_LOOKS: VerifiedLook[] = [
 async function load() {
   const { installCatalog } = await import("../strings");
   installCatalog((await import("../generated/strings.json")).default);
-  const { CustomizeChecklistView } = await import("./CustomizeChecklist");
+  const { CustomizeChecklistView, turnOffTargets } = await import("./CustomizeChecklist");
   const { checklistGroups, toggleRowsByGroup, SIDEBAR_LOOK_KEY, sidebarLookOf } = await import("../customizeChecklist");
   const { shippedLooks } = await import("../customizeLooks");
   const { schema } = await import("../schema");
@@ -128,6 +128,7 @@ async function load() {
   };
   return function CustomizeChecklistLayouts({ layout, state }: Props) {
     const [on, setOn] = useState<Record<string, boolean>>({ "labs.liveTree": true });
+    const [activeLibrary, setActiveLibrary] = useState(library);
     const [look, setLook] = useState<string>("cmux");
     const [query, setQuery] = useState(state === "searched" ? "sidebar" : "");
     if (layout === "app-store") {
@@ -146,7 +147,7 @@ async function load() {
       rows,
       value: (key) => (key === SIDEBAR_LOOK_KEY ? look : on[key] === true),
       locked: (key) => (state === "locked" && key.startsWith("browser.") ? "Set by your team's device profile" : null),
-      library,
+      library: activeLibrary,
       libraryLocked: null,
       looks,
       sidebarLook,
@@ -165,6 +166,18 @@ async function load() {
           query={query}
           onQuery={setQuery}
           onToggle={onToggle}
+          onTurnAllOff={(group) => {
+            const targets = new Set(turnOffTargets(group).map((item) => item.id));
+            setOn((before) =>
+              Object.fromEntries(Object.entries(before).map(([key, value]) => [key, targets.has(key) ? false : value])),
+            );
+            setActiveLibrary((before) => ({
+              ...before,
+              entries: before.entries.map((entry) =>
+                targets.has(`library:${entry.name}`) ? { ...entry, on: false } : entry,
+              ),
+            }));
+          }}
           layout={layout}
           allOpen={state === "all-open" || state === "locked"}
           standup={standup}

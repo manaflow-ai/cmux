@@ -7,8 +7,11 @@
 // installed has no host op that installs it yet: its click opens the Customize chat with the
 // install drafted (`store.askCmux`). A sidebar look (`sidebar.look`'s choices) is one switch each:
 // on picks it, off resets the key to the default look. Opened by `#/settings/customize`.
+// Recovery: opt-in groups offer Turn All Off. Default-on and managed settings stay unchanged;
+// library and code entries use the library's own off operation. Native recovery remains available
+// from the Customizations menu if a customization breaks this page.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { Input } from "../../../ui/Input";
 import { categoryById, homes } from "../categories";
 import { useSettingsState, useStore } from "../context";
@@ -27,7 +30,7 @@ import { shippedLooks } from "../customizeLooks";
 import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
 import type { LibraryRun } from "../ops";
-import { schema } from "../schema";
+import { rowsByKey, schema } from "../schema";
 import type { Standup } from "../ops";
 import { LIBRARY_KEY, libraryQuery, STANDUP_KEY, standupQuery, type LibraryRead } from "../sectionQueries";
 import { Button } from "../../../ui/Button";
@@ -56,6 +59,7 @@ export function CustomizeChecklistCard() {
   const library = useQuery(libraryQuery(store));
   const standup = useQuery(standupQuery(store));
   const [busy, setBusy] = useState(false);
+  const working = useRef(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const devBuild = state.host?.dev_build === true;
@@ -65,7 +69,10 @@ export function CustomizeChecklistCard() {
       return home !== undefined && (devBuild || !categoryById(home.category).devOnly);
     };
     const look = schema.rows.find((row) => row.key === SIDEBAR_LOOK_KEY);
-    return { ...toggleRowsByGroup(schema.rows, shown), sidebarLook: look && shown(look) ? look : null };
+    return {
+      ...toggleRowsByGroup(schema.rows, shown),
+      sidebarLook: look && shown(look) ? look : null,
+    };
   }, [devBuild]);
   const groups = checklistGroups({
     rows,
@@ -73,6 +80,7 @@ export function CustomizeChecklistCard() {
     locked: (key) => {
       const managed = managedOf(state, key);
       if (managed) return managedText(managed);
+      if (busy) return t("settingsPage.customizeChecklist.busy");
       if (!state.connected || !state.readable) return t("settingsPage.customizeChecklist.connecting");
       return null;
     },
@@ -84,22 +92,40 @@ export function CustomizeChecklistCard() {
   });
   // The library card's run: drop a list read on its way before and after the change, so an older
   // listing never draws over it (CustomizeLibraryCard `run`).
-  const runLibrary = (change: LibraryRun) => {
+  const changeLibrary = async (change: LibraryRun) => {
+    await queryClient.cancelQueries({ queryKey: LIBRARY_KEY });
+    const answer = await store.customizeLibrary(change);
+    await queryClient.cancelQueries({ queryKey: LIBRARY_KEY });
+    if (answer.library)
+      queryClient.setQueryData<LibraryRead>(LIBRARY_KEY, {
+        library: answer.library,
+        refusal: null,
+      });
+    void queryClient.invalidateQueries({ queryKey: STANDUP_KEY });
+    return answer.refusal;
+  };
+  const runChanges = async (changes: (() => Promise<string | null>)[]) => {
+    if (working.current) return;
+    working.current = true;
     setBusy(true);
     setRefusal(null);
-    return queryClient
-      .cancelQueries({ queryKey: LIBRARY_KEY })
-      .then(() => store.customizeLibrary(change))
-      .then(async (answer) => {
-        await queryClient.cancelQueries({ queryKey: LIBRARY_KEY });
-        if (answer.library)
-          queryClient.setQueryData<LibraryRead>(LIBRARY_KEY, { library: answer.library, refusal: null });
-        setRefusal(answer.refusal);
-        // The standup lines say on or off: read them again after every change.
-        void queryClient.invalidateQueries({ queryKey: STANDUP_KEY });
-      })
-      .finally(() => setBusy(false));
+    let firstFailure: string | null = null;
+    try {
+      for (const change of changes) {
+        try {
+          const failure = await change();
+          firstFailure ??= failure;
+        } catch {
+          firstFailure ??= t("settingsPage.writeFailed");
+        }
+      }
+      setRefusal(firstFailure);
+    } finally {
+      working.current = false;
+      setBusy(false);
+    }
   };
+  const runLibrary = (change: LibraryRun) => runChanges([() => changeLibrary(change)]);
   const looks = shippedLooks();
   const onToggle = (item: ChecklistItem, on: boolean) => {
     const sidebarLook = sidebarLookOf(item);
@@ -116,15 +142,38 @@ export function CustomizeChecklistCard() {
     }
     void store.set(item.id, on);
   };
+  const onTurnAllOff = (group: ChecklistGroup) =>
+    runChanges(
+      turnOffTargets(group).map((item) => async () => {
+        if (group.id === "library" || group.id === "code")
+          return changeLibrary({ verb: "off", name: item.id.slice(8) });
+        const result = await store.set(item.id, false);
+        return result.ok ? null : t("settingsPage.writeFailed");
+      }),
+    );
   return (
     <CustomizeChecklistView
       groups={groups}
       query={query}
       onQuery={setQuery}
       onToggle={onToggle}
+      onTurnAllOff={(group) => void onTurnAllOff(group)}
       refusal={refusal}
       standup={standup.data ?? null}
     />
+  );
+}
+
+/** Only opt-in groups offer recovery; default-on and managed switches stay unchanged. */
+const TURN_OFF_GROUPS: ReadonlySet<ChecklistGroupId> = new Set(["code", "experiments", "labs", "library"]);
+
+export function turnOffTargets(group: ChecklistGroup): ChecklistItem[] {
+  if (!TURN_OFF_GROUPS.has(group.id)) return [];
+  return group.items.filter(
+    (item) =>
+      item.on &&
+      item.locked === null &&
+      (group.id === "library" || group.id === "code" || rowsByKey.get(item.id)?.default !== true),
   );
 }
 
@@ -133,6 +182,7 @@ export function CustomizeChecklistView({
   query,
   onQuery,
   onToggle,
+  onTurnAllOff,
   refusal = null,
   layout = "rows",
   allOpen: allOpenAtFirst = false,
@@ -143,6 +193,8 @@ export function CustomizeChecklistView({
   query: string;
   onQuery: (query: string) => void;
   onToggle: (item: ChecklistItem, on: boolean) => void;
+  /** Turns every opt-in switch of the group off (``turnOffTargets``); no button when absent. */
+  onTurnAllOff?: (group: ChecklistGroup) => void;
   refusal?: string | null;
   layout?: ChecklistLayout;
   allOpen?: boolean;
@@ -201,6 +253,8 @@ export function CustomizeChecklistView({
         <div className="row-help checklist-empty">{t("settingsPage.customizeChecklist.noMatch", query.trim())}</div>
       )}
       {shown.map((group) => {
+        // Search narrows rows, while the count and recovery action still cover the whole group.
+        const recoveryGroup = groups.find((each) => each.id === group.id)!;
         const collapsible = group.id === "all" && !searching;
         const open = !collapsible || allOpen;
         return (
@@ -220,8 +274,20 @@ export function CustomizeChecklistView({
               ) : (
                 <span className="checklist-group-title">{t(GROUP_TITLE[group.id])}</span>
               )}
-              <span className="checklist-count" data-checklist-count="">
-                {t("settingsPage.customizeChecklist.count", String(group.on), String(group.total))}
+              <span className="checklist-head-trailing">
+                {onTurnAllOff && turnOffTargets(recoveryGroup).length > 0 && (
+                  <Button
+                    bare
+                    className="link-button checklist-turn-off"
+                    data-checklist-turn-off={group.id}
+                    onClick={() => onTurnAllOff(recoveryGroup)}
+                  >
+                    {t("settingsPage.customizeChecklist.turnAllOff")}
+                  </Button>
+                )}
+                <span className="checklist-count" data-checklist-count="">
+                  {t("settingsPage.customizeChecklist.count", String(group.on), String(group.total))}
+                </span>
               </span>
             </div>
             {open &&
