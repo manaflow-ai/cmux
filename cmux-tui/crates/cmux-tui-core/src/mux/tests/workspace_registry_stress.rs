@@ -318,7 +318,7 @@ fn close_extra(mux: &Arc<Mux>, key: &str) {
 fn single_change_costs(n: usize) -> BTreeMap<&'static str, Cost> {
     // The test-only whole-tree check of each delta entity is not daemon work (this thread only:
     // before the session is built, or a build of thousands is quadratic).
-    crate::server::skip_tree_entity_check();
+    crate::tree_wire::skip_tree_entity_check();
     change_costs(&session(n))
 }
 
@@ -452,7 +452,7 @@ fn timed_costs(s: &Session) -> BTreeMap<&'static str, f64> {
 #[cfg(unix)]
 #[test]
 fn open_pane_switch_and_create_cost_the_same_at_four_thousand_workspaces() {
-    crate::server::skip_tree_entity_check();
+    crate::tree_wire::skip_tree_entity_check();
     let few = session_with(FEW, 1);
     let few_counts = change_costs(&few);
     let few_times = timed_costs(&few);
@@ -511,7 +511,7 @@ fn registry_stress_bench() {
         eprintln!("registry_stress_bench skipped: set CMUX_STRESS=1");
         return;
     }
-    crate::server::skip_tree_entity_check();
+    crate::tree_wire::skip_tree_entity_check();
     for size in BENCH_SIZES {
         let built = Instant::now();
         let s = session(size);
