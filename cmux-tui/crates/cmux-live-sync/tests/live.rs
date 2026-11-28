@@ -258,18 +258,16 @@ fn live_sync_both_ways_within_a_second() {
     let mut x = fs::File::create(p.mac.join("tool.sh")).unwrap();
     std::io::Write::write_all(&mut x, b"#!/bin/sh\n").unwrap();
     drop(x);
-    std::os::unix::fs::PermissionsExt::set_mode(
-        &mut fs::metadata(p.mac.join("tool.sh")).unwrap().permissions(),
-        0o755,
-    );
-    fs::set_permissions(p.mac.join("tool.sh"), std::os::unix::fs::PermissionsExt::from_mode(0o755))
-        .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(p.mac.join("tool.sh"), fs::Permissions::from_mode(0o755)).unwrap();
     put(&p.mac, ".gitignore", "target/\n");
-    put(&p.mac, "target/big.o", "build output\n");
     let all = p.converge(Duration::from_secs(5));
     assert!(all.contains_key("link") && all.contains_key("tool.sh"));
+    // An ignored path stays on its side: the trees differ only by it.
+    put(&p.mac, "target/big.o", "build output\n");
+    put(&p.mac, "after-ignored.txt", "x\n");
+    wait_for(Duration::from_secs(5), || p.vm.join("after-ignored.txt").exists());
     assert!(!p.vm.join("target/big.o").exists(), "ignored path synced");
-    use std::os::unix::fs::PermissionsExt;
     assert_eq!(fs::metadata(p.vm.join("tool.sh")).unwrap().permissions().mode() & 0o111, 0o111);
     assert!(fs::symlink_metadata(p.vm.join("link")).unwrap().file_type().is_symlink());
 }
