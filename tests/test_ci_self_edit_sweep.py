@@ -112,7 +112,12 @@ class TheGatedJourneys(unittest.TestCase):
                 cond = gate.get("if", "")
                 self.assertIn("github.event_name == 'pull_request'", cond)
                 self.assertIn(f"github.event.pull_request.changed_files >= {sweep.SWEEP_MIN_WORKFLOWS}", cond)
-                self.assertIn("!contains(github.event.pull_request.labels.*.name, 'full-ci')", cond)
+                # No full-ci label, or the full-ci one-shot (CI_FULL_CI_ONE_SHOT): a full-ci label into
+                # feat-cmux-next runs the full set once, on the event that adds it.
+                self.assertIn("!(contains(github.event.pull_request.labels.*.name, 'full-ci') && "
+                              "(github.event.pull_request.base.ref != 'feat-cmux-next' || "
+                              "(github.event.action == 'labeled' && github.event.label.name == 'full-ci') || "
+                              "(vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))", cond)
 
     def test_every_root_heavy_job_runs_unless_the_gate_answers_false(self) -> None:
         for name, roots in GATED.items():

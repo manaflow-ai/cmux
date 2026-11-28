@@ -76,6 +76,9 @@ ALLOWED: dict[str, str] = {
 # per workflow: each list's push copy must stay in step (tests/test_ci_workflow_path_filter_parity.py), and several
 # put Markdown back on purpose (ios-review-gate.yml's AppStoreReview/**).
 SCOPED: dict[str, str] = {
+    "chat-size-ladder.yml": "cmux-tui/crates/acpmux/** whole: acpmux compiles its README and docs/** in (include_str!)",
+    "pool-build-path.yml": "cmux-tui/crates/** whole: crates compile Markdown in (include_str!), so a crate's "
+                           "Markdown is a build input",
     "auth-refresh-tests.yml": "the auth runtime package and the vendored Stack Auth SDK",
     "backend.yml": "backend/** and libs/**",
     "chat-open-perf-report.yml": "webviews/src/agent-session/**",
@@ -201,6 +204,7 @@ def compiled_in() -> dict[str, str]:
 
 
 class DocsOnlyPullRequests(unittest.TestCase):
+    maxDiff = None
     def test_samples_are_docs_only(self):
         for name, files in SAMPLES.items():
             self.assertTrue(docs.docs_only(files), f"{name}: {[f for f in files if not docs.is_docs(f)]}")

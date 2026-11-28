@@ -80,6 +80,8 @@ DOCS_ONLY_PATHS: tuple[str, ...] = (
     "docs/ci/health-report.md",  # tests/test_ci_health_report.py
     "docs/privacy.md",  # tests/test_outbound_hosts.py
     "docs/network-requirements.md",  # tests/test_network_allowlist.py
+    "docs/ci/cmux-next-workflow-notes.md",  # tests/test_cmux_next_checks_workflow.py
+    "docs/benches/coverage-map.md",  # tests/test_bench_coverage_map.py
     "**/notices/**",  # third-party notice inputs (hand-written.md, REVIEW.md) that the bundle and release tests read
     "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md",  # tests/test_supplychain_security.py
     "cmux-tui/README.md",  # the Testbox tour named its public fallback here

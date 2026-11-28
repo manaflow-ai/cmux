@@ -94,6 +94,7 @@ def guard_router():
 
 
 class WorkflowPathsCoverInputs(unittest.TestCase):
+    maxDiff = None
     @classmethod
     def setUpClass(cls):
         cls.gaps, cls.unknown, cls.checked = detector.find_gaps(ROOT, covered=guard_router())
