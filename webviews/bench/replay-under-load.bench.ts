@@ -250,6 +250,7 @@ async function run(): Promise<Reading> {
           if (!id.includes("react-dom-client.production")) return;
           const R = (a: string, b: string) => { if (!code.includes(a)) throw new Error("rr: " + a); code = code.replace(a, b); };
           R("function scheduleUpdateOnFiber(root, fiber, lane) {", "function scheduleUpdateOnFiber(root, fiber, lane) { if (lane === 2) { var __s=(globalThis.__rrs??={}); var __n=(fiber.type&&(fiber.type.displayName||fiber.type.name))||String(fiber.tag); var __st=(new Error().stack||'').split('\\n').slice(2,9).map(function(l){return l.trim().replace(/ \\(.*\\/(assets\\/)?/,' (')}).join(' < '); var __k=__n+' :: '+__st; __s[__k]=(__s[__k]||0)+1; }");
+          R("  renderLanes = nextRenderLanes;\n  currentlyRenderingFiber = workInProgress;\n  workInProgress.memoizedState = null;", "  renderLanes = nextRenderLanes;\n  currentlyRenderingFiber = workInProgress;\n  var __nm=Component&&(Component.displayName||Component.name); if (__nm) { var __a=(globalThis.__rra??={}); __a[__nm]=(__a[__nm]||0)+1; } if (__nm==='TranscriptView'||__nm==='AcpmuxPane'||__nm==='VirtualTranscript') { var __w=(globalThis.__rrw??={}); var __k2=__nm+' lanes='+nextRenderLanes+' '+(current===null?'mount':current.memoizedProps!==props?'props':'state'); __w[__k2]=(__w[__k2]||0)+1; }\n  workInProgress.memoizedState = null;");
           R("function prepareFreshStack(root, lanes) {", "function prepareFreshStack(root, lanes) { var __r=(globalThis.__rr??={fresh:0,discard:0,dl:{},commit:0,cl:{},inconsistent:0}); __r.fresh++; if (workInProgress !== null && workInProgressRootRenderLanes) { __r.discard++; var __k=workInProgressRootRenderLanes+'>'+lanes; __r.dl[__k]=(__r.dl[__k]||0)+1; }");
           R("        renderWasConcurrent &&\n        !isRenderConsistentWithExternalStores(forceSync)\n      ) {", "        renderWasConcurrent &&\n        !isRenderConsistentWithExternalStores(forceSync)\n      ) { globalThis.__rr.inconsistent++;");
           R("  root.cancelPendingCommit = null;\n  do flushPendingEffects();", "  if (finishedWork) { var __c=globalThis.__rr; __c.commit++; __c.cl[lanes]=(__c.cl[lanes]||0)+1; }\n  root.cancelPendingCommit = null;\n  do flushPendingEffects();");
@@ -360,6 +361,7 @@ async function run(): Promise<Reading> {
           "v8.execute",
           "blink.user_timing",
           "disabled-by-default-v8.gc",
+          ...(process.env.SELSTATS === "1" ? ["disabled-by-default-blink.debug"] : []),
         ],
       });
     // RENDERS=1: the components React committed in the window and why each record redrew the pane (perf.ts
@@ -386,7 +388,7 @@ async function run(): Promise<Reading> {
       }
     }
     const pageEnd = await page.evaluate(() => performance.now());
-    if (process.env.RR === "1") fs.writeFileSync("/home/cmux/.cache/rmb-rr/rr.json", JSON.stringify(await page.evaluate(() => ({ rr: (globalThis as any).__rr, sync: (globalThis as any).__rrs }))));
+    if (process.env.RR === "1") fs.writeFileSync("/home/cmux/.cache/rmb-rr/rr.json", JSON.stringify(await page.evaluate(() => ({ rr: (globalThis as any).__rr, sync: (globalThis as any).__rrs, w: (globalThis as any).__rrw, all: (globalThis as any).__rra }))));
     if (RENDERS) {
       const counts = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
         string,
