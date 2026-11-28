@@ -4,15 +4,19 @@
 // mount or an earlier one, or a write still on its way), the prompt is the draft and acpmux's is
 // never merged in; text typed before the page ever read the chat's draft is kept beside acpmux's;
 // an untouched prompt shows acpmux's draft.
-import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test, jest } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef } from "react";
 import type { Root } from "react-dom/client";
-import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { hydratedDraft, notifyDraftActionsChanged } from "../src/agent-session/acpmux/composerDraft";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { hydratedDraft, notifyDraftActionsChanged } = await importWithDom(
+  () => import("../src/agent-session/acpmux/composerDraft"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

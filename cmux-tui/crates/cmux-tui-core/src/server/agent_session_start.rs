@@ -82,6 +82,7 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::agent_session_home_pull::{AgentHomePuller, HomePull, then_spawn};
 use super::agent_session_link::{AcpmuxLink, LinkError, Patience};
 use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
 use crate::mux::Mux;
@@ -336,6 +337,8 @@ pub(crate) struct AgentSessionStarts {
     /// One acpmux start at a time; the others connect after it.
     start_lock: Mutex<()>,
     starting: Mutex<HashSet<SurfaceId>>,
+    /// The agent home pull before a start's harness spawns; None is the machine agent's socket.
+    agent_home: Mutex<Option<AgentHomePuller>>,
 }
 
 fn installed_endpoint_harnesses() -> Vec<&'static str> {
@@ -361,6 +364,25 @@ fn installed_endpoint_harnesses() -> Vec<&'static str> {
 impl AgentSessionStarts {
     pub(crate) fn set_starter(&self, starter: Option<AcpmuxStarter>) {
         *self.starter.lock().unwrap_or_else(|e| e.into_inner()) = starter;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_agent_home(&self, pull: AgentHomePuller) {
+        *self.agent_home.lock().unwrap_or_else(|e| e.into_inner()) = Some(pull);
+    }
+
+    /// Whether a start pulls the person's agent home first: only on the caller's own solo Cloud
+    /// VM (never a Mac, an SSH host or a team VM, which carries no one person's home).
+    pub(super) fn pulls_agent_home(&self, caller_owns_vm: bool) -> bool {
+        self.owner_cloud(caller_owns_vm)
+    }
+
+    fn agent_home_puller(&self) -> AgentHomePuller {
+        self.agent_home
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .unwrap_or_else(super::agent_session_home_pull::socket_puller)
     }
 
     pub(crate) fn set_host(&self, host: AgentStartHostSource) {
@@ -453,6 +475,8 @@ pub(crate) struct StartTimings {
     settle: Option<u64>,
     bind: Option<u64>,
     total: Option<u64>,
+    /// The agent home pull, from the start's beginning to its answer (owner Cloud VM only).
+    agent_home: Option<u64>,
     /// The phase the start was in last ([`StartTimings::at`]): a bare `refused` names it in
     /// `data.step`, so its reader knows which call acpmux refused (the 2026-11-27T20:12Z
     /// notify-banner-click row said only "acpmux refused the request").
@@ -496,6 +520,7 @@ impl StartTimings {
             ("settle", self.settle),
             ("bind", self.bind),
             ("total", self.total),
+            ("agent_home", self.agent_home),
         ] {
             if let Some(value) = value {
                 out.insert(name.to_owned(), json!(value));
@@ -738,6 +763,15 @@ pub(super) fn start(
     true
 }
 
+/// `_meta.acpmux.tags` for a person's start on a Cloud machine (`cloud`: this host is a Cloud VM
+/// of any kind, which the host gate admitted the caller to; `phone`: the phone's start): the
+/// gateway class `interactive`, which acpmux keeps on the chat before its agent first
+/// spawns (acpmux `asked_tag`). None elsewhere: the app proves the person to
+/// its own Mac's acpmux itself.
+pub(super) fn person_priority_tags(cloud: bool, phone: bool) -> Option<Value> {
+    (cloud || phone).then(|| json!({"priority": "interactive"}))
+}
+
 /// cx-0w0jj: with `require_person_key`, the start runs only when this
 /// machine's acpmux holds a person key for the caller's `person_instance`.
 /// Otherwise `needs_keyed_start` with [`keyed_restart_reason`] (never the
@@ -851,6 +885,13 @@ fn run(
     timings: &mut StartTimings,
 ) -> Result<Value, (Refusal, Option<Value>)> {
     let began = Instant::now();
+    // The person's agent home lands before the harness spawns, read beside the connect and
+    // the catalog (agent_session_home_pull.rs).
+    let starts = &mux.control_clients.agent_sessions.starts;
+    let home = starts
+        .pulls_agent_home(super::agent_session_trust::callers_own_cloud_vm(mux, &params.vm_kind))
+        .then(|| HomePull::begin(starts.agent_home_puller()))
+        .flatten();
     timings.at("acpmux_connect");
     let (link, started) = connect_noting(mux, &socket).map_err(|r| (r, None))?;
     (timings.acpmux_connect, timings.acpmux_started) = (Some(ms_since(began)), started);
@@ -861,12 +902,20 @@ fn run(
     let (link, catalog) = ready_catalog(&socket, link, cwd, params.harness.as_deref(), until)
         .map_err(|r| (r, None))?;
     timings.at("keyed");
+    let mut pulled = None;
     let result = still_keyed(&link, &params).and_then(|()| {
-        start_and_bind(mux, client, &link, &catalog, &params, phone, checks, until, timings)
-            .map_err(|StartRefused(refusal, data)| (refusal, data))
+        then_spawn(home, &mut pulled, || {
+            start_and_bind(mux, client, &link, &catalog, &params, phone, checks, until, timings)
+                .map_err(|StartRefused(refusal, data)| (refusal, data))
+        })
     });
     link.close();
-    result
+    let Some(pulled) = pulled else { return result };
+    timings.agent_home = Some(pulled.ms);
+    result.map(|mut data| {
+        data.insert("agent_home", pulled.note);
+        data
+    })
 }
 
 /// acpmux's catalog for a start in `cwd`, read as long as acpmux is alive ([`START_PATIENCE`]:
@@ -1164,6 +1213,14 @@ fn start_and_bind(
     if params.claude_team_route {
         meta.insert("claudeTeamRoute", json!(true));
     }
+    // A chat the person starts on a Cloud machine (the app, `cmux cloud start-chat`, the phone)
+    // runs at the gateways' interactive class: this daemon's unix socket proves no person to
+    // acpmux, so without the tag the chat was a script's, ran `background`, and the gateway
+    // refused its turns from the interactive reserve (429, 2026-11-28).
+    let cloud = mux.control_clients.agent_sessions.starts.on_cloud_vm();
+    if let Some(tags) = person_priority_tags(cloud, phone) {
+        meta.insert("tags", tags);
+    }
     // The workspace of the tab, read here and never taken from the client:
     // acpmux gives the session that workspace's display (none without it).
     if let Some(workspace) = mux.surface_workspace_key(params.surface) {
@@ -1211,11 +1268,26 @@ fn start_and_bind(
     let family = if phone {
         settle_phone_mode(link, until, &session).map_err(end)?
     } else if owner_cloud {
-        if picked.is_none() && permission_mode == Some("standard") {
-            settle_standard_mode(link, &session);
+        // The standard level's table names the session's family too: no second read for it.
+        let standard = (picked.is_none() && permission_mode == Some("standard"))
+            .then(|| settle_standard_mode(link, &session))
+            .flatten();
+        // The Auto move goes out with the family read, on the family the catalog resolved before
+        // the start (`start_family`), so the two round trips overlap; it is still answered before
+        // the bind, so the chat's first prompt runs in Auto. A session whose own family differs
+        // gets the move its family takes, after the read, as before.
+        let before = cloud_default_mode(picked, permission_mode, &family);
+        let early = before.and_then(|mode| begin_cloud_default_mode(link, &session, mode));
+        let read = match standard {
+            Some(family) => Ok(family),
+            None => session_family(link, until, &session),
+        };
+        if let Some(pending) = early {
+            let _ = pending.wait(CALL_TIMEOUT);
         }
-        let family = session_family(link, until, &session).map_err(end)?;
-        if let Some(mode) = cloud_default_mode(picked, permission_mode, &family) {
+        let family = read.map_err(end)?;
+        let own = cloud_default_mode(picked, permission_mode, &family);
+        if let Some(mode) = own.filter(|mode| before != Some(*mode)) {
             settle_cloud_default_mode(link, &session, mode);
         }
         family
@@ -1298,14 +1370,22 @@ fn settle_cloud_default_mode(link: &AcpmuxLink, session: &str, mode: &str) {
     let _ = link.call("session/set_mode", params, CALL_TIMEOUT);
 }
 
+/// [`settle_cloud_default_mode`], sent now and answered later ([`AcpmuxLink::begin`]); none when the
+/// link is closed (the family read then refuses the start).
+fn begin_cloud_default_mode<'a>(
+    link: &'a AcpmuxLink,
+    session: &str,
+    mode: &str,
+) -> Option<super::agent_session_link::InFlight<'a>> {
+    link.begin("session/set_mode", json!({"sessionId": session, "modeId": mode})).ok()
+}
+
 /// `standard` on the caller's own Cloud VM: the harness's own start mode, which for a session that
 /// started in a mode that does not ask (the machine's start level) is its family's asking default.
-/// Soft, as acpmux's start level is: a refusal leaves the session as it started.
-fn settle_standard_mode(link: &AcpmuxLink, session: &str) {
-    let Ok(table) = link.call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
-    else {
-        return;
-    };
+/// Soft, as acpmux's start level is: a refusal leaves the session as it started. Returns the
+/// session's family when the table named one ([`session_family`] reads it otherwise).
+fn settle_standard_mode(link: &AcpmuxLink, session: &str) -> Option<String> {
+    let table = link.call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT).ok()?;
     let family = table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default();
     let modes: Vec<&str> = table
         .pointer(&format!("/families/{}", family.replace('~', "~0").replace('/', "~1")))
@@ -1319,6 +1399,7 @@ fn settle_standard_mode(link: &AcpmuxLink, session: &str) {
         let params = json!({"sessionId": session, "modeId": default});
         let _ = link.call("session/set_mode", params, CALL_TIMEOUT);
     }
+    (!family.is_empty()).then(|| family.to_owned())
 }
 
 /// acpmux `trust::session_level` is `trusted`: its own decision for the

@@ -329,12 +329,12 @@
             ]},
             {"title": {"key": "settings.pageGroup.chatLayout", "text": "Chat Layout"}, "keys": [
               "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
-              "agentPane.display.vscodeMinimap", "agentPane.display.chatListStatusPills", "agentPane.display.trayTucked",
+              "experiments.chat_render_pipeline", "agentPane.display.vscodeMinimap", "agentPane.display.chatListStatusPills", "agentPane.display.trayTucked",
               "agentPane.display.trayHandle", "agentPane.display.headerBreadcrumb", "agentPane.display.subagentOf",
               "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
               "agentPane.display.rail.side", "agentPane.display.rail.show", "agentPane.display.rail.control",
               "agentPane.display.sessionInfo.placement",
-              "agentPane.display.sessionInfo.sections.environment", "agentPane.display.sessionInfo.sections.context", "agentPane.display.sessionInfo.sections.subagents", "agentPane.display.sessionInfo.sections.tasks", "agentPane.display.sessionInfo.sections.sources", "agentPane.display.sessionInfo.sections.outputs", "agentPane.display.sessionInfo.sections.changes", "agentPane.display.sessionInfo.sections.usage", "agentPane.display.sessionInfo.sections.connectors", "agentPane.display.sessionInfo.sections.carried",
+              "agentPane.display.sessionInfo.sections.environment", "agentPane.display.sessionInfo.sections.context", "agentPane.display.sessionInfo.sections.subagents", "agentPane.display.sessionInfo.sections.tasks", "agentPane.display.sessionInfo.sections.sources", "agentPane.display.sessionInfo.sections.outputs", "agentPane.display.sessionInfo.sections.changes", "agentPane.display.sessionInfo.sections.usage", "agentPane.display.sessionInfo.sections.connectors",
               "agentPane.display.environment.placement",
               "agentPane.display.layout.messages",
               "agentPane.display.layout.composer",
@@ -350,7 +350,7 @@
               "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking",
               "agentPane.composerVimKeys",
               "agentPane.composerLook", "agentPane.emptyChatComposerPosition", "agentPane.composerPlaceholder",
-              "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.followUpMode", "agentPane.display.harnessPlacement", "agentPane.display.modelChipIcon", "agentPane.display.modelPickerStyle", "agentPane.display.queueing",
+              "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.followUpMode", "agentPane.display.harnessPlacement", "agentPane.display.modelChipIcon", "agentPane.display.modelPickerStyle", "agentPane.display.ownHarnessUpdatesOnly", "agentPane.display.queueing",
               "agentPane.display.promptCoach"
             ]},
             {"title": {"key": "settings.pageGroup.filesLinks", "text": "Files and Links"}, "keys": [

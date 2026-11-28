@@ -10,8 +10,9 @@ import ObjectiveC
 /// tracker observes them once, decides once per main-actor turn (a Cmd-Tab posts 3 to 6 notices),
 /// and calls only its views, only when the state flips. It lives as long as its window (an
 /// associated object), so no process-wide instance exists, and it observes only while the window
-/// has a material view: a window kept alive with none (a reused panel, a swapped backdrop) costs
-/// nothing per key change.
+/// has a material view or a watcher, or keeps its key look under its pages (every window the window
+/// kit installs, ``PageWindowKeyLook``): one check per key change each. A window kept alive with none
+/// of those (a reused panel, a swapped backdrop) costs nothing per key change.
 @MainActor
 final class WindowKeyFamily {
     private weak var window: NSWindow?
@@ -20,6 +21,13 @@ final class WindowKeyFamily {
     private var observers: [MainActorObservation] = []
     /// The keyboard left the window's family after the family held it.
     private(set) var isInactive = false
+    /// The window keeps AppKit's key look while its own page window holds the keys
+    /// (``PageWindowKeyLook``): its controls are told when that starts or stops while the window is not key.
+    var keepsPageKeyLook = false {
+        didSet { if keepsPageKeyLook, observers.isEmpty { startObserving() } }
+    }
+    /// A page window of its own held the keys at the last check (``keepsPageKeyLook``).
+    private var pageHeldKey = false
     /// The last flip eased the wash (no key window in an active app) and the keys have not settled since.
     private var easing = false
     /// The window's family has held the keyboard since the tracker started.
@@ -41,7 +49,7 @@ final class WindowKeyFamily {
     var onInactiveChange: (@MainActor (Bool) -> Void)? {
         didSet {
             if onInactiveChange != nil, observers.isEmpty { startObserving() }
-            if onInactiveChange == nil, views.allObjects.isEmpty { observers.removeAll() }
+            if onInactiveChange == nil, views.allObjects.isEmpty, !keepsPageKeyLook { observers.removeAll() }
         }
     }
 
@@ -54,6 +62,18 @@ final class WindowKeyFamily {
         let family = WindowKeyFamily(window: window, environment: environment)
         objc_setAssociatedObject(window, &key, family, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return family
+    }
+
+    /// The tracker of `window` when it has one (none is made).
+    static func existing(of window: NSWindow) -> WindowKeyFamily? {
+        objc_getAssociatedObject(window, &key) as? WindowKeyFamily
+    }
+
+    /// Whether the window keeps the key look now: it keeps it under its pages and one of them holds the keys of the
+    /// active app (``PageWindowKeyLook``).
+    func keepsKeyLookNow() -> Bool {
+        guard keepsPageKeyLook, let window, environment.isAppActive(), let key = environment.keyWindow() else { return false }
+        return PageWindowKeyLook.holds(key, for: window)
     }
 
     private init(window: NSWindow, environment: WindowKeyEnvironment) {
@@ -69,7 +89,7 @@ final class WindowKeyFamily {
     func remove(_ view: WindowMaterialView) {
         views.remove(view)
         // The last view left: no one reads the state, so no notice should cost a check.
-        if views.allObjects.isEmpty, onInactiveChange == nil { observers.removeAll() }
+        if views.allObjects.isEmpty, onInactiveChange == nil, !keepsPageKeyLook { observers.removeAll() }
     }
 
     private func startObserving() {
@@ -109,10 +129,11 @@ final class WindowKeyFamily {
             // Chromium can make a page window key before the fork places it as this window's
             // child (a browser-tab workspace switch): a parentless page window acts for the main
             // window, as `KeyWindowRole` resolves it.
-            let parentlessPage = key.map { $0.parent == nil && $0.sheetParent == nil && Self.isChromiumPageWindow($0) } ?? false
+            let parentlessPage = key.map { $0.parent == nil && $0.sheetParent == nil && PageWindowKeyLook.isChromiumPageWindow($0) } ?? false
             let holds = WindowMaterialView.family(of: window, holds: key, owner: { $0.parent ?? $0.sheetParent })
                 || (parentlessPage && window.isMainWindow)
             let active = self.environment.isAppActive()
+            self.updatePageKeyLook(of: window, key: key)
             let inactive = WindowMaterialView.looksInactive(appActive: active, familyHoldsKey: holds,
                                                             familyHeldKey: self.familyHeldKey)
             if active, holds { self.familyHeldKey = true }
@@ -137,9 +158,15 @@ final class WindowKeyFamily {
         }
     }
 
-    /// `CefNSWindow`: a Chromium page window.
-    private static func isChromiumPageWindow(_ window: NSWindow) -> Bool {
-        guard let pageClass = NSClassFromString("CefNSWindow") else { return false }
-        return window.isKind(of: pageClass)
+    /// AppKit redraws a window's controls when the window itself gains or loses key, not when its own page window
+    /// takes or gives up the keys while it is not key (the page taking them from the window at a tab switch, the app
+    /// coming back with a page key, a panel or another app taking them from a page): the window's views are told
+    /// then, once per change.
+    private func updatePageKeyLook(of window: NSWindow, key: NSWindow?) {
+        guard keepsPageKeyLook else { return }
+        let held = keepsKeyLookNow()
+        guard held != pageHeldKey else { return }
+        pageHeldKey = held
+        if key !== window { environment.refresh(window) }
     }
 }

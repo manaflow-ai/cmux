@@ -88,25 +88,25 @@ struct AgentPaneSignInPageTests {
     /// Claude's automatic page: an allowed page whose one redirect is its own listener's
     /// `http://localhost:<port>/callback` on the chat's machine (Leo 2026-11-02: no code to paste).
     @Test func onlyClaudesAutomaticPageNamesALocalhostCallback() {
-        #expect(AgentPaneSignInPage().callbackPort(Self.automatic) == 54545)
-        #expect(AgentPaneSignInPage().callbackPort(Self.page) == nil)
+        #expect(AgentPaneSignInPage.callbackPort(Self.automatic) == 54545)
+        #expect(AgentPaneSignInPage.callbackPort(Self.page) == nil)
         let redirect = { (target: String) -> URL in
             var parts = URLComponents(string: "https://claude.com/cai/oauth/authorize")!
             parts.queryItems = [URLQueryItem(name: "redirect_uri", value: target)]
             return parts.url!
         }
-        #expect(AgentPaneSignInPage().callbackPort(redirect("http://localhost:49152/callback")) == 49152)
+        #expect(AgentPaneSignInPage.callbackPort(redirect("http://localhost:49152/callback")) == 49152)
         for bad in ["https://platform.claude.com/oauth/code/callback", "http://evil.example:54545/callback",
                     "http://localhost.evil.example:54545/callback", "http://127.0.0.1:54545/callback",
                     "https://localhost:54545/callback", "http://localhost:54545/other", "http://localhost/callback",
                     "http://localhost:0/callback", "http://localhost:070/callback", "http://localhost:+80/callback",
                     "http://localhost:99999/callback"] {
-            #expect(AgentPaneSignInPage().callbackPort(redirect(bad)) == nil, "\(bad)")
+            #expect(AgentPaneSignInPage.callbackPort(redirect(bad)) == nil, "\(bad)")
         }
         let two = URL(string: "https://claude.com/x?redirect_uri=http%3A%2F%2Flocalhost%3A1%2Fcallback&redirect_uri=http%3A%2F%2Flocalhost%3A2%2Fcallback")!
-        #expect(AgentPaneSignInPage().callbackPort(two) == nil)
+        #expect(AgentPaneSignInPage.callbackPort(two) == nil)
         let elsewhere = URL(string: "https://evil.example/oauth?redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback")!
-        #expect(AgentPaneSignInPage().callbackPort(elsewhere) == nil)
+        #expect(AgentPaneSignInPage.callbackPort(elsewhere) == nil)
     }
 
     private actor NoHost: AgentPaneHostProviding {

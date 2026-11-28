@@ -596,7 +596,7 @@ describe("resolveOwnerNetwork", () => {
   });
 
   test("creates a new isolated team network for a capable multi-member team", async () => {
-    let ensureOptions: { slug?: string; displayName?: string; membersRule?: boolean } | undefined;
+    let ensureOptions: { slug?: string; displayName?: string; cidr?: string; membersRule?: boolean } | undefined;
     let upserts = 0;
     const repo = {
       ...testRepo({ network: networkRow() }),

@@ -23,7 +23,7 @@ bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
 [no-process-scan]
 python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE"
 [state-roots]
-bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"
+bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE" --strict-rows
 [concurrency]
 scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 # Why: note-506
@@ -35,6 +35,10 @@ python3 -I scripts/cmux-next/check-exemption-ratchet.py --root "$GITHUB_WORKSPAC
 python3 -I tests/test_cmux_next_exemption_ratchet.py
 [overlay-glass]
 python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
+[flag-default-drift]
+# Why: a switch's code default and its written default drifted (CMUX_NEXT_CHAT_RENDERER_RECYCLE, cmux#64383)
+python3 -I scripts/cmux-next/check-flag-default-drift.py "$GITHUB_WORKSPACE"
+python3 -I scripts/cmux-next/tests/test_check_flag_default_drift.py
 [conn-notices]
 scripts/cmux-next/check-connection-notices.sh "$GITHUB_WORKSPACE"
 python3 -I scripts/cmux-next/tests/test_check_connection_notices.py
@@ -43,6 +47,7 @@ python3 -I scripts/cmux-next/check-retry-prompts.py --root "$GITHUB_WORKSPACE"
 python3 -I scripts/cmux-next/tests/test_check_retry_prompts.py
 [checks-structure]
 python3 tests/test_cmux_next_checks_workflow.py
+python3 tests/test_check_pool_whole_baseline.py
 [package-dependency-lists]
 python3 scripts/cmux-next/check-package-dependency-lists.py
 python3 scripts/cmux-next/tests/test_check_package_dependency_lists.py

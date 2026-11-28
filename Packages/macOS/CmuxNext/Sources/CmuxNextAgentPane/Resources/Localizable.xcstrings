@@ -10691,6 +10691,149 @@
         }
       }
     },
+    "agentPane.personUnproven.waitBeforeSending": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم التحقق من هويتك. انتظر قبل إرسال رسالة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš identitet nije potvrđen. Sačekajte prije slanja poruke."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din identitet er ikke bekræftet. Vent med at sende en besked."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Identität ist nicht bestätigt. Warte, bevor du eine Nachricht sendest."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your identity is not verified. Wait before sending a message."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu identidad no está verificada. Espera antes de enviar un mensaje."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre identité n’est pas vérifiée. Patientez avant d’envoyer un message."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La tua identità non è verificata. Attendi prima di inviare un messaggio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本人確認が完了していません。メッセージを送信する前にお待ちください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អត្តសញ្ញាណរបស់អ្នកមិនទាន់ត្រូវបានផ្ទៀងផ្ទាត់ទេ។ សូមរង់ចាំមុនពេលផ្ញើសារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "본인 확인이 완료되지 않았습니다. 메시지를 보내기 전에 기다려 주세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identiteten din er ikke bekreftet. Vent før du sender en melding."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoja tożsamość nie została potwierdzona. Zaczekaj przed wysłaniem wiadomości."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua identidade não foi verificada. Aguarde antes de enviar uma mensagem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша личность не подтверждена. Подождите, прежде чем отправлять сообщение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่ได้ยืนยันตัวตนของคุณ โปรดรอก่อนส่งข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimliğiniz doğrulanmadı. Mesaj göndermeden önce bekleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вашу особу не підтверджено. Зачекайте, перш ніж надсилати повідомлення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Danh tính của bạn chưa được xác minh. Hãy đợi trước khi gửi tin nhắn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的身份尚未验证。请稍候再发送消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的身分尚未驗證。請稍候再傳送訊息。"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Je identiteit is niet geverifieerd. Wacht voordat je een bericht verstuurt."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din identitet är inte verifierad. Vänta innan du skickar ett meddelande."
+          }
+        }
+      }
+    },
     "agentPane.otherInstall.message": {
       "extractionState": "manual",
       "localizations": {
@@ -12007,7 +12150,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux couldn't start its agent service. Quit and reopen cmux to try again."
+            "value": "cmux couldn't start its agent service. Quit and reopen cmux."
           }
         }
       }
