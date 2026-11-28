@@ -543,4 +543,37 @@ extension MobilePairedMacStore {
         guard let cString = sqlite3_column_text(statement, column) else { return nil }
         return String(cString: cString)
     }
+
+    /// Clears one owner scope's routes before the caller writes them again, keeping each row this build
+    /// cannot decode: a route kind or endpoint shape a newer build wrote. This build never showed that
+    /// route, so "replace every route" never meant it, and the newer build reads it again after an
+    /// upgrade instead of losing it to a downgrade (persisted-formats/README-ios-formats.md).
+    func deleteReadableRoutes(macDeviceID: String, ownerKey: String) throws {
+        var readableIDs: [Int64] = []
+        do {
+            var statement: OpaquePointer?
+            defer { sqlite3_finalize(statement) }
+            let rc = sqlite3_prepare_v2(
+                db,
+                "SELECT id, endpoint_json FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",
+                -1,
+                &statement,
+                nil
+            )
+            guard rc == SQLITE_OK else {
+                throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
+            }
+            try bind(statement: statement, parameters: [.text(macDeviceID), .text(ownerKey)])
+            let decoder = JSONDecoder()
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let json = Self.readNullableText(statement, column: 1),
+                      let data = json.data(using: .utf8),
+                      (try? decoder.decode(CmxAttachRoute.self, from: data)) != nil else { continue }
+                readableIDs.append(sqlite3_column_int64(statement, 0))
+            }
+        }
+        for id in readableIDs {
+            try exec("DELETE FROM mac_routes WHERE id = ?;", binding: [.int(id)])
+        }
+    }
 }

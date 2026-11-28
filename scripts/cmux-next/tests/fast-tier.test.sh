@@ -275,6 +275,30 @@ if [ "$elapsed" -ge 8 ]; then
   printf '%s\n' "$out" >&2
   exit 1
 fi
+# Swift Build heads every failed task of a batch before their output: the second head is not the diagnostic
+# (seed run 46130036758 stopped there and showed nothing).
+cat > "$tmp/headbin/swift" <<'EOF2'
+#!/usr/bin/env bash
+if [ "$1" = build ]; then
+  echo "error: SwiftCompile normal arm64 /w/Tests/T/ATests.swift failed with a nonzero exit code. Command line: cd /w"
+  echo "    builtin-SwiftPerFileCompile ATests.swift"
+  echo "error: SwiftCompile normal arm64 /w/Tests/T/BTests.swift failed with a nonzero exit code. Command line: cd /w"
+  echo "/w/Tests/T/Shared.swift:9:3: error: cannot find 'SharedFixture' in scope"
+  sleep 30
+  exit 1
+fi
+echo "Test run with 1 test in 1 suite passed after 0.010 seconds."
+EOF2
+started=$SECONDS
+PATH="$tmp/headbin:$PATH" run
+elapsed=$(( SECONDS - started ))
+expect "two failed task heads fail the tier" 1 "^FAST-TIER FAIL build:Pkg: the tests do not build"
+expect "the diagnostic after a second task head stays visible" 1 "Shared.swift:9:3: error: cannot find 'SharedFixture'"
+if [ "$elapsed" -ge 8 ]; then
+  echo "FAIL: the diagnostic after two task heads waited for the build (${elapsed}s, want under 8s)" >&2
+  printf '%s\n' "$out" >&2
+  exit 1
+fi
 # A compiler crash prints no diagnostic head: its stack dump after the task head stays visible.
 cat > "$tmp/headbin/swift" <<'EOF2'
 #!/usr/bin/env bash
