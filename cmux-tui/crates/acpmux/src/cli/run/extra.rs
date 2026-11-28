@@ -1572,6 +1572,29 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             print_json(&serde_json::to_value(&load)?);
             Ok(())
         }
+        // Writes only the named cgroup's memory.reclaim; no daemon (`working_set.rs`).
+        Command::Host(PeerCmd::WorkingSet {
+            cgroup,
+            step_permille,
+            refault_permille,
+            settle_ms,
+            max_steps,
+            floor_mb,
+        }) => {
+            let probe = crate::working_set::Probe {
+                step_permille,
+                refault_permille,
+                settle_ms,
+                max_steps,
+                floor_bytes: floor_mb.saturating_mul(1 << 20),
+                ..crate::working_set::Probe::default()
+            };
+            let report =
+                tokio::task::spawn_blocking(move || crate::working_set::cli(cgroup, probe))
+                    .await??;
+            print_json(&serde_json::to_value(&report)?);
+            Ok(())
+        }
         // Reads the home directory and writes one file; no daemon (`disk_usage.rs`).
         Command::Host(PeerCmd::DiskWalk) => crate::disk_usage::walk_and_store(),
         // Reads the fleet listing and the registry; changes nothing (`cell_report.rs`).
@@ -1745,6 +1768,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 | PeerCmd::Cells
                 | PeerCmd::Unreachable { .. }
                 | PeerCmd::DiskWalk
+                | PeerCmd::WorkingSet { .. }
                 | PeerCmd::Verdict
                 | PeerCmd::Notice { .. } => {
                     return Err(anyhow!(
