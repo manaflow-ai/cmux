@@ -2548,8 +2548,9 @@ export class AcpmuxDirectClient {
   }
 
   /// The chat a switch most likely goes to next that has no rows on this page yet: a listed one, newest
-  /// first, with a kept tail, not shown, not running (its tail is behind its turn), not in the cold
-  /// archive, not on the store (`chatRows`), not left or warmed already. Undefined when none is.
+  /// first, with a kept tail, not shown, not in the cold archive, not on the store (`chatRows`), not
+  /// left or warmed already. A running one too: its tail is behind its turn, but every turn before
+  /// that comes out the same and is kept (`keepSame`); a new read of its tail warms it again.
   private nextToWarm(): string | undefined {
     if (this.closed || this.fedMode || !pageShown()) return undefined;
     // ends: one pass over the listed chats
@@ -2560,7 +2561,7 @@ export class AcpmuxDirectClient {
     for (const session of recent) {
       const sessionId = session.sessionId;
       if (this.leftRows.has(sessionId) || this.warmedRows.has(sessionId)) continue;
-      if (session.coldArchive || session.status === "running" || this.chatRows.holds(sessionId)) continue;
+      if (session.coldArchive || this.chatRows.holds(sessionId)) continue;
       const tail = keptTail(sessionId);
       if (tail && !olderThanShown(sessionId, tail)) return sessionId;
     }
