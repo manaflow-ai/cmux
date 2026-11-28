@@ -10,6 +10,10 @@ path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_advisory_job_names.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_api_workerd_green_marker.py"
 lane = "linux-guard"
 
@@ -680,6 +684,10 @@ path = "tests/test_migrate_journey_verdict.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_mobile_ffi_pin.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_needs_verdict.py"
 lane = "linux-guard"
 
@@ -819,6 +827,11 @@ path = "tests/test_preflight_trust.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_prepush_backup_refs.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_prepush_backup_refs.py"
+
+[[test]]
 path = "tests/test_prepush_fast_tier.py"
 lane = "manual"
 reason = "Bounded pre-push tier: cmux-ci test -- python3 tests/test_prepush_fast_tier.py; sandbox behavior needs warm Bun and Linux bubblewrap."
@@ -827,11 +840,6 @@ reason = "Bounded pre-push tier: cmux-ci test -- python3 tests/test_prepush_fast
 path = "tests/test_prepush_generated_freshness.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_prepush_generated_freshness.py"
-
-[[test]]
-path = "tests/test_prepush_backup_refs.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_prepush_backup_refs.py"
 
 [[test]]
 path = "tests/test_prepush_no_verdict_never_subtracts.py"
@@ -1353,6 +1361,10 @@ reason = "Needs wixl, msitools, osslsigncode and wine64, which the guard runners
 
 [[test]]
 path = "tests/test_workflow_file_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_workflow_inline_python_f_strings.py"
 lane = "linux-guard"
 
 [[test]]

@@ -51,7 +51,7 @@ permissions:
 # A label event runs in its own group: the ready-to-land run is the one this workflow keeps on a pull request (the job's
 # heavy-at-land clause), and a later push (land's update-branch) runs no job here, so it must not cancel that run.
 concurrency:
-  group: session-move-tests-${{ github.event_name == 'push' && github.sha || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: session-move-tests-${{ github.event_name == 'push' && github.sha || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

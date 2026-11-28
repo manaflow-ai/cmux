@@ -14,6 +14,9 @@ pub(in crate::server) struct ClientRecord {
     /// Outer None is a non-Native connection; Some(None) is a Native token
     /// without an owner claim and must never fall back to request fields.
     pub(in crate::server) native_vm_kind: Option<Option<cmux_link::token::VmKind>>,
+    /// The phone the Cloud machine's cmux link admitted after its owner check and stamped on
+    /// this unix stream (`owner_phone.rs`); its Cloud mobile prompts carry it to acpmux.
+    pub(in crate::server) owner_phone: Option<String>,
     pub(in crate::server) connected_at: Instant,
     pub(in crate::server) name: Option<String>,
     pub(in crate::server) kind: Option<String>,

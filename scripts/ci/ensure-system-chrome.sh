@@ -70,6 +70,23 @@ playwright_cli() {
 }
 
 
+# apt waits for dpkg's lock (DPkg::Lock::Timeout) instead of failing when another apt-get holds it. Best effort and
+# idempotent: written once per box; no-op where sudo needs a password. CMUX_APT_LOCK_CONF moves the file (tests).
+lock_wait="${CMUX_APT_LOCK_WAIT_SECONDS:-600}"
+apt_lock_wait() {
+  [ "$(uname -s)" = Linux ] || return 0
+  local conf="${CMUX_APT_LOCK_CONF:-/etc/apt/apt.conf.d/90-cmux-ci-lock-timeout}" line
+  line="DPkg::Lock::Timeout \"$lock_wait\";"
+  [ -f "$conf" ] && grep -qxF "$line" "$conf" && return 0
+  if [ -d "$(dirname "$conf")" ] && [ -w "$(dirname "$conf")" ]; then
+    printf '%s\n' "$line" > "$conf"
+  elif ! printf '%s\n' "$line" | sudo -n tee "$conf" > /dev/null 2>&1; then
+    echo "warning: could not write $conf; apt fails at once on a held dpkg lock" >&2
+    return 0
+  fi
+  echo "apt waits up to $lock_wait s for the dpkg lock ($conf)"
+}
+
 # chrome-headless-shell from Chrome for Testing, at $shell_pin. Best effort: prints nothing
 # when it cannot be fetched, and launches then fall back to channel "chrome".
 ensure_headless_shell() {
@@ -126,6 +143,12 @@ ensure_chrome() {
     # head's verdict 51 min. A cut transfer is tried again: curl exit 18 (partial file), 28 (timed
     # out), 35 (TLS connect), 52 (empty reply), 56 (receive failure), 92 (HTTP/2 stream). A 404
     # (curl 22) or a name that does not resolve is not: another try does not fix it.
+    # Another apt-get on the box holds dpkg's lock: a fleet Linux VM packs up to 4 light jobs, and two
+    # `playwright install --with-deps` at once collide (job 92c95b17ff19cd8dde8d2b2b, 2026-11-28: "Could not get
+    # lock /var/lib/dpkg/lock-frontend. It is held by process 16395 (apt-get)", no Chrome, no verdict). Playwright
+    # runs its own apt-get under sudo, so the wait goes in apt's config: every apt call waits up to
+    # $lock_wait s for the lock instead of failing at once. A lock still held past that is tried again below.
+    apt_lock_wait
     local log attempt delay="${CMUX_CHROME_INSTALL_RETRY_SECONDS:-15}"
     log="$(mktemp)"
     for attempt in 1 2 3; do
@@ -133,6 +156,11 @@ ensure_chrome() {
       if CI=1 $(playwright_cli) install --with-deps chrome 2>&1 | tee "$log"; then break; fi
       if [ "$attempt" = 1 ] && grep -qE 'Hash Sum mismatch|Hashes of received file' "$log"; then
         echo "warning: apt index changed during the fetch; trying once more in $delay s" >&2
+        sleep "$delay"
+        continue
+      fi
+      if [ "$attempt" -lt 3 ] && grep -qE 'Could not get lock|Unable to acquire the dpkg frontend lock|Unable to lock directory' "$log"; then
+        echo "warning: another apt-get holds the dpkg lock; trying again in $delay s (try $((attempt + 1)) of 3)" >&2
         sleep "$delay"
         continue
       fi

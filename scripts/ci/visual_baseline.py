@@ -25,8 +25,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -38,6 +40,10 @@ SCHEMA = "cmux.visual-baseline.v1"
 COLLATERAL_TILE_SSIM = 0.9
 OWN = "own"
 DESCRIPTION_LIMIT = 140
+# The status post's rounds through a rate limit: 4 a minute apart fit the comment job's 10 min (gallery-advisory.yml).
+POST_ROUNDS = 5
+POST_WAIT_S = 60
+RATE_LIMITED = re.compile(r"rate limit|HTTP 429|retry-after", re.I)
 
 
 def measure(review: dict, root: Path, shotdiff: str, timeout: int = 60) -> dict:
@@ -116,7 +122,20 @@ def post(repo: str, sha: str, state: str, description: str, target_url: str = ""
             "-f", f"context={STATUS_CONTEXT}", "-f", f"description={description[:DESCRIPTION_LIMIT]}"]
     if target_url:
         args += ["-f", f"target_url={target_url}"]
-    return subprocess.run(args, stdout=subprocess.DEVNULL).returncode
+    # A rate limit refuses before the call runs, so asking again cannot double the post (the rule of
+    # gh_http.request_through_rate_limit; this file is checked out alone and cannot import it). A refused post left
+    # the status at the capture's `pending` for good, which holds land-judge (cmux#65276, run 46179632277): wait the
+    # limit out, a minute a round, inside the comment job's bound; any other refusal fails at once.
+    for attempt in range(POST_ROUNDS):
+        done = subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        if done.returncode == 0:
+            return 0
+        sys.stderr.write(done.stderr)
+        if not RATE_LIMITED.search(done.stderr or "") or attempt == POST_ROUNDS - 1:
+            return done.returncode
+        print(f"{STATUS_CONTEXT}: post rate limited; asking again in {POST_WAIT_S}s", file=sys.stderr)
+        time.sleep(POST_WAIT_S)
+    return 1
 
 
 def _load(path: str | None) -> dict | None:
