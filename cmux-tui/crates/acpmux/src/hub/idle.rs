@@ -61,7 +61,12 @@ pub(super) fn bookkeeping(dir: &str, kind: &str, msg: &Value) -> bool {
     dir == "mux"
         && (kind == super::usage_view::RECORD_KIND
             || kind == "host_adopted"
-            || (kind == "status" && msg.get("read") == Some(&Value::Bool(true))))
+            || (kind == "status" && msg.get("read") == Some(&Value::Bool(true)))
+            // A daemon task's row (`bg_registry.rs`): its task never keeps the chat awake, so its
+            // start, its end and a listing's repair of it start no idle period either. One that
+            // brings its end to the chat (`notify`) does so as a turn of its own.
+            || (kind == "process_update"
+                && msg.pointer("/process/daemonTask") == Some(&Value::Bool(true))))
 }
 
 /// How many due harnesses one idle pass ends at once (`stop_idle_children`).
