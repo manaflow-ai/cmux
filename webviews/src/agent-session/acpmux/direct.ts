@@ -1,3 +1,4 @@
+import type { InspectorHistory } from "./InspectorTiming";
 import type { BrowserWorkspaces } from "./browser/workspaces";
 import {
   browserDeviceError,
@@ -283,6 +284,7 @@ import { promptCoachEnabled } from "./chatDisplay";
 import { afterNextPaint } from "./afterNextPaint";
 import { PromptHeads, type PromptHead } from "./promptHeads";
 import { ADMISSION_WAITING_METHOD, PLACE_CHAT_METHOD } from "./autoWhereModel";
+import { noteDeviceKinds } from "../../ui/deviceKinds";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -17030,6 +17032,11 @@ export class AcpmuxDirectClient {
   async audit(params: Record<string, unknown> = {}): Promise<unknown> {
     return this.request("_acpmux/audit", params, 15_000);
   }
+  /// A chat's recorded turn timings for the inspector's Timing tab (`_acpmux/history`, acpmux
+  /// hub/history_timing.rs); read only when that tab opens, the latest 100 turns.
+  async inspectorHistory(sessionId: string): Promise<InspectorHistory> {
+    return this.request("_acpmux/history", { sessionId, limit: 100 }, 15_000);
+  }
   /// The chat's effective prompt context for the Context screen (`_acpmux/context`, acpmux
   /// context_inventory.rs): what cmux adds in full, the harness's own parts as counts.
   async contextInventory(sessionId = this.actingSessionId): Promise<unknown> {
@@ -17218,6 +17225,7 @@ export class AcpmuxDirectClient {
           .filter((peer: string | undefined): peer is string => Boolean(peer))
       : [];
     this.peerKinds = peerKindsFromStatus(status);
+    noteDeviceKinds(status);
     this.peerCloudRegistries = peerCloudRegistriesFromStatus(status);
     this.peerConnected = peerConnectedFromStatus(status);
     this.peerAgentLogin = peerAgentLoginFromStatus(status);
