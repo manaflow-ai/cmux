@@ -66,11 +66,17 @@ out=$(run)
 grep -q 'memory.max 24 GiB holds 8 of 96 cores' <<<"$out" || { echo "$out"; echo "FAIL: memory.max not the lesser budget"; exit 1; }
 
 # 8. The pool slot that OOM-killed the Cloud machine channel's x86_64 build (8 threads, memory.max 14 GiB, 5
-# groups; cmux-machine-channel run 46144424122, 2026-11-28): 7 tokens in all (3 + 4 x 1), not 4 + 4 x 2 = 12.
+# groups; cmux-machine-channel run 46144424122, 2026-11-28): 7 tokens in all, not 4 + 4 x 2 = 12, and (run 46151055767, where seven one-token groups
+# still lost the acpmux rustc) only 14 / 4 = 3 groups at once: 3 + 2 x 2 tokens.
 echo $((14 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"; meminfo 512 500
 out=$(FAKE_NPROC=8 bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "echo b" "" "echo c" "" "echo d" "" "echo e" 2>&1)
-grep -q 'memory.max 14 GiB holds 7 tokens across 5 groups at 2 GiB each' <<<"$out" || { echo "$out"; echo "FAIL: no token budget line"; exit 1; }
-grep -q 'CARGO_BUILD_JOBS=3 for group 1, 1 each for the others' <<<"$out" || { echo "$out"; echo "FAIL: token sum over the budget"; exit 1; }
+grep -q 'memory.max 14 GiB holds 7 tokens across 3 of 5 groups at once, 2 GiB a token, 4 GiB a group' <<<"$out" || { echo "$out"; echo "FAIL: no token budget line"; exit 1; }
+grep -q 'CARGO_BUILD_JOBS=3 for group 1, 2 each for the others' <<<"$out" || { echo "$out"; echo "FAIL: token sum over the budget"; exit 1; }
+conc="$tmp/conc"; : > "$conc"
+g='echo start >> '"$conc"'; sleep 0.4; echo end >> '"$conc"
+FAKE_NPROC=8 bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "$g" "" "$g" "" "$g" "" "$g" "" "$g" >/dev/null 2>&1 || { echo "FAIL: capped groups failed"; exit 1; }
+peak=$(awk '/start/{n++; if(n>m)m=n} /end/{n--} END{print m}' "$conc")
+((peak == 3)) || { echo "FAIL: $peak groups at once under a 14 GiB cap, want 3"; exit 1; }
 
 # 7. The OOM detector: a SIGKILLed group while oom_kill rises is named out of memory; a compile error is not.
 kill9='echo "process did not exit successfully: rustc (signal: 9, SIGKILL: kill)"; echo "oom_kill 5" > '"$tmp/vmstat"'; exit 101'
