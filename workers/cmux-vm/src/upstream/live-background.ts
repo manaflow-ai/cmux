@@ -22,8 +22,15 @@ const BACKGROUND_ID_HEADER = "x-freestyle-background-request-id";
  */
 export const BACKGROUND_AFTER_SECS = 60;
 export const DEFAULT_BACKGROUND_POLL_MS = 2_000;
-/** Poll failures in a row (no answer, 429 or 5xx) before the request is given up as unanswered. */
-const POLL_FAILURES = 5;
+/**
+ * How long polls may fail (no answer, 429 or 5xx) since the last answered one before the request is given up as
+ * unanswered. It is apart from the caller's deadline, the way a CDN keeps its origin timeout apart from its retry
+ * window: the provider stores the answer, so an overload (Freestyle answered 503 to every poll for 9 min, rebake
+ * 45960390204, 2026-11-27) is waited out instead of losing a command that ran. Five failed polls (10 s) did.
+ */
+export const DEFAULT_BACKGROUND_OUTAGE_MS = 300_000;
+/** The longest wait between polls while the provider fails them (the wait doubles from the poll interval). */
+const MAX_BACKOFF_MS = 15_000;
 const POLL_TIMEOUT_MS = 30_000;
 const MAX_ACCEPTED_BYTES = 4096;
 const REQUEST_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
@@ -59,9 +66,10 @@ const resultPath = async (accepted: Response, origin: string): Promise<string | 
 
 /**
  * The final response of a request the provider answered 202 (`accepted`): its stored
- * response once ready, polled every `pollMs` until `deadlineAt` (epoch ms). A stored
- * refusal fails with its status (a 409 stays a 409); no answer by the deadline, or
- * POLL_FAILURES failed polls in a row, fails with no status (the command may have run).
+ * response once ready, polled every `pollMs` until `deadlineAt` (epoch ms). Failed polls
+ * back off and keep going, past the deadline too, until none has answered for `outageMs`.
+ * A stored refusal fails with its status (a 409 stays a 409); no answer fails with no
+ * status (the command may have run).
  */
 export const awaitBackground = (
   poll: Poll,
@@ -70,26 +78,33 @@ export const awaitBackground = (
   origin: string,
   deadlineAt: number,
   pollMs: number,
+  outageMs: number = DEFAULT_BACKGROUND_OUTAGE_MS,
 ): Effect.Effect<Response, UpstreamError> =>
   Effect.gen(function* () {
     const path = yield* Effect.promise(() => resultPath(accepted, origin));
     if (path === null) return yield* Effect.fail(new UpstreamError({ operation, status: 202 }));
-    let failures = 0;
-    while (Date.now() + pollMs < deadlineAt) {
-      yield* Effect.sleep(pollMs);
-      const timeoutMs = Math.max(1, Math.min(POLL_TIMEOUT_MS, deadlineAt - Date.now()));
+    let lastAnswerAt = Date.now();
+    let wait = pollMs;
+    let failing = false;
+    for (;;) {
+      const until = failing ? Math.max(deadlineAt, lastAnswerAt + outageMs) : deadlineAt;
+      if (Date.now() + wait >= until) break;
+      yield* Effect.sleep(wait);
+      const timeoutMs = Math.max(1, Math.min(POLL_TIMEOUT_MS, until - Date.now()));
       const answer = yield* poll(operation, path, { method: "GET", timeoutMs }).pipe(Effect.either);
       if (answer._tag === "Right") {
         if (answer.right.status !== 202) return answer.right;
         yield* Effect.promise(async () => void (await answer.right.body?.cancel()));
-        failures = 0;
+        lastAnswerAt = Date.now();
+        wait = pollMs;
+        failing = false;
         continue;
       }
       const status = answer.left.status;
       const transient = status === null || status === 429 || status >= 500;
       if (!transient) return yield* Effect.fail(answer.left);
-      failures += 1;
-      if (failures >= POLL_FAILURES) return yield* Effect.fail(new UpstreamError({ operation, status: null }));
+      failing = true;
+      wait = Math.min(MAX_BACKOFF_MS, wait * 2);
     }
     return yield* Effect.fail(new UpstreamError({ operation, status: null }));
   });
