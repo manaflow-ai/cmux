@@ -472,34 +472,40 @@ impl ClientConnection {
         daemon_took_ik: bool,
     ) -> Result<Arc<Self>, ConnectionError> {
         config.reconnect.validate()?;
-        let first =
-            if cold_ik_enabled(daemon_took_ik) && cold_ik_applies(&config) {
-                match establish_physical_links(
+        let first = if cold_ik_enabled(daemon_took_ik) && cold_ik_applies(&config) {
+            match establish_physical_links(
+                group.clone(),
+                &config,
+                0,
+                BTreeMap::new(),
+                true,
+                Vec::new(),
+            )
+            .await
+            {
+                Ok(established) => Some(established),
+                // A carrier that would not open says nothing about IK: no second try.
+                Err(error @ ConnectionError::Provider(_)) => return Err(error),
+                Err(error) => {
+                    crate::phase_timing::mark_with("cold-ik-fell-back", || error.to_string());
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let established = match first {
+            Some(established) => established,
+            None => {
+                establish_physical_links(
                     group.clone(),
                     &config,
                     0,
                     BTreeMap::new(),
-                    true,
+                    false,
                     Vec::new(),
                 )
-                .await
-                {
-                    Ok(established) => Some(established),
-                    // A carrier that would not open says nothing about IK: no second try.
-                    Err(error @ ConnectionError::Provider(_)) => return Err(error),
-                    Err(error) => {
-                        crate::phase_timing::mark_with("cold-ik-fell-back", || error.to_string());
-                        None
-                    }
-                }
-            } else {
-                None
-            };
-        let established = match first {
-            Some(established) => established,
-            None => {
-                establish_physical_links(group.clone(), &config, 0, BTreeMap::new(), false, Vec::new())
-                    .await?
+                .await?
             }
         };
         let Established {
