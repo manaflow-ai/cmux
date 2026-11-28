@@ -40,12 +40,25 @@ export type AgentSlotOutcome =
   | { readonly held: string; readonly vmId: string }
   | "released";
 
-/** Takes `slotId` when the key's VMs and creates in flight stay under `limit`; false at the budget. */
-export const admitAgentSlot = (storage: LedgerStorage, agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean> =>
+/**
+ * Whether a held slot's creation can no longer make or hold a VM, read in the admission's own transaction: the
+ * ledger answers true for an intent in its terminal `cancelled` phase (nothing was sent, or what was is deleted).
+ */
+export type CreationEnded = (tx: LedgerStorage, creationKey: string) => Promise<boolean>;
+
+/**
+ * Takes `slotId` when the key's VMs and creates in flight stay under `limit`; false at the budget. A held slot whose
+ * creation `ended` is dropped here: a cancel that reached `cancelled` before any send (an intent the provider queue
+ * refused) returns its status without forgetting the slot, and the slot held the key's budget for HELD_TTL_MS
+ * (production smoke, 2026-11-27 21:51Z and 22:38Z: two createQueueFull creates, cancelled, held both of the CI key's
+ * 2 slots, and every product smoke after them answered agent_vms 429 with no VM listed).
+ */
+export const admitAgentSlot = (storage: LedgerStorage, agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string, ended?: CreationEnded): Promise<boolean> =>
   storage.transaction(async (tx) => {
     const held = new Set(ownedVmIds), expired: string[] = [];
     for (const [key, value] of await tx.list({ prefix: prefixOf(agent) })) {
       if (!isAgentSlot(value) || value.expiresMs <= nowMs) expired.push(key);
+      else if (value.creationKey !== undefined && ended !== undefined && await ended(tx, value.creationKey)) expired.push(key);
       else held.add(value.vmId ?? key);
     }
     await deleteMany(tx, expired);
