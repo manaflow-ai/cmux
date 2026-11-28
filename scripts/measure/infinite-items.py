@@ -296,12 +296,141 @@ def smaps_kinds(pid):
 TUI_LOG = []
 
 
+def thread_detail(pid):
+    """Each thread's wake counters and signal masks, Linux only: what woke an idle thread (a signal shows as a caught
+    signal unblocked on the thread; the scheduler's own counts say whether a waker was local or remote)."""
+    out = {}
+    if not (IS_LINUX and pid):
+        return out
+    try:
+        tids = os.listdir(f"/proc/{pid}/task")
+    except OSError:
+        return out
+    for tid in tids:
+        d = {}
+        try:
+            with open(f"/proc/{pid}/task/{tid}/status") as f:
+                for line in f:
+                    k, _, v = line.partition(":")
+                    if k in ("Name", "State", "SigPnd", "ShdPnd", "SigBlk", "SigIgn", "SigCgt"):
+                        d[k] = v.strip()
+                    elif k in ("voluntary_ctxt_switches", "nonvoluntary_ctxt_switches"):
+                        d[k[:4]] = int(v)
+        except OSError:
+            continue
+        try:
+            with open(f"/proc/{pid}/task/{tid}/sched") as f:
+                for line in f:
+                    k, _, v = line.partition(":")
+                    k = k.strip().rsplit(".", 1)[-1]
+                    if k.startswith("nr_wakeups") or k in ("nr_switches", "nr_voluntary_switches"):
+                        try:
+                            d[k] = int(float(v))
+                        except ValueError:
+                            pass
+        except OSError:
+            pass
+        out[tid] = d
+    return out
+
+
+def last_pid():
+    try:
+        with open("/proc/loadavg") as f:
+            return int(f.read().split()[-1])
+    except (OSError, ValueError):
+        return 0
+
+
+def thread_delta(before, after):
+    """The threads that woke between two `thread_detail`s, with their counters' deltas and masks."""
+    rows = []
+    for tid, a in after.items():
+        b = before.get(tid)
+        if not b:
+            continue
+        delta = {k: v - b.get(k, 0) for k, v in a.items() if isinstance(v, int) and v - b.get(k, 0)}
+        if delta.get("volu", 0) + delta.get("nonv", 0) > 0:
+            masks = {k: a[k] for k in ("State", "SigPnd", "ShdPnd", "SigBlk", "SigCgt") if k in a}
+            rows.append((a.get("Name", "?"), tid, delta, masks))
+    rows.sort(key=lambda r: -(r[2].get("volu", 0) + r[2].get("nonv", 0)))
+    return [{"name": n, "tid": t, "delta": d, **m} for n, t, d, m in rows[:10]]
+
+
+def wakers_start(tids, seconds):
+    """Who wakes `tids` over the next `seconds` (sudo bpftrace where the machine has it, else None): the waking
+    task's name and kernel stack at each sched_waking, and the signals made for them. A wake that never returns
+    to userspace (a futex sleep the kernel restarts) shows here and nowhere else. Read it with `wakers_read`."""
+    if not tids or not shutil.which("bpftrace"):
+        return None
+    tids = sorted(int(t) for t in tids)
+    # A long || chain fails the verifier (the default arm at day 1 has many threads): past 32 tids, the tid range,
+    # and `wakers_read` keeps only the tui's own.
+    cond = (" || ".join(f"args->pid == {t}" for t in tids) if len(tids) <= 32
+            else f"args->pid >= {tids[0]} && args->pid <= {tids[-1]}")
+    # sched_waking fires in the waker's own context (sched_wakeup can run later, from the target CPU's IPI).
+    prog = ("tracepoint:sched:sched_waking /" + cond + "/ { @w[args->pid, comm, kstack(8), ustack(4)] = count(); } "
+            "tracepoint:signal:signal_generate /" + cond + "/ { @s[args->pid, args->sig, comm] = count(); } "
+            f"interval:s:{int(seconds)} {{ exit(); }}")
+    try:
+        return subprocess.Popen(["sudo", "-n", "bpftrace", "-e", prog], stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True)
+    except OSError:
+        return None
+
+
+def wakers_read(proc, keep=(), timeout=60):
+    """`wakers_start`'s counts by (woken tid, waker, stack), only for the tids in `keep` when given; {} with no
+    bpftrace."""
+    if proc is None:
+        return {}
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.SubprocessError as exc:
+        proc.kill()
+        out, err = proc.communicate()
+        err = f"{exc} {err}"
+    found = {}
+    # Each map line starts "@" at a line start; a ustack symbol can hold "@" too (C++/Rust demangled names).
+    for block in ("\n" + out).split("\n@")[1:]:
+        head, _, count = block.rpartition("]:")
+        key = " ".join(x.strip() for x in head.split("\n") if x.strip()).replace("  ", " ")
+        tid = re.match(r"\w+\[(\d+)", key)
+        if keep and tid and int(tid.group(1)) not in keep:
+            continue
+        try:
+            found[key[:400]] = int(count.strip().split()[0])
+        except (ValueError, IndexError):
+            pass
+    if not found:
+        found["none " + ((err.strip() + " " + out.strip()).replace("\n", " | ")[-300:] or "no wakes")] = 0
+    return found
+
+
 def idle_window(top, seconds, disks):
     """Per-role totals: memory at the end, CPU and wakeups over `seconds` of nothing."""
+    tui_threads, pid_at = thread_detail(top.get("tui")), last_pid()
+    try:
+        with open(f"/proc/{top.get('tui')}/timers") as f:
+            tui_timers = f.read().strip().replace("\n", " | ")[:600]
+    except (OSError, TypeError):
+        tui_timers = "-"
     before = snapshot(top)
     log_at = os.path.getsize(TUI_LOG[0]) if TUI_LOG and os.path.exists(TUI_LOG[0]) else None
-    syncer = busy_thread_states(top.get("tui"), ("sqlite-wal-sync", "mux-output-stor"), seconds)
+    tracer = wakers_start(sorted(tui_threads), seconds)
+    # The window itself only sleeps: a sampler reading the threads' /proc files would wake them (it did: the
+    # output-store writer woke once per read). The futex states are read in a second window after this one.
+    time.sleep(seconds)  # sleep-ok: the idle window itself, the span CPU and wakeups are measured over
     after = snapshot(top)
+    threads = thread_delta(tui_threads, thread_detail(top.get("tui")))
+    woken_by = wakers_read(tracer, {int(t) for t in tui_threads})
+    # The second window: each thread's futex state, read every 20 ms, and the wakes those reads make (INFINITE-SAMPLED
+    # is the sampled one, to compare with the window above).
+    quiet_at = thread_detail(top.get("tui"))
+    syncer = busy_thread_states(top.get("tui"), ("sqlite-wal-sync", "mux-output-stor"), seconds, every=0.02,
+                                futexes=True)
+    quiet = thread_delta(quiet_at, thread_detail(top.get("tui")))
+    pids_made = last_pid() - pid_at
     commits, wakes, asked = {}, {}, set()
     if log_at is not None:
         with open(TUI_LOG[0], "rb") as f:
@@ -372,10 +501,12 @@ def idle_window(top, seconds, disks):
         r["rss_mb"] = round(r.pop("rss") / 1048576, 2)
     return {"total": total, "roles": roles, "disk": disk, "files": file_groups(disks), "commits": commits,
             "syncer": syncer, "window": seconds,
-            "wakes": wakes, "wake_terminals": len(asked)}
+            "wakes": wakes, "wake_terminals": len(asked),
+            "threads": threads, "pids_made": pids_made, "timers": tui_timers, "wakers": woken_by,
+            "quiet": quiet}
 
 
-def busy_thread_states(pid, name, seconds, every=0.2):
+def busy_thread_states(pid, name, seconds, every=0.2, futexes=False):
     """Sleeps `seconds` (the idle window) and meanwhile reads, every `every` s, what each thread of `pid` called
     `name` is doing: its syscall number (or running) and kernel wait channel, with the WAL files' sizes at the end.
     Names what a woken syncer thread was in (a checkpoint's I/O, a condvar wait) without strace."""
@@ -392,6 +523,23 @@ def busy_thread_states(pid, name, seconds, every=0.2):
         except OSError:
             continue
         for tid in tids:
+            if futexes:
+                # Every thread's futex word and whether its wait has a deadline: two threads on one word, or a
+                # thread that moves between a condvar's word and its mutex's, name who wakes whom.
+                try:
+                    with open(f"/proc/{pid}/task/{tid}/comm") as f:
+                        comm = f.read().strip()
+                    with open(f"/proc/{pid}/task/{tid}/syscall") as f:
+                        fields = f.read().split()
+                    key = (f"{comm}/{tid}:{fields[0]}:{fields[1]}:{fields[2]}:t{int(fields[4], 16) != 0}"
+                           if fields and fields[0] == "202" and len(fields) > 4 else f"{comm}/{tid}:{fields[0] if fields else '?'}")
+                except OSError as exc:
+                    key = f"{tid}:err{exc.errno}"
+                except (IndexError, ValueError):
+                    continue
+                futex_states = states.setdefault("futex", {})
+                futex_states[key] = futex_states.get(key, 0) + 1
+                continue
             try:
                 with open(f"/proc/{pid}/task/{tid}/comm") as f:
                     if f.read().strip() not in name:
@@ -400,10 +548,22 @@ def busy_thread_states(pid, name, seconds, every=0.2):
                     call = f.read().split()[0]
                 with open(f"/proc/{pid}/task/{tid}/wchan") as f:
                     wchan = f.read().strip() or "-"
-            except (OSError, IndexError):
+            except OSError as exc:
+                # A running thread has no syscall to read (EAGAIN): say so instead of dropping the sample.
+                try:
+                    with open(f"/proc/{pid}/task/{tid}/comm") as f:
+                        if f.read().strip() in name:
+                            key = f"{tid}:err{exc.errno}"
+                            states[key] = states.get(key, 0) + 1
+                except OSError:
+                    pass
+                continue
+            except IndexError:
                 continue
             key = f"{tid}:{call}:{wchan}"
             states[key] = states.get(key, 0) + 1
+    if futexes:
+        return states.get("futex", {})
     return dict(sorted(states.items(), key=lambda kv: -kv[1])[:12])
 
 
@@ -959,11 +1119,51 @@ def settle(args, top):
         same = same + 1 if now == last else 1
         last = now
         if same >= reads:
-            return
+            break
         if time.monotonic() >= deadline:
             log(f"settle: the process trees did not hold still for {args.settle} s within {bound:g} s; sampling anyway")
-            return
+            break
         time.sleep(0.25)  # the poll interval of the process trees
+    settle_io(args, top)
+
+
+def tui_io_state(tui):
+    """The tui's I/O counters and how many of its threads wait in the kernel (D: an fsync, a page write-back).
+    Only /proc/<pid>/io and /proc/<tid>/stat: neither wakes a thread (/proc/<tid>/syscall did)."""
+    try:
+        with open(f"/proc/{tui}/io") as f:
+            io = tuple(line.strip() for line in f if line.split(":")[0] in ("syscw", "write_bytes", "rchar", "wchar"))
+        waiting = 0
+        for tid in os.listdir(f"/proc/{tui}/task"):
+            try:
+                with open(f"/proc/{tui}/task/{tid}/stat") as f:
+                    waiting += f.read().rsplit(")", 1)[1].split()[0] == "D"
+            except OSError:
+                pass
+        return io, waiting
+    except (OSError, TypeError):
+        return None, 0
+
+
+def settle_io(args, top):
+    """Then the durability work that parking or closing started: a pass that fsyncs ~n parked snapshots and the
+    registry WAL wakes its thread once per I/O completion (jbd2 commit, page write-back), so a window opened while
+    it drains counts a one-off O(n) burst as idle wakeups. Wait until the tui writes nothing and no thread waits in
+    the kernel for 3 s, bounded by 180 s; INFINITE-SETTLE logs the drain, so the burst stays visible, not hidden."""
+    tui = top.get("tui")
+    start = time.monotonic()
+    deadline, last, same, reads = start + 180.0, None, 0, 12
+    while True:
+        io, waiting = tui_io_state(tui)
+        same = same + 1 if io is not None and io == last and not waiting else 0
+        last = io
+        if io is None or same >= reads:
+            log(f"INFINITE-SETTLE io_drain_s={time.monotonic() - start:.1f} bounded=no")
+            return
+        if time.monotonic() >= deadline:
+            log(f"INFINITE-SETTLE io_drain_s={time.monotonic() - start:.1f} bounded=yes waiting={waiting}")
+            return
+        time.sleep(0.25)  # the poll interval of the tui's I/O counters
 
 
 def dhat_mark(day):
@@ -1062,10 +1262,35 @@ def report(results):
                   f"procs={t_['procs']} thr={t_.get('threads')} fds={t_['fds']} disk={json.dumps(s['disk'])}", flush=True)
             print(f"INFINITE-COMMITS {n} day={s['day']} per_s={round(sum(s.get('commits', {}).values()) / max(1, s.get('window', 1)), 2)} "
                   f"by_thread={json.dumps(dict(sorted(s.get('commits', {}).items(), key=lambda kv: -kv[1])[:12]))}", flush=True)
-            print(f"INFINITE-SYNCER {n} day={s['day']} states={json.dumps(s.get('syncer', {}))} "
+            print(f"INFINITE-SYNCER {n} day={s['day']} states={len(s.get('syncer', {}))} "
                   f"wal={json.dumps({k: v for k, v in s.get('files', {}).items() if k.endswith('-wal')})}", flush=True)
             print(f"INFINITE-WAKES {n} day={s['day']} terminals={s.get('wake_terminals', 0)} "
                   f"by={json.dumps(dict(sorted(s.get('wakes', {}).items(), key=lambda kv: -kv[1])[:12]))}", flush=True)
+            print(f"INFINITE-THREADS {n} day={s['day']} pids_made={s.get('pids_made')} timers={s.get('timers')!r}",
+                  flush=True)
+            woke = set()
+            for row in s.get("threads", []):
+                woke.add(row["tid"])
+                print(f"INFINITE-THREAD {n} day={s['day']} {row['name']}/{row['tid']} {json.dumps(row['delta'])} "
+                      f"blk={row.get('SigBlk')} cgt={row.get('SigCgt')} pnd={row.get('SigPnd')}/{row.get('ShdPnd')}",
+                      flush=True)
+            for row in s.get("quiet", []):
+                print(f"INFINITE-SAMPLED {n} day={s['day']} {row['name']}/{row['tid']} {json.dumps(row['delta'])}",
+                      flush=True)
+            for key, count in sorted(s.get("wakers", {}).items(), key=lambda kv: -kv[1] if isinstance(kv[1], int) else 0)[:12]:
+                print(f"INFINITE-WAKER {n} day={s['day']} {count} {key}", flush=True)
+            # The woken threads' futex states first, then the rest of the words more than one thread sleeps on.
+            fx = s.get("syncer", {})
+            for key, count in sorted(fx.items(), key=lambda kv: -kv[1]):
+                if key.split(":")[0].split("/")[-1] in woke:
+                    print(f"INFINITE-FUTEX {n} day={s['day']} {key} {count}", flush=True)
+            words = {}
+            for key in fx:
+                parts = key.split(":")
+                if len(parts) >= 4:
+                    words.setdefault(parts[2], set()).add(parts[0])
+            print(f"INFINITE-FUTEX-SHARED {n} day={s['day']} "
+                  f"{json.dumps({w: sorted(t) for w, t in words.items() if len(t) > 1})}", flush=True)
             for k, v in (sorted(s["roles"].items()) if s is r["samples"][0] or s is r["samples"][-1] else []):
                 top_cmds = sorted(v.get("cmds", {}).items(), key=lambda kv: -kv[1])[:2]
                 print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} thr={v.get('threads')} mb={v['pss_mb']} "
