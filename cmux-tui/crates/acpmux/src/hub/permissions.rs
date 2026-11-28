@@ -527,6 +527,12 @@ impl Hub {
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
         super::questions::normalize(&mut request, Self::preview_format(session));
+        // Pi's extension dialogs (select, confirm) as a person's question, never a policy's.
+        let family = {
+            let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            meta.family.as_deref().unwrap_or(&meta.harness).to_owned()
+        };
+        super::questions::normalize_pi(&mut request, Some(&family));
         // A person-readable line for a tool whose name and JSON mean nothing
         // to a person (permissions/display.rs), before anything shows the request.
         self.stamp_permission_display(session, &mut request);

@@ -1,0 +1,46 @@
+{
+  "permissionId": "perm_pi_1",
+  "session": "sess_pi_1",
+  "request": {
+    "sessionId": "sess_pi_1",
+    "toolCall": {
+      "toolCallId": "pi-ui-7",
+      "title": "Deploy target",
+      "kind": "other",
+      "status": "pending",
+      "rawInput": {
+        "method": "select",
+        "title": "Deploy target",
+        "message": "Where should this build go?",
+        "options": ["staging", "canary", "prod"]
+      },
+      "_meta": {
+        "acpmux": {
+          "question": {
+            "harness": "acp",
+            "agent": "pi",
+            "items": [
+              {
+                "id": "q0",
+                "header": "Deploy target",
+                "prompt": "Where should this build go?",
+                "options": [
+                  { "id": "choice-0", "label": "staging" },
+                  { "id": "choice-1", "label": "canary" },
+                  { "id": "choice-2", "label": "prod" }
+                ],
+                "multiSelect": false,
+                "allowsOther": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    "options": [
+      { "optionId": "choice-0", "name": "staging", "kind": "allow_once" },
+      { "optionId": "choice-1", "name": "canary", "kind": "allow_once" },
+      { "optionId": "choice-2", "name": "prod", "kind": "allow_once" }
+    ]
+  }
+}

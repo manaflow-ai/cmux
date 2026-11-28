@@ -282,6 +282,50 @@ const folderTrust: AgentQuestion = {
   state: { kind: "pending" },
 };
 
+/// A Pi extension's `ctx.ui.select` (acpmux `questions.rs` `normalize_pi`): pi-acp raises it as a
+/// permission ask whose options are the choices; the card answers with the picked option.
+const piDialog = (id: string, header: string | undefined, prompt: string, options: string[], reject?: string) =>
+  ({
+    id,
+    source: {
+      harness: "acp",
+      session: "sess_pi_1",
+      permission: id,
+      agentName: "pi",
+      ...(reject ? { answerOption: "yes", rejectOption: reject } : {}),
+    },
+    items: [
+      {
+        id: "q0",
+        ...(header ? { header } : {}),
+        prompt,
+        options: reject
+          ? [
+              { id: "yes", label: "Yes" },
+              { id: "no", label: "No" },
+            ]
+          : options.map((label, n) => ({ id: `choice-${n}`, label })),
+        multiSelect: false,
+        allowsOther: false,
+      },
+    ],
+    state: { kind: "pending" },
+  }) as AgentQuestion;
+
+const piSelect = piDialog("pi-ui-7", "Deploy target", "Where should this build go?", ["staging", "canary", "prod"]);
+const piConfirm = piDialog("pi-ui-8", undefined, "Delete branch feature/old-importer?", [], "no");
+const piSelectLong = piDialog(
+  "pi-ui-9",
+  "Migration plan",
+  "The schema check found 14 tables with columns the new importer does not read. Pick how this run treats them; the choice applies to every table in this run and is written to migrations/plan.toml so the next run asks again only for new tables.",
+  [
+    "Keep every unread column as it is",
+    "Drop unread columns after a backup to s3://backups/importer/2026-11-28",
+    "Stop and list the tables",
+    "Rename unread columns with a legacy_ prefix",
+  ],
+);
+
 /// Puts the pointer on option `row`.
 const hoverRow =
   (row: number): Play =>
@@ -424,6 +468,18 @@ export default componentEntry({
     "codex-user-input": variant(
       codexUserInput,
       "A Codex user-input request: two questions, the second free text only (no options).",
+    ),
+    "pi-select": variant(
+      piSelect,
+      "A Pi extension's select dialog (ctx.ui.select): its title as the header, the message as the question, one row per choice.",
+    ),
+    "pi-confirm": variant(
+      piConfirm,
+      "A Pi extension's confirm dialog (ctx.ui.confirm): a yes/no consent, No (esc) and Yes (↩).",
+    ),
+    "pi-select-long": variant(
+      piSelectLong,
+      "A Pi select with a long message and four long choices: the prompt wraps, rows wrap, nothing clips.",
     ),
     "acp-interactive": variant(
       acpInteractive,

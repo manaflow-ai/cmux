@@ -77,3 +77,87 @@ fn an_item_without_other_answers_takes_only_its_labels() {
     assert!(check("EU", "a, a").is_err());
     assert!(check("EU, US", "a").is_err());
 }
+
+/// Pi's `ctx.ui.select` as pi-acp 0.0.35 raises it.
+fn pi_select() -> Value {
+    json!({
+        "toolCall": {
+            "toolCallId": "pi-ui-7", "title": "Deploy target", "kind": "other", "status": "pending",
+            "rawInput": {"method": "select", "title": "Deploy target",
+                "message": "Where should this build go?", "options": ["staging", "prod"]},
+        },
+        "options": [
+            {"optionId": "choice-0", "name": "staging", "kind": "allow_once"},
+            {"optionId": "choice-1", "name": "prod", "kind": "allow_once"},
+        ],
+    })
+}
+
+fn pi_confirm() -> Value {
+    json!({
+        "toolCall": {"toolCallId": "pi-ui-8", "title": "Delete branch?", "kind": "other",
+            "rawInput": {"method": "confirm", "title": "Delete branch?"}},
+        "options": [
+            {"optionId": "yes", "name": "Yes", "kind": "allow_once"},
+            {"optionId": "no", "name": "No", "kind": "reject_once"},
+        ],
+    })
+}
+
+#[test]
+fn a_pi_select_is_a_persons_question_answered_by_its_option() {
+    let mut request = pi_select();
+    assert!(!needs_person(&request), "without the copy, approve-all would pick choice-0");
+    normalize_pi(&mut request, Some("pi"));
+    assert_eq!(
+        question(&request).unwrap(),
+        &json!({"harness": "acp", "agent": "pi", "items": [{
+            "id": "q0", "header": "Deploy target", "prompt": "Where should this build go?",
+            "options": [{"id": "choice-0", "label": "staging"}, {"id": "choice-1", "label": "prod"}],
+            "multiSelect": false, "allowsOther": false,
+        }]})
+    );
+    assert!(needs_person(&request));
+    assert!(!ancestor_answerable(&request, true), "the person's, not a session above");
+    assert!(check_reply(&request, Some("choice-1"), None).is_ok());
+    assert!(check_reply(&request, None, None).is_ok(), "a cancel");
+}
+
+#[test]
+fn a_pi_confirm_prompts_with_its_title() {
+    let mut request = pi_confirm();
+    normalize_pi(&mut request, Some("pi"));
+    let item = &question(&request).unwrap()["items"][0];
+    assert_eq!(item["prompt"], "Delete branch?");
+    assert!(item.get("header").is_none());
+    assert_eq!(
+        item["options"],
+        json!([{"id": "yes", "label": "Yes"}, {"id": "no", "label": "No"}])
+    );
+    assert!(check_reply(&request, Some("yes"), None).is_ok());
+    assert!(check_reply(&request, Some("no"), None).is_ok());
+}
+
+#[test]
+fn only_a_pi_session_dialog_becomes_a_question() {
+    for family in [None, Some("claude"), Some("codex")] {
+        let mut request = pi_select();
+        normalize_pi(&mut request, family);
+        assert!(question(&request).is_none(), "{family:?}");
+    }
+    let mut tool = pi_select();
+    tool["toolCall"]["toolCallId"] = json!("call_1");
+    normalize_pi(&mut tool, Some("pi"));
+    assert!(question(&tool).is_none(), "a Pi tool call stays a permission");
+    let mut other = pi_select();
+    other["toolCall"]["rawInput"]["method"] = json!("input");
+    normalize_pi(&mut other, Some("pi"));
+    assert!(question(&other).is_none());
+}
+
+#[test]
+fn an_option_only_allow_still_refuses_a_claude_question() {
+    let mut request = ask("x");
+    normalize(&mut request, PreviewFormat::Monospace);
+    assert!(check_reply(&request, Some("allow_once"), None).is_err());
+}

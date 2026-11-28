@@ -106,7 +106,6 @@ pub(crate) fn choices(request: &Value) -> (Ask, Vec<Choice>) {
 
 /// A question's choices: one question, one pick, no typed input, 1 to [`MAX_CHOICES`] choices.
 fn question_choices(request: &Value, allow: Option<String>) -> Option<Vec<Choice>> {
-    let allow = allow?;
     let question = questions::question(request)?;
     let [item] = question["items"].as_array()?.as_slice() else { return None };
     if item["multiSelect"] == true || item.get("input").is_some() {
@@ -116,6 +115,25 @@ fn question_choices(request: &Value, allow: Option<String>) -> Option<Vec<Choice
     if options.is_empty() || options.len() > MAX_CHOICES {
         return None;
     }
+    if question["harness"] == "acp" {
+        // Answered by the picked option itself (a Pi select's choices, a confirm's yes/no).
+        return options
+            .iter()
+            .enumerate()
+            .map(|(n, option)| {
+                let id = option["id"].as_str()?;
+                request["options"].as_array()?.iter().find(|o| o["optionId"] == id)?;
+                Some(Choice {
+                    id: format!("option.{n}"),
+                    label: option["label"].as_str()?.to_owned(),
+                    kind: "answer",
+                    option: id.to_owned(),
+                    answers: None,
+                })
+            })
+            .collect();
+    }
+    let allow = allow?;
     let codex = question["harness"] == "codex";
     let key = if codex { item["id"].as_str()? } else { item["prompt"].as_str()? };
     options
