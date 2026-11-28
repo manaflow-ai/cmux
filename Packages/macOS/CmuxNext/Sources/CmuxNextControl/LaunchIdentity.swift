@@ -198,6 +198,10 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// (docs/privacy.md, cmux-egress): a value the launch passed wins; else NIGHTLY, DEV and
     /// staging builds enforce, and a release or rc build keeps the gate's own default (log).
     public static let egressModeKey = "CMUX_EGRESS"
+    /// The browser engine's A/B switches (`CMUX_CEF_RESIZE_FENCE`, `CMUX_CEF_RESIZE_FENCE_MS`, the resize sync and
+    /// drag knobs, CEFLayerHosting): a bench passes them on the app's own launch (split-scale-bench.py `--app-env`)
+    /// and the app reads them lazily, after this strip. Stripped, every A/B on them measured the default.
+    public static let browserEngineKnobPrefix = "CMUX_CEF_"
 
     /// A launch that ignores every customization layer for this run, editing no file: the way back
     /// when the UI itself is broken (`open -a "cmux NIGHTLY" --args --no-customizations`, or
@@ -218,7 +222,8 @@ public struct LaunchIdentity: Sendable, Equatable {
 
     /// Keys of cmux variables this process inherited rather than received
     /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs,
-    /// ``liveCodeDirKey``, ``noCustomizationsKey``, ``egressModeKey``, ``traceFileKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
+    /// ``liveCodeDirKey``, ``noCustomizationsKey``, ``egressModeKey``, ``traceFileKey``, the ``browserEngineKnobPrefix`` switches
+    /// (and, in a DEBUG build, ``captureShellHomeKey``).
     /// When another cmux started this process (``otherCmuxMarkers``), also
     /// the ``stateRootKnobs`` and that build's files (``BuildStatePaths/environmentKeys``), every `MUX_*` but `MUX_HARNESS`, and every
     /// `OPTCHAT_*`: that build's Chief, brain and acpmux roots. Its
@@ -234,6 +239,7 @@ public struct LaunchIdentity: Sendable, Equatable {
             guard inherited(key) else { return false }
             if key == captureShellHomeKey, isDebugBuild, !fromOtherCmux { return false }
             if key == liveCodeDirKey || key == noCustomizationsKey || key == egressModeKey || key == traceFileKey, !fromOtherCmux { return false }
+            if key.hasPrefix(browserEngineKnobPrefix), !fromOtherCmux { return false }
             if cloudSelectionKnobs.contains(key) { return fromOtherCmux && !namesThisApp }
             if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }
             if key.hasPrefix("CMUX") { return true }
