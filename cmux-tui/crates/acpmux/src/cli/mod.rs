@@ -83,6 +83,7 @@ pub mod mesh_control;
 pub(crate) mod new_relay;
 pub use crate::mesh_node_key;
 pub mod fork_run;
+pub mod gh_read;
 pub mod notices;
 pub mod orchestrate;
 pub mod output;

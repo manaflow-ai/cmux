@@ -256,7 +256,7 @@ import os
         #expect(started, "the read never started")
         // The read is held on its lane: a show that waited for it would never return.
         #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
-        #expect(pane.content.alphaValue == 0, "the pane showed before its frame came: as with no frame, it stays held")
+        #expect(pane.content.alphaValue == 1, "the pane was hidden while its frame was read: nothing holds it clear")
         #expect(pane.held == nil)
         probe.release()
         await read.value
@@ -275,7 +275,7 @@ import os
         defer { try? FileManager.default.removeItem(at: directory) }
         #expect(await !Self.launch(directory).show("tab-1", on: pane.session, in: pane.content, reveal: reveal),
                 "it would draw at the window's scale, twice or half its size")
-        #expect(pane.content.alphaValue == 0)
+        #expect(pane.content.alphaValue == 1, "a pane with no usable frame was hidden: it draws its live terminal")
     }
 
     @Test func aFrameOfAnotherSizeIsNotShown() async throws {
@@ -287,7 +287,7 @@ import os
         let directory = try await Self.saved(["tab-1": Self.frame(NSSize(width: surface.width + 160, height: surface.height), scale: pane.window.backingScaleFactor)])
         defer { try? FileManager.default.removeItem(at: directory) }
         #expect(await !Self.launch(directory).show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
-        #expect(pane.content.alphaValue == 0, "the pane waits for its first live frame, as before")
+        #expect(pane.content.alphaValue == 1, "a pane with no usable frame was hidden: it draws its live terminal")
         #expect(pane.held == nil)
     }
 

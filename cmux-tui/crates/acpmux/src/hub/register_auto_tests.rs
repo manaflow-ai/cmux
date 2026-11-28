@@ -52,6 +52,46 @@ fn a_waiting_code_is_found_by_its_inbox_and_token_until_it_expires() {
     assert_eq!(pending_name(&codes, sock, "tok"), None, "expired: a new code goes");
 }
 
+/// Repro (Lawrence, 2026-11-28: "who is sending this message get them to stop"): cmux's prompt
+/// hook asked the first step at every prompt of a terminal chat that never echoed its code;
+/// each prompt after the ten minutes a code waits got a new one: 203 codes in a day. A chat
+/// gets one automatic code; after it expires unanswered, the daemon says so and sends none.
+#[test]
+fn an_unanswered_automatic_code_is_never_sent_again() {
+    let hub = hub();
+    let (home, sock) = (scratch("once"), "/tmp/cc-socks/once.sock");
+    let expired = CODE_TTL.as_secs() + 60;
+    PENDING
+        .lock()
+        .unwrap()
+        .insert(900_201, pending("claude-host-ab627c05", sock, "tok-once", expired));
+    let v = answer(hub.auto_answer(&home, Path::new(sock), "tok-once"));
+    assert_eq!(v["offered"], true, "{v}");
+    assert_eq!(v["name"], "claude-host-ab627c05", "{v}");
+    assert!(
+        matches!(hub.auto_answer(&home, Path::new(sock), "tok-other"), Step::Go(_)),
+        "another Claude Code process (a new token) is its own chat"
+    );
+    PENDING.lock().unwrap().remove(&900_201);
+}
+
+/// The record that a chat got its automatic code outlives a daemon restart (the in-memory code
+/// does not), and a Claude Code restart (a new token, the same conversation); it ends after
+/// a day.
+#[test]
+fn a_chat_that_got_an_automatic_code_gets_none_for_a_day() {
+    let home = scratch("offered");
+    let day = OFFER_TTL.as_secs();
+    assert!(!offered_lately(&home, "ab627c05-chat", 1_000), "never offered");
+    note_offered(&home, "ab627c05-chat", 1_000).unwrap();
+    assert!(offered_lately(&home, "ab627c05-chat", 1_000 + day - 1));
+    assert!(!offered_lately(&home, "ab627c05-chat", 1_000 + day), "a day later");
+    assert!(!offered_lately(&home, "another-chat", 1_000));
+    note_offered(&home, "another-chat", 1_000 + day + 5).unwrap();
+    let kept = read_offered(&home);
+    assert_eq!(kept.len(), 1, "a record past its day is dropped: {kept:?}");
+}
+
 /// A chat registered with the caller's inbox and token answers at once, with its name; a
 /// restarted process (a new token) is not taken for it.
 #[tokio::test]
@@ -145,6 +185,7 @@ async fn an_automatic_step_with_a_waiting_code_is_answered_before_the_proof() {
         code: None,
         auto,
         renew: false,
+        origin: None,
     };
     let v = hub.register_caller(1, req(true)).await.unwrap();
     assert_eq!(v, json!({"pending": true, "resent": false, "name": "claude-desktop-0badc0de"}));

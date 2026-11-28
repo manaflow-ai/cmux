@@ -230,7 +230,8 @@ if (import.meta.main) {
     },
   });
   const build = values.experiments ? experimentCases : manifestCases;
-  const loaded = await loadEntrySources({ skipBroken: values["skip-broken"] });
+  const requested = list(values.entries);
+  const loaded = await loadEntrySources({ wanted: requested, skipBroken: values["skip-broken"] });
   const cases = build(
     loaded.map(({ entry }) => entry),
     {

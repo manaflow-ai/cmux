@@ -66,7 +66,7 @@ public struct ScreenSharingLinkRoot: View {
     static func measureRd(_ model: StreamedBrowserModel) {
         guard !rdMeasured, let probe = probe(environment["CMUX_MOBILE_SS_MARKER"]) else { return }
         rdMeasured = true
-        model.decoder.debugEnqueued = { probe.enqueued($0) }
+        model.decoder.debugPicture = { probe.enqueued($0) }
         let input = environment["CMUX_MOBILE_SS_INPUT"] ?? "click"
         let samples = Int(environment["CMUX_MOBILE_SS_SAMPLES"] ?? "") ?? 200
         let connectStart = CACurrentMediaTime()

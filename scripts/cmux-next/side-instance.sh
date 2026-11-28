@@ -49,6 +49,8 @@
 #   side-instance.sh socket NAME    the copy's control socket (CMUX_NEXT_SOCKET_PATH in its LSEnvironment), for
 #                                   `cmux --app-socket` and hot-verify.py: NAME/control.sock, or
 #                                   cmux-side-<hash>.sock in the per-user TMPDIR when that is too long for a Unix socket
+#   side-instance.sh logs NAME      the files launch sends the copy's stdout and stderr to (one per line):
+#                                   hot-verify.py reads their ends when the copy's socket never answers
 #   side-instance.sh list           the side instances and whether each runs
 #   side-instance.sh remove NAME [--keep-sign-in]
 #                                   stop it, then delete the folder make wrote and the state the copy
@@ -475,7 +477,11 @@ PY
     rm -f "$dir/pid"
     park_stop
     # -n: a new process even when Launch Services still maps the id elsewhere; -g: behind the front app.
-    open_args=(-n)
+    # --stdout/--stderr: the copy's own output, which `open` otherwise drops, so a copy that dies or hangs before
+    # its socket answers says why (hot-verify.py launch_failure; a look on 2026-11-28 said only "nothing within
+    # 120 s").
+    rm -f "$dir/app.stdout.log" "$dir/app.stderr.log"
+    open_args=(-n --stdout "$dir/app.stdout.log" --stderr "$dir/app.stderr.log")
     [[ "$placement" == front ]] || open_args+=(-g)
     if [[ "$placement" == parked ]]; then
       # The app never activates and no window of it becomes key; every window opens on the park display's screen
@@ -491,6 +497,9 @@ PY
     # copy under test never writes the account's ~/Downloads, whose first write waits on macOS's access
     # prompt, a prompt nobody answers on a fleet Mac (browser-auth-webkit.sh, as kit_downloads.py).
     [[ -n "${CMUX_NEXT_DOWNLOADS_DIR:-}" ]] && open_args+=(--env CMUX_NEXT_DOWNLOADS_DIR="$CMUX_NEXT_DOWNLOADS_DIR")
+    # A driver that reads the copy's web pages through the accessibility tree (CuaDriver holds no grant that makes
+    # CEF build one): CMUX_NEXT_ACCESSIBILITY=1 in the driver's environment goes to the copy (AssistiveClientRequests).
+    [[ "${CMUX_NEXT_ACCESSIBILITY:-}" == 1 ]] && open_args+=(--env CMUX_NEXT_ACCESSIBILITY=1)
     if ! open "${open_args[@]}" "$app" ${args[@]+--args "${args[@]}"}; then park_stop; die "open $app failed"; fi
     exe="$app/Contents/MacOS/$("$buddy" -c "Print :CFBundleExecutable" "$app/Contents/Info.plist")"
     launched=""
@@ -543,9 +552,13 @@ PY
     echo "$name stopped"
     ;;
   env)
-    app_of >/dev/null
-    printf 'export CMUX_NEXT_CONFIG_FILE=%q CMUX_CUSTOMIZE_DIR=%q CMUX_WEB_OVERLAY_DIR=%q CMUX_WEB_SLOT_STATE_DIR=%q\n' \
-      "$dir/config/cmux-next.json" "$dir/config/customize" "$dir/web-overlay" "$dir/web-slot"
+    copy="$(app_of)"
+    # CMUX_WEB_OVERLAY_APP: web-overlay.sh checks the overlay's web ABI against this copy, not the
+    # installed NIGHTLY. Without it, hot-verify's look of cmux#62321 (2026-11-27) was refused: the
+    # worker's stale installed NIGHTLY had ABI 7, while the copy, from NIGHTLY 4605751670101, had the
+    # head's ABI 9.
+    printf 'export CMUX_NEXT_CONFIG_FILE=%q CMUX_CUSTOMIZE_DIR=%q CMUX_WEB_OVERLAY_DIR=%q CMUX_WEB_SLOT_STATE_DIR=%q CMUX_WEB_OVERLAY_APP=%q\n' \
+      "$dir/config/cmux-next.json" "$dir/config/customize" "$dir/web-overlay" "$dir/web-slot" "$copy"
     ;;
   socket)
     app_of >/dev/null
@@ -555,6 +568,10 @@ PY
     ;;
   path)
     app_of
+    ;;
+  logs)
+    app_of >/dev/null
+    printf '%s\n%s\n' "$dir/app.stdout.log" "$dir/app.stderr.log"
     ;;
   list)
     [[ -d "$root" ]] || exit 0
