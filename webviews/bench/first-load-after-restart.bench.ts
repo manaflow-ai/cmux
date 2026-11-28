@@ -546,6 +546,8 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
     case "_acpmux/watch":
       return { sessions: [listedRow] };
     case "_acpmux/attach": {
+      // A hold (attach-hold-v1, ROWS_WINDOW) reads no log, as the daemon's does (server/requests.rs): no events.
+      if (params.hold === true) return { session, lastSeq: events.at(-1)?.seq ?? 0, hold: true };
       // As the daemon does: the newest `limit` events within `maxBytes`, and hasMore while older ones remain.
       const { page, hasMore } = newest(Number(params.limit ?? 400), Infinity, params.maxBytes);
       return {
