@@ -22,6 +22,8 @@
 // boxes; it stops when its stop function is called (the transcript unmounts) and pauses while the page
 // is hidden. First PR: warn-only (console and overlay), never a failure.
 
+import { CHAT_MOTION_ATTR, MINIMAL_MOTION } from "./frameBudget";
+
 /// Reader input this recent explains any move.
 export const INPUT_GRACE_MS = 300;
 /// A band with no row this tall between the first and last visible rows is a blank frame (I3).
@@ -462,6 +464,19 @@ export type LayoutWatchOptions = {
 
 const INPUTS = ["pointerdown", "wheel", "touchstart", "keydown"] as const;
 
+/// Whether the chat over `scroller` is in its minimal motion (frameBudget.ts: its frames missed their
+/// budget). The watch is a diagnostic: each frame it reads every visible row's box, a layout forced
+/// ahead of the frame's own, and on a chat already missing its frames that read is the cost of a frame
+/// the reader waits on (composer_typing.l1.webkit, typing while a reply streams: about 0.5 ms a frame of
+/// readWatchFrame's boxes and 1 ms of the tick). So it reads nothing while the chat is minimal, as
+/// the chat's motion sheds there, and picks up from a fresh frame once the mark goes: a frame pair
+/// across the gap is never judged (`prev` is cleared), so the gap raises no flag. In minimal motion
+/// rows land in place and nothing glides, so a move the watch would flag there is one it sees again
+/// once the chat moves.
+function shedding(scroller: HTMLElement): boolean {
+  return scroller.closest(`[${CHAT_MOTION_ATTR}="${MINIMAL_MOTION}"]`) !== null;
+}
+
 /// Watch `scroller`'s rows on every frame until the returned function is called.
 export function startLayoutWatch(scroller: HTMLElement, options: LayoutWatchOptions): () => void {
   const view = scroller.ownerDocument.defaultView;
@@ -492,7 +507,7 @@ export function startLayoutWatch(scroller: HTMLElement, options: LayoutWatchOpti
   const tick = () => {
     handle = 0;
     if (stopped) return;
-    if (scroller.ownerDocument.visibilityState !== "hidden" && scroller.isConnected) {
+    if (scroller.ownerDocument.visibilityState !== "hidden" && scroller.isConnected && !shedding(scroller)) {
       frameCount += 1;
       const next = readWatchFrame(scroller, frameCount, options.streaming(), options.lastRowId());
       const now = next.at;
