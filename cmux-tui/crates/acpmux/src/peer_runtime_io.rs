@@ -294,8 +294,9 @@ impl Peer {
         let (via, opened) = match first {
             Ok(opened) => opened,
             Err(error) => {
-                // No path opened: the network, not a slow peer (`SilenceBudget::dial_struggled`).
-                self.with_silence(SilenceBudget::dial_struggled);
+                // No path opened: the network, not a slow peer, unless other links heard frames
+                // meanwhile (`SilenceBudget::dial_struggled`).
+                self.with_silence(|b| b.dial_struggled(crate::peer_link::frames_heard()));
                 return Err(error);
             }
         };
@@ -684,7 +685,7 @@ impl Peer {
         if silence > was {
             tracing::info!(peer = %self.name, "silence budget {}s (was {}s; a link dropped for silence opened again: the peer is slow, not gone)", silence.as_secs(), was.as_secs());
         } else if silence < was {
-            tracing::info!(peer = %self.name, "silence budget {}s (was {}s; the redial failed first: the network was gone, not the peer slow)", silence.as_secs(), was.as_secs());
+            tracing::info!(peer = %self.name, "silence budget {}s (was {}s; the redial failed first and no other link heard a frame: the network was gone, not the peer slow)", silence.as_secs(), was.as_secs());
         }
         // The first read's gap is the connect, not an answer.
         if let Some(heard) = &heard {
@@ -792,7 +793,7 @@ impl Peer {
                 if replacing.is_some() && silent < cap {
                     silence_due = Some(now + (cap - silent));
                 } else {
-                    self.with_silence(|b| b.dropped(now));
+                    self.with_silence(|b| b.dropped(now, crate::peer_link::frames_heard()));
                     break Err(self.deadline_passed(format!(
                         "peer stopped answering ({}s without a frame)",
                         silent.as_secs()
@@ -1027,7 +1028,7 @@ impl Peer {
                         continue;
                     }
                     if request_probe {
-                        self.with_silence(SilenceBudget::probe_dropped);
+                        self.with_silence(|b| b.probe_dropped(crate::peer_link::frames_heard()));
                     }
                     break Err(self.deadline_passed(match probe_cause {
                         Some(why) => why,
@@ -1129,7 +1130,7 @@ impl Peer {
                         }
                         Err(e) => {
                             let now = tokio::time::Instant::now();
-                            self.with_silence(|b| b.dropped(now));
+                            self.with_silence(|b| b.dropped(now, crate::peer_link::frames_heard()));
                             break Err(self.deadline_passed(format!("peer stopped answering, and a replacement did not open ({e})")));
                         }
                     }
@@ -1223,6 +1224,7 @@ impl Peer {
                     wake_probe = None;
                     request_probe = false;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
+                    crate::peer_link::heard_frame();
                     let (text, compressed) = match frame {
                         tokio_tungstenite::tungstenite::Message::Text(t) => {
                             self.received.add(t.len(), t.len());
@@ -1540,7 +1542,7 @@ impl Peer {
                             }
                             Ok(Err(e)) => break Err(e.to_string()),
                             Err(_) => {
-                                self.with_silence(SilenceBudget::probe_dropped);
+                                self.with_silence(|b| b.probe_dropped(crate::peer_link::frames_heard()));
                                 break Err(self.deadline_passed(stopped_reading(wait)));
                             }
                         }

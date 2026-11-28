@@ -893,7 +893,7 @@ impl Peer {
             // A client asked mid-connect (the network was down): one new attempt, same tokens, now.
             if restart && !self.stop.load(Ordering::SeqCst) {
                 tracing::info!(peer = %self.name, "a client asked while the connect was pending; connecting again");
-                self.with_silence(crate::peer_link::SilenceBudget::dial_struggled);
+                self.with_silence(|b| b.dial_struggled(crate::peer_link::frames_heard()));
                 restarted = true;
                 ssh_tokens = Some(((token, peer_token), kept));
                 continue;
