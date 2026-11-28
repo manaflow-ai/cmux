@@ -3366,13 +3366,20 @@ const clearMeasureCaches = () => {
 export function notePreparedText(length: number, clear: () => void = clearMeasureCaches): boolean {
   if (!hiddenDropInstalled && clear === clearMeasureCaches) installHiddenMeasureDrop();
   preparedTextChars += length;
-  if (preparedTextChars <= PREPARED_TEXT_CHARS) return false;
+  if (preparedTextChars <= HIDDEN_PREPARED_TEXT_CHARS) return false;
+  if (preparedTextChars <= PREPARED_TEXT_CHARS && !hiddenDropOn()) return false;
   preparedTextChars = 0;
   clear();
   return true;
 }
 
 let hiddenDropInstalled = false;
+/// On the `dropped` arm, a hidden page that still prepares text (a streaming chat behind another tab)
+/// starts the library's caches over after this many characters, not PREPARED_TEXT_CHARS.
+export const HIDDEN_PREPARED_TEXT_CHARS = 50_000;
+function hiddenDropOn(doc: Pick<Document, "visibilityState"> | undefined = globalThis.document): boolean {
+  return doc?.visibilityState === "hidden" && experimentArm(hiddenMeasureCaches) === "dropped";
+}
 /// Behind the `hidden-measure-caches` experiment (default off): a page that hides drops the library's
 /// caches at once instead of holding them until PREPARED_TEXT_CHARS. A window has one shown chat page
 /// and many hidden ones, and each hidden page held its chat's whole word vocabulary (10k per-word
@@ -3388,7 +3395,7 @@ export function dropHiddenMeasureCaches(
   doc: Pick<Document, "visibilityState">,
   clear: () => void = clearMeasureCaches,
 ): boolean {
-  if (doc.visibilityState !== "hidden" || experimentArm(hiddenMeasureCaches) !== "dropped") return false;
+  if (!hiddenDropOn(doc)) return false;
   preparedTextChars = 0;
   clear();
   return true;
