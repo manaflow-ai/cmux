@@ -17267,7 +17267,8 @@ test "timed out wait exit cancels once and reuses its control connection" {
     defer shared.deinit();
     const connection = try fakeConnection(std.testing.allocator, &shared);
     var client = Client.init(std.testing.allocator, connection, .{
-        .timeout_ms = 2,
+        // The cancel after the timed-out wait gets this same budget; at 2 ms a loaded runner overran it and closed the client.
+        .timeout_ms = 50,
     });
     defer client.deinit();
     const session_id = try SessionId.parse(
@@ -17959,7 +17960,8 @@ test "wait cancel false rejects a malformed raced result" {
     defer shared.deinit();
     const connection = try fakeConnection(std.testing.allocator, &shared);
     var client = Client.init(std.testing.allocator, connection, .{
-        .timeout_ms = 2,
+        // The cancel after the timed-out wait gets this same budget; at 2 ms a loaded runner overran it and closed the client.
+        .timeout_ms = 50,
     });
     defer client.deinit();
     const terminal_id = try TerminalId.parse(
@@ -17988,7 +17990,8 @@ test "malformed wait cleanup preserves timeout and fail closes once" {
     defer shared.deinit();
     const connection = try fakeConnection(std.testing.allocator, &shared);
     var client = Client.init(std.testing.allocator, connection, .{
-        .timeout_ms = 2,
+        // The cancel after the timed-out wait gets this same budget; at 2 ms a loaded runner overran it and closed the client.
+        .timeout_ms = 50,
     });
     defer client.deinit();
     const terminal_id = try TerminalId.parse(
