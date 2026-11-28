@@ -57,16 +57,20 @@ public final class BackgroundWork: Sendable {
     ///     did not start at once), after it is queued and before it can start; default nothing. Traces
     ///     count waits with it; tests use it as the point after which a cancel or an escalation meets a
     ///     queued item, not the checks at the call.
+    ///   - interacting: true while the person drags, types or scrolls; ``WorkPriority/bestEffort`` and
+    ///     ``WorkPriority/idle`` items then wait for it to stop (at most a second). Default: the interactivity
+    ///     policy (``Interactivity/isInteracting``); tests pass their own.
     public init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work",
-                onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in }) {
+                onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in },
+                interacting: @escaping @Sendable () -> Bool = { Interactivity.isInteracting }) {
         self.cpuWidth = max(1, cpuWidth)
         self.label = label
         self.onQueued = onQueued
         lanes = BlockingLane.allCases.map { lane in
             switch lane {
-            case .files: LaneScheduler(label: "\(label).\(lane)", policy: .perPriority)
-            case .system: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: Self.systemWidth))
-            case .cpu: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: max(1, cpuWidth)))
+            case .files: LaneScheduler(label: "\(label).\(lane)", policy: .perPriority, interacting: interacting)
+            case .system: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: Self.systemWidth), interacting: interacting)
+            case .cpu: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: max(1, cpuWidth)), interacting: interacting)
             }
         }
     }

@@ -1,0 +1,4 @@
+[[test]]
+path = "tests/test_idle_residency_measurements.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_idle_residency_measurements.py"

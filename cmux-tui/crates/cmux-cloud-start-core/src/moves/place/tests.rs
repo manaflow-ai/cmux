@@ -388,3 +388,50 @@ fn autos_return_move_parses_and_has_a_flow() {
         serde_json::json!({ "auto": "back" })
     );
 }
+
+#[test]
+fn a_steps_phases_are_kept_with_it_and_shown_in_the_view() {
+    let split = |pairs: &[(&str, u64)]| {
+        pairs.iter().map(|(name, ms)| ((*name).to_owned(), *ms)).collect::<BTreeMap<_, _>>()
+    };
+    let (flow, _) = step(begin(Cargo::default()), Step::Sync, 1_100);
+    let (flow, next) = reduce(
+        Some(flow),
+        Event::Phases { step: Step::Sync, phases: split(&[("pull.read_here", 360)]) },
+    );
+    assert_eq!(next, Next::Go);
+    // A step not reached yet, and an empty split, change nothing.
+    let (flow, next) =
+        reduce(flow, Event::Phases { step: Step::Carry, phases: split(&[("frozen_sync", 9)]) });
+    assert_eq!(next, Next::Ignore);
+    let (flow, next) = reduce(flow, Event::Phases { step: Step::Sync, phases: BTreeMap::new() });
+    assert_eq!(next, Next::Ignore);
+    let (flow, _) = step(flow.unwrap(), Step::Freeze, 2_000);
+    let (flow, _) = step(flow, Step::Carry, 2_010);
+    let (flow, _) = step(flow, Step::Commit, 8_081);
+    // The carry's split arrives after its step ended (the agent move answered): it is still the carry's.
+    let carry = split(&[("begin", 40), ("frozen_sync", 900), ("pull.read_here", 350)]);
+    let (flow, next) =
+        reduce(Some(flow), Event::Phases { step: Step::Carry, phases: carry.clone() });
+    assert_eq!(next, Next::Go);
+    let view = view(&flow.unwrap(), 9_000);
+    let of = |name: Step| view.steps.iter().find(|time| time.step == name).unwrap();
+    assert_eq!(of(Step::Sync).phases, Some(split(&[("pull.read_here", 360)])));
+    assert_eq!(of(Step::Carry).phases, Some(carry));
+    assert_eq!(of(Step::Carry).ms, 6_071);
+    assert_eq!(of(Step::Freeze).phases, None);
+    let json = serde_json::to_value(&view).unwrap();
+    assert_eq!(json["steps"][1]["phases"]["pull.read_here"], 360);
+    assert!(
+        json["steps"][2].get("phases").is_none(),
+        "a step with no split carries no key: {json}"
+    );
+}
+
+#[test]
+fn a_flow_kept_before_phases_existed_still_reads() {
+    let mut kept = serde_json::to_value(begin(Cargo::default())).unwrap();
+    kept.as_object_mut().unwrap().remove("phases");
+    let flow: Flow = serde_json::from_value(kept).unwrap();
+    assert!(flow.phases.is_empty());
+}

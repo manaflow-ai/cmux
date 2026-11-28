@@ -97,6 +97,36 @@ const ALLOWED: readonly { file: string; line: string; why: string }[] = [
     line: 'state.error.message || t("settingsWindow.hub.error.notFinished")',
     why: "the hub's or the CLI's own refusal, shown as is (ops.ts HubState, #51341)",
   },
+  {
+    file: "settings/components/AutomationsCard.tsx",
+    line: 'error.message || t("settingsWindow.autocloud.error.notFinished")',
+    why: "the card's own refusal sentence, shown as is (ops.ts state `error {action, code, message}`, as the hub's)",
+  },
+  {
+    file: "settings/components/AutomationsCard.tsx",
+    line: 'overview.error.message || t("settingsWindow.autocloud.problem.failed")',
+    why: "the card's own sentence, shown as is (ops.ts state `error {action, code, message}`, as the hub's)",
+  },
+  {
+    file: "settings/components/ConnectionsPanel.tsx",
+    line: 'catalog.error.message || t("settingsWindow.connections.problem.failed")',
+    why: "the card's own sentence, shown as is (ops.ts state `error {action, code, message}`, as the hub's)",
+  },
+  {
+    file: "settings/components/ConnectionsPanel.tsx",
+    line: 'state.error.message || t("settingsWindow.connections.error.notFinished")',
+    why: "the card's own refusal sentence, shown as is (ops.ts state `error {action, code, message}`, as the hub's)",
+  },
+  {
+    file: "settings/components/DeveloperTokensCard.tsx",
+    line: 'state.error.message || t("settingsWindow.tokens.error.notFinished")',
+    why: "the card's own refusal sentence, shown as is (ops.ts state `error {action, code, message}`, as the hub's)",
+  },
+  {
+    file: "settings/store.ts",
+    line: "message: reply.error.message } };",
+    why: "carries the host's refusal sentence into the answer the autocloud card shows as is (store.ts runAutocloud)",
+  },
 ];
 
 function* sources(dir: string): Generator<string> {

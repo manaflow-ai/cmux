@@ -1255,7 +1255,14 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
                 serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
             assert_eq!(request["method"], method, "{request}");
             if let Some(arguments) = arguments {
-                assert_eq!(request["params"], arguments, "{request}");
+                // team_send stamps a fresh idempotencyKey per call (#60515) so a retried send
+                // lands once; check it is there, then compare the rest exactly.
+                let mut params = request["params"].clone();
+                if method == "_acpmux/team/send" {
+                    let key = params.as_object_mut().and_then(|p| p.remove("idempotencyKey"));
+                    assert!(key.as_ref().is_some_and(Value::is_string), "{request}");
+                }
+                assert_eq!(params, arguments, "{request}");
             }
             let response = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
             write.write_all(format!("{response}\n").as_bytes()).await.unwrap();

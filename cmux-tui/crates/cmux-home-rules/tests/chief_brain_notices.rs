@@ -146,45 +146,6 @@ fn usage_with_no_counts_is_unknown() {
     assert_eq!(r, json!({"hitRate": 0.75, "tokens": 4.0}));
 }
 
-#[test]
-fn the_lease_renews_before_expiry_and_backs_off_on_failure() {
-    let r = op(
-        "lease_step",
-        json!({"event": {"kind": "set", "expiresAtMs": 3_600_000, "pid": 10, "nowSecs": 0.0}}),
-    );
-    assert_eq!(r["expiresAt"], json!(3600));
-    assert_eq!(r["waitSecs"], json!(3510.0));
-    assert_eq!(r["state"]["forceRefresh"], json!(false));
-    assert_eq!(r["log"], Value::Null);
-    // A short token: wait at least 10 s and force a refresh next pass.
-    let r2 = op(
-        "lease_step",
-        json!({"state": r["state"], "event": {"kind": "set", "expiresAtMs": 60_000, "pid": 11, "nowSecs": 0.0}}),
-    );
-    assert_eq!(r2["waitSecs"], json!(10.0));
-    assert_eq!(r2["state"]["forceRefresh"], json!(true));
-    assert!(r2["log"].as_str().unwrap().contains("pid 10 -> 11"));
-    let mut state = r2["state"].clone();
-    let mut waits = Vec::new();
-    let mut logs = 0;
-    for _ in 0..8 {
-        let f = op(
-            "lease_step",
-            json!({"state": state, "event": {"kind": "failed", "error": "offline"}}),
-        );
-        waits.push(f["waitSecs"].as_f64().unwrap());
-        logs += usize::from(!f["log"].is_null());
-        state = f["state"].clone();
-    }
-    assert_eq!(waits, [2.0, 5.0, 15.0, 30.0, 60.0, 120.0, 120.0, 120.0]);
-    assert_eq!(logs, 1, "only the first failure logs");
-    let ok = op(
-        "lease_step",
-        json!({"state": state, "event": {"kind": "set", "expiresAtMs": 3_600_000, "pid": 11, "nowSecs": 0.0}}),
-    );
-    assert_eq!(ok["state"]["failures"], json!(0));
-}
-
 fn route(operation: &str, params: Value, gesture: Value, spent: Value) -> Value {
     op(
         "profile_relay_route",

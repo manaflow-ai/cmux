@@ -564,5 +564,73 @@ class MacJobInputs(unittest.TestCase):
                 self.assertIn(f"key=job-pass-{job}-", result.stdout, result.stderr[-2000:])
 
 
+class IosFastVerdictInputs(unittest.TestCase):
+    """ios-fast-verdict keys the ios-kit step's routed paths (ci/steps.toml at the rev), its own files and the plan."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        git(self.root, "init", "-q")
+        files = {
+            "ci/steps.toml": (ROOT / "ci/steps.toml").read_text(),
+            ".github/workflows/pr-pipeline.yml": "jobs: {}\n",
+            "scripts/ci/ios_fast_verdict.sh": "echo\n",
+            "cmux-next-ios/App/App.swift": "app\n",
+            "cmux-next-ios/verify/note.txt": "evidence\n",
+            "Packages/Shared/CmuxTheme/Sources/Theme.swift": "theme\n",
+            "Packages/macOS/Other/Sources/Other.swift": "mac only\n",
+            "cmux-next-ios/App/README.md": "prose\n",
+            "docs/readme.txt": "docs\n",
+        }
+        for name, text in files.items():
+            self.write(name, text)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, name: str, text: str) -> None:
+        path = self.root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "--allow-empty", "-m", "c")
+
+    def key(self, plan: str = '{"app":true,"build":false,"tests":[]}', xcode_app: str = "") -> str:
+        key, stderr = run("ios-fast-verdict", self.root, {"plan": plan, "xcode_app": xcode_app})
+        self.assertTrue(key.startswith("job-pass-ios-fast-verdict-"), stderr[-2000:])
+        return key
+
+    def test_a_routed_ios_input_changes_the_key(self):
+        for name in ("cmux-next-ios/App/App.swift", "Packages/Shared/CmuxTheme/Sources/Theme.swift",
+                     "scripts/ci/ios_fast_verdict.sh", ".github/workflows/pr-pipeline.yml", "ci/steps.toml",
+                     "cmux-next-ios/App/New.swift"):
+            with self.subTest(name=name):
+                before = self.key()
+                current = self.root / name
+                self.write(name, (current.read_text() if current.exists() else "") + "# changed\n")
+                self.assertNotEqual(before, self.key())
+
+    def test_a_path_ios_kit_does_not_route_reuses_the_pass(self):
+        # A base move or push that touches nothing the iOS build reads keeps the key: that is the reuse.
+        for name in ("Packages/macOS/Other/Sources/Other.swift", "docs/readme.txt", "cmux-next-ios/verify/note.txt",
+                     "cmux-next-ios/App/README.md"):
+            with self.subTest(name=name):
+                before = self.key()
+                self.write(name, (self.root / name).read_text() + "changed\n")
+                self.assertEqual(before, self.key())
+
+    def test_the_plan_and_xcode_app_are_keyed(self):
+        base = self.key()
+        self.assertNotEqual(base, self.key(plan='{"app":false,"build":false,"tests":["CmuxThemeTests"]}'))
+        self.assertNotEqual(base, self.key(xcode_app="/Applications/Xcode-beta.app"))
+
+    def test_no_steps_table_is_no_key(self):
+        git(self.root, "rm", "-q", "ci/steps.toml")
+        git(self.root, "commit", "-q", "-m", "c")
+        key, stderr = run("ios-fast-verdict", self.root, {"plan": "{}", "xcode_app": ""})
+        self.assertEqual(key, "")
+        self.assertIn("No reuse for ios-fast-verdict", stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

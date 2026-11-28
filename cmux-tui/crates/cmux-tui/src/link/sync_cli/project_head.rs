@@ -60,7 +60,7 @@ pub(super) fn serve_head(
     let listed_ms = elapsed_ms(started);
     let encoded = head.manifest.encode()?;
     let encoded_ms = elapsed_ms(started);
-    let (reader, mut answer) = dial(socket, name, at, &encoded, Offer::Head)?;
+    let (reader, mut answer) = dial(socket, name, at, &encoded, Offer::Head, false)?;
     if !ok(&answer) {
         return Ok(answer);
     }

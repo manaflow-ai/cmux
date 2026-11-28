@@ -135,4 +135,35 @@ await requireBrowserLane("agent-pane-since-on-worked-divider.test.ts", async () 
       await page.close();
     }
   });
+
+  // Leo, 2026-11-22: "the new and whatever line should be on the same line like always, and at ultra
+  // tightness the new can shrink well and fade". The token count gives way whole before the label's
+  // ellipsis shows (a 0.001 shrink weight drew "Worked for 4m 1… · 679.9…"), and ultra tight, where
+  // "New" is gone, the line's words take its room back.
+  for (const [width, labelWhole, roomKept] of [
+    [240, true, true],
+    [140, false, false],
+  ] as const)
+    test(`at ${width} px the label ${labelWhole ? "stays whole beside the shrinking count" : "takes New's room"}`, async () => {
+      const page = await browser.newPage({ viewport: { width, height: 400 }, reducedMotion: "reduce" });
+      try {
+        await page.goto(url("line-worked-tokens"));
+        await page.locator(".acpmux-worked .cv-worked").waitFor();
+        const got = await page.evaluate(() => {
+          const line = document.querySelector<HTMLElement>(".acpmux-worked .cv-worked")!;
+          const label = line.querySelector<HTMLElement>(".cv-worked__label")!;
+          return {
+            clipped: label.scrollWidth > label.clientWidth,
+            padEnd: parseFloat(getComputedStyle(line).paddingInlineEnd),
+            labelRight: label.getBoundingClientRect().right,
+            contentRight: line.getBoundingClientRect().right - parseFloat(getComputedStyle(line).paddingInlineEnd),
+          };
+        });
+        expect(got.clipped).toBe(!labelWhole);
+        expect(got.padEnd > 0).toBe(roomKept);
+        expect(got.labelRight).toBeLessThanOrEqual(got.contentRight + 0.5);
+      } finally {
+        await page.close();
+      }
+    });
 });
