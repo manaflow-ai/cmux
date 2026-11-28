@@ -50,19 +50,16 @@ impl Request {
 
     /// The request as the app sends it: its id, method and params, and its kind's fields.
     pub fn to_json(&self) -> Value {
-        let mut value = json!({"id": self.id, "method": self.method(), "params": self.params()});
+        let (id, method, params) = (&self.id, self.method(), self.params());
         match &self.kind {
-            Kind::List => value["kind"] = json!("list"),
-            Kind::Issue { phone } => {
-                value["kind"] = json!("issue");
-                value["phone"] = json!(phone);
-            }
-            Kind::Revoke { record } => {
-                value["kind"] = json!("revoke");
-                value["record"] = json!(record);
-            }
+            Kind::List => json!({"id": id, "method": method, "params": params, "kind": "list"}),
+            Kind::Issue { phone } => json!({
+                "id": id, "method": method, "params": params, "kind": "issue", "phone": phone
+            }),
+            Kind::Revoke { record } => json!({
+                "id": id, "method": method, "params": params, "kind": "revoke", "record": record
+            }),
         }
-        value
     }
 }
 

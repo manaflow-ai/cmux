@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -28,8 +29,9 @@ afterAll(async () => {
   dom.window.close();
 });
 
-const { BackgroundTaskOutputContext, useLiveBackgroundTaskOutput } =
-  await import("../src/agent-session/acpmux/conversation/backgroundTaskOutput");
+const { BackgroundTaskOutputContext, useLiveBackgroundTaskOutput } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/backgroundTaskOutput"),
+);
 
 // The cadence is the behavior, so the clock is fake: advance it, then let the reads' replies land.
 async function advance(ms: number): Promise<void> {

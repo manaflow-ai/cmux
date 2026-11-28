@@ -41,25 +41,6 @@ export function isAssetID(text: string): boolean {
   return ASSET_ID.test(text);
 }
 
-export function isValidIcon(value: unknown): value is IconValue {
-  if (!value || typeof value !== "object") return false;
-  const keys = Object.keys(value);
-  if (keys.length !== 1) return false;
-  const text = (value as Record<string, unknown>)[keys[0]];
-  if (typeof text !== "string") return false;
-  switch (keys[0]) {
-    case "emoji":
-      return isEmoji(text);
-    case "symbol":
-      return text.length <= 128 && SYMBOL_NAME.test(text);
-    case "image":
-    case "svg":
-      return isAssetID(text);
-    default:
-      return false;
-  }
-}
-
 /** The wire string of a value. */
 export function encodeIcon(value: IconValue): string {
   if ("emoji" in value) return value.emoji;

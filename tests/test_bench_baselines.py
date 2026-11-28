@@ -23,6 +23,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -204,6 +205,94 @@ class EndToEnd(unittest.TestCase):
                        "--baselines", "http://127.0.0.1:9", values="9,9,9", stdin="fake/x.py\n")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertIn("unreachable", res.stderr)
+
+    def test_other_machine_class_compares_with_base_on_this_runner(self):
+        """cmux#65157: a baseline from another CPU in the same pool is never the yardstick. A pull request on a
+        machine class the nightly did not record finds no baseline, runs the bench at --base-ref on its own runner
+        and compares with that: slower than base is a notice and exits 0, never a red."""
+        rec = self.cli("baselines", "record", "--out", str(self.store), "--map", str(self.map), values="0.5,0.5,0.5")
+        self.assertEqual(rec.returncode, 0, rec.stderr)
+        # Recorded under test-class; this run is another CPU.
+        self.env["CMUX_BENCH_MACHINE_CLASS"] = "test-class-other-cpu"
+        args = ("for-paths", "--stdin", "--map", str(self.map), "--run", "--repeats", "3", "--baselines",
+                str(self.store), "--base-ref", "HEAD")
+        # Head repeats come first (2 s each), then the base's (1 s each): the 0.5 s cross-host value is not used.
+        slow = self.cli(*args, values="2,2,2,1,1,1", stdin="fake/x.py\n")
+        self.assertEqual(slow.returncode, 0, slow.stdout + slow.stderr)
+        self.assertIn("slower-than-base", slow.stdout)
+        self.assertIn("at base, this runner", slow.stdout)
+        self.assertIn("::notice title=Bench vs base::", slow.stderr)
+        self.assertNotIn("0.500", slow.stdout)
+        same = self.cli(*args, values="1,1,1,1,1,1", stdin="fake/x.py\n")
+        self.assertEqual(same.returncode, 0, same.stdout + same.stderr)
+        self.assertIn("within-baseline", same.stdout)
+        # Without --base-ref it is the old fail-open warning, still no cross-host compare.
+        bare = self.cli(*args[:-2], values="2,2,2", stdin="fake/x.py\n")
+        self.assertEqual(bare.returncode, 0, bare.stdout + bare.stderr)
+        self.assertIn("no baseline recorded", bare.stderr)
+
+    def test_unknown_base_ref_fails_open(self):
+        res = self.cli("for-paths", "--stdin", "--map", str(self.map), "--run", "--repeats", "3", "--baselines",
+                       str(self.store), "--base-ref", "no-such-ref-xyz", values="9,9,9", stdin="fake/x.py\n")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("no worktree at no-such-ref-xyz", res.stderr)
+
+
+class MachineClass(unittest.TestCase):
+    def test_cpu_model_is_in_the_key(self):
+        """One pool label hands out different CPUs: the key carries the model, so two CPUs never share a baseline."""
+        env = {k: v for k, v in os.environ.items() if k != "CMUX_BENCH_MACHINE_CLASS"}
+        with unittest.mock.patch.dict(os.environ, env, clear=True):
+            with unittest.mock.patch.object(bl, "cpu_model", return_value="AMD EPYC 9454P 48-Core Processor"):
+                a = bl.machine_class()
+            with unittest.mock.patch.object(bl, "cpu_model", return_value="Intel(R) Xeon(R) Platinum 8375C"):
+                b = bl.machine_class()
+            with unittest.mock.patch.object(bl, "cpu_model", return_value=""):
+                c = bl.machine_class()
+        self.assertNotEqual(a, b)
+        self.assertIn("amd-epyc-9454p", a)
+        self.assertTrue(c.endswith("-cpu-unknown"), c)
+        for k in (a, b, c):
+            self.assertEqual(len(bl.slug(k)), len(k))  # object_path does not truncate it (48 chars)
+            self.assertLessEqual(len(k), 48)
+
+
+class MacFleetLog(unittest.TestCase):
+    """record-mac-fleet: SidebarChiefLagTests run 3 times in one fleet step; its log lines become the sidebar
+    areas' objects under the fleet class, fetch reads them back, and a log with no bench line exits 1."""
+
+    LINES = "\n".join(
+        f"SIDEBAR-CHIEF-LAG ticks before n=1104 frames=120 p50_ms=1.0 p95_ms=9.90 max_ms=5 over16ms=0\n"
+        f"SIDEBAR-CHIEF-LAG ticks after n=1104 frames=120 p50_ms=1.5 p95_ms={t} max_ms=9 over16ms=0 chiefs=5\n"
+        f"SIDEBAR-CHIEF-LAG scroll after n=1104 frames=60 p50_ms=4.0 p95_ms={s} max_ms=12 over16ms=0\n"
+        f"SIDEBAR-CHIEF-LAG remap after n=1104 full_pass_ms={r} avatar_calls=1104"
+        for t, s, r in ((3.0, 8.0, 40.0), (3.2, 8.4, 42.0), (2.9, 8.1, 39.0)))
+
+    def test_log_lines_become_the_sidebar_baselines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "step.log"
+            log.write_text("cmux-ci: step abcdef123 queued\n" + self.LINES + "\n")
+            env = {**os.environ, "CMUX_BENCH_MACHINE_CLASS": "macos-arm64-fleet-light"}
+            out = Path(tmp) / "out"
+            got = subprocess.run([sys.executable, "-I", str(CLI), "baselines", "from-log", str(log), "--out", str(out),
+                                  "--sha", "abc"], capture_output=True, text=True, env=env)
+            self.assertEqual(got.returncode, 0, got.stderr)
+            docs, missing, _ = bl.fetch(["Sidebar row feed and flush"], "macos-arm64-fleet-light", str(out))
+            self.assertEqual(missing, {})
+            benches = docs["Sidebar row feed and flush"]["benches"]
+            ticks = benches[bl.bench_id("SidebarChiefLagTests ticks after p95_ms")]
+            self.assertEqual(ticks["repeats_s"], [0.003, 0.0032, 0.0029])  # the "after" line only, in seconds
+            self.assertEqual(ticks["value_s"], 0.003)
+            self.assertEqual(len(benches), 3)
+
+    def test_a_log_with_no_bench_line_is_red(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "step.log"
+            log.write_text("error: build failed\n")
+            got = subprocess.run([sys.executable, "-I", str(CLI), "baselines", "from-log", str(log), "--out",
+                                  str(Path(tmp) / "out")], capture_output=True, text=True)
+            self.assertEqual(got.returncode, 1)
+            self.assertFalse((Path(tmp) / "out").exists())
 
 
 if __name__ == "__main__":

@@ -72,6 +72,7 @@ fn path_name(path: Path) -> String {
     match path {
         Path::Relay => "relay".into(),
         Path::Punched => "punched".into(),
+        Path::Iroh => "iroh".into(),
         Path::Direct(address) => address.to_string(),
     }
 }
@@ -177,6 +178,7 @@ impl HubCarrier {
         let slot = match path {
             Path::Relay => self.kept.slot(daemon, lane),
             Path::Direct(_) | Path::Punched => self.direct.kept.slot(daemon, lane),
+            Path::Iroh => self.iroh.kept.slot(daemon, lane),
         };
         let mut kept = slot.lock().await;
         if kept.live.as_ref().is_some_and(|mux| !mux.is_closed()) {

@@ -1,0 +1,73 @@
+.acpmux-timing {
+  overflow: auto;
+  padding: var(--ds-space-4);
+  font: inherit;
+}
+.acpmux-timing-note, .acpmux-timing-axis {
+  color: var(--agent-muted);
+}
+.acpmux-timing-axis, .acpmux-timing summary {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-timing-turns {
+  list-style: none;
+  padding: 0;
+}
+.acpmux-timing-turns > li {
+  margin-block: var(--ds-space-3);
+}
+.acpmux-timing summary:hover {
+  background: var(--agent-control-hover);
+}
+.acpmux-timing-prompt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-timing-track {
+  position: relative;
+  height: var(--ds-space-4);
+  margin-block: var(--ds-space-1);
+  background: var(--agent-control);
+}
+.acpmux-timing-bar {
+  position: absolute;
+  inset-block: 0;
+  left: var(--timing-from);
+  width: var(--timing-width);
+  background: var(--agent-muted);
+}
+.acpmux-timing-bar.is-send {
+  background: var(--agent-status-warning);
+}
+.acpmux-timing-bar.is-model {
+  background: var(--agent-accent);
+}
+.acpmux-timing.is-compact .acpmux-timing-track {
+  height: var(--ds-space-2);
+}
+.acpmux-timing.is-stacked summary {
+  flex-direction: column;
+}
+.acpmux-timing-bar.is-queued {
+  background: var(--agent-status-warning);
+  opacity: 0.45;
+}
+.acpmux-timing-host {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+.acpmux-timing-total {
+  flex: none;
+  min-width: 5ch;
+  text-align: end;
+  color: var(--agent-muted);
+}
+.acpmux-timing-prompt {
+  flex: 1;
+}

@@ -3,6 +3,7 @@
  * verifier, with in-memory stores, a local JWKS, a fake team directory and a
  * fake upstream provider behind the real upstream client.
  */
+import type { Defer } from "../../src/after-response.ts";
 import type { ApiVersionTable } from "../../src/api-version.ts";
 import { Effect, Layer, Option, Redacted } from "effect";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
@@ -38,6 +39,10 @@ const UPSTREAM_URL = "https://upstream.test";
 const UPSTREAM_KEY = "upstream-test-key";
 
 export interface HarnessOptions {
+  /** The Worker's per-request middleware (src/db/sql.ts withRequestConnection); none by default. */
+  readonly perRequest?: <A, E, R>(app: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
+  /** What `request` passes as the Worker's waitUntil; none by default, so deferred work runs inline. */
+  readonly defer?: Defer;
   /** The provider create queue the upstream client asks before each create send (src/limits/create-admission.ts); none by default. */
   readonly createAdmission?: CreateAdmissionClient;
   /** The dated-version compat table the API serves (`Cmux-Api-Version`); default the Worker's own. */
@@ -443,6 +448,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     {
       ...(options.stackWebhookSecret === undefined ? {} : { stackWebhookSecret: Redacted.make(options.stackWebhookSecret) }),
       ...(options.apiVersions === undefined ? {} : { apiVersions: options.apiVersions }),
+      ...(options.perRequest === undefined ? {} : { perRequest: options.perRequest }),
     },
   );
 
@@ -489,6 +495,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
       tenant: string,
       state = "running",
       labels: Readonly<Record<string, string>> = {},
+      row: { readonly createdAt?: Date; readonly committed?: boolean } = {},
     ): { readonly vmId: VmId; readonly upstreamId: string } {
       const vmId = newVmId();
       const upstreamId = upstream.addVm(state).id;
@@ -498,9 +505,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
         cmuxId: vmId,
         upstreamId: UpstreamId.make(upstreamId),
         createdBy: "user:test",
-        createdAt: nextCreatedAt(new Date()),
+        createdAt: row.createdAt ?? nextCreatedAt(new Date()),
         displayName: null,
         labels,
+        ...(row.committed === false ? { committed: false } : {}),
       });
       return { vmId, upstreamId };
     },
@@ -662,6 +670,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
           headers: body === null ? headers : { ...headers, "content-type": "application/json" },
           body,
         }),
+        options.defer,
       );
     },
     /** Sends raw bytes, as a file upload does. */

@@ -145,7 +145,10 @@ class AutofixActionExports(unittest.TestCase):
                     # (review of #40722 at 449788fc, F1).
                     placement = next(step for step in steps if step.get("id") == "placement")
                     self.assertIn("restore --ignore-skip-worktree-bits", placement["run"])
-                    self.assertNotIn("scripts/ci", workflow["jobs"][job]["steps"][0]["with"]["sparse-checkout"])
+                    # It lists single scripts/ci files (the router's inputs), never the whole directory.
+                    sparse = workflow["jobs"][job]["steps"][0]["with"]["sparse-checkout"].split()
+                    self.assertNotIn("scripts/ci", sparse)
+                    self.assertNotIn("scripts/ci/", sparse)
                 self.assertEqual(workflow["jobs"][job]["outputs"]["mac_runner"],
                                  "${{ steps.mac-runner.outputs.runs_on }}")
 

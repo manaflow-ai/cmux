@@ -1,10 +1,30 @@
 import { describe, expect, test } from "bun:test";
-import { guestCommand, parseGuest, phaseProblem, resultProblem, staleExecutorMachines } from "./executor-journey.ts";
+import { guestCommand, parseGuest, phaseProblem, resultProblem, retryingExec, staleExecutorMachines } from "./executor-journey.ts";
 import { STALE_JOURNEY_MS } from "./cloud-journey.ts";
 
 const GOOD = { status: "completed", execution: { ok: true, value: { pages: 20, mentionsOverview: true, chars: 3886 }, toolCalls: [{ name: "deepwiki.read_wiki_structure", outcome: "success", durationMs: 556 }] }, unavailableApps: [] };
 
 describe("executor journey", () => {
+  test("an exec staging refuses as vm_unavailable is sent again, and other errors are not", async () => {
+    let clock = 0;
+    const answers: (Error | string)[] = [new Error('exec: HTTP 503 "vm_unavailable" (overloaded)'), new Error("exec: HTTP 502 vm_unavailable"), "exj-ok"];
+    const calls: string[] = [];
+    const e = retryingExec(async (c) => { calls.push(c); const a = answers.shift()!; if (a instanceof Error) throw a; return { code: 0, stdout: a, stderr: "" }; }, 60_000, 5_000, () => clock, async (ms) => { clock += ms; });
+    expect((await e("echo")).stdout).toBe("exj-ok");
+    expect(calls.length).toBe(3);
+    expect(e.retries.length).toBe(2);
+    const hard = retryingExec(async () => { throw new Error("exec: HTTP 403 forbidden"); }, 60_000, 5_000, () => clock, async (ms) => { clock += ms; });
+    await expect(hard("echo")).rejects.toThrow("403");
+    expect(hard.retries.length).toBe(0);
+  });
+
+  test("the retries stop at their budget with staging's own words", async () => {
+    let clock = 0, n = 0;
+    const e = retryingExec(async () => { n++; throw new Error('exec: HTTP 503 "vm_unavailable" (overloaded)'); }, 30_000, 5_000, () => clock, async (ms) => { clock += ms; });
+    await expect(e("echo")).rejects.toThrow("vm_unavailable");
+    expect(n).toBe(6);
+  });
+
   test("parses the guest's phases and result", () => {
     const g = parseGuest(`EXJ host Linux x86_64 cmux\nEXJ install ok executor v2.0.0-beta.67 in 5 s\nnoise\nEXJ execute fail NotSignedIn 401\nEXJ result ${JSON.stringify(GOOD)}\n`);
     expect(g.host).toBe("Linux x86_64 cmux");

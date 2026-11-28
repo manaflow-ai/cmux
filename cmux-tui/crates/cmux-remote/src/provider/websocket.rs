@@ -211,11 +211,12 @@ pub async fn connect_websocket_within(
     };
     let (socket, _) = tokio::time::timeout_at(
         deadline,
-        client_async_tls_with_config(request, stream, Some(config), None),
+        client_async_tls_with_config(request, stream, Some(config), native_tls()),
     )
     .await
     .map_err(|_| stage_timed_out(upgrade_stage))?
     .map_err(|error| LinkError::Transport(error.to_string()))?;
+    crate::phase_timing::mark("websocket-upgraded");
     Ok(TungsteniteWebSocketLink::new(description, maximum, socket))
 }
 
@@ -552,6 +553,34 @@ impl LinkGroup for WebSocketLinkGroup {
     }
 }
 
+/// The `wss` trust of a connection with none of its own: the platform's roots (and
+/// `SSL_CERT_FILE`/`SSL_CERT_DIR`), read once per process. Given no connector, tokio-tungstenite
+/// reads them again at every connect (`load_native_certs`: on macOS, every keychain's trust
+/// settings, through trustd), which kept a reconnecting relay's daemon and trustd busy (NIGHTLY
+/// acpmux, 2026-11-28: a quarter to 40% of its on-CPU samples). None while no root is found: the
+/// connect fails as before, and the next one looks again.
+pub(crate) fn native_tls() -> Option<tokio_tungstenite::Connector> {
+    static CONFIG: std::sync::OnceLock<Arc<rustls::ClientConfig>> = std::sync::OnceLock::new();
+    if let Some(config) = CONFIG.get() {
+        return Some(tokio_tungstenite::Connector::Rustls(Arc::clone(config)));
+    }
+    let mut roots = rustls::RootCertStore::empty();
+    let (added, _) =
+        roots.add_parsable_certificates(rustls_native_certs::load_native_certs().certs);
+    if added == 0 {
+        return None;
+    }
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .ok()?
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    let config = CONFIG.get_or_init(|| Arc::new(config));
+    Some(tokio_tungstenite::Connector::Rustls(Arc::clone(config)))
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -559,6 +588,20 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::frame::coding::{Data, OpCode};
 
     use super::*;
+
+    #[test]
+    fn the_platform_roots_are_read_once_per_process() {
+        let config = |c: Option<tokio_tungstenite::Connector>| match c {
+            Some(tokio_tungstenite::Connector::Rustls(config)) => Some(config),
+            _ => None,
+        };
+        // A host with no root bundle has nothing to share.
+        let Some(first) = config(native_tls()) else { return };
+        let second = config(native_tls()).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        let relay = config(crate::provider::RelayTls::default().connector()).unwrap();
+        assert!(Arc::ptr_eq(&first, &relay));
+    }
 
     #[tokio::test]
     async fn connected_link_description_redacts_websocket_capabilities() {

@@ -82,14 +82,15 @@ import Testing
     let offline = LinkController.reason(LinkError(code: "offline", message: ""))
     let timedOut = LinkController.reason(LinkError(code: "timeout", message: ""))
 
-    /// A lost link redialing says "Offline · Retry", held for the quiet bound (never "Reconnecting…").
+    /// A lost link redialing says "Offline", held for the quiet bound (never "Reconnecting…"). It redials on
+    /// its own, so no Retry (#50367: Leo, 2026-11-22: "vacuous decisions like that should be just done").
     @Test func aMacTheLinkWasConnectedToWaitsQuietlyThenSaysOffline() {
         for attempt in [2, 9] {
             let banner = LiveCoordinator.waitingBanner(
                 macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: attempt, wasConnected: true,
                 relayAvailable: true)
             #expect(banner == .connectionFailed)
-            #expect(banner.offersRetry)
+            #expect(!banner.offersRetry)
         }
     }
 

@@ -48,6 +48,12 @@ pub const MAX_FAILOVERS: u32 = 2;
 /// Restart intensity: deaths of one session within [`WINDOW_MS`] that hand it over (module docs).
 pub const MAX_DEATHS: u32 = 3;
 pub const WINDOW_MS: u64 = 60 * 60 * 1000;
+/// A daemon's own link outage: at least this many machines read dead ("its machine does not
+/// answer") in one pass, and they are at least half of the machines the pass holds rows for.
+/// Machines do not die together; one daemon's links do. 2026-11-28 06:18Z cosmic-gray's links
+/// dropped (76 of 144 peers reconnecting, its dialer faulting under load 80) and the watch told
+/// four lanes dead whose machines answered `reach` from another host.
+pub const OUTAGE_MIN_HOSTS: usize = 4;
 /// The provenance kind of the notice.
 pub const KIND: &str = "lane_death";
 
@@ -226,6 +232,10 @@ pub struct Watch {
     deaths: HashMap<String, Vec<(u64, u64)>>,
     /// Deaths in the window that hand a session over; 0 counts and logs only.
     max_deaths: u32,
+    /// The last pass read this daemon's own links as down (see [`OUTAGE_MIN_HOSTS`]).
+    in_outage: bool,
+    /// Set by the pass that entered an outage: (machines down, machines held), taken once.
+    outage_edge: Option<(usize, usize)>,
 }
 
 impl Watch {
@@ -257,11 +267,27 @@ impl Watch {
         mut is_local: impl FnMut(&str) -> bool,
         mut idle_closed: impl FnMut(&str) -> bool,
     ) -> Vec<Notice> {
+        let rows: Vec<(&str, &str, &Value)> = rows.into_iter().collect();
+        // The second, independent read: machines that fail together are one daemon's links, not
+        // that many dead machines. Their rows are not told as deaths; the caller says so once
+        // ([`Watch::outage_began`]) and the rows read alive again when the links return.
+        let mut held = std::collections::HashSet::new();
+        let mut down = std::collections::HashSet::new();
+        for (_, host, row) in &rows {
+            held.insert(*host);
+            if dead_why(row, now_ms, grace_ms).is_some_and(|d| d.host_down) && !idle_closed(host) {
+                down.insert(*host);
+            }
+        }
+        let outage = (down.len() >= OUTAGE_MIN_HOSTS && down.len() * 2 >= held.len())
+            .then_some((down.len(), held.len()));
+        self.outage_edge = if self.in_outage { None } else { outage };
+        self.in_outage = outage.is_some();
         let mut seen = HashMap::new();
         let mut out = Vec::new();
         for (key, host, row) in rows {
             let Some(dead) = dead_why(row, now_ms, grace_ms) else { continue };
-            if dead.host_down && idle_closed(host) {
+            if dead.host_down && (outage.is_some() || idle_closed(host)) {
                 continue;
             }
             let Some(parent) = parent_of(row).filter(|p| is_local(p)) else { continue };
@@ -290,6 +316,12 @@ impl Watch {
             !v.is_empty()
         });
         out
+    }
+
+    /// (machines down, machines held) once, by the pass that read this daemon's own links as
+    /// down; None while that goes on and when it is not so.
+    pub fn outage_began(&mut self) -> Option<(usize, usize)> {
+        self.outage_edge.take()
     }
 
     /// `notice` reached its starter: it is not told again for this death.
@@ -442,6 +474,46 @@ mod tests {
         assert_eq!(w.pass([("k2", "vm-1", &failed)], NOW, GRACE_MS, |_| true, idle).len(), 1);
         // The same row on a machine whose link dropped on its own is a dead machine.
         assert_eq!(w.pass([("k", "vm-2", &away)], NOW, GRACE_MS, |_| true, idle).len(), 1);
+    }
+
+    /// 2026-11-28 06:18Z: a daemon whose own links dropped told four lanes on answering
+    /// machines dead. Machines that fail together are one outage, said once; one machine down
+    /// alone is still a dead machine.
+    #[test]
+    fn many_machines_down_at_once_are_one_outage_not_many_deaths() {
+        let away = |h: &str| {
+            json!({"name": format!("lane-{h}"), "status": "unreachable", "lastSeen": NOW - 11 * MIN,
+                   "tags": {"spawnedBy": "coord"}})
+        };
+        let up = json!({"name": "lane-up", "status": "idle", "tags": {"spawnedBy": "coord"}});
+        let hosts = ["vm-1", "vm-2", "vm-3", "vm-4"];
+        let rows: Vec<(String, Value)> = hosts.iter().map(|h| (h.to_string(), away(h))).collect();
+        let mut w = Watch::default();
+        let pass = |w: &mut Watch, rows: &[(String, Value)], extra: &Value| {
+            let mut all: Vec<(&str, &str, &Value)> =
+                rows.iter().map(|(h, v)| (h.as_str(), h.as_str(), v)).collect();
+            all.push(("ok-key", "vm-ok", extra));
+            w.pass(all, NOW, GRACE_MS, |_| true, |_| false)
+        };
+        assert!(pass(&mut w, &rows, &up).is_empty(), "no death told");
+        assert_eq!(w.outage_began(), Some((4, 5)));
+        assert!(pass(&mut w, &rows, &up).is_empty());
+        assert_eq!(w.outage_began(), None, "said once while it lasts");
+        // Three machines down of five is not enough; neither is half of a crowd.
+        let mut w = Watch::default();
+        assert_eq!(pass(&mut w, &rows[..3], &up).len(), 3);
+        assert_eq!(w.outage_began(), None);
+        // Four down among many that answer is four dead machines.
+        let many: Vec<(String, Value)> =
+            (0..20).map(|i| (format!("ok-{i}"), up.clone())).chain(rows.iter().cloned()).collect();
+        let mut w = Watch::default();
+        assert_eq!(pass(&mut w, &many, &up).len(), 4);
+        assert_eq!(w.outage_began(), None);
+        // The links return: a machine still down after the outage is told.
+        let mut w = Watch::default();
+        assert!(pass(&mut w, &rows, &up).is_empty());
+        assert_eq!(pass(&mut w, &rows[..1], &up).len(), 1);
+        assert_eq!(w.outage_began(), None);
     }
 
     #[test]

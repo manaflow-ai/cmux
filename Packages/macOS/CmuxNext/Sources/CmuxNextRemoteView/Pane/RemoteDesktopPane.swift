@@ -204,7 +204,6 @@ public final class RemoteDesktopPane {
         guard next != state else { return }
         state = next
         armLatencyCheck()
-        armReconnectNotice()
         armConnectNotice()
         view.render(state: state, settings: settings)
         onStateChange?()
@@ -244,27 +243,6 @@ public final class RemoteDesktopPane {
         guard state.sessionState == .connecting else { return }
         autoReconnects = max(0, autoReconnects - 1)
         scheduleAutoReconnect()
-    }
-
-    /// The quiet reconnect's notice deadline, re-checked when it comes due.
-    private var reconnectNotice: Task<Void, Never>?
-    private var reconnectNoticeSince: ContinuousClock.Instant?
-
-    private func armReconnectNotice() {
-        let since = state.reconnectNoticeDue ? nil : state.reconnectingSince
-        guard since != reconnectNoticeSince else { return }
-        reconnectNotice?.cancel()
-        reconnectNoticeSince = since
-        guard let since else { return reconnectNotice = nil }
-        reconnectNotice = Task { [weak self] in
-            // wakeup-allow: one-shot notice deadline per reconnect; a frame or Stop cancels it.
-            do { try await ContinuousClock().sleep(until: since + RemotePaneState.reconnectNoticeDelay, tolerance: .milliseconds(100)) } catch {
-                return
-            }
-            guard let self, !Task.isCancelled else { return }
-            reconnectNoticeSince = nil
-            apply(.reconnectNoticeCheck)
-        }
     }
 
     /// The first connect's notice deadline (``RemotePaneState/connectNoticeDelay``), re-checked when it comes due.

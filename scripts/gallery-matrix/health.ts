@@ -32,9 +32,11 @@
 //
 // The first render runs --concurrency cases at once (default: one per CPU), each worker with its
 // own browser: rendered one at a time, a shard's ~1,400 cases took ~23 minutes. Budgets are CPU
-// time, so a busy runner does not stretch them. The renders again (the retries) run one at a time,
-// so a state that broke, ran slow or shifted only because its neighbours loaded the runner is
-// judged again on a quiet one.
+// time, so a busy runner does not stretch them. The renders again (the retries) run a quarter as many
+// workers (at least one), so a state that broke, ran slow or shifted only because its neighbours
+// loaded the runner is judged again on a quieter one. One at a time, a shard whose first render left
+// 86 cases not ready spent its 20-minute step on ~97 retries at 7-15 s each (most waiting out a play's
+// timeout, not CPU) and timed out with no verdict (batch run 46081509797, leg 21, 2026-11-28).
 //
 //   CMUX_GALLERY_IN_VM=1 bun health.ts --manifest m.json --gallery-dir ../../webviews/dist/gallery
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -47,6 +49,9 @@ import { type Engine, type MatrixCase, parseManifest, runLocal, shardCases } fro
 import { INVARIANT_BASELINE_PATH, type InvariantResult, everyRun, invariantSummary, invariantsOf, judgeInvariants, readInvariantBaseline } from "./invariant-baseline";
 import { SHIFT_BASELINE_PATH, type ShiftResult, judgeShift, least, limit as shiftLimit, readShiftBaseline, shiftScores, shiftSummary } from "./shift-baseline";
 import { UNDECLARED_BASELINE_PATH, type UndeclaredResult, judgeUndeclared, leastCount, readUndeclaredBaseline, undeclaredCounts, undeclaredSummary } from "./undeclared-baseline";
+
+/** Workers for a retry render: a quarter of the first render's, at least one (see the header). */
+export const retryConcurrency = (concurrency: number): number => Math.max(1, Math.floor(concurrency / 4));
 
 export type HealthResult = {
   id: string;
@@ -203,7 +208,7 @@ async function main(): Promise<void> {
   const concurrency = Number(values.concurrency);
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("--concurrency must be a positive integer");
   const run = (manifest: string, attempt: number) =>
-    runLocal({ manifest, galleryDir: values["gallery-dir"]!, outputDir: join(outputDir, `attempt-${attempt}`), threshold: 0, engines, shardCount: 1, shardIndex: 0, concurrency: attempt === 0 ? concurrency : 1 });
+    runLocal({ manifest, galleryDir: values["gallery-dir"]!, outputDir: join(outputDir, `attempt-${attempt}`), threshold: 0, engines, shardCount: 1, shardIndex: 0, concurrency: attempt === 0 ? concurrency : retryConcurrency(concurrency) });
 
   const shard = join(outputDir, "shard.json");
   await writeFile(shard, JSON.stringify(cases));

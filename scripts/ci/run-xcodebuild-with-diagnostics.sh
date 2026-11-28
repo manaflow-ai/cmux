@@ -291,6 +291,12 @@ fi
 # links it across clean builds), so the cache is the one input every crashed
 # attempt shared; a same-arguments rerun read it again and crashed again.
 build_service_crash_message='The Xcode build system has crashed. Build again to continue.'
+# A crash on a kept host build root marks it, so its next build drops the CAS and
+# DerivedData first (nightly_build_state.prepare_host, HOST_CRASH_MARK).
+if [[ "$status" -ne 0 && -n "${CMUX_NIGHTLY_HOST_ROOT:-}" && -d "${CMUX_NIGHTLY_HOST_ROOT:-}" ]] \
+  && grep -qF "$build_service_crash_message" "$output_log" 2>/dev/null; then
+  : >"$CMUX_NIGHTLY_HOST_ROOT/xcode-service-crashed" || true
+fi
 if [[ "$status" -ne 0 && "$build_stalled" -eq 0 && "$interrupted_signal" -eq 0 ]] \
   && [[ "${CMUX_XCODEBUILD_SERVICE_CRASH_RETRIED:-0}" != 1 ]] \
   && grep -qF "$build_service_crash_message" "$output_log" 2>/dev/null; then

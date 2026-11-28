@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real auto-update proof for cmux NEXT (R114), socket-driven, no display.
+"""Real auto-update proof for cmux NIGHTLY (R114), socket-driven, no display.
 
 Installs an older published nightly-next build into a scratch folder, starts
 terminals, asks Sparkle to check (the palette action), waits until the update
@@ -23,9 +23,9 @@ is staged (downloaded and verified, delta when the feed has one), then:
 Rollback refusal is reported PENDING until `cmux update rollback` exists.
 
 Host rules (coordinator 2026-10-04): an Aqua GUI session for this user, no
-cmux NEXT (com.cmuxterm.app.nightly.cmux-next) installed or running, no
-/tmp/cmux-nightly-cmux-next.sock. A classic cmux NIGHTLY may run beside it:
-cmux NEXT has its own identity (cx-x7hwx) and this run never touches it.
+cmux NIGHTLY (com.cmuxterm.app.nightly) installed or running, no
+/tmp/cmux-nightly.sock and no acpmux daemon answering at ~/.acpmux: the run
+refuses at the start otherwise (preflight), so it never touches a person's Nightly.
 Everything this run creates (scratch folder, Sparkle cache, defaults domain,
 state dirs) is removed at the end; anything that existed before is kept.
 
@@ -89,14 +89,14 @@ def preflight():
         sys.exit("refused: no Aqua GUI session for this user (launchctl print gui/<uid> failed)")
     running = run("pgrep", "-fl", f"{APP_NAME}/Contents/MacOS").stdout.strip()
     if running:
-        sys.exit(f"refused: a cmux NEXT runs here:\n{running}")
+        sys.exit(f"refused: a cmux NIGHTLY runs here:\n{running}")
     installed = [p for p in run("mdfind", f"kMDItemCFBundleIdentifier == '{BUNDLE_ID}'").stdout.splitlines() if p.endswith(".app")]
     if installed:
         sys.exit("refused: an app with bundle id %s is installed: %s" % (BUNDLE_ID, ", ".join(installed)))
     if os.path.exists(SOCKET):
-        sys.exit(f"refused: {SOCKET} exists (another cmux NEXT's socket)")
+        sys.exit(f"refused: {SOCKET} exists (another cmux NIGHTLY's socket)")
     if os.path.exists(acpmux_socket()) and Acpmux().answers():
-        sys.exit(f"refused: an acpmux daemon answers at {acpmux_socket()} (another cmux NEXT's)")
+        sys.exit(f"refused: an acpmux daemon answers at {acpmux_socket()} (another cmux NIGHTLY's)")
 
 
 # What may be created: compared before/after; only new entries are removed.
@@ -149,7 +149,7 @@ def cleanup(before, work):
         if not os.path.lexists(path):
             continue
         name = path.lower()
-        # Only cmux NEXT's paths: a classic cmux NIGHTLY may be writing beside it.
+        # Only this run's paths.
         if path.startswith(work) or "cmux-next" in name or "cmux next" in name or any(h in name for h in hashes):
             print(f"removing created {path}")
             shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) and not os.path.islink(path) else os.unlink(path)
@@ -392,6 +392,11 @@ def add_fake_harness(work):
     and the acpmux home's entries before the run (None when it had no home)."""
     agent = os.path.join(work, "fake_agent.py")
     shutil.copy(FAKE_AGENT, agent)
+    # The fake agent reads files that sit beside it (guidance_sources.json);
+    # copy every one so the copy runs like the original.
+    for name in os.listdir(os.path.dirname(FAKE_AGENT)):
+        if name.endswith(".json"):
+            shutil.copy(os.path.join(os.path.dirname(FAKE_AGENT), name), work)
     entries = set(os.listdir(ACPMUX_HOME)) if os.path.isdir(ACPMUX_HOME) else None
     previous = open(ACPMUX_CONFIG, "rb").read() if os.path.exists(ACPMUX_CONFIG) else None
     config = json.loads(previous or b"{}")
@@ -436,10 +441,36 @@ def start_agent_turn(work):
     fifo = os.path.join(work, "agent-gate")
     os.mkfifo(fifo)
     acp.prompt(session, f"gate: {fifo}")
-    if not wait(lambda: "before-gate" in acp.text(session), 30):
-        return session, fifo, None
-    pid = wait(lambda: run("pgrep", "-f", os.path.join(work, "fake_agent.py")).stdout.split()[:1], 10)
+    # The agent's first start on a fresh CI Mac can pass 30 s (before-gate streamed
+    # only after that, so the pid was never looked up); wait longer, and look the
+    # pid up either way so a miss logs what was running.
+    if not wait(lambda: "before-gate" in acp.text(session), 120):
+        print(f"before-gate not streamed in 120 s; session text: {acp.text(session)!r}")
+    pid = wait(lambda: agent_pids(work)[:1], 10)
+    if not pid:
+        print(f"agent pid not found under {work}; fake_agent processes: {agent_candidates()}")
     return session, fifo, (pid or [None])[0]
+
+
+def agent_pids(work):
+    """The test agent's pids. Matched on the scratch folder's own name, not
+    its full path: the daemon may start the agent under the resolved path
+    (/private/var/folders/... for /var/folders/...), which a full-path
+    pgrep missed (agent pid None on the CI Mac)."""
+    tail = os.path.join(os.path.basename(os.path.normpath(work)), "fake_agent.py")
+    pids = []
+    # ps -axww: full command lines, never truncated (pgrep -fl matched nothing on the CI Mac).
+    for line in run("ps", "-axww", "-o", "pid=,command=").stdout.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if tail in command and pid.isdigit():
+            pids.append(pid)
+    return pids
+
+
+def agent_candidates():
+    """Every process naming fake_agent.py, for the log when the match misses."""
+    return [line.strip() for line in run("ps", "-axww", "-o", "pid=,user=,command=").stdout.splitlines()
+            if "fake_agent" in line]
 
 
 def release_gate(fifo):
@@ -610,6 +641,28 @@ def main():
             record("idle install relaunched", bool(wait(lambda: app.status().get("build") == to_item["build"], 90)),
                    app.status().get("build"))
         else:
+            # The quit leg needs updates.installOnQuit on (off by default, the nightly restart
+            # policy). The harness's settings file asks for it; print what the app read from it,
+            # then write the file again and read the value back.
+            for key in ("updates.installOnQuit", "app.quitBehavior"):
+                print(f"settings.get {key} at launch: {json.dumps(app.rpc('settings.get', {'path': key}))} (harness file {app.config})")
+            # settings.set refuses these keys (setting_user_only: only a person may change them), so
+            # the file is the harness's one route. Show what the file holds now and what the app
+            # loaded from it, then write it again: the app's file watcher reloads it.
+            with open(app.config) as f:
+                print(f"harness file now: {f.read()}")
+            root = (app.rpc("settings.get", {}) or {}).get("value")
+            print(f"settings root keys: {sorted(root) if isinstance(root, dict) else root!r}; "
+                  f"updates={json.dumps((root or {}).get('updates') if isinstance(root, dict) else None)}")
+            with open(app.config, "w") as f:
+                json.dump({"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True}}, f)
+            on = wait(lambda: (app.rpc("settings.get", {"path": "updates.installOnQuit"}) or {}).get("value") is True, 20)
+            record("install on quit turned on before the quit", bool(on),
+                   json.dumps(app.rpc("settings.get", {"path": "updates.installOnQuit"})))
+            time.sleep(1)  # the updater follows the settings stream; let it apply the change
+            for pid in app.pids():
+                env = run("ps", "eww", "-o", "command=", "-p", str(pid)).stdout.split()
+                print(f"app pid {pid} cmux env: {[e for e in env if e.startswith(('CMUX', 'MUX_'))]}")
             quit_started = time.strftime("%Y-%m-%d %H:%M:%S")
             still = app.pids()
             pre_quit_log = "\n".join(app.status().get("log", [])) or sparkle_log
