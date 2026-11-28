@@ -690,9 +690,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ ! -f scripts/ci/head_tier.py ]; then exit 0; fi
-          tier=$(python3 -I scripts/ci/head_tier.py tier)
-          echo "tier=$tier"
-          echo "tier=$tier" >> "$GITHUB_OUTPUT"
+          # tier= and reason= to $GITHUB_OUTPUT: plan reads the reason (the post-merge tier still plans --reads-only).
+          python3 -I scripts/ci/head_tier.py
 
       - name: Every Cargo workspace is listed
         run: python3 .github/scripts/rust-workspaces.py check
@@ -785,10 +784,17 @@ jobs:
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
           TIER: ${{ steps.tier.outputs.tier }}
+          TIER_REASON: ${{ steps.tier.outputs.reason }}
           # Into feat-cmux-next it runs only for a file a workspace reads (reads above): plan those alone.
           OWN_ONLY: ${{ github.event_name == 'pull_request' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && ((startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/')) && '--reads-only' || '--own-only') || '' }}
         run: |
-          if [[ "$TIER" == none ]]; then
+          # The post-merge tier defers a workspace's own change to the post-merge batch, but not a file outside it
+          # that its tests read (the reads job's class): #63394, #63368 and #64613 changed cmux-tui's specs, skipped
+          # cmux-mobile-host's phone_api_contract here and left feat-cmux-next red for hours. Seconds, no cargo,
+          # when nothing reads the change. Detector: tests/test_ci_rust_workspaces_reads_past_post_merge.py.
+          if [[ "$TIER" == none && "$TIER_REASON" == "post-merge tier"* && "$OWN_ONLY" == --reads-only ]]; then
+            echo "head_tier.py: $TIER_REASON; planning only the workspaces that read a changed file"
+          elif [[ "$TIER" == none ]]; then
             echo "jobs=[]" >> "$GITHUB_OUTPUT"
             echo "head_tier.py: none (its previous head proved this change); no workspace planned"
             exit 0

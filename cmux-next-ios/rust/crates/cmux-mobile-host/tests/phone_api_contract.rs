@@ -18,6 +18,11 @@ use cmux_mobile_host::api::{LINK_SERVICES, PHONE_ACPMUX_METHODS};
 use cmux_mobile_host::policy::ALLOWED_COMMANDS;
 use serde_json::Value;
 
+// The repository files this test reads, so a pull request that changes one runs it before it lands
+// (.github/scripts/rust-workspaces.py plan --reads-only); without this list the root join below reads as
+// the whole tree. #63394, #63368 and #64613 changed the two specs, skipped this test and left base red.
+// affected-reads: cmux-tui/spec/sdk-schema.json cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+// affected-reads: cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..")
 }
