@@ -26,6 +26,7 @@ const policyPath = join(root, "cmux-tui/crates/cmux-agent-pane-policy/policy.jso
 const policy = JSON.parse(readFileSync(policyPath, "utf8")) as {
   initialize: string;
   gesture_ticket_key: string;
+  setting_methods: string[];
   requests: string[];
   known_params: Record<string, { params: string[]; acpmux: string[] }>;
 };
@@ -52,14 +53,33 @@ const KNOWN_REFUSED: Record<string, string> = {
   ).refused_today,
 };
 
-/// The `_meta` keys the policy takes (params.rs `known_params_problem`): a permission answer's holds
-/// only the pick's ticket; any other request may carry `acpmux` and a W3C `traceparent` (#55505).
+/// The `_meta` keys a site sends that the policy refuses, the rule of params.rs `known_params_problem`:
+/// - a permission answer, a plan build and a fix-from-link hold the gesture ticket and nothing else;
+/// - a setting method (policy.json `setting_methods`) that carries the ticket carries nothing else;
+/// - every other request may carry `acpmux` and a W3C `traceparent` (#55505), and only
+///   `session/prompt` may carry the ticket beside them (a prompt held for the folder trust answer).
+/// The site's keys are every arm's together: a ticket in one arm and `acpmux` in another of a setting
+/// method reads as refused, so such a sender needs its own closed type per arm.
 const TICKET_ONLY = new Set(["_acpmux/permission_respond", "_acpmux/plan/build", "chat.fix_from_link"]);
-function metaKeyTaken(method: string, key: string): boolean {
-  if (key === gestureTicketKey) return true;
-  if (TICKET_ONLY.has(method)) return false;
-  return key === "acpmux" || key === "traceparent";
+const SETTING_METHODS = new Set(policy.setting_methods);
+function metaKeysRefused(method: string, keys: Set<string>): string[] {
+  const ticket = keys.has(gestureTicketKey);
+  const others = [...keys].filter((k) => k !== gestureTicketKey);
+  if (TICKET_ONLY.has(method)) return others;
+  if (SETTING_METHODS.has(method) && ticket) return others;
+  const refused = others.filter((k) => k !== "acpmux" && k !== "traceparent");
+  if (ticket && method !== "session/prompt") refused.push(gestureTicketKey);
+  return refused;
 }
+/// Page sends whose `_meta` the policy's rule refuses today, each a live mismatch: `method key`.
+/// The relay's P0 strip (params.rs `stripping_unknown_params`) drops the key before that rule, so
+/// the frame passes without it.
+const META_DROPPED_TODAY: Record<string, string> = {
+  // direct.ts `customizeRun` asks the host for the click's ticket, but the strip drops it from
+  // every method but the ticket-only ones, a setting and session/prompt: the call is admitted on
+  // the host's click (policy.json `click_only`), never on the ticket.
+  "_acpmux/customize_run cmuxGesture": "the relay drops the Try it on / Keep / Revert ticket",
+};
 
 /// Sites whose params type the checker cannot read (`method what`), each with why it is allowed for
 /// now. Each is a follow-up: give the helper a closed params type and drop its row here.
@@ -83,8 +103,27 @@ const OPAQUE_OK = new Map<string, string>(
 const NOT_RELAYED = new Set(["file.search"]);
 // `_meta.acpmux` keys the page sends only on its own socket, never through the app's relay:
 // `compression` goes out only when `frameCompression` holds, an `acpmux-websocket` transport to a
-// machine across a network (cmux#50153); the app's relay is the `acpmux-bridge` transport.
+// machine across a network (cmux#50153); the app's relay is the `acpmux-bridge` transport, for which
+// `frameCompression` is false (agent-pane-frame-compression.test.ts). The exception holds only at a
+// site whose params are `initializeParams({ compression: frameCompression(...) })`: another sender
+// of `compression`, or one that sets it any other way, is checked like any key.
 const SOCKET_ONLY_ACPMUX: Record<string, Set<string>> = { initialize: new Set(["compression"]) };
+/// Whether `arg` is `initializeParams({ compression: frameCompression(...) })`.
+function compressionGated(arg: ts.Node | undefined): boolean {
+  if (!arg || !ts.isCallExpression(arg) || !ts.isIdentifier(arg.expression)) return false;
+  if (arg.expression.text !== "initializeParams") return false;
+  const options = arg.arguments[0];
+  if (!options || !ts.isObjectLiteralExpression(options)) return false;
+  return options.properties.some(
+    (p) =>
+      ts.isPropertyAssignment(p) &&
+      ts.isIdentifier(p.name) &&
+      p.name.text === "compression" &&
+      ts.isCallExpression(p.initializer) &&
+      ts.isIdentifier(p.initializer.expression) &&
+      p.initializer.expression.text === "frameCompression",
+  );
+}
 
 function sources(dir: string): string[] {
   const out: string[] = [];
@@ -98,7 +137,15 @@ function sources(dir: string): string[] {
   return out;
 }
 
-type Site = { file: string; line: number; method: string; params: Set<string>; meta: Set<string>; acpmux: Set<string> };
+type Site = {
+  file: string;
+  line: number;
+  method: string;
+  params: Set<string>;
+  meta: Set<string>;
+  acpmux: Set<string>;
+  socketOnly: boolean;
+};
 type Opaque = { file: string; line: number; method: string; what: string };
 
 /// A relay method name: what the relay's tables name, or the protocol's own name shapes.
@@ -186,7 +233,15 @@ function scan(): { sites: Site[]; opaque: Opaque[] } {
         for (const method of methods?.filter((m) => relayMethod(m, relay)) ?? []) {
           const line = source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
           const paramsArg = node.arguments[methodAt + 1];
-          const site: Site = { file: rel, line, method, params: new Set(), meta: new Set(), acpmux: new Set() };
+          const site: Site = {
+            file: rel,
+            line,
+            method,
+            params: new Set(),
+            meta: new Set(),
+            acpmux: new Set(),
+            socketOnly: compressionGated(paramsArg),
+          };
           const push = (what: string) => opaque.push({ file: rel, line, method, what });
           if (paramsArg) {
             const type = checker.getTypeAtLocation(paramsArg);
@@ -243,11 +298,11 @@ test("every key the page sends a relay method is one the relay takes", () => {
         continue;
       }
       for (const key of site.params) if (!rule.params.has(key)) refused.push(`${at}: param "${key}" not in ${table}`);
-      for (const key of site.meta) {
-        if (!metaKeyTaken(site.method, key)) refused.push(`${at}: _meta key "${key}" not taken by ${table}`);
-      }
+      for (const key of metaKeysRefused(site.method, site.meta))
+        if (!META_DROPPED_TODAY[`${site.method} ${key}`])
+          refused.push(`${at}: _meta key "${key}" not taken by ${table}`);
       for (const key of site.acpmux)
-        if (!rule.acpmux.has(key) && !SOCKET_ONLY_ACPMUX[site.method]?.has(key))
+        if (!rule.acpmux.has(key) && !(site.socketOnly && SOCKET_ONLY_ACPMUX[site.method]?.has(key)))
           refused.push(`${at}: _meta.acpmux key "${key}" not in ${table}`);
     }
   }
@@ -267,5 +322,13 @@ test("the known refusals are still sent and still refused", () => {
   for (const method of Object.keys(KNOWN_REFUSED)) {
     expect(scanned.sites.some((s) => s.method === method)).toBe(true);
     expect(policy.requests.includes(method)).toBe(false);
+  }
+  // A dropped `_meta` key that the page stops sending, or the policy starts taking: drop its line.
+  for (const entry of Object.keys(META_DROPPED_TODAY)) {
+    const [method, key] = entry.split(" ");
+    const sites = scanned.sites.filter((s) => s.method === method && s.meta.has(key));
+    expect(sites.length > 0 ? entry : `${entry}: no longer sent`).toBe(entry);
+    const stillRefused = sites.some((s) => metaKeysRefused(s.method, s.meta).includes(key));
+    expect(stillRefused ? entry : `${entry}: now taken`).toBe(entry);
   }
 });
