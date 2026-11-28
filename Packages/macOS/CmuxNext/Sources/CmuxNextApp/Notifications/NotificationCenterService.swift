@@ -531,7 +531,7 @@ final class NotificationCenterService {
         if source == .terminal, !terminalNotificationsEnabled() {
             note("arrived \(notification.notification.rawValue) terminal off (desktop-notifications = false)")
             if let located { acknowledge(located.tab) }
-            return
+            return recordDelivery(notification, suppressed: .desktopNever)
         }
         var arrival = NotificationPolicy.Arrival(source: source)
         arrival.bannerAllowed = notification.desktop
@@ -547,6 +547,7 @@ final class NotificationCenterService {
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
         var decision = NotificationPolicy(prefs: preferences).decide(arrival)
+        let suppressed = NotificationPolicy(prefs: preferences).suppression(of: arrival, decision: decision)
         note("arrived \(notification.notification.rawValue) \(source.rawValue) tab=\(located?.tab.id ?? "-") \(decision)")
         guard let located else {
             guard desktopPostingEnabled else { return note("desktop posting suppressed") }
@@ -558,6 +559,7 @@ final class NotificationCenterService {
                 post(notification, tab: nil, workspace: workspace?.id, workspaceName: workspace?.displayName,
                      sound: decision.sound, volume: decision.soundVolume)
             }
+            recordDelivery(notification, suppressed: suppressed, incognito: workspace.map { services?.windows.isIncognito(workspace: $0.id) == true } ?? false)
             if !notification.desktop, let sound = decision.sound { soundGate.player.play(sound, volume: decision.soundVolume, banner: false) }
             if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
             return
@@ -566,7 +568,7 @@ final class NotificationCenterService {
             // Read on sight: under `sounds.when = always` it still sounds (no banner shows for it).
             soundGate.playSeen(decision, sounds: preferences.sounds)
             acknowledge(located.tab)
-            return
+            return recordDelivery(notification, suppressed: suppressed ?? .viewed)
         }
         // A turn that finished in front of the user is already seen (cx-slk1h) when the dismissal
         // reads a pane on sight (`focus`, the default): the history keeps it, read. Under `click`
@@ -575,6 +577,7 @@ final class NotificationCenterService {
         // (acknowledging reads the whole tab).
         let shown = visibility ?? self.visibility(of: located)
         if notification.isFinishedTurn, shown.isVisible, !located.tab.holdsUnreadAsk(besides: notification) {
+            recordDelivery(notification, suppressed: .viewed)
             guard NotificationPolicy(prefs: preferences).clears(.focus, for: source) else {
                 // Seen finishing, so no banner; the ring waits for a click in the pane.
                 return keepSeenUnread(located, decision: decision, note: "finished turn visible: kept unread, no banner")
@@ -588,11 +591,11 @@ final class NotificationCenterService {
         if program == nil, source == .terminal,
            ProgramStatusNotification.looksLikeAlert(title: notification.title, level: notification.level) {
             holdUntilRecord(notification, located: located) { [weak self] found in
-                self?.deliver(notification, source: source, located: located, decision: decision, program: found)
+                self?.deliver(notification, source: source, located: located, decision: decision, program: found, suppressed: suppressed)
             }
             return
         }
-        deliver(notification, source: source, located: located, decision: decision, program: program, visibility: shown)
+        deliver(notification, source: source, located: located, decision: decision, program: program, visibility: shown, suppressed: suppressed)
     }
 
     /// An arrival the user saw land, kept unread for a click in its pane: it posts nothing, the
@@ -608,12 +611,13 @@ final class NotificationCenterService {
     /// The rest of an arrival once its OSC 7501 record (if any) is known.
     func deliver(_ notification: DaemonNotification, source: NotificationSource, located: LocatedTab,
                  decision held: NotificationPolicy.Decision, program: ProgramStatusNotification?,
-                 visibility: TerminalVisibility? = nil) {
+                 visibility: TerminalVisibility? = nil, suppressed: NotificationDeliveryReason? = nil) {
         var decision = held
         // An OSC 7501 done for a terminal the user can see posts nothing (cx-kxa2). It is read at
         // once when the dismissal reads a pane on sight (`focus`); under `click` its ring stays
         // until the pane is clicked or typed in.
         if let program, !program.notifies(visibility: visibility ?? self.visibility(of: located)) {
+            recordDelivery(notification, suppressed: .viewed)
             guard NotificationPolicy(prefs: preferences).clears(.focus, for: source) else {
                 return keepSeenUnread(located, decision: decision, note: "program status \(program.reason.rawValue) visible: kept unread, no banner")
             }
@@ -646,6 +650,10 @@ final class NotificationCenterService {
                  program: program, headline: digest.map { String(localized: "notifications.finishedBurst.title", defaultValue: "\($0.count) agents finished",
                                                                        table: "NotificationsPanel", bundle: .module.inAppLanguage) },
                  owner: located.tab)
+            recordDelivery(notification, suppressed: nil, digest: digest != nil,
+                           incognito: services?.windows.isIncognito(workspace: located.workspace.id) == true)
+        } else {
+            recordDelivery(notification, suppressed: suppressed ?? .desktopNever)
         }
         if !decision.desktop, let sound = decision.sound { soundGate.player.play(sound, volume: decision.soundVolume, banner: notification.desktop) }
         if let kind = desktop.announce(notification, decision: decision, appActive: services?.appActiveSource() ?? false, paneIsViewed: isViewed(located.tab.id),
@@ -699,6 +707,14 @@ final class NotificationCenterService {
             self?.timeouts[tabID] = nil
             self?.interacted(.timeout, tabID: tabID)
         }
+    }
+
+    /// Tells the daemon what became of `notification`'s banner (`record-notification-delivery`), fire-and-forget off
+    /// the main actor; an older daemon without `notification-ack-v1` refuses it and `send` logs that.
+    func recordDelivery(_ notification: DaemonNotification, suppressed: NotificationDeliveryReason?, digest: Bool = false, incognito: Bool = false) {
+        let receipt = NotificationDeliveryReceipt(suppressed: suppressed, digest: digest, incognito: incognito, permissionDenied: desktop.authorization == "denied")
+        let id = notification.notification
+        services?.daemon.send("record-notification-delivery") { try await $0.recordNotificationDelivery(id, desktop: receipt.desktop, reason: receipt.reason?.rawValue) }
     }
 
     func note(_ line: String) {

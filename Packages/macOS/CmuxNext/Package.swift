@@ -525,6 +525,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
                 "CmuxNextAgentPane",
+                // The banner badge for an OSC 7501 alert (StatusNotificationImage, ProgramStatusNotification).
+                "CmuxNextBridge",
                 "CmuxNextCompat",
                 "CmuxNextControl",
                 "CmuxNextDaemon",

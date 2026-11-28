@@ -428,6 +428,12 @@ extension DaemonConnection {
         try await requestNew(ListNotificationsRequest(limit: limit)).notifications
     }
 
+    /// Records what the app did with a notice's banner (`shown` or `suppressed`, and why), which
+    /// `list-notifications` returns as the row's `delivery` (`notification-ack-v1`).
+    public func recordNotificationDelivery(_ notification: NotificationID, desktop: String, reason: String?) async throws {
+        _ = try await requestNew(RecordNotificationDeliveryRequest(notification: notification, desktop: desktop, reason: reason))
+    }
+
     /// Hands the session off (the daemon exits). With `endTerminals`
     /// (`terminal-reap-v1`) it first ends every terminal and waits for their
     /// hosts, so no PTY outlives it; returns the ended count then.
