@@ -77,17 +77,3 @@ export function filterDiffItems<T extends FilterableItem>(
     );
   });
 }
-
-/** Flips one status; turning off the last enabled status re-enables all four. */
-export function toggleStatusFilter(statuses: readonly DiffFileStatus[], status: DiffFileStatus): DiffFileStatus[] {
-  const enabled = new Set(statuses);
-  if (enabled.has(status)) {
-    enabled.delete(status);
-  } else {
-    enabled.add(status);
-  }
-  if (enabled.size === 0) {
-    return [...allDiffFileStatuses];
-  }
-  return allDiffFileStatuses.filter((candidate) => enabled.has(candidate));
-}

@@ -15,7 +15,7 @@
 /*
  Bumped on any change to a type or a function.
  */
-#define CMUX_SCREENSHOTS_ABI_VERSION 3
+#define CMUX_SCREENSHOTS_ABI_VERSION 5
 
 /*
  The panes unlocked this launch.
@@ -47,6 +47,24 @@ typedef struct CmuxScreenshotsRule CmuxScreenshotsRule;
  A read of one source in progress (`cmux_screenshots_walk_new`).
  */
 typedef struct CmuxScreenshotsWalk CmuxScreenshotsWalk;
+
+/*
+ What `cmux_screenshots_open` tells a `screenshots.open` run.
+ */
+typedef struct {
+    /*
+     0 nothing to tell (the person's own run), 1 a new tab opened behind, 2 the tab was there.
+     */
+    uint32_t opened;
+    /*
+     Whether the tab lists its screenshots.
+     */
+    bool listing;
+    /*
+     0 none, 1 opened in the background, 2 open but waiting for the person's click.
+     */
+    uint32_t note;
+} CmuxScreenshotsOpen;
 
 /*
  One directory entry for `cmux_screenshots_newest_picture`.
@@ -161,6 +179,21 @@ bool cmux_screenshots_page_matches(const uint8_t *url, size_t url_len);
 bool cmux_screenshots_looks_like_folder_key(const uint8_t *key, size_t key_len);
 
 /*
+ Whether a source whose origin case is `origin` (`system`, `systemPreview`, `tool`,
+ `toolHistory`, `custom`) takes dropped files; false for any other name.
+
+ # Safety
+ `origin` is null or `origin_len` readable bytes.
+ */
+bool cmux_screenshots_origin_accepts_drops(const uint8_t *origin, size_t origin_len);
+
+/*
+ What a `screenshots.open` run is told once the tab is open (`existing`: it was already there;
+ `listing`: it lists). A run's note before the tab opens is its answer for a new tab.
+ */
+CmuxScreenshotsOpen cmux_screenshots_open(bool persons_run, bool existing, bool listing);
+
+/*
  The name of an image dropped as data, from the local time it was saved.
  */
 char *cmux_screenshots_dropped_name(int32_t year,
@@ -212,19 +245,6 @@ uint32_t cmux_screenshots_rule_item_kind(const CmuxScreenshotsRule *rule,
                                          const uint8_t *name,
                                          size_t name_len,
                                          uint32_t system_kind);
-
-/*
- Whether the scan reads a directory entry as a subfolder, `depth` levels below the source folder.
-
- # Safety
- `rule` is null or a live rule; `name` is null or `name_len` readable bytes.
- */
-bool cmux_screenshots_rule_enters(const CmuxScreenshotsRule *rule,
-                                  uint32_t entry_kind,
-                                  bool hidden,
-                                  const uint8_t *name,
-                                  size_t name_len,
-                                  size_t depth);
 
 /*
  The position of the newest picture among `entries` (the first listed wins a tie), or -1.
@@ -325,6 +345,15 @@ size_t cmux_screenshots_listing_filter(const CmuxScreenshotsListing *listing,
                                        size_t sources_len,
                                        size_t *out,
                                        size_t capacity);
+
+/*
+ How many files each source lists, as a JSON object of source id to count; null for a null
+ listing.
+
+ # Safety
+ `listing` is null or a live listing.
+ */
+char *cmux_screenshots_listing_counts(const CmuxScreenshotsListing *listing);
 
 /*
  No pane unlocked. Free it with `cmux_screenshots_gate_free`.

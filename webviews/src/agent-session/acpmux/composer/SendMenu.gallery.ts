@@ -56,11 +56,11 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/composer/SendMenu.tsx#SendMenu"],
   variants: {
     "turn-running": variant(
-      "Right-click on Send mid-turn: Send ↩ (steers), Queue for later ⌘↩, Send in side chat ⌥↩.",
+      "Right-click on Send mid-turn: Send ↩ (steers), Queue for later ⌘↩, Send in side chat.",
       running(),
     ),
     idle: variant(
-      "Right-click on Send after a turn: Send ↩ and Send in side chat ⌥↩. Queue for later would only send, so it has no row.",
+      "Right-click on Send after a turn: Send ↩ and Send in side chat. Queue for later would only send, so it has no row.",
       chat(finished),
     ),
     "no-fork": variant(
