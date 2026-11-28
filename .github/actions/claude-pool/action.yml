@@ -2,7 +2,8 @@ name: Claude login pool
 description: >-
   Reach the sr2 Claude login pool (100.120.48.119:4016) over the tailnet, so a job's Claude calls spread across the
   pool's logins instead of the one shared CLAUDE_CODE_OAUTH_TOKEN (at its weekly cap, every job that shares it fails or
-  skips). The job joins as an ephemeral tag:ci node when oauth-client-id is set; the tailnet policy admits tag:ci to the
+  skips). The job joins as an ephemeral tag:ci-claude node when oauth-client-id is set (its own tag, not tag:ci: anyone
+  who comments can start claude.yml); the tailnet policy (cmuxterm-hq#34503) admits tag:ci-claude to the
   pool host on tcp:4016 (cmuxterm-hq skills/infra/tsadmin/acl.manaflow.hujson). A runner that already runs Tailscale is
   never re-joined (its own node would be logged out); it only probes. base-url is '' whenever the pool is unreachable,
   so the caller keeps its token. Callers mark this step continue-on-error: it never decides a job's result.
@@ -10,7 +11,7 @@ description: >-
   on `:4016` only."
 inputs:
   oauth-client-id:
-    description: Tailscale OIDC (workload identity) client that may mint tag:ci nodes; empty skips the join.
+    description: Tailscale OIDC (workload identity) client that may mint tag:ci-claude nodes; empty skips the join.
     required: false
     default: ""
   audience:
@@ -39,17 +40,17 @@ runs:
           echo "join=true" >> "$GITHUB_OUTPUT"; echo "probe=true" >> "$GITHUB_OUTPUT"
         else
           echo "join=false" >> "$GITHUB_OUTPUT"; echo "probe=false" >> "$GITHUB_OUTPUT"
-          echo "::notice::Claude login pool: no tailnet client (vars.TS_CI_OIDC_CLIENT_ID unset); this job uses CLAUDE_CODE_OAUTH_TOKEN"
+          echo "::notice::Claude login pool: no tailnet client (vars.CLAUDE_POOL_TS_OIDC_CLIENT_ID unset); this job uses CLAUDE_CODE_OAUTH_TOKEN"
         fi
       env:
         CLIENT_ID: ${{ inputs.oauth-client-id }}
-    - name: Join tailnet as tag:ci
+    - name: Join tailnet as tag:ci-claude
       if: steps.fresh.outputs.join == 'true'
       uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
       with:
         oauth-client-id: ${{ inputs.oauth-client-id }}
         audience: ${{ inputs.audience }}
-        tags: tag:ci
+        tags: tag:ci-claude
     - name: Probe the pool
       id: probe
       if: steps.fresh.outputs.probe == 'true'

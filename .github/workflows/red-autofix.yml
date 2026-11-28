@@ -218,8 +218,8 @@ jobs:
         timeout-minutes: 3
         uses: ./trusted/.github/actions/claude-pool
         with:
-          oauth-client-id: ${{ vars.TS_CI_OIDC_CLIENT_ID }}
-          audience: ${{ vars.TS_CI_OIDC_AUDIENCE }}
+          oauth-client-id: ${{ vars.CLAUDE_POOL_TS_OIDC_CLIENT_ID }}
+          audience: ${{ vars.CLAUDE_POOL_TS_OIDC_AUDIENCE }}
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.triage.outputs.target }}
