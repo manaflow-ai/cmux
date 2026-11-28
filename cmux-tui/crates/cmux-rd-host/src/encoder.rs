@@ -286,13 +286,21 @@ pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
             cfg.profile,
         )?)),
         #[cfg(target_os = "macos")]
-        "videotoolbox" => Ok(Box::new(cmux_encode::videotoolbox::VideoToolbox::new(
-            cfg.width,
-            cfg.height,
-            cfg.fps,
-            cfg.kbps,
-            cfg.profile == "baseline",
-        )?)),
+        "videotoolbox" => {
+            let mut vt = cmux_encode::videotoolbox::VideoToolbox::new(
+                cfg.width,
+                cfg.height,
+                cfg.fps,
+                cfg.kbps,
+                cfg.profile == "baseline",
+            )?;
+            // The self-test prepares the session as the Mac host does only when a keep-warm
+            // measurement asks (CMUX_RD_VT_KEEPWARM), so its other arms read as before.
+            if std::env::var_os("CMUX_RD_VT_KEEPWARM").is_some() {
+                vt.prepare()?;
+            }
+            Ok(Box::new(vt))
+        }
         #[cfg(any(feature = "vp9", feature = "av1"))]
         "vp9" | "av1" => {
             let codec = cmux_encode::Codec::parse(cfg.codec).ok_or("codec")?;

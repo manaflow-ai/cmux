@@ -87,3 +87,14 @@ fn the_power_hint_is_set_only_when_a_measurement_asks() {
     assert_eq!(power_efficiency(Some(" 0\n")), Some(false));
     assert_eq!(power_efficiency(Some("yes")), None);
 }
+
+#[test]
+fn keepwarm_runs_only_when_a_measurement_asks() {
+    assert_eq!(keepwarm_frames(None), 0);
+    assert_eq!(keepwarm_frames(Some("")), 0);
+    assert_eq!(keepwarm_frames(Some("0")), 0);
+    assert_eq!(keepwarm_frames(Some("1")), KEEPWARM_FRAMES);
+    assert_eq!(keepwarm_frames(Some(" 20\n")), 20);
+    assert_eq!(keepwarm_frames(Some("9999")), KEEPWARM_MAX_FRAMES);
+    assert_eq!(keepwarm_frames(Some("yes")), 0);
+}

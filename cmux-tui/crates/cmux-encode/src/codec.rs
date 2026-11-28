@@ -85,7 +85,7 @@ pub trait VideoEncoder: Send {
         None
     }
     /// Why the last [`VideoEncoder::encode`] returned a keyframe nobody asked for
-    /// (`scene_change`, `usage_switch`, `resize`); `None` when it was asked for, was not a
+    /// (`scene_change`, `usage_switch`, `resize`, `warmup`); `None` when it was asked for, was not a
     /// keyframe, or the encoder cannot say.
     fn idr_cause(&self) -> Option<&'static str> {
         None

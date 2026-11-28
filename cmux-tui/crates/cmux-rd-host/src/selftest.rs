@@ -173,6 +173,7 @@ pub fn run(opts: &Opts) -> Res<()> {
             "frames": frames,
             "gap_ms": gap_ms,
             "power_efficient": std::env::var("CMUX_RD_VT_POWER_EFFICIENT").ok(),
+            "keepwarm": std::env::var("CMUX_RD_VT_KEEPWARM").ok(),
             "cores": std::thread::available_parallelism().map_or(1, |n| n.get()),
             "threads": threads,
             "convert_threads": convert_threads,
